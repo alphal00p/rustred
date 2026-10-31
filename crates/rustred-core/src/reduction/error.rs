@@ -82,6 +82,11 @@ pub enum ReductionError {
     OrderedExecution {
         detail: String,
     },
+    /// A persistent Ordered step cache was mismatched, corrupt or unusable.
+    /// Records are never used after such a failure.
+    OrderedStepCache {
+        detail: String,
+    },
     ZeroCommonMass,
     MissingCommonMassHomogeneityProof,
     CommonMassPowerOverflow,
@@ -180,6 +185,9 @@ impl fmt::Display for ReductionError {
             }
             Self::OrderedExecution { detail } => {
                 write!(formatter, "ordered scheduler execution failed: {detail}")
+            }
+            Self::OrderedStepCache { detail } => {
+                write!(formatter, "ordered step cache failed: {detail}")
             }
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")

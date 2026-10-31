@@ -56,6 +56,7 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) cache_weight: CacheWeight,
     pub(super) cache_budget: Arc<SharedCacheBudget>,
     pub(super) statistics: ReductionStatistics,
+    pub(super) ordered_step_cache: Option<Arc<crate::reduction::OrderedStepCache>>,
 }
 
 impl<const N: usize> Drop for CandidateReducer<N> {
@@ -110,6 +111,7 @@ impl<const N: usize> CandidateReducer<N> {
             cache_weight: CacheWeight::default(),
             cache_budget,
             statistics: ReductionStatistics::default(),
+            ordered_step_cache: self.ordered_step_cache.clone(),
         }
     }
 

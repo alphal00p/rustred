@@ -362,6 +362,8 @@ pub fn saved_application_observation_document(
             "terminal_merges":value.terminal_merges,
             "terminal_cancellations":value.terminal_cancellations,
             "processed_keys":value.processed_keys,
+            "step_cache_hits":value.step_cache_hits,
+            "step_cache_misses":value.step_cache_misses,
             "grouping_scope":"global frontier/output; excludes input and intra-rule coalescing",
             "phase_fraction_is_time_fraction":false,
         })
@@ -591,10 +593,16 @@ mod ordered_projection_tests {
             peak_terminal_coefficient_monomials: 53,
             merged_terms: 7,
             cancelled_terms: 5,
+            step_cache_hits: 13,
+            step_cache_misses: 2,
             ..Default::default()
         });
         let document = saved_application_observation_document(&envelope);
         let ordered = &document["ordered_reduction"];
+        assert_eq!(
+            (&ordered["step_cache_hits"], &ordered["step_cache_misses"]),
+            (&json!(13), &json!(2))
+        );
         assert_eq!(ordered["completed_phases"], 3);
         assert_eq!(ordered["total_phases"], 12);
         assert_eq!(ordered["active_support"], 4);
