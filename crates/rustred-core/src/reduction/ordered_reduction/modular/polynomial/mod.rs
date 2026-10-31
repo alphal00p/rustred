@@ -100,7 +100,10 @@ fn replay<R: Representation>(
     let mut segment_seconds = vec![0.0; trace.phase_starts.len() + 1];
     let mut segment_volume = vec![0usize; trace.phase_starts.len() + 1];
     let mut segment = 0usize;
-    let mut next_boundary = trace.phase_starts.first().map_or(usize::MAX, |start| start.1);
+    let mut next_boundary = trace
+        .phase_starts
+        .first()
+        .map_or(usize::MAX, |start| start.1);
     let mut clock = Instant::now();
     for (index, op) in trace.ops.iter().enumerate() {
         while index == next_boundary {
@@ -275,12 +278,8 @@ impl ImageSource for PolynomialSource<'_> {
             statistics.lanes_replayed += indices.len();
             statistics.cancel_checks += replayed.cancel_checks * indices.len();
             statistics.peak_weight_words = statistics.peak_weight_words.max(replayed.peak_words);
-            let labels = std::iter::once(None).chain(
-                trace
-                    .phase_starts
-                    .iter()
-                    .map(|&(phase, _)| Some(phase)),
-            );
+            let labels = std::iter::once(None)
+                .chain(trace.phase_starts.iter().map(|&(phase, _)| Some(phase)));
             for ((label, seconds), volume) in labels
                 .zip(&replayed.segment_seconds)
                 .zip(&replayed.segment_volume)

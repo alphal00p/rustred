@@ -1994,7 +1994,9 @@ fn ordered_layered_route_transport_returns_the_whole_transport_result() {
         .unwrap();
     application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
     application.set_ordered_route_layering(OrderedRouteLayering::Off);
-    let expected = application.reduce_linear_combination(inputs.clone()).unwrap();
+    let expected = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
     assert!(!expected.terms().is_empty());
     // The depth-first engine agrees with the whole Ordered transport.
     let mut depth_first = routed.application();
@@ -2020,7 +2022,9 @@ fn ordered_layered_route_transport_returns_the_whole_transport_result() {
                     threads,
                     window_keys,
                 });
-                let result = application.reduce_linear_combination(inputs.clone()).unwrap();
+                let result = application
+                    .reduce_linear_combination(inputs.clone())
+                    .unwrap();
                 let case = format!("{layering} {arithmetic:?} threads {threads}/{window_keys}");
                 assert_eq!(result.terms(), expected.terms(), "{case}");
                 assert_eq!(result.unresolved(), expected.unresolved(), "{case}");
@@ -2126,7 +2130,9 @@ fn ordered_layered_route_transport_is_off_with_source_conditions() {
         .unwrap();
     application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
     application.set_ordered_route_layering(OrderedRouteLayering::Off);
-    let whole = application.reduce_linear_combination(inputs.clone()).unwrap();
+    let whole = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
     application.set_ordered_route_layering(OrderedRouteLayering::SmallestPower);
     let layered = application.reduce_linear_combination(inputs).unwrap();
     assert_eq!(layered.terms(), whole.terms());
@@ -2170,7 +2176,9 @@ fn ordered_layered_route_transport_shares_step_caches_with_the_whole_transport()
             window_keys: 2,
         });
         application.set_ordered_step_cache(cache).unwrap();
-        application.reduce_linear_combination(inputs.clone()).unwrap()
+        application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap()
     };
     let expected = session(
         OrderedRouteLayering::Off,
@@ -2287,7 +2295,9 @@ fn ordered_route_layering_is_opt_in_and_the_default_reads_whole_transport_caches
             window_keys: 2,
         });
         application.set_ordered_step_cache(cache).unwrap();
-        application.reduce_linear_combination(inputs.clone()).unwrap()
+        application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap()
     };
     let files = |directory: &Path| {
         let mut files = std::collections::BTreeMap::<PathBuf, Vec<u8>>::new();

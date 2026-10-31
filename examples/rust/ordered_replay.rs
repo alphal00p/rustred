@@ -944,7 +944,9 @@ mod saved {
         if let Some(layering) = options.route_layers {
             prepared.set_ordered_route_layering(layering);
         }
-        emit(json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str()}));
+        emit(
+            json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str()}),
+        );
         let cache = open_step_cache(options, prepared.ordered_step_cache_binding())?;
         prepared.set_ordered_step_cache(cache.clone())?;
         let owners_before = prepared.owner_preparation_statistics().preparation_time;

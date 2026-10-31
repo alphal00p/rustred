@@ -446,7 +446,10 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
     type Error = CandidateRoutedError;
     type Account = RoutedAccount;
 
-    fn position(&self, key: &OrderedNode<N>) -> Result<OrderedPosition<RoutedPriority>, Self::Error> {
+    fn position(
+        &self,
+        key: &OrderedNode<N>,
+    ) -> Result<OrderedPosition<RoutedPriority>, Self::Error> {
         position(
             self.application,
             self.route_phases,
@@ -461,7 +464,10 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
     fn step(
         &self,
         node: &OrderedNode<N>,
-    ) -> (Result<OrderedStep<OrderedNode<N>>, Self::Error>, RoutedAccount) {
+    ) -> (
+        Result<OrderedStep<OrderedNode<N>>, Self::Error>,
+        RoutedAccount,
+    ) {
         let mut request = Request::<'_, '_, N> {
             cancel: self.cancel,
             detached_events: self.record_events.then(Vec::new),

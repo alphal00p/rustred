@@ -53,7 +53,10 @@ impl<const N: usize> PartialRoute<N> {
     /// Total numerator power not yet expanded; strictly decreases along
     /// every partial step, which orders partial keys inside their phase.
     pub(super) fn remaining_power(&self) -> u64 {
-        self.remaining().iter().map(|power| power.unsigned_abs()).sum()
+        self.remaining()
+            .iter()
+            .map(|power| power.unsigned_abs())
+            .sum()
     }
 }
 
@@ -269,11 +272,14 @@ impl<const N: usize> RouteLayers<N> {
 fn add_powers(left: &[i64], right: &[i64], extra: usize) -> Result<Vec<i64>, CandidateRoutedError> {
     let mut sum = Vec::with_capacity(left.len() + extra);
     for (&a, &b) in left.iter().zip(right) {
-        sum.push(a.checked_add(b).ok_or(CandidateRoutedError::ResourceLimit {
-            resource: "layered transport power",
-            requested: usize::MAX,
-            limit: i64::MAX as usize,
-        })?);
+        sum.push(
+            a.checked_add(b)
+                .ok_or(CandidateRoutedError::ResourceLimit {
+                    resource: "layered transport power",
+                    requested: usize::MAX,
+                    limit: i64::MAX as usize,
+                })?,
+        );
     }
     Ok(sum)
 }
@@ -296,7 +302,8 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         charge(
             &mut request.stats.transport_calls,
             1,
-            self.limits.diagnostic_limit(self.limits.max_transport_calls),
+            self.limits
+                .diagnostic_limit(self.limits.max_transport_calls),
             "transport calls",
         )?;
         request.observe_activity(self, CandidateRoutedActivity::Transport, None);
@@ -410,9 +417,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         conditions: &mut Vec<Coefficient>,
         request: &mut Request<'_, '_, N>,
     ) -> Result<BTreeMap<OrderedNode<N>, Coefficient>, CandidateRoutedError> {
-        let base = route
-            .transport
-            .layered_base(key, self.limits.expansion)?;
+        let base = route.transport.layered_base(key, self.limits.expansion)?;
         let remaining: Vec<i64> = key.powers().iter().map(|&power| power.min(0)).collect();
         self.expand_route_layer(
             layers,
