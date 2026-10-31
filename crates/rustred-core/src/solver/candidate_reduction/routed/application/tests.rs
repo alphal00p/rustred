@@ -23,6 +23,12 @@ fn ordered_frontier_cancels_children_before_expansion_without_crossfeeding_cache
     assert_eq!(warm.statistics().work.rule_applications(), 2);
     let retained = application.cache_statistics();
     application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    // A forward-pass property: the adjoint tail (on by default) steps erased
+    // keys after the run to complete its values (see `ordered_reduction::tail`).
+    application.set_ordered_scheduler_options(crate::reduction::OrderedSchedulerOptions {
+        adjoint_tail: false,
+        ..Default::default()
+    });
     let result = application
         .reduce_linear_combination([(key([3]), c.one()), (key([2]), c.integer(3))])
         .unwrap();
@@ -698,6 +704,12 @@ fn descendant_cache_does_not_bypass_saved_rank_for_a_new_entry() {
 }
 
 fn weighted<const N: usize>() -> RoutedCandidateReducer<N> {
+    weighted_with_rules::<N>(&[])
+}
+
+/// [`weighted`] with extra owner rules `key -> (i + 3) * [0, 1, 0]` for the
+/// `i`-th extra key.
+fn weighted_with_rules<const N: usize>(extra: &[[i16; 3]]) -> RoutedCandidateReducer<N> {
     let family = Arc::new(crate::solver::tests::sunset());
     let c = family.coefficient_context();
     let map = symmetry::verify(
@@ -750,10 +762,15 @@ fn weighted<const N: usize>() -> RoutedCandidateReducer<N> {
             [input(
                 crate::storage_array(&[false, true, false], false).unwrap(),
                 None,
-                vec![
+                [
                     rule(&family, pad([-1, 1, 0]), &[(pad([0, 1, 0]), 2)]),
                     rule(&family, pad([0, 1, -1]), &[(pad([0, 1, 0]), -3)]),
-                ],
+                ]
+                .into_iter()
+                .chain(extra.iter().enumerate().map(|(index, &powers)| {
+                    rule(&family, pad(powers), &[(pad([0, 1, 0]), index as i64 + 3)])
+                }))
+                .collect(),
                 &[pad([0, 1, 0])],
             )],
         )
@@ -876,6 +893,12 @@ fn ordered_routes_group_in_the_verified_common_owner_basis_before_ibps() {
     }
     let mut application = routed.application();
     application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    // A forward-pass property: the adjoint tail (on by default) steps erased
+    // keys after the run to complete its values (see `ordered_reduction::tail`).
+    application.set_ordered_scheduler_options(crate::reduction::OrderedSchedulerOptions {
+        adjoint_tail: false,
+        ..Default::default()
+    });
     let result = application.reduce_linear_combination(inputs).unwrap();
     assert!(result.is_zero());
     assert!(result.unresolved().is_empty());
@@ -2388,9 +2411,29 @@ fn ordered_layered_route_composes_with_the_adjoint_tail_and_its_table() {
         OrderedStepCacheBinding, OrderedWeightArithmetic,
     };
     use crate::solver::OrderedRouteLayering;
-    let routed = weighted::<3>();
+    // Every owner key the inputs reach reduces to the single master
+    // [0, 1, 0], so the whole request is a single-terminal tail whose Route
+    // phase has multi-factor keys.
+    let routed = weighted_with_rules::<3>(&[
+        [-2, 1, 0],
+        [-1, 1, -1],
+        [0, 1, -2],
+        [-3, 1, 0],
+        [-2, 1, -1],
+        [-1, 1, -2],
+        [0, 1, -3],
+    ]);
     let c = routed.programs.context.family().coefficient_context();
-    let inputs = layered_inputs(c);
+    let inputs: Vec<(IntegralKey, Coefficient)> = [
+        ([1, -1, -1], 3),
+        ([1, -1, -2], -2),
+        ([1, -2, -1], 5),
+        ([1, 0, -1], 7),
+        ([1, 0, -2], -1),
+    ]
+    .into_iter()
+    .map(|(powers, factor)| (key(powers), c.integer(factor)))
+    .collect();
     let binding = OrderedStepCacheBinding::new(
         OrderedStepCacheAdapter::SavedApplication,
         routed.programs.context.family().fingerprint(),
@@ -2424,7 +2467,8 @@ fn ordered_layered_route_composes_with_the_adjoint_tail_and_its_table() {
         false,
         None,
     );
-    assert!(!expected.terms().is_empty());
+    assert_eq!(expected.terms().len(), 1);
+    assert!(expected.unresolved().is_empty());
     let mut layered_rewrites = 0;
     let mut layered_closes = 0;
     for arithmetic in [

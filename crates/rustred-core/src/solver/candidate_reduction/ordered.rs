@@ -562,11 +562,19 @@ mod tests {
         let context = reducer.program.context.base().clone();
         let baseline = reducer.reduce_unit_mass(&key([3])).unwrap();
         let retained = reducer.statistics();
+        // A forward-pass property: the adjoint tail (on by default) steps
+        // erased keys after the run to complete its values.
         let result = reducer
-            .reduce_linear_combination_ordered([
-                (key([3]), context.one()),
-                (key([2]), context.integer(3)),
-            ])
+            .reduce_linear_combination_ordered_with_scheduler(
+                [(key([3]), context.one()), (key([2]), context.integer(3))],
+                OrderedWeightArithmetic::default(),
+                OrderedSchedulerOptions {
+                    adjoint_tail: false,
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(
             result.terms(),
@@ -751,16 +759,24 @@ mod tests {
             (key([3]), context.coefficient_fixture("d")),
             (key([2]), context.integer(3)),
         ];
+        // The forward pass's phase states: a warm cache's tail table would
+        // close the single-terminal tail (adjoint tail, on by default; see
+        // `ordered_reduction::tail` for its own cache tests).
         let run = |reducer: &CandidateReducer<1>| {
             let mut snapshots = Vec::new();
             let reduced = reducer
-                .reduce_linear_combination_ordered_with_inspector(
+                .reduce_linear_combination_ordered_with_scheduler(
                     inputs.clone(),
                     OrderedWeightArithmetic::Exact,
-                    &mut |event| {
+                    crate::reduction::OrderedSchedulerOptions {
+                        adjoint_tail: false,
+                        ..Default::default()
+                    },
+                    None,
+                    Some(&mut |event| {
                         snapshots.push(phase_snapshot(event));
                         Ok(())
-                    },
+                    }),
                 )
                 .unwrap();
             (reduced, snapshots)
@@ -888,10 +904,12 @@ mod tests {
             threads: 2,
             ..Default::default()
         };
+        // Forward-pass phase states and step records: a warm cache's tail
+        // table would close the tail (adjoint tail, on by default).
         let sequential = OrderedSchedulerOptions {
             threads: 1,
             window_keys: 1,
-            ..Default::default()
+            adjoint_tail: false,
         };
         for arithmetic in [
             OrderedWeightArithmetic::Exact,
@@ -912,7 +930,7 @@ mod tests {
                 let scheduler = OrderedSchedulerOptions {
                     threads,
                     window_keys,
-                    ..Default::default()
+                    adjoint_tail: false,
                 };
                 let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
                 reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();
