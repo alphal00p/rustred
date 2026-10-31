@@ -993,6 +993,11 @@ impl OrderedStepCache {
     /// directory. Shard files are content-addressed and written before the
     /// manifest is replaced atomically, so an interrupted save leaves the
     /// previous cache intact. Shards that were never loaded keep their files.
+    ///
+    /// A directory has one writer at a time. A replaced shard file is removed
+    /// after the new manifest is in place, so another process still holding
+    /// the previous manifest fails loudly when it loads that shard; it never
+    /// reads records of another file.
     pub fn save(&self) -> Result<OrderedStepCacheSaveReport, ReductionError> {
         let directory = self
             .directory
