@@ -65,10 +65,22 @@ pub(super) enum OrderedNode<const N: usize> {
     Partial(PartialRoute<N>),
 }
 
-/// Scheduling priority of [`OrderedNode`]: partial keys sort below every
-/// Route key of their phase, larger remaining numerator power first.
+/// Scheduling priority of [`OrderedNode`] inside its phase.
+///
+/// Without layering every `group` is zero and the order is the historical
+/// one (the complexity of the key). With layering a Route phase is processed
+/// one source sector at a time (`group` = the sector's bit mask, larger
+/// first): the sector's Route keys, then its partial keys, larger remaining
+/// numerator power first, so a sector's partial keys are created and consumed
+/// together (bounded frontier, locality). Apply keys keep group zero.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum RoutedPriority {
+pub(crate) struct RoutedPriority {
+    pub(super) group: u64,
+    pub(super) stage: RoutedStage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum RoutedStage {
     Partial(u64),
     Key(ComplexityKey),
 }
@@ -139,6 +151,21 @@ impl<const N: usize> RouteLayers<N> {
             layering,
             hereditary_zero,
             expansions: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Whether Route phases are grouped by source sector (layering is on).
+    pub(super) fn enabled(&self) -> bool {
+        self.layering != OrderedRouteLayering::Off
+    }
+
+    /// The scheduling group of a Route or partial key of source sector
+    /// `source` (see [`RoutedPriority`]).
+    pub(super) fn group(&self, source: &[bool; N]) -> u64 {
+        if self.enabled() {
+            mask_of::<N>(&source.map(i64::from))
+        } else {
+            0
         }
     }
 

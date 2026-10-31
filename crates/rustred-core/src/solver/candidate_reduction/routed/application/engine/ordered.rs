@@ -14,7 +14,7 @@ use crate::reduction::{ReductionLimits, ReductionStrategy};
 use crate::sector::OrderingPolicy;
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
 
-use super::layered::{OrderedNode, RouteLayers, RoutedPriority};
+use super::layered::{OrderedNode, RouteLayers, RoutedPriority, RoutedStage};
 
 #[derive(Clone, Copy)]
 struct Phase<const N: usize> {
@@ -82,6 +82,7 @@ fn position<const N: usize>(
     application: &RoutedCandidateApplication<N>,
     route_phases: &BTreeMap<usize, usize>,
     owner_phases: &BTreeMap<[bool; N], usize>,
+    layers: &RouteLayers<N>,
     key: &OrderedNode<N>,
 ) -> Result<OrderedPosition<RoutedPriority>, CandidateRoutedError> {
     let key = match key {
@@ -96,7 +97,10 @@ fn position<const N: usize>(
                         "ordered routing support is outside the family".into(),
                     )
                 })?,
-                priority: RoutedPriority::Partial(partial.remaining_power()),
+                priority: RoutedPriority {
+                    group: layers.group(&partial.source),
+                    stage: RoutedStage::Partial(partial.remaining_power()),
+                },
             });
         }
     };
@@ -124,9 +128,16 @@ fn position<const N: usize>(
     let priority = ordering
         .complexity_key(key.key().powers())
         .map_err(ReductionError::Ordering)?;
+    let group = match key {
+        Node::Route(target) => layers.group(&support::<N>(target)),
+        Node::Apply(..) => 0,
+    };
     Ok(OrderedPosition {
         phase,
-        priority: RoutedPriority::Key(priority),
+        priority: RoutedPriority {
+            group,
+            stage: RoutedStage::Key(priority),
+        },
     })
 }
 
@@ -259,6 +270,7 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
             self.application,
             &self.route_phases,
             &self.owner_phases,
+            &self.layers,
             key,
         )
     }
@@ -435,7 +447,13 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
     type Account = RoutedAccount;
 
     fn position(&self, key: &OrderedNode<N>) -> Result<OrderedPosition<RoutedPriority>, Self::Error> {
-        position(self.application, self.route_phases, self.owner_phases, key)
+        position(
+            self.application,
+            self.route_phases,
+            self.owner_phases,
+            self.layers,
+            key,
+        )
     }
 
     /// The step of [`RoutedKernel`], on a fresh request; operational-node
