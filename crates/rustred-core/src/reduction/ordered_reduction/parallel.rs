@@ -2088,14 +2088,23 @@ fn scan<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicUsize;
     use std::thread::ThreadId;
 
     use super::*;
     use crate::algebra::CoefficientContext;
-    use crate::reduction::ordered_reduction::{
-        OrderedKeyStage, OrderedOutput, OrderedPhaseEvent, run_with_options,
+    use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
+    use crate::reduction::ordered_reduction::step_cache::kernel::{
+        ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
     };
-    use crate::reduction::{ModularWeightOptions, OrderedWeightArithmetic, ReductionLimits};
+    use crate::reduction::ordered_reduction::step_cache::tests::Scratch;
+    use crate::reduction::ordered_reduction::{OrderedKeyStage, OrderedOutput, OrderedPhaseEvent};
+    use crate::reduction::{
+        ModularWeightOptions, OrderedStepCache, OrderedStepCacheAdapter, OrderedStepCacheBinding,
+        OrderedStepCacheStatistics, OrderedStepShard, OrderedStepStage, OrderedWeightArithmetic,
+        ReductionLimits,
+    };
     use crate::solver::CandidateOrderedReductionProgress;
 
     const PHASES: i64 = 5;
@@ -2259,6 +2268,8 @@ mod tests {
         observations: Vec<(CandidateOrderedReductionProgress, Option<IntegralKey>)>,
         steps: Vec<IntegralKey>,
         inspections: Vec<String>,
+        /// Keys whose step was replayed from a step cache, in hit order.
+        hits: Vec<IntegralKey>,
     }
 
     impl PartialEq for OrderedOutput {
@@ -2291,11 +2302,15 @@ mod tests {
         lattice: &'a Lattice,
         record: Record,
         threads: &'a Mutex<HashSet<ThreadId>>,
+        stepped: &'a AtomicUsize,
     }
 
     struct LatticeStepper<'a> {
         lattice: &'a Lattice,
         threads: &'a Mutex<HashSet<ThreadId>>,
+        /// Steps computed by the stepper (window keys, including keys that
+        /// cancel before their turn).
+        stepped: &'a AtomicUsize,
     }
 
     fn work_of_one_step() -> ReductionStatistics {
@@ -2397,6 +2412,7 @@ mod tests {
             ReductionStatistics,
         ) {
             lock(self.threads).insert(std::thread::current().id());
+            self.stepped.fetch_add(1, Ordering::Relaxed);
             (self.lattice.step(key), work_of_one_step())
         }
         fn later_phase(&self, parent: &IntegralKey, child: &IntegralKey) -> bool {
@@ -2417,6 +2433,7 @@ mod tests {
             Some(LatticeStepper {
                 lattice: self.lattice,
                 threads: self.threads,
+                stepped: self.stepped,
             })
         }
         fn absorb(
@@ -2432,13 +2449,80 @@ mod tests {
         }
     }
 
+    /// Lattice records are sharded by phase; phase 3 is not recorded.
+    fn lattice_shard(key: &IntegralKey) -> Option<OrderedStepShard> {
+        let phase = key.powers()[0];
+        (phase != 3).then_some(OrderedStepShard {
+            stage: OrderedStepStage::Integral,
+            support: phase as u16,
+            class: 0,
+        })
+    }
+
+    fn lattice_key(stage: NodeStage, integral: IntegralKey) -> Result<IntegralKey, ReductionError> {
+        match stage {
+            NodeStage::Integral => Ok(integral),
+            _ => Err(invariant("a recorded lattice key is not an integral")),
+        }
+    }
+
+    impl OrderedStepCacheKernel for LatticeKernel<'_> {
+        fn step_cache_shard(&mut self, key: &IntegralKey) -> Option<OrderedStepShard> {
+            lattice_shard(key)
+        }
+        fn step_cache_key(
+            &self,
+            stage: NodeStage,
+            integral: IntegralKey,
+        ) -> Result<IntegralKey, ReductionError> {
+            lattice_key(stage, integral)
+        }
+        fn step_cache_hit(&mut self, key: &IntegralKey) -> Result<(), ReductionError> {
+            self.record.hits.push(key.clone());
+            Ok(())
+        }
+    }
+
+    impl ConcurrentStepCacheKernel for LatticeKernel<'_> {
+        fn stepper_shard<'s>(_: &LatticeStepper<'s>, key: &IntegralKey) -> Option<OrderedStepShard>
+        where
+            Self: 's,
+        {
+            lattice_shard(key)
+        }
+        fn stepper_key<'s>(
+            _: &LatticeStepper<'s>,
+            stage: NodeStage,
+            integral: IntegralKey,
+        ) -> Result<IntegralKey, ReductionError>
+        where
+            Self: 's,
+        {
+            lattice_key(stage, integral)
+        }
+    }
+
     fn run(
         lattice: &Lattice,
         initial: &BTreeMap<IntegralKey, Coefficient>,
         arithmetic: OrderedWeightArithmetic,
         scheduler: OrderedSchedulerOptions,
     ) -> (Record, HashSet<ThreadId>) {
+        let (record, threads, _) = run_cached(lattice, initial, arithmetic, scheduler, None);
+        (record, threads)
+    }
+
+    /// One request through the step-cache entry point (`None`: uncached,
+    /// i.e. `run_with_options`). Also returns the stepper's step count.
+    fn run_cached(
+        lattice: &Lattice,
+        initial: &BTreeMap<IntegralKey, Coefficient>,
+        arithmetic: OrderedWeightArithmetic,
+        scheduler: OrderedSchedulerOptions,
+        cache: Option<&OrderedStepCache>,
+    ) -> (Record, HashSet<ThreadId>, usize) {
         let threads = Mutex::new(HashSet::new());
+        let stepped = AtomicUsize::new(0);
         let mut kernel = LatticeKernel {
             lattice,
             record: Record {
@@ -2446,22 +2530,29 @@ mod tests {
                 observations: Vec::new(),
                 steps: Vec::new(),
                 inspections: Vec::new(),
+                hits: Vec::new(),
             },
             threads: &threads,
+            stepped: &stepped,
         };
         let mut request = ReductionRequest::default();
-        let result = run_with_options(
+        let result = run_with_step_cache_and_options(
             &mut kernel,
             &mut request,
             initial.clone(),
             vec![lattice.context.coefficient_fixture("d-2")],
             arithmetic,
             scheduler,
+            cache,
         );
         kernel.record.output = result
             .map(|output| (output, format!("{}", request.pending_frame_count())))
             .map_err(|error| format!("{error:?}"));
-        (kernel.record, threads.into_inner().unwrap())
+        (
+            kernel.record,
+            threads.into_inner().unwrap(),
+            stepped.into_inner(),
+        )
     }
 
     /// The sequential scheduler, explicitly (immune to the test override).
@@ -2685,5 +2776,154 @@ mod tests {
                 .unwrap_err()
                 .contains("does not strictly decrease")
         );
+    }
+
+    /// Every file under `root`, by relative path.
+    fn listing(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut files = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap();
+                    files.push((path.strip_prefix(root).unwrap().to_path_buf(), bytes));
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+
+    /// Cache statistics without the (timing) load seconds.
+    fn counted(mut statistics: OrderedStepCacheStatistics) -> OrderedStepCacheStatistics {
+        statistics.load_seconds = 0.0;
+        for shard in &mut statistics.shards {
+            shard.load_seconds = 0.0;
+        }
+        statistics
+    }
+
+    /// A cached request on the scheduler's workers does what the sequential
+    /// cached request does: same results, observations (with the request's
+    /// cache hits and misses), adapter accounts and hit accounting in pop
+    /// order, and it leaves the same shard statistics and byte-identical
+    /// saved files, starting from an empty, a partial and a complete cache.
+    /// Its workers also step keys that cancel before their turn; those steps
+    /// are neither counted nor recorded.
+    #[test]
+    fn cached_concurrent_runs_replay_and_record_exactly_the_sequential_steps() {
+        let binding = |lattice: &Lattice| {
+            OrderedStepCacheBinding::new(
+                OrderedStepCacheAdapter::CandidateProgram,
+                [7; 32],
+                "ordered parallel lattice",
+                &lattice.context,
+                None,
+            )
+        };
+        let copy = |from: &Path, label: &str| {
+            let target = Scratch::new(label);
+            for (path, bytes) in listing(from) {
+                let path = target.0.join(path);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, bytes).unwrap();
+            }
+            target
+        };
+        let caller = std::thread::current().id();
+        let (mut speculative, mut replayed) = (0, 0);
+        for (seed, poisoned) in [(0, false), (1, false), (2, false), (3, true)] {
+            let mut lattice = Lattice::new(40, seed);
+            let initial = lattice.initial();
+            let (uncached, _) = run(
+                &lattice,
+                &initial,
+                OrderedWeightArithmetic::Exact,
+                sequential(),
+            );
+            if poisoned {
+                // The request fails at an expanded key half-way through.
+                let middle = &uncached.steps[uncached.steps.len() / 2];
+                lattice
+                    .poisoned
+                    .insert([middle.powers()[0], middle.powers()[1]]);
+            }
+            for arithmetic in arithmetics() {
+                let (uncached, _) = run(&lattice, &initial, arithmetic, sequential());
+                assert_eq!(uncached.output.is_err(), poisoned);
+                // Saved caches: empty, trained on part of the inputs, and
+                // complete (trained on the whole request).
+                let empty = Scratch::new("lattice-empty");
+                let partial = Scratch::new("lattice-partial");
+                let trained =
+                    OrderedStepCache::open(&partial.0, binding(&lattice), Default::default())
+                        .unwrap();
+                let half: BTreeMap<_, _> = initial
+                    .iter()
+                    .step_by(2)
+                    .map(|(key, weight)| (key.clone(), weight.clone()))
+                    .collect();
+                run_cached(&lattice, &half, arithmetic, sequential(), Some(&trained));
+                trained.save().unwrap();
+                let complete = Scratch::new("lattice-complete");
+                let full =
+                    OrderedStepCache::open(&complete.0, binding(&lattice), Default::default())
+                        .unwrap();
+                run_cached(&lattice, &initial, arithmetic, sequential(), Some(&full));
+                full.save().unwrap();
+                for start in [&empty, &partial, &complete] {
+                    let cached_run = |scheduler: OrderedSchedulerOptions| {
+                        let directory = copy(&start.0, "lattice-run");
+                        let cache = OrderedStepCache::open(
+                            &directory.0,
+                            binding(&lattice),
+                            Default::default(),
+                        )
+                        .unwrap();
+                        let (record, threads, stepped) =
+                            run_cached(&lattice, &initial, arithmetic, scheduler, Some(&cache));
+                        let statistics = counted(cache.statistics());
+                        cache.save().unwrap();
+                        (record, threads, stepped, statistics, listing(&directory.0))
+                    };
+                    let (sequential, _, _, statistics, files) = cached_run(sequential());
+                    // A cached request reproduces the uncached one.
+                    match (&sequential.output, &uncached.output) {
+                        (Ok((cached, _)), Ok((plain, _))) => {
+                            assert_eq!(cached.terms, plain.terms);
+                            assert_eq!(cached.nonzero_conditions, plain.nonzero_conditions);
+                        }
+                        (Err(cached), Err(plain)) => assert_eq!(cached, plain),
+                        _ => panic!("cached and uncached requests disagree"),
+                    }
+                    for (threads, window_keys) in [(2, 1), (3, 3), (8, 64)] {
+                        let (concurrent, used, stepped, concurrent_statistics, concurrent_files) =
+                            cached_run(OrderedSchedulerOptions {
+                                threads,
+                                window_keys,
+                            });
+                        let context =
+                            format!("seed {seed} {arithmetic:?} t{threads} w{window_keys}");
+                        assert_eq!(concurrent, sequential, "{context}");
+                        assert_eq!(concurrent_statistics, statistics, "{context}");
+                        assert_eq!(concurrent_files, files, "{context}");
+                        assert!(used.iter().any(|thread| *thread != caller), "{context}");
+                        // Steps computed on the workers beyond the expanded
+                        // keys that missed: keys that cancelled.
+                        let computed = concurrent.steps.len();
+                        speculative += stepped.saturating_sub(computed);
+                        replayed += concurrent.hits.len();
+                    }
+                }
+            }
+        }
+        assert!(
+            speculative > 0,
+            "no key was stepped ahead and then cancelled"
+        );
+        assert!(replayed > 0, "no step was replayed");
     }
 }

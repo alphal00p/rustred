@@ -547,6 +547,25 @@ pub(crate) enum Lookup<T> {
     Unavailable,
 }
 
+/// The shard counter a lookup increments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LookupCount {
+    Hit,
+    Opaque,
+    /// No record, or a skipped shard.
+    Miss,
+}
+
+impl<T> Lookup<T> {
+    pub(crate) fn count(&self) -> LookupCount {
+        match self {
+            Self::Hit(_) => LookupCount::Hit,
+            Self::Opaque => LookupCount::Opaque,
+            Self::Miss | Self::Unavailable => LookupCount::Miss,
+        }
+    }
+}
+
 /// Thread-safe store of one-step records, shared by every request, pass and
 /// weight arithmetic of one program through an `Arc`. See the module docs.
 pub struct OrderedStepCache {
@@ -811,14 +830,71 @@ impl OrderedStepCache {
         build: impl FnOnce(RecordView<'_>) -> T,
     ) -> Result<Lookup<T>, ReductionError> {
         let shard = self.shard(id);
-        self.ensure_loaded(&shard, context)?;
+        let found = self.find(&shard, key, context, build)?;
+        Self::count(&shard, found.count());
+        Ok(found)
+    }
+
+    /// [`Self::lookup`] for a step computed ahead of its turn by a worker of
+    /// the concurrent scheduler, whose key may still cancel. It loads the
+    /// shard like a lookup but counts nothing and creates no shard that is
+    /// neither present nor listed in the manifest (such a shard holds no
+    /// record). The caller counts the lookup with [`Self::count_lookup`] at
+    /// the key's sequential turn, so the statistics are those of a
+    /// sequential run.
+    pub(crate) fn probe<T>(
+        &self,
+        id: OrderedStepShard,
+        key: &[u8],
+        context: &CoefficientContext,
+        build: impl FnOnce(RecordView<'_>) -> T,
+    ) -> Result<Lookup<T>, ReductionError> {
+        let present = self
+            .shards
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&id)
+            .cloned();
+        let shard = match present {
+            Some(shard) => shard,
+            None => {
+                let listed = lock(&self.manifest).contains_key(&id);
+                if !listed {
+                    return Ok(Lookup::Miss);
+                }
+                self.shard(id)
+            }
+        };
+        self.find(&shard, key, context, build)
+    }
+
+    /// Count one lookup of `id` that [`Self::probe`] answered.
+    pub(crate) fn count_lookup(&self, id: OrderedStepShard, count: LookupCount) {
+        Self::count(&self.shard(id), count);
+    }
+
+    fn count(shard: &Shard, count: LookupCount) {
+        let counter = match count {
+            LookupCount::Hit => &shard.hits,
+            LookupCount::Opaque => &shard.opaque_hits,
+            LookupCount::Miss => &shard.misses,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The uncounted lookup of `key` in `shard`, loading it on first use.
+    fn find<T>(
+        &self,
+        shard: &Shard,
+        key: &[u8],
+        context: &CoefficientContext,
+        build: impl FnOnce(RecordView<'_>) -> T,
+    ) -> Result<Lookup<T>, ReductionError> {
+        self.ensure_loaded(shard, context)?;
         let inner = shard.inner.read().unwrap_or_else(PoisonError::into_inner);
         match &inner.state {
             ShardState::Resident { .. } => {}
-            ShardState::Skipped => {
-                shard.misses.fetch_add(1, Ordering::Relaxed);
-                return Ok(Lookup::Unavailable);
-            }
+            ShardState::Skipped => return Ok(Lookup::Unavailable),
             ShardState::Rejected { error, .. } => return Err(failure(error.clone())),
             ShardState::OnDisk(_) => {
                 return Err(failure("ordered step cache shard was not loaded"));
@@ -830,14 +906,11 @@ impl OrderedStepCache {
             .get(key)
             .and_then(|id| inner.data.records.get(id));
         let Some(record) = record else {
-            shard.misses.fetch_add(1, Ordering::Relaxed);
             return Ok(Lookup::Miss);
         };
         if record.opaque {
-            shard.opaque_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(Lookup::Opaque);
         }
-        shard.hits.fetch_add(1, Ordering::Relaxed);
         Ok(Lookup::Hit(build(RecordView {
             data: &inner.data,
             record,

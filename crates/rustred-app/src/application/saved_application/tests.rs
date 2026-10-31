@@ -317,6 +317,170 @@ fn ordered_phase_inspection_preserves_routed_results_and_stops_cleanly() {
     }
 }
 
+/// Cached requests run on the scheduler's workers too: for every thread
+/// count, cold (populating) and warm (replaying) requests give the sequential
+/// cached request's results, phase states, request statistics (the hit
+/// accounting charges one operational node per replayed step), cache
+/// statistics and byte-identical saved shards.
+#[test]
+fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run() {
+    use rustred::reduction::{
+        ModularWeightOptions, OrderedSchedulerOptions, OrderedStepCacheOptions,
+        OrderedStepCacheStatistics, OrderedWeightArithmetic, ReductionStrategy,
+    };
+    use symbolica::atom::AtomCore;
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let context = original.family().coefficient_context().clone();
+    // The fixture admits roots [2] and [4]; the repeated root coalesces.
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+        (IntegralKey::try_new([4]).unwrap(), context.integer(7)),
+    ];
+    let listing = |root: &std::path::Path| {
+        let mut files = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap();
+                    files.push((path.strip_prefix(root).unwrap().to_path_buf(), bytes));
+                }
+            }
+        }
+        files.sort();
+        files
+    };
+    let counted = |mut statistics: OrderedStepCacheStatistics| {
+        statistics.load_seconds = 0.0;
+        for shard in &mut statistics.shards {
+            shard.load_seconds = 0.0;
+        }
+        statistics
+    };
+    let modular = OrderedWeightArithmetic::Modular(ModularWeightOptions {
+        batch_points: 4,
+        threads: 2,
+        ..Default::default()
+    });
+    for (index, arithmetic) in [OrderedWeightArithmetic::Exact, modular]
+        .into_iter()
+        .enumerate()
+    {
+        // One cached request in a fresh session; `populate: false` replays
+        // a saved cache read-only.
+        let run =
+            |scheduler: OrderedSchedulerOptions, directory: &std::path::Path, populate: bool| {
+                let mut application = load_saved_application::<1>(
+                    &runtime,
+                    SavedApplicationOptions {
+                        reduction_strategy: ReductionStrategy::Ordered,
+                        ordered_scheduler: scheduler,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                application.set_ordered_weight_arithmetic(arithmetic);
+                let cache = application
+                    .open_ordered_step_cache(
+                        directory,
+                        OrderedStepCacheOptions {
+                            populate,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                application
+                    .set_ordered_step_cache(Some(cache.clone()))
+                    .unwrap();
+                let mut states = Vec::new();
+                let reduced = application
+                    .reduce_routed_linear_combination_with_ordered_inspector(
+                        inputs.clone(),
+                        &mut |event| {
+                            let frontier: Vec<_> = event
+                                .frontier()
+                                .map(|entry| {
+                                    (
+                                        entry.phase,
+                                        entry.integral.clone(),
+                                        entry.weight.map(|weight| {
+                                            weight.to_expression().to_canonical_string()
+                                        }),
+                                    )
+                                })
+                                .collect();
+                            states.push((
+                                event.boundary,
+                                event.phase,
+                                event.progress,
+                                frontier,
+                                event.nonzero_conditions().to_vec(),
+                            ));
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+                let statistics = counted(cache.statistics());
+                if populate {
+                    cache.save().unwrap();
+                }
+                (
+                    (
+                        reduced.terms().clone(),
+                        reduced.nonzero_conditions().to_vec(),
+                        *reduced.statistics(),
+                        states,
+                    ),
+                    statistics,
+                    application.owner_preparation_statistics().prepared_owners,
+                )
+            };
+        let mut cold = Vec::new();
+        let mut warm = Vec::new();
+        for (threads, window_keys) in [(1, 4096), (2, 1), (3, 2), (4, 4096)] {
+            let scheduler = OrderedSchedulerOptions {
+                threads,
+                window_keys,
+            };
+            let directory = scratch
+                .0
+                .join(format!("cold-{index}-{threads}-{window_keys}"));
+            let (reduced, statistics, _) = run(scheduler, &directory, true);
+            cold.push((reduced, statistics, listing(&directory)));
+            // Replays the sequential run's records.
+            let saved = scratch.0.join(format!("cold-{index}-1-4096"));
+            let (reduced, statistics, prepared) = run(scheduler, &saved, false);
+            assert_eq!(prepared, 0, "a warm request prepares no owner");
+            warm.push((reduced, statistics));
+        }
+        let (sequential_cold, recorded, files) = &cold[0];
+        assert!(recorded.records > 0 && recorded.hits == 0);
+        assert!(!files.is_empty());
+        let (sequential_warm, replayed) = &warm[0];
+        assert_eq!(replayed.hits as usize, recorded.records);
+        assert_eq!((replayed.misses, replayed.inserts), (0, 0));
+        assert_eq!(sequential_warm.0, sequential_cold.0);
+        assert_eq!(sequential_warm.1, sequential_cold.1);
+        assert_eq!(
+            sequential_warm.2.operational_nodes,
+            sequential_cold.2.operational_nodes
+        );
+        for run in &cold[1..] {
+            assert_eq!(run, &cold[0]);
+        }
+        for run in &warm[1..] {
+            assert_eq!(run, &warm[0]);
+        }
+    }
+}
+
 #[test]
 fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states() {
     use rustred::reduction::{

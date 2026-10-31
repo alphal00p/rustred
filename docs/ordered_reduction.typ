@@ -111,6 +111,18 @@ are installed around every worker task. `RUSTRED_ORDERED_WINDOW_STATS=<file>`
 appends one diagnostic JSON line per window (stage times, sizes, heaviest
 destination).
 
+Requests with a one-step record cache (below) run concurrently as well. The
+workers consult the cache without changing it: a key's record is replayed when
+present (its shard is loaded at the first such lookup), otherwise the adapter's
+step runs. Counting the lookup, the hit accounting (for saved applications the
+operational-node charge and cancellation check of a checked step), the request's
+hit and miss counters and the insert of a new record happen in the serial scan,
+at the key's sequential turn. Steps of keys that cancel before their turn
+therefore leave no trace: the records, the cache statistics and the progress
+counters are those of the sequential run for every thread count. Only under a
+resident-byte ceiling or a Symbolica memory budget can the order of the workers'
+shard loads change which shards and records fit; results never change.
+
 == Phases and canonical identities
 
 Saved applications process support sizes downward, draining routing before the

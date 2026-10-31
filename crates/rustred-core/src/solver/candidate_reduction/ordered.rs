@@ -9,10 +9,10 @@ use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
 use crate::reduction::ordered_reduction::step_cache::failure;
 use crate::reduction::ordered_reduction::step_cache::kernel::{
-    OrderedStepCacheKernel, run_with_step_cache,
+    ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
 };
 use crate::reduction::ordered_reduction::{
-    self, ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor,
+    ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPhaseInspector, OrderedPosition, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic};
@@ -283,13 +283,27 @@ impl<const N: usize> ConcurrentOrderedKernel for Kernel<'_, '_, N> {
 }
 
 /// Candidate records are sharded by support level, the phase of their key.
+fn step_cache_shard(key: &IntegralKey) -> OrderedStepShard {
+    OrderedStepShard {
+        stage: OrderedStepStage::Integral,
+        support: key.powers().iter().filter(|&&power| power > 0).count() as u16,
+        class: 0,
+    }
+}
+
+fn step_cache_key(
+    stage: NodeStage,
+    integral: IntegralKey,
+) -> Result<IntegralKey, CandidateReductionError> {
+    if stage != NodeStage::Integral {
+        return Err(failure("a recorded candidate identity is not a plain integral").into());
+    }
+    Ok(integral)
+}
+
 impl<const N: usize> OrderedStepCacheKernel for Kernel<'_, '_, N> {
     fn step_cache_shard(&mut self, key: &IntegralKey) -> Option<OrderedStepShard> {
-        Some(OrderedStepShard {
-            stage: OrderedStepStage::Integral,
-            support: key.powers().iter().filter(|&&power| power > 0).count() as u16,
-            class: 0,
-        })
+        Some(step_cache_shard(key))
     }
 
     fn step_cache_key(
@@ -297,10 +311,27 @@ impl<const N: usize> OrderedStepCacheKernel for Kernel<'_, '_, N> {
         stage: NodeStage,
         integral: IntegralKey,
     ) -> Result<IntegralKey, Self::Error> {
-        if stage != NodeStage::Integral {
-            return Err(failure("a recorded candidate identity is not a plain integral").into());
-        }
-        Ok(integral)
+        step_cache_key(stage, integral)
+    }
+}
+
+impl<const N: usize> ConcurrentStepCacheKernel for Kernel<'_, '_, N> {
+    fn stepper_shard<'s>(_: &Stepper<'s, N>, key: &IntegralKey) -> Option<OrderedStepShard>
+    where
+        Self: 's,
+    {
+        Some(step_cache_shard(key))
+    }
+
+    fn stepper_key<'s>(
+        _: &Stepper<'s, N>,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<IntegralKey, CandidateReductionError>
+    where
+        Self: 's,
+    {
+        step_cache_key(stage, integral)
     }
 }
 
@@ -445,32 +476,20 @@ impl<const N: usize> CandidateReducer<N> {
         if let Some(cache) = &self.ordered_step_cache {
             self.check_ordered_step_cache(cache)?;
         }
-        let mut kernel = Kernel {
-            reducer: self,
-            support_phases,
-            observer,
-            inspector,
-        };
-        // Cached requests replay and record steps through the sequential
-        // `OrderedKernel::step`.
-        let output = match self.ordered_step_cache.as_deref() {
-            Some(cache) => run_with_step_cache(
-                &mut kernel,
-                &mut request,
-                initial,
-                conditions,
-                arithmetic,
-                Some(cache),
-            ),
-            None => ordered_reduction::run_with_options(
-                &mut kernel,
-                &mut request,
-                initial,
-                conditions,
-                arithmetic,
-                scheduler,
-            ),
-        }?;
+        let output = run_with_step_cache_and_options(
+            &mut Kernel {
+                reducer: self,
+                support_phases,
+                observer,
+                inspector,
+            },
+            &mut request,
+            initial,
+            conditions,
+            arithmetic,
+            scheduler,
+            self.ordered_step_cache.as_deref(),
+        )?;
         initial_work.merge_work(output.work);
         let unresolved = output
             .terms
