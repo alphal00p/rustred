@@ -176,6 +176,35 @@ outside a proved zero sector enters the common canonical frontier. A zero-sector
 endpoint keeps the conditions of its validation but carries no weight, exactly as
 if it had been expanded. Route and Apply are distinct operational identities.
 
+=== Layered Route transport
+
+A Route identity of source sector $S$ is $D^(-b) product_a (c_a + sum_l L_(a l) D_l)^(n_a)$
+in the owner's denominators: its positive powers $b$ mapped by the route's unit
+bijection and one affine factor per numerator. With
+`OrderedRouteLayering` other than `off` (saved applications, `SavedApplicationOptions`
+or `set_ordered_route_layering`), a Route identity with at least two numerator
+factors is transported one factor per step: the step expands one factor exactly
+(the same native expansion and limits as the whole transport) and emits partially
+transported identities $(S, t, r)$ (owner powers so far, numerator powers not yet
+expanded). Partial identities of the same sector and state merge on the frontier,
+so the remaining factors are expanded once for the merged weight; the last factor
+emits the Route and Apply children of the whole transport. The coalesced product
+is the same polynomial, hence every Route and Apply weight, zero decision, guard
+and result is that of the whole transport, in every weight arithmetic and thread
+count. The policy picks the next factor from $(S, r)$ only (`index`,
+`smallest-power`, `fewest-terms`, `largest-power`). Partial identities live in the
+Route phase of their source; a layered Route phase is processed one source sector
+at a time (its Route identities, then its partial identities by decreasing
+remaining power), so the pop order of pending later-phase Route identities differs
+from `off` while the pending identities and weights do not. A partial identity whose
+owner support has only installed zero subsectors is dropped: further factors only
+lower powers, so all of its final children would be zero-sector children.
+Layering is used only for applications without source conditions (endpoint
+validation is the only way a transport retains guards); otherwise every Route
+identity takes the whole transport. Layered steps are never recorded in or replayed
+from the one-step record cache, so caches written with and without layering hold
+the same kind of records and are interchangeable.
+
 Closed/candidate artifacts use descending-support phases when their authenticated
 order is support-primary. Other orders use one phase with their exact saved key
 order. Every emitted nonterminal edge is checked against the scheduler position;
