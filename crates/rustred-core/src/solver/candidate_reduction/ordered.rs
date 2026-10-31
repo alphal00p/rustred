@@ -938,6 +938,7 @@ mod tests {
         let sequential = OrderedSchedulerOptions {
             threads: 1,
             window_keys: 1,
+            ..Default::default()
         };
         for arithmetic in [
             OrderedWeightArithmetic::Exact,
@@ -958,6 +959,7 @@ mod tests {
                 let scheduler = OrderedSchedulerOptions {
                     threads,
                     window_keys,
+                    ..Default::default()
                 };
                 let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
                 reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();

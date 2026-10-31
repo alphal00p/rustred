@@ -134,6 +134,21 @@ impl<S: BuildHasher> GuardIndex<S> {
         self.heads.insert(hash, index);
         Ok(index)
     }
+
+    /// The position of `condition` in `output` (the vector this index was
+    /// built over and has interned into), if it is retained. Nothing is
+    /// inserted.
+    pub(crate) fn find(&self, output: &[Coefficient], condition: &Coefficient) -> Option<usize> {
+        let hash = self.hasher.hash_one(condition);
+        let mut index = self.heads.get(&hash).copied().unwrap_or(END);
+        while index != END {
+            if output[index] == *condition {
+                return Some(index);
+            }
+            index = self.previous[index];
+        }
+        None
+    }
 }
 
 fn allocation(requested: usize) -> ReductionError {

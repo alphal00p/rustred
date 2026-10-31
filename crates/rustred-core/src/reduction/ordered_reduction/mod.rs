@@ -12,6 +12,7 @@ pub(crate) mod arithmetic;
 mod modular;
 mod parallel;
 pub(crate) mod step_cache;
+pub(crate) mod tail;
 
 pub use arithmetic::{
     ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
@@ -21,6 +22,10 @@ use modular::{Lifter, ModularRecorder};
 pub use parallel::OrderedSchedulerOptions;
 pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
 use parallel::{ConcurrentWeights, Prefetched, Workers};
+pub use tail::{
+    ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
+};
+use tail::{TailRewrite, TailRewriteReport, TailRun};
 
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
@@ -94,6 +99,16 @@ pub(crate) trait OrderedKernel {
     /// Adapters without a caller inspector keep this no-op.
     fn inspect_phase(&mut self, _event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
         Ok(())
+    }
+    /// The persistent tail table of the program (see `tail`), when one is
+    /// attached (through a step cache). Called once per request.
+    fn tail_table(&mut self) -> Result<Option<std::sync::Arc<OrderedTailTable>>, Self::Error> {
+        Ok(None)
+    }
+    /// A scheduled key from its encoded identity (the step-cache encoding),
+    /// when the adapter can rebuild it.
+    fn tail_key(&self, _encoded: &[u8]) -> Option<Self::Key> {
+        None
     }
 }
 
@@ -281,6 +296,9 @@ pub(crate) trait OrderedWeights {
     type Weight;
     /// The product of the active weight and one exact step coefficient.
     type Contribution;
+    /// The image of a weight on which recorded arithmetics decide erasures
+    /// (see `tail_probe`); `()` for value arithmetics.
+    type Probe: Copy;
 
     /// Admit one nonzero input weight.
     fn admit(&mut self, coefficient: Coefficient) -> Result<Self::Weight, ReductionError>;
@@ -322,6 +340,55 @@ pub(crate) trait OrderedWeights {
     /// The sequential scheduler starts `phase` (diagnostics only: recorded
     /// arithmetics time their replay per phase).
     fn phase_started(&mut self, _phase: usize) {}
+    /// Recorded arithmetics only: the length of the recorded program, the
+    /// point a later `rewrite_tail` truncates to. `None` for value
+    /// arithmetics (nothing to rewrite).
+    fn tail_checkpoint(&self) -> Option<usize> {
+        None
+    }
+    /// Recorded arithmetics only: the recorded slot of a weight.
+    fn tail_slot(_weight: &Self::Weight) -> Option<u32> {
+        None
+    }
+    /// Recorded arithmetics only: replace the recorded program after
+    /// `rewrite.ops` by `T += sum w(slot) * u` over the entries (see `tail`).
+    /// `terminal` is the output weight of `T`: on return it is the weight of
+    /// the rewritten accumulator when `rewrite.keep` (a new weight carries
+    /// `probe`), else `None` (the accumulator is recorded as erased, which
+    /// every replay verifies).
+    fn rewrite_tail(
+        &mut self,
+        _rewrite: TailRewrite<'_>,
+        _terminal: &mut Option<Self::Weight>,
+        _probe: Option<Self::Probe>,
+    ) -> Result<TailRewriteReport, ReductionError> {
+        Err(invariant("this weight arithmetic records no program to rewrite"))
+    }
+    /// Arithmetics whose every erasure decision is "the probe of the merged
+    /// weight is zero" (recorded arithmetics without exact cross-check):
+    /// the probe of a weight. `None`: decisions are exact.
+    fn tail_probe(&self, _weight: &Self::Weight) -> Option<Self::Probe> {
+        None
+    }
+    /// The probe of an exact step coefficient, as `scale` uses it.
+    fn tail_probe_coefficient(
+        &self,
+        _coefficient: &Coefficient,
+    ) -> Result<Self::Probe, ReductionError> {
+        Err(invariant("this weight arithmetic has no probes"))
+    }
+    /// `accumulator += a * b` on probes (`None`: nothing accumulated yet).
+    fn tail_probe_add_product(
+        &self,
+        _accumulator: &mut Option<Self::Probe>,
+        _a: &Self::Probe,
+        _b: &Self::Probe,
+    ) {
+    }
+    /// The erasure decision on a merged probe.
+    fn tail_probe_is_zero(&self, _probe: &Self::Probe) -> bool {
+        true
+    }
 }
 
 /// Exact normalized rational-function weights (historical arithmetic).
@@ -373,6 +440,7 @@ fn is_one(coefficient: &Coefficient) -> bool {
 impl OrderedWeights for ExactWeights {
     type Weight = Coefficient;
     type Contribution = Coefficient;
+    type Probe = ();
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<Coefficient, ReductionError> {
         self.validate(&coefficient)?;
@@ -510,6 +578,8 @@ fn disagreement() -> ReductionError {
 impl OrderedWeights for CrossChecked {
     type Weight = (Coefficient, modular::ModularWeight);
     type Contribution = (Coefficient, modular::ModularContribution);
+    /// Erasures are decided exactly.
+    type Probe = ();
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<Self::Weight, ReductionError> {
         let exact = self.exact.admit(coefficient.clone())?;
@@ -587,6 +657,30 @@ impl OrderedWeights for CrossChecked {
     fn phase_started(&mut self, phase: usize) {
         self.modular.phase_started(phase);
     }
+    /// The modular trace is rewritten; the exact weights stay those of the
+    /// forward pass, so the final cross-check compares the adjoint tail with
+    /// the forward one.
+    fn tail_checkpoint(&self) -> Option<usize> {
+        self.modular.tail_checkpoint()
+    }
+    fn tail_slot(weight: &Self::Weight) -> Option<u32> {
+        ModularRecorder::tail_slot(&weight.1)
+    }
+    fn rewrite_tail(
+        &mut self,
+        rewrite: TailRewrite<'_>,
+        terminal: &mut Option<Self::Weight>,
+        _probe: Option<Self::Probe>,
+    ) -> Result<TailRewriteReport, ReductionError> {
+        // Only the forward decision is rewritten here (the exact weight is
+        // the forward one).
+        let mut modular = terminal.as_ref().map(|weight| weight.1);
+        let report = self.modular.rewrite_tail(rewrite, &mut modular, None)?;
+        if let (Some(weight), Some(modular)) = (terminal.as_mut(), modular) {
+            weight.1 = modular;
+        }
+        Ok(report)
+    }
 }
 
 #[allow(dead_code)]
@@ -620,6 +714,41 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
     nonzero_conditions: Vec<Coefficient>,
     arithmetic: OrderedWeightArithmetic,
 ) -> Result<OrderedOutput, K::Error> {
+    run_sequential(
+        kernel,
+        request,
+        initial,
+        nonzero_conditions,
+        arithmetic,
+        TailOptions::sequential(false),
+    )
+}
+
+/// How a request evaluates a single-terminal tail (see `tail`).
+#[derive(Clone, Copy, Debug)]
+struct TailOptions {
+    enabled: bool,
+    /// Threads for evaluating independent tail values (1: inline).
+    threads: usize,
+}
+
+impl TailOptions {
+    fn sequential(enabled: bool) -> Self {
+        Self {
+            enabled: enabled || tail::forced_by_environment(),
+            threads: 1,
+        }
+    }
+}
+
+fn run_sequential<K: OrderedKernel>(
+    kernel: &mut K,
+    request: &mut ReductionRequest,
+    initial: BTreeMap<K::Key, Coefficient>,
+    nonzero_conditions: Vec<Coefficient>,
+    arithmetic: OrderedWeightArithmetic,
+    tail: TailOptions,
+) -> Result<OrderedOutput, K::Error> {
     #[cfg(test)]
     let arithmetic = test_override(arithmetic, kernel.context());
     let mut work = ReductionStatistics::default();
@@ -634,6 +763,7 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 nonzero_conditions,
                 &mut work,
                 &mut Inline,
+                tail,
             )
             .map(exact_output)
         }
@@ -646,6 +776,7 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
             arithmetic,
             &mut work,
             &mut Inline,
+            tail,
         ),
     };
     kernel.record_work(work);
@@ -676,8 +807,19 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         parallel::test_threads_override(scheduler),
     );
     scheduler.validate()?;
+    let tail = TailOptions {
+        enabled: scheduler.adjoint_tail || tail::forced_by_environment(),
+        threads: scheduler.threads,
+    };
     if scheduler.threads == 1 || kernel.limits().diagnostics_enabled || kernel.stepper().is_none() {
-        return run_with_arithmetic(kernel, request, initial, nonzero_conditions, arithmetic);
+        return run_sequential(
+            kernel,
+            request,
+            initial,
+            nonzero_conditions,
+            arithmetic,
+            TailOptions { threads: 1, ..tail },
+        );
     }
     let workers = Workers::new(scheduler.threads)?;
     let mut work = ReductionStatistics::default();
@@ -693,6 +835,7 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
                 &mut work,
                 &workers,
                 scheduler.window_keys,
+                tail.enabled,
             )
             .map(exact_output)
         }
@@ -708,6 +851,7 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
             arithmetic,
             &mut work,
             &mut Prefetched::new(&workers, scheduler.window_keys),
+            tail,
         ),
     };
     kernel.record_work(work);
@@ -718,6 +862,7 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
 /// terminals modulo primes. With `cross_check_exact` the exact arithmetic
 /// runs in the same pass: every zero decision and the final terminal map
 /// must agree.
+#[allow(clippy::too_many_arguments)]
 fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     kernel: &mut K,
     request: &mut ReductionRequest,
@@ -726,6 +871,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     arithmetic: OrderedWeightArithmetic,
     work: &mut ReductionStatistics,
     source: &mut S,
+    tail: TailOptions,
 ) -> Result<OrderedOutput, K::Error> {
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
     let recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
@@ -742,6 +888,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
             nonzero_conditions,
             work,
             source,
+            tail,
         )
         .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
     } else {
@@ -754,6 +901,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
             nonzero_conditions,
             work,
             source,
+            tail,
         )
         .and_then(|output| modular_output(weights, output).map_err(Into::into))
     }
@@ -1003,10 +1151,20 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     nonzero_conditions: Vec<Coefficient>,
     work: &mut ReductionStatistics,
     steps: &mut S,
+    tail: TailOptions,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let limits = kernel.limits();
     let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    let mut tail = if tail.enabled {
+        TailRun::new(kernel, weights, tail.threads, true)?
+    } else {
+        None
+    };
+    let context = kernel.context().clone();
     for phase in 0..state.progress.total_phases {
+        if let Some(tail) = &mut tail {
+            tail.phase_started(kernel, weights, request, work, &mut state, phase)?;
+        }
         state.inspect(kernel, OrderedPhaseBoundary::Started, phase)?;
         weights.phase_started(phase);
         let Admitted {
@@ -1026,6 +1184,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             progress.frontier_keys = frontier.len();
             kernel.observe(progress, Some(&node.key))?;
             let checked = steps.step(kernel, frontier, &node, request, work)?;
+            if let Some(tail) = &mut tail {
+                tail.observe_step(&node, &checked, &context, limits.exact_algebra)?;
+            }
             for condition in &checked.nonzero_conditions {
                 guards.intern(nonzero_conditions, condition, |_| Ok(()))?;
             }
@@ -1105,43 +1266,16 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     continue;
                 }
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
-                match output.entry(terminal) {
-                    btree_map::Entry::Occupied(mut entry) => {
-                        work.record_coalescing_additions(1);
-                        request.record_coalescing_additions(
-                            1,
-                            limits.diagnostic_limit(limits.max_coalescing_additions),
-                        )?;
-                        let existing = entry.get_mut();
-                        let old = weights.monomials(existing)?;
-                        let zero = weights.merge_terminal(existing, contribution)?;
-                        let new = if zero {
-                            0
-                        } else {
-                            weights.monomials(existing)?
-                        };
-                        replace_monomials(&mut progress.terminal_coefficient_monomials, old, new)?;
-                        if zero {
-                            weights.cancel_terminal(entry.remove())?;
-                            progress.terminal_cancellations =
-                                progress.terminal_cancellations.saturating_add(1);
-                        } else {
-                            progress.terminal_merges = progress.terminal_merges.saturating_add(1);
-                        }
-                    }
-                    btree_map::Entry::Vacant(entry) => {
-                        let inserted = weights.insert_terminal(contribution)?;
-                        replace_monomials(
-                            &mut progress.terminal_coefficient_monomials,
-                            0,
-                            weights.monomials(&inserted)?,
-                        )?;
-                        entry.insert(inserted);
-                    }
-                }
-                progress.peak_terminal_coefficient_monomials = progress
-                    .peak_terminal_coefficient_monomials
-                    .max(progress.terminal_coefficient_monomials);
+                merge_terminal_contribution(
+                    weights,
+                    output,
+                    progress,
+                    work,
+                    request,
+                    limits,
+                    terminal,
+                    contribution,
+                )?;
             }
             weights.end_step(weight);
             progress.processed_keys = progress.processed_keys.saturating_add(1);
@@ -1150,9 +1284,67 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             progress.terminal_keys = output.len();
             kernel.observe(&progress, Some(&node.key))?;
         }
+        if let Some(tail) = &mut tail {
+            tail.phase_finished(phase);
+        }
         state.finish_phase(kernel, phase)?;
     }
+    if let Some(tail) = tail {
+        tail.finish(kernel, weights, request, work, &mut state)?;
+    }
     state.finish(work)
+}
+
+/// Add one nonzero terminal contribution to `output`, with the counters and
+/// limits of a terminal emission.
+#[allow(clippy::too_many_arguments)]
+fn merge_terminal_contribution<A: OrderedWeights>(
+    weights: &mut A,
+    output: &mut BTreeMap<IntegralKey, A::Weight>,
+    progress: &mut CandidateOrderedReductionProgress,
+    work: &mut ReductionStatistics,
+    request: &mut ReductionRequest,
+    limits: ReductionLimits,
+    terminal: IntegralKey,
+    contribution: A::Contribution,
+) -> Result<(), ReductionError> {
+    match output.entry(terminal) {
+        btree_map::Entry::Occupied(mut entry) => {
+            work.record_coalescing_additions(1);
+            request.record_coalescing_additions(
+                1,
+                limits.diagnostic_limit(limits.max_coalescing_additions),
+            )?;
+            let existing = entry.get_mut();
+            let old = weights.monomials(existing)?;
+            let zero = weights.merge_terminal(existing, contribution)?;
+            let new = if zero {
+                0
+            } else {
+                weights.monomials(existing)?
+            };
+            replace_monomials(&mut progress.terminal_coefficient_monomials, old, new)?;
+            if zero {
+                weights.cancel_terminal(entry.remove())?;
+                progress.terminal_cancellations = progress.terminal_cancellations.saturating_add(1);
+            } else {
+                progress.terminal_merges = progress.terminal_merges.saturating_add(1);
+            }
+        }
+        btree_map::Entry::Vacant(entry) => {
+            let inserted = weights.insert_terminal(contribution)?;
+            replace_monomials(
+                &mut progress.terminal_coefficient_monomials,
+                0,
+                weights.monomials(&inserted)?,
+            )?;
+            entry.insert(inserted);
+        }
+    }
+    progress.peak_terminal_coefficient_monomials = progress
+        .peak_terminal_coefficient_monomials
+        .max(progress.terminal_coefficient_monomials);
+    Ok(())
 }
 
 #[cfg(test)]

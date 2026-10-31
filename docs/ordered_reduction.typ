@@ -300,6 +300,37 @@ Symbolica RSS budget limit growth; skipped records only cost recomputation.
 Progress reports per-request `step_cache_hits` and `step_cache_misses`; the cache
 reports per-shard hits, misses, inserts and bytes.
 
+== Adjoint tail and tail table
+
+With `OrderedSchedulerOptions::adjoint_tail` (or `RUSTRED_ORDERED_ADJOINT_TAIL=1`)
+the scheduler evaluates a single-terminal tail by its adjoint. A tail is a suffix of
+phases whose steps emit terminal contributions to at most one terminal `T`; it is
+detected from the steps (a phase emitting a second terminal moves the candidate
+behind it), not from names. The frontier at its first phase holds every weight
+`w(K)` that enters it, and the tail adds exactly `sum_K w(K) u(K)` to `T`, where
+`u(K)` is the complete reduction of `K` onto `T`: a function of `K` and the program.
+
+- Recorded arithmetics keep the forward recording pass (zero decisions, guards,
+  counters) and replace the recorded tail program by `sum_(D,j) (d^j / D) S_(D,j)`,
+  `S_(D,j) = sum_(K: D_K = D) n_(K,j) w(K)` for `u(K) = sum_j n_(K,j) d^j / D_K`: almost
+  every recorded product has a constant coefficient. `u` is computed exactly by
+  back-substitution over the expanded steps, completed by the steps of reached keys
+  the forward pass erased (so the value no longer depends on any erasure decision).
+  If an erased key reached by the forward pass carries a guard not retained at the
+  start of the tail, the forward program (with its replayed erasure checks) is kept.
+- A tail table, kept in the step cache's directory and populated with it, stores per
+  tail identity `u`, the guards of its whole reduction and its compact step. It is
+  bound by versioning only (file schema, hand-bumped `ORDERED_TAIL_SEMANTICS`, and
+  the binding's adapter, family, variables, unresolved policy and terminal
+  convention); a file of another version or a corrupt one is rejected loudly and the
+  run starts cold. At every phase start the scheduler closes the tail from the table
+  when it covers the frontier with one terminal and either every tabulated guard is
+  already retained (any arithmetic) or the arithmetic decides erasures by probes:
+  then the forward zero decisions are repeated over the tabulated steps (same probe
+  values, same linear map) and the guards of the keys the forward pass would expand
+  are interned in pop order. Terms and nonzero conditions (values and order) equal
+  the forward run's; processed and emitted counters too for probe closing.
+
 Exact field weights must be provided as weights rather than separated into
 unrelated scalar-carrier calls. Application frontends are responsible for
 collecting compatible family, mass, dimension and spectator conventions before

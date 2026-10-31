@@ -55,6 +55,8 @@ use symbolica::domains::integer::Integer;
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::reduction::ReductionError;
+use crate::reduction::ordered_reduction::tail::table::{TAIL_FILE, tail_identity};
+use crate::reduction::ordered_reduction::tail::{OrderedTailTable, OrderedTailTableStatistics};
 use crate::solver::UnresolvedPolicy;
 use codec::{FxBuild, NODE_HEADER, Reader, Writer, hex, parse_hex32};
 use factor::{FactorBasis, FactoredDenominator, Polynomial};
@@ -448,6 +450,10 @@ pub struct OrderedStepCacheSaveReport {
     pub shards: usize,
     pub records: usize,
     pub bytes: u64,
+    /// Entries and bytes of the tail table file when it was written by this
+    /// save (see `OrderedStepCache::tail_statistics`), else zero.
+    pub tail_entries: usize,
+    pub tail_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -675,6 +681,8 @@ pub struct OrderedStepCache {
     granted: AtomicUsize,
     exhausted: AtomicBool,
     save_lock: Mutex<()>,
+    /// The tail table, read at its first use.
+    tail: Mutex<Option<Arc<OrderedTailTable>>>,
 }
 
 impl fmt::Debug for OrderedStepCache {
@@ -739,7 +747,42 @@ impl OrderedStepCache {
             granted: AtomicUsize::new(0),
             exhausted: AtomicBool::new(false),
             save_lock: Mutex::new(()),
+            tail: Mutex::new(None),
         }
+    }
+
+    /// The tail table kept with this cache (complete reductions of tail
+    /// identities, see `ordered_reduction::tail`), read from the directory
+    /// at its first use and populated like the step records (unless the
+    /// cache is read-only). It is bound by versioning only (schema, semantics
+    /// version and the binding's identity fields, see `tail::table`); a file
+    /// of another version or a corrupt one is rejected loudly and the table
+    /// starts cold. Closed-artifact caches have no tail table: their steps
+    /// may depend on earlier steps of a request.
+    pub(crate) fn tail_table(
+        &self,
+        context: &CoefficientContext,
+    ) -> Result<Option<Arc<OrderedTailTable>>, ReductionError> {
+        if self.binding.adapter == OrderedStepCacheAdapter::ClosedArtifact {
+            return Ok(None);
+        }
+        let mut slot = lock(&self.tail);
+        if let Some(table) = &*slot {
+            return Ok(Some(Arc::clone(table)));
+        }
+        let table = Arc::new(OrderedTailTable::open(
+            self.directory.as_ref().map(|directory| directory.join(TAIL_FILE)),
+            tail_identity(&self.binding),
+            self.options.populate,
+            context,
+        )?);
+        *slot = Some(Arc::clone(&table));
+        Ok(Some(table))
+    }
+
+    /// Counters of the tail table, once a request has used it.
+    pub fn tail_statistics(&self) -> Option<OrderedTailTableStatistics> {
+        lock(&self.tail).as_ref().map(|table| table.statistics())
     }
 
     pub fn binding(&self) -> &OrderedStepCacheBinding {
@@ -1258,6 +1301,14 @@ impl OrderedStepCache {
         text.push_str("end\n");
         write_atomically(&directory.join(MANIFEST_FILE), text.as_bytes())?;
         *lock(&self.manifest) = manifest;
+        let tail = lock(&self.tail).clone();
+        if let Some(table) = tail
+            && let Some((entries, bytes)) =
+                table.save(self.binding.context_variables.len(), write_atomically)?
+        {
+            report.tail_entries = entries;
+            report.tail_bytes = bytes;
+        }
         for file in replaced {
             // The new manifest no longer refers to it; a leftover is harmless.
             let _ = std::fs::remove_file(directory.join(file));
