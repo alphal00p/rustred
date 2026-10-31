@@ -104,11 +104,12 @@ pub enum OrderedRouteLayering {
     Index,
     /// One factor per step, smallest remaining numerator power first (ties:
     /// lowest source axis).
-    #[default]
     SmallestPower,
-    /// One factor per step, the factor with the fewest expansion terms first
-    /// (`binomial(power + width - 1, width - 1)` for an affine form with
-    /// `width` nonzero entries; ties: smaller power, then lower axis).
+    /// One factor per step, the factor whose exact expansion has the fewest
+    /// terms first (ties: smaller power, then lower axis). The default: the
+    /// fewest emitted terms and the fastest record pass and replay measured
+    /// on the 5L zero-momentum and quadratic requests.
+    #[default]
     FewestTerms,
     /// One factor per step, largest remaining numerator power first (ties:
     /// lowest source axis). For comparison.
