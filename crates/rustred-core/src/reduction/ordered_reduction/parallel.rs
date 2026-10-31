@@ -71,8 +71,7 @@ use symbolica::utils::resources::ResourceBudget;
 use super::{
     Admitted, Frontier, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
     OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
-    invariant,
-    replace_monomials,
+    invariant, replace_monomials,
 };
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;

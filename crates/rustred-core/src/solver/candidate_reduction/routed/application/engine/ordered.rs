@@ -408,9 +408,8 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
             OrderedNode::Partial(partial) => {
                 encode_partial_route(&partial.source, &partial.powers, out)
             }
-            node => Self::key_view(node).is_some_and(|(stage, integral)| {
-                encode_node(stage, integral, out)
-            }),
+            node => Self::key_view(node)
+                .is_some_and(|(stage, integral)| encode_node(stage, integral, out)),
         }
     }
 

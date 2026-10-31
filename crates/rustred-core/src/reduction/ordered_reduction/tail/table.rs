@@ -393,7 +393,8 @@ fn coefficient_bytes(coefficient: &Coefficient) -> Vec<u8> {
 /// Sort encodings; returns them sorted and the new id of every old id.
 fn sorted(encodings: Vec<Vec<u8>>) -> (Vec<Vec<u8>>, Vec<u32>) {
     let mut order: Vec<u32> = (0..encodings.len() as u32).collect();
-    order.sort_unstable_by(|&left, &right| encodings[left as usize].cmp(&encodings[right as usize]));
+    order
+        .sort_unstable_by(|&left, &right| encodings[left as usize].cmp(&encodings[right as usize]));
     let mut map = vec![0u32; encodings.len()];
     for (new, &old) in order.iter().enumerate() {
         map[old as usize] = new as u32;
@@ -471,7 +472,8 @@ fn encode(data: &TailData, identity: &str, nvars: usize) -> Vec<u8> {
             .collect(),
     );
     let mut entries: Vec<u32> = (0..data.entries.len() as u32).collect();
-    entries.sort_unstable_by(|&left, &right| data.keys[left as usize].cmp(&data.keys[right as usize]));
+    entries
+        .sort_unstable_by(|&left, &right| data.keys[left as usize].cmp(&data.keys[right as usize]));
     let mut position = vec![0u32; entries.len()];
     for (new, &old) in entries.iter().enumerate() {
         position[old as usize] = new as u32;
@@ -495,7 +497,11 @@ fn encode(data: &TailData, identity: &str, nvars: usize) -> Vec<u8> {
         let entry = &data.entries[id as usize];
         payload.len(key.len());
         payload.raw(key);
-        payload.varint(entry.terminal.map_or(0, |id| u64::from(terminals.1[id as usize]) + 1));
+        payload.varint(
+            entry
+                .terminal
+                .map_or(0, |id| u64::from(terminals.1[id as usize]) + 1),
+        );
         payload.varint(u64::from(values.1[entry.value as usize]));
         payload.varint(u64::from(sets.1[entry.guards as usize]));
         payload.varint(u64::from(entry.phase));
@@ -523,11 +529,7 @@ fn encode(data: &TailData, identity: &str, nvars: usize) -> Vec<u8> {
     out
 }
 
-fn decode(
-    bytes: &[u8],
-    identity: &str,
-    context: &CoefficientContext,
-) -> Result<TailData, String> {
+fn decode(bytes: &[u8], identity: &str, context: &CoefficientContext) -> Result<TailData, String> {
     if bytes.len() < 24 || &bytes[..16] != MAGIC {
         return Err("not an ordered tail table of this schema".into());
     }

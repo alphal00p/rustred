@@ -691,7 +691,9 @@ impl OrderedStepCache {
             return Ok(Some(Arc::clone(table)));
         }
         let table = Arc::new(OrderedTailTable::open(
-            self.directory.as_ref().map(|directory| directory.join(TAIL_FILE)),
+            self.directory
+                .as_ref()
+                .map(|directory| directory.join(TAIL_FILE)),
             tail_identity(&self.binding),
             self.options.populate,
             context,

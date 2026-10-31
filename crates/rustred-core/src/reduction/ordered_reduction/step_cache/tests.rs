@@ -191,7 +191,11 @@ fn partial_route_tail_identities_are_distinct_from_step_cache_identities() {
     // Different sources or powers give different identities, and no
     // step-cache stage of the same integral collides with them.
     let mut other = Vec::new();
-    assert!(encode_partial_route(&[true, true, false], &powers, &mut other));
+    assert!(encode_partial_route(
+        &[true, true, false],
+        &powers,
+        &mut other
+    ));
     assert_ne!(other, partial);
     for stage in [
         OrderedKeyStage::Integral,

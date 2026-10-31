@@ -44,8 +44,7 @@ pub use ordered_reduction::step_cache::{
 };
 pub use ordered_reduction::{
     ModularCommon, ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedSchedulerOptions,
-    OrderedTailTable,
-    OrderedTailTableStatistics, OrderedWeightArithmetic,
+    OrderedTailTable, OrderedTailTableStatistics, OrderedWeightArithmetic,
     ParseOrderedWeightArithmeticError, PolynomialDenominators, PolynomialOptions, SampledOptions,
 };
 pub(crate) use reducer::{

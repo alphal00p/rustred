@@ -372,7 +372,9 @@ pub(crate) trait OrderedWeights {
         _terminal: &mut Option<Self::Weight>,
         _probe: Option<Self::Probe>,
     ) -> Result<TailRewriteReport, ReductionError> {
-        Err(invariant("this weight arithmetic records no program to rewrite"))
+        Err(invariant(
+            "this weight arithmetic records no program to rewrite",
+        ))
     }
     /// Arithmetics whose every erasure decision is "the probe of the merged
     /// weight is zero" (recorded arithmetics without exact cross-check):

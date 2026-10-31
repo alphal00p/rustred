@@ -88,13 +88,13 @@ const PARALLEL_LEVEL: usize = 8;
 /// the scheduler options say; unset (or another value): the options decide.
 pub(super) fn environment() -> Option<bool> {
     static SETTING: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
-    *SETTING.get_or_init(|| {
-        match std::env::var("RUSTRED_ORDERED_ADJOINT_TAIL").as_deref() {
+    *SETTING.get_or_init(
+        || match std::env::var("RUSTRED_ORDERED_ADJOINT_TAIL").as_deref() {
             Ok("1" | "on" | "true") => Some(true),
             Ok("0" | "off" | "false") => Some(false),
             _ => None,
-        }
-    })
+        },
+    )
 }
 
 /// The environment enables the adjoint tail for every request.
@@ -502,7 +502,8 @@ impl TailStatistics {
             self.carriers,
             self.sensitive_keys,
             self.zero_probes,
-            self.aborted.map_or("null".to_owned(), |reason| format!("\"{reason}\"")),
+            self.aborted
+                .map_or("null".to_owned(), |reason| format!("\"{reason}\"")),
             self.closure_seconds,
             self.values_seconds,
             self.insert_seconds,
@@ -712,8 +713,7 @@ impl<K: OrderedKernel> TailRun<K> {
             for (&id, &probe) in ids.iter().zip(&probes) {
                 merged[id as usize] = Some(probe);
             }
-            let mut coefficient_probes: Vec<Option<A::Probe>> =
-                vec![None; data.coefficients.len()];
+            let mut coefficient_probes: Vec<Option<A::Probe>> = vec![None; data.coefficients.len()];
             let (mut popped, mut emitted) = (0usize, 0usize);
             let mut expanded = vec![false; data.entries.len()];
             let mut erased = Vec::new();
@@ -967,7 +967,11 @@ impl<K: OrderedKernel> TailRun<K> {
         progress.terminal_keys = state.output.len();
         kernel.observe(progress, None)?;
         self.closed = true;
-        self.statistics.mode = if swept.is_some() { "closed-probes" } else { "closed" };
+        self.statistics.mode = if swept.is_some() {
+            "closed-probes"
+        } else {
+            "closed"
+        };
         self.statistics.closed_phase = Some(phase);
         self.statistics.closed_keys = keys.len();
         self.statistics.swept_keys = processed;
@@ -1118,7 +1122,10 @@ impl<K: OrderedKernel> TailRun<K> {
             );
             true
         };
-        if table.as_ref().is_some_and(|table| !table.read().entries.is_empty()) {
+        if table
+            .as_ref()
+            .is_some_and(|table| !table.read().entries.is_empty())
+        {
             for id in 0..self.log.keys.len() as u32 {
                 lookup(&self.log, &mut self.buffer, &mut tabulated, id);
             }
@@ -1190,9 +1197,7 @@ impl<K: OrderedKernel> TailRun<K> {
         }
         self.statistics.table_values = tabulated.len();
         let mut order: Vec<u32> = (0..count as u32)
-            .filter(|&id| {
-                self.log.step[id as usize] != NONE && !tabulated.contains_key(&id)
-            })
+            .filter(|&id| self.log.step[id as usize] != NONE && !tabulated.contains_key(&id))
             .collect();
         for &id in &order {
             if self.log.position[id as usize].is_none() {
@@ -1204,7 +1209,9 @@ impl<K: OrderedKernel> TailRun<K> {
         order.sort_by(|&left, &right| {
             let (left, right) = (
                 self.log.position[left as usize].as_ref().expect("position"),
-                self.log.position[right as usize].as_ref().expect("position"),
+                self.log.position[right as usize]
+                    .as_ref()
+                    .expect("position"),
             );
             right
                 .phase
@@ -1399,10 +1406,8 @@ impl<K: OrderedKernel> TailRun<K> {
                                 terminal: if value.is_zero() { None } else { terminal },
                                 value,
                                 guards: set,
-                                phase: log.position[id as usize]
-                                    .as_ref()
-                                    .expect("position")
-                                    .phase as u32,
+                                phase: log.position[id as usize].as_ref().expect("position").phase
+                                    as u32,
                                 children: &children,
                                 terminal_coefficient,
                                 own_guards: &own,
@@ -1490,9 +1495,9 @@ impl<K: OrderedKernel> TailRun<K> {
                 let own = self.log.guard_refs[logged.guards.0 as usize..logged.guards.1 as usize]
                     .iter()
                     .any(|&guard| fresh(self.log.guards.value(guard)));
-                let below = children
-                    .iter()
-                    .any(|&(child, _)| !expanded(child) && fresh_below[child as usize] == Some(true));
+                let below = children.iter().any(|&(child, _)| {
+                    !expanded(child) && fresh_below[child as usize] == Some(true)
+                });
                 fresh_below[node as usize] = Some(own || below);
             }
             if fresh_below[id as usize] == Some(true) {

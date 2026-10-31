@@ -20,8 +20,8 @@ use crate::reduction::ordered_reduction::{
 use crate::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
     OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedStepShard, OrderedStepStage,
-    OrderedWeightArithmetic, PolynomialOptions, ReductionError, ReductionLimits,
-    ReductionRequest, ReductionStatistics, SampledOptions,
+    OrderedWeightArithmetic, PolynomialOptions, ReductionError, ReductionLimits, ReductionRequest,
+    ReductionStatistics, SampledOptions,
 };
 
 type Key = [i64; 2];
@@ -75,7 +75,12 @@ impl Program {
             &[],
         );
         step([0, 0], &[], &[([9, 3], "1")], &[]);
-        step([1, 9], &[([2, 11], "1"), ([2, 9], "-3"), ([2, 5], "2")], &[], &[]);
+        step(
+            [1, 9],
+            &[([2, 11], "1"), ([2, 9], "-3"), ([2, 5], "2")],
+            &[],
+            &[],
+        );
         step([1, 8], &[([2, 10], "2"), ([2, 8], "1")], &[], &[]);
         step([1, 7], &[([2, 6], "-1"), ([2, 4], "5/2")], &[], &[]);
         step([1, 6], &[([2, 9], "1"), ([2, 3], "1")], &[], &[]);
@@ -83,13 +88,33 @@ impl Program {
         step([1, 4], &[([2, 7], "-1"), ([2, 1], "1")], &[], &[]);
         step([1, 3], &[([2, 7], "1"), ([2, 6], "1")], &[], &[]);
         step([1, 2], &[([2, 5], "1/3"), ([2, 0], "2")], &[], &[]);
-        step([2, 11], &[([2, 10], "(d-2)/(d+1)"), ([2, 4], "1")], &[], &["d-1"]);
+        step(
+            [2, 11],
+            &[([2, 10], "(d-2)/(d+1)"), ([2, 4], "1")],
+            &[],
+            &["d-1"],
+        );
         step([2, 10], &[([2, 9], "d"), ([2, 3], "-1")], &[], &[]);
-        step([2, 9], &[([2, 8], "1/(2*d-1)"), ([2, 1], "3")], &[], &["2*d-1"]);
+        step(
+            [2, 9],
+            &[([2, 8], "1/(2*d-1)"), ([2, 1], "3")],
+            &[],
+            &["2*d-1"],
+        );
         step([2, 8], &[([2, 6], "2"), ([2, 5], "-1")], &[], &[]);
-        step([2, 7], &[([2, 6], "1"), ([2, 0], "(d+7)/(d-5)")], &[], &["d+7"]);
+        step(
+            [2, 7],
+            &[([2, 6], "1"), ([2, 0], "(d+7)/(d-5)")],
+            &[],
+            &["d+7"],
+        );
         step([2, 6], &[([2, 4], "d-4"), ([2, 2], "1")], &[], &[]);
-        step([2, 5], &[([2, 3], "1"), ([2, 1], "-1/(d+1)")], &[], &["d-1"]);
+        step(
+            [2, 5],
+            &[([2, 3], "1"), ([2, 1], "-1/(d+1)")],
+            &[],
+            &["d-1"],
+        );
         step([2, 4], &[([2, 2], "2"), ([2, 0], "1")], &[], &[]);
         step([2, 3], &[([2, 1], "d"), ([2, 0], "-2")], &[], &[]);
         step([2, 2], &[([2, 1], "(d+1)/(d-4)")], &[], &["d+2"]);
@@ -497,7 +522,14 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
         };
         for scheduler in schedulers(true) {
             let cache = OrderedStepCache::in_memory(binding(&program), Default::default());
-            let cold = run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+            let cold = run(
+                &program,
+                &initial,
+                &SAFE,
+                arithmetic,
+                scheduler,
+                Some(&cache),
+            );
             same_result(&cold.output, &forward(&initial, &SAFE));
             let report = cold.tail.last().unwrap();
             assert_eq!(report.closed_phase, None, "{report:?}");
@@ -521,7 +553,14 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
 
             // New guards in the tail: probe arithmetics repeat the forward
             // decisions over the table; exact decisions expand the tail.
-            let warm = run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+            let warm = run(
+                &program,
+                &initial,
+                &SAFE,
+                arithmetic,
+                scheduler,
+                Some(&cache),
+            );
             let reference = forward(&initial, &SAFE);
             same_result(&warm.output, &reference);
             let report = warm.tail.last().unwrap();
@@ -542,14 +581,24 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
             } else {
                 assert_eq!(report.closed_phase, None, "{report:?}");
                 assert!(warm.steps.iter().any(is_tail));
-                assert_eq!(uncached(warm.output.progress), uncached(cold.output.progress));
+                assert_eq!(
+                    uncached(warm.output.progress),
+                    uncached(cold.output.progress)
+                );
             }
 
             // `[2,7]` is erased with a new guard in phase 1: no closing
             // before the forward pass made (and recorded) that erasure;
             // probe arithmetics then close at phase 2, which never reaches
             // `[2,7]` again.
-            let warm = run(&program, &initial, &SENSITIVE, arithmetic, scheduler, Some(&cache));
+            let warm = run(
+                &program,
+                &initial,
+                &SENSITIVE,
+                arithmetic,
+                scheduler,
+                Some(&cache),
+            );
             same_result(&warm.output, &forward(&initial, &SENSITIVE));
             let report = warm.tail.last().unwrap();
             if probes(arithmetic) {
@@ -564,7 +613,14 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
 
             // Every tail guard retained by the caller: the tail closes at
             // its start without expanding any tail key.
-            let warm = run(&program, &initial, &RETAINED, arithmetic, scheduler, Some(&cache));
+            let warm = run(
+                &program,
+                &initial,
+                &RETAINED,
+                arithmetic,
+                scheduler,
+                Some(&cache),
+            );
             same_result(&warm.output, &forward(&initial, &RETAINED));
             let report = warm.tail.last().unwrap();
             assert_eq!(report.mode, "closed", "{report:?}");
@@ -572,7 +628,14 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
             assert!(!warm.steps.iter().any(is_tail), "{:?}", warm.steps);
 
             // Inputs inside the tail only: closes before the first phase.
-            let warm = run(&program, &only_tail, &RETAINED, arithmetic, scheduler, Some(&cache));
+            let warm = run(
+                &program,
+                &only_tail,
+                &RETAINED,
+                arithmetic,
+                scheduler,
+                Some(&cache),
+            );
             same_result(&warm.output, &forward(&only_tail, &RETAINED));
             assert_eq!(warm.tail.last().unwrap().closed_phase, Some(0));
             assert!(warm.steps.is_empty());
@@ -604,15 +667,32 @@ fn tail_table_files_are_bound_by_version_and_identity() {
         .unwrap()
     };
     let cache = open(&directory, binding(&program), true);
-    let cold = run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+    let cold = run(
+        &program,
+        &initial,
+        &SAFE,
+        arithmetic,
+        scheduler,
+        Some(&cache),
+    );
     let report = cache.save().unwrap();
-    assert!(report.tail_entries >= 20 && report.tail_bytes > 0, "{report:?}");
+    assert!(
+        report.tail_entries >= 20 && report.tail_bytes > 0,
+        "{report:?}"
+    );
     let file = directory.join(super::table::TAIL_FILE);
     let bytes = std::fs::read(&file).unwrap();
 
     // Reopened read-only: the tail closes from the file, nothing is added.
     let cache = open(&directory, binding(&program), false);
-    let warm = run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+    let warm = run(
+        &program,
+        &initial,
+        &SAFE,
+        arithmetic,
+        scheduler,
+        Some(&cache),
+    );
     same_result(&warm.output, &cold.output);
     assert_eq!(warm.tail.last().unwrap().mode, "closed-probes");
     let statistics = cache.tail_statistics().unwrap();
@@ -620,7 +700,14 @@ fn tail_table_files_are_bound_by_version_and_identity() {
     assert_eq!(statistics.rejected, None);
     // Saving the same entries again writes nothing.
     let cache = open(&directory, binding(&program), true);
-    run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+    run(
+        &program,
+        &initial,
+        &SAFE,
+        arithmetic,
+        scheduler,
+        Some(&cache),
+    );
     assert_eq!(cache.save().unwrap().tail_entries, 0);
     assert_eq!(std::fs::read(&file).unwrap(), bytes);
 
@@ -630,7 +717,14 @@ fn tail_table_files_are_bound_by_version_and_identity() {
         std::fs::create_dir_all(&other).unwrap();
         std::fs::write(other.join(super::table::TAIL_FILE), contents).unwrap();
         let cache = open(&other, binding, true);
-        let warm = run(&program, &initial, &SAFE, arithmetic, scheduler, Some(&cache));
+        let warm = run(
+            &program,
+            &initial,
+            &SAFE,
+            arithmetic,
+            scheduler,
+            Some(&cache),
+        );
         same_result(&warm.output, &cold.output);
         (warm, cache.tail_statistics().unwrap())
     };

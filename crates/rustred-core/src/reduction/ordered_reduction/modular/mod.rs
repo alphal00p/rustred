@@ -998,8 +998,7 @@ impl OrderedWeights for ModularRecorder {
                             return Err(error("too many simultaneously live frontier slots"));
                         }
                         self.next_slot += 1;
-                        self.ops
-                            .push(Op::new(OpTag::New, accumulator, reference));
+                        self.ops.push(Op::new(OpTag::New, accumulator, reference));
                         index.insert((group, exponents.clone()), basis.len());
                         basis.push((group, exponents, accumulator));
                     }
@@ -1064,11 +1063,8 @@ impl OrderedWeights for ModularRecorder {
                 // Erased (or never reached): every replay verifies that the
                 // adjoint sum is zero.
                 if let Some(slot) = target {
-                    self.ops.push(Op::new(
-                        OpTag::TermCancel,
-                        slot,
-                        CoefRef(CONSTANT_FLAG),
-                    ));
+                    self.ops
+                        .push(Op::new(OpTag::TermCancel, slot, CoefRef(CONSTANT_FLAG)));
                 }
                 *terminal = None;
             }
