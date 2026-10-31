@@ -25,8 +25,10 @@
 //! coefficients and records; the same records produce byte-identical files for
 //! any thread count) plus a manifest. Every file carries the cache stamp,
 //! a BLAKE3 digest of the [`OrderedStepCacheBinding`] (program digest, family,
-//! coefficient variables, adapter, unresolved policy, schema and step
-//! semantics version); a mismatched or corrupt file is rejected with
+//! coefficient variables, adapter, unresolved policy, candidate terminal
+//! convention) and of the engine that recorded it (schema, step semantics
+//! version, a build-time digest of the RustRed sources and the Symbolica
+//! build); a mismatched or corrupt file is rejected with
 //! [`ReductionError::OrderedStepCache`], never used. Step coefficients are
 //! stored with their denominators factored over a basis of irreducible
 //! factors, so modular arithmetics can map them cheaply.
@@ -46,23 +48,31 @@ use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 
 use symbolica::domains::integer::Integer;
 
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
+use crate::family::IntegralKey;
 use crate::reduction::ReductionError;
 use crate::solver::UnresolvedPolicy;
 use codec::{FxBuild, NODE_HEADER, Reader, Writer, hex, parse_hex32};
 use factor::{FactorBasis, FactoredDenominator, Polynomial};
 
 /// File-format and manifest schema.
-pub const ORDERED_STEP_CACHE_SCHEMA: &str = "rustred.ordered-step-cache.v1";
+pub const ORDERED_STEP_CACHE_SCHEMA: &str = "rustred.ordered-step-cache.v2";
 /// Version of the checked Ordered step semantics. It changes whenever an
 /// adapter can return a different step for the same identity and program
 /// (e.g. dropping zero-sector transport endpoints), which invalidates every
-/// existing cache through the stamp.
+/// existing cache through the stamp. A golden digest of fixture records
+/// (`step_cache::tests`) fails until it is bumped after such a change.
 pub const ORDERED_STEP_SEMANTICS: &str = "rustred-ordered-steps-2026-10-31";
+/// BLAKE3 digest (hex) of every Rust source of `rustred` and `rustred-order`,
+/// computed at build time. It is part of every stamp, so records are only
+/// replayed by an engine built from exactly the sources that recorded them,
+/// even when a change of a checked step forgot to bump
+/// [`ORDERED_STEP_SEMANTICS`].
+pub const ORDERED_STEP_SOURCES: &str = env!("RUSTRED_ORDERED_STEP_SOURCES");
 
 const SHARD_MAGIC: &[u8; 16] = b"RR-ORDERED-STEP1";
 const MANIFEST_FILE: &str = "ordered-step-cache.txt";
@@ -100,17 +110,25 @@ impl OrderedStepCacheAdapter {
     }
 }
 
-/// Everything a checked step depends on besides its identity.
+/// Everything a checked step depends on besides its identity and the engine
+/// (whose sources and Symbolica build every stamp includes, see
+/// [`ordered_step_engine`]).
 ///
-/// `program_digest` is the caller's digest of every program file the steps
-/// read (rule tables, owners, routes, terminal normalization). RustRed cannot
-/// recompute it from a loaded program, so a wrong digest is the caller's
-/// responsibility; the remaining fields are checked against the program at
-/// every request.
+/// `program_digest` digests every program file the steps read (rule tables,
+/// owners, routes). Loaders compute it from the bytes they read where they
+/// can: `PreparedSavedApplication::ordered_step_cache_binding` in
+/// rustred-app, and the digest a candidate bundle loader declares on its
+/// `CandidateReducer` (see `CandidateReducer::ordered_step_cache_binding`),
+/// which every attachment and request then checks. Otherwise it is the
+/// caller's statement. The remaining fields are checked against the program
+/// at attachment and at every request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderedStepCacheBinding {
+    /// Adapter whose checked steps the cache records.
     pub adapter: OrderedStepCacheAdapter,
+    /// Digest of the program files the steps read (see above).
     pub program_digest: [u8; 32],
+    /// Fingerprint of the integral family of the program.
     pub family_fingerprint: String,
     /// Coefficient-context parameter names, in variable order.
     pub context_variables: Vec<String>,
@@ -118,6 +136,13 @@ pub struct OrderedStepCacheBinding {
     /// `Preserve` an uncovered identity is a terminal step, under `Reject`
     /// an error. `None` for closed artifacts.
     pub unresolved_policy: Option<UnresolvedPolicy>,
+    /// Digest of a candidate program's installed terminal convention (raw,
+    /// terminal aliases or a weighted normalization): the terminal step row
+    /// of every raw terminal, computed by RustRed
+    /// (`CandidateReducer::ordered_step_cache_binding`). `None` for closed
+    /// artifacts and saved applications, whose terminal steps are fixed by
+    /// the program.
+    pub terminal_convention: Option<[u8; 32]>,
 }
 
 fn escape(text: &str) -> String {
@@ -135,7 +160,39 @@ fn escape(text: &str) -> String {
     out
 }
 
+/// Symbolica as identified by its build: `git describe` output or the crate
+/// version. Describe output is reduced to its seven-digit commit prefix, so a
+/// checkout with tags (`v3.0.1-110-g9cd57678`) and a Cargo git checkout
+/// without them (`9cd5767`) name the same sources alike.
+fn symbolica_identity(version: &str) -> String {
+    let described = version.strip_prefix("symbolica-").unwrap_or(version);
+    let commit = described
+        .rsplit_once("-g")
+        .map_or(described, |(_, commit)| commit);
+    if commit.len() >= 7 && commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        format!("git-{}", commit[..7].to_ascii_lowercase())
+    } else {
+        escape(described)
+    }
+}
+
+/// The engine part of every stamp: RustRed version, the build-time digest
+/// of its sources ([`ORDERED_STEP_SOURCES`]) and the Symbolica build.
+pub fn ordered_step_engine() -> &'static str {
+    static ENGINE: OnceLock<String> = OnceLock::new();
+    ENGINE.get_or_init(|| {
+        format!(
+            "rustred {} sources {ORDERED_STEP_SOURCES} symbolica {}",
+            env!("CARGO_PKG_VERSION"),
+            symbolica_identity(symbolica::license::LicenseManager::get_version())
+        )
+    })
+}
+
 impl OrderedStepCacheBinding {
+    /// A binding without a terminal convention, for closed artifacts and
+    /// saved applications. Candidate programs take theirs from
+    /// `CandidateReducer::ordered_step_cache_binding`.
     pub fn new(
         adapter: OrderedStepCacheAdapter,
         program_digest: [u8; 32],
@@ -149,21 +206,30 @@ impl OrderedStepCacheBinding {
             family_fingerprint: family_fingerprint.into(),
             context_variables: context.parameter_names().to_vec(),
             unresolved_policy,
+            terminal_convention: None,
         }
     }
 
-    /// Canonical description; its BLAKE3 digest is the stamp.
+    /// Canonical description, including the engine; its BLAKE3 digest is
+    /// the stamp.
     pub fn description(&self) -> String {
+        self.describe(ordered_step_engine())
+    }
+
+    fn describe(&self, engine: &str) -> String {
         let policy = match self.unresolved_policy {
             None => "none",
             Some(UnresolvedPolicy::Reject) => "reject",
             Some(UnresolvedPolicy::Preserve) => "preserve",
         };
+        let terminals = self
+            .terminal_convention
+            .map_or_else(|| "none".to_owned(), |digest| hex(&digest));
         let variables: Vec<_> = self.context_variables.iter().map(|v| escape(v)).collect();
         format!(
             "schema {ORDERED_STEP_CACHE_SCHEMA}\nsemantics {ORDERED_STEP_SEMANTICS}\n\
-             engine rustred {}\nadapter {}\nfamily {}\nprogram {}\nvariables {} {}\nunresolved {policy}\n",
-            env!("CARGO_PKG_VERSION"),
+             engine {engine}\nadapter {}\nfamily {}\nprogram {}\nvariables {} {}\n\
+             unresolved {policy}\nterminals {terminals}\n",
             self.adapter.as_str(),
             escape(&self.family_fingerprint),
             hex(&self.program_digest),
@@ -176,6 +242,35 @@ impl OrderedStepCacheBinding {
     pub fn stamp(&self) -> [u8; 32] {
         *blake3::hash(self.description().as_bytes()).as_bytes()
     }
+}
+
+/// Digest of a terminal convention: each raw terminal (in order) with its
+/// terminal step row, the exact terms a checked step emits for it.
+pub(crate) fn terminal_convention_digest<'a, E>(
+    rows: impl ExactSizeIterator<
+        Item = Result<(&'a IntegralKey, BTreeMap<IntegralKey, Coefficient>), E>,
+    >,
+) -> Result<[u8; 32], E> {
+    fn key(writer: &mut Writer, key: &IntegralKey) {
+        writer.len(key.powers().len());
+        for &power in key.powers() {
+            writer.zigzag(power);
+        }
+    }
+    let mut writer = Writer::default();
+    writer.raw(b"rustred.ordered-step-terminal-convention.v1\n");
+    writer.len(rows.len());
+    for row in rows {
+        let (terminal, terms) = row?;
+        key(&mut writer, terminal);
+        writer.len(terms.len());
+        for (output, coefficient) in &terms {
+            key(&mut writer, output);
+            writer.polynomial(&coefficient.numerator);
+            writer.polynomial(&coefficient.denominator);
+        }
+    }
+    Ok(*blake3::hash(&writer.bytes).as_bytes())
 }
 
 /// Resource behavior of one cache.
@@ -664,12 +759,16 @@ impl OrderedStepCache {
     }
 
     /// Check a program against this cache before a request uses it.
+    /// `program_digest` is the digest RustRed knows for the program (declared
+    /// by its loader), `None` when only the caller can vouch for it.
     pub(crate) fn check_binding(
         &self,
         adapter: OrderedStepCacheAdapter,
         family_fingerprint: &str,
         context: &CoefficientContext,
         unresolved_policy: Option<UnresolvedPolicy>,
+        terminal_convention: Option<[u8; 32]>,
+        program_digest: Option<[u8; 32]>,
     ) -> Result<(), ReductionError> {
         let binding = &self.binding;
         if binding.adapter != adapter {
@@ -690,6 +789,17 @@ impl OrderedStepCache {
         if binding.unresolved_policy != unresolved_policy {
             return Err(failure(
                 "cache unresolved policy differs from the program policy",
+            ));
+        }
+        if binding.terminal_convention != terminal_convention {
+            return Err(failure(
+                "cache terminal convention differs from the installed one (bind candidate \
+                 caches with CandidateReducer::ordered_step_cache_binding)",
+            ));
+        }
+        if program_digest.is_some_and(|digest| digest != binding.program_digest) {
+            return Err(failure(
+                "cache program digest differs from the digest of the loaded program",
             ));
         }
         Ok(())

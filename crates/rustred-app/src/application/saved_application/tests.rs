@@ -207,6 +207,31 @@ fn ordered_step_cache_replays_routed_steps_across_processes_without_owner_prepar
     assert_eq!(recorded.hits, 0);
     let saved = cache.save().unwrap();
     assert_eq!(saved.records, recorded.records);
+    // The manifest's shard lines (payload digests) are independent of the
+    // stamp; pin them to the step semantics version. The stamp itself names
+    // the engine build.
+    let manifest = std::fs::read_to_string(directory.join("ordered-step-cache.txt")).unwrap();
+    assert!(manifest.contains(&format!(
+        "\nengine {}\n",
+        rustred::reduction::ordered_step_engine()
+    )));
+    let shards: String = manifest
+        .lines()
+        .filter(|line| line.starts_with("shard "))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_eq!(
+        (
+            rustred::reduction::ORDERED_STEP_SEMANTICS,
+            blake3::hash(shards.as_bytes()).to_hex().as_str()
+        ),
+        (
+            "rustred-ordered-steps-2026-10-31",
+            "64a36123af5c9c1c836fcaf88b35fbe96371db90d77dfd8e86126dd4d0cec02e"
+        ),
+        "the recorded Route/Apply steps of the saved fixture changed: bump \
+         ORDERED_STEP_SEMANTICS and update the golden digest"
+    );
     // Another session loads the shards lazily and replays every step; the
     // owners' formulas are never prepared.
     let mut fresh = load();

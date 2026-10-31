@@ -165,6 +165,7 @@ impl<const N: usize> CandidateReducer<N> {
             cache_budget: Arc::new(SharedCacheBudget::default()),
             statistics: ReductionStatistics::default(),
             ordered_step_cache: None,
+            program_digest: None,
         })
     }
 

@@ -11,8 +11,10 @@ use super::{CandidateReducer, CandidateReductionError};
 impl<const N: usize> CandidateReducer<N> {
     /// Install exact finite terminal identities without changing candidate
     /// source authority or completeness. Raw catalog declarations remain fixed.
-    /// An empty cache is mandatory. Successful installation replaces a previous
-    /// unit-alias plan; any rejected installation leaves the owner unchanged.
+    /// An empty cache is mandatory, and no Ordered step cache may be attached
+    /// (its records hold the terminal steps of the current convention).
+    /// Successful installation replaces a previous unit-alias plan; any
+    /// rejected installation leaves the owner unchanged.
     pub fn install_terminal_normalization(
         &mut self,
         plan: TerminalNormalizationPlan,
@@ -21,6 +23,11 @@ impl<const N: usize> CandidateReducer<N> {
         if !self.cache.is_empty() {
             return Err(invalid(
                 "terminal normalization requires an empty reduction cache",
+            ));
+        }
+        if self.ordered_step_cache.is_some() {
+            return Err(invalid(
+                "terminal normalization requires a detached Ordered step cache",
             ));
         }
         if plan.family_fingerprint() != self.family_fingerprint() {

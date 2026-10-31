@@ -7,17 +7,18 @@ use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
 use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
-use crate::reduction::ordered_reduction::step_cache::failure;
 use crate::reduction::ordered_reduction::step_cache::kernel::{
     ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
 };
+use crate::reduction::ordered_reduction::step_cache::{failure, terminal_convention_digest};
 use crate::reduction::ordered_reduction::{
     ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPhaseInspector, OrderedPosition, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic};
 use crate::reduction::{
-    OrderedStepCache, OrderedStepCacheAdapter, OrderedStepShard, OrderedStepStage,
+    OrderedStepCache, OrderedStepCacheAdapter, OrderedStepCacheBinding, OrderedStepShard,
+    OrderedStepStage,
 };
 use crate::reduction::{
     ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
@@ -336,13 +337,72 @@ impl<const N: usize> ConcurrentStepCacheKernel for Kernel<'_, '_, N> {
 }
 
 impl<const N: usize> CandidateReducer<N> {
+    /// Declare the digest of the bytes this rule program was loaded from.
+    /// rustred-app's candidate bundle loader declares it; forks inherit it.
+    /// [`Self::ordered_step_cache_binding`] binds caches to it, and attaching
+    /// a cache or running an Ordered request with a cache bound to another
+    /// program digest fails. Refused while a cache is attached.
+    pub fn set_program_digest(&mut self, digest: [u8; 32]) -> Result<(), CandidateReductionError> {
+        if self.ordered_step_cache.is_some() {
+            return Err(CandidateReductionError::InvalidInput(
+                "a program digest requires a detached Ordered step cache".into(),
+            ));
+        }
+        self.program_digest = Some(digest);
+        Ok(())
+    }
+
+    /// The program digest declared by the loader, if any.
+    pub fn program_digest(&self) -> Option<[u8; 32]> {
+        self.program_digest
+    }
+
+    /// Binding of an Ordered step cache to this session's program: the
+    /// declared program digest ([`Self::set_program_digest`]), family,
+    /// coefficient variables, unresolved policy and the digest of the
+    /// installed terminal convention (the terminal step row of every raw
+    /// terminal). Open or create the cache with it. Installing another
+    /// terminal convention or policy afterwards makes the binding stale:
+    /// attachment and every request check all of these fields.
+    pub fn ordered_step_cache_binding(
+        &self,
+    ) -> Result<OrderedStepCacheBinding, CandidateReductionError> {
+        let program_digest = self.program_digest.ok_or_else(|| {
+            CandidateReductionError::InvalidInput(
+                "an Ordered step cache binding requires a declared program digest".into(),
+            )
+        })?;
+        Ok(OrderedStepCacheBinding {
+            terminal_convention: Some(self.terminal_convention_digest()?),
+            ..OrderedStepCacheBinding::new(
+                OrderedStepCacheAdapter::CandidateProgram,
+                program_digest,
+                self.program.family_fingerprint.as_str(),
+                self.program.context.base(),
+                Some(self.unresolved_policy),
+            )
+        })
+    }
+
+    /// Digest of the terminal steps of the installed convention.
+    fn terminal_convention_digest(&self) -> Result<[u8; 32], CandidateReductionError> {
+        terminal_convention_digest(
+            self.program
+                .terminals
+                .iter()
+                .map(|terminal| Ok((terminal, self.terminal_terms(terminal)?))),
+        )
+    }
+
     /// Attach (or detach) a persistent Ordered step cache. Ordered requests of
     /// this session and of its forks then replay recorded steps and record new
     /// ones; expanded keys, merges, guards and results are unchanged. The
-    /// binding must name a candidate program of this family, coefficient
-    /// context and unresolved policy (checked here and at every request); its
-    /// program digest must cover the rule program and the installed terminal
-    /// normalization. Depth-first application ignores the cache.
+    /// binding must be this session's [`Self::ordered_step_cache_binding`]:
+    /// candidate program, family, coefficient context, unresolved policy,
+    /// installed terminal convention and, when declared, program digest are
+    /// checked here and at every request. Terminal conventions cannot be
+    /// installed while a cache is attached. Depth-first application ignores
+    /// the cache.
     pub fn set_ordered_step_cache(
         &mut self,
         cache: Option<Arc<OrderedStepCache>>,
@@ -367,6 +427,8 @@ impl<const N: usize> CandidateReducer<N> {
             &self.program.family_fingerprint,
             self.program.context.base(),
             Some(self.unresolved_policy),
+            Some(self.terminal_convention_digest()?),
+            self.program_digest,
         )?)
     }
 
@@ -749,13 +811,13 @@ mod tests {
             (reduced, snapshots)
         };
         let (expected, expected_snapshots) = run(&reducer);
-        let binding = OrderedStepCacheBinding::new(
-            OrderedStepCacheAdapter::CandidateProgram,
-            [9; 32],
-            reducer.family_fingerprint(),
-            &context,
-            Some(UnresolvedPolicy::Preserve),
-        );
+        // A binding needs the program digest a loader declares.
+        assert!(reducer.ordered_step_cache_binding().is_err());
+        reducer.set_program_digest([9; 32]).unwrap();
+        let binding = reducer.ordered_step_cache_binding().unwrap();
+        assert_eq!(binding.adapter, OrderedStepCacheAdapter::CandidateProgram);
+        assert_eq!(binding.unresolved_policy, Some(UnresolvedPolicy::Preserve));
+        assert!(binding.terminal_convention.is_some());
         let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
         reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();
         // Forked sessions share the attached cache.
@@ -783,6 +845,18 @@ mod tests {
             cache.statistics().records,
             expected.progress().processed_keys
         );
+        // A cache bound to another loaded program is refused, and the
+        // declared digest cannot change under an attached cache.
+        let mut session = reducer.fork_empty();
+        let foreign = OrderedStepCache::in_memory(
+            OrderedStepCacheBinding {
+                program_digest: [8; 32],
+                ..binding.clone()
+            },
+            Default::default(),
+        );
+        assert!(session.set_ordered_step_cache(Some(foreign)).is_err());
+        assert!(session.set_program_digest([8; 32]).is_err());
         // A cache bound to another residual policy is refused.
         let mut rejecting = fixture();
         let other = OrderedStepCache::in_memory(binding, Default::default());
@@ -935,6 +1009,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn candidate_fixture_records_match_the_step_semantics_golden() {
+        use crate::reduction::ordered_reduction::step_cache::tests::{
+            assert_golden_records, records_digest,
+        };
+        let mut reducer = fixture();
+        reducer
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        reducer.set_program_digest([9; 32]).unwrap();
+        let cache = OrderedStepCache::in_memory(
+            reducer.ordered_step_cache_binding().unwrap(),
+            Default::default(),
+        );
+        reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();
+        let context = reducer.program.context.base().clone();
+        reducer
+            .reduce_linear_combination_ordered([
+                (key([4]), context.coefficient_fixture("1/(d-5)")),
+                (key([3]), context.coefficient_fixture("d")),
+                (key([2]), context.integer(3)),
+            ])
+            .unwrap();
+        assert_golden_records(
+            "candidate tadpole",
+            &records_digest(&cache),
+            "c52b354634ed04dfeb74221c3e4ac73ed585dd394e1807028f060cb518edec43",
+        );
     }
 
     #[test]

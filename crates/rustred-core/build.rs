@@ -1,5 +1,10 @@
-//! Generate only the runtime monomorphizations explicitly selected at build time.
-use std::{collections::BTreeSet, env, fs, path::PathBuf};
+//! Generate only the runtime monomorphizations explicitly selected at build time,
+//! and digest the sources that define Ordered step semantics.
+use std::{
+    collections::BTreeSet,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 const VARIABLE: &str = "RUSTRED_RUNTIME_ARITIES";
 
@@ -121,8 +126,68 @@ macro_rules! with_candidate_runtime_arities {
         )
 }
 
+/// Collect every Rust source below `directory` as (`label`-relative name, path).
+fn collect_sources(directory: &Path, label: &str, out: &mut Vec<(String, PathBuf)>) {
+    let mut entries: Vec<_> = fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
+        .map(|entry| entry.expect("source directory entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| panic!("non-UTF-8 source path {}", path.display()));
+        let child = format!("{label}/{name}");
+        if path.is_dir() {
+            collect_sources(&path, &child, out);
+        } else if name.ends_with(".rs") {
+            out.push((child, path));
+        }
+    }
+}
+
+/// BLAKE3 digest of the Rust sources of this crate and of the `rustred-order`
+/// path dependency. It versions the Ordered step-cache stamp, so a saved
+/// cache is never replayed by an engine built from other sources, whether or
+/// not `ORDERED_STEP_SEMANTICS` was bumped. Names are relative and use `/`,
+/// so the digest depends only on the source tree, not on its location.
+fn ordered_step_sources(manifest: &Path) -> String {
+    let mut files = Vec::new();
+    let roots = [
+        (manifest.join("src"), "rustred/src"),
+        (manifest.join("../rustred-order/src"), "rustred-order/src"),
+    ];
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rustred.ordered-step-sources.v1\n");
+    for (root, label) in &roots {
+        if root.is_dir() {
+            println!("cargo:rerun-if-changed={}", root.display());
+            collect_sources(root, label, &mut files);
+        } else {
+            // Packaged without the sibling tree: the stamp records the gap.
+            hasher.update(format!("missing {label}\n").as_bytes());
+        }
+    }
+    for (name, path) in files {
+        let bytes =
+            fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        hasher.update(&(name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed={VARIABLE}");
+    let manifest =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"));
+    println!(
+        "cargo:rustc-env=RUSTRED_ORDERED_STEP_SOURCES={}",
+        ordered_step_sources(&manifest)
+    );
     let value = match env::var(VARIABLE) {
         Ok(value) => Some(value),
         Err(env::VarError::NotPresent) => None,

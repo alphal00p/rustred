@@ -150,6 +150,8 @@ impl<'artifact> Reducer<'artifact> {
                 artifact.family_fingerprint(),
                 artifact.coefficient_context(),
                 None,
+                None,
+                None,
             )?;
         }
         let ordering = artifact.ordering();
