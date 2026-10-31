@@ -46,7 +46,10 @@
 //! sequentially). Every setting must give identical records apart from
 //! timings. `--phase-digests` adds to every `phase` record BLAKE3 digests of
 //! the scheduler state at the phase end: the frontier in pop order (identities
-//! and exact weight representations, or identities only for modular weights),
+//! and exact weight representations, or identities only for modular weights)
+//! and an order-independent multiset digest of the same entries
+//! (`frontier_set`: the pop order of later-phase Route keys differs between
+//! Route layering modes, their pending entries do not),
 //! the terminals, and the guard list in its order. `finished` always reports an
 //! order-sensitive guard digest too.
 //!
@@ -310,6 +313,10 @@ fn hash_coefficient(hasher: &mut blake3::Hasher, coefficient: &Coefficient) {
 /// Digests of the scheduler state at one phase boundary.
 fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
     let mut frontier = blake3::Hasher::new();
+    // Order-independent digest of the same entries: the wrapping sum of
+    // their individual BLAKE3 digests (a multiset hash), equal for any pop
+    // order of the same pending identities and weights.
+    let mut set = [0u64; 4];
     let mut entries = 0usize;
     let mut weights = 0usize;
     for entry in event.frontier() {
@@ -318,19 +325,26 @@ fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
             OrderedKeyStage::Route => ("route", String::new()),
             OrderedKeyStage::Apply { owner_sector } => ("apply", mask(owner_sector)),
         };
-        frontier.update(
-            format!(
-                "{}|{stage}|{owner}|{}|",
-                entry.phase,
-                powers(entry.integral)
-            )
-            .as_bytes(),
+        let line = format!(
+            "{}|{stage}|{owner}|{}|",
+            entry.phase,
+            powers(entry.integral)
         );
+        frontier.update(line.as_bytes());
+        let mut single = blake3::Hasher::new();
+        single.update(line.as_bytes());
         if let Some(weight) = entry.weight {
             hash_coefficient(&mut frontier, weight);
+            hash_coefficient(&mut single, weight);
             weights += 1;
         }
         frontier.update(b"\n");
+        for (word, bytes) in set
+            .iter_mut()
+            .zip(single.finalize().as_bytes().chunks_exact(8))
+        {
+            *word = word.wrapping_add(u64::from_le_bytes(bytes.try_into().expect("eight")));
+        }
         entries += 1;
     }
     let mut terminals = blake3::Hasher::new();
@@ -349,6 +363,7 @@ fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
         "frontier_entries": entries,
         "frontier_weights": weights,
         "frontier_blake3": frontier.finalize().to_hex().to_string(),
+        "frontier_set": set.iter().map(|word| format!("{word:016x}")).collect::<String>(),
         "terminals": event.terminals().len(),
         "terminals_blake3": terminals.finalize().to_hex().to_string(),
         "nonzero_conditions": event.nonzero_conditions().len(),
