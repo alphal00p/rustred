@@ -342,6 +342,9 @@ pub(crate) struct ModularStatistics {
     /// `ModularPolynomial`: replay CPU seconds per scheduler phase (summed
     /// over jobs; phase `None` = input admission before the first phase).
     pub replay_phase_cpu_seconds: Vec<(Option<usize>, f64)>,
+    /// `ModularPolynomial`: per phase, the field elements (per lane) of the
+    /// active weight summed over its products: the replay's op volume.
+    pub replay_phase_volume: Vec<(Option<usize>, f64)>,
     /// Digest of the recorded trace (ops with their slots and coefficient
     /// references, and the coefficient tables in interning order), computed
     /// only when statistics are reported. Equal digests mean identical
@@ -367,7 +370,7 @@ impl ModularStatistics {
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
                 "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{},",
-                "\"replay_phase_cpu_seconds\":[{}]}}"
+                "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
             self.ops,
@@ -415,6 +418,14 @@ impl ModularStatistics {
                 .iter()
                 .map(|(phase, seconds)| format!(
                     "[{},{seconds:.6}]",
+                    phase.map_or("null".into(), |phase| phase.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
+            self.replay_phase_volume
+                .iter()
+                .map(|(phase, volume)| format!(
+                    "[{},{volume:.0}]",
                     phase.map_or("null".into(), |phase| phase.to_string())
                 ))
                 .collect::<Vec<_>>()

@@ -77,6 +77,9 @@ struct Replayed {
     /// Seconds per trace segment: before the first phase, then one per
     /// recorded phase start (`Trace::phase_starts`).
     segment_seconds: Vec<f64>,
+    /// Per segment, the resident words of the active weight summed over the
+    /// products (`New`/`Add`), per lane: the replay's operation volume.
+    segment_volume: Vec<f64>,
 }
 
 /// Evaluate the trace with `representation` and return the images of the
@@ -95,6 +98,7 @@ fn replay<R: Representation>(
     let (mut words, mut peak_words, mut cancel_checks) = (0usize, 0usize, 0usize);
     // Phase timing (diagnostics): one clock read per phase boundary.
     let mut segment_seconds = vec![0.0; trace.phase_starts.len() + 1];
+    let mut segment_volume = vec![0usize; trace.phase_starts.len() + 1];
     let mut segment = 0usize;
     let mut next_boundary = trace.phase_starts.first().map_or(usize::MAX, |start| start.1);
     let mut clock = Instant::now();
@@ -135,9 +139,11 @@ fn replay<R: Representation>(
             }
             OpTag::Init => *target = representation.coefficient(op.coefficient)?,
             OpTag::New | OpTag::TermNew => {
+                segment_volume[segment] += representation.words(&active);
                 *target = representation.product(&active, op.coefficient)?
             }
             OpTag::Add | OpTag::TermAdd => {
+                segment_volume[segment] += representation.words(&active);
                 representation.add_product(target, &active, op.coefficient)?
             }
         }
@@ -158,6 +164,10 @@ fn replay<R: Representation>(
         peak_words,
         cancel_checks,
         segment_seconds,
+        segment_volume: segment_volume
+            .into_iter()
+            .map(|words| words as f64 / lanes.max(1) as f64)
+            .collect(),
     })
 }
 
@@ -271,7 +281,10 @@ impl ImageSource for PolynomialSource<'_> {
                     .iter()
                     .map(|&(phase, _)| Some(phase)),
             );
-            for (label, seconds) in labels.zip(&replayed.segment_seconds) {
+            for ((label, seconds), volume) in labels
+                .zip(&replayed.segment_seconds)
+                .zip(&replayed.segment_volume)
+            {
                 match statistics
                     .replay_phase_cpu_seconds
                     .iter_mut()
@@ -279,6 +292,14 @@ impl ImageSource for PolynomialSource<'_> {
                 {
                     Some((_, total)) => *total += seconds,
                     None => statistics.replay_phase_cpu_seconds.push((label, *seconds)),
+                }
+                // The volume per lane is the same in every job: keep one.
+                if !statistics
+                    .replay_phase_volume
+                    .iter()
+                    .any(|(known, _)| *known == label)
+                {
+                    statistics.replay_phase_volume.push((label, *volume));
                 }
             }
             for (index, terminals) in indices.into_iter().zip(replayed.images) {
