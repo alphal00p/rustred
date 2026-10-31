@@ -1947,3 +1947,427 @@ fn factorized_weighted_routes_and_cache_limits_reuse_existing_primitives() {
     bounded.clear_cache().unwrap();
     assert_eq!(bounded.cache_statistics().cached_coefficient_bytes(), 0);
 }
+
+/// Route keys of the weighted fixture with two numerator factors (source
+/// sector {0}, numerators on axes 1 and 2), whose layered transports share
+/// partial keys, and one single-factor key (whole transport in every mode).
+fn layered_inputs(c: &crate::algebra::CoefficientContext) -> Vec<(IntegralKey, Coefficient)> {
+    [
+        ([1, -1, -2], 3),
+        ([2, -2, -1], -2),
+        ([1, -2, -2], 5),
+        ([2, -1, -1], 7),
+        ([3, -1, -2], -1),
+        ([1, -3, -1], 4),
+        ([2, -2, -3], 1),
+        ([1, 0, -2], -6),
+    ]
+    .into_iter()
+    .map(|(powers, factor)| (key(powers), c.integer(factor)))
+    .collect()
+}
+
+fn polynomial_arithmetic(cross_check_exact: bool) -> crate::reduction::OrderedWeightArithmetic {
+    crate::reduction::OrderedWeightArithmetic::ModularPolynomial(
+        crate::reduction::ModularCommon {
+            threads: 2,
+            cross_check_exact,
+            ..Default::default()
+        },
+        crate::reduction::PolynomialOptions {
+            lanes: 2,
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn ordered_layered_route_transport_returns_the_whole_transport_result() {
+    use crate::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic};
+    use crate::solver::OrderedRouteLayering;
+    let routed = weighted::<3>();
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    application.set_ordered_route_layering(OrderedRouteLayering::Off);
+    let expected = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert!(!expected.terms().is_empty());
+    // The depth-first engine agrees with the whole Ordered transport.
+    let mut depth_first = routed.application();
+    depth_first
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    let reference = depth_first
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    assert_eq!(reference.terms(), expected.terms());
+    for layering in OrderedRouteLayering::ALL {
+        application.set_ordered_route_layering(layering);
+        for arithmetic in [
+            OrderedWeightArithmetic::Exact,
+            modular_arithmetic(false),
+            modular_arithmetic(true),
+            polynomial_arithmetic(false),
+            polynomial_arithmetic(true),
+        ] {
+            application.set_ordered_weight_arithmetic(arithmetic);
+            for (threads, window_keys) in [(1, 4096), (2, 1), (3, 2), (3, 4096)] {
+                application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+                    threads,
+                    window_keys,
+                });
+                let result = application
+                    .reduce_linear_combination(inputs.clone())
+                    .unwrap();
+                let case = format!("{layering} {arithmetic:?} threads {threads}/{window_keys}");
+                assert_eq!(result.terms(), expected.terms(), "{case}");
+                assert_eq!(result.unresolved(), expected.unresolved(), "{case}");
+                assert_eq!(
+                    result.nonzero_conditions(),
+                    expected.nonzero_conditions(),
+                    "{case}"
+                );
+                // Layered steps are transport calls: one per factor.
+                let calls = result.statistics().transport_calls;
+                if layering == OrderedRouteLayering::Off {
+                    assert_eq!(calls, expected.statistics().transport_calls, "{case}");
+                } else {
+                    assert!(calls > expected.statistics().transport_calls, "{case}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn ordered_layered_route_transport_expands_partial_keys() {
+    use crate::solver::OrderedRouteLayering;
+    let routed = weighted::<3>();
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    let progress = |application: &mut RoutedCandidateApplication<3>| {
+        let mut last = None;
+        let mut callback = |event: &CandidateRoutedApplicationEnvelope<'_>| {
+            if event.ordered.is_some() {
+                last = event.ordered;
+            }
+            Ok(CandidateRoutedObserverControl::Continue)
+        };
+        let mut observer = CandidateRoutedApplicationObserver::new(
+            CandidateRoutedObservationOptions {
+                interval: Duration::ZERO,
+                ..Default::default()
+            },
+            &mut callback,
+        );
+        let result = application
+            .reduce_linear_combination_with_observation(
+                inputs.clone(),
+                CandidateEntryAdmission::SavedGenerationScope,
+                &mut observer,
+                None,
+            )
+            .unwrap();
+        (result, last.unwrap())
+    };
+    application.set_ordered_route_layering(OrderedRouteLayering::Off);
+    let (whole, whole_progress) = progress(&mut application);
+    application.set_ordered_route_layering(OrderedRouteLayering::Index);
+    let (layered, layered_progress) = progress(&mut application);
+    assert_eq!(layered.terms(), whole.terms());
+    assert_eq!(layered.nonzero_conditions(), whole.nonzero_conditions());
+    eprintln!("whole {whole_progress:?}\nlayered {layered_progress:?}");
+    // Partial keys were expanded besides the Route and Apply keys; the
+    // terminals are the same.
+    assert!(layered_progress.processed_keys > whole_progress.processed_keys);
+    assert_eq!(layered_progress.terminal_keys, whole_progress.terminal_keys);
+}
+
+#[test]
+fn ordered_layered_route_transport_is_off_with_source_conditions() {
+    use crate::solver::OrderedRouteLayering;
+    let mut routed = weighted::<3>();
+    let programs = Arc::get_mut(&mut routed.programs).unwrap();
+    let indexed = programs.context.coefficient_context().clone();
+    let d = indexed
+        .lift(&indexed.base().parameter("d").unwrap())
+        .unwrap();
+    let condition = indexed
+        .add(
+            &d,
+            &indexed
+                .sub(&indexed.index(1).unwrap(), &indexed.index(0).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    Arc::get_mut(&mut programs.context)
+        .unwrap()
+        .shared
+        .source_conditions = vec![
+        indexed
+            .admit_native_polynomial_result_with_limits(
+                condition.raw().numerator.clone(),
+                Default::default(),
+            )
+            .unwrap(),
+    ];
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let mut application = routed.application();
+    application
+        .set_unresolved_policy(UnresolvedPolicy::Preserve)
+        .unwrap();
+    application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+    application.set_ordered_route_layering(OrderedRouteLayering::Off);
+    let whole = application
+        .reduce_linear_combination(inputs.clone())
+        .unwrap();
+    application.set_ordered_route_layering(OrderedRouteLayering::SmallestPower);
+    let layered = application.reduce_linear_combination(inputs).unwrap();
+    assert_eq!(layered.terms(), whole.terms());
+    assert_eq!(layered.nonzero_conditions(), whole.nonzero_conditions());
+    assert!(!whole.nonzero_conditions().is_empty());
+    // Endpoint validation retains guards here, so every Route key takes
+    // the whole transport.
+    assert_eq!(
+        layered.statistics().transport_calls,
+        whole.statistics().transport_calls
+    );
+}
+
+#[test]
+fn ordered_layered_route_transport_shares_step_caches_with_the_whole_transport() {
+    use crate::reduction::{
+        OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+        OrderedStepCacheBinding, OrderedWeightArithmetic,
+    };
+    use crate::solver::OrderedRouteLayering;
+    let routed = weighted::<3>();
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let binding = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::SavedApplication,
+        routed.programs.context.family().fingerprint(),
+        c,
+        Some(UnresolvedPolicy::Preserve),
+    );
+    let session = |layering, arithmetic, threads, cache: Option<Arc<OrderedStepCache>>| {
+        let mut application = routed.application();
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+        application.set_ordered_route_layering(layering);
+        application.set_ordered_weight_arithmetic(arithmetic);
+        application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+            threads,
+            window_keys: 2,
+        });
+        application.set_ordered_step_cache(cache).unwrap();
+        application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap()
+    };
+    let expected = session(
+        OrderedRouteLayering::Off,
+        OrderedWeightArithmetic::Exact,
+        1,
+        None,
+    );
+    let records = |cache: &OrderedStepCache| cache.statistics().records;
+    for arithmetic in [OrderedWeightArithmetic::Exact, polynomial_arithmetic(false)] {
+        for threads in [1, 3] {
+            // Cold and warm layered runs agree; layered steps are never
+            // recorded, so the layered cache holds only Apply records and
+            // whole transports of single-factor keys.
+            let layered = OrderedStepCache::in_memory(binding.clone(), Default::default());
+            for _ in 0..2 {
+                let result = session(
+                    OrderedRouteLayering::FewestTerms,
+                    arithmetic,
+                    threads,
+                    Some(layered.clone()),
+                );
+                assert_eq!(result.terms(), expected.terms());
+                assert_eq!(result.nonzero_conditions(), expected.nonzero_conditions());
+            }
+            let statistics = layered.statistics();
+            assert!(statistics.hits > 0);
+            assert_eq!(statistics.inserts as usize, statistics.records);
+            // A whole-transport cache records every step; the layered run
+            // replays its Apply records and ignores its multi-factor Route
+            // records, and vice versa.
+            let whole = OrderedStepCache::in_memory(binding.clone(), Default::default());
+            let result = session(
+                OrderedRouteLayering::Off,
+                arithmetic,
+                threads,
+                Some(whole.clone()),
+            );
+            assert_eq!(result.terms(), expected.terms());
+            assert!(records(&whole) > records(&layered));
+            for (layering, cache) in [
+                (OrderedRouteLayering::Index, whole.clone()),
+                (OrderedRouteLayering::Off, layered.clone()),
+            ] {
+                let before = records(&cache);
+                let result = session(layering, arithmetic, threads, Some(cache.clone()));
+                assert_eq!(result.terms(), expected.terms());
+                assert_eq!(result.nonzero_conditions(), expected.nonzero_conditions());
+                if layering == OrderedRouteLayering::Index {
+                    assert_eq!(records(&cache), before);
+                }
+            }
+            assert_eq!(records(&layered), records(&whole));
+        }
+    }
+}
+
+/// Route layering is opt-in (review of `layered-route`, F1). The default
+/// whole transport records and reads every step, so a cache written without
+/// layering (as the shipped caches are) is complete for the default: a cold
+/// default regeneration saves byte-identical files (the equal content that
+/// shipped-cache attestation compares), and a warm default run on it neither
+/// misses nor inserts. A layered run reads only part of it and records less.
+#[test]
+fn ordered_route_layering_is_opt_in_and_the_default_reads_whole_transport_caches_completely() {
+    use crate::reduction::ordered_reduction::step_cache::tests::Scratch;
+    use crate::reduction::{
+        OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+        OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedWeightArithmetic,
+    };
+    use crate::solver::OrderedRouteLayering;
+    use std::path::{Path, PathBuf};
+    assert_eq!(OrderedRouteLayering::default(), OrderedRouteLayering::Off);
+    let routed = weighted::<3>();
+    assert_eq!(
+        routed.application().ordered_route_layering(),
+        OrderedRouteLayering::Off
+    );
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs = layered_inputs(c);
+    let binding = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::SavedApplication,
+        routed.programs.context.family().fingerprint(),
+        c,
+        Some(UnresolvedPolicy::Preserve),
+    );
+    let open = |directory: &Path, populate: bool| {
+        OrderedStepCache::open(
+            directory,
+            binding.clone(),
+            OrderedStepCacheOptions {
+                populate,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    // `layering: None` keeps the application's default.
+    let session = |layering: Option<OrderedRouteLayering>,
+                   arithmetic,
+                   threads,
+                   cache: Option<Arc<OrderedStepCache>>| {
+        let mut application = routed.application();
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+        if let Some(layering) = layering {
+            application.set_ordered_route_layering(layering);
+        }
+        application.set_ordered_weight_arithmetic(arithmetic);
+        application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+            threads,
+            window_keys: 2,
+        });
+        application.set_ordered_step_cache(cache).unwrap();
+        application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap()
+    };
+    let files = |directory: &Path| {
+        let mut files = std::collections::BTreeMap::<PathBuf, Vec<u8>>::new();
+        let mut pending = vec![directory.to_path_buf()];
+        while let Some(path) = pending.pop() {
+            for entry in std::fs::read_dir(&path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap();
+                    files.insert(path.strip_prefix(directory).unwrap().to_path_buf(), bytes);
+                }
+            }
+        }
+        files
+    };
+    let expected = session(None, OrderedWeightArithmetic::Exact, 1, None);
+    assert!(!expected.terms().is_empty());
+    for arithmetic in [OrderedWeightArithmetic::Exact, polynomial_arithmetic(false)] {
+        for threads in [1, 3] {
+            let case = format!("{arithmetic:?} threads {threads}");
+            let check = |result: &CandidateRoutedReduction| {
+                assert_eq!(result.terms(), expected.terms(), "{case}");
+                assert_eq!(result.unresolved(), expected.unresolved(), "{case}");
+                assert_eq!(
+                    result.nonzero_conditions(),
+                    expected.nonzero_conditions(),
+                    "{case}"
+                );
+            };
+            // Cold populating runs: explicit `Off`, the default, layered.
+            let whole = Scratch::new("layering-default-whole");
+            let default = Scratch::new("layering-default");
+            let layered = Scratch::new("layering-default-layered");
+            let mut records = Vec::new();
+            for (layering, directory) in [
+                (Some(OrderedRouteLayering::Off), &whole.0),
+                (None, &default.0),
+                (Some(OrderedRouteLayering::FewestTerms), &layered.0),
+            ] {
+                let cache = open(directory, true);
+                check(&session(layering, arithmetic, threads, Some(cache.clone())));
+                cache.save().unwrap();
+                records.push(cache.statistics().records);
+            }
+            assert!(records[0] > 0, "{case}");
+            assert_eq!(files(&default.0), files(&whole.0), "{case}");
+            assert_eq!(records[1], records[0], "{case}");
+            // The layered run skips the multi-factor Route steps.
+            assert!(records[2] < records[0], "{case}");
+            assert_ne!(files(&layered.0), files(&whole.0), "{case}");
+            // Warm, read-only, on the whole-transport cache: the default
+            // replays every record and needs nothing else.
+            let cache = open(&whole.0, false);
+            check(&session(None, arithmetic, threads, Some(cache.clone())));
+            let statistics = cache.statistics();
+            assert_eq!((statistics.misses, statistics.inserts), (0, 0), "{case}");
+            assert_eq!(statistics.hits, records[0] as u64, "{case}");
+            assert_eq!(statistics.records, records[0], "{case}");
+            // A layered run on the same cache misses nothing either, but
+            // leaves its multi-factor Route records unread.
+            let cache = open(&whole.0, false);
+            check(&session(
+                Some(OrderedRouteLayering::FewestTerms),
+                arithmetic,
+                threads,
+                Some(cache.clone()),
+            ));
+            let statistics = cache.statistics();
+            assert_eq!((statistics.misses, statistics.inserts), (0, 0), "{case}");
+            assert_eq!(statistics.hits, records[2] as u64, "{case}");
+        }
+    }
+}

@@ -70,7 +70,8 @@ use symbolica::utils::resources::ResourceBudget;
 
 use super::{
     Admitted, Frontier, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
-    OrderedWeights, Pending, RawOutput, Scheduled, StepSource, admit, check_descent, invariant,
+    OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
+    invariant,
     replace_monomials,
 };
 use crate::algebra::Coefficient;
@@ -98,6 +99,16 @@ pub struct OrderedSchedulerOptions {
     /// (same-phase descendants above the window's lowest key are added). It
     /// bounds the popped weights and the steps held at once.
     pub window_keys: usize,
+    /// Evaluate a single-terminal tail of the request by its adjoint (see
+    /// `ordered_reduction::tail`): recorded (modular) replays multiply each
+    /// weight entering the tail by the complete reduction of its key onto
+    /// the tail's terminal instead of propagating it, and a persistent tail
+    /// table (attached with a step cache) can close the tail without
+    /// expanding it when that provably leaves the guards unchanged. Terms
+    /// and nonzero conditions are identical either way. Off by default; the
+    /// environment variable `RUSTRED_ORDERED_ADJOINT_TAIL=1` turns it on for
+    /// every request (callers without the option wired).
+    pub adjoint_tail: bool,
 }
 
 impl Default for OrderedSchedulerOptions {
@@ -105,6 +116,7 @@ impl Default for OrderedSchedulerOptions {
         Self {
             threads: 1,
             window_keys: 4096,
+            adjoint_tail: false,
         }
     }
 }
@@ -150,6 +162,7 @@ pub(super) fn test_threads_override(scheduler: OrderedSchedulerOptions) -> Order
             OrderedSchedulerOptions {
                 threads,
                 window_keys: 3,
+                ..Default::default()
             }
         }
         _ => scheduler,
@@ -314,7 +327,7 @@ impl Workers {
     /// `f` on every item on the workers. Item costs are very uneven (merges
     /// of exact rational functions), so every item is its own task: a
     /// contiguous range never runs on one thread while the others idle.
-    fn for_each<T: Send>(&self, items: &mut [T], f: impl Fn(&mut T) + Sync + Send) {
+    pub(super) fn for_each<T: Send>(&self, items: &mut [T], f: impl Fn(&mut T) + Sync + Send) {
         let budget = &self.budget;
         self.pool.install(|| {
             items
@@ -1353,9 +1366,20 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     work: &mut ReductionStatistics,
     workers: &Workers,
     window_keys: usize,
+    adjoint_tail: bool,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    // Value weights rewrite nothing; a persistent tail table can still
+    // close the tail (see `tail`).
+    let mut tail = if adjoint_tail {
+        TailRun::new(kernel, weights, 1, false)?
+    } else {
+        None
+    };
     for phase in 0..state.progress.total_phases {
+        if let Some(tail) = &mut tail {
+            tail.phase_started(kernel, weights, request, work, &mut state, phase)?;
+        }
         state.inspect(kernel, OrderedPhaseBoundary::Started, phase)?;
         while run_window(
             kernel,
@@ -1368,6 +1392,9 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
             phase,
         )? {}
         state.finish_phase(kernel, phase)?;
+    }
+    if let Some(tail) = tail {
+        tail.finish(kernel, weights, request, work, &mut state)?;
     }
     state.finish(work)
 }
@@ -2560,6 +2587,7 @@ mod tests {
         OrderedSchedulerOptions {
             threads: 1,
             window_keys: 1,
+            ..Default::default()
         }
     }
 
@@ -2611,6 +2639,7 @@ mod tests {
                             OrderedSchedulerOptions {
                                 threads,
                                 window_keys,
+                                ..Default::default()
                             },
                         );
                         assert_eq!(
@@ -2647,6 +2676,7 @@ mod tests {
                 OrderedSchedulerOptions {
                     threads: 4,
                     window_keys: 64,
+                    ..Default::default()
                 },
             );
             assert!(used.iter().any(|thread| *thread != caller));
@@ -2701,6 +2731,7 @@ mod tests {
                         OrderedSchedulerOptions {
                             threads,
                             window_keys,
+                            ..Default::default()
                         },
                     );
                     assert_eq!(
@@ -2752,6 +2783,7 @@ mod tests {
                         OrderedSchedulerOptions {
                             threads: 3,
                             window_keys,
+                            ..Default::default()
                         },
                     );
                     assert_eq!(concurrent, sequential, "window {window_keys}");
@@ -2928,6 +2960,7 @@ mod tests {
                             cached_run(OrderedSchedulerOptions {
                                 threads,
                                 window_keys,
+                                ..Default::default()
                             });
                         let context =
                             format!("seed {seed} {arithmetic:?} t{threads} w{window_keys}");

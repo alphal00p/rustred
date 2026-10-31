@@ -210,6 +210,9 @@ pub(super) struct Trace {
     slots: usize,
     /// Terminal accumulators (including cancelled ones).
     terminal_slots: usize,
+    /// `(phase, index of its first op)` at every phase start, in order
+    /// (diagnostics only; not part of the digest).
+    phase_starts: Vec<(usize, usize)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -337,6 +340,12 @@ pub(crate) struct ModularStatistics {
     pub passes: usize,
     pub lanes_replayed: usize,
     pub peak_weight_words: usize,
+    /// `ModularPolynomial`: replay CPU seconds per scheduler phase (summed
+    /// over jobs; phase `None` = input admission before the first phase).
+    pub replay_phase_cpu_seconds: Vec<(Option<usize>, f64)>,
+    /// `ModularPolynomial`: per phase, the field elements (per lane) of the
+    /// active weight summed over its products: the replay's op volume.
+    pub replay_phase_volume: Vec<(Option<usize>, f64)>,
     /// Digest of the recorded trace (ops with their slots and coefficient
     /// references, and the coefficient tables in interning order), computed
     /// only when statistics are reported. Equal digests mean identical
@@ -361,7 +370,8 @@ impl ModularStatistics {
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
-                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{}}}"
+                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{},",
+                "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
             self.ops,
@@ -405,6 +415,22 @@ impl ModularStatistics {
             self.peak_weight_words,
             self.trace_digest
                 .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.replay_phase_cpu_seconds
+                .iter()
+                .map(|(phase, seconds)| format!(
+                    "[{},{seconds:.6}]",
+                    phase.map_or("null".into(), |phase| phase.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
+            self.replay_phase_volume
+                .iter()
+                .map(|(phase, volume)| format!(
+                    "[{},{volume:.0}]",
+                    phase.map_or("null".into(), |phase| phase.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
         )
     }
 }
@@ -426,6 +452,7 @@ pub(crate) struct ModularRecorder {
     constant_count: u32,
     polynomial_count: u32,
     ops: Vec<Op>,
+    phase_starts: Vec<(usize, usize)>,
     free_slots: Vec<u32>,
     next_slot: u32,
     terminal_slots: u32,
@@ -468,6 +495,7 @@ impl ModularRecorder {
             constant_count: 0,
             polynomial_count: 0,
             ops: Vec::new(),
+            phase_starts: Vec::new(),
             free_slots: Vec::new(),
             next_slot: 0,
             terminal_slots: 0,
@@ -492,17 +520,9 @@ impl ModularRecorder {
             .validate_with_limits(coefficient, self.limits)
             .map_err(ReductionError::from)?;
         let dense = DenseRational::from_coefficient(coefficient);
-        let field = &self.probe_field;
+        let values = self.evaluate_probe(&dense)?;
         let reference = if dense.is_constant() {
-            let numerator = reduce(field, &dense.numerator[0]);
-            let denominator = reduce(field, &dense.denominator[0]);
-            if field.is_zero(&denominator) {
-                return Err(error(
-                    "probe prime divides a constant coefficient denominator",
-                ));
-            }
-            self.constant_probe
-                .push(field.div(&numerator, &denominator));
+            self.constant_probe.push(values[0]);
             let reference = CoefRef(self.constant_count | CONSTANT_FLAG);
             self.constant_count += 1;
             if self.constant_count >= CONSTANT_FLAG {
@@ -510,18 +530,6 @@ impl ModularRecorder {
             }
             reference
         } else {
-            let numerator: Vec<Fe> = dense.numerator.iter().map(|c| reduce(field, c)).collect();
-            let denominator: Vec<Fe> = dense.denominator.iter().map(|c| reduce(field, c)).collect();
-            let mut values = [field.zero(); PROBES];
-            for (value, x) in values.iter_mut().zip(self.probe_points) {
-                let den = field::horner(field, &denominator, x);
-                if field.is_zero(&den) {
-                    return Err(error(
-                        "a probe point is a pole of a step coefficient; change the seed",
-                    ));
-                }
-                *value = field.div(&field::horner(field, &numerator, x), &den);
-            }
             self.polynomial_probe.push(values);
             let reference = CoefRef(self.polynomial_count);
             self.polynomial_count += 1;
@@ -539,6 +547,35 @@ impl ModularRecorder {
         self.table
             .insert_unique(hash, index, |&i| hashes[i as usize]);
         Ok(reference)
+    }
+
+    /// The probe values of an exact coefficient: its value at the probe
+    /// points modulo the probe prime.
+    fn evaluate_probe(&self, dense: &DenseRational) -> Result<[Fe; PROBES], ReductionError> {
+        let field = &self.probe_field;
+        if dense.is_constant() {
+            let numerator = reduce(field, &dense.numerator[0]);
+            let denominator = reduce(field, &dense.denominator[0]);
+            if field.is_zero(&denominator) {
+                return Err(error(
+                    "probe prime divides a constant coefficient denominator",
+                ));
+            }
+            return Ok([field.div(&numerator, &denominator); PROBES]);
+        }
+        let numerator: Vec<Fe> = dense.numerator.iter().map(|c| reduce(field, c)).collect();
+        let denominator: Vec<Fe> = dense.denominator.iter().map(|c| reduce(field, c)).collect();
+        let mut values = [field.zero(); PROBES];
+        for (value, x) in values.iter_mut().zip(self.probe_points) {
+            let den = field::horner(field, &denominator, x);
+            if field.is_zero(&den) {
+                return Err(error(
+                    "a probe point is a pole of a step coefficient; change the seed",
+                ));
+            }
+            *value = field.div(&field::horner(field, &numerator, x), &den);
+        }
+        Ok(values)
     }
 
     #[inline]
@@ -627,6 +664,7 @@ impl ModularRecorder {
             polynomials,
             slots: self.next_slot as usize,
             terminal_slots: self.terminal_slots as usize,
+            phase_starts: self.phase_starts,
         };
         let mut statistics = ModularStatistics {
             arithmetic: self.lifter.name(),
@@ -724,6 +762,7 @@ impl ModularRecorder {
 impl OrderedWeights for ModularRecorder {
     type Weight = ModularWeight;
     type Contribution = ModularContribution;
+    type Probe = [Fe; PROBES];
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<ModularWeight, ReductionError> {
         let reference = self.intern(&coefficient)?;
@@ -739,6 +778,10 @@ impl OrderedWeights for ModularRecorder {
         self.ops
             .push(Op::new(OpTag::Pop, weight.slot, CoefRef(CONSTANT_FLAG)));
         Ok(())
+    }
+
+    fn phase_started(&mut self, phase: usize) {
+        self.phase_starts.push((phase, self.ops.len()));
     }
 
     fn end_step(&mut self, weight: ModularWeight) {
@@ -842,6 +885,196 @@ impl OrderedWeights for ModularRecorder {
     fn exact(_: &ModularWeight) -> Option<&Coefficient> {
         None
     }
+
+    fn tail_checkpoint(&self) -> Option<usize> {
+        Some(self.ops.len())
+    }
+
+    fn tail_probe(&self, weight: &ModularWeight) -> Option<[Fe; PROBES]> {
+        Some(weight.probe)
+    }
+
+    fn tail_probe_coefficient(
+        &self,
+        coefficient: &Coefficient,
+    ) -> Result<[Fe; PROBES], ReductionError> {
+        self.context
+            .validate_with_limits(coefficient, self.limits)
+            .map_err(ReductionError::from)?;
+        self.evaluate_probe(&DenseRational::from_coefficient(coefficient))
+    }
+
+    fn tail_probe_add_product(
+        &self,
+        accumulator: &mut Option<[Fe; PROBES]>,
+        a: &[Fe; PROBES],
+        b: &[Fe; PROBES],
+    ) {
+        let field = &self.probe_field;
+        let product: [Fe; PROBES] = std::array::from_fn(|i| field.mul(&a[i], &b[i]));
+        match accumulator {
+            None => *accumulator = Some(product),
+            Some(sum) => {
+                for (value, added) in sum.iter_mut().zip(product) {
+                    *value = field.add(&*value, &added);
+                }
+            }
+        }
+    }
+
+    fn tail_probe_is_zero(&self, probe: &[Fe; PROBES]) -> bool {
+        probe.iter().all(|value| self.probe_field.is_zero(value))
+    }
+
+    fn tail_slot(weight: &ModularWeight) -> Option<u32> {
+        Some(weight.slot)
+    }
+
+    /// Truncate the trace to `rewrite.ops` and append `T += sum_K w(K) u(K)`
+    /// for the entries `(slot of w(K), u(K))`, grouped so that almost every
+    /// recorded product has a constant coefficient: with `u(K) = N_K / D_K`
+    /// and `N_K = sum_j n_{K,j} d^j`,
+    ///
+    /// `sum_K w(K) u(K) = sum_{D,j} (d^j / D) * S_{D,j}`,
+    /// `S_{D,j} = sum_{K: D_K = D} n_{K,j} w(K)`,
+    ///
+    /// an exact identity. Each `S_{D,j}` accumulates in a fresh slot (never a
+    /// slot of the truncated program), then one product per `(D, j)` enters
+    /// the terminal's accumulator (the one live at the checkpoint, else a new
+    /// one). `keep` is the forward decision on the terminal: kept, `terminal`
+    /// points at the accumulator (a new weight carries `probe`); erased, the
+    /// accumulator is recorded as erased, which every replay verifies.
+    fn rewrite_tail(
+        &mut self,
+        rewrite: super::TailRewrite<'_>,
+        terminal: &mut Option<ModularWeight>,
+        probe: Option<[Fe; PROBES]>,
+    ) -> Result<super::TailRewriteReport, ReductionError> {
+        if rewrite.ops > self.ops.len() {
+            return Err(error("tail checkpoint beyond the recorded trace"));
+        }
+        self.ops.truncate(rewrite.ops);
+        let mut groups: std::collections::HashMap<crate::algebra::CoefficientPolynomial, usize> =
+            std::collections::HashMap::new();
+        let mut denominators = Vec::new();
+        // (group, exponents) -> index into `basis`
+        let mut index: std::collections::HashMap<(usize, Vec<u16>), usize> =
+            std::collections::HashMap::new();
+        let mut basis: Vec<(usize, Vec<u16>, u32)> = Vec::new();
+        let mut pending = Vec::new();
+        for &(slot, value) in rewrite.entries {
+            if value.is_zero() {
+                continue;
+            }
+            let next = groups.len();
+            let group = *groups.entry(value.denominator.clone()).or_insert_with(|| {
+                denominators.push(value.denominator.clone());
+                next
+            });
+            pending.push((slot, value, group));
+        }
+        for (slot, value, group) in pending {
+            self.ops
+                .push(Op::new(OpTag::Pop, slot, CoefRef(CONSTANT_FLAG)));
+            let numerator = &value.numerator;
+            for (term, coefficient) in numerator.coefficients.iter().enumerate() {
+                let exponents = numerator.exponents(term).to_vec();
+                let constant = Coefficient {
+                    numerator: numerator.constant(coefficient.clone()),
+                    denominator: numerator.one(),
+                };
+                let reference = self.intern(&constant)?;
+                match index.get(&(group, exponents.clone())) {
+                    Some(&element) => {
+                        self.ops
+                            .push(Op::new(OpTag::Add, basis[element].2, reference));
+                    }
+                    None => {
+                        let accumulator = self.next_slot;
+                        if accumulator > SLOT_MASK {
+                            return Err(error("too many simultaneously live frontier slots"));
+                        }
+                        self.next_slot += 1;
+                        self.ops
+                            .push(Op::new(OpTag::New, accumulator, reference));
+                        index.insert((group, exponents.clone()), basis.len());
+                        basis.push((group, exponents, accumulator));
+                    }
+                }
+            }
+        }
+        let mut target = rewrite.live;
+        for (group, exponents, accumulator) in &basis {
+            let template = &denominators[*group];
+            let monomial = Coefficient {
+                numerator: template.monomial(
+                    symbolica::domains::integer::Integer::one(),
+                    exponents.clone(),
+                ),
+                denominator: template.one(),
+            };
+            let denominator = Coefficient {
+                numerator: template.clone(),
+                denominator: template.one(),
+            };
+            let function = self
+                .context
+                .try_div(&monomial, &denominator, self.limits)
+                .map_err(ReductionError::from)?;
+            let reference = self.intern(&function)?;
+            self.ops
+                .push(Op::new(OpTag::Pop, *accumulator, CoefRef(CONSTANT_FLAG)));
+            match target {
+                Some(slot) => self.ops.push(Op::new(OpTag::TermAdd, slot, reference)),
+                None => {
+                    let slot = self.terminal_slots;
+                    if slot > SLOT_MASK {
+                        return Err(error("too many terminal accumulators"));
+                    }
+                    self.terminal_slots += 1;
+                    self.ops.push(Op::new(OpTag::TermNew, slot, reference));
+                    target = Some(slot);
+                }
+            }
+        }
+        match (rewrite.keep, target) {
+            (true, Some(slot)) => match terminal {
+                Some(weight) => {
+                    weight.slot = slot;
+                    if let Some(probe) = probe {
+                        weight.probe = probe;
+                    }
+                }
+                None => {
+                    *terminal = Some(ModularWeight {
+                        slot,
+                        probe: probe.ok_or_else(|| error("a new tail terminal has no probe"))?,
+                    })
+                }
+            },
+            (true, None) => {
+                return Err(error(
+                    "the forward pass kept a tail terminal that no entry reaches",
+                ));
+            }
+            (false, target) => {
+                // Erased (or never reached): every replay verifies that the
+                // adjoint sum is zero.
+                if let Some(slot) = target {
+                    self.ops.push(Op::new(
+                        OpTag::TermCancel,
+                        slot,
+                        CoefRef(CONSTANT_FLAG),
+                    ));
+                }
+                *terminal = None;
+            }
+        }
+        Ok(super::TailRewriteReport {
+            denominators: denominators.len(),
+            products: basis.len(),
+        })
+    }
 }
 
 /// Append one JSON line per modular request when requested by the caller's
@@ -852,7 +1085,7 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
     report_line(&statistics.to_json());
 }
 
-fn report_line(line: &str) {
+pub(super) fn report_line(line: &str) {
     if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
         use std::io::Write;
         if let Ok(mut file) = std::fs::OpenOptions::new()

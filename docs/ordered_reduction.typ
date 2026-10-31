@@ -176,6 +176,43 @@ outside a proved zero sector enters the common canonical frontier. A zero-sector
 endpoint keeps the conditions of its validation but carries no weight, exactly as
 if it had been expanded. Route and Apply are distinct operational identities.
 
+=== Layered Route transport
+
+A Route identity of source sector $S$ is $D^(-b) product_a (c_a + sum_l L_(a l) D_l)^(n_a)$
+in the owner's denominators: its positive powers $b$ mapped by the route's unit
+bijection and one affine factor per numerator. With
+`OrderedRouteLayering` other than `off` (saved applications, `SavedApplicationOptions`
+or `set_ordered_route_layering`), a Route identity with at least two numerator
+factors is transported one factor per step: the step expands one factor exactly
+(the same native expansion and limits as the whole transport) and emits partially
+transported identities $(S, t, r)$ (owner powers so far, numerator powers not yet
+expanded). Partial identities of the same sector and state merge on the frontier,
+so the remaining factors are expanded once for the merged weight; the last factor
+emits the Route and Apply children of the whole transport. The coalesced product
+is the same polynomial, hence every Route and Apply weight, zero decision, guard
+and result is that of the whole transport, in every weight arithmetic and thread
+count. The policy picks the next factor from $(S, r)$ only (`index`,
+`smallest-power`, `fewest-terms`, `largest-power`). Partial identities live in the
+Route phase of their source; a layered Route phase is processed one source sector
+at a time (its Route identities, then its partial identities by decreasing
+remaining power), so the pop order of pending later-phase Route identities differs
+from `off` while the pending identities and weights do not. A partial identity whose
+owner support has only installed zero subsectors is dropped: further factors only
+lower powers, so all of its final children would be zero-sector children.
+Layering is used only for applications without source conditions (endpoint
+validation is the only way a transport retains guards); otherwise every Route
+identity takes the whole transport. Layered steps are never recorded in or replayed
+from the one-step record cache, so caches written with and without layering hold
+the same kind of records and are interchangeable.
+
+Layering is opt-in; the default is `off`. A layered run neither records nor reads the
+whole transports of multi-factor Route identities, which are the heaviest records of a
+whole-transport cache: on a cache written with the default it reads only the Apply,
+owner-literal and single-factor Route records and recomputes the others from memoized
+factor expansions, and its own cold run records fewer records. With the default, a
+cold regeneration records exactly the records of a cache written without layering
+(shipped caches), so their content stays complete and comparable.
+
 Closed/candidate artifacts use descending-support phases when their authenticated
 order is support-primary. Other orders use one phase with their exact saved key
 order. Every emitted nonterminal edge is checked against the scheduler position;
@@ -267,6 +304,37 @@ corrupt file is rejected with
 Symbolica RSS budget limit growth; skipped records only cost recomputation.
 Progress reports per-request `step_cache_hits` and `step_cache_misses`; the cache
 reports per-shard hits, misses, inserts and bytes.
+
+== Adjoint tail and tail table
+
+With `OrderedSchedulerOptions::adjoint_tail` (or `RUSTRED_ORDERED_ADJOINT_TAIL=1`)
+the scheduler evaluates a single-terminal tail by its adjoint. A tail is a suffix of
+phases whose steps emit terminal contributions to at most one terminal `T`; it is
+detected from the steps (a phase emitting a second terminal moves the candidate
+behind it), not from names. The frontier at its first phase holds every weight
+`w(K)` that enters it, and the tail adds exactly `sum_K w(K) u(K)` to `T`, where
+`u(K)` is the complete reduction of `K` onto `T`: a function of `K` and the program.
+
+- Recorded arithmetics keep the forward recording pass (zero decisions, guards,
+  counters) and replace the recorded tail program by `sum_(D,j) (d^j / D) S_(D,j)`,
+  `S_(D,j) = sum_(K: D_K = D) n_(K,j) w(K)` for `u(K) = sum_j n_(K,j) d^j / D_K`: almost
+  every recorded product has a constant coefficient. `u` is computed exactly by
+  back-substitution over the expanded steps, completed by the steps of reached keys
+  the forward pass erased (so the value no longer depends on any erasure decision).
+  If an erased key reached by the forward pass carries a guard not retained at the
+  start of the tail, the forward program (with its replayed erasure checks) is kept.
+- A tail table, kept in the step cache's directory and populated with it, stores per
+  tail identity `u`, the guards of its whole reduction and its compact step. It is
+  bound by versioning only (file schema, hand-bumped `ORDERED_TAIL_SEMANTICS`, and
+  the step-cache binding's adapter, family, variables and unresolved policy; like
+  the step cache, keep one directory per program and data version); a file of
+  another version or a corrupt one is rejected loudly and the run starts cold. At every phase start the scheduler closes the tail from the table
+  when it covers the frontier with one terminal and either every tabulated guard is
+  already retained (any arithmetic) or the arithmetic decides erasures by probes:
+  then the forward zero decisions are repeated over the tabulated steps (same probe
+  values, same linear map) and the guards of the keys the forward pass would expand
+  are interned in pop order. Terms and nonzero conditions (values and order) equal
+  the forward run's; processed and emitted counters too for probe closing.
 
 Exact field weights must be provided as weights rather than separated into
 unrelated scalar-carrier calls. Application frontends are responsible for

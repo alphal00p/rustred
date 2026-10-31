@@ -505,6 +505,7 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
             let scheduler = OrderedSchedulerOptions {
                 threads,
                 window_keys,
+                ..Default::default()
             };
             let directory = scratch
                 .0
@@ -589,6 +590,7 @@ fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states
             application.set_ordered_scheduler_options(OrderedSchedulerOptions {
                 threads,
                 window_keys,
+                ..Default::default()
             });
             let mut states = Vec::new();
             let reduced = application

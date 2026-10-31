@@ -333,6 +333,17 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.ordered_scheduler_options()
     }
 
+    /// Select the Ordered Route transport (whole or layered by numerator
+    /// factor). The result is identical for every setting.
+    pub fn set_ordered_route_layering(&mut self, layering: rustred::solver::OrderedRouteLayering) {
+        self.options.ordered_route_layering = layering;
+        self.application.set_ordered_route_layering(layering);
+    }
+
+    pub fn ordered_route_layering(&self) -> rustred::solver::OrderedRouteLayering {
+        self.application.ordered_route_layering()
+    }
+
     /// Binding of an Ordered step cache for this application: the saved
     /// application adapter, family, coefficient variables and unresolved
     /// policy (cheap identity fields; the stamp adds the cache schema and
@@ -914,6 +925,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         application.set_reduction_strategy(options.reduction_strategy);
         application.set_ordered_weight_arithmetic(options.ordered_weight_arithmetic);
         application.set_ordered_scheduler_options(options.ordered_scheduler);
+        application.set_ordered_route_layering(options.ordered_route_layering);
         application
             .set_cache_representation(options.cache_representation)
             .map_err(native_failure)?;

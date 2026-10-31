@@ -144,6 +144,7 @@ impl Program {
             polynomials: self.polynomials,
             slots: self.weights.len(),
             terminal_slots: self.terminals.len(),
+            phase_starts: Vec::new(),
         };
         (trace, self.builder.finish(), self.terminals)
     }

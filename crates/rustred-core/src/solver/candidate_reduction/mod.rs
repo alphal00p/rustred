@@ -76,8 +76,9 @@ pub use routed::{
     CandidateRoutedTraceCensus, CandidateRoutedTraceCensusLimits, CandidateRoutedTraceReport,
     CandidateRoutedWork, CandidateRoutedWorkBudget, CandidateRoutedWorkRef,
     CandidateRoutedWorkerPool, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,
-    FiniteRootAdmission, RootAdmissionError, RootRegionInput, RoutedCandidateApplication,
-    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
+    FiniteRootAdmission, OrderedRouteLayering, RootAdmissionError, RootRegionInput,
+    RoutedCandidateApplication, RoutedCandidateLimits, RoutedCandidateReducer,
+    pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
