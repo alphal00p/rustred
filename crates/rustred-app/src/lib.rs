@@ -53,6 +53,11 @@ pub use application::{
     saved_application_observation_document,
 };
 pub use application::{
+    SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
+    SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
+    load_saved_application_with_route_addon, write_saved_application_route_addon,
+};
+pub use application::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
 };

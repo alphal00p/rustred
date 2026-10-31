@@ -5,6 +5,9 @@
 //! `saved_application export PUBLICATION NEW_DIRECTORY`
 //! `saved_application suite APPLICATION INVENTORY_JSON [OFFSET] [COUNT] [REPEATS] [CACHE_MODE] [CACHE_BYTES] [CACHE_REPRESENTATION] [LIMITS_JSON] [PROGRESS_MS]`
 //! `saved_application compare-cache APPLICATION INVENTORY_JSON CASE_ID CACHE_BYTES [REFERENCE_BYTES] [LIMITS_JSON]`
+//! `saved_application load APPLICATION [WORKERS] [auto|verify|ADDON_FILE]`
+//! `saved_application route-addon-write APPLICATION NEW_FILE [WORKERS]`
+//! `saved_application route-addon-check APPLICATION ADDON_FILE [WORKERS]`
 //!
 //! Inventory writes a small JSON document to stdout. Suite emits JSONL, one
 //! completed receipt per concrete point, and never claims exhaustive closure.
@@ -27,14 +30,23 @@
 //! PROGRESS_MS opts into structured request snapshots (zero/default is off).
 //! Snapshots run at native safe boundaries, not inside a CAS call or combine.
 //! Suite observes direct entries; the separate routed-entry API is unobserved.
+//! load times one load and prints its preparation statistics and where the
+//! routes came from (default auto: the route preparation add-on next to
+//! application.json when present). route-addon-write verifies every route of
+//! APPLICATION and records the verified maps into a new route preparation
+//! add-on (copy or move it next to application.json as route-preparation.rrbin
+//! to be picked up automatically). route-addon-check loads APPLICATION
+//! verifying and from ADDON_FILE and requires identical routes.
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use rustred::family::IntegralKey;
 use rustred_app::{
-    SavedApplicationOptions, export_saved_application, load_saved_application,
+    SavedApplicationOptions, SavedRouteAddon, check_saved_application_route_addon,
+    export_saved_application, load_saved_application, load_saved_application_with_route_addon,
     saved_application_arity, saved_application_boundary_witnesses, saved_application_domains,
+    write_saved_application_route_addon,
 };
 use serde_json::{Value, json};
 
@@ -81,8 +93,63 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
         }
         "suite" if (3..=11).contains(&args.len()) => suite::<N>(args, arity),
         "compare-cache" if (5..=7).contains(&args.len()) => compare_cache::run::<N>(args, arity),
+        "load" if (2..=4).contains(&args.len()) => load::<N>(args),
+        "route-addon-write" if (3..=4).contains(&args.len()) => {
+            let report = write_saved_application_route_addon::<N>(
+                Path::new(&args[1]),
+                Path::new(&args[2]),
+                workers(args.get(3))?,
+            )?;
+            println!("{}", json!({"event":"route_addon_written", "report":report}));
+            Ok(())
+        }
+        "route-addon-check" if (3..=4).contains(&args.len()) => {
+            let report = check_saved_application_route_addon::<N>(
+                Path::new(&args[1]),
+                Path::new(&args[2]),
+                workers(args.get(3))?,
+            )?;
+            println!("{}", json!({"event":"route_addon_checked", "report":report}));
+            Ok(())
+        }
         _ => Err("invalid saved_application arguments".into()),
     }
+}
+
+fn workers(text: Option<&String>) -> Result<SavedApplicationOptions> {
+    Ok(SavedApplicationOptions {
+        preparation_workers: text.map_or(Ok(1), |text| text.parse())?,
+        ..SavedApplicationOptions::default()
+    })
+}
+
+fn load<const N: usize>(args: &[String]) -> Result<()> {
+    let options = workers(args.get(2))?;
+    let addon = match args.get(3).map(String::as_str) {
+        None | Some("auto") => SavedRouteAddon::Auto,
+        Some("verify") => SavedRouteAddon::Disabled,
+        Some(path) => SavedRouteAddon::File(Path::new(path)),
+    };
+    let started = Instant::now();
+    let prepared = load_saved_application_with_route_addon::<N>(Path::new(&args[1]), options, addon)?;
+    let wall = started.elapsed().as_secs_f64();
+    let statistics = prepared.preparation_statistics();
+    println!(
+        "{}",
+        json!({"event":"loaded", "wall_seconds":wall,
+            "preparation_workers":options.preparation_workers,
+            "route_preparation":prepared.route_preparation().to_json(),
+            "seconds":{
+                "total":statistics.total.as_secs_f64(),
+                "metadata":statistics.metadata.as_secs_f64(),
+                "terminal_maps":statistics.terminal_maps.as_secs_f64(),
+                "owner_payloads":statistics.owner_payloads.as_secs_f64(),
+                "owner_preparation":statistics.owner_preparation.as_secs_f64(),
+                "route_preparation":statistics.route_preparation.as_secs_f64(),
+                "other":statistics.other.as_secs_f64(),
+            }})
+    );
+    Ok(())
 }
 
 fn terminals<const N: usize>(runtime: &Path) -> Result<()> {

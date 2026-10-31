@@ -9,7 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rustred::campaign::ParallelExecution;
 use rustred::family::IntegralFamily;
-use rustred::sector::symmetry::{self, CoefficientMatrix, MomentumMap, integral_transport};
+use rustred::sector::symmetry::{
+    self, CoefficientMatrix, MomentumMap, SavedValueTable, SavedValueTableBuilder,
+    SavedVerifiedMap, integral_transport,
+};
 use rustred::solver::CandidateOwnerRoute;
 use serde_json::{Value, json};
 use symbolica::prelude::{Matrix, Q, Rational};
@@ -33,6 +36,123 @@ pub(super) fn prepare<const N: usize>(
             observer(
                 json!({"event":"preparation", "phase":"native_map_verification",
                 "completed":completed,"total":routes.len(),"verified":verified,
+                "workers":workers}),
+            );
+        },
+    )
+}
+
+/// Recorded verified maps of a selection's transport routes, in selection
+/// order (the payload of a saved route preparation add-on).
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+pub(in crate::application) struct SavedRoutes {
+    pub(in crate::application) values: SavedValueTable,
+    /// `(selection ordinal, verified map)` of every route that requires a transport.
+    pub(in crate::application) routes: Vec<(u32, SavedVerifiedMap)>,
+}
+
+/// Record the verified maps of `prepared`, the routes [`prepare`] returned
+/// for the same selection, keyed by source sector.
+pub(super) fn capture<'a, const N: usize>(
+    routes: &[Route],
+    prepared: impl Fn(&[bool; N]) -> Option<&'a CandidateOwnerRoute>,
+    denominators: usize,
+) -> Result<SavedRoutes, AppError> {
+    let mut table = SavedValueTableBuilder::new();
+    let mut saved = Vec::new();
+    for (ordinal, route) in routes.iter().enumerate() {
+        if !route.requires_transport {
+            continue;
+        }
+        let source = mask(&route.source_mask, denominators)?;
+        let key = std::array::from_fn(|axis| source.active_bits().get(axis) == Some(&true));
+        let prepared = prepared(&key)
+            .ok_or_else(|| AppError::input("a selected transport route was not prepared"))?;
+        if prepared.owner_sector != mask(&route.owner_mask, denominators)? {
+            return Err(AppError::input("prepared route owner differs from the selection"));
+        }
+        let ordinal = u32::try_from(ordinal)
+            .map_err(|_| AppError::limit("route ordinal exceeds u32"))?;
+        let map = SavedVerifiedMap::capture(prepared.transport.verified_map(), &mut table)
+            .map_err(|e| AppError::input(format!("route {ordinal}: {e}")))?;
+        saved.push((ordinal, map));
+    }
+    Ok(SavedRoutes {
+        values: table.finish(),
+        routes: saved,
+    })
+}
+
+/// Rebuild the routes [`prepare`] would return from recorded verified maps:
+/// the same order, owners and transports, without exact map replay. The
+/// transports are compiled as in [`prepare`] (cheap admission checks only).
+pub(super) fn restore<const N: usize>(
+    family: &Arc<IntegralFamily>,
+    routes: &[Route],
+    saved: &SavedRoutes,
+    workers: usize,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+) -> Result<Option<Vec<CandidateOwnerRoute>>, AppError> {
+    let loops = family.loop_count();
+    let mut expected = Vec::new();
+    for (ordinal, route) in routes.iter().enumerate() {
+        if route.source_to_representative.len() != loops
+            || route.owner_to_representative.len() != loops
+        {
+            return Err(AppError::input(
+                "route matrix dimensions differ from native family",
+            ));
+        }
+        if route.requires_transport {
+            expected.push(ordinal);
+        }
+    }
+    if saved.routes.len() != expected.len()
+        || saved
+            .routes
+            .iter()
+            .zip(&expected)
+            .any(|((saved, _), expected)| *saved as usize != *expected)
+    {
+        return Err(AppError::input(
+            "saved routes differ from the selection's transport routes",
+        ));
+    }
+    let values = saved
+        .values
+        .materialize(family.coefficient_context())
+        .map_err(|e| AppError::input(format!("saved route values: {e}")))?;
+    map_batches(
+        saved.routes.len(),
+        workers,
+        cancellation,
+        |index| {
+            let (ordinal, map) = &saved.routes[index];
+            let route = &routes[*ordinal as usize];
+            let source = mask(&route.source_mask, family.denominator_count())?;
+            let target = mask(&route.owner_mask, family.denominator_count())?;
+            let verified = map
+                .restore(family, family, &values)
+                .map_err(|e| AppError::input(format!("saved route {ordinal}: {e}")))?;
+            let transport = integral_transport::compile(
+                family,
+                Arc::clone(family),
+                Arc::new(verified),
+                source,
+                target.clone(),
+                Default::default(),
+            )
+            .map_err(|e| AppError::input(format!("native integral transport: {e:?}")))?;
+            Ok(Some(CandidateOwnerRoute {
+                owner_sector: target,
+                transport: Arc::new(transport),
+            }))
+        },
+        |completed, restored| {
+            observer(
+                json!({"event":"preparation", "phase":"saved_route_restore",
+                "completed":completed,"total":saved.routes.len(),"verified":restored,
                 "workers":workers}),
             );
         },

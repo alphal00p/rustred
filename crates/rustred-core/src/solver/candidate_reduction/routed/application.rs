@@ -209,6 +209,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             ordered_step_cache: None,
         })
     }
+    /// The verified routes, keyed by their source sector in ascending order.
+    pub fn routes(&self) -> impl Iterator<Item = (&[bool; N], &CandidateOwnerRoute)> {
+        self.routes.iter()
+    }
+
     pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
         match &self.owners {
             ApplicationOwners::Deferred(programs) => programs.statistics(),

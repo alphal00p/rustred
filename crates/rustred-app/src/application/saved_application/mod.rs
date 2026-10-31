@@ -22,6 +22,7 @@ mod options;
 mod package;
 mod products;
 mod progress;
+mod route_addon;
 mod running_cache;
 mod scope;
 #[cfg(test)]
@@ -60,12 +61,18 @@ pub use charts::SavedApplicationProductChartStatistics;
 pub use options::{SavedApplicationEntryCoveragePolicy, SavedApplicationOptions};
 pub use package::{
     export_saved_application, export_saved_application_with_policy, load_saved_application,
-    load_saved_application_with_policy, prepare_saved_application,
+    load_saved_application_with_policy, load_saved_application_with_route_addon,
+    prepare_saved_application,
     prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_domains,
     saved_application_domains_with_policy,
 };
 pub use products::{SavedApplicationProduct, SavedApplicationProductStatistics};
+pub use route_addon::{
+    SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
+    SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
+    write_saved_application_route_addon,
+};
 pub use progress::saved_application_observation_document;
 pub use running_cache::{
     SavedApplicationReadOnlyCache, SavedApplicationRunningCache, SavedApplicationRunningCacheBase,
@@ -285,6 +292,7 @@ pub struct PreparedSavedApplication<const N: usize> {
     terminal_products: Option<products::TerminalProducts>,
     terminal_product_charts: Option<charts::TerminalProductCharts>,
     preparation_statistics: SavedApplicationPreparationStatistics,
+    route_preparation: SavedRoutePreparation,
     options: SavedApplicationOptions,
     metadata: Value,
     inputs: package::ApplicationInputs,
@@ -434,6 +442,12 @@ impl<const N: usize> PreparedSavedApplication<N> {
     pub fn metadata(&self) -> &Value {
         &self.metadata
     }
+    /// Whether the routes were verified or restored from a route preparation
+    /// add-on (and why an offered add-on was rejected).
+    pub fn route_preparation(&self) -> &SavedRoutePreparation {
+        &self.route_preparation
+    }
+
     pub fn preparation_statistics(&self) -> &SavedApplicationPreparationStatistics {
         &self.preparation_statistics
     }
@@ -768,7 +782,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         metadata: Value,
         options: SavedApplicationOptions,
     ) -> Result<Self, AppError> {
-        Self::from_parts_with_mode(inputs, terminals, metadata, options, false, None)
+        Self::from_parts_with_mode(inputs, terminals, metadata, options, false, None, None)
     }
 
     fn from_parts_deferred(
@@ -777,8 +791,17 @@ impl<const N: usize> PreparedSavedApplication<N> {
         metadata: Value,
         options: SavedApplicationOptions,
         policy: Option<&crate::FiniteDemandPolicy>,
+        saved_routes: Option<(std::path::PathBuf, prepare::SavedRoutes)>,
     ) -> Result<Self, AppError> {
-        Self::from_parts_with_mode(inputs, terminals, metadata, options, true, policy)
+        Self::from_parts_with_mode(
+            inputs,
+            terminals,
+            metadata,
+            options,
+            true,
+            policy,
+            saved_routes,
+        )
     }
 
     fn from_parts_with_mode(
@@ -788,6 +811,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         options: SavedApplicationOptions,
         deferred: bool,
         policy: Option<&crate::FiniteDemandPolicy>,
+        saved_routes: Option<(std::path::PathBuf, prepare::SavedRoutes)>,
     ) -> Result<Self, AppError> {
         let started = Instant::now();
         options.validate_preparation()?;
@@ -858,6 +882,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 }
             }
         };
+        let mut route_restore = prepare::RouteRestore::Verified;
         let mut application = if deferred {
             let family = terminals
                 .families
@@ -875,6 +900,8 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 &observer,
                 Some(&mut authenticate),
                 &mut reader,
+                saved_routes.as_ref().map(|(_, routes)| routes),
+                &mut route_restore,
             )?
         } else {
             prepare::prepare_with_reader::<N>(
@@ -925,6 +952,21 @@ impl<const N: usize> PreparedSavedApplication<N> {
         metadata["preparation_workers"] = serde_json::json!(options.preparation_workers);
         let mut preparation_statistics = timing.into_inner().2;
         preparation_statistics.finish(started.elapsed());
+        let mut route_preparation = SavedRoutePreparation::default();
+        if let Some((path, _)) = saved_routes {
+            match route_restore {
+                prepare::RouteRestore::Restored => {
+                    route_preparation.source = SavedRoutePreparationSource::Addon;
+                    route_preparation.addon = Some(path);
+                }
+                prepare::RouteRestore::Rejected(reason) => {
+                    route_preparation.reject(&path, reason);
+                }
+                prepare::RouteRestore::Verified => {
+                    route_preparation.reject(&path, "not used by an eager preparation".into());
+                }
+            }
+        }
         Ok(Self {
             application,
             entry_domain,
@@ -932,6 +974,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             terminal_products: None,
             terminal_product_charts: None,
             preparation_statistics,
+            route_preparation,
             options,
             metadata,
             inputs,

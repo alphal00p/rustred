@@ -39,6 +39,17 @@ impl NonZeroCondition {
     pub const fn sources(&self) -> &BTreeSet<ConditionSource> {
         &self.sources
     }
+
+    /// Trusted reassembly of a recorded condition (see [`super::saved`]).
+    pub(super) fn from_parts(
+        polynomial: CoefficientPolynomial,
+        sources: BTreeSet<ConditionSource>,
+    ) -> Self {
+        Self {
+            polynomial,
+            sources,
+        }
+    }
 }
 
 pub(super) struct Collector {

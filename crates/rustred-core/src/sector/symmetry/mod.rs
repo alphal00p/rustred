@@ -19,6 +19,7 @@ pub mod integral_transport;
 mod limits;
 mod model;
 pub mod permutation;
+pub mod saved;
 mod verify;
 
 pub use canonical::{
@@ -34,5 +35,9 @@ pub use limits::{DEFAULT_MAX_MATRIX_ENTRIES, Limits, Stats};
 pub use model::{
     CoefficientMatrix, DenominatorAction, DenominatorMap, Jacobian, MomentumMap, ScalarProductMap,
     VerifiedMap,
+};
+pub use saved::{
+    SAVED_VERIFIED_MAP_SEMANTICS, SavedMapError, SavedValueTable, SavedValueTableBuilder,
+    SavedValues, SavedVerifiedMap,
 };
 pub use verify::verify;

@@ -79,6 +79,11 @@ pub use saved_application::{
     saved_application_domains, saved_application_domains_with_policy,
     saved_application_observation_document,
 };
+pub use saved_application::{
+    SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
+    SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
+    load_saved_application_with_route_addon, write_saved_application_route_addon,
+};
 
 pub(crate) use routed_campaign::{
     DIAGNOSTIC_PAUSE_VARIABLE, EPOCH_WALK_CHECKPOINT_FORMAT, EPOCH_WALK_CHECKPOINT_SCHEMA,

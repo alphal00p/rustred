@@ -231,7 +231,7 @@ fn prepare_with_policy<const N: usize>(
         "authority":"inherits the saved owners and published terminal substitutions; no certification upgrade",
     });
     let mut prepared = PreparedSavedApplication::from_parts_with_mode(
-        inputs, terminals, metadata, options, false, policy,
+        inputs, terminals, metadata, options, false, policy, None,
     )?;
     prepared.preparation_statistics.metadata = metadata_time;
     prepared.preparation_statistics.terminal_maps = terminal_time;
@@ -263,11 +263,26 @@ pub fn export_saved_application_with_policy<const N: usize>(
 /// Authenticate application-only data once and retain frozen native frames.
 /// Owner presence, geometry/context, zero certificates and routes are eager;
 /// each owner's formulas and overlays are admitted/prepared once on first use.
+/// Routes come from the route preparation add-on next to `application.json`
+/// when it is present and matches ([`SavedRouteAddon::Auto`]); otherwise
+/// every route is verified.
 pub fn load_saved_application<const N: usize>(
     directory: &Path,
     options: SavedApplicationOptions,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
-    load_with_policy(directory, options, None)
+    load_with_addon(directory, options, None, SavedRouteAddon::Auto)
+}
+
+/// [`load_saved_application`] with an explicit route preparation add-on
+/// choice. A missing, corrupt or mismatched add-on is rejected loudly
+/// ([`PreparedSavedApplication::route_preparation`]) and the routes are
+/// verified; it never fails the load.
+pub fn load_saved_application_with_route_addon<const N: usize>(
+    directory: &Path,
+    options: SavedApplicationOptions,
+    addon: SavedRouteAddon<'_>,
+) -> Result<PreparedSavedApplication<N>, AppError> {
+    load_with_addon(directory, options, None, addon)
 }
 
 /// Authenticate an application-only runtime with explicit caller grants for
@@ -277,13 +292,24 @@ pub fn load_saved_application_with_policy<const N: usize>(
     options: SavedApplicationOptions,
     policy: &crate::FiniteDemandPolicy,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
-    load_with_policy(directory, options, Some(policy))
+    load_with_addon(directory, options, Some(policy), SavedRouteAddon::Auto)
 }
 
-fn load_with_policy<const N: usize>(
+/// The `application.json` report of a runtime directory (or manifest path).
+pub(super) fn application_report(directory: &Path) -> Result<Value, AppError> {
+    let manifest = if directory.is_dir() {
+        directory.join("application.json")
+    } else {
+        directory.to_path_buf()
+    };
+    serde_json::from_slice(&read_bounded(&manifest, MAX_METADATA)?).map_err(failure)
+}
+
+pub(super) fn load_with_addon<const N: usize>(
     directory: &Path,
     options: SavedApplicationOptions,
     policy: Option<&crate::FiniteDemandPolicy>,
+    addon: SavedRouteAddon<'_>,
 ) -> Result<PreparedSavedApplication<N>, AppError> {
     let started = std::time::Instant::now();
     options.validate_preparation()?;
@@ -332,6 +358,19 @@ fn load_with_policy<const N: usize>(
     }
     drop(maps);
     let terminal_time = terminal_started.elapsed();
+    let mut rejected = None;
+    let saved_routes = match route_addon::read_for_load(
+        directory,
+        addon,
+        &route_addon::AddonIdentity::of_application(&report)?,
+        options.binary_limits.max_program_bytes,
+    ) {
+        Ok(saved) => saved,
+        Err(rejection) => {
+            rejected = Some(rejection);
+            None
+        }
+    };
     let mut prepared = PreparedSavedApplication::from_parts_deferred(
         ApplicationInputs {
             selection,
@@ -343,7 +382,11 @@ fn load_with_policy<const N: usize>(
         report["metadata"].clone(),
         options,
         policy,
+        saved_routes,
     )?;
+    if let Some((path, reason)) = rejected {
+        prepared.route_preparation.reject(&path, reason);
+    }
     prepared.preparation_statistics.metadata = metadata_time;
     prepared.preparation_statistics.terminal_maps = terminal_time;
     prepared.preparation_statistics.finish(started.elapsed());

@@ -11,6 +11,36 @@ mod overlays;
 mod preferences;
 mod routes;
 
+pub(in crate::application) use routes::SavedRoutes;
+
+/// How [`prepare_deferred_with_reader`] obtained its routes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::application) enum RouteRestore {
+    /// No saved routes were offered; every route was verified.
+    #[default]
+    Verified,
+    /// Every route was rebuilt from the offered saved routes.
+    Restored,
+    /// The saved routes did not fit the selection; every route was verified.
+    Rejected(String),
+}
+
+/// Record the verified maps of a prepared application's routes.
+pub(in crate::application) fn capture_saved_routes<const N: usize>(
+    selection: &Selection,
+    application: &rustred::solver::RoutedCandidateApplication<N>,
+) -> Result<SavedRoutes, AppError> {
+    let routes = application
+        .routes()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let denominators = application.family().denominator_count();
+    routes::capture::<N>(
+        &selection.initial_frontier_routes,
+        |key| routes.get(key).copied(),
+        denominators,
+    )
+}
+
 use super::{
     RoutedCampaignRequest,
     input::{Selection, mask},
@@ -306,6 +336,8 @@ pub(in crate::application) fn prepare_deferred_with_reader<const N: usize>(
     observer: &impl Fn(Value),
     fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
     reader: &mut dyn FnMut(&Path, u64) -> Result<Vec<u8>, AppError>,
+    saved_routes: Option<&SavedRoutes>,
+    route_restore: &mut RouteRestore,
 ) -> Result<Option<rustred::solver::RoutedCandidateApplication<N>>, AppError> {
     let Some(SelectedPayloads {
         bytes,
@@ -388,14 +420,38 @@ pub(in crate::application) fn prepare_deferred_with_reader<const N: usize>(
     drop(bytes);
     drop(preferred_payloads);
     drop(overlay_payloads);
-    let Some(routes) = routes::prepare::<N>(
-        &family,
-        &selection.initial_frontier_routes,
-        request.workers,
-        cancellation,
-        observer,
-    )?
-    else {
+    let restored = match saved_routes {
+        Some(saved) => match routes::restore::<N>(
+            &family,
+            &selection.initial_frontier_routes,
+            saved,
+            request.workers,
+            cancellation,
+            observer,
+        ) {
+            Ok(routes) => {
+                *route_restore = RouteRestore::Restored;
+                Some(routes)
+            }
+            Err(error) => {
+                observer(json!({"event":"saved_routes_rejected", "reason":error.to_string()}));
+                *route_restore = RouteRestore::Rejected(error.to_string());
+                None
+            }
+        },
+        None => None,
+    };
+    let routes = match restored {
+        Some(routes) => routes,
+        None => routes::prepare::<N>(
+            &family,
+            &selection.initial_frontier_routes,
+            request.workers,
+            cancellation,
+            observer,
+        )?,
+    };
+    let Some(routes) = routes else {
         return Ok(None);
     };
     observer(json!({"event":"routes_verified", "routes":routes.len()}));
