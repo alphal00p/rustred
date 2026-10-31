@@ -8,13 +8,16 @@
 //! Concurrent adapters ([`ConcurrentStepCacheKernel`]) keep their cached
 //! requests on the scheduler's workers: the wrapper's stepper
 //! ([`CachedStepper`]) replays a record or runs the adapter's stepper on a
-//! worker, possibly ahead of time and for a key that later cancels, and
-//! changes nothing in the cache. At the key's sequential turn the wrapper's
+//! worker, possibly ahead of time and for a key that later cancels; it
+//! changes no record and no counter. At the key's sequential turn the wrapper's
 //! `absorb` counts the lookup, applies the hit accounting or the adapter's
 //! step account, and inserts the new record. Exactly the keys the
 //! sequential scheduler expands are counted and recorded, in its order, so
-//! the cache contents, its statistics and the request's hit and miss
-//! counters are those of the sequential run for every thread count.
+//! the records, the shard counters (hits, misses, inserts) and the request's
+//! hit and miss counters are those of the sequential run for every thread
+//! count. Only shard loading can differ: a worker may load a shard for a key
+//! that then cancels, and under a resident-byte ceiling or a memory budget
+//! the earlier load can change which shards and records fit.
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -311,8 +314,9 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
 
 /// The adapter's stepper behind the cache, shared by the scheduler's
 /// workers. See the module docs: a step replays the key's record or runs
-/// the adapter's step, and leaves every cache effect to
-/// [`ConcurrentOrderedKernel::absorb`] at the key's sequential turn.
+/// the adapter's step (loading the key's shard if needed), and leaves every
+/// counter and insert to [`ConcurrentOrderedKernel::absorb`] at the key's
+/// sequential turn.
 pub(crate) struct CachedStepper<'s, K: ConcurrentStepCacheKernel + 's> {
     inner: K::Stepper<'s>,
     cache: &'s OrderedStepCache,
@@ -554,7 +558,7 @@ pub(crate) fn run_with_step_cache<K: OrderedStepCacheKernel>(
 /// without a cache this is `run_with_options`, and a cached request runs on
 /// the scheduler's workers as well (see the module docs). Every thread count
 /// returns the same result, progress and observations, and leaves the same
-/// records and statistics in `cache`; `scheduler.threads == 1` is the
+/// records and shard counters in `cache`; `scheduler.threads == 1` is the
 /// sequential cached run of [`run_with_step_cache`].
 pub(crate) fn run_with_step_cache_and_options<K: ConcurrentStepCacheKernel>(
     kernel: &mut K,
