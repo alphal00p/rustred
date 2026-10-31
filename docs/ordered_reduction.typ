@@ -55,20 +55,45 @@ default `Exact` combines normalized rational functions. Every input weight and
 adapter step coefficient is validated once on entry, so merges and products never
 rescan their operands, and an exact unit step coefficient copies the weight.
 
-`Modular` (coefficient contexts with at most one variable) runs the scheduler
-once as a recorder. Each weight carries two values modulo a probe prime, used only
-for the zero-erasure decision, and the propagation is recorded as a straight-line
-trace over interned exact step coefficients; each distinct coefficient is
-validated once. The trace is replayed over 64-bit primes at batches of sample
-points. Per prime, every terminal coefficient is interpolated by Thiele continued
-fractions; over Q it is lifted by CRT and rational number reconstruction, accepted
-once one further prime confirms it, and checked against fresh primes. Every replay
-re-checks each recorded erasure at every point and fails closed. Keys, steps,
-children and guards depend only on integer keys and exact step coefficients, so
-both arithmetics expand the same keys and return the same terms and conditions;
-only the monomial census differs (one per modular weight). `cross_check_exact`
-also runs the exact arithmetic in the same pass and fails on any differing zero
-decision or terminal coefficient.
+The modular modes (coefficient contexts with at most one variable) share the
+options `ModularCommon` (`threads`, `seed`, `verification_primes`, `max_primes`,
+`cross_check_exact`) and one lift over Q. Their canonical text form is
+`exact | modular_sampled[:key=value,...] | modular_polynomial[:key=value,...]`
+(`FromStr`/`Display`, keys = field names, `modular` = `modular_sampled`).
+
+`ModularSampled` runs the scheduler once as a recorder. Each weight carries two
+values modulo a probe prime, used only for the zero-erasure decision, and the
+propagation is recorded as a straight-line trace over interned exact step
+coefficients; each distinct coefficient is validated once. The trace is replayed
+over 64-bit primes at batches of sample points and every terminal coefficient is
+interpolated per prime by Thiele continued fractions. The first prime discovers the
+degrees (half of `batch_points` points, doubling until every interpolation is
+confirmed by `verification_points` further points); every later prime replays
+exactly the points needed, in batches of at most `batch_points` points that fill
+whole waves of the threads. Every replay re-checks each recorded erasure at every point and
+fails closed.
+
+`ModularPolynomial` (scheduler passes over `Z_p[d]` with factorized
+denominators, no interpolation) is reserved: its requests fail with
+`ModularWeights` until implemented.
+
+The lift consumes per-prime images (reduced numerator and monic denominator of
+every terminal, plus a structural signature: the image source's structure and the
+degrees) strictly in the order of a seeded prime stream. Images are grouped by
+signature; the group holding a strict majority of all usable images is lifted by
+CRT and rational number reconstruction, a coefficient is accepted once one further
+prime confirms it, and the result is checked on `verification_primes` fresh primes
+(fresh points for the sampled mode) never used to build it. A disagreement
+re-opens the lift; more than `max_primes` primes fail closed.
+
+`threads = 1` runs everything on the calling thread (no pool, no spawned thread);
+more threads use one private pool per request. Images computed ahead of need are
+kept for later rounds, so results, consumed primes and points per prime do not
+depend on the thread count. Keys, steps, children and guards depend only on
+integer keys and exact step coefficients, so every arithmetic expands the same
+keys and returns the same terms and conditions; only the monomial census differs
+(one per modular weight). `cross_check_exact` also runs the exact arithmetic in
+the same pass and fails on any differing zero decision or terminal coefficient.
 
 == Phases and canonical identities
 

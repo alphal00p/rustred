@@ -1071,12 +1071,17 @@ fn ordered_zero_sector_transport_endpoint_keeps_its_guard_without_a_frontier_ent
 }
 
 fn modular_arithmetic(cross_check_exact: bool) -> crate::reduction::OrderedWeightArithmetic {
-    crate::reduction::OrderedWeightArithmetic::Modular(crate::reduction::ModularWeightOptions {
-        batch_points: 4,
-        threads: 2,
-        cross_check_exact,
-        ..Default::default()
-    })
+    crate::reduction::OrderedWeightArithmetic::ModularSampled(
+        crate::reduction::ModularCommon {
+            threads: 2,
+            cross_check_exact,
+            ..Default::default()
+        },
+        crate::reduction::SampledOptions {
+            batch_points: 4,
+            ..Default::default()
+        },
+    )
 }
 
 #[cfg(feature = "capacity-dispatch")]

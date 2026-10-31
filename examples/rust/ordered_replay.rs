@@ -1,7 +1,8 @@
 //! Replay one native reduction request recorded by Vakint, with RustRed alone.
 //!
 //! `ordered_replay REQUEST.json [--data-root DIR] [--strategy NAME]
-//!     [--stop-after-phase N] [--capture-frontier-at-phase N FILE] [--threads N]`
+//!     [--arithmetic SPEC] [--stop-after-phase N]
+//!     [--capture-frontier-at-phase N FILE] [--threads N]`
 //!
 //! Vakint writes `REQUEST.json` (schema `vakint.ordered-native-request.v1`) when
 //! `VAKINT_DUMP_ORDERED_REQUEST=<dir>` is set, plus `.phases.jsonl` (native
@@ -32,7 +33,12 @@
 //! printed for manual checks; the output digests are the exactness proof.
 //! `--strategy` accepts `ordered` (default, phase records), `depth_first`
 //! (5L only) and `depth_first_without_memoization` (1-3L and 5L); the latter
-//! two print only the final record. `--threads` is reserved and must be 1.
+//! two print only the final record. `--arithmetic` selects the Ordered weight
+//! arithmetic in its canonical text form (`exact`, the default,
+//! `modular_sampled[:key=value,...]` or `modular_polynomial[:key=value,...]`);
+//! modular weights appear as `null` in frontier captures. `--threads` is
+//! reserved and must be 1 (modular workers are set by the arithmetic's
+//! `threads` option).
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -61,6 +67,7 @@ struct Options {
     request: PathBuf,
     data_root: Option<PathBuf>,
     strategy: ReductionStrategy,
+    arithmetic: OrderedWeightArithmetic,
     stop_after_phase: Option<usize>,
     capture: Option<(usize, PathBuf)>,
     threads: usize,
@@ -73,6 +80,7 @@ impl Options {
             request: PathBuf::new(),
             data_root: None,
             strategy: ReductionStrategy::Ordered,
+            arithmetic: OrderedWeightArithmetic::Exact,
             stop_after_phase: None,
             capture: None,
             threads: 1,
@@ -91,6 +99,7 @@ impl Options {
                         other => return Err(format!("unknown strategy {other}").into()),
                     }
                 }
+                "--arithmetic" => options.arithmetic = value("--arithmetic")?.parse()?,
                 "--stop-after-phase" => {
                     options.stop_after_phase = Some(value("--stop-after-phase")?.parse()?)
                 }
@@ -105,7 +114,8 @@ impl Options {
         }
         options.request = request.ok_or(
             "usage: ordered_replay REQUEST.json [--data-root DIR] [--strategy NAME] \
-             [--stop-after-phase N] [--capture-frontier-at-phase N FILE] [--threads N]",
+             [--arithmetic SPEC] [--stop-after-phase N] [--capture-frontier-at-phase N FILE] \
+             [--threads N]",
         )?;
         if options.threads != 1 {
             return Err("--threads is reserved for parallel engines; only 1 is supported".into());
@@ -546,6 +556,7 @@ fn main() -> Result<()> {
         "family_fingerprint": request["program"]["family_fingerprint"],
         "recorded_strategy": request["reduction_strategy"],
         "replay_strategy": format!("{:?}", options.strategy),
+        "arithmetic": options.arithmetic.to_string(),
         "channel": request["channel"],
         "input_terms": request["input_terms"],
         "vakint_result_recorded": recorded.result.is_some(),
@@ -626,6 +637,7 @@ mod saved {
             "prepared_owners": owners.prepared_owners}),
         );
         prepared.set_reduction_strategy(options.strategy);
+        prepared.set_ordered_weight_arithmetic(options.arithmetic);
         let owners_before = prepared.owner_preparation_statistics().preparation_time;
         let native = Instant::now();
         let (reduced, recorder) = if options.strategy == ReductionStrategy::Ordered {
@@ -698,7 +710,7 @@ mod closed {
                     &artifact,
                     inputs,
                     limits,
-                    OrderedWeightArithmetic::Exact,
+                    options.arithmetic,
                     &mut |event| {
                         if recorder.inspect(event) {
                             Ok(())
@@ -822,7 +834,7 @@ mod candidate {
         let mut recorder = PhaseRecorder::new(options, recorded);
         let result = reducer.reduce_linear_combination_ordered_with_inspector(
             inputs,
-            OrderedWeightArithmetic::Exact,
+            options.arithmetic,
             &mut |event| {
                 if recorder.inspect(event) {
                     Ok(())

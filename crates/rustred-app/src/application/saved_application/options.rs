@@ -23,7 +23,9 @@ pub struct SavedApplicationOptions {
     /// Independent exact scheduler; ordered reduction has no result-cache support.
     pub reduction_strategy: ReductionStrategy,
     /// Frontier weight arithmetic of the Ordered scheduler (ignored by the
-    /// depth-first strategies). All arithmetics return the same exact result.
+    /// depth-first strategies). All arithmetics return the same exact result;
+    /// the modular ones parallelize over `ModularCommon::threads` workers of a
+    /// request-private pool (inline for one thread).
     pub ordered_weight_arithmetic: OrderedWeightArithmetic,
     /// Preserve exact uncovered leaves and make recorded entry coverage advisory.
     /// This does not relax formula applicability, source guards, or resource limits.

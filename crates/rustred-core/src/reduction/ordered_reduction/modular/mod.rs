@@ -1,9 +1,9 @@
-//! Finite-field weight backend for the Ordered scheduler.
+//! Finite-field weight backends for the Ordered scheduler.
 //!
-//! The scheduler is run once with this recorder as its weight arithmetic. The
-//! recorder carries `PROBES` values of every weight modulo one probe prime,
-//! which are used only for the exact-zero erasure decision, and records a
-//! straight-line trace of the weight propagation:
+//! `ModularSampled`: the scheduler is run once with [`ModularRecorder`] as its
+//! weight arithmetic. The recorder carries `PROBES` values of every weight
+//! modulo one probe prime, which are used only for the exact-zero erasure
+//! decision, and records a straight-line trace of the weight propagation:
 //!
 //! - `Init(slot, c)`: a frontier slot starts at an input coefficient;
 //! - `Pop(slot)`: the popped key's weight becomes the active weight;
@@ -14,12 +14,20 @@
 //!
 //! Coefficients `c` are the exact step coefficients produced by the adapters,
 //! interned by value and validated against the request's context and limits
-//! once per distinct value, when first interned. The trace is then replayed over many 64-bit primes and
-//! sample points in parallel, and each terminal coefficient is reconstructed
-//! over Q (`reconstruct.rs`).
+//! once per distinct value, when first interned. The trace is then replayed
+//! at sample points modulo 64-bit primes (`sampled.rs`, `replay.rs`) and the
+//! per-prime images are lifted over Q by the driver shared with every modular
+//! arithmetic (`lift.rs`). `ModularPolynomial` has its slot in
+//! `polynomial.rs`. All parallel work runs on the request's executor
+//! (`executor.rs`): inline for one thread, else a private pool.
+mod executor;
+#[cfg(test)]
+pub(crate) use executor::pools_built_on_this_thread;
 mod field;
-mod reconstruct;
+mod lift;
+pub(super) mod polynomial;
 mod replay;
+mod sampled;
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hasher};
@@ -31,9 +39,11 @@ use symbolica::domains::finite_field::{FiniteFieldCore, PrimeIteratorU64, Zp64};
 use symbolica::domains::{Field, Ring, RingOps};
 use symbolica::prelude::Integer;
 
+use self::executor::Executor;
 use self::field::{DenseRational, Fe, reduce};
+use self::sampled::SampledSource;
 use super::OrderedWeights;
-use super::arithmetic::ModularWeightOptions;
+use super::arithmetic::{ModularCommon, SampledOptions};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionLimits};
@@ -45,6 +55,16 @@ pub(super) fn error(detail: impl Into<String>) -> ReductionError {
     ReductionError::ModularWeights {
         detail: detail.into(),
     }
+}
+
+/// The modular arithmetics interpolate in at most one variable.
+pub(super) fn check_context(context: &CoefficientContext) -> Result<(), ReductionError> {
+    if context.variables().len() > 1 {
+        return Err(error(
+            "modular Ordered weights require a coefficient context with at most one variable",
+        ));
+    }
+    Ok(())
 }
 
 /// Interned coefficient reference; the top bit marks a constant.
@@ -189,8 +209,12 @@ impl BuildHasher for FxBuild {
 }
 
 /// Statistics of one modular request (recording plus reconstruction).
+///
+/// Every field except the timings, `discarded_images`, `rounds` and the
+/// thread counts is independent of the number of threads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ModularStatistics {
+    pub arithmetic: &'static str,
     pub ops: usize,
     pub constants: usize,
     pub polynomials: usize,
@@ -204,13 +228,31 @@ pub(crate) struct ModularStatistics {
     pub replay_cpu_seconds: f64,
     pub interpolation_seconds: f64,
     pub lift_seconds: f64,
+    /// Requested worker threads, threads of the private pool (0 = inline),
+    /// distinct threads that ran jobs, and whether all jobs ran on the caller.
+    pub threads: usize,
+    pub pool_threads: usize,
+    pub job_threads: usize,
+    pub jobs_on_caller_only: bool,
+    /// Image rounds requested from the image source.
+    pub rounds: usize,
     pub batches: usize,
+    /// Sample points replayed (reconstruction and verification).
+    pub points_replayed: usize,
+    /// Usable reconstruction images consumed by the lift.
     pub primes: usize,
+    /// Fresh verification primes consumed.
+    pub verification_primes: usize,
+    /// Primes the image source could not use.
+    pub unusable_primes: usize,
+    /// Images computed ahead of need and never consumed.
+    pub discarded_images: usize,
     pub points_first_prime: usize,
     pub points_per_prime: usize,
     pub max_numerator_degree: usize,
     pub max_denominator_degree: usize,
     pub max_coefficient_bits: usize,
+    /// Consumed images outside the winning signature group.
     pub unlucky_images: usize,
     pub bad_points: usize,
     pub verification_failures: usize,
@@ -221,15 +263,20 @@ impl ModularStatistics {
     pub(crate) fn to_json(&self) -> String {
         format!(
             concat!(
-                "{{\"ops\":{},\"constants\":{},\"polynomials\":{},\"peak_slots\":{},",
-                "\"terminal_slots\":{},\"output_terminals\":{},\"coefficient_lookups\":{},",
+                "{{\"arithmetic\":\"{}\",\"ops\":{},\"constants\":{},\"polynomials\":{},",
+                "\"peak_slots\":{},\"terminal_slots\":{},\"output_terminals\":{},",
+                "\"coefficient_lookups\":{},",
                 "\"record_seconds\":{:.6},\"prepare_seconds\":{:.6},\"replay_seconds\":{:.6},",
                 "\"replay_cpu_seconds\":{:.6},\"interpolation_seconds\":{:.6},\"lift_seconds\":{:.6},",
-                "\"batches\":{},\"primes\":{},\"points_first_prime\":{},\"points_per_prime\":{},",
+                "\"threads\":{},\"pool_threads\":{},\"job_threads\":{},\"jobs_on_caller_only\":{},",
+                "\"rounds\":{},\"batches\":{},\"points_replayed\":{},\"primes\":{},",
+                "\"verification_primes\":{},\"unusable_primes\":{},\"discarded_images\":{},",
+                "\"points_first_prime\":{},\"points_per_prime\":{},",
                 "\"max_numerator_degree\":{},\"max_denominator_degree\":{},",
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
                 "\"verification_failures\":{},\"cancel_checks\":{}}}"
             ),
+            self.arithmetic,
             self.ops,
             self.constants,
             self.polynomials,
@@ -243,8 +290,17 @@ impl ModularStatistics {
             self.replay_cpu_seconds,
             self.interpolation_seconds,
             self.lift_seconds,
+            self.threads,
+            self.pool_threads,
+            self.job_threads,
+            self.jobs_on_caller_only,
+            self.rounds,
             self.batches,
+            self.points_replayed,
             self.primes,
+            self.verification_primes,
+            self.unusable_primes,
+            self.discarded_images,
             self.points_first_prime,
             self.points_per_prime,
             self.max_numerator_degree,
@@ -260,7 +316,8 @@ impl ModularStatistics {
 
 /// Recording weight backend.
 pub(crate) struct ModularRecorder {
-    options: ModularWeightOptions,
+    common: ModularCommon,
+    sampled: SampledOptions,
     context: CoefficientContext,
     limits: ExactAlgebraLimits,
     probe_field: Zp64,
@@ -285,16 +342,14 @@ impl ModularRecorder {
     pub(crate) fn try_new(
         context: &CoefficientContext,
         limits: ReductionLimits,
-        options: ModularWeightOptions,
+        common: ModularCommon,
+        sampled: SampledOptions,
     ) -> Result<Self, ReductionError> {
-        options.validate().map_err(error)?;
-        if context.variables().len() > 1 {
-            return Err(error(
-                "modular Ordered weights require a coefficient context with at most one variable",
-            ));
-        }
+        common.validate().map_err(error)?;
+        sampled.validate().map_err(error)?;
+        check_context(context)?;
         // Probe primes come from a range disjoint from reconstruction primes.
-        let mut rng = StdRng::seed_from_u64(options.seed ^ 0x7072_6f62_6573);
+        let mut rng = StdRng::seed_from_u64(common.seed ^ 0x7072_6f62_6573);
         let start = (1u64 << 61) + (rng.random::<u64>() >> 4);
         let prime = PrimeIteratorU64::new(start)
             .next()
@@ -303,7 +358,8 @@ impl ModularRecorder {
         let probe_points =
             std::array::from_fn(|_| probe_field.to_element(rng.random_range(2..prime)));
         Ok(Self {
-            options,
+            common,
+            sampled,
             context: context.clone(),
             limits: limits.exact_algebra,
             probe_field,
@@ -461,6 +517,7 @@ impl ModularRecorder {
             terminal_slots: self.terminal_slots as usize,
         };
         let mut statistics = ModularStatistics {
+            arithmetic: "modular_sampled",
             ops: trace.ops.len(),
             constants: constant_total,
             polynomials: polynomial_total,
@@ -470,19 +527,38 @@ impl ModularRecorder {
             coefficient_lookups: self.lookups,
             record_seconds,
             prepare_seconds: prepare.elapsed().as_secs_f64(),
+            threads: self.common.threads,
+            jobs_on_caller_only: true,
             ..Default::default()
         };
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
-        let results = reconstruct::reconstruct(
-            &trace,
-            &slots,
+        let has_cancellations = trace
+            .ops
+            .iter()
+            .any(|op| matches!(op.tag(), OpTag::Cancel | OpTag::TermCancel));
+        if slots.is_empty() && !has_cancellations {
+            // Nothing to reconstruct and no erasure to certify.
+            return Ok((BTreeMap::new(), statistics));
+        }
+        let executor = Executor::new(self.common.threads)?;
+        let mut source = SampledSource::new(&trace, &slots, self.sampled, self.common.seed);
+        let lifted = lift::lift(
+            &mut source,
             &self.context,
-            &self.options,
+            &self.common,
+            &executor,
             &mut statistics,
-        )?;
+        );
+        statistics.pool_threads = executor.pool_threads();
+        (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
+        // The structure is fixed by this recording.
+        let lift::Lifted {
+            structure: _,
+            coefficients,
+        } = lifted?;
         let mut output = BTreeMap::new();
-        for (key, coefficient) in keys.into_iter().zip(results) {
+        for (key, coefficient) in keys.into_iter().zip(coefficients) {
             if !coefficient.is_zero() {
                 output.insert(key, coefficient);
             }
@@ -617,6 +693,8 @@ impl OrderedWeights for ModularRecorder {
 /// Append one JSON line per modular request when requested by the caller's
 /// environment (prototype instrumentation, no effect on results).
 pub(crate) fn report_statistics(statistics: &ModularStatistics) {
+    #[cfg(test)]
+    REPORTED.with(|reported| reported.borrow_mut().push(statistics.clone()));
     if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
         use std::io::Write;
         if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -627,4 +705,16 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
             let _ = writeln!(file, "{}", statistics.to_json());
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static REPORTED: std::cell::RefCell<Vec<ModularStatistics>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Statistics reported on the current thread since the last call (tests only).
+#[cfg(test)]
+pub(crate) fn take_reported_statistics() -> Vec<ModularStatistics> {
+    REPORTED.with(|reported| std::mem::take(&mut *reported.borrow_mut()))
 }

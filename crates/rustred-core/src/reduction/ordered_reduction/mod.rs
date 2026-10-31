@@ -11,7 +11,10 @@ use std::hash::Hash;
 pub(crate) mod arithmetic;
 mod modular;
 
-pub use arithmetic::{ModularWeightOptions, OrderedWeightArithmetic};
+pub use arithmetic::{
+    ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
+    PolynomialDenominators, PolynomialOptions, SampledOptions,
+};
 use modular::ModularRecorder;
 
 use crate::algebra::{Coefficient, CoefficientContext};
@@ -564,10 +567,15 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 progress: output.progress,
             })
         }
-        OrderedWeightArithmetic::Modular(options) if options.cross_check_exact => {
+        OrderedWeightArithmetic::ModularSampled(common, sampled) if common.cross_check_exact => {
             let mut weights = CrossChecked {
                 exact: ExactWeights::new(kernel.context(), kernel.limits()),
-                modular: ModularRecorder::try_new(kernel.context(), kernel.limits(), options)?,
+                modular: ModularRecorder::try_new(
+                    kernel.context(),
+                    kernel.limits(),
+                    common,
+                    sampled,
+                )?,
             };
             run_inner(
                 kernel,
@@ -599,8 +607,9 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 })
             })
         }
-        OrderedWeightArithmetic::Modular(options) => {
-            let mut weights = ModularRecorder::try_new(kernel.context(), kernel.limits(), options)?;
+        OrderedWeightArithmetic::ModularSampled(common, sampled) => {
+            let mut weights =
+                ModularRecorder::try_new(kernel.context(), kernel.limits(), common, sampled)?;
             run_inner(
                 kernel,
                 &mut weights,
@@ -620,6 +629,15 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 })
             })
         }
+        OrderedWeightArithmetic::ModularPolynomial(common, polynomial) => modular::polynomial::run(
+            kernel,
+            request,
+            initial,
+            nonzero_conditions,
+            common,
+            polynomial,
+            &mut work,
+        ),
     };
     kernel.record_work(work);
     result
@@ -636,12 +654,17 @@ fn test_override(
         && context.variables().len() <= 1
         && std::env::var_os("RUSTRED_TEST_ORDERED_MODULAR").is_some_and(|v| v == "1")
     {
-        OrderedWeightArithmetic::Modular(ModularWeightOptions {
-            batch_points: 8,
-            threads: 2,
-            cross_check_exact: true,
-            ..Default::default()
-        })
+        OrderedWeightArithmetic::ModularSampled(
+            ModularCommon {
+                threads: 2,
+                cross_check_exact: true,
+                ..Default::default()
+            },
+            SampledOptions {
+                batch_points: 8,
+                ..Default::default()
+            },
+        )
     } else {
         arithmetic
     }
@@ -1020,12 +1043,17 @@ mod tests {
     }
 
     fn modular(cross_check_exact: bool) -> OrderedWeightArithmetic {
-        OrderedWeightArithmetic::Modular(ModularWeightOptions {
-            batch_points: 4,
-            threads: 3,
-            cross_check_exact,
-            ..Default::default()
-        })
+        OrderedWeightArithmetic::ModularSampled(
+            ModularCommon {
+                threads: 3,
+                cross_check_exact,
+                ..Default::default()
+            },
+            SampledOptions {
+                batch_points: 4,
+                ..Default::default()
+            },
+        )
     }
 
     #[test]
@@ -1155,6 +1183,164 @@ mod tests {
             );
         }
         assert_eq!(exact.terms.len(), 5);
+    }
+
+    fn ladder() -> (LadderKernel, BTreeMap<usize, Coefficient>, Vec<Coefficient>) {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let initial = BTreeMap::from([
+            (13, context.coefficient_fixture("(d^3-2)/(d-11)")),
+            (11, context.coefficient_fixture("1/3")),
+        ]);
+        let conditions = vec![context.coefficient_fixture("d-11")];
+        (
+            LadderKernel {
+                context,
+                length: 13,
+            },
+            initial,
+            conditions,
+        )
+    }
+
+    fn sampled(threads: usize, batch_points: usize) -> OrderedWeightArithmetic {
+        OrderedWeightArithmetic::ModularSampled(
+            ModularCommon {
+                threads,
+                ..Default::default()
+            },
+            SampledOptions {
+                batch_points,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn run_reported(
+        arithmetic: OrderedWeightArithmetic,
+    ) -> (OrderedOutput, modular::ModularStatistics) {
+        let (mut kernel, initial, conditions) = ladder();
+        modular::take_reported_statistics();
+        let result = run_with_arithmetic(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+            arithmetic,
+        )
+        .unwrap();
+        let mut reported = modular::take_reported_statistics();
+        assert_eq!(reported.len(), 1);
+        (result, reported.pop().unwrap())
+    }
+
+    #[test]
+    fn modular_sampled_results_do_not_depend_on_the_thread_count() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let (_, reference) = run_reported(sampled(1, 8));
+        for threads in [1, 2, 4, 7] {
+            let (result, statistics) = run_reported(sampled(threads, 8));
+            assert_eq!(result.terms, exact.terms);
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert_eq!(
+                result.progress.processed_keys,
+                exact.progress.processed_keys
+            );
+            // Images are consumed in prime order whatever ran ahead.
+            let consumed = |s: &modular::ModularStatistics| {
+                (
+                    s.primes,
+                    s.verification_primes,
+                    s.unusable_primes,
+                    s.unlucky_images,
+                    s.points_first_prime,
+                    s.points_per_prime,
+                    s.max_numerator_degree,
+                    s.max_denominator_degree,
+                    s.max_coefficient_bits,
+                )
+            };
+            assert_eq!(consumed(&statistics), consumed(&reference), "{threads}");
+            assert_eq!(
+                statistics.pool_threads,
+                if threads == 1 { 0 } else { threads }
+            );
+        }
+    }
+
+    #[test]
+    fn one_modular_thread_runs_inline_without_a_pool() {
+        let pools = modular::pools_built_on_this_thread();
+        let (_, statistics) = run_reported(sampled(1, 8));
+        assert_eq!(modular::pools_built_on_this_thread(), pools);
+        assert_eq!(
+            (
+                statistics.pool_threads,
+                statistics.job_threads,
+                statistics.jobs_on_caller_only
+            ),
+            (0, 1, true)
+        );
+        let (_, statistics) = run_reported(sampled(3, 8));
+        assert_eq!(modular::pools_built_on_this_thread(), pools + 1);
+        assert_eq!(statistics.pool_threads, 3);
+        assert!(!statistics.jobs_on_caller_only);
+    }
+
+    #[test]
+    fn modular_sampled_replays_only_the_points_it_needs() {
+        let (_, statistics) = run_reported(sampled(1, 16));
+        // Discovery doubles from 8 points until the interpolations converge,
+        // then every prime replays exactly the needed points, and the
+        // verification prime its checks; nothing is computed ahead of need.
+        let needed = statistics.points_per_prime;
+        let first = statistics.points_first_prime;
+        assert!(first.is_power_of_two() && first >= needed && first < 2 * needed.max(8));
+        assert_eq!(
+            statistics.points_replayed,
+            first
+                + (statistics.primes - 1) * needed
+                + statistics.verification_primes * SampledOptions::default().verification_points,
+            "{}",
+            statistics.to_json()
+        );
+        assert_eq!(statistics.verification_primes, 1);
+        assert_eq!(statistics.discarded_images, 0);
+        assert_eq!(statistics.rounds, statistics.primes);
+        // With many threads at most one round of images runs ahead.
+        let (_, wide) = run_reported(sampled(16, 16));
+        assert_eq!(wide.primes, statistics.primes);
+        assert!(wide.discarded_images < 16, "{}", wide.discarded_images);
+    }
+
+    #[test]
+    fn modular_polynomial_fails_before_any_step() {
+        let mut kernel = PolynomialKernel {
+            context: CoefficientContext::try_new(["d"]).unwrap(),
+            observations: vec![],
+            expanded: vec![],
+        };
+        let initial = BTreeMap::from([(5, kernel.context.one())]);
+        let error = run_with_arithmetic(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            vec![],
+            OrderedWeightArithmetic::modular_polynomial(),
+        )
+        .err()
+        .expect("not implemented");
+        assert!(
+            matches!(&error, ReductionError::ModularWeights { detail } if detail.contains("not implemented yet")),
+            "{error}"
+        );
+        assert!(kernel.expanded.is_empty());
     }
 
     #[test]

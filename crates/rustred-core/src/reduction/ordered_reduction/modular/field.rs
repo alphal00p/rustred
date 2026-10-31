@@ -166,10 +166,6 @@ pub(super) fn to_u64(field: &Zp64, value: &Fe) -> u64 {
     field.from_element(value)
 }
 
-pub(super) fn integer_from_fe(field: &Zp64, value: &Fe) -> Integer {
-    Integer::from(to_u64(field, value))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

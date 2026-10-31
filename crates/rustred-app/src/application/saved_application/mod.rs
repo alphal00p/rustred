@@ -303,7 +303,10 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.reduction_strategy()
     }
 
-    /// Select exact or modular frontier weights for Ordered requests.
+    /// Select the Ordered frontier weight arithmetic (`Exact`,
+    /// `ModularSampled` or `ModularPolynomial`); the modular modes use
+    /// `ModularCommon::threads` workers per request. Every arithmetic returns
+    /// the same exact result.
     pub fn set_ordered_weight_arithmetic(
         &mut self,
         arithmetic: rustred::reduction::OrderedWeightArithmetic,

@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn ordered_phase_inspection_sees_the_same_keys_under_modular_weights() {
-        use crate::reduction::{ModularWeightOptions, OrderedWeightArithmetic};
+        use crate::reduction::{ModularCommon, OrderedWeightArithmetic, SampledOptions};
         let reducer = fixture();
         let context = reducer.program.context.base().clone();
         let inputs = [(key([4]), context.one()), (key([2]), context.integer(3))];
@@ -480,13 +480,17 @@ mod tests {
         };
         let (exact, exact_snapshots) = inspect(OrderedWeightArithmetic::Exact);
         for cross_check_exact in [false, true] {
-            let (modular, snapshots) =
-                inspect(OrderedWeightArithmetic::Modular(ModularWeightOptions {
-                    batch_points: 4,
+            let (modular, snapshots) = inspect(OrderedWeightArithmetic::ModularSampled(
+                ModularCommon {
                     threads: 2,
                     cross_check_exact,
                     ..Default::default()
-                }));
+                },
+                SampledOptions {
+                    batch_points: 4,
+                    ..Default::default()
+                },
+            ));
             assert_eq!(modular.terms(), exact.terms());
             assert_eq!(modular.nonzero_conditions(), exact.nonzero_conditions());
             assert_eq!(snapshots.len(), exact_snapshots.len());
