@@ -1,7 +1,9 @@
 //! Operational settings and explicit partial application, independent of stored scope.
 use crate::AppError;
 use rustred::persistence::BinaryIoLimits;
-use rustred::reduction::{OrderedWeightArithmetic, ReductionLimits, ReductionStrategy};
+use rustred::reduction::{
+    OrderedSchedulerOptions, OrderedWeightArithmetic, ReductionLimits, ReductionStrategy,
+};
 use rustred::solver::{CandidateRoutedCachePolicy, RoutedCandidateLimits, UnresolvedPolicy};
 
 /// Recorded coverage is independent of requiring a complete terminal result.
@@ -25,6 +27,11 @@ pub struct SavedApplicationOptions {
     /// Frontier weight arithmetic of the Ordered scheduler (ignored by the
     /// depth-first strategies). All arithmetics return the same exact result.
     pub ordered_weight_arithmetic: OrderedWeightArithmetic,
+    /// Worker threads and window size of the Ordered scheduler (ignored by
+    /// the depth-first strategies). Every setting returns the same exact
+    /// result; `threads == 1` (the default) creates no thread. A caller with
+    /// one core budget passes it here and to the modular replay threads.
+    pub ordered_scheduler: OrderedSchedulerOptions,
     /// Preserve exact uncovered leaves and make recorded entry coverage advisory.
     /// This does not relax formula applicability, source guards, or resource limits.
     pub unresolved_policy: UnresolvedPolicy,
@@ -45,6 +52,7 @@ impl Default for SavedApplicationOptions {
         Self {
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: OrderedWeightArithmetic::Exact,
+            ordered_scheduler: OrderedSchedulerOptions::default(),
             unresolved_policy: UnresolvedPolicy::Reject,
             entry_coverage_policy: SavedApplicationEntryCoveragePolicy::default(),
             reduction_limits: Default::default(),

@@ -7,9 +7,10 @@ use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
 use crate::reduction::guard_union::GuardIndex;
 use crate::reduction::ordered_reduction::{
-    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
-    OrderedPhaseInspector, OrderedPosition, OrderedStep,
+    self, ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor,
+    OrderedPhaseEvent, OrderedPhaseInspector, OrderedPosition, OrderedStep, OrderedStepper,
 };
+use crate::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic};
 use crate::reduction::{
     ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
     accumulate_master_in_request,
@@ -84,18 +85,7 @@ impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
         &mut self,
         key: &IntegralKey,
     ) -> Result<OrderedPosition<ComplexityKey>, Self::Error> {
-        let priority = self
-            .reducer
-            .program
-            .ordering
-            .complexity_key(key.powers())
-            .map_err(ReductionError::Ordering)?;
-        let phase = if self.support_phases {
-            self.reducer.physical_arity() - priority.propagators()
-        } else {
-            0
-        };
-        Ok(OrderedPosition { phase, priority })
+        position(self.reducer, self.support_phases, key)
     }
     fn step(
         &mut self,
@@ -103,58 +93,7 @@ impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<IntegralKey>, Self::Error> {
-        let mut conditions = self
-            .reducer
-            .target_conditions_with_limits(key, self.limits())?;
-        if self.reducer.is_zero(key) {
-            return Ok(OrderedStep {
-                nonzero_conditions: conditions,
-                ..Default::default()
-            });
-        }
-        if self.reducer.program.terminals.contains(key) {
-            let terminals = self.reducer.terminal_terms(key)?;
-            for coefficient in terminals.values() {
-                if !coefficient.denominator.is_constant() {
-                    conditions.push(coefficient.denominator.clone().into());
-                }
-            }
-            return Ok(OrderedStep {
-                terminals,
-                nonzero_conditions: conditions,
-                ..Default::default()
-            });
-        }
-        request.record_rule_application(
-            self.limits()
-                .diagnostic_limit(self.limits().max_rule_applications),
-        )?;
-        let result = self
-            .reducer
-            .program
-            .evaluator(key, self.limits())
-            .and_then(|evaluator| evaluator.apply_with_conditions(key, request, work));
-        match result {
-            Ok((terms, local)) => {
-                work.record_rule_application();
-                conditions.extend(local);
-                Ok(OrderedStep {
-                    terms,
-                    nonzero_conditions: conditions,
-                    ..Default::default()
-                })
-            }
-            Err(CandidateReductionError::Uncovered { .. })
-                if self.reducer.unresolved_policy == UnresolvedPolicy::Preserve =>
-            {
-                Ok(OrderedStep {
-                    terminals: BTreeMap::from([(key.clone(), self.context().one())]),
-                    nonzero_conditions: conditions,
-                    ..Default::default()
-                })
-            }
-            Err(error) => Err(error),
-        }
+        step(self.reducer, key, request, work)
     }
     fn observe(
         &mut self,
@@ -193,6 +132,148 @@ impl<const N: usize> OrderedKernel for Kernel<'_, '_, N> {
     }
 }
 
+fn position<const N: usize>(
+    reducer: &CandidateReducer<N>,
+    support_phases: bool,
+    key: &IntegralKey,
+) -> Result<OrderedPosition<ComplexityKey>, CandidateReductionError> {
+    let priority = reducer
+        .program
+        .ordering
+        .complexity_key(key.powers())
+        .map_err(ReductionError::Ordering)?;
+    let phase = if support_phases {
+        reducer.physical_arity() - priority.propagators()
+    } else {
+        0
+    };
+    Ok(OrderedPosition { phase, priority })
+}
+
+/// One checked candidate step. It reads only the immutable reducer; the
+/// request and statistics receive its accounting.
+fn step<const N: usize>(
+    reducer: &CandidateReducer<N>,
+    key: &IntegralKey,
+    request: &mut ReductionRequest,
+    work: &mut ReductionStatistics,
+) -> Result<OrderedStep<IntegralKey>, CandidateReductionError> {
+    let limits = reducer.limits;
+    let mut conditions = reducer.target_conditions_with_limits(key, limits)?;
+    if reducer.is_zero(key) {
+        return Ok(OrderedStep {
+            nonzero_conditions: conditions,
+            ..Default::default()
+        });
+    }
+    if reducer.program.terminals.contains(key) {
+        let terminals = reducer.terminal_terms(key)?;
+        for coefficient in terminals.values() {
+            if !coefficient.denominator.is_constant() {
+                conditions.push(coefficient.denominator.clone().into());
+            }
+        }
+        return Ok(OrderedStep {
+            terminals,
+            nonzero_conditions: conditions,
+            ..Default::default()
+        });
+    }
+    request.record_rule_application(limits.diagnostic_limit(limits.max_rule_applications))?;
+    let result = reducer
+        .program
+        .evaluator(key, limits)
+        .and_then(|evaluator| evaluator.apply_with_conditions(key, request, work));
+    match result {
+        Ok((terms, local)) => {
+            work.record_rule_application();
+            conditions.extend(local);
+            Ok(OrderedStep {
+                terms,
+                nonzero_conditions: conditions,
+                ..Default::default()
+            })
+        }
+        Err(CandidateReductionError::Uncovered { .. })
+            if reducer.unresolved_policy == UnresolvedPolicy::Preserve =>
+        {
+            Ok(OrderedStep {
+                terminals: BTreeMap::from([(key.clone(), reducer.program.context.base().one())]),
+                nonzero_conditions: conditions,
+                ..Default::default()
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The candidate reducer is immutable during a request, so its steps are
+/// pure functions of the key.
+struct Stepper<'a, const N: usize> {
+    reducer: &'a CandidateReducer<N>,
+    support_phases: bool,
+}
+
+/// Accounting of one detached candidate step.
+struct Account {
+    request: ReductionRequest,
+    work: ReductionStatistics,
+}
+
+impl<const N: usize> OrderedStepper for Stepper<'_, N> {
+    type Key = IntegralKey;
+    type Priority = ComplexityKey;
+    type Error = CandidateReductionError;
+    type Account = Account;
+
+    fn position(
+        &self,
+        key: &IntegralKey,
+    ) -> Result<OrderedPosition<ComplexityKey>, CandidateReductionError> {
+        position(self.reducer, self.support_phases, key)
+    }
+    fn step(
+        &self,
+        key: &IntegralKey,
+    ) -> (
+        Result<OrderedStep<IntegralKey>, CandidateReductionError>,
+        Account,
+    ) {
+        let mut account = Account {
+            request: ReductionRequest::default(),
+            work: ReductionStatistics::default(),
+        };
+        let result = step(self.reducer, key, &mut account.request, &mut account.work);
+        (result, account)
+    }
+}
+
+impl<const N: usize> ConcurrentOrderedKernel for Kernel<'_, '_, N> {
+    type Account = Account;
+    type Stepper<'s>
+        = Stepper<'s, N>
+    where
+        Self: 's;
+
+    fn stepper(&self) -> Option<Stepper<'_, N>> {
+        Some(Stepper {
+            reducer: self.reducer,
+            support_phases: self.support_phases,
+        })
+    }
+    fn absorb(
+        &mut self,
+        _: &IntegralKey,
+        account: Account,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<(), CandidateReductionError> {
+        request.absorb_detached(&account.request, self.reducer.limits)?;
+        work.merge_work(account.work);
+        Ok(())
+    }
+}
+
 impl<const N: usize> CandidateReducer<N> {
     /// Reduce the complete weighted sum with early exact grouping. Existing
     /// resident and persistent depth-first results are neither read nor written.
@@ -200,17 +281,32 @@ impl<const N: usize> CandidateReducer<N> {
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, None, None, Default::default())
+        self.reduce_ordered_impl(terms, None, None, Default::default(), Default::default())
     }
 
     /// Ordered reduction with an explicit frontier weight arithmetic.
     pub fn reduce_linear_combination_ordered_with_arithmetic<'observer>(
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
-        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        arithmetic: OrderedWeightArithmetic,
         observer: Option<&'observer mut Observer<'observer>>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, observer, None, arithmetic)
+        self.reduce_ordered_impl(terms, observer, None, arithmetic, Default::default())
+    }
+
+    /// Ordered reduction with an explicit weight arithmetic and scheduler
+    /// options. The result, guards, statistics, progress and every
+    /// observation are independent of `scheduler.threads`; the observer and
+    /// the inspector run on the calling thread.
+    pub fn reduce_linear_combination_ordered_with_scheduler<'observer>(
+        &self,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        arithmetic: OrderedWeightArithmetic,
+        scheduler: OrderedSchedulerOptions,
+        observer: Option<&'observer mut Observer<'observer>>,
+        inspector: Option<&'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>>,
+    ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
+        self.reduce_ordered_impl(terms, observer, inspector, arithmetic, scheduler)
     }
 
     pub fn reduce_linear_combination_ordered_with_observation<'observer>(
@@ -218,7 +314,13 @@ impl<const N: usize> CandidateReducer<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: &'observer mut Observer<'observer>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, Some(observer), None, Default::default())
+        self.reduce_ordered_impl(
+            terms,
+            Some(observer),
+            None,
+            Default::default(),
+            Default::default(),
+        )
     }
 
     /// Inspect both boundaries of every frozen phase under the selected weight
@@ -228,10 +330,10 @@ impl<const N: usize> CandidateReducer<N> {
     pub fn reduce_linear_combination_ordered_with_inspector<'observer>(
         &self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
-        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        arithmetic: OrderedWeightArithmetic,
         inspector: &'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
-        self.reduce_ordered_impl(terms, None, Some(inspector), arithmetic)
+        self.reduce_ordered_impl(terms, None, Some(inspector), arithmetic, Default::default())
     }
 
     fn reduce_ordered_impl<'observer>(
@@ -239,7 +341,8 @@ impl<const N: usize> CandidateReducer<N> {
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
         observer: Option<&'observer mut Observer<'observer>>,
         inspector: Option<&'observer mut OrderedPhaseInspector<'observer, CandidateReductionError>>,
-        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        arithmetic: OrderedWeightArithmetic,
+        scheduler: OrderedSchedulerOptions,
     ) -> Result<CandidateOrderedReduction, CandidateReductionError> {
         let mut request = ReductionRequest::default();
         let mut initial_work = ReductionStatistics::default();
@@ -275,7 +378,7 @@ impl<const N: usize> CandidateReducer<N> {
             )?;
         }
         let support_phases = self.program.ordering.is_support_primary();
-        let output = ordered_reduction::run_with_arithmetic(
+        let output = ordered_reduction::run_with_options(
             &mut Kernel {
                 reducer: self,
                 support_phases,
@@ -286,6 +389,7 @@ impl<const N: usize> CandidateReducer<N> {
             initial,
             conditions,
             arithmetic,
+            scheduler,
         )?;
         initial_work.merge_work(output.work);
         let unresolved = output

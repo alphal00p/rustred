@@ -364,6 +364,22 @@ pub(super) struct Request<'a, 'storage, const N: usize> {
     ordered_live_work: Option<ReductionStatistics>,
     ordered_inspector: Option<&'a mut OrderedPhaseInspector<'a, CandidateRoutedError>>,
     pub(super) persistent: super::persistent::PersistentRequest<'a, 'storage>,
+    /// Observation events of a detached Ordered step, recorded on a worker
+    /// thread and replayed by the coordinator in sequential order. `None`
+    /// for every request that is not a detached step.
+    detached_events: Option<Vec<DetachedEvent>>,
+}
+
+/// One observation effect of a detached step (see `Request::detached_events`).
+#[derive(Clone, Copy, Debug)]
+enum DetachedEvent {
+    /// An activity notice, with the step's transport counters at that point
+    /// (calls, operations, endpoints), which observers see in the snapshot.
+    Activity(CandidateRoutedActivity, Option<usize>, [usize; 3]),
+    LocalDescent,
+    /// The checked expansion returned successfully; the step's work is
+    /// published to observers from here on.
+    Expanded,
 }
 
 impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
@@ -419,6 +435,9 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
     }
 
     fn record_local_descent(&mut self) {
+        if let Some(events) = &mut self.detached_events {
+            events.push(DetachedEvent::LocalDescent);
+        }
         if let Some(observation) = &mut self.observation {
             observation.metrics.observed_descent_checks = observation
                 .metrics
@@ -455,6 +474,17 @@ impl<'a, 'storage, const N: usize> Request<'a, 'storage, N> {
         activity: CandidateRoutedActivity,
         terms: Option<usize>,
     ) {
+        if let Some(events) = &mut self.detached_events {
+            events.push(DetachedEvent::Activity(
+                activity,
+                terms,
+                [
+                    self.stats.transport_calls,
+                    self.stats.transport_operations,
+                    self.stats.transport_endpoints,
+                ],
+            ));
+        }
         if let Some(observation) = &mut self.observation {
             observation.activity = activity;
             observation.complexity = CandidateRoutedComplexity {

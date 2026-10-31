@@ -112,6 +112,26 @@ impl Op {
     }
 }
 
+fn statistics_requested() -> bool {
+    std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS").is_some()
+}
+
+impl Trace {
+    fn digest(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash};
+        let mut hasher = DefaultHasher::new();
+        for op in &self.ops {
+            (op.word, op.coefficient.0).hash(&mut hasher);
+        }
+        self.constants.hash(&mut hasher);
+        for polynomial in &self.polynomials {
+            (&polynomial.numerator, &polynomial.denominator).hash(&mut hasher);
+        }
+        (self.slots, self.terminal_slots).hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// The weight-independent numeric program of one Ordered request.
 pub(super) struct Trace {
     ops: Vec<Op>,
@@ -215,6 +235,11 @@ pub(crate) struct ModularStatistics {
     pub bad_points: usize,
     pub verification_failures: usize,
     pub cancel_checks: usize,
+    /// Digest of the recorded trace (ops with their slots and coefficient
+    /// references, and the coefficient tables in interning order), computed
+    /// only when statistics are reported. Equal digests mean identical
+    /// replays.
+    pub trace_digest: Option<u64>,
 }
 
 impl ModularStatistics {
@@ -228,7 +253,7 @@ impl ModularStatistics {
                 "\"batches\":{},\"primes\":{},\"points_first_prime\":{},\"points_per_prime\":{},",
                 "\"max_numerator_degree\":{},\"max_denominator_degree\":{},",
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
-                "\"verification_failures\":{},\"cancel_checks\":{}}}"
+                "\"verification_failures\":{},\"cancel_checks\":{},\"trace_digest\":{}}}"
             ),
             self.ops,
             self.constants,
@@ -254,6 +279,8 @@ impl ModularStatistics {
             self.bad_points,
             self.verification_failures,
             self.cancel_checks,
+            self.trace_digest
+                .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
         )
     }
 }
@@ -461,6 +488,7 @@ impl ModularRecorder {
             terminal_slots: self.terminal_slots as usize,
         };
         let mut statistics = ModularStatistics {
+            trace_digest: statistics_requested().then(|| trace.digest()),
             ops: trace.ops.len(),
             constants: constant_total,
             polynomials: polynomial_total,
@@ -472,6 +500,19 @@ impl ModularRecorder {
             prepare_seconds: prepare.elapsed().as_secs_f64(),
             ..Default::default()
         };
+        if let Some(digest) = statistics.trace_digest {
+            // The recorded trace before its (long) replay, so that runs stopped
+            // during reconstruction can still be compared.
+            report_line(&format!(
+                "{{\"stage\":\"recorded\",\"ops\":{},\"peak_slots\":{},\"constants\":{},\
+                 \"polynomials\":{},\"record_seconds\":{:.6},\"trace_digest\":\"{digest:016x}\"}}",
+                statistics.ops,
+                statistics.peak_slots,
+                statistics.constants,
+                statistics.polynomials,
+                statistics.record_seconds,
+            ));
+        }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
         let results = reconstruct::reconstruct(
@@ -617,6 +658,10 @@ impl OrderedWeights for ModularRecorder {
 /// Append one JSON line per modular request when requested by the caller's
 /// environment (prototype instrumentation, no effect on results).
 pub(crate) fn report_statistics(statistics: &ModularStatistics) {
+    report_line(&statistics.to_json());
+}
+
+fn report_line(line: &str) {
     if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
         use std::io::Write;
         if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -624,7 +669,7 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
             .append(true)
             .open(path)
         {
-            let _ = writeln!(file, "{}", statistics.to_json());
+            let _ = writeln!(file, "{line}");
         }
     }
 }

@@ -78,6 +78,10 @@ pub enum ReductionError {
     ModularWeights {
         detail: String,
     },
+    /// The Ordered scheduler's execution options or worker pool are unusable.
+    OrderedExecution {
+        detail: String,
+    },
     ZeroCommonMass,
     MissingCommonMassHomogeneityProof,
     CommonMassPowerOverflow,
@@ -173,6 +177,9 @@ impl fmt::Display for ReductionError {
             }
             Self::ModularWeights { detail } => {
                 write!(formatter, "modular ordered weights failed: {detail}")
+            }
+            Self::OrderedExecution { detail } => {
+                write!(formatter, "ordered scheduler execution failed: {detail}")
             }
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")

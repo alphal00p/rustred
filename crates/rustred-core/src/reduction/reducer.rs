@@ -1540,6 +1540,33 @@ impl ReductionRequest {
         Ok(())
     }
 
+    /// Add the counters of a fresh request that served one detached step of
+    /// the concurrent Ordered scheduler, where the sequential scheduler would
+    /// have performed that step on this request. A detached request retains
+    /// no guards and no pending frames.
+    pub(crate) fn absorb_detached(
+        &mut self,
+        step: &ReductionRequest,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        if step.pending_frames != 0
+            || step.guarded_conditions.is_some()
+            || step.guard_provenance.is_some()
+        {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "a detached ordered step retained request-owned state",
+            });
+        }
+        self.record_rule_applications(
+            step.rule_applications,
+            limits.diagnostic_limit(limits.max_rule_applications),
+        )?;
+        self.record_coalescing_additions(
+            step.coalescing_additions,
+            limits.diagnostic_limit(limits.max_coalescing_additions),
+        )
+    }
+
     pub(crate) fn remaining_rule_applications(&self, limit: usize) -> usize {
         limit.saturating_sub(self.rule_applications)
     }

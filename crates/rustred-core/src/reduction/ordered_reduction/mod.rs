@@ -10,9 +10,13 @@ use std::hash::Hash;
 
 pub(crate) mod arithmetic;
 mod modular;
+mod parallel;
 
 pub use arithmetic::{ModularWeightOptions, OrderedWeightArithmetic};
 use modular::ModularRecorder;
+pub use parallel::OrderedSchedulerOptions;
+pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
+use parallel::{ConcurrentWeights, Prefetched, Workers};
 
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
@@ -425,6 +429,66 @@ impl OrderedWeights for ExactWeights {
     }
 }
 
+/// Exact weights are values: products and sums are pure functions of their
+/// operands and nothing is journaled.
+impl ConcurrentWeights for ExactWeights {
+    type Prepared = Coefficient;
+
+    fn prepare(&self, coefficient: Coefficient) -> Result<Coefficient, ReductionError> {
+        self.validate(&coefficient)?;
+        Ok(coefficient)
+    }
+    /// The product of [`ExactWeights::scale`] for an already validated
+    /// coefficient.
+    fn scale_prepared(
+        &self,
+        weight: &Coefficient,
+        coefficient: &Coefficient,
+    ) -> Result<Coefficient, ReductionError> {
+        if is_one(coefficient) {
+            return Ok(weight.clone());
+        }
+        self.context
+            .try_mul_validated(weight, coefficient, self.limits)
+            .map_err(ReductionError::from)
+    }
+    fn insert_detached(&self, contribution: Coefficient) -> Result<Coefficient, ReductionError> {
+        Ok(contribution)
+    }
+    fn merge_detached(
+        &self,
+        existing: &mut Coefficient,
+        contribution: Coefficient,
+    ) -> Result<bool, ReductionError> {
+        self.add(existing, contribution)
+    }
+    fn insert_terminal_detached(
+        &self,
+        contribution: Coefficient,
+    ) -> Result<Coefficient, ReductionError> {
+        Ok(contribution)
+    }
+    fn merge_terminal_detached(
+        &self,
+        existing: &mut Coefficient,
+        contribution: Coefficient,
+    ) -> Result<bool, ReductionError> {
+        self.add(existing, contribution)
+    }
+
+    /// Normalized rational functions: sums are associative and the normal
+    /// form is canonical.
+    const CANONICAL_SUMS: bool = true;
+    fn sum_weights(&self, a: &Coefficient, b: &Coefficient) -> Result<Coefficient, ReductionError> {
+        self.context
+            .try_add_validated(a, b, self.limits)
+            .map_err(ReductionError::from)
+    }
+    fn weight_is_zero(&self, weight: &Coefficient) -> bool {
+        weight.is_zero()
+    }
+}
+
 /// Exact and modular arithmetic in one pass: the exact zero decision is
 /// authoritative and every modular decision must agree with it.
 struct CrossChecked {
@@ -536,6 +600,9 @@ pub(crate) fn run<K: OrderedKernel>(
 
 /// Run one request with the selected weight arithmetic. Every mode expands
 /// the same keys and returns the same exact terms and conditions.
+///
+/// This is the sequential scheduler: every step, product and merge runs on
+/// the calling thread, and no worker pool or thread is created.
 pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
     kernel: &mut K,
     request: &mut ReductionRequest,
@@ -556,13 +623,9 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 initial,
                 nonzero_conditions,
                 &mut work,
+                &mut Inline,
             )
-            .map(|output| OrderedOutput {
-                terms: output.terms,
-                nonzero_conditions: output.nonzero_conditions,
-                work: output.work,
-                progress: output.progress,
-            })
+            .map(exact_output)
         }
         OrderedWeightArithmetic::Modular(options) if options.cross_check_exact => {
             let mut weights = CrossChecked {
@@ -576,28 +639,9 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 initial,
                 nonzero_conditions,
                 &mut work,
+                &mut Inline,
             )
-            .and_then(|output| {
-                let (exact, modular): (BTreeMap<_, _>, BTreeMap<_, _>) = output
-                    .terms
-                    .into_iter()
-                    .map(|(key, (e, m))| ((key.clone(), e), (key, m)))
-                    .unzip();
-                let (reconstructed, statistics) = weights.modular.finish(modular)?;
-                modular::report_statistics(&statistics);
-                if reconstructed != exact {
-                    return Err(modular::error(
-                        "modular reconstruction differs from the exact terminal map",
-                    )
-                    .into());
-                }
-                Ok(OrderedOutput {
-                    terms: exact,
-                    nonzero_conditions: output.nonzero_conditions,
-                    work: output.work,
-                    progress: output.progress,
-                })
-            })
+            .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
         }
         OrderedWeightArithmetic::Modular(options) => {
             let mut weights = ModularRecorder::try_new(kernel.context(), kernel.limits(), options)?;
@@ -608,21 +652,142 @@ pub(crate) fn run_with_arithmetic<K: OrderedKernel>(
                 initial,
                 nonzero_conditions,
                 &mut work,
+                &mut Inline,
             )
-            .and_then(|output| {
-                let (terms, statistics) = weights.finish(output.terms)?;
-                modular::report_statistics(&statistics);
-                Ok(OrderedOutput {
-                    terms,
-                    nonzero_conditions: output.nonzero_conditions,
-                    work: output.work,
-                    progress: output.progress,
-                })
-            })
+            .and_then(|output| modular_output(weights, output).map_err(Into::into))
         }
     };
     kernel.record_work(work);
     result
+}
+
+/// Run one request with the selected weight arithmetic and scheduler
+/// options. Every thread count expands the same keys in the same sequential
+/// order and returns the same terms, guards (in the same order), counters
+/// and observations; see `parallel` for the concurrent execution.
+///
+/// `scheduler.threads == 1` is the sequential scheduler of
+/// [`run_with_arithmetic`]: no pool and no thread is created. Adapters
+/// without a concurrent stepper and requests with diagnostic limits also run
+/// sequentially, because diagnostic limits are checked at the exact point of
+/// the sequential execution where they are crossed.
+pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
+    kernel: &mut K,
+    request: &mut ReductionRequest,
+    initial: BTreeMap<K::Key, Coefficient>,
+    nonzero_conditions: Vec<Coefficient>,
+    arithmetic: OrderedWeightArithmetic,
+    scheduler: OrderedSchedulerOptions,
+) -> Result<OrderedOutput, K::Error> {
+    #[cfg(test)]
+    let (arithmetic, scheduler) = (
+        test_override(arithmetic, kernel.context()),
+        parallel::test_threads_override(scheduler),
+    );
+    scheduler.validate()?;
+    if scheduler.threads == 1 || kernel.limits().diagnostics_enabled || kernel.stepper().is_none() {
+        return run_with_arithmetic(kernel, request, initial, nonzero_conditions, arithmetic);
+    }
+    let workers = Workers::new(scheduler.threads)?;
+    let mut work = ReductionStatistics::default();
+    let result = match arithmetic {
+        OrderedWeightArithmetic::Exact => {
+            let mut weights = ExactWeights::new(kernel.context(), kernel.limits());
+            parallel::run_concurrent(
+                kernel,
+                &mut weights,
+                request,
+                initial,
+                nonzero_conditions,
+                &mut work,
+                &workers,
+                scheduler.window_keys,
+            )
+            .map(exact_output)
+        }
+        // Recorded and cross-checked weights keep their sequential journal;
+        // their steps are computed ahead of time by the workers.
+        OrderedWeightArithmetic::Modular(options) if options.cross_check_exact => {
+            let mut weights = CrossChecked {
+                exact: ExactWeights::new(kernel.context(), kernel.limits()),
+                modular: ModularRecorder::try_new(kernel.context(), kernel.limits(), options)?,
+            };
+            run_inner(
+                kernel,
+                &mut weights,
+                request,
+                initial,
+                nonzero_conditions,
+                &mut work,
+                &mut Prefetched::new(&workers, scheduler.window_keys),
+            )
+            .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
+        }
+        OrderedWeightArithmetic::Modular(options) => {
+            let mut weights = ModularRecorder::try_new(kernel.context(), kernel.limits(), options)?;
+            run_inner(
+                kernel,
+                &mut weights,
+                request,
+                initial,
+                nonzero_conditions,
+                &mut work,
+                &mut Prefetched::new(&workers, scheduler.window_keys),
+            )
+            .and_then(|output| modular_output(weights, output).map_err(Into::into))
+        }
+    };
+    kernel.record_work(work);
+    result
+}
+
+fn exact_output(output: RawOutput<Coefficient>) -> OrderedOutput {
+    OrderedOutput {
+        terms: output.terms,
+        nonzero_conditions: output.nonzero_conditions,
+        work: output.work,
+        progress: output.progress,
+    }
+}
+
+/// Reconstruct the modular terminals and require them to equal the exact ones.
+fn cross_checked_output(
+    weights: CrossChecked,
+    output: RawOutput<(Coefficient, modular::ModularWeight)>,
+) -> Result<OrderedOutput, ReductionError> {
+    let (exact, modular): (BTreeMap<_, _>, BTreeMap<_, _>) = output
+        .terms
+        .into_iter()
+        .map(|(key, (e, m))| ((key.clone(), e), (key, m)))
+        .unzip();
+    let (reconstructed, statistics) = weights.modular.finish(modular)?;
+    modular::report_statistics(&statistics);
+    if reconstructed != exact {
+        return Err(modular::error(
+            "modular reconstruction differs from the exact terminal map",
+        ));
+    }
+    Ok(OrderedOutput {
+        terms: exact,
+        nonzero_conditions: output.nonzero_conditions,
+        work: output.work,
+        progress: output.progress,
+    })
+}
+
+/// Replay the recorded trace and reconstruct the exact terminals.
+fn modular_output(
+    weights: ModularRecorder,
+    output: RawOutput<modular::ModularWeight>,
+) -> Result<OrderedOutput, ReductionError> {
+    let (terms, statistics) = weights.finish(output.terms)?;
+    modular::report_statistics(&statistics);
+    Ok(OrderedOutput {
+        terms,
+        nonzero_conditions: output.nonzero_conditions,
+        work: output.work,
+        progress: output.progress,
+    })
 }
 
 /// `RUSTRED_TEST_ORDERED_MODULAR=1` runs every exact Ordered unit test with
@@ -654,14 +819,53 @@ struct RawOutput<W> {
     progress: CandidateOrderedReductionProgress,
 }
 
-fn run_inner<K: OrderedKernel, A: OrderedWeights>(
+/// Where the scheduler obtains the checked step of a popped key.
+trait StepSource<K: OrderedKernel> {
+    /// The step of `node`, the greatest pending key of `phase`, which has
+    /// just been popped from `frontier`.
+    fn step<W>(
+        &mut self,
+        kernel: &mut K,
+        frontier: &Frontier<K::Key, K::Priority, W>,
+        node: &Scheduled<K::Key, K::Priority>,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<OrderedStep<K::Key>, K::Error>;
+}
+
+/// The adapter's own step, computed when the key is popped.
+struct Inline;
+
+impl<K: OrderedKernel> StepSource<K> for Inline {
+    fn step<W>(
+        &mut self,
+        kernel: &mut K,
+        _: &Frontier<K::Key, K::Priority, W>,
+        node: &Scheduled<K::Key, K::Priority>,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<OrderedStep<K::Key>, K::Error> {
+        kernel.step(&node.key, request, work)
+    }
+}
+
+/// Scheduler state after admission of the request's inputs.
+struct Admitted<K: OrderedKernel, A: OrderedWeights> {
+    guards: GuardIndex,
+    nonzero_conditions: Vec<Coefficient>,
+    frontier: FrontierOf<K, A>,
+    output: BTreeMap<IntegralKey, A::Weight>,
+    progress: CandidateOrderedReductionProgress,
+}
+
+/// Intern the caller's conditions and admit every nonzero input weight.
+fn admit<K: OrderedKernel, A: OrderedWeights>(
     kernel: &mut K,
     weights: &mut A,
     request: &mut ReductionRequest,
     initial: BTreeMap<K::Key, Coefficient>,
     mut nonzero_conditions: Vec<Coefficient>,
-    work: &mut ReductionStatistics,
-) -> Result<RawOutput<A::Weight>, K::Error> {
+) -> Result<Admitted<K, A>, K::Error> {
     let limits = kernel.limits();
     let mut guards = GuardIndex::new();
     // Use the same hash/equality guard interning as the depth-first engine.
@@ -670,7 +874,6 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
         guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
     }
     let mut frontier = Frontier::new();
-    let mut output: BTreeMap<IntegralKey, A::Weight> = BTreeMap::new();
     let mut progress = CandidateOrderedReductionProgress {
         total_phases: kernel.phase_count(),
         input_keys: initial.len(),
@@ -702,18 +905,85 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
     progress.peak_frontier_keys = frontier.len();
     progress.peak_frontier_coefficient_monomials = progress.frontier_coefficient_monomials;
     kernel.observe(&progress, None)?;
-    for phase in 0..progress.total_phases {
+    Ok(Admitted {
+        guards,
+        nonzero_conditions,
+        frontier,
+        output: BTreeMap::new(),
+        progress,
+    })
+}
+
+impl<K: OrderedKernel, A: OrderedWeights> Admitted<K, A> {
+    fn inspect(
+        &self,
+        kernel: &mut K,
+        boundary: OrderedPhaseBoundary,
+        phase: usize,
+    ) -> Result<(), K::Error> {
         inspect::<K, A>(
             kernel,
-            OrderedPhaseBoundary::Started,
+            boundary,
             phase,
-            &progress,
+            &self.progress,
             SchedulerState {
-                frontier: &frontier,
-                terminals: &output,
-                nonzero_conditions: &nonzero_conditions,
+                frontier: &self.frontier,
+                terminals: &self.output,
+                nonzero_conditions: &self.nonzero_conditions,
             },
-        )?;
+        )
+    }
+
+    /// Check that `phase` has drained, then report and inspect its end.
+    fn finish_phase(&mut self, kernel: &mut K, phase: usize) -> Result<(), K::Error> {
+        if self
+            .frontier
+            .order
+            .last()
+            .is_some_and(|node| node.phase.0 < phase)
+        {
+            return Err(invariant("ordered phase was regenerated after completion").into());
+        }
+        self.progress.completed_phases = phase + 1;
+        kernel.observe(&self.progress, None)?;
+        self.inspect(kernel, OrderedPhaseBoundary::Finished, phase)
+    }
+
+    fn finish(self, work: &ReductionStatistics) -> Result<RawOutput<A::Weight>, K::Error> {
+        if !self.frontier.is_empty() {
+            return Err(invariant("ordered frontier remains after the last phase").into());
+        }
+        Ok(RawOutput {
+            terms: self.output,
+            nonzero_conditions: self.nonzero_conditions,
+            work: *work,
+            progress: self.progress,
+        })
+    }
+}
+
+/// The sequential scheduler: pop the greatest pending key, apply its checked
+/// step and merge the weighted children and terminals, one key at a time.
+fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
+    kernel: &mut K,
+    weights: &mut A,
+    request: &mut ReductionRequest,
+    initial: BTreeMap<K::Key, Coefficient>,
+    nonzero_conditions: Vec<Coefficient>,
+    work: &mut ReductionStatistics,
+    steps: &mut S,
+) -> Result<RawOutput<A::Weight>, K::Error> {
+    let limits = kernel.limits();
+    let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    for phase in 0..state.progress.total_phases {
+        state.inspect(kernel, OrderedPhaseBoundary::Started, phase)?;
+        let Admitted {
+            guards,
+            nonzero_conditions,
+            frontier,
+            output,
+            progress,
+        } = &mut state;
         while let Some((node, weight)) = frontier.pop_in_phase(phase) {
             request.release_pending_frame()?;
             replace_monomials(
@@ -722,10 +992,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
                 0,
             )?;
             progress.frontier_keys = frontier.len();
-            kernel.observe(&progress, Some(&node.key))?;
-            let checked = kernel.step(&node.key, request, work)?;
+            kernel.observe(progress, Some(&node.key))?;
+            let checked = steps.step(kernel, frontier, &node, request, work)?;
             for condition in &checked.nonzero_conditions {
-                guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
+                guards.intern(nonzero_conditions, condition, |_| Ok(()))?;
             }
             weights.begin_step(&weight)?;
             for (child, coefficient) in checked.terms {
@@ -848,36 +1118,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights>(
             progress.terminal_keys = output.len();
             kernel.observe(&progress, Some(&node.key))?;
         }
-        if frontier
-            .order
-            .last()
-            .is_some_and(|node| node.phase.0 < phase)
-        {
-            return Err(invariant("ordered phase was regenerated after completion").into());
-        }
-        progress.completed_phases = phase + 1;
-        kernel.observe(&progress, None)?;
-        inspect::<K, A>(
-            kernel,
-            OrderedPhaseBoundary::Finished,
-            phase,
-            &progress,
-            SchedulerState {
-                frontier: &frontier,
-                terminals: &output,
-                nonzero_conditions: &nonzero_conditions,
-            },
-        )?;
+        state.finish_phase(kernel, phase)?;
     }
-    if !frontier.is_empty() {
-        return Err(invariant("ordered frontier remains after the last phase").into());
-    }
-    Ok(RawOutput {
-        terms: output,
-        nonzero_conditions,
-        work: *work,
-        progress,
-    })
+    state.finish(work)
 }
 
 #[cfg(test)]

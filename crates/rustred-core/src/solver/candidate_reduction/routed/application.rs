@@ -146,6 +146,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     work: ReductionStatistics,
     reduction_strategy: ReductionStrategy,
     ordered_weight_arithmetic: crate::reduction::OrderedWeightArithmetic,
+    ordered_scheduler: crate::reduction::OrderedSchedulerOptions,
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -166,6 +167,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
+            ordered_scheduler: Default::default(),
         }
     }
 }
@@ -201,6 +203,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             work: ReductionStatistics::default(),
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
+            ordered_scheduler: Default::default(),
         })
     }
     pub fn owner_preparation_statistics(&self) -> DeferredCandidateOwnerStatistics {
@@ -238,6 +241,21 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn ordered_weight_arithmetic(&self) -> crate::reduction::OrderedWeightArithmetic {
         self.ordered_weight_arithmetic
+    }
+
+    /// Worker threads and window size of the Ordered scheduler (ignored by
+    /// the depth-first strategies). Every setting returns the same exact
+    /// result, guards, statistics and observations; `threads == 1` (the
+    /// default) creates no thread.
+    pub fn set_ordered_scheduler_options(
+        &mut self,
+        scheduler: crate::reduction::OrderedSchedulerOptions,
+    ) {
+        self.ordered_scheduler = scheduler;
+    }
+
+    pub fn ordered_scheduler_options(&self) -> crate::reduction::OrderedSchedulerOptions {
+        self.ordered_scheduler
     }
 
     /// A session cannot change residual semantics while it retains memoized

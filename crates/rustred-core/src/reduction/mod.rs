@@ -36,7 +36,9 @@ pub use ordered_reduction::inspection::{
     OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPhaseInspector,
 };
-pub use ordered_reduction::{ModularWeightOptions, OrderedWeightArithmetic};
+pub use ordered_reduction::{
+    ModularWeightOptions, OrderedSchedulerOptions, OrderedWeightArithmetic,
+};
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,
     accumulate_master_in_request, coefficient_cache_weight, convolve_factor_expansion_in_request,
