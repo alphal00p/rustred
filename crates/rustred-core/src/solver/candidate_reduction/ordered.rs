@@ -283,7 +283,7 @@ impl<const N: usize> ConcurrentOrderedKernel for Kernel<'_, '_, N> {
 }
 
 /// Candidate records are sharded by support level, the phase of their key.
-fn candidate_shard(key: &IntegralKey) -> OrderedStepShard {
+fn step_cache_shard(key: &IntegralKey) -> OrderedStepShard {
     OrderedStepShard {
         stage: OrderedStepStage::Integral,
         support: key.powers().iter().filter(|&&power| power > 0).count() as u16,
@@ -291,9 +291,19 @@ fn candidate_shard(key: &IntegralKey) -> OrderedStepShard {
     }
 }
 
+fn step_cache_key(
+    stage: NodeStage,
+    integral: IntegralKey,
+) -> Result<IntegralKey, CandidateReductionError> {
+    if stage != NodeStage::Integral {
+        return Err(failure("a recorded candidate identity is not a plain integral").into());
+    }
+    Ok(integral)
+}
+
 impl<const N: usize> OrderedStepCacheKernel for Kernel<'_, '_, N> {
     fn step_cache_shard(&mut self, key: &IntegralKey) -> Option<OrderedStepShard> {
-        Some(candidate_shard(key))
+        Some(step_cache_shard(key))
     }
 
     fn step_cache_key(
@@ -301,28 +311,27 @@ impl<const N: usize> OrderedStepCacheKernel for Kernel<'_, '_, N> {
         stage: NodeStage,
         integral: IntegralKey,
     ) -> Result<IntegralKey, Self::Error> {
-        if stage != NodeStage::Integral {
-            return Err(failure("a recorded candidate identity is not a plain integral").into());
-        }
-        Ok(integral)
+        step_cache_key(stage, integral)
     }
 }
 
-/// Candidate worker steps use the same sharding and identities.
 impl<const N: usize> ConcurrentStepCacheKernel for Kernel<'_, '_, N> {
-    fn stepper_cache_shard(_: &Stepper<'_, N>, key: &IntegralKey) -> Option<OrderedStepShard> {
-        Some(candidate_shard(key))
+    fn stepper_shard<'s>(_: &Stepper<'s, N>, key: &IntegralKey) -> Option<OrderedStepShard>
+    where
+        Self: 's,
+    {
+        Some(step_cache_shard(key))
     }
 
-    fn stepper_cache_key(
-        _: &Stepper<'_, N>,
+    fn stepper_key<'s>(
+        _: &Stepper<'s, N>,
         stage: NodeStage,
         integral: IntegralKey,
-    ) -> Result<IntegralKey, CandidateReductionError> {
-        if stage != NodeStage::Integral {
-            return Err(failure("a recorded candidate identity is not a plain integral").into());
-        }
-        Ok(integral)
+    ) -> Result<IntegralKey, CandidateReductionError>
+    where
+        Self: 's,
+    {
+        step_cache_key(stage, integral)
     }
 }
 

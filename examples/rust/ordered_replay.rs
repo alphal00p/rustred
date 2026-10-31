@@ -400,7 +400,7 @@ fn hash_coefficient_exact(hasher: &mut blake3::Hasher, coefficient: &Coefficient
     }
 }
 
-/// Digest of the complete scheduler state at one phase boundary: pending
+/// One digest of the complete scheduler state at one phase boundary: pending
 /// identities with exact weights in pop order, terminals, guards in order.
 fn cache_state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
     let mut hasher = blake3::Hasher::new();

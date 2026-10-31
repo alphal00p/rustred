@@ -554,7 +554,6 @@ fn step_cache_shard<const N: usize>(
     })
 }
 
-/// Rebuild a recorded Route/Apply identity of this application.
 fn step_cache_key<const N: usize>(
     application: &RoutedCandidateApplication<N>,
     stage: NodeStage,
@@ -611,20 +610,22 @@ impl<const N: usize> OrderedStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> 
     }
 }
 
-/// The worker-side cache hooks read the same immutable application.
 impl<const N: usize> ConcurrentStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
-    fn stepper_cache_shard(
-        stepper: &RoutedStepper<'_, N>,
-        node: &Node<N>,
-    ) -> Option<OrderedStepShard> {
+    fn stepper_shard<'s>(stepper: &RoutedStepper<'s, N>, node: &Node<N>) -> Option<OrderedStepShard>
+    where
+        Self: 's,
+    {
         step_cache_shard(stepper.application, node)
     }
 
-    fn stepper_cache_key(
-        stepper: &RoutedStepper<'_, N>,
+    fn stepper_key<'s>(
+        stepper: &RoutedStepper<'s, N>,
         stage: NodeStage,
         integral: IntegralKey,
-    ) -> Result<Node<N>, CandidateRoutedError> {
+    ) -> Result<Node<N>, CandidateRoutedError>
+    where
+        Self: 's,
+    {
         step_cache_key(stepper.application, stage, integral)
     }
 }
