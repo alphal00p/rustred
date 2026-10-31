@@ -1,8 +1,8 @@
 //! Replay one native reduction request recorded by Vakint, with RustRed alone.
 //!
 //! `ordered_replay REQUEST.json [--data-root DIR] [--strategy NAME]
-//!     [--arithmetic SPEC] [--stop-after-phase N]
-//!     [--capture-frontier-at-phase N FILE] [--threads N]`
+//!     [--stop-after-phase N] [--capture-frontier-at-phase N FILE] [--threads N]
+//!     [--window N] [--arithmetic SPEC] [--phase-digests]`
 //!
 //! Vakint writes `REQUEST.json` (schema `vakint.ordered-native-request.v1`) when
 //! `VAKINT_DUMP_ORDERED_REQUEST=<dir>` is set, plus `.phases.jsonl` (native
@@ -33,12 +33,22 @@
 //! printed for manual checks; the output digests are the exactness proof.
 //! `--strategy` accepts `ordered` (default, phase records), `depth_first`
 //! (5L only) and `depth_first_without_memoization` (1-3L and 5L); the latter
-//! two print only the final record. `--arithmetic` selects the Ordered weight
-//! arithmetic in its canonical text form (`exact`, the default,
-//! `modular_sampled[:key=value,...]` or `modular_polynomial[:key=value,...]`);
-//! modular weights appear as `null` in frontier captures. `--threads` is
-//! reserved and must be 1 (modular workers are set by the arithmetic's
-//! `threads` option).
+//! two print only the final record.
+//!
+//! `--arithmetic` selects the Ordered weight arithmetic in its canonical text
+//! form (`exact`, the default, `modular_sampled[:key=value,...]` or
+//! `modular_polynomial[:key=value,...]`; the historical `modular[:...]` alias is
+//! accepted); modular weights appear as `null` in frontier captures. Modular
+//! workers are set by the arithmetic's `threads` option.
+//!
+//! `--threads N` and `--window N` select the Ordered scheduler's workers and
+//! window size (`OrderedSchedulerOptions`; closed 1-3L artifacts always run
+//! sequentially). Every setting must give identical records apart from
+//! timings. `--phase-digests` adds to every `phase` record BLAKE3 digests of
+//! the scheduler state at the phase end: the frontier in pop order (identities
+//! and exact weight representations, or identities only for modular weights),
+//! the terminals, and the guard list in its order. `finished` always reports an
+//! order-sensitive guard digest too.
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -48,8 +58,8 @@ use std::time::Instant;
 use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::reduction::{
-    OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseEvent, OrderedWeightArithmetic,
-    ReductionError, ReductionLimits, ReductionStrategy,
+    OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseEvent, OrderedSchedulerOptions,
+    OrderedWeightArithmetic, ReductionError, ReductionLimits, ReductionStrategy,
 };
 use rustred::solver::{CandidateOrderedReductionProgress, CandidateRoutedError, UnresolvedPolicy};
 use serde_json::{Value, json};
@@ -70,7 +80,8 @@ struct Options {
     arithmetic: OrderedWeightArithmetic,
     stop_after_phase: Option<usize>,
     capture: Option<(usize, PathBuf)>,
-    threads: usize,
+    scheduler: OrderedSchedulerOptions,
+    phase_digests: bool,
 }
 
 impl Options {
@@ -83,7 +94,8 @@ impl Options {
             arithmetic: OrderedWeightArithmetic::Exact,
             stop_after_phase: None,
             capture: None,
-            threads: 1,
+            scheduler: OrderedSchedulerOptions::default(),
+            phase_digests: false,
         };
         while let Some(arg) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -107,19 +119,18 @@ impl Options {
                     let phase = value("--capture-frontier-at-phase")?.parse()?;
                     options.capture = Some((phase, value("--capture-frontier-at-phase")?.into()));
                 }
-                "--threads" => options.threads = value("--threads")?.parse()?,
+                "--threads" => options.scheduler.threads = value("--threads")?.parse()?,
+                "--window" => options.scheduler.window_keys = value("--window")?.parse()?,
+                "--phase-digests" => options.phase_digests = true,
                 _ if request.is_none() && !arg.starts_with("--") => request = Some(arg.into()),
                 _ => return Err(format!("unexpected argument {arg}").into()),
             }
         }
         options.request = request.ok_or(
             "usage: ordered_replay REQUEST.json [--data-root DIR] [--strategy NAME] \
-             [--arithmetic SPEC] [--stop-after-phase N] [--capture-frontier-at-phase N FILE] \
-             [--threads N]",
+             [--stop-after-phase N] [--capture-frontier-at-phase N FILE] [--threads N] \
+             [--window N] [--arithmetic SPEC] [--phase-digests]",
         )?;
-        if options.threads != 1 {
-            return Err("--threads is reserved for parallel engines; only 1 is supported".into());
-        }
         let phased = options.stop_after_phase.is_some() || options.capture.is_some();
         if phased && options.strategy != ReductionStrategy::Ordered {
             return Err("phase options require --strategy ordered".into());
@@ -208,6 +219,11 @@ fn output_digest<'k>(
         }
         count += 1;
     }
+    let mut ordered_guards = blake3::Hasher::new();
+    for guard in nonzero_conditions {
+        ordered_guards.update(canonical(guard).as_bytes());
+        ordered_guards.update(b"\n");
+    }
     let guards: std::collections::BTreeSet<_> = nonzero_conditions.iter().map(canonical).collect();
     let mut guard_hasher = blake3::Hasher::new();
     for guard in &guards {
@@ -221,6 +237,80 @@ fn output_digest<'k>(
         "nonzero_conditions": nonzero_conditions.len(),
         "distinct_nonzero_conditions": guards.len(),
         "nonzero_conditions_blake3": guard_hasher.finalize().to_hex().to_string(),
+        "nonzero_conditions_ordered_blake3": ordered_guards.finalize().to_hex().to_string(),
+    })
+}
+
+/// Feed `std::hash::Hash` output into BLAKE3.
+struct Blake3Hash<'a>(&'a mut blake3::Hasher);
+
+impl std::hash::Hasher for Blake3Hash<'_> {
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+    fn finish(&self) -> u64 {
+        0
+    }
+}
+
+/// The exact representation of a normalized coefficient (integer
+/// coefficients and exponents of its numerator and denominator), without
+/// printing it.
+fn hash_coefficient(hasher: &mut blake3::Hasher, coefficient: &Coefficient) {
+    use std::hash::Hash;
+    for polynomial in [&coefficient.numerator, &coefficient.denominator] {
+        hasher.update(&(polynomial.coefficients.len() as u64).to_le_bytes());
+        polynomial.coefficients.hash(&mut Blake3Hash(hasher));
+        polynomial.exponents.hash(&mut Blake3Hash(hasher));
+    }
+}
+
+/// Digests of the scheduler state at one phase boundary.
+fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
+    let mut frontier = blake3::Hasher::new();
+    let mut entries = 0usize;
+    let mut weights = 0usize;
+    for entry in event.frontier() {
+        let (stage, owner) = match entry.stage {
+            OrderedKeyStage::Integral => ("integral", String::new()),
+            OrderedKeyStage::Route => ("route", String::new()),
+            OrderedKeyStage::Apply { owner_sector } => ("apply", mask(owner_sector)),
+        };
+        frontier.update(
+            format!(
+                "{}|{stage}|{owner}|{}|",
+                entry.phase,
+                powers(entry.integral)
+            )
+            .as_bytes(),
+        );
+        if let Some(weight) = entry.weight {
+            hash_coefficient(&mut frontier, weight);
+            weights += 1;
+        }
+        frontier.update(b"\n");
+        entries += 1;
+    }
+    let mut terminals = blake3::Hasher::new();
+    for (key, weight) in event.terminals() {
+        terminals.update(powers(key).as_bytes());
+        if let Some(weight) = weight {
+            hash_coefficient(&mut terminals, weight);
+        }
+        terminals.update(b"\n");
+    }
+    let mut guards = blake3::Hasher::new();
+    for guard in event.nonzero_conditions() {
+        hash_coefficient(&mut guards, guard);
+    }
+    json!({
+        "frontier_entries": entries,
+        "frontier_weights": weights,
+        "frontier_blake3": frontier.finalize().to_hex().to_string(),
+        "terminals": event.terminals().len(),
+        "terminals_blake3": terminals.finalize().to_hex().to_string(),
+        "nonzero_conditions": event.nonzero_conditions().len(),
+        "nonzero_conditions_blake3": guards.finalize().to_hex().to_string(),
     })
 }
 
@@ -387,6 +477,7 @@ impl<'a> PhaseRecorder<'a> {
                     "progress": progress_json(after),
                     "vakint_counters_match": matches,
                     "vakint_elapsed_seconds": recorded.map(|record| &record["elapsed_seconds"]),
+                    "digests": self.options.phase_digests.then(|| state_digest(event)),
                 }));
                 let capture_next = self
                     .options
@@ -638,6 +729,7 @@ mod saved {
         );
         prepared.set_reduction_strategy(options.strategy);
         prepared.set_ordered_weight_arithmetic(options.arithmetic);
+        prepared.set_ordered_scheduler_options(options.scheduler);
         let owners_before = prepared.owner_preparation_statistics().preparation_time;
         let native = Instant::now();
         let (reduced, recorder) = if options.strategy == ReductionStrategy::Ordered {
@@ -832,20 +924,23 @@ mod candidate {
         );
         let native = Instant::now();
         let mut recorder = PhaseRecorder::new(options, recorded);
-        let result = reducer.reduce_linear_combination_ordered_with_inspector(
+        let mut inspector = |event: &OrderedPhaseEvent<'_>| {
+            if recorder.inspect(event) {
+                Ok(())
+            } else {
+                Err(CandidateReductionError::Application(
+                    ReductionError::ReducerInvariant {
+                        detail: STOP_DETAIL,
+                    },
+                ))
+            }
+        };
+        let result = reducer.reduce_linear_combination_ordered_with_scheduler(
             inputs,
             options.arithmetic,
-            &mut |event| {
-                if recorder.inspect(event) {
-                    Ok(())
-                } else {
-                    Err(CandidateReductionError::Application(
-                        ReductionError::ReducerInvariant {
-                            detail: STOP_DETAIL,
-                        },
-                    ))
-                }
-            },
+            options.scheduler,
+            None,
+            Some(&mut inspector),
         );
         let Some(reduced) = recorder.conclude(result)? else {
             return Ok(());

@@ -5,7 +5,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
     /// Common exact Route/Apply kernel. Scheduling, completed-cache ownership,
     /// and back-substitution stay in their respective execution engines.
     pub(super) fn checked_expand_node(
-        &mut self,
+        &self,
         node: &Node<N>,
         conditions: &mut Vec<Coefficient>,
         request: &mut Request<'_, '_, N>,

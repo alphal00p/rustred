@@ -319,6 +319,20 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.ordered_weight_arithmetic()
     }
 
+    /// Select the Ordered scheduler's worker threads and window size. The
+    /// result is identical for every setting.
+    pub fn set_ordered_scheduler_options(
+        &mut self,
+        scheduler: rustred::reduction::OrderedSchedulerOptions,
+    ) {
+        self.options.ordered_scheduler = scheduler;
+        self.application.set_ordered_scheduler_options(scheduler);
+    }
+
+    pub fn ordered_scheduler_options(&self) -> rustred::reduction::OrderedSchedulerOptions {
+        self.application.ordered_scheduler_options()
+    }
+
     pub fn family(&self) -> &IntegralFamily {
         self.application.family()
     }
@@ -847,6 +861,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             .map_err(native_failure)?;
         application.set_reduction_strategy(options.reduction_strategy);
         application.set_ordered_weight_arithmetic(options.ordered_weight_arithmetic);
+        application.set_ordered_scheduler_options(options.ordered_scheduler);
         application
             .set_cache_representation(options.cache_representation)
             .map_err(native_failure)?;

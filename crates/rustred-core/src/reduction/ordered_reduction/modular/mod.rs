@@ -179,6 +179,26 @@ impl Op {
     }
 }
 
+fn statistics_requested() -> bool {
+    std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS").is_some()
+}
+
+impl Trace {
+    fn digest(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash};
+        let mut hasher = DefaultHasher::new();
+        for op in &self.ops {
+            (op.word, op.coefficient.0).hash(&mut hasher);
+        }
+        self.constants.hash(&mut hasher);
+        for polynomial in &self.polynomials {
+            (&polynomial.numerator, &polynomial.denominator).hash(&mut hasher);
+        }
+        (self.slots, self.terminal_slots).hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// The weight-independent numeric program of one Ordered request.
 pub(super) struct Trace {
     ops: Vec<Op>,
@@ -316,6 +336,11 @@ pub(crate) struct ModularStatistics {
     pub passes: usize,
     pub lanes_replayed: usize,
     pub peak_weight_words: usize,
+    /// Digest of the recorded trace (ops with their slots and coefficient
+    /// references, and the coefficient tables in interning order), computed
+    /// only when statistics are reported. Equal digests mean identical
+    /// replays.
+    pub trace_digest: Option<u64>,
 }
 
 impl ModularStatistics {
@@ -335,7 +360,7 @@ impl ModularStatistics {
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
-                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{}}}"
+                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{}}}"
             ),
             self.arithmetic,
             self.ops,
@@ -377,6 +402,8 @@ impl ModularStatistics {
             self.passes,
             self.lanes_replayed,
             self.peak_weight_words,
+            self.trace_digest
+                .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
         )
     }
 }
@@ -602,6 +629,7 @@ impl ModularRecorder {
         };
         let mut statistics = ModularStatistics {
             arithmetic: self.lifter.name(),
+            trace_digest: statistics_requested().then(|| trace.digest()),
             ops: trace.ops.len(),
             constants: constant_total,
             polynomials: polynomial_total,
@@ -618,6 +646,19 @@ impl ModularRecorder {
             jobs_on_caller_only: true,
             ..Default::default()
         };
+        if let Some(digest) = statistics.trace_digest {
+            // The recorded trace before its (long) replay, so that runs stopped
+            // during reconstruction can still be compared.
+            report_line(&format!(
+                "{{\"stage\":\"recorded\",\"ops\":{},\"peak_slots\":{},\"constants\":{},\
+                 \"polynomials\":{},\"record_seconds\":{:.6},\"trace_digest\":\"{digest:016x}\"}}",
+                statistics.ops,
+                statistics.peak_slots,
+                statistics.constants,
+                statistics.polynomials,
+                statistics.record_seconds,
+            ));
+        }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
         let has_cancellations = trace
@@ -807,6 +848,10 @@ impl OrderedWeights for ModularRecorder {
 pub(crate) fn report_statistics(statistics: &ModularStatistics) {
     #[cfg(test)]
     REPORTED.with(|reported| reported.borrow_mut().push(statistics.clone()));
+    report_line(&statistics.to_json());
+}
+
+fn report_line(line: &str) {
     if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
         use std::io::Write;
         if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -814,7 +859,7 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
             .append(true)
             .open(path)
         {
-            let _ = writeln!(file, "{}", statistics.to_json());
+            let _ = writeln!(file, "{line}");
         }
     }
 }

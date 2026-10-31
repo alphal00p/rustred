@@ -37,8 +37,8 @@ pub use ordered_reduction::inspection::{
     OrderedPhaseEvent, OrderedPhaseInspector,
 };
 pub use ordered_reduction::{
-    ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
-    PolynomialDenominators, PolynomialOptions, SampledOptions,
+    ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic,
+    ParseOrderedWeightArithmeticError, PolynomialDenominators, PolynomialOptions, SampledOptions,
 };
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,

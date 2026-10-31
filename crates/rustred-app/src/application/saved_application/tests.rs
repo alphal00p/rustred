@@ -207,6 +207,95 @@ fn ordered_phase_inspection_preserves_routed_results_and_stops_cleanly() {
 }
 
 #[test]
+fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states() {
+    use rustred::reduction::{
+        ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
+        ReductionStrategy, SampledOptions,
+    };
+    use symbolica::atom::AtomCore;
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let mut application = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            reduction_strategy: ReductionStrategy::Ordered,
+            ordered_scheduler: OrderedSchedulerOptions::with_threads(3),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(application.ordered_scheduler_options().threads, 3);
+    let context = application.family().coefficient_context().clone();
+    // The fixture admits roots [2] and [4]; the repeated root coalesces.
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+        (IntegralKey::try_new([4]).unwrap(), context.integer(7)),
+    ];
+    let common = ModularCommon {
+        threads: 2,
+        ..Default::default()
+    };
+    let modular = OrderedWeightArithmetic::ModularSampled(
+        common,
+        SampledOptions {
+            batch_points: 4,
+            ..Default::default()
+        },
+    );
+    let polynomial = OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default());
+    for arithmetic in [OrderedWeightArithmetic::Exact, modular, polynomial] {
+        application.set_ordered_weight_arithmetic(arithmetic);
+        let mut runs = Vec::new();
+        for (threads, window_keys) in [(1, 4096), (2, 1), (3, 2), (4, 4096)] {
+            application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+                threads,
+                window_keys,
+            });
+            let mut states = Vec::new();
+            let reduced = application
+                .reduce_routed_linear_combination_with_ordered_inspector(
+                    inputs.clone(),
+                    &mut |event| {
+                        let frontier: Vec<_> = event
+                            .frontier()
+                            .map(|entry| {
+                                (
+                                    entry.phase,
+                                    entry.integral.clone(),
+                                    entry
+                                        .weight
+                                        .map(|weight| weight.to_expression().to_canonical_string()),
+                                )
+                            })
+                            .collect();
+                        states.push((
+                            event.boundary,
+                            event.phase,
+                            event.progress,
+                            frontier,
+                            event.nonzero_conditions().to_vec(),
+                        ));
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            runs.push((
+                reduced.terms().clone(),
+                reduced.nonzero_conditions().to_vec(),
+                states,
+            ));
+        }
+        assert!(!runs[0].0.is_empty());
+        for run in &runs[1..] {
+            assert_eq!(run, &runs[0]);
+        }
+    }
+}
+
+#[test]
 fn unmemoized_saved_application_load_option_and_switch_keep_dfs_results_reusable() {
     use rustred::reduction::ReductionStrategy;
     let scratch = Scratch::new();

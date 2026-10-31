@@ -112,6 +112,47 @@ keys and returns the same terms and conditions; only the monomial census differs
 (one per modular weight). `cross_check_exact` also runs the exact arithmetic in
 the same pass and fails on any differing zero decision or terminal coefficient.
 
+== Concurrent execution
+
+`OrderedSchedulerOptions { threads, window_keys }`
+(`SavedApplicationOptions::ordered_scheduler`,
+`PreparedSavedApplication::set_ordered_scheduler_options`,
+`CandidateReducer::reduce_linear_combination_ordered_with_scheduler`) runs the
+saved routed and candidate adapters on a private pool of `threads` workers.
+`threads == 1` (the default) is the sequential scheduler on the calling thread;
+no pool or thread is created. Closed artifacts always run sequentially (their
+complete factorizations own request-local depth-first state), and so do requests
+with diagnostic limits, which are checked against aggregate counts inside steps.
+A caller with one core budget passes it here and to the modular replay threads;
+the two pools are never busy at the same time.
+
+Every setting reproduces the sequential execution exactly: the same expanded keys,
+terms, conditions in the same first-appearance order, statistics, counters
+including peaks and cancellations, observations in the same order, phase
+inspections and first error. A phase is processed in windows: the greatest
+`window_keys` pending keys of the phase, closed under same-phase descent above the
+lowest of them. Steps are pure functions of their key and are computed by the
+workers, ahead of time and possibly for keys that later cancel; only the steps of
+keys the sequential scheduler expands contribute. Window keys settle in a
+dataflow order: a key merges its window contributions in the sequential order
+(parent pop order, then child order) once all its window parents have settled,
+and is expanded iff its weight is then nonzero. Contributions leaving the window
+are merged per destination, concurrently across destinations and again in the
+sequential order per destination; a destination receiving a large share of a
+window is merged by exact prefix sums on several threads when weight sums are
+canonical (exact weights). A serial scan then replays, in pop order, every
+accounting, counter, condition, observation and error of the sequential
+scheduler from the recorded outcome of each merge. Recorded modular weights keep
+their sequential trace journal: their merges stay sequential and only their steps
+are computed ahead by the workers, so the recorded trace is identical.
+
+A window holds at most `window_keys` popped weights plus the steps of its keys;
+products are formed by the merging thread, so the frontier at every window
+boundary is the sequential one. Resource budgets active on the calling thread
+are installed around every worker task. `RUSTRED_ORDERED_WINDOW_STATS=<file>`
+appends one diagnostic JSON line per window (stage times, sizes, heaviest
+destination).
+
 == Phases and canonical identities
 
 Saved applications process support sizes downward, draining routing before the
