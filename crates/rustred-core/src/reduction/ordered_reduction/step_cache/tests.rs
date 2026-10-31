@@ -515,3 +515,108 @@ fn records_keep_guard_order_and_terminal_coefficients() {
     assert!(!terminals.is_empty());
     let _ = Arc::clone(&cache);
 }
+
+/// Digest of every record of `cache`, independent of its stamp: each shard
+/// id with its record count and deterministic payload, in shard order.
+pub(crate) fn records_digest(cache: &OrderedStepCache) -> String {
+    let shards: Vec<_> = cache.shards.read().unwrap().values().cloned().collect();
+    let mut hasher = blake3::Hasher::new();
+    for shard in shards {
+        let mut inner = shard.inner.write().unwrap();
+        let (bytes, records) = cache.encode_shard(shard.id, &mut inner.data).unwrap();
+        hasher.update(format!("{} {records}\n", shard.id).as_bytes());
+        hasher.update(&bytes[SHARD_HEADER..]);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Pin the records of a fixture to the step semantics version. A changed
+/// record means a checked step changed: bump [`ORDERED_STEP_SEMANTICS`] and
+/// update the golden digest with it. (Saved caches are invalidated by the
+/// source digest in every stamp regardless; the version names the change.)
+pub(crate) fn assert_golden_records(fixture: &str, digest: &str, golden: &str) {
+    assert_eq!(
+        (ORDERED_STEP_SEMANTICS, digest),
+        ("rustred-ordered-steps-2026-10-31", golden),
+        "the recorded Ordered steps of fixture {fixture} changed: bump ORDERED_STEP_SEMANTICS \
+         and update the golden digest"
+    );
+}
+
+#[test]
+fn closed_fixture_records_match_the_step_semantics_golden() {
+    let sunset = derive_two_loop_unit_mass_sunset().unwrap();
+    let cache = OrderedStepCache::in_memory(closed_binding(&sunset, 0), Default::default());
+    closed_run(
+        &sunset,
+        &sunset_inputs(&sunset),
+        Some(&cache),
+        OrderedWeightArithmetic::Exact,
+    );
+    assert_golden_records(
+        "closed sunset",
+        &records_digest(&cache),
+        "71f86f3459ec5f306da95eedbb8440150fca5ec703ff49b306866ac081ef3c68",
+    );
+}
+
+#[test]
+fn stamps_bind_the_engine_sources_and_symbolica_build() {
+    assert_eq!(ORDERED_STEP_SOURCES.len(), 64);
+    assert!(
+        ORDERED_STEP_SOURCES
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    );
+    let engine = ordered_step_engine();
+    assert!(engine.starts_with(&format!(
+        "rustred {} sources {ORDERED_STEP_SOURCES} symbolica ",
+        env!("CARGO_PKG_VERSION")
+    )));
+    assert_eq!(
+        symbolica_identity("symbolica-v3.0.1-110-g9cd57678"),
+        "git-9cd5767"
+    );
+    assert_eq!(symbolica_identity("symbolica-9cd5767"), "git-9cd5767");
+    assert_eq!(symbolica_identity("symbolica-3.0.1"), "3.0.1");
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let binding = closed_binding(&artifact, 8);
+    let description = binding.description();
+    assert!(description.contains(&format!("\nengine {engine}\n")));
+    assert!(description.ends_with("\nterminals none\n"));
+    // A cache recorded by an engine built from other sources (or against
+    // another Symbolica) is rejected, whatever ORDERED_STEP_SEMANTICS says.
+    let scratch = Scratch::new("engine");
+    let cache = OrderedStepCache::open(&scratch.0, binding.clone(), Default::default()).unwrap();
+    closed_run(
+        &artifact,
+        &sunset_inputs(&artifact),
+        Some(&cache),
+        OrderedWeightArithmetic::Exact,
+    );
+    cache.save().unwrap();
+    let manifest = scratch.0.join(MANIFEST_FILE);
+    let current = std::fs::read_to_string(&manifest).unwrap();
+    for other_engine in [
+        engine.replace(ORDERED_STEP_SOURCES, &"0".repeat(64)),
+        format!(
+            "{} symbolica git-0000000",
+            engine.split(" symbolica ").next().unwrap()
+        ),
+    ] {
+        let other = binding.describe(&other_engine);
+        assert_ne!(other, description);
+        let stamp = hex(blake3::hash(other.as_bytes()).as_bytes());
+        let written =
+            current
+                .replacen(&description, &other, 1)
+                .replacen(&hex(&binding.stamp()), &stamp, 1);
+        std::fs::write(&manifest, written).unwrap();
+        assert!(matches!(
+            OrderedStepCache::open(&scratch.0, binding.clone(), Default::default()),
+            Err(ReductionError::OrderedStepCache { .. })
+        ));
+    }
+    std::fs::write(&manifest, current).unwrap();
+    assert!(OrderedStepCache::open(&scratch.0, binding, Default::default()).is_ok());
+}

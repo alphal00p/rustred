@@ -317,13 +317,16 @@ impl<const N: usize> PreparedSavedApplication<N> {
     }
 
     /// Binding of an Ordered step cache for this application: a BLAKE3
-    /// digest of the authenticated selection (owners, routes, slots), the
-    /// entry queries and every owner payload's declared digest, together with
-    /// the family, coefficient variables and unresolved policy. Terminal maps
-    /// are applied after the native steps and are not part of it.
+    /// digest of this crate's sources ([`crate::ORDERED_STEP_APP_SOURCES`],
+    /// which prepare owners and routes from the saved files), the
+    /// authenticated selection (owners, routes, slots), the entry queries and
+    /// every owner payload's declared digest, together with the family,
+    /// coefficient variables and unresolved policy. Terminal maps are applied
+    /// after the native steps and are not part of it.
     pub fn ordered_step_cache_binding(&self) -> rustred::reduction::OrderedStepCacheBinding {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"rustred.saved-application.ordered-steps.v1\n");
+        hasher.update(b"rustred.saved-application.ordered-steps.v2\n");
+        hasher.update(crate::ORDERED_STEP_APP_SOURCES.as_bytes());
         for part in [&self.inputs.selection, &self.inputs.queries] {
             hasher.update(&(part.len() as u64).to_le_bytes());
             hasher.update(part.as_bytes());

@@ -37,10 +37,10 @@ pub use ordered_reduction::inspection::{
     OrderedPhaseEvent, OrderedPhaseInspector,
 };
 pub use ordered_reduction::step_cache::{
-    ORDERED_STEP_CACHE_SCHEMA, ORDERED_STEP_SEMANTICS, OrderedStepCache, OrderedStepCacheAdapter,
-    OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedStepCacheSaveReport,
-    OrderedStepCacheShardStatistics, OrderedStepCacheStatistics, OrderedStepShard,
-    OrderedStepShardState, OrderedStepStage,
+    ORDERED_STEP_CACHE_SCHEMA, ORDERED_STEP_SEMANTICS, ORDERED_STEP_SOURCES, OrderedStepCache,
+    OrderedStepCacheAdapter, OrderedStepCacheBinding, OrderedStepCacheOptions,
+    OrderedStepCacheSaveReport, OrderedStepCacheShardStatistics, OrderedStepCacheStatistics,
+    OrderedStepShard, OrderedStepShardState, OrderedStepStage, ordered_step_engine,
 };
 pub use ordered_reduction::{ModularWeightOptions, OrderedWeightArithmetic};
 pub(crate) use reducer::{

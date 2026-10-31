@@ -37,6 +37,10 @@ rayon = "1"
 rustred-order = { path = "../rustred-order" }
 symbolica.workspace = true
 
+[build-dependencies]
+# Digest of the step-defining sources for the Ordered step-cache stamp.
+blake3 = "1"
+
 [[example]]
 name = "spired-solve-case"
 path = "../../examples/rust/spired_solve_case.rs"

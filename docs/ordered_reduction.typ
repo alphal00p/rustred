@@ -149,9 +149,19 @@ applications: the Apply owner, or the owner a Route identity is transported to).
 first lookup; `save` writes each changed shard as a deterministic,
 content-addressed file (sorted identities, coefficients with factorized
 denominators, records; byte-identical for the same records) and then the manifest.
-Every file carries a stamp: the BLAKE3 digest of the binding (caller program
-digest, family, coefficient variables, adapter, unresolved policy, schema and step
-semantics version). A mismatched or corrupt file is rejected with
+Every file carries a stamp: the BLAKE3 digest of the binding (program digest,
+family, coefficient variables, adapter, unresolved policy, candidate terminal
+convention) and of the engine (schema, step semantics version, a build-time digest
+of the `rustred` and `rustred-order` sources, and the Symbolica build). A cache is
+therefore replayed only by an engine built from the sources that recorded it; fixture
+goldens pin the step semantics version to the recorded steps. Program digests come
+from the loaders where possible: `PreparedSavedApplication::ordered_step_cache_binding`
+digests the saved files and the rustred-app sources that prepare them, and
+`load_generated_candidate_bundle` declares the digest of the bundle on the
+`CandidateReducer`, whose `ordered_step_cache_binding` adds the digest of the
+installed terminal convention (the terminal step of every raw terminal); terminal
+conventions cannot be installed while a cache is attached. Attachment and every
+request check the binding. A mismatched or corrupt file is rejected with
 `ReductionError::OrderedStepCache` and never used. A resident-byte ceiling and the
 Symbolica RSS budget limit growth; skipped records only cost recomputation.
 Progress reports per-request `step_cache_hits` and `step_cache_misses`; the cache

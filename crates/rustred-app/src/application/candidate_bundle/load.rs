@@ -88,6 +88,10 @@ pub fn inspect_generated_candidate_bundle(
 /// Native Symbolica state and Atom decoding is not a hostile-input parser.
 /// Frame and structural limits do not bound every allocation in malformed
 /// native data. Loaded coefficients must have their generated normalized form.
+///
+/// The reducer declares its program digest (BLAKE3 over this crate's sources,
+/// [`crate::ORDERED_STEP_APP_SOURCES`], and `bytes`), which binds Ordered
+/// step caches to this program (`CandidateReducer::ordered_step_cache_binding`).
 pub fn load_generated_candidate_bundle<const N: usize>(
     bytes: &[u8],
     input_limits: CandidateBundleLimits,
@@ -117,13 +121,27 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     // the reconstructed solutions. Do not retain the dictionary alongside its
     // prepared coefficient owners while building the reducer.
     drop(bundle);
-    finish_reducer(
+    let (family, mut reducer) = finish_reducer(
         prepared,
         solutions,
         ordering,
         max_numerator_rank,
         reduction_limits,
-    )
+    )?;
+    reducer
+        .set_program_digest(candidate_bundle_digest(bytes))
+        .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Execution))?;
+    Ok((family, reducer))
+}
+
+/// Program digest of a candidate bundle for Ordered step-cache bindings.
+fn candidate_bundle_digest(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rustred-app.candidate-bundle.ordered-steps.v1\n");
+    hasher.update(crate::ORDERED_STEP_APP_SOURCES.as_bytes());
+    hasher.update(&(bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+    *hasher.finalize().as_bytes()
 }
 
 fn reconstruct_family<const N: usize>(

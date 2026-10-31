@@ -393,6 +393,7 @@ fn open_step_cache(
     let statistics = cache.statistics();
     emit(json!({"event": "step_cache_open", "directory": directory,
         "seconds": started.elapsed().as_secs_f64(),
+        "engine": rustred::reduction::ordered_step_engine(),
         "stamp": cache.stamp().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
         "shards_on_disk": statistics.shards.len(), "file_bytes": statistics.file_bytes}));
     Ok(Some(cache))
@@ -1053,22 +1054,9 @@ mod candidate {
         reducer.install_terminal_normalization(plan)?;
         reducer.set_unresolved_policy(UnresolvedPolicy::Preserve)?;
         let mut reducer = reducer.fork_empty_with_limits(ReductionLimits::default());
-        // The steps read the rule program and the terminal normalization.
-        let mut digest = blake3::Hasher::new();
-        for part in [&program_bytes, &normalization_bytes] {
-            digest.update(&(part.len() as u64).to_le_bytes());
-            digest.update(part);
-        }
-        let cache = open_step_cache(
-            options,
-            OrderedStepCacheBinding::new(
-                OrderedStepCacheAdapter::CandidateProgram,
-                *digest.finalize().as_bytes(),
-                family.fingerprint(),
-                family.coefficient_context(),
-                Some(UnresolvedPolicy::Preserve),
-            ),
-        )?;
+        // The loader declared the program digest; the binding adds the
+        // installed terminal normalization and the unresolved policy.
+        let cache = open_step_cache(options, reducer.ordered_step_cache_binding()?)?;
         reducer.set_ordered_step_cache(cache.clone())?;
         let inputs = inputs(request, family.coefficient_context())?;
         emit(

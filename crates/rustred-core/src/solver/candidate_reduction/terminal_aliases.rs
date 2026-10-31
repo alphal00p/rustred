@@ -15,7 +15,8 @@ impl<const N: usize> CandidateReducer<N> {
     /// coalesce equivalent output keys before retaining their decompositions in
     /// the cache. Installation requires an empty cache, preventing a mixture of
     /// old and new output conventions; an explicit `clear_cache` permits a new
-    /// plan. Successful installation replaces any weighted normalization plan;
+    /// plan. No Ordered step cache may be attached either: its records hold
+    /// the terminal steps of the current convention. Successful installation replaces any weighted normalization plan;
     /// rejected installation leaves both conventions unchanged.
     /// No source identity or completeness claim is added to this candidate
     /// owner by installing exact terminal equalities.
@@ -26,6 +27,11 @@ impl<const N: usize> CandidateReducer<N> {
         if !self.cache.is_empty() {
             return Err(CandidateReductionError::InvalidInput(
                 "terminal aliases require an empty reduction cache".into(),
+            ));
+        }
+        if self.ordered_step_cache.is_some() {
+            return Err(CandidateReductionError::InvalidInput(
+                "terminal aliases require a detached Ordered step cache".into(),
             ));
         }
         if plan.family_fingerprint() != self.family_fingerprint() {
