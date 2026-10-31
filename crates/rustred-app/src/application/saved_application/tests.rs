@@ -227,10 +227,11 @@ fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states
     .unwrap();
     assert_eq!(application.ordered_scheduler_options().threads, 3);
     let context = application.family().coefficient_context().clone();
+    // The fixture admits roots [2] and [4]; the repeated root coalesces.
     let inputs = vec![
-        (IntegralKey::try_new([5]).unwrap(), context.integer(3)),
-        (IntegralKey::try_new([4]).unwrap(), context.integer(7)),
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
         (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+        (IntegralKey::try_new([4]).unwrap(), context.integer(7)),
     ];
     let modular = OrderedWeightArithmetic::Modular(ModularWeightOptions {
         batch_points: 4,
