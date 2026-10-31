@@ -74,6 +74,9 @@ struct Replayed {
     images: Vec<Vec<Image>>,
     peak_words: usize,
     cancel_checks: usize,
+    /// Seconds per trace segment: before the first phase, then one per
+    /// recorded phase start (`Trace::phase_starts`).
+    segment_seconds: Vec<f64>,
 }
 
 /// Evaluate the trace with `representation` and return the images of the
@@ -90,7 +93,22 @@ fn replay<R: Representation>(
         .collect();
     let mut active = R::Weight::default();
     let (mut words, mut peak_words, mut cancel_checks) = (0usize, 0usize, 0usize);
-    for op in &trace.ops {
+    // Phase timing (diagnostics): one clock read per phase boundary.
+    let mut segment_seconds = vec![0.0; trace.phase_starts.len() + 1];
+    let mut segment = 0usize;
+    let mut next_boundary = trace.phase_starts.first().map_or(usize::MAX, |start| start.1);
+    let mut clock = Instant::now();
+    for (index, op) in trace.ops.iter().enumerate() {
+        while index == next_boundary {
+            let now = Instant::now();
+            segment_seconds[segment] += now.duration_since(clock).as_secs_f64();
+            clock = now;
+            segment += 1;
+            next_boundary = trace
+                .phase_starts
+                .get(segment)
+                .map_or(usize::MAX, |start| start.1);
+        }
         let tag = op.tag();
         let slot = op.slot();
         let target = match tag {
@@ -126,6 +144,7 @@ fn replay<R: Representation>(
         words = words - before + representation.words(target);
         peak_words = peak_words.max(words);
     }
+    segment_seconds[segment] += clock.elapsed().as_secs_f64();
     let images = (0..lanes)
         .map(|lane| {
             outputs
@@ -138,6 +157,7 @@ fn replay<R: Representation>(
         images,
         peak_words,
         cancel_checks,
+        segment_seconds,
     })
 }
 
@@ -245,6 +265,22 @@ impl ImageSource for PolynomialSource<'_> {
             statistics.lanes_replayed += indices.len();
             statistics.cancel_checks += replayed.cancel_checks * indices.len();
             statistics.peak_weight_words = statistics.peak_weight_words.max(replayed.peak_words);
+            let labels = std::iter::once(None).chain(
+                trace
+                    .phase_starts
+                    .iter()
+                    .map(|&(phase, _)| Some(phase)),
+            );
+            for (label, seconds) in labels.zip(&replayed.segment_seconds) {
+                match statistics
+                    .replay_phase_cpu_seconds
+                    .iter_mut()
+                    .find(|(known, _)| *known == label)
+                {
+                    Some((_, total)) => *total += seconds,
+                    None => statistics.replay_phase_cpu_seconds.push((label, *seconds)),
+                }
+            }
             for (index, terminals) in indices.into_iter().zip(replayed.images) {
                 images[index] = Some(PrimeImages {
                     structure: self.structure.clone(),

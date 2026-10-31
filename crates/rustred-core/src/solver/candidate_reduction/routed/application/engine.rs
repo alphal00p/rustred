@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 mod checked;
+mod layered;
 mod ordered;
 mod without_memoization;
 

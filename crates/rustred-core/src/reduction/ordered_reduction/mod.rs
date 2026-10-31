@@ -319,6 +319,9 @@ pub(crate) trait OrderedWeights {
     /// The exact value of a weight for phase inspection, when this arithmetic
     /// carries one.
     fn exact(weight: &Self::Weight) -> Option<&Coefficient>;
+    /// The sequential scheduler starts `phase` (diagnostics only: recorded
+    /// arithmetics time their replay per phase).
+    fn phase_started(&mut self, _phase: usize) {}
 }
 
 /// Exact normalized rational-function weights (historical arithmetic).
@@ -580,6 +583,9 @@ impl OrderedWeights for CrossChecked {
     }
     fn exact(weight: &Self::Weight) -> Option<&Coefficient> {
         Some(&weight.0)
+    }
+    fn phase_started(&mut self, phase: usize) {
+        self.modular.phase_started(phase);
     }
 }
 
@@ -1002,6 +1008,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
     for phase in 0..state.progress.total_phases {
         state.inspect(kernel, OrderedPhaseBoundary::Started, phase)?;
+        weights.phase_started(phase);
         let Admitted {
             guards,
             nonzero_conditions,

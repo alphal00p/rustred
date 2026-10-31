@@ -79,9 +79,9 @@ pub use candidate_reduction::{
     OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind,
     OwnerGuardedStats, OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata,
     OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
-    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition, RootAdmissionError,
-    RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits, RoutedCandidateReducer,
-    UnresolvedPolicy, pick_entry_intersection_witness,
+    OrderedRouteLayering, OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
+    RootAdmissionError, RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits,
+    RoutedCandidateReducer, UnresolvedPolicy, pick_entry_intersection_witness,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

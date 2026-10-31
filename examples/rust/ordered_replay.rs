@@ -50,6 +50,13 @@
 //! the terminals, and the guard list in its order. `finished` always reports an
 //! order-sensitive guard digest too.
 //!
+//! `--route-layers NAME` selects the 5L saved application's Ordered Route
+//! transport (`OrderedRouteLayering`: `off`, `index`, `smallest-power`,
+//! `fewest-terms`, `largest-power`; default: the library default). Every
+//! setting must give identical output digests; phase counters (processed keys,
+//! emitted terms, peaks) differ, so compare them with
+//! `--ignore-recorded-counters`.
+//!
 //! Step-cache options (Ordered only):
 //! * `--step-cache DIR` attaches the program's persistent Ordered step cache
 //!   in `DIR` (created on save), `--step-cache-save` saves it after the run,
@@ -100,6 +107,7 @@ struct Options {
     step_cache_save: bool,
     step_cache_read_only: bool,
     ignore_recorded_counters: bool,
+    route_layers: Option<rustred::solver::OrderedRouteLayering>,
 }
 
 impl Options {
@@ -118,6 +126,7 @@ impl Options {
             step_cache_save: false,
             step_cache_read_only: false,
             ignore_recorded_counters: false,
+            route_layers: None,
         };
         while let Some(arg) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -148,6 +157,7 @@ impl Options {
                 "--step-cache-save" => options.step_cache_save = true,
                 "--step-cache-read-only" => options.step_cache_read_only = true,
                 "--ignore-recorded-counters" => options.ignore_recorded_counters = true,
+                "--route-layers" => options.route_layers = Some(value("--route-layers")?.parse()?),
                 _ if request.is_none() && !arg.starts_with("--") => request = Some(arg.into()),
                 _ => return Err(format!("unexpected argument {arg}").into()),
             }
@@ -916,6 +926,10 @@ mod saved {
         prepared.set_reduction_strategy(options.strategy);
         prepared.set_ordered_weight_arithmetic(options.arithmetic);
         prepared.set_ordered_scheduler_options(options.scheduler);
+        if let Some(layering) = options.route_layers {
+            prepared.set_ordered_route_layering(layering);
+        }
+        emit(json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str()}));
         let cache = open_step_cache(options, prepared.ordered_step_cache_binding())?;
         prepared.set_ordered_step_cache(cache.clone())?;
         let owners_before = prepared.owner_preparation_statistics().preparation_time;

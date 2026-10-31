@@ -5,7 +5,7 @@ use crate::family::numerator_expansion::{
 };
 
 use super::compile::{admit, overflow, reserved};
-use super::{Error, ExpansionError, ExpansionLimits, Prepared, TransportedIntegral};
+use super::{Endpoint, Error, ExpansionError, ExpansionLimits, Prepared, TransportedIntegral};
 
 impl Prepared {
     /// Expand the concrete numerator and route its monomials to target keys.
@@ -64,6 +64,68 @@ impl Prepared {
             &factors,
             limits,
             reserve,
+        )?)
+    }
+
+    /// Layered transport, first part: the positive powers of `source` on
+    /// their target axes (zero elsewhere), after the admission of
+    /// [`Prepared::transport`]. The full transport of `source` is this base
+    /// times the product of the factors of its negative axes
+    /// ([`Prepared::factor_expansion`]); the product may be expanded one
+    /// factor at a time, in any order, with exactly the same coalesced result.
+    pub(crate) fn layered_base(
+        &self,
+        source: &IntegralKey,
+        limits: ExpansionLimits,
+    ) -> Result<IntegralKey, Error> {
+        Ok(self.expansion_input(source, limits)?.0)
+    }
+
+    /// Layered transport, one factor: the exact expansion of the affine
+    /// numerator factor of source axis `axis`, `(c_a + sum_l L_al D_l)^power`,
+    /// as endpoints relative to the zero key (the monomial `prod_l D_l^e_l`
+    /// has the key `-e`), sorted and exactly coalesced, through the same
+    /// native expansion service and limits as [`Prepared::transport`].
+    pub(crate) fn factor_expansion(
+        &self,
+        axis: usize,
+        power: u64,
+        limits: ExpansionLimits,
+    ) -> Result<Box<[Endpoint]>, Error> {
+        let arity = self.source_root.arity();
+        if axis >= arity {
+            return Err(Error::WrongInputArity {
+                expected: arity,
+                actual: axis.saturating_add(1),
+            });
+        }
+        let target_arity = self.target.denominator_count();
+        let mut base = reserved(target_arity, "transport base powers")?;
+        base.resize(target_arity, 0);
+        let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
+        let factor = self.factor(axis, power)?;
+        Ok(try_expand_multi_affine_numerator_with_usage(
+            &self.target,
+            &base,
+            std::slice::from_ref(&factor),
+            limits,
+            |_| Ok(()),
+        )?)
+    }
+
+    fn factor(&self, axis: usize, power: u64) -> Result<MultiAffineNumeratorFactor, Error> {
+        let target_arity = self.target.denominator_count();
+        Ok(MultiAffineNumeratorFactor::try_new(
+            self.map.denominators().constant()[axis].clone(),
+            (0..target_arity).map(|column| {
+                self.map
+                    .denominators()
+                    .linear()
+                    .get(axis, column)
+                    .expect("verified matrix shape")
+                    .clone()
+            }),
+            power,
         )?)
     }
 
@@ -156,18 +218,7 @@ impl Prepared {
             if power > 0 {
                 base[self.active_target[axis].expect("compiled active bijection")] = power;
             } else if power < 0 {
-                factors.push(MultiAffineNumeratorFactor::try_new(
-                    self.map.denominators().constant()[axis].clone(),
-                    (0..target_arity).map(|column| {
-                        self.map
-                            .denominators()
-                            .linear()
-                            .get(axis, column)
-                            .expect("verified matrix shape")
-                            .clone()
-                    }),
-                    power.unsigned_abs(),
-                )?);
+                factors.push(self.factor(axis, power.unsigned_abs())?);
             }
         }
         let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
