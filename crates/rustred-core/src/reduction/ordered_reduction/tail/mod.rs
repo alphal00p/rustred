@@ -1337,7 +1337,23 @@ impl<K: OrderedKernel> TailRun<K> {
                 .find(&state.nonzero_conditions, guard)
                 .is_none_or(|index| index >= checkpoint.guards)
         };
+        // Reached by the forward pass: an entry, or a child of an expanded
+        // step (keys reached only through erased keys never got a weight).
+        let mut reached = vec![false; self.log.keys.len()];
+        for (key, _) in &checkpoint.entries {
+            if let Some(id) = self.log.keys.get(key) {
+                reached[id as usize] = true;
+            }
+        }
+        for step in self.log.steps.iter().filter(|step| step.forward) {
+            for &(child, _) in &self.log.edges[step.edges.0 as usize..step.edges.1 as usize] {
+                reached[child as usize] = true;
+            }
+        }
         for id in 0..self.log.keys.len() as u32 {
+            if !reached[id as usize] {
+                continue;
+            }
             let step = self.log.step[id as usize];
             let sensitive = if step == NONE {
                 tabulated
