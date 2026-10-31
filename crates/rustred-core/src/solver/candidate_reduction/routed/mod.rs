@@ -44,7 +44,7 @@ pub use entry::{
 pub use model::{
     CandidateOwnerRoute, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedIdentity, CandidateRoutedTraceReport,
-    RoutedCandidateLimits, RoutedCandidateReducer,
+    OrderedRouteLayering, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 
 #[cfg(test)]

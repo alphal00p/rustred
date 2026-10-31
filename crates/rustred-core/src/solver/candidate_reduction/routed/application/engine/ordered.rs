@@ -11,8 +11,10 @@ use crate::reduction::ordered_reduction::{
 };
 use crate::reduction::{OrderedStepShard, OrderedStepStage};
 use crate::reduction::{ReductionLimits, ReductionStrategy};
-use crate::sector::{ComplexityKey, OrderingPolicy};
+use crate::sector::OrderingPolicy;
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
+
+use super::layered::{OrderedNode, RouteLayers, RoutedPriority, RoutedStage};
 
 #[derive(Clone, Copy)]
 struct Phase<const N: usize> {
@@ -27,6 +29,7 @@ struct RoutedKernel<'app, 'req, 'observer, 'storage, const N: usize> {
     phases: Vec<Phase<N>>,
     route_phases: BTreeMap<usize, usize>,
     owner_phases: BTreeMap<[bool; N], usize>,
+    layers: RouteLayers<N>,
 }
 
 impl<const N: usize> RoutedKernel<'_, '_, '_, '_, N> {
@@ -79,8 +82,28 @@ fn position<const N: usize>(
     application: &RoutedCandidateApplication<N>,
     route_phases: &BTreeMap<usize, usize>,
     owner_phases: &BTreeMap<[bool; N], usize>,
-    key: &Node<N>,
-) -> Result<OrderedPosition<ComplexityKey>, CandidateRoutedError> {
+    layers: &RouteLayers<N>,
+    key: &OrderedNode<N>,
+) -> Result<OrderedPosition<RoutedPriority>, CandidateRoutedError> {
+    let key = match key {
+        OrderedNode::Node(node) => node,
+        // Partial keys stay in their source's Route phase, below its Route
+        // keys; each partial step strictly lowers the remaining power.
+        OrderedNode::Partial(partial) => {
+            let support = partial.source.iter().filter(|&&bit| bit).count();
+            return Ok(OrderedPosition {
+                phase: *route_phases.get(&support).ok_or_else(|| {
+                    CandidateRoutedError::InvalidInput(
+                        "ordered routing support is outside the family".into(),
+                    )
+                })?,
+                priority: RoutedPriority {
+                    group: layers.group(&partial.source),
+                    stage: RoutedStage::Partial(partial.remaining_power()),
+                },
+            });
+        }
+    };
     let (phase, ordering) = match key {
         Node::Route(target) => {
             let support = target.powers().iter().filter(|&&power| power > 0).count();
@@ -105,7 +128,17 @@ fn position<const N: usize>(
     let priority = ordering
         .complexity_key(key.key().powers())
         .map_err(ReductionError::Ordering)?;
-    Ok(OrderedPosition { phase, priority })
+    let group = match key {
+        Node::Route(target) => layers.group(&support::<N>(target)),
+        Node::Apply(..) => 0,
+    };
+    Ok(OrderedPosition {
+        phase,
+        priority: RoutedPriority {
+            group,
+            stage: RoutedStage::Key(priority),
+        },
+    })
 }
 
 /// The evaluator that checks source conditions and zero sectors of any key.
@@ -126,49 +159,98 @@ fn base_evaluator<'a, const N: usize>(
     }
 }
 
-/// The ordered step of a checked expansion. The checked step validated every
+/// The expansion of one Ordered key: a checked Route/Apply expansion (the
+/// whole transport of a Route key), or one layer of a layered transport.
+enum Expanded<const N: usize> {
+    Checked(CheckedExpansion<N>),
+    Layered(BTreeMap<OrderedNode<N>, Coefficient>),
+}
+
+/// Expand `node`: Route keys selected by `layers` and partial keys take one
+/// transport layer, every other key the shared checked expansion.
+fn expand<const N: usize>(
+    application: &RoutedCandidateApplication<N>,
+    layers: &RouteLayers<N>,
+    node: &OrderedNode<N>,
+    conditions: &mut Vec<Coefficient>,
+    request: &mut Request<'_, '_, N>,
+) -> Result<Expanded<N>, CandidateRoutedError> {
+    match node {
+        OrderedNode::Node(inner) => match layers.layered_route(application, inner) {
+            Some((route, source)) => application
+                .layered_route_step(layers, inner.key(), route, source, conditions, request)
+                .map(Expanded::Layered),
+            None => application
+                .checked_expand_node(inner, conditions, request)
+                .map(Expanded::Checked),
+        },
+        OrderedNode::Partial(partial) => application
+            .partial_route_step(layers, partial, conditions, request)
+            .map(Expanded::Layered),
+    }
+}
+
+/// The ordered step of an expansion. The checked step validated every
 /// child and retained its source conditions. Expanding a zero-sector child
 /// later would retain the same conditions and nothing else, so it is dropped
-/// before its weight pays for frontier multiplications and merges.
+/// before its weight pays for frontier multiplications and merges. Layered
+/// steps drop their zero-sector Route and Apply children the same way
+/// (partial children with zero support were pruned by the layer).
 fn ordered_step<const N: usize>(
     application: &RoutedCandidateApplication<N>,
-    node: &Node<N>,
-    result: CheckedExpansion<N>,
+    node: &OrderedNode<N>,
+    result: Expanded<N>,
     conditions: Vec<Coefficient>,
     request: &mut Request<'_, '_, N>,
-) -> OrderedStep<Node<N>> {
+) -> OrderedStep<OrderedNode<N>> {
     let shared = &application.context.shared;
-    let mut result = result;
-    if let CheckedExpansion::Expanded(terms) = &mut result {
-        let ordering = OrderingPolicy::default();
-        let base = base_evaluator(&application.context, &ordering);
-        terms.retain(|child, _| !base.is_zero(child.key()));
-    }
+    let ordering = OrderingPolicy::default();
+    let base = base_evaluator(&application.context, &ordering);
+    let terms = match result {
+        Expanded::Checked(CheckedExpansion::Expanded(mut terms)) => {
+            terms.retain(|child, _| !base.is_zero(child.key()));
+            Ok(terms
+                .into_iter()
+                .map(|(child, coefficient)| (OrderedNode::Node(child), coefficient))
+                .collect::<BTreeMap<_, _>>())
+        }
+        Expanded::Layered(mut terms) => {
+            terms.retain(|child, _| match child {
+                OrderedNode::Node(child) => !base.is_zero(child.key()),
+                OrderedNode::Partial(_) => true,
+            });
+            Ok(terms)
+        }
+        Expanded::Checked(CheckedExpansion::Terminal(_)) => Err(()),
+    };
     request.observe_activity(
         application,
         CandidateRoutedActivity::CoefficientCombination,
-        match &result {
-            CheckedExpansion::Expanded(terms) => Some(terms.len()),
-            CheckedExpansion::Terminal(_) => Some(1),
+        match &terms {
+            Ok(terms) => Some(terms.len()),
+            Err(()) => Some(1),
         },
     );
-    match result {
-        CheckedExpansion::Expanded(terms) => OrderedStep {
+    match (terms, node) {
+        (Ok(terms), _) => OrderedStep {
             terms,
             nonzero_conditions: conditions,
             ..Default::default()
         },
-        CheckedExpansion::Terminal(_) => OrderedStep {
+        (Err(()), OrderedNode::Node(node)) => OrderedStep {
             terminals: BTreeMap::from([(node.key().clone(), shared.context.base().one())]),
             nonzero_conditions: conditions,
             ..Default::default()
         },
+        (Err(()), OrderedNode::Partial(_)) => {
+            unreachable!("partial Route keys never take the checked expansion")
+        }
     }
 }
 
 impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
-    type Key = Node<N>;
-    type Priority = ComplexityKey;
+    type Key = OrderedNode<N>;
+    type Priority = RoutedPriority;
     type Error = CandidateRoutedError;
 
     fn context(&self) -> &CoefficientContext {
@@ -180,21 +262,25 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
     fn phase_count(&self) -> usize {
         self.phases.len()
     }
-    fn position(&mut self, key: &Node<N>) -> Result<OrderedPosition<ComplexityKey>, Self::Error> {
+    fn position(
+        &mut self,
+        key: &OrderedNode<N>,
+    ) -> Result<OrderedPosition<RoutedPriority>, Self::Error> {
         position(
             self.application,
             &self.route_phases,
             &self.owner_phases,
+            &self.layers,
             key,
         )
     }
 
     fn step(
         &mut self,
-        node: &Node<N>,
+        node: &OrderedNode<N>,
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
-    ) -> Result<OrderedStep<Node<N>>, Self::Error> {
+    ) -> Result<OrderedStep<OrderedNode<N>>, Self::Error> {
         self.request.check_cancel()?;
         charge(
             &mut self.request.stats.operational_nodes,
@@ -208,14 +294,16 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         let ordering = OrderingPolicy::default();
         let base = base_evaluator(&context, &ordering);
         let mut conditions = Vec::new();
-        base.validate_target_with_conditions(node.key(), &mut |condition| {
-            retain_polynomial(&mut conditions, condition)
-        })?;
-        if base.is_zero(node.key()) {
-            return Ok(OrderedStep {
-                nonzero_conditions: conditions,
-                ..Default::default()
-            });
+        if let OrderedNode::Node(inner) = node {
+            base.validate_target_with_conditions(inner.key(), &mut |condition| {
+                retain_polynomial(&mut conditions, condition)
+            })?;
+            if base.is_zero(inner.key()) {
+                return Ok(OrderedStep {
+                    nonzero_conditions: conditions,
+                    ..Default::default()
+                });
+            }
         }
         // The shared step retains exactly the same rule/transport accounting as
         // DFS. The ordered request does not read or create completed records.
@@ -224,9 +312,13 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         self.request.ordered_live_work = Some(live);
         std::mem::swap(request, &mut self.request.algebra);
         std::mem::swap(work, &mut self.request.stats.work);
-        let result = self
-            .application
-            .checked_expand_node(node, &mut conditions, self.request);
+        let result = expand(
+            self.application,
+            &self.layers,
+            node,
+            &mut conditions,
+            self.request,
+        );
         std::mem::swap(request, &mut self.request.algebra);
         std::mem::swap(work, &mut self.request.stats.work);
         let mut live = self.request.stats.work;
@@ -244,7 +336,7 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
     fn observe(
         &mut self,
         progress: &CandidateOrderedReductionProgress,
-        current: Option<&Node<N>>,
+        current: Option<&OrderedNode<N>>,
     ) -> Result<(), Self::Error> {
         self.request.check_cancel()?;
         let mut progress = *progress;
@@ -262,7 +354,11 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
             .is_none_or(|previous| previous.completed_phases != progress.completed_phases);
         self.request.ordered = Some(progress);
         if let Some(node) = current {
-            self.request.set_current(node);
+            // A partial key is not an integral; observers keep seeing the
+            // last Route or Apply key.
+            if let OrderedNode::Node(node) = node {
+                self.request.set_current(node);
+            }
         } else if let Some(observation) = &mut self.request.observation {
             observation.current = None;
         }
@@ -288,15 +384,18 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         self.request.ordered_live_work = Some(live);
     }
 
-    fn key_view(node: &Node<N>) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
+    /// Partial keys have no public view: they never remain on the frontier
+    /// at a phase boundary and are never recorded in a step cache.
+    fn key_view(node: &OrderedNode<N>) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
         Some(match node {
-            Node::Route(key) => (OrderedKeyStage::Route, key),
-            Node::Apply(owner, key) => (
+            OrderedNode::Node(Node::Route(key)) => (OrderedKeyStage::Route, key),
+            OrderedNode::Node(Node::Apply(owner, key)) => (
                 OrderedKeyStage::Apply {
                     owner_sector: owner,
                 },
                 key,
             ),
+            OrderedNode::Partial(_) => return None,
         })
     }
 
@@ -325,6 +424,7 @@ struct RoutedStepper<'a, const N: usize> {
     application: &'a RoutedCandidateApplication<N>,
     route_phases: &'a BTreeMap<usize, usize>,
     owner_phases: &'a BTreeMap<[bool; N], usize>,
+    layers: &'a RouteLayers<N>,
     cancel: Option<&'a AtomicBool>,
     /// Record observation events for replay (the request is observed).
     record_events: bool,
@@ -341,18 +441,33 @@ struct RoutedAccount {
 }
 
 impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
-    type Key = Node<N>;
-    type Priority = ComplexityKey;
+    type Key = OrderedNode<N>;
+    type Priority = RoutedPriority;
     type Error = CandidateRoutedError;
     type Account = RoutedAccount;
 
-    fn position(&self, key: &Node<N>) -> Result<OrderedPosition<ComplexityKey>, Self::Error> {
-        position(self.application, self.route_phases, self.owner_phases, key)
+    fn position(
+        &self,
+        key: &OrderedNode<N>,
+    ) -> Result<OrderedPosition<RoutedPriority>, Self::Error> {
+        position(
+            self.application,
+            self.route_phases,
+            self.owner_phases,
+            self.layers,
+            key,
+        )
     }
 
     /// The step of [`RoutedKernel`], on a fresh request; operational-node
     /// accounting is applied by `absorb`.
-    fn step(&self, node: &Node<N>) -> (Result<OrderedStep<Node<N>>, Self::Error>, RoutedAccount) {
+    fn step(
+        &self,
+        node: &OrderedNode<N>,
+    ) -> (
+        Result<OrderedStep<OrderedNode<N>>, Self::Error>,
+        RoutedAccount,
+    ) {
         let mut request = Request::<'_, '_, N> {
             cancel: self.cancel,
             detached_events: self.record_events.then(Vec::new),
@@ -365,19 +480,25 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
             let ordering = OrderingPolicy::default();
             let base = base_evaluator(&context, &ordering);
             let mut conditions = Vec::new();
-            base.validate_target_with_conditions(node.key(), &mut |condition| {
-                retain_polynomial(&mut conditions, condition)
-            })?;
-            if base.is_zero(node.key()) {
-                return Ok(OrderedStep {
-                    nonzero_conditions: conditions,
-                    ..Default::default()
-                });
+            if let OrderedNode::Node(inner) = node {
+                base.validate_target_with_conditions(inner.key(), &mut |condition| {
+                    retain_polynomial(&mut conditions, condition)
+                })?;
+                if base.is_zero(inner.key()) {
+                    return Ok(OrderedStep {
+                        nonzero_conditions: conditions,
+                        ..Default::default()
+                    });
+                }
             }
             checked = true;
-            let result =
-                self.application
-                    .checked_expand_node(node, &mut conditions, &mut request)?;
+            let result = expand(
+                self.application,
+                self.layers,
+                node,
+                &mut conditions,
+                &mut request,
+            )?;
             if let Some(events) = &mut request.detached_events {
                 events.push(DetachedEvent::Expanded);
             }
@@ -400,9 +521,17 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
 
     /// Route steps emit Apply keys of owner phases after their Route phase
     /// and Route keys of smaller support; Apply steps emit Route keys of
-    /// smaller support besides same-owner Apply keys.
-    fn later_phase(&self, parent: &Node<N>, child: &Node<N>) -> bool {
-        matches!(parent, Node::Route(_)) || matches!(child, Node::Route(_))
+    /// smaller support besides same-owner Apply keys. Layered Route and
+    /// partial steps emit partial keys of the same Route phase and, at the
+    /// last factor, the Route and Apply children of the whole transport.
+    fn later_phase(&self, parent: &OrderedNode<N>, child: &OrderedNode<N>) -> bool {
+        match (parent, child) {
+            (_, OrderedNode::Partial(_)) => false,
+            (OrderedNode::Partial(_), OrderedNode::Node(_)) => true,
+            (OrderedNode::Node(parent), OrderedNode::Node(child)) => {
+                matches!(parent, Node::Route(_)) || matches!(child, Node::Route(_))
+            }
+        }
     }
 }
 
@@ -425,6 +554,7 @@ impl<const N: usize> ConcurrentOrderedKernel for RoutedKernel<'_, '_, '_, '_, N>
             application: self.application,
             route_phases: &self.route_phases,
             owner_phases: &self.owner_phases,
+            layers: &self.layers,
             cancel: self.request.cancel,
             record_events: self.request.observation.is_some(),
         })
@@ -435,7 +565,7 @@ impl<const N: usize> ConcurrentOrderedKernel for RoutedKernel<'_, '_, '_, '_, N>
     /// the published work that the sequential step shows at that point.
     fn absorb(
         &mut self,
-        _: &Node<N>,
+        _: &OrderedNode<N>,
         account: RoutedAccount,
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
@@ -520,11 +650,21 @@ fn mask_bits<const N: usize>(mask: &[bool; N]) -> u64 {
 
 /// Route records are sharded by the owner their transport reaches (the
 /// support itself when it is an owner), Apply records by their owner.
+/// Layered steps (Route keys that take a layered transport and partial keys)
+/// are never recorded: every record is a step that does not depend on the
+/// layering, so caches written with and without it are interchangeable.
 fn step_cache_shard<const N: usize>(
     application: &RoutedCandidateApplication<N>,
-    node: &Node<N>,
+    layers: &RouteLayers<N>,
+    node: &OrderedNode<N>,
 ) -> Option<OrderedStepShard> {
     if N > 64 {
+        return None;
+    }
+    let OrderedNode::Node(node) = node else {
+        return None;
+    };
+    if layers.layered_route(application, node).is_some() {
         return None;
     }
     let (stage, class) = match node {
@@ -558,6 +698,14 @@ fn step_cache_key<const N: usize>(
     application: &RoutedCandidateApplication<N>,
     stage: NodeStage,
     integral: IntegralKey,
+) -> Result<OrderedNode<N>, CandidateRoutedError> {
+    step_cache_node(application, stage, integral).map(OrderedNode::Node)
+}
+
+fn step_cache_node<const N: usize>(
+    application: &RoutedCandidateApplication<N>,
+    stage: NodeStage,
+    integral: IntegralKey,
 ) -> Result<Node<N>, CandidateRoutedError> {
     if integral.powers().len() != application.family().denominator_count() {
         return Err(ordered_reduction::step_cache::failure(
@@ -584,20 +732,20 @@ fn step_cache_key<const N: usize>(
 }
 
 impl<const N: usize> OrderedStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
-    fn step_cache_shard(&mut self, node: &Node<N>) -> Option<OrderedStepShard> {
-        step_cache_shard(self.application, node)
+    fn step_cache_shard(&mut self, node: &OrderedNode<N>) -> Option<OrderedStepShard> {
+        step_cache_shard(self.application, &self.layers, node)
     }
 
     fn step_cache_key(
         &self,
         stage: NodeStage,
         integral: IntegralKey,
-    ) -> Result<Node<N>, Self::Error> {
+    ) -> Result<OrderedNode<N>, Self::Error> {
         step_cache_key(self.application, stage, integral)
     }
 
     /// The cancellation check and operational-node charge of a checked step.
-    fn step_cache_hit(&mut self, _node: &Node<N>) -> Result<(), Self::Error> {
+    fn step_cache_hit(&mut self, _node: &OrderedNode<N>) -> Result<(), Self::Error> {
         self.request.check_cancel()?;
         charge(
             &mut self.request.stats.operational_nodes,
@@ -611,18 +759,21 @@ impl<const N: usize> OrderedStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> 
 }
 
 impl<const N: usize> ConcurrentStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
-    fn stepper_shard<'s>(stepper: &RoutedStepper<'s, N>, node: &Node<N>) -> Option<OrderedStepShard>
+    fn stepper_shard<'s>(
+        stepper: &RoutedStepper<'s, N>,
+        node: &OrderedNode<N>,
+    ) -> Option<OrderedStepShard>
     where
         Self: 's,
     {
-        step_cache_shard(stepper.application, node)
+        step_cache_shard(stepper.application, stepper.layers, node)
     }
 
     fn stepper_key<'s>(
         stepper: &RoutedStepper<'s, N>,
         stage: NodeStage,
         integral: IntegralKey,
-    ) -> Result<Node<N>, CandidateRoutedError>
+    ) -> Result<OrderedNode<N>, CandidateRoutedError>
     where
         Self: 's,
     {
@@ -687,7 +838,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request.stats.requested_targets = entries.len();
         let initial = entries
             .into_iter()
-            .map(|(key, coefficient)| (Node::Route(key), coefficient))
+            .map(|(key, coefficient)| (OrderedNode::Node(Node::Route(key)), coefficient))
             .collect();
         let phases = RoutedKernel::phases(self);
         let route_phases = phases
@@ -707,6 +858,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         if let Some(cache) = &step_cache {
             self.check_ordered_step_cache(cache)?;
         }
+        let layers = RouteLayers::new(self);
         let result = run_with_step_cache_and_options(
             &mut RoutedKernel {
                 application: self,
@@ -714,6 +866,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
                 phases,
                 route_phases,
                 owner_phases,
+                layers,
             },
             &mut algebra,
             initial,

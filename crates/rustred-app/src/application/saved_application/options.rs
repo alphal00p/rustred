@@ -4,7 +4,9 @@ use rustred::persistence::BinaryIoLimits;
 use rustred::reduction::{
     OrderedSchedulerOptions, OrderedWeightArithmetic, ReductionLimits, ReductionStrategy,
 };
-use rustred::solver::{CandidateRoutedCachePolicy, RoutedCandidateLimits, UnresolvedPolicy};
+use rustred::solver::{
+    CandidateRoutedCachePolicy, OrderedRouteLayering, RoutedCandidateLimits, UnresolvedPolicy,
+};
 
 /// Recorded coverage is independent of requiring a complete terminal result.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,6 +36,12 @@ pub struct SavedApplicationOptions {
     /// result; `threads == 1` (the default) creates no thread. A caller with
     /// one core budget passes it here and to the modular replay threads.
     pub ordered_scheduler: OrderedSchedulerOptions,
+    /// Route transport of the Ordered scheduler: whole (the default, `Off`),
+    /// or one numerator factor per step with merging between factors
+    /// (ignored by the depth-first strategies). Every setting returns the
+    /// same exact result and guards; layered runs do not use the
+    /// multi-factor Route records of a step cache.
+    pub ordered_route_layering: OrderedRouteLayering,
     /// Preserve exact uncovered leaves and make recorded entry coverage advisory.
     /// This does not relax formula applicability, source guards, or resource limits.
     pub unresolved_policy: UnresolvedPolicy,
@@ -55,6 +63,7 @@ impl Default for SavedApplicationOptions {
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: OrderedWeightArithmetic::Exact,
             ordered_scheduler: OrderedSchedulerOptions::default(),
+            ordered_route_layering: OrderedRouteLayering::default(),
             unresolved_policy: UnresolvedPolicy::Reject,
             entry_coverage_policy: SavedApplicationEntryCoveragePolicy::default(),
             reduction_limits: Default::default(),

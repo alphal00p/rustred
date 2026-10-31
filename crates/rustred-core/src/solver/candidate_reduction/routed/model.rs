@@ -73,6 +73,99 @@ impl RoutedCandidateLimits {
     }
 }
 
+/// How Ordered requests of a Route/Apply application expand the transport of
+/// a Route key (ignored by the depth-first strategies).
+///
+/// A Route key `R` of source sector `S` is the integral of
+/// `prod_{i in S} D_i^-p_i * prod_a (c_a + sum_l L_al D_l)^n_a` in the owner's
+/// denominators (the numerators `a` of `R` mapped through the route's
+/// verified affine map). Without layering one step expands the whole product.
+/// With layering a step expands one factor and emits *partially transported*
+/// keys (owner powers so far, the source sector and the numerator powers not
+/// yet expanded); keys of the same sector that reach the same partial key
+/// merge before the next factor is expanded, so the remaining factors are
+/// expanded once for their merged weight. The last factor emits the same
+/// Route and Apply children as the whole transport, with the same exact
+/// total weights (the product is only re-associated): every result, every
+/// zero decision on a Route or Apply key and every guard is unchanged.
+///
+/// Partial keys live inside the Route phase of their source (below all Route
+/// keys of the phase) and are never recorded in a step cache; a step cache
+/// keeps only steps that do not depend on this setting, so caches written
+/// with and without layering are interchangeable. Layering applies to keys
+/// with at least two numerator factors of an application without source
+/// conditions (whose transport validation retains no guards); other keys take
+/// the whole transport.
+///
+/// Layering is opt-in: the default is [`Self::Off`]. A layered run neither
+/// records nor reads the whole transports of multi-factor Route keys, which
+/// are the heaviest records of whole-transport step caches (shipped caches
+/// are written without layering); a cold regeneration with the default
+/// records exactly the records of such a cache.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum OrderedRouteLayering {
+    /// The whole transport in one step (historical). The default: every
+    /// Route step, including multi-factor transports, is recorded in and
+    /// replayed from an attached step cache.
+    #[default]
+    Off,
+    /// One factor per step, lowest source axis first.
+    Index,
+    /// One factor per step, smallest remaining numerator power first (ties:
+    /// lowest source axis).
+    SmallestPower,
+    /// One factor per step, the factor whose exact expansion has the fewest
+    /// terms first (ties: smaller power, then lower axis). The fastest order
+    /// measured: the fewest emitted terms and the fastest record pass and
+    /// replay on the 5L zero-momentum and quadratic requests.
+    FewestTerms,
+    /// One factor per step, largest remaining numerator power first (ties:
+    /// lowest source axis). For comparison.
+    LargestPower,
+}
+
+impl OrderedRouteLayering {
+    pub const ALL: [Self; 5] = [
+        Self::Off,
+        Self::Index,
+        Self::SmallestPower,
+        Self::FewestTerms,
+        Self::LargestPower,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Index => "index",
+            Self::SmallestPower => "smallest-power",
+            Self::FewestTerms => "fewest-terms",
+            Self::LargestPower => "largest-power",
+        }
+    }
+}
+
+impl fmt::Display for OrderedRouteLayering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for OrderedRouteLayering {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|layering| layering.as_str() == text)
+            .ok_or_else(|| {
+                format!(
+                    "unknown Route layering {text:?} (expected one of {})",
+                    Self::ALL.map(Self::as_str).join(", ")
+                )
+            })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRoutedFrontierReason<const N: usize> {
     MissingOwner,

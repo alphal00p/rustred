@@ -147,6 +147,7 @@ pub struct RoutedCandidateApplication<const N: usize> {
     reduction_strategy: ReductionStrategy,
     ordered_weight_arithmetic: crate::reduction::OrderedWeightArithmetic,
     ordered_scheduler: crate::reduction::OrderedSchedulerOptions,
+    ordered_route_layering: super::OrderedRouteLayering,
     ordered_step_cache: Option<Arc<crate::reduction::OrderedStepCache>>,
 }
 
@@ -169,6 +170,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
             ordered_scheduler: Default::default(),
+            ordered_route_layering: Default::default(),
             ordered_step_cache: None,
         }
     }
@@ -206,6 +208,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             reduction_strategy: ReductionStrategy::DepthFirst,
             ordered_weight_arithmetic: Default::default(),
             ordered_scheduler: Default::default(),
+            ordered_route_layering: Default::default(),
             ordered_step_cache: None,
         })
     }
@@ -259,6 +262,17 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn ordered_scheduler_options(&self) -> crate::reduction::OrderedSchedulerOptions {
         self.ordered_scheduler
+    }
+
+    /// Route transport of Ordered requests: whole or one numerator factor
+    /// per step (see [`super::OrderedRouteLayering`]). Every setting returns
+    /// the same exact result and guards; only the intermediate work differs.
+    pub fn set_ordered_route_layering(&mut self, layering: super::OrderedRouteLayering) {
+        self.ordered_route_layering = layering;
+    }
+
+    pub fn ordered_route_layering(&self) -> super::OrderedRouteLayering {
+        self.ordered_route_layering
     }
 
     /// Attach (or detach) a persistent Ordered step cache. Ordered requests

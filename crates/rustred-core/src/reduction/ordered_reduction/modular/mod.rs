@@ -210,6 +210,9 @@ pub(super) struct Trace {
     slots: usize,
     /// Terminal accumulators (including cancelled ones).
     terminal_slots: usize,
+    /// `(phase, index of its first op)` at every phase start, in order
+    /// (diagnostics only; not part of the digest).
+    phase_starts: Vec<(usize, usize)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -336,6 +339,12 @@ pub(crate) struct ModularStatistics {
     pub passes: usize,
     pub lanes_replayed: usize,
     pub peak_weight_words: usize,
+    /// `ModularPolynomial`: replay CPU seconds per scheduler phase (summed
+    /// over jobs; phase `None` = input admission before the first phase).
+    pub replay_phase_cpu_seconds: Vec<(Option<usize>, f64)>,
+    /// `ModularPolynomial`: per phase, the field elements (per lane) of the
+    /// active weight summed over its products: the replay's op volume.
+    pub replay_phase_volume: Vec<(Option<usize>, f64)>,
     /// Digest of the recorded trace (ops with their slots and coefficient
     /// references, and the coefficient tables in interning order), computed
     /// only when statistics are reported. Equal digests mean identical
@@ -360,7 +369,8 @@ impl ModularStatistics {
                 "\"max_coefficient_bits\":{},\"unlucky_images\":{},\"bad_points\":{},",
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
-                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{}}}"
+                "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{},",
+                "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
             self.ops,
@@ -404,6 +414,22 @@ impl ModularStatistics {
             self.peak_weight_words,
             self.trace_digest
                 .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.replay_phase_cpu_seconds
+                .iter()
+                .map(|(phase, seconds)| format!(
+                    "[{},{seconds:.6}]",
+                    phase.map_or("null".into(), |phase| phase.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
+            self.replay_phase_volume
+                .iter()
+                .map(|(phase, volume)| format!(
+                    "[{},{volume:.0}]",
+                    phase.map_or("null".into(), |phase| phase.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
         )
     }
 }
@@ -425,6 +451,7 @@ pub(crate) struct ModularRecorder {
     constant_count: u32,
     polynomial_count: u32,
     ops: Vec<Op>,
+    phase_starts: Vec<(usize, usize)>,
     free_slots: Vec<u32>,
     next_slot: u32,
     terminal_slots: u32,
@@ -467,6 +494,7 @@ impl ModularRecorder {
             constant_count: 0,
             polynomial_count: 0,
             ops: Vec::new(),
+            phase_starts: Vec::new(),
             free_slots: Vec::new(),
             next_slot: 0,
             terminal_slots: 0,
@@ -626,6 +654,7 @@ impl ModularRecorder {
             polynomials,
             slots: self.next_slot as usize,
             terminal_slots: self.terminal_slots as usize,
+            phase_starts: self.phase_starts,
         };
         let mut statistics = ModularStatistics {
             arithmetic: self.lifter.name(),
@@ -738,6 +767,10 @@ impl OrderedWeights for ModularRecorder {
         self.ops
             .push(Op::new(OpTag::Pop, weight.slot, CoefRef(CONSTANT_FLAG)));
         Ok(())
+    }
+
+    fn phase_started(&mut self, phase: usize) {
+        self.phase_starts.push((phase, self.ops.len()));
     }
 
     fn end_step(&mut self, weight: ModularWeight) {
