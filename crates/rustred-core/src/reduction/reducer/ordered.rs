@@ -4,9 +4,17 @@
 //! deliberately the same checked operations as in the depth-first reducer.
 //! This adapter never reads or populates a caller's completed-result cache.
 use super::*;
+use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
+use crate::reduction::ordered_reduction::step_cache::failure;
+use crate::reduction::ordered_reduction::step_cache::kernel::{
+    OrderedStepCacheKernel, run_with_step_cache,
+};
 use crate::reduction::ordered_reduction::{
-    self, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor, OrderedPhaseEvent,
     OrderedPhaseInspector, OrderedPosition, OrderedStep,
+};
+use crate::reduction::{
+    OrderedStepCache, OrderedStepCacheAdapter, OrderedStepShard, OrderedStepStage,
 };
 use crate::sector::{ComplexityKey, OrderingPolicy};
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
@@ -31,6 +39,9 @@ struct ClosedKernel<'artifact, 'observer, 'callback> {
     ordering: OrderingPolicy,
     observer: &'observer mut Observer<'callback>,
     inspector: Option<&'observer mut OrderedPhaseInspector<'callback, ReductionError>>,
+    /// False after a product-factorization step: its memoized lower-factor
+    /// reductions retain guards only at their first use in this request.
+    last_step_reproducible: bool,
 }
 
 impl<'artifact> Reducer<'artifact> {
@@ -78,7 +89,7 @@ impl<'artifact> Reducer<'artifact> {
         arithmetic: crate::reduction::OrderedWeightArithmetic,
         observer: &mut Observer<'_>,
     ) -> Result<OrderedArtifactReduction, ReductionError> {
-        Self::reduce_artifact_ordered(artifact, terms, limits, arithmetic, observer, None)
+        Self::reduce_artifact_ordered(artifact, terms, limits, arithmetic, observer, None, None)
     }
 
     /// Inspect both boundaries of every frozen phase under the selected weight
@@ -99,9 +110,31 @@ impl<'artifact> Reducer<'artifact> {
             arithmetic,
             &mut |_, _| Ok(()),
             Some(inspector),
+            None,
         )
     }
 
+    /// The general ordered entry point: explicit weight arithmetic, an
+    /// optional persistent [`OrderedStepCache`] whose binding names this
+    /// artifact, an observer and an optional phase inspector. Cached steps
+    /// are replayed exactly; product-factorization steps are always
+    /// recomputed. Every combination returns the same exact terms and
+    /// conditions.
+    pub fn reduce_artifact_linear_combination_ordered_with_step_cache<'callback>(
+        artifact: &'artifact ClosedArtifact,
+        terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
+        limits: ReductionLimits,
+        arithmetic: crate::reduction::OrderedWeightArithmetic,
+        step_cache: Option<&OrderedStepCache>,
+        observer: &mut Observer<'callback>,
+        inspector: Option<&mut OrderedPhaseInspector<'callback, ReductionError>>,
+    ) -> Result<OrderedArtifactReduction, ReductionError> {
+        Self::reduce_artifact_ordered(
+            artifact, terms, limits, arithmetic, observer, inspector, step_cache,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn reduce_artifact_ordered<'callback>(
         artifact: &'artifact ClosedArtifact,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
@@ -109,7 +142,16 @@ impl<'artifact> Reducer<'artifact> {
         arithmetic: crate::reduction::OrderedWeightArithmetic,
         observer: &mut Observer<'callback>,
         inspector: Option<&mut OrderedPhaseInspector<'callback, ReductionError>>,
+        step_cache: Option<&OrderedStepCache>,
     ) -> Result<OrderedArtifactReduction, ReductionError> {
+        if let Some(cache) = step_cache {
+            cache.check_binding(
+                OrderedStepCacheAdapter::ClosedArtifact,
+                artifact.family_fingerprint(),
+                artifact.coefficient_context(),
+                None,
+            )?;
+        }
         let ordering = artifact.ordering();
         // Installation already authenticates this authority. Keep the seam
         // fail-closed even for internal/test artifacts constructed in memory.
@@ -169,13 +211,15 @@ impl<'artifact> Reducer<'artifact> {
             ordering,
             observer,
             inspector,
+            last_step_reproducible: true,
         };
-        let mut output = ordered_reduction::run_with_arithmetic(
+        let mut output = run_with_step_cache(
             &mut kernel,
             &mut request,
             initial,
             conditions,
             arithmetic,
+            step_cache,
         )?;
         output.progress.phase_kind = CandidateOrderedPhaseKind::Reduction;
         output.work.merge_work(initial_work);
@@ -232,6 +276,7 @@ impl OrderedKernel for ClosedKernel<'_, '_, '_> {
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<IntegralKey>, ReductionError> {
         let mut result = OrderedStep::default();
+        self.last_step_reproducible = true;
         if self.reducer.artifact.masters().contains(key) {
             result.terminals.insert(key.clone(), self.context().one());
         } else if !self.reducer.artifact.is_zero_terminal(key) {
@@ -241,6 +286,7 @@ impl OrderedKernel for ClosedKernel<'_, '_, '_> {
                     .diagnostic_limit(self.reducer.limits.max_rule_applications),
             )?;
             if let Some(selected) = self.reducer.select_first_factorization(key)? {
+                self.last_step_reproducible = false;
                 self.reducer
                     .retain_factorization_guard(selected.ordinal, request)?;
                 result.terminals = self
@@ -316,6 +362,35 @@ impl OrderedKernel for ClosedKernel<'_, '_, '_> {
                 ..Default::default()
             }),
         )
+    }
+}
+
+/// Closed records are sharded by support level, the phase of their key.
+impl OrderedStepCacheKernel for ClosedKernel<'_, '_, '_> {
+    fn step_cache_shard(&mut self, key: &IntegralKey) -> Option<OrderedStepShard> {
+        Some(OrderedStepShard {
+            stage: OrderedStepStage::Integral,
+            support: key.powers().iter().filter(|&&power| power > 0).count() as u16,
+            class: 0,
+        })
+    }
+
+    fn step_cache_key(
+        &self,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<IntegralKey, ReductionError> {
+        if stage != NodeStage::Integral || integral.powers().len() != self.reducer.artifact.arity()
+        {
+            return Err(failure(
+                "a recorded closed-artifact identity is not a plain integral of this family",
+            ));
+        }
+        Ok(integral)
+    }
+
+    fn step_was_reproducible(&self) -> bool {
+        self.last_step_reproducible
     }
 }
 

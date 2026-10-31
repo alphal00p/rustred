@@ -137,6 +137,117 @@ fn ordered_saved_application_load_option_and_strategy_switch_preserve_exact_resu
 }
 
 #[test]
+fn ordered_step_cache_replays_routed_steps_across_processes_without_owner_preparation() {
+    use rustred::reduction::{OrderedKeyStage, ReductionStrategy};
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let load = || {
+        load_saved_application::<1>(
+            &runtime,
+            SavedApplicationOptions {
+                reduction_strategy: ReductionStrategy::Ordered,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let context = original.family().coefficient_context().clone();
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+    ];
+    // Every pending identity and exact weight, terminals and guards, at
+    // every phase boundary.
+    let run = |application: &mut PreparedSavedApplication<1>| {
+        let mut snapshots = Vec::new();
+        let reduced = application
+            .reduce_routed_linear_combination_with_ordered_inspector(inputs.clone(), &mut |event| {
+                let mut lines = vec![format!(
+                    "{:?} {} {}",
+                    event.boundary, event.phase, event.progress.processed_keys
+                )];
+                for entry in event.frontier() {
+                    let stage = match entry.stage {
+                        OrderedKeyStage::Apply { owner_sector } => format!("{owner_sector:?}"),
+                        other => format!("{other:?}"),
+                    };
+                    lines.push(format!(
+                        "{stage} {:?} {}",
+                        entry.integral.powers(),
+                        canonical(entry.weight.unwrap())
+                    ));
+                }
+                for (key, weight) in event.terminals() {
+                    lines.push(format!("{:?} {}", key.powers(), canonical(weight.unwrap())));
+                }
+                lines.extend(event.nonzero_conditions().iter().map(canonical));
+                snapshots.push(lines);
+                Ok(())
+            })
+            .unwrap();
+        (reduced, snapshots)
+    };
+    let mut application = load();
+    let (expected, expected_snapshots) = run(&mut application);
+    let directory = scratch.0.join("ordered-steps");
+    let cache = application
+        .open_ordered_step_cache(&directory, Default::default())
+        .unwrap();
+    application
+        .set_ordered_step_cache(Some(cache.clone()))
+        .unwrap();
+    let (cold, cold_snapshots) = run(&mut application);
+    assert_eq!(cold.terms(), expected.terms());
+    assert_eq!(cold.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(cold_snapshots, expected_snapshots);
+    let recorded = cache.statistics();
+    assert!(recorded.records > 0);
+    assert_eq!(recorded.hits, 0);
+    let saved = cache.save().unwrap();
+    assert_eq!(saved.records, recorded.records);
+    // Another session loads the shards lazily and replays every step; the
+    // owners' formulas are never prepared.
+    let mut fresh = load();
+    let warm_cache = fresh
+        .open_ordered_step_cache(&directory, Default::default())
+        .unwrap();
+    fresh
+        .set_ordered_step_cache(Some(warm_cache.clone()))
+        .unwrap();
+    let (warm, warm_snapshots) = run(&mut fresh);
+    assert_eq!(warm.terms(), expected.terms());
+    assert_eq!(warm.nonzero_conditions(), expected.nonzero_conditions());
+    assert_eq!(warm_snapshots, expected_snapshots);
+    let replayed = warm_cache.statistics();
+    assert_eq!(replayed.hits as usize, recorded.records);
+    assert_eq!((replayed.misses, replayed.inserts), (0, 0));
+    assert_eq!(fresh.owner_preparation_statistics().prepared_owners, 0);
+    // A cache of another residual policy is refused.
+    let mut preserving = load_saved_application::<1>(
+        &runtime,
+        SavedApplicationOptions {
+            reduction_strategy: ReductionStrategy::Ordered,
+            unresolved_policy: rustred::solver::UnresolvedPolicy::Preserve,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(preserving.set_ordered_step_cache(Some(warm_cache)).is_err());
+    assert!(
+        preserving
+            .open_ordered_step_cache(&directory, Default::default())
+            .is_err()
+    );
+
+    fn canonical(coefficient: &Coefficient) -> String {
+        use symbolica::atom::AtomCore;
+        coefficient.to_expression().to_canonical_string()
+    }
+}
+
+#[test]
 fn ordered_phase_inspection_preserves_routed_results_and_stops_cleanly() {
     use rustred::reduction::{OrderedKeyStage, OrderedPhaseBoundary, ReductionStrategy};
     use rustred::solver::CandidateRoutedError;
@@ -245,7 +356,8 @@ fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states
             ..Default::default()
         },
     );
-    let polynomial = OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default());
+    let polynomial =
+        OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default());
     for arithmetic in [OrderedWeightArithmetic::Exact, modular, polynomial] {
         application.set_ordered_weight_arithmetic(arithmetic);
         let mut runs = Vec::new();

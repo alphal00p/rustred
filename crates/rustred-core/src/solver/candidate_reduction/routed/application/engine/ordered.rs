@@ -1,10 +1,15 @@
 //! Saved owner/route adapter for the generic weighted-frontier engine.
 use super::*;
 use crate::algebra::CoefficientContext;
+use crate::reduction::ordered_reduction::step_cache::codec::{NodeStage, owner_sector};
+use crate::reduction::ordered_reduction::step_cache::kernel::{
+    ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
+};
 use crate::reduction::ordered_reduction::{
     self, ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
 };
+use crate::reduction::{OrderedStepShard, OrderedStepStage};
 use crate::reduction::{ReductionLimits, ReductionStrategy};
 use crate::sector::{ComplexityKey, OrderingPolicy};
 use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
@@ -504,6 +509,126 @@ impl<const N: usize> ConcurrentOrderedKernel for RoutedKernel<'_, '_, '_, '_, N>
     }
 }
 
+fn mask_bits<const N: usize>(mask: &[bool; N]) -> u64 {
+    mask.iter()
+        .enumerate()
+        .filter(|&(_, &bit)| bit)
+        .fold(0, |bits, (position, _)| {
+            bits | 1u64.checked_shl(position as u32).unwrap_or(0)
+        })
+}
+
+/// Route records are sharded by the owner their transport reaches (the
+/// support itself when it is an owner), Apply records by their owner.
+fn step_cache_shard<const N: usize>(
+    application: &RoutedCandidateApplication<N>,
+    node: &Node<N>,
+) -> Option<OrderedStepShard> {
+    if N > 64 {
+        return None;
+    }
+    let (stage, class) = match node {
+        Node::Route(key) => {
+            let sector = support::<N>(key);
+            let class = if application.owners.contains(&sector) {
+                mask_bits(&sector)
+            } else {
+                application.routes.get(&sector).map_or(0, |route| {
+                    route
+                        .owner_sector
+                        .active_bits()
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, &bit)| bit)
+                        .fold(0, |bits, (position, _)| bits | 1u64 << position)
+                })
+            };
+            (OrderedStepStage::Route, class)
+        }
+        Node::Apply(owner, _) => (OrderedStepStage::Apply, mask_bits(owner)),
+    };
+    Some(OrderedStepShard {
+        stage,
+        support: support::<N>(node.key()).iter().filter(|&&bit| bit).count() as u16,
+        class,
+    })
+}
+
+/// Rebuild a recorded Route/Apply identity of this application.
+fn step_cache_key<const N: usize>(
+    application: &RoutedCandidateApplication<N>,
+    stage: NodeStage,
+    integral: IntegralKey,
+) -> Result<Node<N>, CandidateRoutedError> {
+    if integral.powers().len() != application.family().denominator_count() {
+        return Err(ordered_reduction::step_cache::failure(
+            "a recorded identity has the wrong arity",
+        )
+        .into());
+    }
+    match stage {
+        NodeStage::Route => Ok(Node::Route(integral)),
+        NodeStage::Apply(mask) => owner_sector::<N>(mask)
+            .filter(|owner| application.owners.contains(owner))
+            .map(|owner| Node::Apply(owner, integral))
+            .ok_or_else(|| {
+                ordered_reduction::step_cache::failure(
+                    "a recorded Apply identity names an absent owner",
+                )
+                .into()
+            }),
+        NodeStage::Integral => Err(ordered_reduction::step_cache::failure(
+            "a recorded saved-application child is not a Route or Apply identity",
+        )
+        .into()),
+    }
+}
+
+impl<const N: usize> OrderedStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
+    fn step_cache_shard(&mut self, node: &Node<N>) -> Option<OrderedStepShard> {
+        step_cache_shard(self.application, node)
+    }
+
+    fn step_cache_key(
+        &self,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<Node<N>, Self::Error> {
+        step_cache_key(self.application, stage, integral)
+    }
+
+    /// The cancellation check and operational-node charge of a checked step.
+    fn step_cache_hit(&mut self, _node: &Node<N>) -> Result<(), Self::Error> {
+        self.request.check_cancel()?;
+        charge(
+            &mut self.request.stats.operational_nodes,
+            1,
+            self.application
+                .limits
+                .diagnostic_limit(self.application.limits.max_unique_nodes),
+            "operational nodes",
+        )
+    }
+}
+
+/// The worker-side cache hooks read the same immutable application.
+impl<const N: usize> ConcurrentStepCacheKernel for RoutedKernel<'_, '_, '_, '_, N> {
+    fn stepper_cache_shard(
+        stepper: &RoutedStepper<'_, N>,
+        node: &Node<N>,
+    ) -> Option<OrderedStepShard> {
+        step_cache_shard(stepper.application, node)
+    }
+
+    fn stepper_cache_key(
+        stepper: &RoutedStepper<'_, N>,
+        stage: NodeStage,
+        integral: IntegralKey,
+    ) -> Result<Node<N>, CandidateRoutedError> {
+        step_cache_key(stepper.application, stage, integral)
+    }
+}
+
 impl<const N: usize> RoutedCandidateApplication<N> {
     pub(super) fn reduce_ordered_request(
         &mut self,
@@ -577,7 +702,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         let mut algebra = std::mem::take(&mut request.algebra);
         let arithmetic = self.ordered_weight_arithmetic;
         let scheduler = self.ordered_scheduler;
-        let result = ordered_reduction::run_with_options(
+        let step_cache = self.ordered_step_cache.clone();
+        if let Some(cache) = &step_cache {
+            self.check_ordered_step_cache(cache)?;
+        }
+        let result = run_with_step_cache_and_options(
             &mut RoutedKernel {
                 application: self,
                 request,
@@ -590,6 +719,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             conditions,
             arithmetic,
             scheduler,
+            step_cache.as_deref(),
         );
         request.algebra = algebra;
         let output = match result {

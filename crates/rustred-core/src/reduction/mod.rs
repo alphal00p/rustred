@@ -36,6 +36,12 @@ pub use ordered_reduction::inspection::{
     OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPhaseInspector,
 };
+pub use ordered_reduction::step_cache::{
+    ORDERED_STEP_CACHE_SCHEMA, ORDERED_STEP_SEMANTICS, OrderedStepCache, OrderedStepCacheAdapter,
+    OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedStepCacheSaveReport,
+    OrderedStepCacheShardStatistics, OrderedStepCacheStatistics, OrderedStepShard,
+    OrderedStepShardState, OrderedStepStage,
+};
 pub use ordered_reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic,
     ParseOrderedWeightArithmeticError, PolynomialDenominators, PolynomialOptions, SampledOptions,

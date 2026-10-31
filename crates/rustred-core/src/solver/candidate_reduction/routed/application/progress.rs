@@ -315,6 +315,12 @@ pub struct CandidateOrderedReductionProgress {
     pub terminal_cancellations: usize,
     /// Expanded operational identities, not a count of parametric IBP templates.
     pub processed_keys: usize,
+    /// With an attached Ordered step cache: expanded identities whose checked
+    /// step was replayed from a record, and expanded identities whose checked
+    /// step ran (no record, an opaque record or a skipped shard). Both stay
+    /// zero without a cache; replayed steps are identical to checked ones.
+    pub step_cache_hits: usize,
+    pub step_cache_misses: usize,
 }
 
 /// One immutable callback-lifetime view. It owns no coefficient/Atom payload.

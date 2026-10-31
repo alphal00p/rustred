@@ -215,6 +215,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         | ReductionError::OutsideCertifiedRootDomain { .. }
         | ReductionError::OutsideCertifiedTotalExcessDomain { .. }
         | ReductionError::ZeroCommonMass
+        | ReductionError::OrderedStepCache { .. }
         | ReductionError::IntegralKey(IntegralKeyError::EmptyPowers) => AppErrorKind::Input,
         ReductionError::UncoveredIntegral { .. }
         | ReductionError::ModularWeights { .. }
