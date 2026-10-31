@@ -552,11 +552,13 @@ impl ModularRecorder {
         );
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
+        let lifted = lifted?;
         // The structure is fixed by this recording.
-        let lift::Lifted {
-            structure: _,
-            coefficients,
-        } = lifted?;
+        debug_assert!(std::sync::Arc::ptr_eq(
+            &lifted.structure,
+            source.structure()
+        ));
+        let coefficients = lifted.coefficients;
         let mut output = BTreeMap::new();
         for (key, coefficient) in keys.into_iter().zip(coefficients) {
             if !coefficient.is_zero() {

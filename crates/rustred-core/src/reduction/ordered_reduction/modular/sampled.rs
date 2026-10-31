@@ -244,6 +244,11 @@ impl<'a> SampledSource<'a> {
         }
     }
 
+    /// The structure of every image: fixed by the recording.
+    pub fn structure(&self) -> &Arc<()> {
+        &self.structure
+    }
+
     fn checks(&self) -> usize {
         self.options.verification_points
     }
