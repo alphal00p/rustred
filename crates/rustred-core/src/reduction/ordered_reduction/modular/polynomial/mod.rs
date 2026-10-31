@@ -255,9 +255,12 @@ impl ImageSource for PolynomialSource<'_> {
         Ok(images)
     }
 
-    /// One job of up to `lanes` primes per thread.
+    /// One wave of jobs: a replay's cost grows with its lanes, so a round of
+    /// more primes than threads would take as long as several rounds, which
+    /// can stop early. Few threads share one replay among up to `lanes`
+    /// primes.
     fn round_capacity(&self, threads: usize) -> usize {
-        threads * self.options.lanes
+        threads.max(self.options.lanes)
     }
 
     /// The first round already occupies every thread with one prime.

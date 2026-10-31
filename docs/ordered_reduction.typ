@@ -85,8 +85,9 @@ coefficient multiplies by its numerator (multiplication by `d` shifts each
 chain by one power) and divides by each denominator factor (closed recurrences
 for linear factors, a small CRT step otherwise). A prime is unusable when the
 basis images are not pairwise coprime of unchanged degree or a coefficient
-denominator vanishes modulo `p`. One replay carries up to `lanes` primes; a
-round runs at least one replay per thread. Every replay checks each recorded
+denominator vanishes modulo `p`. A round requests between `threads` and
+`max(threads, lanes)` primes, one replay per thread; up to `lanes` primes share
+a replay when there are fewer threads. Every replay checks each recorded
 erasure to be exactly zero modulo each prime and fails closed otherwise. The
 terminal images are the reduced numerator and monic denominator of each lane.
 `denominators=dense` keeps one reduced numerator/denominator pair per weight

@@ -81,9 +81,9 @@ pub struct SampledOptions {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PolynomialOptions {
     /// Most primes carried together, as lanes of every weight, by one replay
-    /// of the trace. A round runs at least one replay per thread; lanes only
-    /// grow beyond one prime per replay when a round has more primes than
-    /// threads.
+    /// of the trace. A round requests between `threads` and
+    /// `max(threads, lanes)` primes and runs at least one replay per thread,
+    /// so lanes share a replay only when there are fewer threads than lanes.
     pub lanes: usize,
     /// Representation of the weights over `Z_p(d)`.
     pub denominators: PolynomialDenominators,

@@ -136,11 +136,38 @@ impl Lane {
             if Self::is_zero(x) {
                 continue;
             }
-            let s = self.scalar(*x);
-            self.axpy(&mut product[i..i + b.len()], b, s);
+            for (p, y) in product[i..i + b.len()].iter_mut().zip(b) {
+                *p = self.add(*p, self.mul(*x, *y));
+            }
         }
         field::trim(&self.field, &mut product);
         product
+    }
+
+    /// Quotient and remainder of `a` by a monic `m` (no inversion).
+    pub fn divrem_monic(&self, a: &[Fe], m: &[Fe]) -> (Poly, Poly) {
+        let degree = m.len() - 1;
+        let mut remainder = a.to_vec();
+        field::trim(&self.field, &mut remainder);
+        if remainder.len() <= degree {
+            return (vec![], remainder);
+        }
+        let mut quotient = vec![self.zero(); remainder.len() - degree];
+        for shift in (0..quotient.len()).rev() {
+            let factor = remainder[shift + degree];
+            quotient[shift] = factor;
+            if Self::is_zero(&factor) {
+                continue;
+            }
+            for (r, c) in remainder[shift..shift + degree].iter_mut().zip(m) {
+                *r = self.sub(*r, self.mul(factor, *c));
+            }
+            remainder[shift + degree] = self.zero();
+        }
+        remainder.truncate(degree);
+        field::trim(&self.field, &mut remainder);
+        field::trim(&self.field, &mut quotient);
+        (quotient, remainder)
     }
 
     /// `a - b` (dense, trimmed).

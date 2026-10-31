@@ -13,17 +13,18 @@
 //!   zero exactly when all its coefficients are (exact zero tests);
 //! - a product with a constant step coefficient scales every coefficient;
 //! - a product with a step coefficient `N / prod g^e` (numerator already
-//!   divided by the denominator's content and leading coefficients) is a
-//!   combination of `w * d^i` (multiplication by `d` shifts each chain of
-//!   coefficients by one power) followed by one division per factor `g`
-//!   (closed recurrences when `g` and the chain's factor are linear,
-//!   a small CRT step otherwise).
+//!   divided by the denominator's content and leading coefficients) is the
+//!   combination `sum_i n_i (w d^i)` (multiplication by `d` shifts each
+//!   chain of coefficients by one power; the powers are cached per popped
+//!   weight), written once into the product's final layout, followed by one
+//!   in-place division per factor `g`: closed recurrences when `g` and the
+//!   chain's factor are linear, a small CRT step otherwise.
 //!
 //! The primes (lanes) of a job share one layout: which factors and powers
-//! are present and the length of the polynomial part. A trailing coefficient
-//! is trimmed only when it is zero in every lane, so a lane may carry
-//! explicit zeros; values, zero tests and images are per lane and do not
-//! depend on the other lanes of the job.
+//! are present and the length of the polynomial part. A layout may be larger
+//! than a value needs (zero coefficients); trailing zeros are trimmed when a
+//! weight is popped, and only when they are zero in every lane. Values, zero
+//! tests and images of a lane never depend on the other lanes of the job.
 use std::collections::HashMap;
 
 use super::super::field::{self, Fe, Poly};
@@ -34,11 +35,23 @@ use super::basis::{Basis, LaneTables};
 use super::lane::{Lane, Scalar};
 use crate::reduction::ReductionError;
 
-/// All coefficients `a_{f,1..e}` of one basis factor `f`.
+/// All coefficients `a_{f,1..e}` of one basis factor `f`, starting at
+/// `offset` within a lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Chain {
     factor: u32,
     exponent: u32,
+    offset: u32,
+}
+
+impl Chain {
+    fn new(factor: u32, exponent: u32) -> Self {
+        Self {
+            factor,
+            exponent,
+            offset: 0,
+        }
+    }
 }
 
 /// One weight for every lane of a job.
@@ -69,6 +82,13 @@ enum Scale {
     Numerator(usize, usize),
 }
 
+/// Logical extent of a weight being divided in place inside a larger layout.
+struct Extent {
+    poly: usize,
+    /// Current exponent of every chain of the layout.
+    exponents: Vec<u32>,
+}
+
 pub(super) struct Factorized<'a> {
     lanes: &'a [LaneTables],
     basis: &'a Basis,
@@ -77,8 +97,9 @@ pub(super) struct Factorized<'a> {
     segments: Vec<(usize, usize, usize)>,
     /// `active * d^i` for `i = 1, 2, ...`, until the next pop.
     powers: Vec<Fraction>,
-    /// `f^e` per lane, for the nonlinear paths.
-    power_cache: Vec<HashMap<(u32, usize), Poly>>,
+    /// Per lane: `f^e`, and `(h^e)^-1 mod g`, for the nonlinear paths.
+    power_cache: Vec<HashMap<(u32, u32), Poly>>,
+    inverse_cache: Vec<HashMap<(u32, u32, u32), Poly>>,
 }
 
 impl<'a> Factorized<'a> {
@@ -90,6 +111,7 @@ impl<'a> Factorized<'a> {
             segments: vec![],
             powers: vec![],
             power_cache: lanes.iter().map(|_| HashMap::new()).collect(),
+            inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
         }
     }
 
@@ -98,21 +120,27 @@ impl<'a> Factorized<'a> {
         chain.exponent as usize * self.basis.degree(chain.factor)
     }
 
-    /// A zero weight with the given layout (fails closed beyond `max_degree`).
-    fn layout(&self, poly: usize, chains: Vec<Chain>) -> Result<Fraction, ReductionError> {
-        let denominator: usize = chains.iter().map(|c| self.chain_len(*c)).sum();
-        if denominator > self.max_degree || poly > self.max_degree + 1 {
+    /// A zero weight with the given layout (offsets are assigned here; fails
+    /// closed beyond `max_degree`).
+    fn layout(&self, poly: usize, mut chains: Vec<Chain>) -> Result<Fraction, ReductionError> {
+        let mut offset = poly;
+        for chain in &mut chains {
+            chain.offset = offset as u32;
+            offset += self.chain_len(*chain);
+        }
+        let denominator = offset - poly;
+        if denominator > self.max_degree || poly > self.max_degree + 1 || offset > u32::MAX as usize
+        {
             return Err(error(format!(
                 "a modular_polynomial weight exceeds max_degree={}",
                 self.max_degree
             )));
         }
-        let stride = poly + denominator;
         Ok(Fraction {
             poly,
             chains,
-            stride,
-            data: vec![zero(); stride * self.lanes.len()],
+            stride: offset,
+            data: vec![zero(); offset * self.lanes.len()],
         })
     }
 
@@ -138,27 +166,21 @@ impl<'a> Factorized<'a> {
             }
         };
         push(0, 0, source.poly);
-        let (mut from, mut to) = (source.poly, destination.poly);
-        let mut chains = destination.chains.iter();
-        'next: for chain in &source.chains {
-            for candidate in chains.by_ref() {
-                let size = self.chain_len(*candidate);
-                if candidate.factor == chain.factor {
-                    if candidate.exponent < chain.exponent {
-                        return false;
-                    }
-                    let len = self.chain_len(*chain);
-                    push(from, to, len);
-                    from += len;
-                    to += size;
-                    continue 'next;
-                }
-                if candidate.factor > chain.factor {
-                    return false;
-                }
-                to += size;
+        let mut rest = &destination.chains[..];
+        for chain in &source.chains {
+            let Ok(position) = rest.binary_search_by_key(&chain.factor, |c| c.factor) else {
+                return false;
+            };
+            let target = rest[position];
+            if target.exponent < chain.exponent {
+                return false;
             }
-            return false;
+            push(
+                chain.offset as usize,
+                target.offset as usize,
+                self.chain_len(*chain),
+            );
+            rest = &rest[position + 1..];
         }
         true
     }
@@ -222,7 +244,8 @@ impl<'a> Factorized<'a> {
         result
     }
 
-    /// `destination += scale * source`.
+    /// `destination += scale * source`, widening the destination's layout
+    /// when it does not cover the source.
     fn axpy(
         &mut self,
         destination: &mut Fraction,
@@ -274,23 +297,20 @@ impl<'a> Factorized<'a> {
         while i < a.chains.len() || j < b.chains.len() {
             match (a.chains.get(i), b.chains.get(j)) {
                 (Some(x), Some(y)) if x.factor == y.factor => {
-                    chains.push(Chain {
-                        factor: x.factor,
-                        exponent: x.exponent.max(y.exponent),
-                    });
+                    chains.push(Chain::new(x.factor, x.exponent.max(y.exponent)));
                     i += 1;
                     j += 1;
                 }
                 (Some(x), Some(y)) if x.factor < y.factor => {
-                    chains.push(*x);
+                    chains.push(Chain::new(x.factor, x.exponent));
                     i += 1;
                 }
                 (Some(x), None) => {
-                    chains.push(*x);
+                    chains.push(Chain::new(x.factor, x.exponent));
                     i += 1;
                 }
                 (_, Some(y)) => {
-                    chains.push(*y);
+                    chains.push(Chain::new(y.factor, y.exponent));
                     j += 1;
                 }
                 (None, None) => unreachable!(),
@@ -317,54 +337,40 @@ impl<'a> Factorized<'a> {
         while poly > 0 && !nonzero_in_some_lane(poly - 1, 1) {
             poly -= 1;
         }
-        let mut chains = Vec::with_capacity(weight.chains.len());
-        let mut offset = weight.poly;
+        let mut kept = Vec::with_capacity(weight.chains.len());
         let mut changed = poly != weight.poly;
         for chain in &weight.chains {
             let degree = self.basis.degree(chain.factor);
             let mut exponent = chain.exponent as usize;
-            while exponent > 0 && !nonzero_in_some_lane(offset + (exponent - 1) * degree, degree) {
+            while exponent > 0
+                && !nonzero_in_some_lane(chain.offset as usize + (exponent - 1) * degree, degree)
+            {
                 exponent -= 1;
             }
             changed |= exponent != chain.exponent as usize;
             if exponent > 0 {
-                chains.push(Chain {
-                    factor: chain.factor,
-                    exponent: exponent as u32,
-                });
+                kept.push((*chain, exponent as u32));
             }
-            offset += self.chain_len(*chain);
         }
         if !changed {
             return;
         }
-        // Copy the kept prefixes.
-        let new_stride: usize = poly + chains.iter().map(|c| self.chain_len(*c)).sum::<usize>();
-        let mut data = vec![zero(); new_stride * lanes];
+        let chains = kept.iter().map(|(c, e)| Chain::new(c.factor, *e)).collect();
+        let mut trimmed = self
+            .layout(poly, chains)
+            .expect("a trimmed layout is within the bounds of the original");
+        let new_stride = trimmed.stride;
         for lane in 0..lanes {
             let from = &weight.data[lane * stride..(lane + 1) * stride];
-            let to = &mut data[lane * new_stride..(lane + 1) * new_stride];
+            let to = &mut trimmed.data[lane * new_stride..(lane + 1) * new_stride];
             to[..poly].copy_from_slice(&from[..poly]);
-            let (mut f, mut t) = (weight.poly, poly);
-            let mut kept = chains.iter().peekable();
-            for chain in &weight.chains {
-                if let Some(k) = kept.peek()
-                    && k.factor == chain.factor
-                {
-                    let len = self.chain_len(**k);
-                    to[t..t + len].copy_from_slice(&from[f..f + len]);
-                    t += len;
-                    kept.next();
-                }
-                f += self.chain_len(*chain);
+            for ((old, _), new) in kept.iter().zip(&trimmed.chains) {
+                let len = self.chain_len(*new);
+                let (f, t) = (old.offset as usize, new.offset as usize);
+                to[t..t + len].copy_from_slice(&from[f..f + len]);
             }
         }
-        *weight = Fraction {
-            poly,
-            chains,
-            stride: new_stride,
-            data,
-        };
+        *weight = trimmed;
     }
 
     /// `d * source`.
@@ -372,18 +378,24 @@ impl<'a> Factorized<'a> {
         if source.stride == 0 {
             return Ok(Fraction::default());
         }
-        let mut result = self.layout(source.poly + 1, source.chains.clone())?;
+        let chains = source
+            .chains
+            .iter()
+            .map(|c| Chain::new(c.factor, c.exponent))
+            .collect();
+        let mut result = self.layout(source.poly + 1, chains)?;
         for (lane, tables) in self.lanes.iter().enumerate() {
             let arithmetic = &tables.lane;
             let from = &source.data[lane * source.stride..(lane + 1) * source.stride];
             let to = &mut result.data[lane * result.stride..(lane + 1) * result.stride];
             to[1..=source.poly].copy_from_slice(&from[..source.poly]);
             let mut constant = zero();
-            let mut offset = source.poly;
             for chain in &source.chains {
                 let degree = self.basis.degree(chain.factor);
                 let exponent = chain.exponent as usize;
+                let offset = chain.offset as usize;
                 let a = &from[offset..offset + exponent * degree];
+                // The result's layout is the source's shifted by one.
                 let b = &mut to[offset + 1..offset + 1 + exponent * degree];
                 if degree == 1 {
                     // a_j d / (d - r)^j = a_j / (d - r)^(j-1) + r a_j / (d - r)^j
@@ -415,109 +427,8 @@ impl<'a> Factorized<'a> {
                         }
                     }
                 }
-                offset += exponent * degree;
             }
             to[0] = constant;
-        }
-        Ok(result)
-    }
-
-    /// `weight / g` for a basis factor `g`.
-    fn divide(&mut self, weight: &Fraction, g: u32) -> Result<Fraction, ReductionError> {
-        if weight.stride == 0 {
-            return Ok(Fraction::default());
-        }
-        let k = self.basis.degree(g);
-        let mut chains = weight.chains.clone();
-        match chains.binary_search_by_key(&g, |c| c.factor) {
-            Ok(i) => chains[i].exponent += 1,
-            Err(i) => chains.insert(
-                i,
-                Chain {
-                    factor: g,
-                    exponent: 1,
-                },
-            ),
-        }
-        let mut result = self.layout(weight.poly.saturating_sub(k), chains)?;
-        // Destination offset of every chain of `weight`, and of g's a_1.
-        let mut plan = Vec::with_capacity(weight.chains.len());
-        let mut g_offset = 0;
-        {
-            let mut to = result.poly;
-            let mut from = weight.poly;
-            let mut source = weight.chains.iter().peekable();
-            for chain in &result.chains {
-                if chain.factor == g {
-                    g_offset = to;
-                }
-                if let Some(s) = source.peek()
-                    && s.factor == chain.factor
-                {
-                    plan.push((**s, from, to));
-                    from += self.chain_len(**s);
-                    source.next();
-                }
-                to += self.chain_len(*chain);
-            }
-        }
-        let g_linear = self.basis.linear_index(g);
-        let linear_count = self.basis.linear_count();
-        for lane in 0..self.lanes.len() {
-            let tables = &self.lanes[lane];
-            let arithmetic = &tables.lane;
-            let from = &weight.data[lane * weight.stride..(lane + 1) * weight.stride];
-            let rs = result.stride;
-            // Polynomial part: P = Q g + R.
-            if weight.poly > 0 {
-                if k == 1 {
-                    let s = tables.root_scalars[g as usize];
-                    let to = &mut result.data[lane * rs..(lane + 1) * rs];
-                    let mut carry = from[weight.poly - 1];
-                    for i in (0..weight.poly - 1).rev() {
-                        to[i] = carry;
-                        carry = arithmetic.add(from[i], arithmetic.mul_scalar(carry, s));
-                    }
-                    to[g_offset] = arithmetic.add(to[g_offset], carry);
-                } else {
-                    let (quotient, remainder) = arithmetic
-                        .poly_quot_rem(&from[..weight.poly], &tables.basis.monic[g as usize]);
-                    let to = &mut result.data[lane * rs..(lane + 1) * rs];
-                    to[..quotient.len()].copy_from_slice(&quotient);
-                    arithmetic.add_into(&mut to[g_offset..g_offset + remainder.len()], &remainder);
-                }
-            }
-            for &(chain, f, t) in &plan {
-                let degree = self.basis.degree(chain.factor);
-                let exponent = chain.exponent as usize;
-                let a = &from[f..f + exponent * degree];
-                if chain.factor == g {
-                    // One more power of g.
-                    let to = &mut result.data[lane * rs..(lane + 1) * rs];
-                    to[t + k..t + k + exponent * k].copy_from_slice(a);
-                    continue;
-                }
-                let h_linear = self.basis.linear_index(chain.factor);
-                if let (Some(gl), Some(hl)) = (g_linear, h_linear) {
-                    // a_j / ((d - r)^j (d - s)) with t = s - r:
-                    // a'_e = -a_e / t, a'_i = (a'_(i+1) - a_i) / t, and the
-                    // residue at s is -a'_1.
-                    let inverse = tables.basis.inverse_difference[gl * linear_count + hl];
-                    let to = &mut result.data[lane * rs..(lane + 1) * rs];
-                    let mut next = zero();
-                    for i in (0..exponent).rev() {
-                        next = arithmetic.mul(arithmetic.sub(next, a[i]), inverse);
-                        to[t + i] = next;
-                    }
-                    to[g_offset] = arithmetic.sub(to[g_offset], next);
-                    continue;
-                }
-                let (chain_part, g_part) =
-                    divide_chain(tables, &mut self.power_cache[lane], chain, a, g)?;
-                let to = &mut result.data[lane * rs..(lane + 1) * rs];
-                to[t..t + chain_part.len()].copy_from_slice(&chain_part);
-                arithmetic.add_into(&mut to[g_offset..g_offset + g_part.len()], &g_part);
-            }
         }
         Ok(result)
     }
@@ -531,6 +442,43 @@ impl<'a> Factorized<'a> {
         }
     }
 
+    /// The layout of `weight / prod g^e` over the denominator factors of
+    /// polynomial coefficient `index`, keeping `weight`'s polynomial part.
+    fn quotient_layout(
+        &self,
+        poly: usize,
+        chains: &[Chain],
+        index: usize,
+    ) -> Result<Fraction, ReductionError> {
+        let factors = &self.basis.coefficients[index].factors;
+        let mut merged = Vec::with_capacity(chains.len() + factors.len());
+        let (mut i, mut j) = (0, 0);
+        while i < chains.len() || j < factors.len() {
+            match (chains.get(i), factors.get(j)) {
+                (Some(c), Some(&(g, e))) if c.factor == g => {
+                    merged.push(Chain::new(g, c.exponent + e));
+                    i += 1;
+                    j += 1;
+                }
+                (Some(c), Some(&(g, _))) if c.factor < g => {
+                    merged.push(Chain::new(c.factor, c.exponent));
+                    i += 1;
+                }
+                (Some(c), None) => {
+                    merged.push(Chain::new(c.factor, c.exponent));
+                    i += 1;
+                }
+                (_, Some(&(g, e))) => {
+                    merged.push(Chain::new(g, e));
+                    j += 1;
+                }
+                (None, None) => unreachable!(),
+            }
+        }
+        self.layout(poly, merged)
+    }
+
+    /// `active * N / prod g^e` for polynomial coefficient `index`.
     fn polynomial_product(
         &mut self,
         active: &Fraction,
@@ -550,67 +498,187 @@ impl<'a> Factorized<'a> {
             let next = self.mul_x(self.power(active, self.powers.len()))?;
             self.powers.push(next);
         }
-        let mut result = self.scaled(self.power(active, top), Scale::Numerator(index, top));
+        // The final layout covers every power; divisions then run in place.
+        let mut result = self.quotient_layout(active.poly + top, &active.chains, index)?;
         let powers = std::mem::take(&mut self.powers);
-        for power in (0..top).rev() {
+        let mut status = Ok(());
+        for power in 0..=top {
             let source = if power == 0 {
                 active
             } else {
                 &powers[power - 1]
             };
-            self.axpy(&mut result, source, Scale::Numerator(index, power))?;
-        }
-        self.powers = powers;
-        self.divide_by_denominator(result, index)
-    }
-
-    fn divide_by_denominator(
-        &mut self,
-        mut weight: Fraction,
-        index: usize,
-    ) -> Result<Fraction, ReductionError> {
-        let basis = self.basis;
-        for &(g, exponent) in &basis.coefficients[index].factors {
-            for _ in 0..exponent {
-                weight = self.divide(&weight, g)?;
+            status = self.axpy(&mut result, source, Scale::Numerator(index, power));
+            if status.is_err() {
+                break;
             }
         }
-        Ok(weight)
+        self.powers = powers;
+        status?;
+        let mut extent = Extent {
+            poly: active.poly + top,
+            exponents: result
+                .chains
+                .iter()
+                .map(|chain| {
+                    active
+                        .chains
+                        .binary_search_by_key(&chain.factor, |c| c.factor)
+                        .map_or(0, |i| active.chains[i].exponent)
+                })
+                .collect(),
+        };
+        self.divide_by_denominator(&mut result, &mut extent, index)?;
+        Ok(result)
+    }
+
+    /// Divide `weight` (logically `extent`) by the denominator factors of
+    /// polynomial coefficient `index`, in place; the layout must hold the
+    /// final exponents.
+    fn divide_by_denominator(
+        &mut self,
+        weight: &mut Fraction,
+        extent: &mut Extent,
+        index: usize,
+    ) -> Result<(), ReductionError> {
+        let basis = self.basis;
+        for &(g, exponent) in &basis.coefficients[index].factors {
+            let position = weight
+                .chains
+                .binary_search_by_key(&g, |c| c.factor)
+                .expect("the quotient layout holds every denominator factor");
+            for _ in 0..exponent {
+                self.divide_in_place(weight, extent, position)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Divide `weight` (logically `extent`) by the factor of its chain
+    /// `position`, whose block has room for one more power.
+    fn divide_in_place(
+        &mut self,
+        weight: &mut Fraction,
+        extent: &mut Extent,
+        position: usize,
+    ) -> Result<(), ReductionError> {
+        let g_chain = weight.chains[position];
+        let g = g_chain.factor;
+        let k = self.basis.degree(g);
+        let g_offset = g_chain.offset as usize;
+        let g_exponent = extent.exponents[position] as usize;
+        debug_assert!(g_exponent < g_chain.exponent as usize);
+        let g_linear = self.basis.linear_index(g);
+        let linear_count = self.basis.linear_count();
+        let stride = weight.stride;
+        let poly = extent.poly;
+        let lanes = self.lanes;
+        for (lane, tables) in lanes.iter().enumerate() {
+            let arithmetic = &tables.lane;
+            let w = &mut weight.data[lane * stride..(lane + 1) * stride];
+            // One more power of g: a_j -> a_(j+1), then the new a_1 collects
+            // the residues.
+            w.copy_within(g_offset..g_offset + g_exponent * k, g_offset + k);
+            w[g_offset..g_offset + k].fill(zero());
+            // Polynomial part: P = Q g + R.
+            if poly > 0 {
+                if k == 1 {
+                    let s = tables.root_scalars[g as usize];
+                    let mut carry = w[poly - 1];
+                    for i in (0..poly - 1).rev() {
+                        let next = arithmetic.add(w[i], arithmetic.mul_scalar(carry, s));
+                        w[i] = carry;
+                        carry = next;
+                    }
+                    w[poly - 1] = zero();
+                    w[g_offset] = arithmetic.add(w[g_offset], carry);
+                } else {
+                    let (quotient, remainder) =
+                        arithmetic.divrem_monic(&w[..poly], &tables.basis.monic[g as usize]);
+                    w[..poly].fill(zero());
+                    w[..quotient.len()].copy_from_slice(&quotient);
+                    arithmetic.add_into(&mut w[g_offset..g_offset + remainder.len()], &remainder);
+                }
+            }
+            for (index, chain) in weight.chains.iter().enumerate() {
+                let exponent = extent.exponents[index] as usize;
+                if index == position || exponent == 0 {
+                    continue;
+                }
+                let degree = self.basis.degree(chain.factor);
+                let offset = chain.offset as usize;
+                if let (Some(gl), Some(hl)) = (g_linear, self.basis.linear_index(chain.factor)) {
+                    // a_j / ((d - r)^j (d - s)) with t = s - r:
+                    // a'_e = -a_e / t, a'_i = (a'_(i+1) - a_i) / t, and the
+                    // residue at s is -a'_1.
+                    let inverse = tables.basis.inverse_difference[gl * linear_count + hl];
+                    let mut next = zero();
+                    for i in (0..exponent).rev() {
+                        next = arithmetic.mul(arithmetic.sub(next, w[offset + i]), inverse);
+                        w[offset + i] = next;
+                    }
+                    w[g_offset] = arithmetic.sub(w[g_offset], next);
+                    continue;
+                }
+                let residue = divide_chain(
+                    tables,
+                    &mut self.power_cache[lane],
+                    &mut self.inverse_cache[lane],
+                    chain.factor,
+                    exponent,
+                    &mut w[offset..offset + exponent * degree],
+                    g,
+                )?;
+                arithmetic.add_into(&mut w[g_offset..g_offset + residue.len()], &residue);
+            }
+        }
+        extent.poly = poly.saturating_sub(k);
+        extent.exponents[position] += 1;
+        Ok(())
     }
 }
 
-/// `sum_j a_j / h^j` (dense `A / h^e` with `A = sum_j a_j h^(e-j)`) divided
-/// by a basis factor `g` coprime to `h`: `A / (h^e g) = B / h^e + C / g` with
-/// `C = A (h^e)^-1 mod g` and `B = (A - C h^e) / g`. Returns the chain
-/// coefficients of `B` (`e deg h` values) and `C` (`deg g` values at most).
+/// Divide the chain `a = (a_1, ..., a_e)` of `h` (`A / h^e` with
+/// `A = sum_j a_j h^(e-j)`) by a basis factor `g` coprime to `h`:
+/// `A / (h^e g) = B / h^e + C / g` with `C = A (h^e)^-1 mod g` and
+/// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and returns `C`.
 fn divide_chain(
     tables: &LaneTables,
-    cache: &mut HashMap<(u32, usize), Poly>,
-    chain: Chain,
-    a: &[Fe],
+    powers: &mut HashMap<(u32, u32), Poly>,
+    inverses: &mut HashMap<(u32, u32, u32), Poly>,
+    h: u32,
+    exponent: usize,
+    a: &mut [Fe],
     g: u32,
-) -> Result<(Poly, Poly), ReductionError> {
+) -> Result<Poly, ReductionError> {
     let arithmetic = &tables.lane;
-    let h = &tables.basis.monic[chain.factor as usize];
+    let hm = &tables.basis.monic[h as usize];
     let gm = &tables.basis.monic[g as usize];
-    let exponent = chain.exponent as usize;
-    let dense = to_dense(arithmetic, a, h, exponent);
-    let power = cache
-        .entry((chain.factor, exponent))
-        .or_insert_with(|| arithmetic.poly_pow(h, exponent));
-    let inverse = arithmetic
-        .poly_inverse_mod(&arithmetic.poly_rem(power, gm), gm)
-        .ok_or_else(|| error("basis factor images are not coprime"))?;
-    let c = arithmetic.poly_rem(
-        &arithmetic.poly_mul(&arithmetic.poly_rem(&dense, gm), &inverse),
-        gm,
-    );
+    let dense = to_dense(arithmetic, a, hm, exponent);
+    let power = powers
+        .entry((h, exponent as u32))
+        .or_insert_with(|| arithmetic.poly_pow(hm, exponent));
+    let inverse = match inverses.entry((h, g, exponent as u32)) {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
+            arithmetic
+                .poly_inverse_mod(&arithmetic.divrem_monic(power, gm).1, gm)
+                .ok_or_else(|| error("basis factor images are not coprime"))?,
+        ),
+    };
+    let c = arithmetic
+        .divrem_monic(
+            &arithmetic.poly_mul(&arithmetic.divrem_monic(&dense, gm).1, inverse),
+            gm,
+        )
+        .1;
     let numerator = arithmetic.poly_sub(&dense, &arithmetic.poly_mul(&c, power));
-    let (b, remainder) = arithmetic.poly_quot_rem(&numerator, gm);
+    let (b, remainder) = arithmetic.divrem_monic(&numerator, gm);
     if !remainder.is_empty() {
         return Err(error("partial-fraction division left a remainder"));
     }
-    Ok((expand(arithmetic, b, h, exponent), c))
+    expand(arithmetic, b, hm, exponent, a);
+    Ok(c)
 }
 
 /// `A = sum_j a_j h^(e-j)` from the chain `a_1, ..., a_e`.
@@ -625,17 +693,17 @@ fn to_dense(arithmetic: &Lane, a: &[Fe], h: &[Fe], exponent: usize) -> Poly {
     dense
 }
 
-/// The chain `a_1, ..., a_e` of `B = sum_j a_j h^(e-j)` (`deg B < e deg h`).
-fn expand(arithmetic: &Lane, mut b: Poly, h: &[Fe], exponent: usize) -> Poly {
+/// Write the chain `a_1, ..., a_e` of `B = sum_j a_j h^(e-j)`
+/// (`deg B < e deg h`) into `chain`.
+fn expand(arithmetic: &Lane, mut b: Poly, h: &[Fe], exponent: usize, chain: &mut [Fe]) {
     let degree = h.len() - 1;
-    let mut chain = vec![zero(); exponent * degree];
+    chain.fill(zero());
     for j in (0..exponent).rev() {
-        let (quotient, remainder) = arithmetic.poly_quot_rem(&b, h);
+        let (quotient, remainder) = arithmetic.divrem_monic(&b, h);
         chain[j * degree..j * degree + remainder.len()].copy_from_slice(&remainder);
         b = quotient;
     }
     debug_assert!(b.is_empty());
-    chain
 }
 
 impl Representation for Factorized<'_> {
@@ -659,12 +727,18 @@ impl Representation for Factorized<'_> {
         if length == 0 {
             return Ok(Fraction::default());
         }
-        let mut weight = self.layout(length, vec![])?;
+        let mut weight = self.quotient_layout(length, &[], index)?;
         for (lane, tables) in self.lanes.iter().enumerate() {
             let numerator = &tables.numerators[index];
-            weight.data[lane * length..lane * length + numerator.len()].copy_from_slice(numerator);
+            let start = lane * weight.stride;
+            weight.data[start..start + numerator.len()].copy_from_slice(numerator);
         }
-        self.divide_by_denominator(weight, index)
+        let mut extent = Extent {
+            poly: length,
+            exponents: vec![0; weight.chains.len()],
+        };
+        self.divide_by_denominator(&mut weight, &mut extent, index)?;
+        Ok(weight)
     }
 
     fn activate(&mut self, active: &mut Fraction) {
@@ -718,26 +792,26 @@ impl Representation for Factorized<'_> {
         let mut numerator: Poly = from[..weight.poly].to_vec();
         field::trim(f, &mut numerator);
         let mut denominator: Poly = vec![arithmetic.one()];
-        let mut offset = weight.poly;
         for chain in &weight.chains {
             let h = &tables.basis.monic[chain.factor as usize];
-            let size = self.chain_len(*chain);
+            let offset = chain.offset as usize;
             let dense = to_dense(
                 arithmetic,
-                &from[offset..offset + size],
+                &from[offset..offset + self.chain_len(*chain)],
                 h,
                 chain.exponent as usize,
             );
-            offset += size;
             if dense.is_empty() {
                 continue;
             }
-            let power = arithmetic.poly_pow(h, chain.exponent as usize);
+            let power = self.power_cache[lane]
+                .entry((chain.factor, chain.exponent))
+                .or_insert_with(|| arithmetic.poly_pow(h, chain.exponent as usize));
             numerator = arithmetic.poly_add(
-                &arithmetic.poly_mul(&numerator, &power),
+                &arithmetic.poly_mul(&numerator, power),
                 &arithmetic.poly_mul(&dense, &denominator),
             );
-            denominator = arithmetic.poly_mul(&denominator, &power);
+            denominator = arithmetic.poly_mul(&denominator, power);
         }
         if numerator.is_empty() {
             return image_from(f, &[], &[arithmetic.one()]);
@@ -746,8 +820,8 @@ impl Representation for Factorized<'_> {
         // shows up in the degrees and is outvoted by the lift).
         let gcd = field::gcd(f, &numerator, &denominator);
         if gcd.len() > 1 {
-            numerator = arithmetic.poly_quot_rem(&numerator, &gcd).0;
-            denominator = arithmetic.poly_quot_rem(&denominator, &gcd).0;
+            numerator = arithmetic.divrem_monic(&numerator, &gcd).0;
+            denominator = arithmetic.divrem_monic(&denominator, &gcd).0;
         }
         let lead = arithmetic.inv(*denominator.last().expect("nonzero denominator"));
         for c in numerator.iter_mut().chain(denominator.iter_mut()) {
