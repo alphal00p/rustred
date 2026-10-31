@@ -304,22 +304,9 @@ impl Workers {
         })
     }
 
-    /// `f` over `items` on the workers, in order. Item costs are very
-    /// uneven (steps and merges of exact rational functions), so every item
-    /// is its own task: a contiguous range never runs on one thread while
-    /// the others idle.
-    fn map<T: Send, R: Send>(&self, items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R> {
-        let budget = &self.budget;
-        self.pool.install(|| {
-            items
-                .into_par_iter()
-                .with_max_len(1)
-                .map(|item| budget.run_captured(|| f(item)))
-                .collect()
-        })
-    }
-
-    /// `f` on every item on the workers, one task per item (see `map`).
+    /// `f` on every item on the workers. Item costs are very uneven (merges
+    /// of exact rational functions), so every item is its own task: a
+    /// contiguous range never runs on one thread while the others idle.
     fn for_each<T: Send>(&self, items: &mut [T], f: impl Fn(&mut T) + Sync + Send) {
         let budget = &self.budget;
         self.pool.install(|| {
@@ -353,7 +340,11 @@ struct Detached<K, P, X, E, A> {
 /// Compute the steps of `roots` and of every same-phase descendant at or
 /// above `threshold` on the workers. `detach` converts a step (on the worker)
 /// and reports its same-phase children at or above the threshold. Roots come
-/// first, in their given order.
+/// first, in their given order; the other keys follow in no particular order.
+///
+/// The closure is explored by work stealing: a finished step immediately
+/// spawns the steps of its newly found window children, so chains of
+/// same-phase descendants (Apply phases) do not wait for synchronous rounds.
 fn close_window<S, X, F>(
     workers: &Workers,
     stepper: &S,
@@ -373,18 +364,82 @@ where
         + Sync
         + Send,
 {
-    let mut seen: HashSet<S::Key> = roots.iter().map(|(key, _)| key.clone()).collect();
-    let mut todo = roots;
-    let mut steps = Vec::with_capacity(todo.len());
-    while !todo.is_empty() {
-        if let Some(counters) = counters {
-            counters.rounds.fetch_add(1, Ordering::Relaxed);
-        }
-        let round = workers.map(std::mem::take(&mut todo), |(key, position)| {
-            let _timer = counters.map(|counters| CpuTimer::new(&counters.step_nanos));
-            let (result, account) = stepper.step(&key);
+    let closure = Closure {
+        stepper,
+        detach: &detach,
+        seen: Mutex::new(roots.iter().map(|(key, _)| key.clone()).collect()),
+        discovered: Mutex::new(Vec::new()),
+        counters,
+        budget: &workers.budget,
+    };
+    let mut rooted: Vec<Option<Detached<S::Key, S::Priority, X, S::Error, S::Account>>> =
+        roots.iter().map(|_| None).collect();
+    {
+        let closure = &closure;
+        workers.pool.install(|| {
+            rayon::scope(|scope| {
+                for ((key, position), slot) in roots.into_iter().zip(rooted.iter_mut()) {
+                    scope.spawn(move |scope| *slot = Some(closure.step(scope, key, position)));
+                }
+            })
+        });
+    }
+    let discovered = closure
+        .discovered
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(counters) = counters {
+        counters
+            .discovered
+            .fetch_add(discovered.len() as u64, Ordering::Relaxed);
+    }
+    rooted
+        .into_iter()
+        .map(|step| step.expect("every root step completes in the scope"))
+        .chain(discovered)
+        .collect()
+}
+
+/// Shared state of one window closure (`close_window`).
+struct Closure<'a, S: OrderedStepper, X, F> {
+    stepper: &'a S,
+    detach: &'a F,
+    seen: Mutex<HashSet<S::Key>>,
+    discovered: Mutex<Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>>,
+    counters: Option<&'a WindowCounters>,
+    budget: &'a ResourceBudget,
+}
+
+impl<'a, S, X, F> Closure<'a, S, X, F>
+where
+    S: OrderedStepper,
+    X: Send,
+    F: Fn(
+            &S::Key,
+            &OrderedPosition<S::Priority>,
+            OrderedStep<S::Key>,
+            &mut Vec<(S::Key, OrderedPosition<S::Priority>)>,
+        ) -> X
+        + Sync
+        + Send,
+{
+    /// The step of `key`; spawns the steps of its new window children.
+    fn step<'scope>(
+        &'scope self,
+        scope: &rayon::Scope<'scope>,
+        key: S::Key,
+        position: OrderedPosition<S::Priority>,
+    ) -> Detached<S::Key, S::Priority, X, S::Error, S::Account>
+    where
+        'a: 'scope,
+    {
+        let (detached, found) = self.budget.run_captured(|| {
+            let _timer = self
+                .counters
+                .map(|counters| CpuTimer::new(&counters.step_nanos));
+            let (result, account) = self.stepper.step(&key);
             let mut found = Vec::new();
-            let result = result.map(|step| detach(&key, &position, step, &mut found));
+            let result = result.map(|step| (self.detach)(&key, &position, step, &mut found));
             (
                 Detached {
                     key,
@@ -395,16 +450,16 @@ where
                 found,
             )
         });
-        for (detached, found) in round {
-            for (key, position) in found {
-                if seen.insert(key.clone()) {
-                    todo.push((key, position));
-                }
+        for (child, position) in found {
+            if lock(&self.seen).insert(child.clone()) {
+                scope.spawn(move |scope| {
+                    let step = self.step(scope, child, position);
+                    lock(&self.discovered).push(step);
+                });
             }
-            steps.push(detached);
         }
+        detached
     }
-    steps
 }
 
 /// Steps computed ahead by the workers for the sequential scheduler: the
@@ -1182,7 +1237,7 @@ struct WindowClock {
 /// Worker-side totals of one window (statistics only).
 #[derive(Default)]
 struct WindowCounters {
-    rounds: std::sync::atomic::AtomicU64,
+    discovered: std::sync::atomic::AtomicU64,
     step_nanos: std::sync::atomic::AtomicU64,
     settle_nanos: std::sync::atomic::AtomicU64,
 }
@@ -1254,8 +1309,8 @@ impl WindowClock {
         let seconds =
             |counter: &std::sync::atomic::AtomicU64| counter.load(Ordering::Relaxed) as f64 * 1e-9;
         laps.push(format!(
-            "\"rounds\":{},\"step_cpu\":{:.6},\"settle_cpu\":{:.6}",
-            self.counters.rounds.load(Ordering::Relaxed),
+            "\"discovered\":{},\"step_cpu\":{:.6},\"settle_cpu\":{:.6}",
+            self.counters.discovered.load(Ordering::Relaxed),
             seconds(&self.counters.step_nanos),
             seconds(&self.counters.settle_nanos)
         ));
