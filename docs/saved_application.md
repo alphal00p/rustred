@@ -484,7 +484,13 @@ is accepted when its schema, the hand-bumped verified-map semantics version
 fingerprint and the BLAKE3 of `selection.json` declared by `application.json`)
 match, and its trailing BLAKE3 of its own bytes is intact. Otherwise it is
 rejected loudly (a line on stderr and `route_preparation().rejected`) and every
-route is verified as without it; a rejected add-on never fails a load. Bump
+route is verified as without it; a rejected add-on never fails a load. The
+stderr line is printed when the rejection is detected (reading the file, or
+restoring a route from it), before the verification it announces, so the reason
+stays visible if that verifying load fails or is interrupted. With
+`SavedRouteAddon::Auto` only an absent `route-preparation.rrbin` means "no
+add-on"; anything else at that name (a directory, a dangling symlink) is
+rejected loudly. Bump
 `SAVED_VERIFIED_MAP_SEMANTICS` whenever verification can return a different map
 for the same input, and regenerate shipped add-ons. Source-publication
 preparation (`prepare_saved_application`) always verifies.
