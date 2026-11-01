@@ -195,8 +195,10 @@ pub(super) fn run(arguments: SavedApplicationArgs) -> Result<(), CliError> {
             out,
             workers,
         } => {
-            let mut options = crate::SavedApplicationOptions::default();
-            options.preparation_workers = workers;
+            let options = crate::SavedApplicationOptions {
+                preparation_workers: workers,
+                ..Default::default()
+            };
             let layer = crate::saved_application_identity_layer::<15>(&application, options)?;
             let digest = layer.write(&out, options.binary_limits)?;
             println!(

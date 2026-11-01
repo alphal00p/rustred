@@ -337,15 +337,14 @@ pub(super) fn load_with_addon<const N: usize>(
         return Err(AppError::input("unsupported saved application schema"));
     }
     // A package feature this loader does not know must never be ignored.
-    if let Some(object) = report.as_object() {
-        if let Some(unknown) = object
+    if let Some(object) = report.as_object()
+        && let Some(unknown) = object
             .keys()
             .find(|key| !KNOWN_KEYS.contains(&key.as_str()))
-        {
-            return Err(AppError::input(format!(
-                "saved application key {unknown:?} is not supported by this loader"
-            )));
-        }
+    {
+        return Err(AppError::input(format!(
+            "saved application key {unknown:?} is not supported by this loader"
+        )));
     }
     let selection = read_text_descriptor(directory, &report["selection"], maximum)?;
     let queries = read_text_descriptor(directory, &report["queries"], maximum)?;

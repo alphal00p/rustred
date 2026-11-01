@@ -308,8 +308,10 @@ fn shared_provider_rule_and_cartesian_budgets_are_enforced() {
     let c = f.coefficient_context();
     for (rules, terms) in [(1, 100), (100, 2)] {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let mut limits = VacuumProductReductionLimits::default();
-        limits.diagnostics_enabled = true;
+        let mut limits = VacuumProductReductionLimits {
+            diagnostics_enabled: true,
+            ..Default::default()
+        };
         limits.reduction.max_rule_applications = rules;
         limits.reduction.max_factorization_terms = terms;
         let mut reducer = VacuumProductReducer::try_new(
@@ -477,8 +479,10 @@ fn retained_cache_coefficients_and_guards_obey_existing_resource_caps() {
     let f = family("cache", 1);
     let c = f.coefficient_context();
     for (integrals, bytes) in [(1, usize::MAX), (100, 1)] {
-        let mut limits = VacuumProductReductionLimits::default();
-        limits.diagnostics_enabled = true;
+        let mut limits = VacuumProductReductionLimits {
+            diagnostics_enabled: true,
+            ..Default::default()
+        };
         limits.reduction.max_cached_integrals = integrals;
         limits.reduction.max_cached_coefficient_bytes = bytes;
         let mut reducer = VacuumProductReducer::try_new(

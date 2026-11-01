@@ -271,8 +271,10 @@ fn failed_parent_preserves_only_valid_completed_roots_and_releases_import_census
     // multiplying by I5's recurrence produces a larger polynomial. A zero
     // coalescing allowance is not a failure trigger for one vacant master.
     assert_eq!(prepared.record.terms[&key(1)].numerator.nterms(), 4);
-    let mut constrained = ReductionLimits::default();
-    constrained.diagnostics_enabled = true;
+    let mut constrained = ReductionLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     constrained.exact_algebra.max_polynomial_terms = 4;
     assert!(matches!(
         program.reduce_guarded_root(&key(5), &mut cache, constrained, None),

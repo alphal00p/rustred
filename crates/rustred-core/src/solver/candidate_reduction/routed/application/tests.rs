@@ -205,8 +205,10 @@ fn tadpole(limits: ReductionLimits) -> RoutedCandidateReducer<1> {
         )],
         limits,
     );
-    let mut trace = RoutedCandidateLimits::default();
-    trace.diagnostics_enabled = true;
+    let mut trace = RoutedCandidateLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     trace.expansion.exact_algebra = limits.exact_algebra;
     RoutedCandidateReducer::try_new(owners, [], trace).unwrap()
 }

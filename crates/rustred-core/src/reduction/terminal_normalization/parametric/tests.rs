@@ -145,8 +145,10 @@ fn explicit_preparation_caps_retain_raw_keys_without_false_aliases() {
             ..Default::default()
         },
     ];
-    let mut polynomial_budget = VacuumParametricLimits::default();
-    polynomial_budget.diagnostics_enabled = true;
+    let mut polynomial_budget = VacuumParametricLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     polynomial_budget.symanzik.max_polynomial_terms = 0;
     policies.push(polynomial_budget);
     for limits in policies {

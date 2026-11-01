@@ -198,8 +198,10 @@ fn zero_proofs_obey_native_analysis_and_shared_cache_allowances() {
     let c = f.coefficient_context();
     for mode in 0..4 {
         let calls = Arc::new(Mutex::new(0));
-        let mut limits = VacuumProductReductionLimits::default();
-        limits.diagnostics_enabled = true;
+        let mut limits = VacuumProductReductionLimits {
+            diagnostics_enabled: true,
+            ..Default::default()
+        };
         match mode {
             0 => limits.max_zero_analyses = 0,
             1 => limits.zero.max_rank_columns = 0,

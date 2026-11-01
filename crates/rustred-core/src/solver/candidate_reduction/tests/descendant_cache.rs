@@ -669,8 +669,10 @@ fn imported_child_has_one_native_memo_charge_and_failed_parent_keeps_only_comple
     program
         .reduce_guarded_root(&key([4]), &mut cache, Default::default(), None)
         .unwrap();
-    let mut tight = ReductionLimits::default();
-    tight.diagnostics_enabled = true;
+    let mut tight = ReductionLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     tight.exact_algebra.max_polynomial_terms = 4;
     assert!(
         program

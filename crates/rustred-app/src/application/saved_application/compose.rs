@@ -280,10 +280,10 @@ pub fn compose_saved_application_layer<const N: usize>(
     if base.remaining_terminals != prepared.terminals.remaining.len() as u64 {
         return Err(mismatch("remaining_terminals"));
     }
-    if let Some(expected) = &base.application_blake3 {
-        if *expected != blake3::hash(&base_bytes).to_hex().to_string() {
-            return Err(mismatch("application_blake3"));
-        }
+    if let Some(expected) = &base.application_blake3
+        && *expected != blake3::hash(&base_bytes).to_hex().to_string()
+    {
+        return Err(mismatch("application_blake3"));
     }
 
     // Factorized terminals (product route) are sources only under RR-11 P1.

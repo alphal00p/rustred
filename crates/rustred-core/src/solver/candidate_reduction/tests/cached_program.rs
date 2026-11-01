@@ -374,8 +374,10 @@ fn explicit_cache_limits_are_not_clipped_to_loader_defaults_and_tightening_reval
         .reduce_guarded_root(&key([4]), &mut cache, Default::default(), None)
         .unwrap();
     let before = cache.statistics().payload_validations;
-    let mut tighter = ReductionLimits::default();
-    tighter.diagnostics_enabled = true;
+    let mut tighter = ReductionLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     tighter.exact_algebra.max_polynomial_terms = 4;
     program
         .reduce_guarded_root(&key([4]), &mut cache, tighter, None)

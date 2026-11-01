@@ -104,8 +104,10 @@ fn feedback_limits_are_separate_and_do_not_advance_retained_sources() {
     let (first, second) = shared_auxiliary_sources();
     let sessions = [&first, &second];
     let before = sessions.map(|session| session.statistics());
-    let mut limits = TerminalCollectionLimits::default();
-    limits.diagnostics_enabled = true;
+    let mut limits = TerminalCollectionLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     limits.finite_feedback.max_source_rows = 0;
     assert!(TerminalCollectionPlan::prepare(&sessions, limits).is_ok());
     assert!(matches!(

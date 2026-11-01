@@ -642,8 +642,10 @@ fn warm_hits_reuse_validation_stamp_and_tighter_bounds_validate_once() {
         );
     }
     assert_eq!(cache.statistics().payload_validations, 1);
-    let mut tighter = ReductionLimits::default();
-    tighter.diagnostics_enabled = true;
+    let mut tighter = ReductionLimits {
+        diagnostics_enabled: true,
+        ..Default::default()
+    };
     tighter.exact_algebra.max_polynomial_terms -= 1;
     program
         .reduce_guarded_root(&key(2), &mut cache, tighter, None)
