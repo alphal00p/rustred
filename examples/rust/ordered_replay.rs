@@ -11,7 +11,9 @@
 //! exact inputs (their canonical round trip is checked), runs the request and
 //! prints JSONL records on stdout:
 //!
-//! * `request`/`loaded`: identity, input count and program loading time;
+//! * `request`/`loaded`: identity, input count and program loading time (saved
+//!   applications: also whether the routes were verified or restored from a
+//!   route preparation add-on, `route_preparation`);
 //! * `phase`: one per frozen ordered phase (index, kind, support, owner),
 //!   its wall seconds, the counters it added (processed keys, emitted terms,
 //!   merges, cancellations), the frontier keys/monomials at its end, and
@@ -953,7 +955,8 @@ mod saved {
         emit(
             json!({"event": "loaded", "path": path, "seconds": started.elapsed().as_secs_f64(),
             "inputs": inputs.len(), "declared_owners": owners.declared_owners,
-            "prepared_owners": owners.prepared_owners}),
+            "prepared_owners": owners.prepared_owners,
+            "route_preparation": prepared.route_preparation().to_json()}),
         );
         prepared.set_reduction_strategy(options.strategy);
         prepared.set_ordered_weight_arithmetic(options.arithmetic);
