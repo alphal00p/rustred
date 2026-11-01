@@ -14,9 +14,10 @@ use serde_json::{Value, json};
 
 use super::codec::EncodedMapsLayout;
 use super::layer::{
-    self, BoundLayer, SavedApplicationLayer, SavedApplicationLayerDigest,
-    SavedApplicationFactorizedSources, SavedApplicationMinimalityScope,
-    SavedApplicationRuleProvenance, bind_layer, bind_layer_with, check_composition_mod_p, compose_maps, layer_minimality_claim, layer_summary,
+    self, BoundLayer, SavedApplicationFactorizedSources, SavedApplicationLayer,
+    SavedApplicationLayerDigest, SavedApplicationMinimalityScope, SavedApplicationRuleProvenance,
+    bind_layer, bind_layer_with, check_composition_mod_p, compose_maps, layer_minimality_claim,
+    layer_summary,
 };
 use super::{
     PreparedSavedApplication, SavedApplicationIntegral, SavedApplicationOptions, TerminalLayer,

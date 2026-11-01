@@ -73,9 +73,7 @@ pub(super) fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Command,
             "--size-gate" if sub == "compose-layer" => "--size-gate",
             "--consumer-limits" if sub == "compose-layer" => "--consumer-limits",
             "--fill-unreduced" if sub == "compose-layer" => "--fill-unreduced",
-            "--allow-factorized-sources" if sub == "compose-layer" => {
-                "--allow-factorized-sources"
-            }
+            "--allow-factorized-sources" if sub == "compose-layer" => "--allow-factorized-sources",
             "--minimality-reference" if sub == "compose-layer" => "--minimality-reference",
             "--minimality-reference-reviewed" if sub == "compose-layer" => {
                 "--minimality-reference-reviewed"
