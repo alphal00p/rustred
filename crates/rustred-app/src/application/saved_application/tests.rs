@@ -6,7 +6,7 @@ use crate::{
 use rustred::algebra::CoefficientContext;
 use rustred::family::AffineDenominator;
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) struct Scratch(pub(super) PathBuf);
@@ -1473,10 +1473,16 @@ fn deferred_runtime_owns_authenticated_bytes_before_first_formula_use() {
     );
 }
 
-#[test]
-fn entry_routing_uses_only_admitted_images_and_preserves_exact_batch_coefficients() {
-    let scratch = Scratch::new();
-    std::fs::create_dir(scratch.0.join("objects")).unwrap();
+/// The entry-bridge fixture (arity 3): one owner `011` of a two-loop family
+/// and two selected transport routes (sources `110` and `101`) to it.
+/// Returns the application's parts (inputs, terminal maps, metadata).
+fn entry_bridge_parts(
+    scratch: &Scratch,
+) -> (package::ApplicationInputs, TerminalMaps, serde_json::Value) {
+    let objects = scratch.0.join("objects");
+    if !objects.is_dir() {
+        std::fs::create_dir(&objects).unwrap();
+    }
     let source = r#"
 schema="rustred.project.toml.v1"
 [family]
@@ -1511,9 +1517,7 @@ powers=[0,1,1]
         Default::default(),
     )
     .unwrap();
-    let key = |powers| IntegralKey::try_new(powers).unwrap();
-    let canonical = key([0, 2, 2]);
-    let original = key([2, 2, 0]);
+    let canonical = IntegralKey::try_new([0, 2, 2]).unwrap();
     let c = family.coefficient_context().clone();
     let direct = rustred::solver::RoutedCandidateReducer::try_new(
         Arc::new(programs),
@@ -1521,7 +1525,7 @@ powers=[0,1,1]
         Default::default(),
     )
     .unwrap();
-    let trace = direct.trace_targets([canonical.clone()]).unwrap();
+    let trace = direct.trace_targets([canonical]).unwrap();
     assert!(trace.frontier().is_empty());
     let mut rows = BTreeMap::new();
     let mut remaining = BTreeSet::new();
@@ -1540,7 +1544,7 @@ powers=[0,1,1]
         remaining.insert(terminal);
     }
     assert!(!remaining.is_empty());
-    std::fs::write(scratch.0.join("objects/owner.rrbin"), bytes).unwrap();
+    std::fs::write(objects.join("owner.rrbin"), bytes).unwrap();
     let selection = json!({"family_fingerprint":family.fingerprint(),
         "owners":[{"path":"objects/owner.rrbin","bytes":bytes.len(),"mask":"011"}],
         "initial_frontier_routes":[{"source_mask":"110","owner_mask":"011","requires_transport":true,
@@ -1558,10 +1562,7 @@ powers=[0,1,1]
         .unwrap();
     let metadata = json!({"family_fingerprint":family.fingerprint(),"raw_terminals":rows.len(),
         "remaining_terminals":remaining.len(),"source_keys_checked":rows.len()});
-    let mut options = SavedApplicationOptions::default();
-    options.trace_limits.diagnostics_enabled = true;
-    options.trace_limits.max_transport_calls = 1;
-    let mut application = PreparedSavedApplication::<3>::from_parts(
+    (
         package::ApplicationInputs {
             selection,
             queries,
@@ -1574,9 +1575,29 @@ powers=[0,1,1]
             remaining,
         },
         metadata,
-        options,
     )
-    .unwrap();
+}
+
+/// The entry-bridge fixture as an (eagerly prepared) application.
+fn entry_bridge_application(
+    scratch: &Scratch,
+    options: SavedApplicationOptions,
+) -> PreparedSavedApplication<3> {
+    let (inputs, terminals, metadata) = entry_bridge_parts(scratch);
+    PreparedSavedApplication::<3>::from_parts(inputs, terminals, metadata, options).unwrap()
+}
+
+#[test]
+fn entry_routing_uses_only_admitted_images_and_preserves_exact_batch_coefficients() {
+    let scratch = Scratch::new();
+    let key = |powers| IntegralKey::try_new(powers).unwrap();
+    let canonical = key([0, 2, 2]);
+    let original = key([2, 2, 0]);
+    let mut options = SavedApplicationOptions::default();
+    options.trace_limits.diagnostics_enabled = true;
+    options.trace_limits.max_transport_calls = 1;
+    let mut application = entry_bridge_application(&scratch, options);
+    let c = application.family().coefficient_context().clone();
     assert!(application.validate_entry(&original).is_err());
     assert!(application.routed_entry_is_admitted(&original).unwrap());
     let routed = application.route_entry_to_owner(&original).unwrap();
@@ -1919,4 +1940,446 @@ fn public_saved_input_count_template_is_inactive_until_diagnostics_are_enabled()
         repeated.nonzero_conditions(),
         reference.nonzero_conditions()
     );
+}
+
+/// Copy a (small) runtime directory.
+fn copy_tree(source: &Path, destination: &Path) {
+    std::fs::create_dir(destination).unwrap();
+    for entry in std::fs::read_dir(source).unwrap() {
+        let path = entry.unwrap().path();
+        let target = destination.join(path.file_name().unwrap());
+        if path.is_dir() {
+            copy_tree(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
+/// Review R7SR-F1: the route preparation add-on end to end on a fixture with
+/// two transport routes. Writing captures the verified maps; `Auto` restores
+/// them (routes and results identical to a verifying load). Every rejection
+/// (corrupt bytes, another selection, a missing file, a directory or a
+/// dangling symlink in its place, saved routes that do not match the
+/// selection at restore time, an eager preparation) is announced once, when
+/// it is detected, and the load falls back to verifying all routes.
+#[test]
+fn route_addon_restores_verified_routes_and_rejections_fall_back_to_verification() {
+    let scratch = Scratch::new();
+    let options = SavedApplicationOptions::default();
+    let runtime = scratch.0.join("runtime");
+    entry_bridge_application(&scratch, options)
+        .export_runtime(&runtime)
+        .unwrap();
+    let key = |powers| IntegralKey::try_new(powers).unwrap();
+    route_addon::take_announced();
+    let mut verified =
+        load_saved_application_with_route_addon::<3>(&runtime, options, SavedRouteAddon::Disabled)
+            .unwrap();
+    assert_eq!(
+        verified.route_preparation(),
+        &SavedRoutePreparation::default()
+    );
+    let c = verified.family().coefficient_context().clone();
+    // Results of every routed entry, the reference for each load below.
+    let results = |application: &mut PreparedSavedApplication<3>| {
+        [key([2, 2, 0]), key([2, 0, 2])]
+            .into_iter()
+            .map(|target| {
+                let routed = application.route_entry_to_owner(&target).unwrap();
+                let reduced = application
+                    .reduce_routed_linear_combination([(target, c.integer(3))])
+                    .unwrap();
+                (
+                    routed.terms().clone(),
+                    routed.nonzero_conditions().to_vec(),
+                    reduced.terms().clone(),
+                    reduced.nonzero_conditions().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = results(&mut verified);
+    // Without an add-on next to `application.json`, `Auto` verifies silently.
+    let plain = load_saved_application::<3>(&runtime, options).unwrap();
+    assert_eq!(plain.route_preparation(), &SavedRoutePreparation::default());
+    assert!(route_addon::take_announced().is_empty());
+
+    let addon = runtime.join(SAVED_ROUTE_PREPARATION_FILE);
+    let report = write_saved_application_route_addon::<3>(&runtime, &addon, options).unwrap();
+    assert_eq!(report["transport_routes"], 2);
+    assert_eq!(report["schema"], SAVED_ROUTE_PREPARATION_SCHEMA);
+    let bytes = std::fs::read(&addon).unwrap();
+    // An existing add-on is never replaced.
+    assert!(write_saved_application_route_addon::<3>(&runtime, &addon, options).is_err());
+    let checked = check_saved_application_route_addon::<3>(&runtime, &addon, options).unwrap();
+    assert_eq!(
+        (&checked["routes"], &checked["identical"]),
+        (&json!(2), &json!(true))
+    );
+    route_addon::take_announced();
+
+    // `Auto` restores the routes from the sibling file.
+    let mut restored = load_saved_application::<3>(&runtime, options).unwrap();
+    assert_eq!(
+        restored.route_preparation(),
+        &SavedRoutePreparation {
+            source: SavedRoutePreparationSource::Addon,
+            addon: Some(addon.clone()),
+            rejected: None,
+        }
+    );
+    assert!(route_addon::take_announced().is_empty());
+    assert_eq!(route_addon::same_routes(&verified, &restored).unwrap(), 2);
+    assert_eq!(results(&mut restored), expected);
+    // So does an explicit file, and `Disabled` ignores it.
+    let explicit = load_saved_application_with_route_addon::<3>(
+        &runtime,
+        options,
+        SavedRouteAddon::File(&addon),
+    )
+    .unwrap();
+    assert_eq!(
+        explicit.route_preparation().source,
+        SavedRoutePreparationSource::Addon
+    );
+    let disabled =
+        load_saved_application_with_route_addon::<3>(&runtime, options, SavedRouteAddon::Disabled)
+            .unwrap();
+    assert_eq!(
+        disabled.route_preparation(),
+        &SavedRoutePreparation::default()
+    );
+
+    let identity =
+        route_addon::AddonIdentity::of_application(&package::application_report(&runtime).unwrap())
+            .unwrap();
+    let routes = route_addon::decode(&bytes, &identity).unwrap();
+    assert_eq!(
+        routes
+            .routes
+            .iter()
+            .map(|(ordinal, _)| *ordinal)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    // A rejected add-on: loud (announced once, at detection), recorded, and
+    // the load verifies every route.
+    let rejected = |label: &str, choice: SavedRouteAddon<'_>, path: &Path, reason: &str| {
+        let mut loaded =
+            load_saved_application_with_route_addon::<3>(&runtime, options, choice).unwrap();
+        let preparation = loaded.route_preparation().clone();
+        assert_eq!(
+            preparation.source,
+            SavedRoutePreparationSource::Verified,
+            "{label}"
+        );
+        assert_eq!(preparation.addon.as_deref(), Some(path), "{label}");
+        let recorded = preparation.rejected.unwrap();
+        assert!(recorded.contains(reason), "{label}: {recorded}");
+        let announced = route_addon::take_announced();
+        assert_eq!(announced.len(), 1, "{label}: {announced:?}");
+        assert!(announced[0].contains(&recorded), "{label}: {announced:?}");
+        assert_eq!(route_addon::same_routes(&verified, &loaded).unwrap(), 2);
+        assert_eq!(results(&mut loaded), expected, "{label}");
+    };
+    let mut corrupt = bytes.clone();
+    let middle = corrupt.len() / 2;
+    corrupt[middle] ^= 1;
+    std::fs::remove_file(&addon).unwrap();
+    std::fs::write(&addon, &corrupt).unwrap();
+    rejected("corrupt", SavedRouteAddon::Auto, &addon, "checksum");
+    let mut other = package::application_report(&runtime).unwrap();
+    other["selection"]["blake3"] = json!("0".repeat(64));
+    let other = route_addon::AddonIdentity::of_application(&other).unwrap();
+    std::fs::remove_file(&addon).unwrap();
+    std::fs::write(&addon, route_addon::encode(&other, &routes).unwrap()).unwrap();
+    rejected(
+        "selection",
+        SavedRouteAddon::Auto,
+        &addon,
+        "written for selection",
+    );
+    let missing = scratch.0.join("missing.rrbin");
+    rejected(
+        "missing",
+        SavedRouteAddon::File(&missing),
+        &missing,
+        "No such file",
+    );
+    // Restore-time rejection: valid file and identity, but the recorded
+    // ordinals are not the selection's transport routes.
+    let mut swapped = routes.clone();
+    swapped.routes.swap(0, 1);
+    std::fs::remove_file(&addon).unwrap();
+    std::fs::write(&addon, route_addon::encode(&identity, &swapped).unwrap()).unwrap();
+    rejected(
+        "ordinals",
+        SavedRouteAddon::Auto,
+        &addon,
+        "saved routes differ from the selection's transport routes",
+    );
+    let mut fewer = routes.clone();
+    fewer.routes.pop();
+    std::fs::remove_file(&addon).unwrap();
+    std::fs::write(&addon, route_addon::encode(&identity, &fewer).unwrap()).unwrap();
+    rejected(
+        "count",
+        SavedRouteAddon::Auto,
+        &addon,
+        "saved routes differ from the selection's transport routes",
+    );
+    // Something that is not a regular file at the add-on's name is not
+    // silently ignored (review R7SR-F3).
+    std::fs::remove_file(&addon).unwrap();
+    std::fs::create_dir(&addon).unwrap();
+    rejected("directory", SavedRouteAddon::Auto, &addon, "directory");
+    std::fs::remove_dir(&addon).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(scratch.0.join("absent.rrbin"), &addon).unwrap();
+        rejected(
+            "dangling symlink",
+            SavedRouteAddon::Auto,
+            &addon,
+            "No such file",
+        );
+        std::fs::remove_file(&addon).unwrap();
+    }
+    // An eager preparation verifies every route and says so.
+    let eager_scratch = Scratch::new();
+    let (inputs, terminals, metadata) = entry_bridge_parts(&eager_scratch);
+    let eager = PreparedSavedApplication::<3>::from_parts_with_mode(
+        inputs,
+        terminals,
+        metadata,
+        options,
+        false,
+        None,
+        Some((addon.clone(), routes)),
+    )
+    .unwrap();
+    assert_eq!(
+        eager.route_preparation().rejected.as_deref(),
+        Some("not used by an eager preparation")
+    );
+    assert_eq!(route_addon::take_announced().len(), 1);
+}
+
+/// Review R7SR-F3: a rejection is announced when it is detected, so its
+/// reason is visible even when the verifying load that replaces the add-on
+/// fails afterwards (here: a manifest family checked after the routes).
+#[test]
+fn route_addon_rejection_is_announced_before_a_failing_verifying_load() {
+    let scratch = Scratch::new();
+    let options = SavedApplicationOptions::default();
+    let runtime = scratch.0.join("runtime");
+    entry_bridge_application(&scratch, options)
+        .export_runtime(&runtime)
+        .unwrap();
+    let addon = runtime.join(SAVED_ROUTE_PREPARATION_FILE);
+    write_saved_application_route_addon::<3>(&runtime, &addon, options).unwrap();
+    let identity =
+        route_addon::AddonIdentity::of_application(&package::application_report(&runtime).unwrap())
+            .unwrap();
+    let routes = route_addon::decode(&std::fs::read(&addon).unwrap(), &identity).unwrap();
+    // A copy whose manifest names another family: the add-on (written for
+    // the original) is rejected when it is read, the load fails later.
+    let broken = scratch.0.join("broken");
+    copy_tree(&runtime, &broken);
+    let manifest = broken.join("application.json");
+    let mut report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    let family = report["metadata"]["family_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    report["metadata"]["family_fingerprint"] = json!(format!("{family}X"));
+    std::fs::write(&manifest, serde_json::to_vec(&report).unwrap()).unwrap();
+    route_addon::take_announced();
+    let error = load_saved_application::<3>(&broken, options)
+        .err()
+        .expect("the manifest family is checked after the routes");
+    assert!(error.to_string().contains("manifest family"), "{error}");
+    let announced = route_addon::take_announced();
+    assert_eq!(announced.len(), 1, "{announced:?}");
+    assert!(
+        announced[0].contains("another integral family"),
+        "{announced:?}"
+    );
+    // The same with a restore-time rejection: an add-on of the broken
+    // identity whose route ordinals do not match the selection.
+    let broken_identity = route_addon::AddonIdentity::of_application(&report).unwrap();
+    let mut swapped = routes;
+    swapped.routes.swap(0, 1);
+    let broken_addon = broken.join(SAVED_ROUTE_PREPARATION_FILE);
+    std::fs::remove_file(&broken_addon).unwrap();
+    std::fs::write(
+        &broken_addon,
+        route_addon::encode(&broken_identity, &swapped).unwrap(),
+    )
+    .unwrap();
+    assert!(load_saved_application::<3>(&broken, options).is_err());
+    let announced = route_addon::take_announced();
+    assert_eq!(announced.len(), 1, "{announced:?}");
+    assert!(
+        announced[0].contains("saved routes differ from the selection's transport routes"),
+        "{announced:?}"
+    );
+}
+
+/// Review R7ML-F1: the `ordered_route_layering` load option reaches the
+/// loaded handle (with and without a route preparation add-on), the setter
+/// round-trips, and every layering gives the same routed Ordered results.
+#[test]
+fn ordered_route_layering_load_option_reaches_the_loaded_application() {
+    use rustred::reduction::ReductionStrategy;
+    use rustred::solver::OrderedRouteLayering;
+    let scratch = Scratch::new();
+    let runtime = scratch.0.join("runtime");
+    entry_bridge_application(&scratch, Default::default())
+        .export_runtime(&runtime)
+        .unwrap();
+    let addon = runtime.join(SAVED_ROUTE_PREPARATION_FILE);
+    write_saved_application_route_addon::<3>(&runtime, &addon, Default::default()).unwrap();
+    let key = |powers| IntegralKey::try_new(powers).unwrap();
+    let mut expected = None;
+    for layering in [
+        OrderedRouteLayering::Off,
+        OrderedRouteLayering::Index,
+        OrderedRouteLayering::FewestTerms,
+    ] {
+        let options = SavedApplicationOptions {
+            reduction_strategy: ReductionStrategy::Ordered,
+            ordered_route_layering: layering,
+            ..Default::default()
+        };
+        let mut loads = vec![
+            load_saved_application::<3>(&runtime, options).unwrap(),
+            load_saved_application_with_route_addon::<3>(
+                &runtime,
+                options,
+                SavedRouteAddon::Disabled,
+            )
+            .unwrap(),
+        ];
+        assert_eq!(
+            loads[0].route_preparation().source,
+            SavedRoutePreparationSource::Addon
+        );
+        for application in &mut loads {
+            assert_eq!(application.ordered_route_layering(), layering);
+            assert_eq!(application.reduction_strategy(), ReductionStrategy::Ordered);
+            let c = application.family().coefficient_context().clone();
+            let reduced = application
+                .reduce_routed_linear_combination([
+                    (key([2, 2, 0]), c.integer(3)),
+                    (key([2, 0, 2]), c.integer(-2)),
+                ])
+                .unwrap();
+            let result = (
+                reduced.terms().clone(),
+                reduced.nonzero_conditions().to_vec(),
+            );
+            assert!(!result.0.is_empty());
+            assert_eq!(expected.get_or_insert_with(|| result.clone()), &result);
+        }
+        // The setter round-trips on a loaded handle.
+        let other = if layering == OrderedRouteLayering::Off {
+            OrderedRouteLayering::FewestTerms
+        } else {
+            OrderedRouteLayering::Off
+        };
+        loads[0].set_ordered_route_layering(other);
+        assert_eq!(loads[0].ordered_route_layering(), other);
+        loads[0].set_ordered_route_layering(layering);
+        assert_eq!(loads[0].ordered_route_layering(), layering);
+    }
+}
+
+/// Review R7ML-F2: the default configuration (adjoint tail on) with a
+/// directory-backed step cache: a cold populating session writes the tail
+/// table next to the steps, a new session reads it back (no rejection) and
+/// closes the tail from it, and both give the uncached results.
+#[test]
+fn ordered_step_cache_with_the_default_adjoint_tail_saves_and_reads_its_tail_table() {
+    use rustred::reduction::{
+        ModularCommon, OrderedStepCacheOptions, OrderedWeightArithmetic, PolynomialOptions,
+        ReductionStrategy, SampledOptions,
+    };
+    let scratch = Scratch::new();
+    let original = prepared_fixture(&scratch.0.join("source"));
+    let runtime = scratch.0.join("runtime");
+    original.export_runtime(&runtime).unwrap();
+    let options = SavedApplicationOptions {
+        reduction_strategy: ReductionStrategy::Ordered,
+        ..Default::default()
+    };
+    assert!(options.ordered_scheduler.adjoint_tail);
+    let context = original.family().coefficient_context().clone();
+    let inputs = vec![
+        (IntegralKey::try_new([4]).unwrap(), context.integer(3)),
+        (IntegralKey::try_new([2]).unwrap(), context.integer(-2)),
+    ];
+    let common = ModularCommon {
+        threads: 2,
+        ..Default::default()
+    };
+    for (index, arithmetic) in [
+        OrderedWeightArithmetic::ModularSampled(
+            common,
+            SampledOptions {
+                batch_points: 4,
+                ..Default::default()
+            },
+        ),
+        OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let run = |cache: Option<&Path>, populate: bool| {
+            let mut application = load_saved_application::<1>(&runtime, options).unwrap();
+            application.set_ordered_weight_arithmetic(arithmetic);
+            let cache = cache.map(|directory| {
+                let cache = application
+                    .open_ordered_step_cache(
+                        directory,
+                        OrderedStepCacheOptions {
+                            populate,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                application
+                    .set_ordered_step_cache(Some(cache.clone()))
+                    .unwrap();
+                cache
+            });
+            let reduced = application
+                .reduce_routed_linear_combination(inputs.clone())
+                .unwrap();
+            (
+                (
+                    reduced.terms().clone(),
+                    reduced.nonzero_conditions().to_vec(),
+                ),
+                cache,
+            )
+        };
+        let (expected, _) = run(None, false);
+        assert!(!expected.0.is_empty());
+        let directory = scratch.0.join(format!("steps-{index}"));
+        let (cold, cache) = run(Some(&directory), true);
+        assert_eq!(cold, expected);
+        let saved = cache.unwrap().save().unwrap();
+        assert!(saved.records > 0);
+        assert!(saved.tail_entries > 0, "{arithmetic:?}: {saved:?}");
+        assert!(directory.join("ordered-tail.rrtail").is_file());
+        let (warm, cache) = run(Some(&directory), false);
+        assert_eq!(warm, expected);
+        let tail = cache.unwrap().tail_statistics().unwrap();
+        assert_eq!(tail.rejected, None);
+        assert_eq!(tail.loaded_entries, saved.tail_entries);
+    }
 }

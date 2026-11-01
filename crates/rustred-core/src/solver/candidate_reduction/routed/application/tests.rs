@@ -2559,3 +2559,127 @@ fn ordered_layered_route_composes_with_the_adjoint_tail_and_its_table() {
     assert!(layered_rewrites > 0);
     assert!(layered_closes > 0);
 }
+
+/// Review R7ML-F2: the tail tables of the layered-and-tail composition
+/// through disk. A cold run under one layering writes the steps and the tail
+/// table into a directory; read-only sessions under either layering load the
+/// table back (no rejection), close their tail from it and give the
+/// whole-transport forward result. This is the upgrade path of caches
+/// written under the previous default (`Off`) and the reverse.
+#[test]
+fn ordered_tail_tables_on_disk_compose_across_route_layerings() {
+    use crate::reduction::ordered_reduction::step_cache::tests::Scratch;
+    use crate::reduction::ordered_reduction::tail::take_reported;
+    use crate::reduction::{
+        OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+        OrderedStepCacheBinding, OrderedStepCacheOptions, OrderedWeightArithmetic,
+    };
+    use crate::solver::OrderedRouteLayering;
+    // The fixture of `ordered_layered_route_composes_with_the_adjoint_tail_and_its_table`.
+    let routed = weighted_with_rules::<3>(&[
+        [-2, 1, 0],
+        [-1, 1, -1],
+        [0, 1, -2],
+        [-3, 1, 0],
+        [-2, 1, -1],
+        [-1, 1, -2],
+        [0, 1, -3],
+    ]);
+    let c = routed.programs.context.family().coefficient_context();
+    let inputs: Vec<(IntegralKey, Coefficient)> = [
+        ([1, -1, -1], 3),
+        ([1, -1, -2], -2),
+        ([1, -2, -1], 5),
+        ([1, 0, -1], 7),
+        ([1, 0, -2], -1),
+    ]
+    .into_iter()
+    .map(|(powers, factor)| (key(powers), c.integer(factor)))
+    .collect();
+    let binding = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::SavedApplication,
+        routed.programs.context.family().fingerprint(),
+        c,
+        Some(UnresolvedPolicy::Preserve),
+    );
+    let session = |layering, arithmetic, tail, cache: Option<Arc<OrderedStepCache>>| {
+        let mut application = routed.application();
+        application
+            .set_unresolved_policy(UnresolvedPolicy::Preserve)
+            .unwrap();
+        application.set_reduction_strategy(crate::reduction::ReductionStrategy::Ordered);
+        application.set_ordered_route_layering(layering);
+        application.set_ordered_weight_arithmetic(arithmetic);
+        application.set_ordered_scheduler_options(OrderedSchedulerOptions {
+            threads: 1,
+            window_keys: 2,
+            adjoint_tail: tail,
+        });
+        application.set_ordered_step_cache(cache).unwrap();
+        take_reported();
+        let result = application
+            .reduce_linear_combination(inputs.clone())
+            .unwrap();
+        (result, take_reported())
+    };
+    let (expected, _) = session(
+        OrderedRouteLayering::Off,
+        OrderedWeightArithmetic::Exact,
+        false,
+        None,
+    );
+    let open = |directory: &std::path::Path, populate: bool| {
+        OrderedStepCache::open(
+            directory,
+            binding.clone(),
+            OrderedStepCacheOptions {
+                populate,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let layerings = [OrderedRouteLayering::Off, OrderedRouteLayering::FewestTerms];
+    let mut closes = std::collections::HashMap::new();
+    for arithmetic in [modular_arithmetic(false), polynomial_arithmetic(false)] {
+        for written in layerings {
+            let directory = Scratch::new("tail-across-layerings");
+            let cache = open(&directory.0, true);
+            let (result, _) = session(written, arithmetic, true, Some(cache.clone()));
+            assert_eq!(result.terms(), expected.terms(), "{written} cold");
+            let saved = cache.save().unwrap();
+            assert!(
+                saved.tail_entries > 0,
+                "{arithmetic:?} {written}: {saved:?}"
+            );
+            for read in layerings {
+                let case = format!("{arithmetic:?}: {read} on a {written} table");
+                let cache = open(&directory.0, false);
+                let (result, reports) = session(read, arithmetic, true, Some(cache.clone()));
+                assert_eq!(result.terms(), expected.terms(), "{case}");
+                assert_eq!(result.unresolved(), expected.unresolved(), "{case}");
+                assert_eq!(
+                    result.nonzero_conditions(),
+                    expected.nonzero_conditions(),
+                    "{case}"
+                );
+                let table = cache.tail_statistics().unwrap();
+                assert_eq!(table.rejected, None, "{case}");
+                assert_eq!(table.loaded_entries, saved.tail_entries, "{case}");
+                let closed = reports
+                    .iter()
+                    .filter(|report| report.mode.starts_with("closed"))
+                    .count();
+                eprintln!(
+                    "{case}: {:?}",
+                    reports.iter().map(|r| r.mode).collect::<Vec<_>>()
+                );
+                *closes.entry((written, read)).or_insert(0) += closed;
+            }
+        }
+    }
+    // Every pair closes its tail from the table read from disk.
+    for (pair, closed) in &closes {
+        assert!(*closed > 0, "{pair:?}: {closes:?}");
+    }
+}
