@@ -138,16 +138,24 @@ fn ordered_saved_application_load_option_and_strategy_switch_preserve_exact_resu
 
 #[test]
 fn ordered_step_cache_replays_routed_steps_across_processes_without_owner_preparation() {
-    use rustred::reduction::{OrderedKeyStage, ReductionStrategy};
+    use rustred::reduction::{OrderedKeyStage, OrderedSchedulerOptions, ReductionStrategy};
     let scratch = Scratch::new();
     let original = prepared_fixture(&scratch.0.join("source"));
     let runtime = scratch.0.join("runtime");
     original.export_runtime(&runtime).unwrap();
+    // Forward-pass properties: with the adjoint tail (on by default) the warm
+    // session's tail table closes the single-terminal tail at phase 0, so its
+    // phase snapshots differ from the forward run (see
+    // `rustred::reduction::ordered_reduction::tail`).
     let load = || {
         load_saved_application::<1>(
             &runtime,
             SavedApplicationOptions {
                 reduction_strategy: ReductionStrategy::Ordered,
+                ordered_scheduler: OrderedSchedulerOptions {
+                    adjoint_tail: false,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -502,9 +510,13 @@ fn ordered_step_cache_with_scheduler_threads_matches_the_sequential_cached_run()
         let mut cold = Vec::new();
         let mut warm = Vec::new();
         for (threads, window_keys) in [(1, 4096), (2, 1), (3, 2), (4, 4096)] {
+            // Forward-pass properties (phase states, operational nodes): a
+            // warm run's tail table would close the adjoint tail (on by
+            // default) at phase 0.
             let scheduler = OrderedSchedulerOptions {
                 threads,
                 window_keys,
+                adjoint_tail: false,
                 ..Default::default()
             };
             let directory = scratch
