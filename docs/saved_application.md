@@ -426,6 +426,60 @@ only compact-map import. Deferred owner initialization is reported separately
 by `owner_preparation_statistics`. These receipts do not attribute process RSS
 to phases.
 
+## Saved route preparation add-on
+
+Route verification (exact `symmetry::verify` replay plus transport compilation
+of every selection route) dominates a cold runtime load of a large application:
+the five-loop vakint application verifies 8,179 transport routes in about
+136 s on one worker, and about 64 s at any larger worker count (the native
+verification scales only to about two workers). The work depends only on the
+immutable application, so it can be recorded once into a versioned add-on file
+next to the unchanged artifact:
+
+```rust
+use rustred_app::{
+    SavedApplicationOptions, SavedRouteAddon, check_saved_application_route_addon,
+    load_saved_application_with_route_addon, write_saved_application_route_addon,
+};
+let options = SavedApplicationOptions { preparation_workers: 6, ..Default::default() };
+// Maintenance: verify every route once and record the verified maps.
+write_saved_application_route_addon::<15>(dir, &dir.join("route-preparation.rrbin"), options)?;
+// Optional: load verifying and from the add-on and require identical routes.
+check_saved_application_route_addon::<15>(dir, &dir.join("route-preparation.rrbin"), options)?;
+// Runtime: the default load picks the sibling file up (SavedRouteAddon::Auto).
+let prepared = load_saved_application_with_route_addon::<15>(dir, options, SavedRouteAddon::Auto)?;
+assert!(prepared.route_preparation().rejected.is_none());
+```
+
+The same operations are available as `saved_application load APPLICATION
+[WORKERS] [auto|verify|FILE]`, `saved_application route-addon-write APPLICATION
+NEW_FILE [WORKERS]` and `saved_application route-addon-check APPLICATION FILE
+[WORKERS]` (example `saved_application`). With the add-on the five-loop route
+preparation takes 0.3-0.8 s and the whole load about 22 s instead of 156 s
+(one worker) or 85 s (sixteen workers).
+
+The file (`SAVED_ROUTE_PREPARATION_FILE`, schema
+`SAVED_ROUTE_PREPARATION_SCHEMA`) records, for every route that requires a
+transport, its selection ordinal and the complete output of its verification
+(`rustred::sector::symmetry::SavedVerifiedMap`: momentum, scalar-product and
+denominator maps, row actions, determinants, Jacobian, merged nonzero
+conditions with their sources and statistics). Coefficients are exact decimal
+rationals in a small shared table, so the bytes are independent of Symbolica
+state and of the worker count. Restoring rebuilds the identical maps with
+shape, index and lowest-terms checks only, then compiles and admits the
+transports with the unchanged cheap checks.
+
+Validity is versioning only, without source or program fingerprints: the add-on
+is accepted when its schema, the hand-bumped verified-map semantics version
+`SAVED_VERIFIED_MAP_SEMANTICS` and the application identity (family
+fingerprint and the BLAKE3 of `selection.json` declared by `application.json`)
+match, and its trailing BLAKE3 of its own bytes is intact. Otherwise it is
+rejected loudly (a line on stderr and `route_preparation().rejected`) and every
+route is verified as without it; a rejected add-on never fails a load. Bump
+`SAVED_VERIFIED_MAP_SEMANTICS` whenever verification can return a different map
+for the same input, and regenerate shipped add-ons. Source-publication
+preparation (`prepare_saved_application`) always verifies.
+
 ## Explicit guarded caches and preparation (integration checkpoint)
 
 For sealed artifacts, `rustred::reduction::ClosedUnitMassProgram` borrows the

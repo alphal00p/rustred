@@ -186,8 +186,9 @@ pub enum Jacobian {
 }
 
 /// Newly derived proof object. All fields are private so callers cannot
-/// construct a certificate without verification.
-#[derive(Debug)]
+/// construct a certificate without verification (or the trusted restore of a
+/// recorded verification, [`super::saved::SavedVerifiedMap::restore`]).
+#[derive(Debug, PartialEq, Eq)]
 pub struct VerifiedMap {
     pub(super) source_family_fingerprint: Arc<String>,
     pub(super) target_family_fingerprint: Arc<String>,
