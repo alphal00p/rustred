@@ -81,15 +81,42 @@ impl SavedRoutePreparation {
         })
     }
 
-    pub(super) fn reject(&mut self, path: &Path, reason: String) {
-        eprintln!(
-            "rustred: route preparation add-on {} rejected ({reason}); verifying all routes",
-            path.display()
-        );
+    /// Record a rejection that was announced when it was detected.
+    pub(super) fn record_rejection(&mut self, path: &Path, reason: String) {
         self.source = SavedRoutePreparationSource::Verified;
         self.addon = Some(path.to_path_buf());
         self.rejected = Some(reason);
     }
+
+    /// Announce and record a rejection.
+    pub(super) fn reject(&mut self, path: &Path, reason: String) {
+        announce_rejection(path, &reason);
+        self.record_rejection(path, reason);
+    }
+}
+
+/// The one loud stderr line of a rejected add-on, printed when the rejection
+/// is detected (before the verification it announces, so the reason is
+/// visible even if that verifying load fails or is interrupted).
+pub(super) fn announce_rejection(path: &Path, reason: &str) {
+    let line = format!(
+        "rustred: route preparation add-on {} rejected ({reason}); verifying all routes",
+        path.display()
+    );
+    eprintln!("{line}");
+    #[cfg(test)]
+    ANNOUNCED.with(|announced| announced.borrow_mut().push(line));
+}
+
+#[cfg(test)]
+thread_local! {
+    static ANNOUNCED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Rejection lines announced on the current thread since the last call.
+#[cfg(test)]
+pub(super) fn take_announced() -> Vec<String> {
+    ANNOUNCED.with(|announced| std::mem::take(&mut *announced.borrow_mut()))
 }
 
 /// Identity of the saved application an add-on belongs to.
@@ -127,7 +154,7 @@ struct Header {
     values: u64,
 }
 
-fn encode(identity: &AddonIdentity, routes: &SavedRoutes) -> Result<Vec<u8>, AppError> {
+pub(super) fn encode(identity: &AddonIdentity, routes: &SavedRoutes) -> Result<Vec<u8>, AppError> {
     let config = bincode::config::standard();
     let header = Header {
         schema: SAVED_ROUTE_PREPARATION_SCHEMA.into(),
@@ -219,7 +246,8 @@ pub(super) fn decode(bytes: &[u8], expected: &AddonIdentity) -> Result<SavedRout
     Ok(routes)
 }
 
-/// Locate and read the add-on a load uses. `Err((path, reason))` is a rejection.
+/// Locate and read the add-on a load uses. `Err((path, reason))` is a
+/// rejection (not yet announced).
 pub(super) fn read_for_load(
     directory: &Path,
     addon: SavedRouteAddon<'_>,
@@ -230,10 +258,13 @@ pub(super) fn read_for_load(
         SavedRouteAddon::Disabled => return Ok(None),
         SavedRouteAddon::Auto => {
             let path = directory.join(SAVED_ROUTE_PREPARATION_FILE);
-            if !path.is_file() {
-                return Ok(None);
+            // Only an absent name means "no add-on"; anything else at that
+            // name (a directory, a dangling symlink) is rejected loudly.
+            match std::fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err((path, error.to_string())),
+                Ok(_) => path,
             }
-            path
         }
         SavedRouteAddon::File(path) => path.to_path_buf(),
     };
@@ -315,6 +346,28 @@ pub fn check_saved_application_route_addon<const N: usize>(
                 .unwrap_or("unknown reason")
         )));
     }
+    let routes = same_routes(&verified, &restored)?;
+    Ok(json!({
+        "routes": routes,
+        "identical": true,
+        "verified": {
+            "wall_seconds": verified_seconds,
+            "route_preparation_seconds": verified.preparation_statistics.route_preparation.as_secs_f64(),
+        },
+        "addon": {
+            "wall_seconds": restored_seconds,
+            "route_preparation_seconds": restored.preparation_statistics.route_preparation.as_secs_f64(),
+        },
+        "preparation_workers": options.preparation_workers,
+    }))
+}
+
+/// Require identical routes (owners, roots, family identities and complete
+/// verified maps) in two loads of one application; returns the route count.
+pub(super) fn same_routes<const N: usize>(
+    verified: &PreparedSavedApplication<N>,
+    restored: &PreparedSavedApplication<N>,
+) -> Result<usize, AppError> {
     let left = verified.application.routes().collect::<Vec<_>>();
     let right = restored.application.routes().collect::<Vec<_>>();
     if left.len() != right.len() {
@@ -335,19 +388,7 @@ pub fn check_saved_application_route_addon<const N: usize>(
             ));
         }
     }
-    Ok(json!({
-        "routes": left.len(),
-        "identical": true,
-        "verified": {
-            "wall_seconds": verified_seconds,
-            "route_preparation_seconds": verified.preparation_statistics.route_preparation.as_secs_f64(),
-        },
-        "addon": {
-            "wall_seconds": restored_seconds,
-            "route_preparation_seconds": restored.preparation_statistics.route_preparation.as_secs_f64(),
-        },
-        "preparation_workers": options.preparation_workers,
-    }))
+    Ok(left.len())
 }
 
 fn failure(error: impl std::fmt::Display) -> AppError {

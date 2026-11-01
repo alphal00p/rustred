@@ -366,8 +366,10 @@ pub(super) fn load_with_addon<const N: usize>(
         options.binary_limits.max_program_bytes,
     ) {
         Ok(saved) => saved,
-        Err(rejection) => {
-            rejected = Some(rejection);
+        Err((path, reason)) => {
+            // Announced now, before the verification that replaces the add-on.
+            route_addon::announce_rejection(&path, &reason);
+            rejected = Some((path, reason));
             None
         }
     };
@@ -385,7 +387,7 @@ pub(super) fn load_with_addon<const N: usize>(
         saved_routes,
     )?;
     if let Some((path, reason)) = rejected {
-        prepared.route_preparation.reject(&path, reason);
+        prepared.route_preparation.record_rejection(&path, reason);
     }
     prepared.preparation_statistics.metadata = metadata_time;
     prepared.preparation_statistics.terminal_maps = terminal_time;

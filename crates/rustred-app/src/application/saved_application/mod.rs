@@ -871,6 +871,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             }
         };
         let mut reader = |path: &Path, bytes| inputs.read_payload(path, bytes);
+        let addon = saved_routes.as_ref().map(|(path, _)| path.clone());
         let owner_started = Instant::now();
         let timing = std::cell::RefCell::new((
             None::<Instant>,
@@ -892,6 +893,14 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 if let Some(route_started) = timing.1 {
                     timing.2.route_preparation = now.duration_since(route_started);
                 }
+            } else if event["event"] == "saved_routes_rejected"
+                && let Some(path) = &addon
+            {
+                // Announced now, before the verification that replaces it.
+                route_addon::announce_rejection(
+                    path,
+                    event["reason"].as_str().unwrap_or("unknown reason"),
+                );
             }
         };
         let mut route_restore = prepare::RouteRestore::Verified;
@@ -973,7 +982,8 @@ impl<const N: usize> PreparedSavedApplication<N> {
                     route_preparation.addon = Some(path);
                 }
                 prepare::RouteRestore::Rejected(reason) => {
-                    route_preparation.reject(&path, reason);
+                    // Announced by the observer when the restore failed.
+                    route_preparation.record_rejection(&path, reason);
                 }
                 prepare::RouteRestore::Verified => {
                     route_preparation.reject(&path, "not used by an eager preparation".into());
