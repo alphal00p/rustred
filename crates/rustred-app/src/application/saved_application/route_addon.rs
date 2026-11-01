@@ -208,8 +208,8 @@ pub(super) fn decode(bytes: &[u8], expected: &AddonIdentity) -> Result<SavedRout
             header.identity.selection_blake3, expected.selection_blake3
         ));
     }
-    let (routes, used): (SavedRoutes, usize) = bincode::decode_from_slice(body, config)
-        .map_err(|e| format!("unreadable routes: {e}"))?;
+    let (routes, used): (SavedRoutes, usize) =
+        bincode::decode_from_slice(body, config).map_err(|e| format!("unreadable routes: {e}"))?;
     if used != body.len()
         || routes.routes.len() as u64 != header.transport_routes
         || routes.values.len() as u64 != header.values
@@ -256,12 +256,8 @@ pub fn write_saved_application_route_addon<const N: usize>(
     options: SavedApplicationOptions,
 ) -> Result<Value, AppError> {
     let started = Instant::now();
-    let prepared = package::load_with_addon::<N>(
-        application,
-        options,
-        None,
-        SavedRouteAddon::Disabled,
-    )?;
+    let prepared =
+        package::load_with_addon::<N>(application, options, None, SavedRouteAddon::Disabled)?;
     let load_seconds = started.elapsed().as_secs_f64();
     let (selection, _, _) = Selection::parse_with_byte_limit(
         &prepared.inputs.selection,
@@ -302,12 +298,8 @@ pub fn check_saved_application_route_addon<const N: usize>(
     options: SavedApplicationOptions,
 ) -> Result<Value, AppError> {
     let started = Instant::now();
-    let verified = package::load_with_addon::<N>(
-        application,
-        options,
-        None,
-        SavedRouteAddon::Disabled,
-    )?;
+    let verified =
+        package::load_with_addon::<N>(application, options, None, SavedRouteAddon::Disabled)?;
     let verified_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
     let restored =
@@ -316,7 +308,11 @@ pub fn check_saved_application_route_addon<const N: usize>(
     if restored.route_preparation.source != SavedRoutePreparationSource::Addon {
         return Err(AppError::input(format!(
             "route preparation add-on was not used: {}",
-            restored.route_preparation.rejected.as_deref().unwrap_or("unknown reason")
+            restored
+                .route_preparation
+                .rejected
+                .as_deref()
+                .unwrap_or("unknown reason")
         )));
     }
     let left = verified.application.routes().collect::<Vec<_>>();
@@ -384,13 +380,25 @@ mod tests {
         assert_eq!(decode(&bytes, &identity()).unwrap(), routes());
         let mut other = identity();
         other.selection_blake3 = "b".repeat(64);
-        assert!(decode(&bytes, &other).unwrap_err().contains("written for selection"));
+        assert!(
+            decode(&bytes, &other)
+                .unwrap_err()
+                .contains("written for selection")
+        );
         other = identity();
         other.family_fingerprint = "other".into();
-        assert!(decode(&bytes, &other).unwrap_err().contains("another integral family"));
+        assert!(
+            decode(&bytes, &other)
+                .unwrap_err()
+                .contains("another integral family")
+        );
         let mut corrupt = bytes.clone();
         corrupt[20] ^= 1;
-        assert!(decode(&corrupt, &identity()).unwrap_err().contains("checksum"));
+        assert!(
+            decode(&corrupt, &identity())
+                .unwrap_err()
+                .contains("checksum")
+        );
         assert!(
             decode(&bytes[..bytes.len() - 1], &identity())
                 .unwrap_err()

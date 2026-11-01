@@ -56,7 +56,11 @@ fn restore_rebuilds_the_identical_verified_map_and_transport() {
     let context = CoefficientContext::new(["d"]);
     let family = family(&context);
     // Swap k1 <-> k2 (monomial rows) and a shear k2 -> k2 - k1 (affine rows).
-    for entries in [["0", "1", "1", "0"], ["1", "0", "-1", "1"], ["-1", "0", "0", "-1"]] {
+    for entries in [
+        ["0", "1", "1", "0"],
+        ["1", "0", "-1", "1"],
+        ["-1", "0", "0", "-1"],
+    ] {
         let map = verify(
             &family,
             &family,
@@ -108,15 +112,17 @@ fn capture_refuses_parametric_values_and_restore_checks_values_and_shapes() {
             .to_string()
             .contains("constant coefficients only")
     );
-    for (numerator, denominator) in [("2", "4"), ("1", "0"), ("1", "-3"), ("0", "2"), ("x", "1")]
-    {
+    for (numerator, denominator) in [("2", "4"), ("1", "0"), ("1", "-3"), ("0", "2"), ("x", "1")] {
         let table = SavedValueTable {
             values: vec![SavedRational {
                 numerator: numerator.into(),
                 denominator: denominator.into(),
             }],
         };
-        assert!(table.materialize(&context).is_err(), "{numerator}/{denominator}");
+        assert!(
+            table.materialize(&context).is_err(),
+            "{numerator}/{denominator}"
+        );
     }
     let map = verify(
         &family,

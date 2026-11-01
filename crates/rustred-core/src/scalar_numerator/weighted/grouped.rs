@@ -56,7 +56,9 @@ impl Mass {
                 AtomView::Num(_) => {
                     rational(factor)?;
                 }
-                AtomView::Var(variable) => *variables.entry(variable.get_symbol()).or_default() += 1,
+                AtomView::Var(variable) => {
+                    *variables.entry(variable.get_symbol()).or_default() += 1
+                }
                 AtomView::Pow(power) => {
                     let AtomView::Var(variable) = power.get_base() else {
                         return None;
@@ -67,7 +69,9 @@ impl Mass {
                 _ => return None,
             }
         }
-        let degree = variables.values().try_fold(0u64, |sum, power| sum.checked_add(*power))?;
+        let degree = variables
+            .values()
+            .try_fold(0u64, |sum, power| sum.checked_add(*power))?;
         Some(Self {
             variables: variables.into_keys().collect(),
             degree,
@@ -120,12 +124,13 @@ impl Grammar<'_> {
         let numeric = self.mass.variables.is_empty();
         match view {
             AtomView::Num(_) => rational(view).map(|_| 0),
-            AtomView::Fun(_) => self
-                .is_coordinate(view)
-                .then_some(if numeric { 0 } else { self.mass.degree }),
-            AtomView::Var(variable) => (!numeric
-                && self.mass.variables.contains(&variable.get_symbol()))
-            .then_some(1),
+            AtomView::Fun(_) => {
+                self.is_coordinate(view)
+                    .then_some(if numeric { 0 } else { self.mass.degree })
+            }
+            AtomView::Var(variable) => {
+                (!numeric && self.mass.variables.contains(&variable.get_symbol())).then_some(1)
+            }
             AtomView::Add(sum) => {
                 let mut degree = None;
                 for term in sum.iter() {
@@ -137,9 +142,9 @@ impl Grammar<'_> {
                 }
                 degree
             }
-            AtomView::Mul(product) => product.iter().try_fold(0u64, |sum, factor| {
-                sum.checked_add(self.degree(factor)?)
-            }),
+            AtomView::Mul(product) => product
+                .iter()
+                .try_fold(0u64, |sum, factor| sum.checked_add(self.degree(factor)?)),
             AtomView::Pow(power) => {
                 let exponent = rational(power.get_exp())?;
                 if !exponent.is_integer() || exponent.is_negative() {
@@ -315,7 +320,11 @@ pub(super) fn collect(
     }
     let coordinates = prepared.scalar_product_variables.len();
     let mut variables = prepared.scalar_product_variables.as_ref().clone();
-    variables.extend(mass.variables.iter().map(|symbol| PolyVariable::Symbol(*symbol)));
+    variables.extend(
+        mass.variables
+            .iter()
+            .map(|symbol| PolyVariable::Symbol(*symbol)),
+    );
     let variables = Arc::new(variables);
     // Rebuilt coefficients: coordinate exponents -> products `c * L * M`.
     let mut coefficients = BTreeMap::<Vec<u32>, Vec<Atom>>::new();
@@ -360,7 +369,11 @@ pub(super) fn collect(
     } else {
         linearly_independent(&parts.iter().collect::<Vec<_>>())
     };
-    if !independent || !leaves.iter().all(|leaf| rebuilt_sums_are_exact(leaf.as_view())) {
+    if !independent
+        || !leaves
+            .iter()
+            .all(|leaf| rebuilt_sums_are_exact(leaf.as_view()))
+    {
         return None;
     }
     let mut field = AtomField::new();

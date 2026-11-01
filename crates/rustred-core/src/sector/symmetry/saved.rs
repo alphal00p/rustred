@@ -168,7 +168,9 @@ impl SavedValueTable {
             let denominator = Integer::from_str(&value.denominator)
                 .map_err(|_| SavedMapError::new("invalid saved value denominator"))?;
             if denominator <= Integer::zero() {
-                return Err(SavedMapError::new("saved value denominator is not positive"));
+                return Err(SavedMapError::new(
+                    "saved value denominator is not positive",
+                ));
             }
             let coprime = if Z.is_zero(&numerator) {
                 Z.is_one(&denominator)
@@ -206,7 +208,9 @@ impl SavedValues {
             .get(id as usize)
             .ok_or_else(|| SavedMapError::new("saved value index is outside its table"))?;
         if !value.denominator.is_one() {
-            return Err(SavedMapError::new("saved condition polynomial is not integral"));
+            return Err(SavedMapError::new(
+                "saved condition polynomial is not integral",
+            ));
         }
         Ok(value.numerator.clone())
     }
@@ -235,7 +239,12 @@ impl SavedValues {
             .map_err(|error| SavedMapError::new(format!("saved matrix {name}: {error:?}")))
     }
 
-    fn vector(&self, ids: &[u32], name: &str, len: usize) -> Result<Box<[Coefficient]>, SavedMapError> {
+    fn vector(
+        &self,
+        ids: &[u32],
+        name: &str,
+        len: usize,
+    ) -> Result<Box<[Coefficient]>, SavedMapError> {
         if ids.len() != len {
             return Err(SavedMapError::new(format!(
                 "saved vector {name} differs from the family dimensions"

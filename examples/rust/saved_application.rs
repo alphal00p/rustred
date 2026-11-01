@@ -100,7 +100,10 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
                 Path::new(&args[2]),
                 workers(args.get(3))?,
             )?;
-            println!("{}", json!({"event":"route_addon_written", "report":report}));
+            println!(
+                "{}",
+                json!({"event":"route_addon_written", "report":report})
+            );
             Ok(())
         }
         "route-addon-check" if (3..=4).contains(&args.len()) => {
@@ -109,7 +112,10 @@ fn run<const N: usize>(args: &[String], arity: usize) -> Result<()> {
                 Path::new(&args[2]),
                 workers(args.get(3))?,
             )?;
-            println!("{}", json!({"event":"route_addon_checked", "report":report}));
+            println!(
+                "{}",
+                json!({"event":"route_addon_checked", "report":report})
+            );
             Ok(())
         }
         _ => Err("invalid saved_application arguments".into()),
@@ -131,23 +137,24 @@ fn load<const N: usize>(args: &[String]) -> Result<()> {
         Some(path) => SavedRouteAddon::File(Path::new(path)),
     };
     let started = Instant::now();
-    let prepared = load_saved_application_with_route_addon::<N>(Path::new(&args[1]), options, addon)?;
+    let prepared =
+        load_saved_application_with_route_addon::<N>(Path::new(&args[1]), options, addon)?;
     let wall = started.elapsed().as_secs_f64();
     let statistics = prepared.preparation_statistics();
     println!(
         "{}",
         json!({"event":"loaded", "wall_seconds":wall,
-            "preparation_workers":options.preparation_workers,
-            "route_preparation":prepared.route_preparation().to_json(),
-            "seconds":{
-                "total":statistics.total.as_secs_f64(),
-                "metadata":statistics.metadata.as_secs_f64(),
-                "terminal_maps":statistics.terminal_maps.as_secs_f64(),
-                "owner_payloads":statistics.owner_payloads.as_secs_f64(),
-                "owner_preparation":statistics.owner_preparation.as_secs_f64(),
-                "route_preparation":statistics.route_preparation.as_secs_f64(),
-                "other":statistics.other.as_secs_f64(),
-            }})
+        "preparation_workers":options.preparation_workers,
+        "route_preparation":prepared.route_preparation().to_json(),
+        "seconds":{
+            "total":statistics.total.as_secs_f64(),
+            "metadata":statistics.metadata.as_secs_f64(),
+            "terminal_maps":statistics.terminal_maps.as_secs_f64(),
+            "owner_payloads":statistics.owner_payloads.as_secs_f64(),
+            "owner_preparation":statistics.owner_preparation.as_secs_f64(),
+            "route_preparation":statistics.route_preparation.as_secs_f64(),
+            "other":statistics.other.as_secs_f64(),
+        }})
     );
     Ok(())
 }

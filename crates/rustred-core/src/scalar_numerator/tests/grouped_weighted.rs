@@ -64,7 +64,9 @@ fn grouped_physical_prefactors_match_generic_in_two_three_and_five_loops() {
             * (Atom::num(4) - Atom::num(2) * &eps)
             * (s.dot(0, 1) - s.dot(1, last))
             * (s.dot(last, last) - Atom::num(2) * s.dot(0, last) + s.dot(0, 0)).pow(2)
-            - Atom::num(32) / Atom::num(81) * g.clone().pow(10) * (Atom::num(4) - Atom::num(2) * &eps).pow(2)
+            - Atom::num(32) / Atom::num(81)
+                * g.clone().pow(10)
+                * (Atom::num(4) - Atom::num(2) * &eps).pow(2)
                 / (&pole * (Atom::num(6) - Atom::num(2) * &eps))
                 * s.dot(0, 0).pow(2)
                 * s.dot(last, 0)
@@ -76,7 +78,9 @@ fn grouped_physical_prefactors_match_generic_in_two_three_and_five_loops() {
             Atom::one(),
             Atom::num(3) / Atom::num(2),
             symbol("grouped_physical_m").to_atom().pow(2),
-            Atom::num(2) * symbol("grouped_physical_m").to_atom() * symbol("grouped_physical_n").to_atom().pow(2),
+            Atom::num(2)
+                * symbol("grouped_physical_m").to_atom()
+                * symbol("grouped_physical_n").to_atom().pow(2),
         ] {
             let result = compare(&service, &numerator, &s.base(), &mass, Lane::Grouped);
             assert!(!result.is_zero());
@@ -111,11 +115,15 @@ fn grouped_lane_refuses_dependent_leaves_and_inhomogeneous_products() {
     let generic = [
         // (x+1)*y and (2x+2)*y are distinct atoms with dependent values.
         (
-            (&x + Atom::one()) * &y * s.dot(0, 0) + (Atom::num(2) * &x + Atom::num(2)) * &y * s.dot(1, 1),
+            (&x + Atom::one()) * &y * s.dot(0, 0)
+                + (Atom::num(2) * &x + Atom::num(2)) * &y * s.dot(1, 1),
             m.clone(),
         ),
         // An inhomogeneous scalar-product sum with a symbolic mass.
-        (&x * (s.dot(0, 0) * s.dot(1, 1) + s.dot(0, 1)) * (s.dot(0, 0) + s.dot(1, 1)), m.clone()),
+        (
+            &x * (s.dot(0, 0) * s.dot(1, 1) + s.dot(0, 1)) * (s.dot(0, 0) + s.dot(1, 1)),
+            m.clone(),
+        ),
         // A coefficient inside a scalar-product factor.
         ((&x * s.dot(0, 0) + s.dot(1, 1)) * s.dot(0, 1), Atom::one()),
         // A leaf sum with a vanishing partial sum, x*(y+1) - x*y - x, which
@@ -130,7 +138,13 @@ fn grouped_lane_refuses_dependent_leaves_and_inhomogeneous_products() {
     }
     // The same inhomogeneous sum is exact with a numeric mass.
     let numerator = &x * (s.dot(0, 0) * s.dot(1, 1) + s.dot(0, 1)) * (s.dot(0, 0) + s.dot(1, 1));
-    compare(&service, &numerator, &s.base(), &(Atom::num(5) / Atom::num(3)), Lane::Grouped);
+    compare(
+        &service,
+        &numerator,
+        &s.base(),
+        &(Atom::num(5) / Atom::num(3)),
+        Lane::Grouped,
+    );
 }
 
 #[test]

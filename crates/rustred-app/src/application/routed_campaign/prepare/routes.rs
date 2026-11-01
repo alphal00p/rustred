@@ -69,10 +69,12 @@ pub(super) fn capture<'a, const N: usize>(
         let prepared = prepared(&key)
             .ok_or_else(|| AppError::input("a selected transport route was not prepared"))?;
         if prepared.owner_sector != mask(&route.owner_mask, denominators)? {
-            return Err(AppError::input("prepared route owner differs from the selection"));
+            return Err(AppError::input(
+                "prepared route owner differs from the selection",
+            ));
         }
-        let ordinal = u32::try_from(ordinal)
-            .map_err(|_| AppError::limit("route ordinal exceeds u32"))?;
+        let ordinal =
+            u32::try_from(ordinal).map_err(|_| AppError::limit("route ordinal exceeds u32"))?;
         let map = SavedVerifiedMap::capture(prepared.transport.verified_map(), &mut table)
             .map_err(|e| AppError::input(format!("route {ordinal}: {e}")))?;
         saved.push((ordinal, map));
@@ -150,11 +152,9 @@ pub(super) fn restore<const N: usize>(
             }))
         },
         |completed, restored| {
-            observer(
-                json!({"event":"preparation", "phase":"saved_route_restore",
+            observer(json!({"event":"preparation", "phase":"saved_route_restore",
                 "completed":completed,"total":saved.routes.len(),"verified":restored,
-                "workers":workers}),
-            );
+                "workers":workers}));
         },
     )
 }

@@ -90,10 +90,7 @@ pub(in crate::scalar_numerator) mod testing {
     }
     /// Run with the given policy (`force_generic` disables both exact lanes)
     /// and return the (rational, generic, grouped) lane calls.
-    pub fn observed<T>(
-        force_generic: bool,
-        run: impl FnOnce() -> T,
-    ) -> (T, usize, usize, usize) {
+    pub fn observed<T>(force_generic: bool, run: impl FnOnce() -> T) -> (T, usize, usize, usize) {
         struct Restore(bool, usize, usize, usize);
         impl Drop for Restore {
             fn drop(&mut self) {

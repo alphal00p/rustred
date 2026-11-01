@@ -62,18 +62,17 @@ pub use options::{SavedApplicationEntryCoveragePolicy, SavedApplicationOptions};
 pub use package::{
     export_saved_application, export_saved_application_with_policy, load_saved_application,
     load_saved_application_with_policy, load_saved_application_with_route_addon,
-    prepare_saved_application,
-    prepare_saved_application_with_policy, saved_application_arity,
+    prepare_saved_application, prepare_saved_application_with_policy, saved_application_arity,
     saved_application_arity_with_policy, saved_application_domains,
     saved_application_domains_with_policy,
 };
 pub use products::{SavedApplicationProduct, SavedApplicationProductStatistics};
+pub use progress::saved_application_observation_document;
 pub use route_addon::{
     SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
     SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
     write_saved_application_route_addon,
 };
-pub use progress::saved_application_observation_document;
 pub use running_cache::{
     SavedApplicationReadOnlyCache, SavedApplicationRunningCache, SavedApplicationRunningCacheBase,
     SavedApplicationRunningCacheControl, SavedApplicationRunningCacheOptions,
