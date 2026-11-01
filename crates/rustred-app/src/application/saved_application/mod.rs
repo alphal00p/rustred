@@ -341,8 +341,10 @@ impl<const N: usize> PreparedSavedApplication<N> {
         self.application.ordered_scheduler_options()
     }
 
-    /// Select the Ordered Route transport (whole or layered by numerator
-    /// factor). The result is identical for every setting.
+    /// Select the Ordered Route transport: layered by numerator factor (the
+    /// default, `FewestTerms`) or whole (`Off`). The result is identical for
+    /// every setting; layered runs neither record nor read multi-factor
+    /// Route steps of an attached step cache.
     pub fn set_ordered_route_layering(&mut self, layering: rustred::solver::OrderedRouteLayering) {
         self.options.ordered_route_layering = layering;
         self.application.set_ordered_route_layering(layering);

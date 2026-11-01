@@ -97,17 +97,19 @@ impl RoutedCandidateLimits {
 /// conditions (whose transport validation retains no guards); other keys take
 /// the whole transport.
 ///
-/// Layering is opt-in: the default is [`Self::Off`]. A layered run neither
-/// records nor reads the whole transports of multi-factor Route keys, which
-/// are the heaviest records of whole-transport step caches (shipped caches
-/// are written without layering); a cold regeneration with the default
-/// records exactly the records of such a cache.
+/// The default is [`Self::FewestTerms`] (the fastest order measured). A
+/// layered run neither records nor reads the whole transports of
+/// multi-factor Route keys: on a step cache written without layering it
+/// replays the Apply, owner-literal and single-factor Route records and
+/// recomputes the others from memoized factor expansions, and its own cold
+/// run records fewer records. Step caches meant for the default (shipped
+/// caches) are therefore written with the default; [`Self::Off`] reproduces
+/// a whole-transport cache exactly.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum OrderedRouteLayering {
-    /// The whole transport in one step (historical). The default: every
-    /// Route step, including multi-factor transports, is recorded in and
-    /// replayed from an attached step cache.
-    #[default]
+    /// The whole transport in one step (historical): every Route step,
+    /// including multi-factor transports, is recorded in and replayed from
+    /// an attached step cache.
     Off,
     /// One factor per step, lowest source axis first.
     Index,
@@ -115,9 +117,10 @@ pub enum OrderedRouteLayering {
     /// lowest source axis).
     SmallestPower,
     /// One factor per step, the factor whose exact expansion has the fewest
-    /// terms first (ties: smaller power, then lower axis). The fastest order
-    /// measured: the fewest emitted terms and the fastest record pass and
-    /// replay on the 5L zero-momentum and quadratic requests.
+    /// terms first (ties: smaller power, then lower axis). The default: the
+    /// fewest emitted terms and the fastest record pass and replay measured
+    /// on the 5L zero-momentum and quadratic requests.
+    #[default]
     FewestTerms,
     /// One factor per step, largest remaining numerator power first (ties:
     /// lowest source axis). For comparison.

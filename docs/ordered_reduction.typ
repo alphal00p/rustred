@@ -181,8 +181,9 @@ if it had been expanded. Route and Apply are distinct operational identities.
 A Route identity of source sector $S$ is $D^(-b) product_a (c_a + sum_l L_(a l) D_l)^(n_a)$
 in the owner's denominators: its positive powers $b$ mapped by the route's unit
 bijection and one affine factor per numerator. With
-`OrderedRouteLayering` other than `off` (saved applications, `SavedApplicationOptions`
-or `set_ordered_route_layering`), a Route identity with at least two numerator
+`OrderedRouteLayering` other than `off` (the default is `fewest-terms`; saved
+applications, `SavedApplicationOptions` or `set_ordered_route_layering`), a Route
+identity with at least two numerator
 factors is transported one factor per step: the step expands one factor exactly
 (the same native expansion and limits as the whole transport) and emits partially
 transported identities $(S, t, r)$ (owner powers so far, numerator powers not yet
@@ -205,13 +206,16 @@ identity takes the whole transport. Layered steps are never recorded in or repla
 from the one-step record cache, so caches written with and without layering hold
 the same kind of records and are interchangeable.
 
-Layering is opt-in; the default is `off`. A layered run neither records nor reads the
-whole transports of multi-factor Route identities, which are the heaviest records of a
-whole-transport cache: on a cache written with the default it reads only the Apply,
-owner-literal and single-factor Route records and recomputes the others from memoized
-factor expansions, and its own cold run records fewer records. With the default, a
-cold regeneration records exactly the records of a cache written without layering
-(shipped caches), so their content stays complete and comparable.
+Layering is on by default (`fewest-terms`, the fastest order measured: at 5L quadratic
+about a third less cold native time than `off`); `off` is the historical whole transport.
+A layered run neither records nor reads the whole transports of multi-factor Route
+identities, which are the heaviest records of a whole-transport cache: on a cache
+written with `off` it reads only the Apply, owner-literal and single-factor Route
+records and recomputes the others from memoized factor expansions, and its own cold run
+records fewer records. Caches meant for the default (shipped caches) are therefore
+written with the default; an explicit `off` still records exactly the records of a
+whole-transport cache. No record changes with the setting, so neither switch needs a
+step-semantics or schema bump.
 
 Closed/candidate artifacts use descending-support phases when their authenticated
 order is support-primary. Other orders use one phase with their exact saved key

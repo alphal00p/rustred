@@ -362,6 +362,15 @@ Factorized storage is not an assurance upgrade or a guaranteed speedup. Select
 it before loading a prepared handle; use a separate handle for a matched
 representation comparison.
 
+`ordered_route_layering` (Ordered strategy only) defaults to
+`OrderedRouteLayering::FewestTerms`: a Route identity with several numerator
+factors is transported one factor per step, merging partial identities between
+factors. Every setting returns the whole transport's exact result and guards;
+`Off` restores the historical whole transport. Layered steps are never recorded
+in an Ordered step cache, so a cold run with the default records fewer records
+than one with `Off`. Write caches meant for default runs with the default, and
+use `Off` only to reproduce a whole-transport cache.
+
 One handle reuses the same immutable owner/route selection and its mutable
 coefficient cache. `cache_statistics` reports that retained cache;
 `clear_cache` releases reduction memoization while retaining preparation and

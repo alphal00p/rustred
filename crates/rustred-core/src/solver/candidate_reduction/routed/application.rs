@@ -269,9 +269,10 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         self.ordered_scheduler
     }
 
-    /// Route transport of Ordered requests: whole or one numerator factor
-    /// per step (see [`super::OrderedRouteLayering`]). Every setting returns
-    /// the same exact result and guards; only the intermediate work differs.
+    /// Route transport of Ordered requests: one numerator factor per step
+    /// (the default, `FewestTerms`) or whole (`Off`); see
+    /// [`super::OrderedRouteLayering`]. Every setting returns the same exact
+    /// result and guards; only the intermediate work differs.
     pub fn set_ordered_route_layering(&mut self, layering: super::OrderedRouteLayering) {
         self.ordered_route_layering = layering;
     }

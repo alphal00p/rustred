@@ -563,6 +563,16 @@ fn ordered_saved_application_scheduler_threads_preserve_results_and_phase_states
     )
     .unwrap();
     assert_eq!(application.ordered_scheduler_options().threads, 3);
+    // Route layering is on by default (`FewestTerms`), from the options
+    // through the loaded handle.
+    assert_eq!(
+        SavedApplicationOptions::default().ordered_route_layering,
+        rustred::solver::OrderedRouteLayering::FewestTerms
+    );
+    assert_eq!(
+        application.ordered_route_layering(),
+        rustred::solver::OrderedRouteLayering::FewestTerms
+    );
     let context = application.family().coefficient_context().clone();
     // The fixture admits roots [2] and [4]; the repeated root coalesces.
     let inputs = vec![

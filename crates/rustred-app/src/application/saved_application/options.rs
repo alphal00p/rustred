@@ -36,11 +36,12 @@ pub struct SavedApplicationOptions {
     /// result; `threads == 1` (the default) creates no thread. A caller with
     /// one core budget passes it here and to the modular replay threads.
     pub ordered_scheduler: OrderedSchedulerOptions,
-    /// Route transport of the Ordered scheduler: whole (the default, `Off`),
-    /// or one numerator factor per step with merging between factors
-    /// (ignored by the depth-first strategies). Every setting returns the
-    /// same exact result and guards; layered runs do not use the
-    /// multi-factor Route records of a step cache.
+    /// Route transport of the Ordered scheduler: one numerator factor per
+    /// step with merging between factors (the default, `FewestTerms`), or
+    /// whole (`Off`, historical); ignored by the depth-first strategies.
+    /// Every setting returns the same exact result and guards; layered runs
+    /// neither record nor read the multi-factor Route records of a step
+    /// cache, so `Off` is needed to (re)write a whole-transport cache.
     pub ordered_route_layering: OrderedRouteLayering,
     /// Preserve exact uncovered leaves and make recorded entry coverage advisory.
     /// This does not relax formula applicability, source guards, or resource limits.
