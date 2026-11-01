@@ -147,3 +147,53 @@ fn capture_refuses_parametric_values_and_restore_checks_values_and_shapes() {
     };
     assert!(wrong_target.restore(&family, &family, &values).is_err());
 }
+
+/// Review R7SR-F1: the round trip beyond unit Jacobians. `k1 -> k1/2` has a
+/// formal determinant power (det 1/2), a momentum-map denominator condition
+/// (the entry 1/2) and denominator-scale conditions (`k2^2-1` maps to
+/// itself); `k1 -> 2*k1` a formal power without map denominators.
+#[test]
+fn restore_rebuilds_formal_determinant_powers_and_every_condition_source() {
+    let context = CoefficientContext::new(["d"]);
+    let family = family(&context);
+    let mut sources = std::collections::HashSet::new();
+    for entries in [["1/2", "0", "0", "1"], ["2", "0", "0", "1"]] {
+        let map = verify(
+            &family,
+            &family,
+            momentum(&context, entries),
+            Limits::default(),
+        )
+        .unwrap();
+        assert!(
+            matches!(map.jacobian, Jacobian::FormalDeterminantPower { .. }),
+            "{entries:?}: {:?}",
+            map.jacobian
+        );
+        for condition in map.nonzero_conditions() {
+            for source in condition.sources() {
+                sources.insert(std::mem::discriminant(source));
+            }
+        }
+        let (bytes, restored) = roundtrip(&family, &map);
+        assert_eq!(restored, map, "{entries:?}");
+        assert_eq!(roundtrip(&family, &map).0, bytes);
+    }
+    for source in [
+        ConditionSource::MomentumMapDenominator {
+            matrix: "A",
+            row: 0,
+            column: 0,
+        },
+        ConditionSource::DenominatorScaleNumerator {
+            source_denominator: 0,
+            target_denominator: 0,
+        },
+        ConditionSource::LoopMapDeterminantNumerator,
+    ] {
+        assert!(
+            sources.contains(&std::mem::discriminant(&source)),
+            "{source:?} not exercised"
+        );
+    }
+}
