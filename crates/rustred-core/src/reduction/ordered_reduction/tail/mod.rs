@@ -47,7 +47,15 @@
 //!   [`table`]): at the start of every phase the scheduler checks whether the
 //!   table covers the whole frontier with a single terminal and the guards
 //!   allow closing (above); then it closes the tail at once. Otherwise it
-//!   expands the tail as above and adds the new entries.
+//!   expands the tail as above and adds the new entries. Reached keys found
+//!   in the table take their values from it and are not stepped; the
+//!   erasure check above walks their tabulated steps (stopping at keys the
+//!   forward pass expanded; entries it cannot attribute to the run, such as
+//!   ones another request adds concurrently, are walked, which is
+//!   conservative). So for a tail the table does not close (another
+//!   request's tail) the guard check decides as in a run without the table.
+//!   A table that closes the tail only at a phase after its start keeps the
+//!   forward program before that phase.
 //!
 //! Terms and nonzero conditions (values and order) are therefore those of
 //! the forward run. Progress counters of a closed tail count the keys the
@@ -66,6 +74,7 @@ use std::time::Instant;
 
 use hashbrown::HashTable;
 
+use self::table::TailData;
 pub use self::table::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
 };
@@ -1452,12 +1461,22 @@ impl<K: OrderedKernel> TailRun<K> {
         }
         // The guards that an erasure could change are those of the erased
         // key and of every key reachable from it through keys the forward
-        // pass did not expand (a tabulated key: all guards of its
-        // reduction).
+        // pass did not expand. A tabulated key is walked over the table's
+        // steps: its closure set (all guards of its reduction) also holds
+        // the guards of keys the forward pass expanded, which would hold
+        // back rewrites the same run makes without the table (a table
+        // populated by another request).
         let expanded = |id: u32| {
             let step = self.log.step[id as usize];
             step != NONE && self.log.steps[step as usize].forward
         };
+        let data = table
+            .as_ref()
+            .filter(|_| !tabulated.is_empty())
+            .map(|table| table.read());
+        let mut walk = data
+            .as_deref()
+            .map(|data| TableWalk::new(data, &tabulated, &expanded));
         let mut fresh_below: Vec<Option<bool>> = vec![None; self.log.keys.len()];
         let mut sensitive = 0usize;
         for id in 0..self.log.keys.len() as u32 {
@@ -1471,9 +1490,11 @@ impl<K: OrderedKernel> TailRun<K> {
                 }
                 let step = self.log.step[node as usize];
                 if step == NONE {
-                    let fresh = tabulated
-                        .get(&node)
-                        .is_some_and(|tabulated| tabulated.guards.iter().any(fresh));
+                    let fresh = match (tabulated.get(&node), walk.as_mut()) {
+                        (Some(tabulated), Some(walk)) => walk.fresh_below(tabulated.entry, &fresh),
+                        (Some(tabulated), None) => tabulated.guards.iter().any(fresh),
+                        (None, _) => false,
+                    };
                     fresh_below[node as usize] = Some(fresh);
                     continue;
                 }
@@ -1504,6 +1525,8 @@ impl<K: OrderedKernel> TailRun<K> {
                 sensitive += 1;
             }
         }
+        drop(walk);
+        drop(data);
         self.statistics.sensitive_keys += sensitive;
         if sensitive > 0 {
             return self.abort("an erased key reaches a guard new to the tail");
@@ -1566,6 +1589,89 @@ struct Tabulated {
     terminal: Option<IntegralKey>,
     /// All guards of its reduction.
     guards: Vec<Coefficient>,
+}
+
+/// The guards an erasure could change below tabulated identities (see
+/// `TailRun::evaluate`), walked over the table's steps: an entry's own
+/// guards and those of every entry reachable from it through entries of
+/// keys the forward pass did not expand. An entry whose closure set holds
+/// no fresh guard is not entered.
+struct TableWalk<'a> {
+    data: &'a TailData,
+    /// Entries of keys the forward pass expanded (all of the run's keys
+    /// with that entry).
+    expanded: HashMap<u32, bool>,
+    /// Per table guard: fresh (memo).
+    fresh: Vec<Option<bool>>,
+    /// Per entry: reaches a fresh guard (memo).
+    below: Vec<Option<bool>>,
+}
+
+impl<'a> TableWalk<'a> {
+    fn new(
+        data: &'a TailData,
+        tabulated: &HashMap<u32, Tabulated>,
+        expanded: impl Fn(u32) -> bool,
+    ) -> Self {
+        let mut entries: HashMap<u32, bool> = HashMap::with_capacity(tabulated.len());
+        for (&id, tabulated) in tabulated {
+            *entries.entry(tabulated.entry).or_insert(true) &= expanded(id);
+        }
+        Self {
+            data,
+            expanded: entries,
+            fresh: vec![None; data.guards.len()],
+            below: vec![None; data.entries.len()],
+        }
+    }
+
+    fn fresh_below(&mut self, root: u32, fresh: &impl Fn(&Coefficient) -> bool) -> bool {
+        let Self {
+            data,
+            expanded,
+            fresh: memo,
+            below,
+        } = self;
+        let data = *data;
+        let mut is_fresh = |guard: u32| {
+            *memo[guard as usize].get_or_insert_with(|| fresh(data.guards.value(guard)))
+        };
+        let walked = |child: u32| expanded.get(&child) != Some(&true);
+        let mut stack = vec![(root, false)];
+        while let Some((node, children_done)) = stack.pop() {
+            if below[node as usize].is_some() {
+                continue;
+            }
+            let entry = *data.entry(node);
+            if !children_done {
+                if !data
+                    .sets
+                    .value(entry.guards)
+                    .iter()
+                    .any(|&guard| is_fresh(guard))
+                {
+                    below[node as usize] = Some(false);
+                    continue;
+                }
+                stack.push((node, true));
+                stack.extend(
+                    data.children(&entry)
+                        .iter()
+                        .map(|&(child, _)| child)
+                        .filter(|&child| walked(child) && below[child as usize].is_none())
+                        .map(|child| (child, false)),
+                );
+                continue;
+            }
+            let fresh = data.own_guards(&entry).iter().any(|&guard| is_fresh(guard))
+                || data
+                    .children(&entry)
+                    .iter()
+                    .any(|&(child, _)| walked(child) && below[child as usize] == Some(true));
+            below[node as usize] = Some(fresh);
+        }
+        below[root as usize] == Some(true)
+    }
 }
 
 /// The key-independent part of the log: what evaluating a value reads.

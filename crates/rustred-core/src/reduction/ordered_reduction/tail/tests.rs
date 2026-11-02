@@ -32,7 +32,8 @@ type Edge = (Key, &'static str);
 /// phase children, rational coefficients, guards, one master), then an empty
 /// phase. Route keys `[1,3]` and `[1,4]` receive equal weights from `[0,4]`
 /// and cancel each other into `[2,7]`, whose step (and guard `d+7`) the
-/// forward pass never sees.
+/// forward pass never sees. `[1,10]` and `[2,12]` are reached by no request
+/// but `request_b` (a table of `request_a` does not cover it).
 struct Program {
     context: CoefficientContext,
     steps: BTreeMap<Key, (Vec<Edge>, Vec<Edge>, Vec<&'static str>)>,
@@ -88,6 +89,15 @@ impl Program {
         step([1, 4], &[([2, 7], "-1"), ([2, 1], "1")], &[], &[]);
         step([1, 3], &[([2, 7], "1"), ([2, 6], "1")], &[], &[]);
         step([1, 2], &[([2, 5], "1/3"), ([2, 0], "2")], &[], &[]);
+        step([1, 10], &[([2, 12], "1"), ([2, 6], "1")], &[], &[]);
+        // `[1,12]`/`[1,11]` cancel into `[2,16]`, whose guard `d+9` lies two
+        // levels below it (`[2,15]` -> `[2,14]`).
+        step([1, 12], &[([2, 16], "1"), ([2, 1], "1")], &[], &[]);
+        step([1, 11], &[([2, 16], "-1"), ([2, 6], "1")], &[], &[]);
+        step([2, 16], &[([2, 15], "1"), ([2, 0], "1")], &[], &[]);
+        step([2, 15], &[([2, 14], "1")], &[], &[]);
+        step([2, 14], &[([2, 0], "1")], &[], &["d+9"]);
+        step([2, 12], &[([2, 2], "1"), ([2, 0], "1")], &[], &[]);
         step(
             [2, 11],
             &[([2, 10], "(d-2)/(d+1)"), ([2, 4], "1")],
@@ -169,6 +179,12 @@ impl Program {
             ([1, 9], "1"),
             ([2, 11], "1/d"),
         ])
+    }
+
+    /// Tail keys only, partly outside `request_a`'s tail: `[1,3]` and
+    /// `[1,4]` cancel into `[2,7]`, every other reached key is expanded.
+    fn request_b(&self) -> BTreeMap<IntegralKey, Coefficient> {
+        self.inputs(&[([1, 10], "1"), ([1, 4], "1"), ([1, 3], "1")])
     }
 }
 
@@ -639,6 +655,133 @@ fn tail_table_closes_the_tail_only_when_guards_are_unchanged() {
             same_result(&warm.output, &forward(&only_tail, &RETAINED));
             assert_eq!(warm.tail.last().unwrap().closed_phase, Some(0));
             assert!(warm.steps.is_empty());
+        }
+    }
+}
+
+/// A table that does not cover the request (populated by another request,
+/// or a run whose closing failed) holds back no rewrite: a tabulated key
+/// the forward pass erased is checked over the table's steps (below it only
+/// keys the forward pass did not expand), exactly as without the table.
+#[test]
+fn tail_table_of_another_request_rewrites_like_no_table() {
+    if super::forced_by_environment() {
+        return;
+    }
+    let program = Program::new();
+    let (a, b) = (program.request_a(), program.request_b());
+    for arithmetic in arithmetics()
+        .into_iter()
+        .filter(|&arithmetic| recorded(arithmetic))
+    {
+        for scheduler in schedulers(true) {
+            // A fresh table holding `request_a`'s tail only (runs populate
+            // it).
+            let table_of_a = || {
+                let cache = OrderedStepCache::in_memory(binding(&program), Default::default());
+                let cold = run(&program, &a, &SAFE, arithmetic, scheduler, Some(&cache));
+                assert!(cold.tail.last().unwrap().added_entries >= 20);
+                (cache, cold)
+            };
+            for conditions in [&SAFE[..], &SENSITIVE[..]] {
+                let alone = run(&program, &b, conditions, arithmetic, scheduler, None);
+                let (cache, _) = table_of_a();
+                let foreign = run(
+                    &program,
+                    &b,
+                    conditions,
+                    arithmetic,
+                    scheduler,
+                    Some(&cache),
+                );
+                same_result(&foreign.output, &alone.output);
+                let (expected, report) = (
+                    alone.tail.last().expect("a tail report"),
+                    foreign.tail.last().expect("a tail report"),
+                );
+                // `[1,10]` and `[2,12]` are not tabulated: no closing; the
+                // erased `[2,7]` is, with `d+2` and `d-6` (new to the tail)
+                // in its closure set, but only below expanded keys.
+                assert_eq!(report.closed_phase, None, "{report:?}");
+                assert!(report.table_values > 0, "{report:?}");
+                assert_eq!(expected.start_phase, Some(0), "{expected:?}");
+                let mode = if conditions == SAFE {
+                    "adjoint"
+                } else {
+                    "forward"
+                };
+                assert_eq!(expected.mode, mode, "{arithmetic} {expected:?}");
+                assert_eq!(report.mode, mode, "{arithmetic} {report:?}");
+                assert_eq!(report.sensitive_keys, expected.sensitive_keys, "{report:?}");
+                assert_eq!(foreign.ops, alone.ops, "{arithmetic} {report:?}");
+            }
+            // The table's own request, warm, when probes cannot close it
+            // (cross-checked arithmetics): rewritten like the cold run.
+            if !probes(arithmetic) {
+                let (cache, cold) = table_of_a();
+                let warm = run(&program, &a, &SAFE, arithmetic, scheduler, Some(&cache));
+                let report = warm.tail.last().unwrap();
+                assert_eq!(report.closed_phase, None, "{report:?}");
+                assert_eq!(report.mode, "adjoint", "{arithmetic} {report:?}");
+                assert_eq!(warm.ops, cold.ops, "{arithmetic} {report:?}");
+            }
+        }
+    }
+}
+
+/// The safety half of the walk over the table's steps: a tabulated erased key
+/// whose guard new to the tail lies below it, only through keys the forward
+/// pass did not expand (absent from the run's log), still aborts the rewrite
+/// exactly like the run without the table; with that guard retained by the
+/// caller, the table of another request holds back no rewrite (only `d-6` of
+/// the expanded `[2,0]` is new to the tail in the closure set).
+#[test]
+fn tail_table_walk_aborts_for_a_new_guard_below_unexpanded_keys() {
+    if super::forced_by_environment() {
+        return;
+    }
+    let program = Program::new();
+    let c = program.inputs(&[([1, 12], "1"), ([1, 11], "1")]);
+    let d = program.inputs(&[([2, 16], "1")]);
+    let with_d9: [&str; 3] = ["d-2", "d+7", "d+9"];
+    for arithmetic in arithmetics()
+        .into_iter()
+        .filter(|&arithmetic| recorded(arithmetic))
+    {
+        for scheduler in schedulers(true) {
+            let table_of_d = || {
+                let cache = OrderedStepCache::in_memory(binding(&program), Default::default());
+                let cold = run(&program, &d, &SAFE, arithmetic, scheduler, Some(&cache));
+                assert!(
+                    cold.tail.last().unwrap().added_entries >= 4,
+                    "{:?}",
+                    cold.tail
+                );
+                cache
+            };
+            for (conditions, mode) in [(&SAFE[..], "forward"), (&with_d9[..], "adjoint")] {
+                let alone = run(&program, &c, conditions, arithmetic, scheduler, None);
+                let cache = table_of_d();
+                let foreign = run(
+                    &program,
+                    &c,
+                    conditions,
+                    arithmetic,
+                    scheduler,
+                    Some(&cache),
+                );
+                same_result(&foreign.output, &alone.output);
+                let (expected, report) = (
+                    alone.tail.last().expect("a tail report"),
+                    foreign.tail.last().expect("a tail report"),
+                );
+                assert_eq!(report.closed_phase, None, "{report:?}");
+                assert!(report.table_values > 0, "{report:?}");
+                assert_eq!(expected.mode, mode, "{arithmetic} {expected:?}");
+                assert_eq!(report.mode, mode, "{arithmetic} {report:?}");
+                assert_eq!(report.sensitive_keys, expected.sensitive_keys, "{report:?}");
+                assert_eq!(foreign.ops, alone.ops, "{arithmetic} {report:?}");
+            }
         }
     }
 }
