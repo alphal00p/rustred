@@ -1476,7 +1476,7 @@ impl<K: OrderedKernel> TailRun<K> {
             .map(|table| table.read());
         let mut walk = data
             .as_deref()
-            .map(|data| TableWalk::new(data, &tabulated, &expanded));
+            .map(|data| TableWalk::new(data, &tabulated, expanded));
         let mut fresh_below: Vec<Option<bool>> = vec![None; self.log.keys.len()];
         let mut sensitive = 0usize;
         for id in 0..self.log.keys.len() as u32 {
