@@ -31,7 +31,7 @@ pub(super) use source_port::{
     install_source_port_through_total_excess_with_observer,
 };
 pub(crate) use source_port::{
-    validate_parametric_vacuum_family, validate_unit_mass_family, validate_unit_scale_family,
+    validate_parametric_vacuum_family, validate_unit_scale_family,
     validate_unit_scale_propagator_family,
 };
 

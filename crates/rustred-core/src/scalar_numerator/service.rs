@@ -48,19 +48,37 @@ impl<'artifact> ScalarNumeratorService<'artifact> {
         loop_momenta: Vec<Atom>,
         limits: ScalarNumeratorLimits,
     ) -> Result<Self, ScalarNumeratorError> {
+        Self::try_new_with_external_momenta(artifact, dot_head, loop_momenta, Vec::new(), limits)
+    }
+
+    /// As [`Self::try_new`], with one label per external momentum of a
+    /// propagator-type artifact (homogeneity proof
+    /// [`CommonMassHomogeneityProof::UniformExternalScale`]); see
+    /// [`FamilyScalarNumeratorService::try_new_with_external_momenta`].
+    pub fn try_new_with_external_momenta(
+        artifact: &'artifact ClosedArtifact,
+        dot_head: Symbol,
+        loop_momenta: Vec<Atom>,
+        external_momenta: Vec<Atom>,
+        limits: ScalarNumeratorLimits,
+    ) -> Result<Self, ScalarNumeratorError> {
         validate_dot_head(dot_head)?;
         let family = artifact.family();
-        if artifact.common_mass_homogeneity()
-            != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
-        {
-            return Err(ScalarNumeratorError::UnsupportedArtifact {
-                detail: "no uniform common-mass homogeneity proof is installed",
-            });
-        }
-        if family.external_count() != 0 {
-            return Err(ScalarNumeratorError::UnsupportedArtifact {
-                detail: "the common-mass scalar lane currently requires a vacuum family",
-            });
+        match artifact.common_mass_homogeneity() {
+            Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
+                if family.external_count() == 0 => {}
+            Some(CommonMassHomogeneityProof::UniformExternalScale)
+                if family.external_count() != 0 => {}
+            Some(_) => {
+                return Err(ScalarNumeratorError::UnsupportedArtifact {
+                    detail: "the homogeneity proof does not match the family kinematics",
+                });
+            }
+            None => {
+                return Err(ScalarNumeratorError::UnsupportedArtifact {
+                    detail: "no uniform common-mass homogeneity proof is installed",
+                });
+            }
         }
         Ok(Self {
             artifact,
@@ -68,7 +86,7 @@ impl<'artifact> ScalarNumeratorService<'artifact> {
                 family,
                 dot_head,
                 loop_momenta,
-                Vec::new(),
+                external_momenta,
                 limits,
             )?,
         })

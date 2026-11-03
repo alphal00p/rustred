@@ -107,6 +107,11 @@ pub(in crate::solver::candidate_reduction) fn prepare_family_with_admission<cons
     }
     match admission {
         CandidateFamilyAdmission::UnitMassVacuum => {
+            if family.external_count() != 0 {
+                return Err(CandidateReductionError::UnsupportedFamily(
+                    "the unit-mass vacuum admission requires a vacuum family".into(),
+                ));
+            }
             SourcePortAudit::<N>::validate_install_family(family).map_err(|error| {
                 match crate::reduction::resource_limit_error(&error) {
                     Some(resource) => {

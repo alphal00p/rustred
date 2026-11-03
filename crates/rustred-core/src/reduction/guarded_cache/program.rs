@@ -4,7 +4,7 @@ use super::{
 };
 use crate::algebra::CoefficientContext;
 use crate::family::IntegralKey;
-use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
+use crate::foundry::artifact::ClosedArtifact;
 use crate::persistence::application_cache::{
     ApplicationCacheBinding, ApplicationCacheKey, ApplicationCacheRecord, ApplicationCacheStage,
 };
@@ -368,9 +368,7 @@ impl<'a> ClosedUnitMassProgram<'a> {
     }
 
     fn require_homogeneity(&self) -> Result<(), ReductionError> {
-        if self.artifact.common_mass_homogeneity()
-            != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
-        {
+        if self.artifact.common_mass_homogeneity().is_none() {
             return Err(ReductionError::MissingCommonMassHomogeneityProof);
         }
         Ok(())

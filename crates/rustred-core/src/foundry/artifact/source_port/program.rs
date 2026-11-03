@@ -283,6 +283,8 @@ impl<const N: usize> CheckedProgram<N> {
                 ))
             })
             .collect::<Result<_, SourcePortAuditError>>()?;
+        let kinematics =
+            super::super::install::validate_unit_scale_family(&self.family).map_err(error)?;
         let candidate = ClosingArtifactCandidate {
             schema: ArtifactSchemaVersion::CURRENT,
             algorithm_id: SOURCE_PORT_ALGORITHM_ID,
@@ -300,7 +302,7 @@ impl<const N: usize> CheckedProgram<N> {
             factorization_rules: Vec::new(),
             masters,
             zero_sectors,
-            common_mass_homogeneity: Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
+            common_mass_homogeneity: Some(CommonMassHomogeneityProof::for_kinematics(kinematics)),
         };
         observe(SourcePortInstallEvent::Installing {
             sectors: sector_count,

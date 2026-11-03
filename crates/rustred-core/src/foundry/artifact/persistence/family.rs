@@ -1,4 +1,5 @@
-//! Reconstruct bounded complete vacuum families from their actual inputs.
+//! Reconstruct bounded complete vacuum families, and complete propagator-type
+//! families with one external momentum, from their actual inputs.
 //! No named topology factory or source/rule discovery runs during decoding.
 
 use crate::algebra::CoefficientContext;
@@ -31,28 +32,34 @@ pub(super) fn decode(
             FamilyGrammar::CompleteVacuum { .. } => "complete vacuum family structural prelude",
         },
     };
-    let arity = match grammar {
+    let (arity, max_externals) = match grammar {
         FamilyGrammar::OneLoop => {
             if loop_count != 1 {
                 return Err(ArtifactPersistenceError::SemanticMismatch {
                     field: "one-loop family structural prelude",
                 });
             }
-            1
+            (1, 0)
         }
-        FamilyGrammar::CompleteVacuum { arity } => arity,
+        // The source-port audit admits at most one external momentum.
+        FamilyGrammar::CompleteVacuum { arity } => (arity, 1),
     };
     let coordinates = loop_count
         .checked_add(1)
         .and_then(|next| loop_count.checked_mul(next))
         .map(|square| square / 2)
+        .and_then(|loop_loop| {
+            loop_count
+                .checked_mul(external_count)
+                .and_then(|loop_external| loop_loop.checked_add(loop_external))
+        })
         .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
             resource: "vacuum scalar product coordinates",
         })?;
     if loop_count == 0
-        || external_count != 0
+        || external_count > max_externals
         || parameter_count != 1
-        || gram_rows != 0
+        || gram_rows != external_count
         || denominator_count != arity
         || power_shift_count != arity
         || coordinates != arity
@@ -95,8 +102,14 @@ pub(super) fn decode(
             });
         }
     }
+    for _ in 0..gram_rows {
+        if reader.count("external Gram columns")? != external_count {
+            return Err(invalid());
+        }
+    }
     let name = decode_owned_string(reader, "family name")?;
     let loop_momenta = decode_strings(reader, loop_count, "loop momentum labels")?;
+    let external_momenta = decode_strings(reader, external_count, "external momentum labels")?;
     let parameters = decode_strings(reader, parameter_count, "coefficient parameter names")?;
     let context = CoefficientContext::try_new(parameters).map_err(ArtifactError::from)?;
     let dimension = decode_base_coefficient(reader, &context, "family dimension")?;
@@ -113,6 +126,18 @@ pub(super) fn decode(
         }
         denominators.push(AffineDenominator::new(constant, coefficients));
     }
+    let mut gram = try_vec(gram_rows, "external Gram rows")?;
+    for _ in 0..gram_rows {
+        let mut row = try_vec(external_count, "external Gram columns")?;
+        for _ in 0..external_count {
+            row.push(decode_base_coefficient(
+                reader,
+                &context,
+                "external Gram entry",
+            )?);
+        }
+        gram.push(row);
+    }
     let mut shifts = try_vec(power_shift_count, "family power shifts")?;
     for _ in 0..power_shift_count {
         shifts.push(decode_base_coefficient(
@@ -124,11 +149,11 @@ pub(super) fn decode(
     IntegralFamily::new_with_limits(
         name,
         loop_momenta,
-        Vec::new(),
+        external_momenta,
         context,
         dimension,
         denominators,
-        Vec::new(),
+        gram,
         shifts,
         reader.limits().family,
     )

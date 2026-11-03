@@ -19,9 +19,11 @@
 //! ```
 mod support;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rustred::family::{IntegralKey, UnitScaleKinematics};
+use rustred::reduction::terminal_normalization::TerminalSectorSymmetryEquations;
 use rustred::sector::masters::{MasterCount, MasterCountOptions, MasterCounter};
 use rustred::sector::symmetry::integral_transport::compile;
 use rustred::sector::symmetry::{
@@ -462,4 +464,24 @@ fn four_loop_crossed_rung_census_has_no_skips() {
     assert_eq!(census.members().len(), 366);
     assert_eq!(census.classes().len(), 78);
     assert!(census.skips().is_empty());
+}
+
+/// The terminal sector-symmetry lane relates the two labelled kite
+/// sunsets, `I(1,0,0,1,1) = I(0,1,1,0,1)`, through a marked route.
+#[test]
+fn terminal_sector_symmetry_equations_relate_the_kite_sunsets() {
+    let sunsets = [KITE.key(&[1, 0, 0, 1, 1]), KITE.key(&[0, 1, 1, 0, 1])];
+    let keys = BTreeSet::from(sunsets.clone());
+    let equations =
+        TerminalSectorSymmetryEquations::prepare(KITE.family(), &keys, Default::default()).unwrap();
+    let related = keys
+        .iter()
+        .flat_map(|key| equations.equations(key))
+        .any(|equation| {
+            equation.terms.len() == 2
+                && sunsets
+                    .iter()
+                    .all(|sunset| equation.terms.contains_key(sunset))
+        });
+    assert!(related);
 }

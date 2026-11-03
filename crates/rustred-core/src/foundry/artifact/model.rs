@@ -55,12 +55,29 @@ pub enum CommonMassHomogeneityProof {
     /// `(m^2)^(L*d/2-sum powers)`; in a target/master reduction ratio the
     /// common loop-measure term cancels, leaving the stored power difference.
     UniformVacuumMassSquared,
+    /// One external momentum `q` with numeric `q.q = +-1` is the only scale:
+    /// every denominator constant is rational, so every denominator is a
+    /// homogeneous quadratic form in loop momenta and `q`. The full integral
+    /// scales as `(q^2/q.q)^(L*d/2-sum powers)`, and a reduction ratio keeps
+    /// the same stored power difference as for a common mass.
+    UniformExternalScale,
 }
 
 impl CommonMassHomogeneityProof {
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::UniformVacuumMassSquared => "rustred.homogeneity.uniform-vacuum-mass-squared.v1",
+            Self::UniformExternalScale => "rustred.homogeneity.uniform-external-scale.v1",
+        }
+    }
+
+    /// The homogeneity proof of one unit-scale family kinematics.
+    pub const fn for_kinematics(kinematics: crate::family::UnitScaleKinematics) -> Self {
+        match kinematics {
+            crate::family::UnitScaleKinematics::UnitMassVacuum => Self::UniformVacuumMassSquared,
+            crate::family::UnitScaleKinematics::UnitScalePropagator { .. } => {
+                Self::UniformExternalScale
+            }
         }
     }
 }

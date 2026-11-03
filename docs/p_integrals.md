@@ -72,6 +72,25 @@ unchanged. The caller restores the scale once.
 - `reduce_unit_mass` and the other `*_unit_mass*` reducer entry points apply
   to every unit-scale program; the name is historical.
 
+## Closing artifacts
+
+`family-close`, `certify-candidates` and `SourcePortAudit` accept unit-scale
+propagator families:
+- The source-port audit admits at most one external momentum, so there are no
+  Lorentz-invariance rows. It replays the `L(L+1)` ordinary rows per seed:
+  for each differentiated loop, the `q` contraction first, then the loop
+  contractions.
+- A p artifact carries `CommonMassHomogeneityProof::UniformExternalScale`
+  (`rustred.homogeneity.uniform-external-scale.v1`, persisted tag 2).
+  `CommonMassHomogeneityProof::for_kinematics` selects the proof. Installation
+  checks it against the family.
+- `reduce_with_common_mass_homogeneity` and the reduction output keep their
+  meaning. `common_mass_squared_power` counts powers of `q^2/q.q`.
+- The artifact-bound `ScalarNumeratorService` takes external labels through
+  `try_new_with_external_momenta`.
+- Closing artifacts carry raw terminals. They are not compressed by sector
+  symmetry; for that, use the census or LiteRed compression.
+
 ## Sector symmetry with marked external vertices
 
 Discovery (`sector::symmetry::discovery`) works on line momenta over
@@ -100,14 +119,18 @@ census compression reproduces the per-class Lee-Pomeransky master counts:
 |---|---:|---:|---:|---:|
 | 1L bubble | 1 | 1 | 1 | 1 |
 | 2L kite | 8 | 4 | 3 | 2 |
-| 3L LA | 47 | | 10 | 5 |
-| 3L BE | 58 | | 10 | 4 |
-| 3L NO | 70 | | 16 | 5 |
+| 3L LA | 47 | 16 | 10 | 5 |
+| 3L BE | 58 | 18 | 10 | 4 |
+| 3L NO | 70 | 14 | 16 | 5 |
 | 4L ladder | 271 | 62 | 36 | 12 |
-| 4L crossed rung | 366 | 78 | | |
+| 4L crossed rung | 366 | 78 | (3 sectors fail, see below) | |
 
 Only the NO family has a master in its top sector. The LA and BE tops reduce
 (triangle rule).
+
+The classes are marked cycle-matroid classes: 2-isomorphic (Whitney-twisted)
+sectors merge. At 3L the per-family nauty graph classes sum to 64; the census
+finds 48. Every merge is an exactly verified map.
 
 ## Routing witnesses
 
@@ -137,8 +160,8 @@ family:
 - The common-scale power counts powers of `S = q^2 / s0`.
 - The weighted lane's `common_mass_squared` argument is `S`.
 - `try_new` keeps its vacuum contract.
-- The artifact-bound `ScalarNumeratorService` is vacuum-only, like closing
-  artifacts.
+- The artifact-bound `ScalarNumeratorService` has the same
+  `try_new_with_external_momenta` for p artifacts.
 
 ## Arity
 
@@ -176,9 +199,8 @@ with unsupported nonlinear exceptional equalities; plan M3 discharges them
 These lanes keep their vacuum gates. They return an error or skip p families
 explicitly; they never return a wrong result.
 
-- Closing artifacts: `family-close`, `certify-candidates`,
-  `SourcePortAudit`, `ClosedArtifact` and the uniform-mass homogeneity
-  proof.
+- `ClosedArtifact::is_complete_unit_mass_vacuum` and the hand-written
+  1L/2L/3L vacuum artifacts (K1, sunset, K6) stay vacuum-only.
 - The vacuum-only terminal lanes:
   - tadpole and vacuum products, product charts and the vacuum factor
     provider;
@@ -206,8 +228,11 @@ explicitly; they never return a wrong result.
     - every recursively one-loop target of LA/BE/NO (241/231/212 identities
       per `d`);
   - master counts against Lee-Pomeransky counts;
+  - the terminal sector-symmetry equations relating the two kite sunsets;
   - the 4L crossed-rung census;
   - ignored: the 4L ladder generation, about 150 s on 8 threads.
+- `crates/rustred-app/tests/p_integral_closing.rs`: `family-close` of the
+  bubble and the kite, with reductions and scale exponents.
 - `crates/rustred-app/tests/p_integral_candidates.rs`:
   - `family-candidates` of the kite and the 3L ladder;
   - application under `UnitScalePropagator` with the scale exponent;

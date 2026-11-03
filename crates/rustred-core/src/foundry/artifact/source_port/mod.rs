@@ -345,19 +345,23 @@ pub struct SourcePortAudit<const N: usize> {
 impl<const N: usize> SourcePortAudit<N> {
     /// Check family eligibility for complete artifact installation before
     /// constructing a sector census or running search. This shares the final
-    /// installer's exact unit-mass vacuum admission, not a frontend copy.
+    /// installer's exact unit-scale admission (a unit-mass vacuum or a
+    /// unit-scale propagator family), not a frontend copy.
     /// Success is only a family-shape check, not evidence of closure.
     pub fn validate_install_family(family: &IntegralFamily) -> Result<(), SourcePortAuditError> {
-        super::install::validate_unit_mass_family(family).map_err(|cause| {
-            match crate::reduction::resource_limit_error(&cause) {
-                Some(resource) => SourcePortAuditError::Resources(resource.clone()),
-                None => error(cause),
-            }
-        })
+        super::install::validate_unit_scale_family(family)
+            .map(|_| ())
+            .map_err(
+                |cause| match crate::reduction::resource_limit_error(&cause) {
+                    Some(resource) => SourcePortAuditError::Resources(resource.clone()),
+                    None => error(cause),
+                },
+            )
     }
 
-    /// The initial bridge admits uncut, unshifted vacuum sources only. It is
-    /// generic in loop count, denominator count and momentum routing.
+    /// The bridge admits uncut, unshifted families with at most one external
+    /// momentum (so without Lorentz-invariance rows). It is generic in loop
+    /// count, denominator count and momentum routing.
     pub fn try_new(
         family: &IntegralFamily,
         zero_sectors: Arc<[[bool; N]]>,
@@ -389,33 +393,35 @@ impl<const N: usize> SourcePortAudit<N> {
         }
         let root_sector = Mask::try_new(root_sector).map_err(error)?;
         scope::sector_count(&root_sector).map_err(error)?;
-        if family.external_count() != 0 || family.power_shifts().iter().any(|x| !x.is_zero()) {
+        if family.external_count() > 1 || family.power_shifts().iter().any(|x| !x.is_zero()) {
             return Err(error(
-                "source-port artifact audit currently requires an unshifted vacuum family",
+                "source-port artifact audit currently requires an unshifted family with at most one external momentum",
             ));
         }
         let sources = SourceSystem::from_family(family).map_err(error)?;
-        // SourceSystem's vacuum adapter is differentiated-loop-major. Bind
-        // that audited schedule to generator RowIds, never basis ordinals.
+        // SourceSystem's adapter is differentiated-loop-major, contracting the
+        // external momentum first and then the loop momenta. Bind that
+        // audited schedule to generator RowIds, never basis ordinals.
         let loops = family.loop_count();
+        let externals = family.external_count();
         let expected_rows = loops
-            .checked_mul(loops)
+            .checked_add(externals)
+            .and_then(|contractions| contractions.checked_mul(loops))
             .ok_or_else(|| error("ordinary source count overflow"))?;
         if sources.rows().len() != expected_rows {
-            return Err(error(
-                "vacuum source corpus has unexpected ordinary row count",
-            ));
+            return Err(error("source corpus has unexpected ordinary row count"));
         }
-        let original_row_ids: Vec<_> = (0..loops)
-            .flat_map(|differentiated_loop| {
-                (0..loops).map(
-                    move |contraction_momentum| crate::identity::RowId::OrdinaryIbp {
-                        contraction_momentum,
-                        differentiated_loop,
-                    },
-                )
-            })
-            .collect();
+        let original_row_ids: Vec<_> =
+            (0..loops)
+                .flat_map(|differentiated_loop| {
+                    (loops..loops + externals).rev().chain(0..loops).map(
+                        move |contraction_momentum| crate::identity::RowId::OrdinaryIbp {
+                            contraction_momentum,
+                            differentiated_loop,
+                        },
+                    )
+                })
+                .collect();
         let original_sources =
             normalization::OriginalSourceCorpus::try_new(family, &sources, &original_row_ids)?;
         let analyzer = zero::Analyzer::try_unrestricted(family).map_err(error)?;
