@@ -229,7 +229,8 @@ Input (`p-families.json`, schema `rustred.p-families.v1`): one entry per top fam
 - `vertices`, and `lines`, each line with `endpoints` and `momentum`;
 - `isps`;
 - `external: {in, out}`;
-- `gram: [[1]]`, the Euclidean `q^2 = 1` convention of P0.
+- `gram: [[-1]]`: Minkowski `q.q = -1`, i.e. Euclidean `Q^2 = 1`, as vakint registers its
+  families (P0 admits `q.q = ±1`, `docs/p_integrals.md`).
 
 Sources:
 
@@ -796,7 +797,7 @@ proved at generation time.
 
 `PLibrary::register_family(Arc<IntegralFamily>) -> PresentationId` accepts any vakint family:
 
-- `E = 1`, Gram `[[1]]`, massless;
+- `E = 1`, Gram `[[±1]]`, massless;
 - any loop routing, any `q` orientation.
 
 The first key of a new (family, mask) pair:
@@ -938,8 +939,9 @@ Module layout:
 The app crate adds `application/propagator/` with the CLI commands `p-census`, `p-generate`,
 `p-discharge`, `p-basis`, `p-validate`, `p-canary`, `p-package` and `p-cache`.
 
-The new `CandidateFamilyAdmission::MasslessPropagator` and the external-scale homogeneity proof
-come from P0 (rustred-p0).
+The admission `CandidateFamilyAdmission::UnitScalePropagator` (`family/unit_scale.rs`) and the
+homogeneity proof `CommonMassHomogeneityProof::UniformExternalScale` come from P0 (rustred-p0,
+`docs/p_integrals.md`).
 
 **Kernel.**
 
