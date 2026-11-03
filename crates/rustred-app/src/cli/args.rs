@@ -452,6 +452,8 @@ FAMILY-CANDIDATES OPTIONS:
                                 Incompatible with --permutation; separate from source scheduling
     --selected-sectors <MASKS>   Generate only comma-separated nonzero binary masks, not their downsets
     --root-zero-census          Analyze zeros only in the physical root downset (never assumes omitted sectors zero)
+    --sector-failures <POLICY>   abort, or report: omit a failed sector (its integrals stay uncovered)
+                                and list it in the report [default: abort]; not with checkpoints
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
@@ -571,8 +573,9 @@ the input is validated and reported as not processed; it is never reduced by
 this command.
 
 `family-close` enumerates the complete sector census of a caller-supplied
-unshifted unit-mass vacuum family (1..16 coordinates, sole parameter d,
-denominator constant terms -1), proves zero sectors, solves every admitted sector,
+unshifted unit-mass vacuum family (sole parameter d, denominator constant
+terms -1) or unit-scale propagator family (one external momentum, q.q = +-1),
+proves zero sectors, solves every admitted sector,
 and publishes only after exact replay, strict descent and complete coverage.
 Use --nonpositive-indices to explicitly keep selected numerator coordinates
 nonpositive. By default every sector is admitted. Target powers never infer scope.

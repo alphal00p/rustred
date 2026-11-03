@@ -50,6 +50,14 @@ pub enum ScalarNumeratorError {
         expected: usize,
         actual: usize,
     },
+    WrongExternalMomentumCount {
+        expected: usize,
+        actual: usize,
+    },
+    /// An external-momentum label repeats a loop or another external label.
+    DuplicateExternalMomentum {
+        external: usize,
+    },
     DuplicateLoopMomentum {
         first: usize,
         second: usize,
@@ -120,7 +128,7 @@ impl fmt::Display for ScalarNumeratorError {
             }
             Self::FamilyEligibility(error) => write!(
                 formatter,
-                "family cannot lower a unit-mass common-scale vacuum numerator: {error}"
+                "family cannot lower a unit-scale numerator (unit-mass vacuum or unit-scale propagator): {error}"
             ),
             Self::UnsupportedArtifact { detail } => {
                 write!(
@@ -134,6 +142,14 @@ impl fmt::Display for ScalarNumeratorError {
             Self::WrongLoopMomentumCount { expected, actual } => write!(
                 formatter,
                 "scalar numerator has {actual} loop labels, expected {expected}"
+            ),
+            Self::WrongExternalMomentumCount { expected, actual } => write!(
+                formatter,
+                "scalar numerator has {actual} external labels, expected {expected}"
+            ),
+            Self::DuplicateExternalMomentum { external } => write!(
+                formatter,
+                "external-momentum label {external} repeats a loop or external label"
             ),
             Self::DuplicateLoopMomentum { first, second } => write!(
                 formatter,

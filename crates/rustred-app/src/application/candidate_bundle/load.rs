@@ -93,11 +93,11 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     input_limits: CandidateBundleLimits,
     reduction_limits: ReductionLimits,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
-    load_generated_candidate_bundle_with_admission(
+    load_bundle(
         bytes,
         input_limits,
         reduction_limits,
-        CandidateFamilyAdmission::UnitMassVacuum,
+        CandidateFamilyAdmission::unit_scale_for,
     )
 }
 
@@ -111,12 +111,24 @@ pub fn load_generated_candidate_bundle_with_admission<const N: usize>(
     reduction_limits: ReductionLimits,
     admission: CandidateFamilyAdmission,
 ) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
+    load_bundle(bytes, input_limits, reduction_limits, |_| admission)
+}
+
+/// Load a bundle under the admission `admission` selects for its
+/// reconstructed family, for example by its kinematics.
+pub(in crate::application) fn load_bundle<const N: usize>(
+    bytes: &[u8],
+    input_limits: CandidateBundleLimits,
+    reduction_limits: ReductionLimits,
+    admission: impl FnOnce(&IntegralFamily) -> CandidateFamilyAdmission,
+) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     let bundle = codec::read(bytes, input_limits)?;
     preparation::validate_arity(bundle.root_sector.len())?;
     if !rustred::fits_storage(bundle.root_sector.len(), N) {
         return Err(AppError::input("candidate bundle/reducer arity mismatch"));
     }
     let family = reconstruct_family::<N>(&bundle, input_limits)?;
+    let admission = admission(&family);
     let prepared =
         preparation::prepare::<N>(family, &bundle.root_sector, bundle.permutation.as_deref())?;
     let context = ParametricIbpGenerator::try_new(&prepared.family)

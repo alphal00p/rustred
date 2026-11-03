@@ -761,6 +761,7 @@ fn encode_terminals(
     writer.u8(match artifact.common_mass_homogeneity() {
         None => 0,
         Some(CommonMassHomogeneityProof::UniformVacuumMassSquared) => 1,
+        Some(CommonMassHomogeneityProof::UniformExternalScale) => 2,
     })
 }
 
@@ -814,6 +815,7 @@ fn decode_terminals(
     let common_mass_homogeneity = match reader.u8()? {
         0 => None,
         1 => Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
+        2 => Some(CommonMassHomogeneityProof::UniformExternalScale),
         _ => {
             return Err(ArtifactPersistenceError::UnsupportedFeature {
                 detail: "unknown homogeneity proof",

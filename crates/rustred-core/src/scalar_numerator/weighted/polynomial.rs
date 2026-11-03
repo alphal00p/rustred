@@ -148,6 +148,7 @@ mod tests {
         let prepared = PreparedScalarProducts {
             dot_head: symbol("dot"),
             loop_momenta: Vec::new(),
+            external_momenta: Vec::new(),
             scalar_products: vec![Atom::var(x)],
             scalar_product_variables: Arc::new(vec![PolyVariable::Symbol(x)]),
             limits: Default::default(),

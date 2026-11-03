@@ -96,11 +96,11 @@ pub(super) fn restore<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<Option<Vec<CandidateOwnerRoute>>, AppError> {
-    let loops = family.loop_count();
+    let width = witness_width(family);
     let mut expected = Vec::new();
     for (ordinal, route) in routes.iter().enumerate() {
-        if route.source_to_representative.len() != loops
-            || route.owner_to_representative.len() != loops
+        if route.source_to_representative.len() != width
+            || route.owner_to_representative.len() != width
         {
             return Err(AppError::input(
                 "route matrix dimensions differ from native family",
@@ -248,13 +248,26 @@ fn matrix(
     Matrix::from_nested_vec(values, Q).map_err(|e| AppError::input(format!("native matrix: {e:?}")))
 }
 
+/// Rows and columns of a routing witness: the loop momenta, followed by the
+/// external momenta of a propagator-type family.
+///
+/// A witness `W` expresses one sector's momenta in a representative basis:
+/// `(k, p) = W (k_rep, p_rep)` with `W = [[A, B], [0, C]]`, so a loop
+/// momentum may absorb an external shift (`k -> M k + s q`) and an external
+/// momentum may only map to a signed combination of external momenta
+/// (`q -> +-q`). For a vacuum family this is the square loop matrix `A`.
+fn witness_width(family: &IntegralFamily) -> usize {
+    family.loop_count() + family.external_count()
+}
+
 fn verify<const N: usize>(
     family: &Arc<IntegralFamily>,
     route: &Route,
 ) -> Result<Option<CandidateOwnerRoute>, AppError> {
     let loops = family.loop_count();
+    let width = witness_width(family);
     // Preserve the serial validation order, including non-transport records.
-    if route.source_to_representative.len() != loops || route.owner_to_representative.len() != loops
+    if route.source_to_representative.len() != width || route.owner_to_representative.len() != width
     {
         return Err(AppError::input(
             "route matrix dimensions differ from native family",
@@ -270,23 +283,36 @@ fn verify<const N: usize>(
         .map_err(|e| AppError::input(format!("native route inverse: {e:?}")))?;
     let composed = &matrix(&route.source_to_representative)? * &inverse;
     let context = family.coefficient_context();
-    let mut entries = Vec::new();
-    for i in 0..loops {
-        for j in 0..loops {
+    let mut entries = vec![Vec::new(); 3];
+    for i in 0..width {
+        for j in 0..width {
             let value = composed[(i as u32, j as u32)]
                 .to_string()
                 .parse::<i64>()
                 .map_err(|_| {
                     AppError::input("composed witness must remain an integral loop map")
                 })?;
-            entries.push(context.integer(value));
+            match (i < loops, j < loops) {
+                (true, true) => entries[0].push(context.integer(value)),
+                (true, false) => entries[1].push(context.integer(value)),
+                (false, false) => entries[2].push(context.integer(value)),
+                (false, true) if value != 0 => {
+                    return Err(AppError::input(
+                        "composed witness maps an external momentum onto loop momenta",
+                    ));
+                }
+                (false, true) => {}
+            }
         }
     }
+    let [loop_linear, loop_external, external_linear] =
+        entries.try_into().expect("three witness blocks");
+    let externals = width - loops;
     let map_error = |e| AppError::input(format!("native map: {e:?}"));
     let momentum = MomentumMap::new(
-        CoefficientMatrix::try_new(loops, loops, entries).map_err(map_error)?,
-        CoefficientMatrix::try_new(loops, 0, []).map_err(map_error)?,
-        CoefficientMatrix::try_new(0, 0, []).map_err(map_error)?,
+        CoefficientMatrix::try_new(loops, loops, loop_linear).map_err(map_error)?,
+        CoefficientMatrix::try_new(loops, externals, loop_external).map_err(map_error)?,
+        CoefficientMatrix::try_new(externals, externals, external_linear).map_err(map_error)?,
     );
     let verified = symmetry::verify(family, family, momentum, Default::default())
         .map_err(|e| AppError::input(format!("native map verification: {e:?}")))?;

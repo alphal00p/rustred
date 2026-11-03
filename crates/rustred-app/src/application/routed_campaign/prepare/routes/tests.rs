@@ -259,3 +259,96 @@ powers=[2,2,-2]
         }
     }
 }
+
+/// Two-loop kite propagator family: `k1^2, k2^2, (k1-q)^2, (k2-q)^2,
+/// (k1-k2)^2` with `q.q = 1`. Its witnesses are 3 x 3 over `(k1, k2, q)`.
+fn kite() -> Arc<IntegralFamily> {
+    let source = "I(name(kite),loops(k1,k2),externals(q),dimension(d),prop(D1,k1^2,1),\
+                  prop(D2,k2^2,1),prop(D3,(k1-q)^2,1),prop(D4,(k2-q)^2,1),\
+                  prop(D5,(k1-k2)^2,1),gram(q,q,1))";
+    let project =
+        crate::application::input::prepare_input(source, crate::InputFormat::Symbolica).unwrap();
+    let (_, _, _, lowered) = crate::application::lowering::lower_project(project)
+        .unwrap()
+        .into_parts();
+    Arc::new(lowered.into_family())
+}
+
+fn kite_route(source: &str, owner: &str, witness: [[&str; 3]; 3]) -> Route {
+    serde_json::from_value(json!({
+        "source_mask":source,"owner_mask":owner,"requires_transport":true,
+        "source_to_representative":witness,
+        "owner_to_representative":[["1","0","0"],["0","1","0"],["0","0","1"]]
+    }))
+    .unwrap()
+}
+
+#[test]
+fn propagator_witnesses_carry_affine_shifts_and_external_reversal() {
+    let family = kite();
+    // k1 = q - k2', k2 = q - k1': the triangle {2,3,4,5} onto {1,2,3,5}.
+    let shift = kite_route(
+        "01111",
+        "11101",
+        [["0", "-1", "1"], ["-1", "0", "1"], ["0", "0", "1"]],
+    );
+    // q = -q' with k = -k': every line onto itself.
+    let reversal = kite_route(
+        "11111",
+        "11111",
+        [["-1", "0", "0"], ["0", "-1", "0"], ["0", "0", "-1"]],
+    );
+    let prepared = prepare::<5>(
+        &family,
+        &[shift, reversal],
+        1,
+        &AtomicBool::new(false),
+        &|_| {},
+    )
+    .unwrap()
+    .unwrap();
+    let map = prepared[0].transport.verified_map().momentum();
+    assert_eq!(map.loop_external().rows(), 2);
+    assert!(map.loop_external().entries().iter().all(|c| !c.is_zero()));
+    // A dotted triangle with a numerator on its inactive line: k1^2 maps
+    // onto (k2-q)^2, the inactive line of the owner.
+    let key = rustred::family::IntegralKey::try_new([-1, 2, 1, 1, 1]).unwrap();
+    let transported = prepared[0]
+        .transport
+        .transport(&key, Default::default())
+        .unwrap();
+    assert_eq!(transported.terms().len(), 1);
+    assert_eq!(transported.terms()[0].key().powers(), [1, 1, 2, -1, 1]);
+    let top = rustred::family::IntegralKey::try_new([2, 1, 1, 1, -1]).unwrap();
+    let reversed = prepared[1]
+        .transport
+        .transport(&top, Default::default())
+        .unwrap();
+    assert_eq!(reversed.terms().len(), 1);
+    assert_eq!(reversed.terms()[0].key(), &top);
+}
+
+#[test]
+fn propagator_witnesses_reject_vacuum_shapes_and_mixed_external_rows() {
+    let family = kite();
+    let vacuum_shape: Route = serde_json::from_value(json!({
+        "source_mask":"01111","owner_mask":"11101","requires_transport":true,
+        "source_to_representative":[["0","-1"],["-1","0"]],
+        "owner_to_representative":[["1","0"],["0","1"]]
+    }))
+    .unwrap();
+    let mixed = kite_route(
+        "01111",
+        "11101",
+        [["0", "-1", "1"], ["-1", "0", "1"], ["1", "0", "1"]],
+    );
+    for (route, message) in [
+        (vacuum_shape, "dimensions differ"),
+        (mixed, "external momentum onto loop momenta"),
+    ] {
+        let error = prepare::<5>(&family, &[route], 1, &AtomicBool::new(false), &|_| {})
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(message), "{error}");
+    }
+}

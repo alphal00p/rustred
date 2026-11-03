@@ -5,7 +5,7 @@ use crate::algebra::{
     Coefficient, CoefficientContext, coefficient_clone_owned_retained_byte_bound,
 };
 use crate::family::IntegralKey;
-use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
+use crate::foundry::artifact::ClosedArtifact;
 use crate::foundry::cell::RuleCellTerm;
 use crate::foundry::parametric::ParametricRule;
 use crate::persistence::application_cache::{ApplicationCacheRecord, ApplicationCacheStage};
@@ -831,9 +831,9 @@ impl<'artifact> Reducer<'artifact> {
         &mut self,
         target: &IntegralKey,
     ) -> Result<HomogeneousMasterDecomposition, ReductionError> {
-        if self.artifact.common_mass_homogeneity()
-            != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
-        {
+        // Both proofs restore their one scale (m^2, or q^2/q.q) by the same
+        // stored power difference.
+        if self.artifact.common_mass_homogeneity().is_none() {
             return Err(ReductionError::MissingCommonMassHomogeneityProof);
         }
         let unit = self.reduce_unit_mass(target)?;

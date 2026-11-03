@@ -48,6 +48,7 @@ pub(super) fn prepare(
     request.nonpositive_indices = arguments.nonpositive_indices;
     request.selected_sectors = arguments.selected_sectors;
     request.root_zero_census = arguments.root_zero_census;
+    request.sector_failures = arguments.sector_failures;
     request.checkpoint = arguments.checkpoint;
     Ok(request)
 }

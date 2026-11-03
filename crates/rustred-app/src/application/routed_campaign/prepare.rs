@@ -257,11 +257,6 @@ pub(in crate::application) fn prepare_with_reader<const N: usize>(
             "loaded family differs from selection fingerprint",
         ));
     }
-    if family.external_count() != 0 {
-        return Err(AppError::input(
-            "this signed loop-map selection format requires a vacuum family",
-        ));
-    }
     drop(inputs);
     drop(preferred_inputs);
     drop(bytes);
@@ -357,9 +352,9 @@ pub(in crate::application) fn prepare_deferred_with_reader<const N: usize>(
     else {
         return Ok(None);
     };
-    if family.fingerprint() != selection.family_fingerprint || family.external_count() != 0 {
+    if family.fingerprint() != selection.family_fingerprint {
         return Err(AppError::input(
-            "deferred shared family differs from vacuum owner selection",
+            "deferred shared family differs from the owner selection",
         ));
     }
     let inputs = bytes

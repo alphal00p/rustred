@@ -112,13 +112,13 @@ fn build<const N: usize>(
 ) -> Result<(Box<dyn Lane>, LiteRedLaneReport), LiteRedError> {
     let arity = family.denominator_count();
     let root_array: [bool; N] = std::array::from_fn(|i| i < arity && root[i]);
-    let (reducer, generation) = generate_candidate_program::<N>(
-        &family,
-        root_array,
-        workers,
-        CandidateFamilyAdmission::ParametricVacuum,
-        priority,
-    )?;
+    let admission = if family.external_count() == 0 {
+        CandidateFamilyAdmission::ParametricVacuum
+    } else {
+        CandidateFamilyAdmission::UnitScalePropagator
+    };
+    let (reducer, generation) =
+        generate_candidate_program::<N>(&family, root_array, workers, admission, priority)?;
     let start = std::time::Instant::now();
     let census = if census {
         let analyzer = zero::Analyzer::try_unrestricted(&family)

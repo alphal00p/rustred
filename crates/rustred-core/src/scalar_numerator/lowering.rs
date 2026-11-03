@@ -43,6 +43,7 @@ impl PreparedScalarProducts {
             numerator.as_view(),
             self.dot_head,
             &self.loop_momenta,
+            &self.external_momenta,
             &mut comparisons,
         )?;
         preflight_polynomial_shape(

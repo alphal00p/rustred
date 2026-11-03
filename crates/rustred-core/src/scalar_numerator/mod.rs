@@ -1,7 +1,10 @@
-//! Exact scalar-numerator lowering for common-mass vacuum families/artifacts.
+//! Exact scalar-numerator lowering for unit-scale families/artifacts: the
+//! common-mass vacuum, and (family lane only) the propagator-type family with
+//! one external momentum of unit square.
 //!
 //! This module starts after tensor projection. It treats explicit loop-loop
-//! scalar products as polynomial indeterminates with Symbolica, expands them
+//! and loop-external scalar products as polynomial indeterminates with
+//! Symbolica, expands them
 //! through the authenticated family's affine denominator basis, and emits
 //! shifted integral keys. The family-bound lane proves no reduction coverage;
 //! the artifact-bound lane additionally enforces its certified root domain.

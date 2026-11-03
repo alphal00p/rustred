@@ -419,6 +419,43 @@ impl SectorExecutor {
         H: Fn(&SectorExecutionError<N, E>) + Send + Sync,
         F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
     {
+        self.map_each_configured_with_error_observer(
+            sources,
+            sectors,
+            configure,
+            options,
+            observe,
+            observe_error,
+            consume,
+        )
+        .into_iter()
+        .collect()
+    }
+
+    /// Like [`Self::map_configured_with_error_observer`], returning every
+    /// job's own outcome in input order instead of the first error. Every
+    /// job runs to completion as there; only the collection differs, so a
+    /// caller can keep the solved sectors of a family and report the failed
+    /// ones individually.
+    #[allow(clippy::too_many_arguments)]
+    pub fn map_each_configured_with_error_observer<const N: usize, T, E, C, O, H, F>(
+        &self,
+        sources: &SourceSystem<N>,
+        sectors: &[[bool; N]],
+        configure: C,
+        options: SectorSolveOptions,
+        observe: O,
+        observe_error: H,
+        consume: F,
+    ) -> Vec<Result<T, SectorExecutionError<N, E>>>
+    where
+        T: Send,
+        E: Send,
+        C: Fn(usize, [bool; N]) -> SectorConfig<N> + Send + Sync,
+        O: Fn(usize, [bool; N], SectorEvent<'_, N>) + Send + Sync,
+        H: Fn(&SectorExecutionError<N, E>) + Send + Sync,
+        F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
+    {
         let mut jobs: Vec<_> = if let Some(plan) = &self.visit_order {
             if let Err(source) =
                 super::discovery_strategy::validate_visit_order(plan.ordinals(), sectors.len())
@@ -432,9 +469,9 @@ impl SectorExecutor {
                         source,
                     };
                     observe_error(&error);
-                    return Err(error);
+                    return vec![Err(error)];
                 }
-                return Ok(Vec::new());
+                return Vec::new();
             }
             plan.ordinals().to_vec()
         } else {

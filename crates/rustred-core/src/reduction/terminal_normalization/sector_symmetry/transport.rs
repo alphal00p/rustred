@@ -1,6 +1,7 @@
 use super::*;
 use symbolica::domains::SelfRing;
 
+use crate::algebra::Coefficient;
 use crate::algebra::matrix::{SymbolicaCoefficientMatrixLimits, multiply_coefficient_matrices};
 use crate::sector::symmetry::{CoefficientMatrix, DenominatorAction};
 
@@ -8,38 +9,84 @@ pub(super) fn identity_map(
     family: &IntegralFamily,
     limits: TerminalSectorSymmetryLimits,
 ) -> Result<MomentumMap, Error> {
-    let loops = family.loop_count();
+    let size = family.loop_count() + family.external_count();
     let context = family.coefficient_context();
-    Ok(MomentumMap::new(
-        CoefficientMatrix::try_new_with_max_entries(
-            loops,
-            loops,
-            (0..loops).flat_map(|left| {
-                (0..loops).map(move |right| {
-                    if left == right {
+    let unit = (0..size)
+        .map(|row| {
+            (0..size)
+                .map(|column| {
+                    if row == column {
                         context.one()
                     } else {
                         context.zero()
                     }
                 })
-            }),
-            limits.verification.max_matrix_entries,
-        )
-        .map_err(algebra)?,
+                .collect()
+        })
+        .collect();
+    from_augmented(family, unit, limits)
+}
+
+/// The block matrix `[[A, B], [0, C]]` of `k = A k' + B p'`, `p = C p'` over
+/// the loop and then the external momenta. Composition of maps is the
+/// product of these matrices; for a vacuum family they are `A`.
+fn augmented(map: &MomentumMap, family: &IntegralFamily) -> Vec<Vec<Coefficient>> {
+    let loops = family.loop_count();
+    let externals = family.external_count();
+    let context = family.coefficient_context();
+    let entry = |matrix: &CoefficientMatrix, row, column| {
+        matrix
+            .get(row, column)
+            .expect("checked momentum matrix")
+            .clone()
+    };
+    (0..loops + externals)
+        .map(|row| {
+            (0..loops + externals)
+                .map(|column| match (row < loops, column < loops) {
+                    (true, true) => entry(map.loop_linear(), row, column),
+                    (true, false) => entry(map.loop_external(), row, column - loops),
+                    (false, true) => context.zero(),
+                    (false, false) => entry(map.external_linear(), row - loops, column - loops),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Split an augmented matrix back into a momentum map. Its external rows
+/// cannot involve loop momenta.
+fn from_augmented(
+    family: &IntegralFamily,
+    rows: Vec<Vec<Coefficient>>,
+    limits: TerminalSectorSymmetryLimits,
+) -> Result<MomentumMap, Error> {
+    let loops = family.loop_count();
+    let externals = family.external_count();
+    let max_entries = limits.verification.max_matrix_entries;
+    if rows[loops..]
+        .iter()
+        .any(|row| row[..loops].iter().any(|value| !value.is_zero()))
+    {
+        return Err(Error::InvalidWitness(
+            "composed sector symmetry map mixes external and loop momenta",
+        ));
+    }
+    let block = |rows: &[Vec<Coefficient>], columns: std::ops::Range<usize>| {
         CoefficientMatrix::try_new_with_max_entries(
-            loops,
-            0,
-            [],
-            limits.verification.max_matrix_entries,
+            rows.len(),
+            columns.len(),
+            rows.iter()
+                .flat_map(|row| row[columns.clone()].to_vec())
+                .collect::<Vec<_>>(),
+            max_entries,
         )
-        .map_err(algebra)?,
-        CoefficientMatrix::try_new_with_max_entries(
-            0,
-            0,
-            [],
-            limits.verification.max_matrix_entries,
-        )
-        .map_err(algebra)?,
+        .map_err(algebra)
+    };
+    Ok(MomentumMap::new(
+        block(&rows[..loops], 0..loops)?,
+        block(&rows[..loops], loops..loops + externals)?,
+        block(&rows[loops..], loops..loops + externals)?,
     ))
 }
 
@@ -51,20 +98,6 @@ pub(super) fn compose_maps(
     second: &MomentumMap,
     limits: TerminalSectorSymmetryLimits,
 ) -> Result<MomentumMap, Error> {
-    let rows = |matrix: &CoefficientMatrix| {
-        (0..matrix.rows())
-            .map(|row| {
-                (0..matrix.columns())
-                    .map(|column| {
-                        matrix
-                            .get(row, column)
-                            .expect("checked momentum matrix")
-                            .clone()
-                    })
-                    .collect()
-            })
-            .collect::<Vec<Vec<_>>>()
-    };
     let verification = limits.verification;
     let native = SymbolicaCoefficientMatrixLimits {
         diagnostics_enabled: verification.diagnostics_enabled,
@@ -77,26 +110,13 @@ pub(super) fn compose_maps(
     };
     let product = multiply_coefficient_matrices(
         family.coefficient_context(),
-        &rows(first.loop_linear()),
-        &rows(second.loop_linear()),
+        &augmented(first, family),
+        &augmented(second, family),
         native,
     )
     .map_err(algebra)?
     .0;
-    let loops = family.loop_count();
-    Ok(MomentumMap::new(
-        CoefficientMatrix::try_new_with_max_entries(
-            loops,
-            loops,
-            product.into_iter().flatten(),
-            verification.max_matrix_entries,
-        )
-        .map_err(algebra)?,
-        CoefficientMatrix::try_new_with_max_entries(loops, 0, [], verification.max_matrix_entries)
-            .map_err(algebra)?,
-        CoefficientMatrix::try_new_with_max_entries(0, 0, [], verification.max_matrix_entries)
-            .map_err(algebra)?,
-    ))
+    from_augmented(family, product, limits)
 }
 
 impl TerminalSectorSymmetryRoute {
@@ -223,16 +243,8 @@ impl TerminalSectorSymmetryRoute {
             max_input_retained_bytes: limits.verification.max_symbolica_input_retained_bytes,
             max_output_retained_bytes: limits.verification.max_symbolica_output_retained_bytes,
         };
-        let rows = |matrix: &CoefficientMatrix| {
-            (0..matrix.rows())
-                .map(|r| {
-                    (0..matrix.columns())
-                        .map(|c| matrix.get(r, c).expect("checked matrix shape").clone())
-                        .collect()
-                })
-                .collect::<Vec<Vec<_>>>()
-        };
-        let mut product = rows(first.verified_map().momentum().loop_linear());
+        let family = &first.source_family;
+        let mut product = augmented(first.verified_map().momentum(), family);
         for pair in routes.windows(2) {
             let previous = &pair[0];
             let next = &pair[1];
@@ -244,38 +256,15 @@ impl TerminalSectorSymmetryRoute {
                 ));
             }
             product = multiply_coefficient_matrices(
-                first.source_family.coefficient_context(),
+                family.coefficient_context(),
                 &product,
-                &rows(next.verified_map().momentum().loop_linear()),
+                &augmented(next.verified_map().momentum(), family),
                 matrix_limits,
             )
             .map_err(algebra)?
             .0;
         }
-        let loops = first.source_family.loop_count();
-        let map = MomentumMap::new(
-            CoefficientMatrix::try_new_with_max_entries(
-                loops,
-                loops,
-                product.into_iter().flatten(),
-                limits.verification.max_matrix_entries,
-            )
-            .map_err(algebra)?,
-            CoefficientMatrix::try_new_with_max_entries(
-                loops,
-                0,
-                [],
-                limits.verification.max_matrix_entries,
-            )
-            .map_err(algebra)?,
-            CoefficientMatrix::try_new_with_max_entries(
-                0,
-                0,
-                [],
-                limits.verification.max_matrix_entries,
-            )
-            .map_err(algebra)?,
-        );
+        let map = from_augmented(family, product, limits)?;
         let verified = Arc::new(
             symmetry::verify(
                 &first.source_family,

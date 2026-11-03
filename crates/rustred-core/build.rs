@@ -2,6 +2,8 @@
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 const VARIABLE: &str = "RUSTRED_RUNTIME_ARITIES";
+/// Mirrors `rustred::MAX_CAMPAIGN_ARITY` (a build script cannot import it).
+const MAX_CAMPAIGN_ARITY: usize = 32;
 
 fn parse_arities(value: Option<&str>) -> Result<Vec<usize>, String> {
     let Some(value) = value else {
@@ -79,8 +81,9 @@ __CAPACITY_ARMS__            $unsupported => $fallback,
         }
     }};
 }
-/// Invoke a caller macro with campaign storage widths (at most 16).
-/// With capacity-dispatch these are only 4, 8 and 16. Callers must admit
+/// Invoke a caller macro with campaign storage widths (at most
+/// `MAX_CAMPAIGN_ARITY`). With capacity-dispatch the registered arities up to
+/// 16 share the widths 4, 8 and 16; larger ones keep their own. Callers must admit
 /// physical inputs separately and select campaign_storage_arity before matching.
 /// Empty registries are possible when only larger finite-reducer arities are
 /// selected. The callback must accept zero or more literals.
@@ -114,7 +117,7 @@ macro_rules! with_candidate_runtime_arities {
             "__APP_ARITIES__",
             &capacities
                 .iter()
-                .filter(|&&arity| arity <= 16)
+                .filter(|&&arity| arity <= MAX_CAMPAIGN_ARITY)
                 .map(usize::to_string)
                 .collect::<Vec<_>>()
                 .join(", "),

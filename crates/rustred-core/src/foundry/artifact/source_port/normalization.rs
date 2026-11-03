@@ -40,9 +40,9 @@ impl OriginalSourceCorpus {
         system: &SourceSystem<N>,
         row_ids: &[RowId],
     ) -> Result<Self, SourcePortAuditError> {
-        if family.external_count() != 0 || system.rows().len() != row_ids.len() {
+        if family.external_count() > 1 || system.rows().len() != row_ids.len() {
             return Err(error(
-                "original-source normalization requires a complete vacuum row map",
+                "original-source normalization requires a complete ordinary row map",
             ));
         }
         let generator = ParametricIbpGenerator::try_new(family).map_err(error)?;

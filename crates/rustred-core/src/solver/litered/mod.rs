@@ -22,7 +22,9 @@
 //! cross-check and as an interim backend; never feed it to closing-artifact
 //! installation or publication. Families with masses other than one, extra
 //! parameters (`eta`) or a numeric dimension enter through
-//! [`crate::solver::CandidateFamilyAdmission::ParametricVacuum`].
+//! [`crate::solver::CandidateFamilyAdmission::ParametricVacuum`];
+//! propagator-type families with one external momentum through
+//! [`crate::solver::CandidateFamilyAdmission::UnitScalePropagator`].
 
 mod compress;
 mod dag;

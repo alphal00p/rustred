@@ -14,6 +14,7 @@ mod model;
 pub(crate) mod numerator_expansion;
 pub mod presentation;
 pub mod symanzik;
+mod unit_scale;
 
 #[cfg(test)]
 mod tests;
@@ -28,3 +29,4 @@ pub use model::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
     ScalarProductCoordinate,
 };
+pub use unit_scale::UnitScaleKinematics;

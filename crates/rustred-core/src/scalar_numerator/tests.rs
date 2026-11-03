@@ -500,7 +500,7 @@ fn deep_scalar_syntax_uses_explicit_stacks_with_diagnostics_off() {
         2049
     );
     let mut comparisons = ExactComparisonBudget::new(1, false);
-    validate_scalar_syntax(numerator.as_view(), head, &[], &mut comparisons).unwrap();
+    validate_scalar_syntax(numerator.as_view(), head, &[], &[], &mut comparisons).unwrap();
     assert!(
         contains_exact_atom(numerator.as_view(), parameter.as_view(), &mut comparisons).unwrap()
     );

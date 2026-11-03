@@ -238,7 +238,11 @@ fn durable_loader_rejects_family_source_rule_and_terminal_corruption() {
     let mut terminal_corruption = encoded;
     let terminal = durable_section(&terminal_corruption, 5);
     assert_eq!(terminal_corruption[terminal.end - 1], 1);
-    terminal_corruption[terminal.end - 1] = 2;
+    // Tag 2 is the external-scale proof, which a vacuum family cannot carry.
+    let mut foreign_proof = terminal_corruption.clone();
+    foreign_proof[terminal.end - 1] = 2;
+    assert!(ClosedArtifact::decode_durable(&foreign_proof).is_err());
+    terminal_corruption[terminal.end - 1] = 3;
     assert!(matches!(
         ClosedArtifact::decode_durable(&terminal_corruption),
         Err(ArtifactPersistenceError::UnsupportedFeature { .. })

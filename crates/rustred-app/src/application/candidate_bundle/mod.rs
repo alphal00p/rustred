@@ -51,6 +51,7 @@ pub use generate::{
     family_candidates, family_candidates_on_executor, family_candidates_with_progress,
 };
 pub use inspection::*;
+pub(in crate::application) use load::load_bundle;
 pub(crate) use load::load_generated_candidate_owners_with_preference_rule_subsets;
 pub use load::{
     CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,
@@ -63,7 +64,7 @@ pub use model::{
     CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
     CandidateCertificationResult, CandidateExactBackend, CaseIntersectionLimits,
     FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy,
-    MAX_CANDIDATE_BUNDLE_BYTES,
+    MAX_CANDIDATE_BUNDLE_BYTES, SectorFailurePolicy,
 };
 pub use priority::{
     CheckedPriorityOwnerExport, encode_checked_priority_owner,

@@ -270,12 +270,13 @@ fn install_source_port_impl(
         || !candidate.dependencies.is_empty()
         || !candidate.factorization_rules.is_empty()
         || candidate.common_mass_homogeneity
-            != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
+            != Some(CommonMassHomogeneityProof::for_kinematics(
+                validate_unit_scale_family(&candidate.family)?,
+            ))
     {
         return Err(ArtifactError::UnsupportedClosureShape);
     }
     super::validate_generic_bindings_for(&candidate, ReplayProducer::CombinedOriginalDomain)?;
-    validate_unit_mass(&candidate)?;
     let root = scope::root_from_bounds(&candidate.supported_root_power_bounds, candidate.arity)?;
     let mut covers: BTreeMap<Mask, (Vec<PredicateCoveragePiece<'_>>, Vec<LatticeBox>)> =
         BTreeMap::new();
@@ -653,45 +654,45 @@ fn successor_error(issue: SourcePortAuditError) -> ArtifactError {
     }
 }
 
-fn validate_unit_mass(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
-    validate_unit_mass_family(&candidate.family)
-}
-
 #[cfg(test)]
 mod total_excess_tests;
 
-/// Shared early admission and final-installation check. Keeping the exact
-/// family predicate here prevents frontends from duplicating algebra policy.
-pub(crate) fn validate_unit_mass_family(
+/// Shared early admission and final-installation check of the unit-scale
+/// publication shape: a unit-mass vacuum, or a propagator-type family with
+/// one external momentum of unit numeric square
+/// ([`crate::family::UnitScaleKinematics`]); `d` is the sole parameter.
+/// Keeping the exact family predicate in one place prevents frontends from
+/// duplicating algebra policy.
+pub(crate) fn validate_unit_scale_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<crate::family::UnitScaleKinematics, ArtifactError> {
+    family
+        .unit_scale_kinematics()?
+        .ok_or(ArtifactError::UnsupportedClosureShape)
+}
+
+/// [`validate_unit_scale_family`] restricted to propagator-type families.
+pub(crate) fn validate_unit_scale_propagator_family(
     family: &crate::family::IntegralFamily,
 ) -> Result<(), ArtifactError> {
-    let base = family.coefficient_context();
-    let minus_one = base
-        .try_neg(&base.one(), Default::default())
-        .map_err(crate::family::IntegralFamilyError::from)?;
-    if family.external_count() != 0
-        || base.parameter_names() != ["d"]
-        || family
-            .denominators()
-            .iter()
-            .any(|denominator| denominator.constant() != &minus_one)
-        || family.power_shifts().iter().any(|shift| !shift.is_zero())
-        || base.parameter("d").as_ref() != Some(family.dimension())
-    {
-        return Err(ArtifactError::UnsupportedClosureShape);
+    match validate_unit_scale_family(family)? {
+        crate::family::UnitScaleKinematics::UnitScalePropagator { .. } => Ok(()),
+        crate::family::UnitScaleKinematics::UnitMassVacuum => {
+            Err(ArtifactError::UnsupportedClosureShape)
+        }
     }
-    Ok(())
 }
 
 /// Admission for the explicitly uncertified candidate applier only.
 ///
-/// This is [`validate_unit_mass_family`] without its unit-mass, d-only and
-/// single-scale requirements: any uncut vacuum family without power shifts is
+/// This is [`validate_unit_scale_family`] for vacuum families without its
+/// unit-mass, d-only and single-scale requirements: any uncut vacuum family
+/// without power shifts is
 /// accepted, with arbitrary exact base parameters (for example a deformation
 /// `eta`, or no parameter at all when `d` is numeric) and arbitrary exact
 /// denominator constants (for example `-1-eta`). It is never used by closing
 /// artifact installation, certification or publication, which keep the strict
-/// unit-mass predicate above. Output of lanes admitted here stays candidate
+/// unit-scale predicate above. Output of lanes admitted here stays candidate
 /// arithmetic without source-replay provenance or cover proof.
 pub(crate) fn validate_parametric_vacuum_family(
     family: &crate::family::IntegralFamily,

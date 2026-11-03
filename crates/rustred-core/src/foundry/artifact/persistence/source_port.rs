@@ -70,11 +70,15 @@ pub(super) fn decode<'input>(
             field: "combined family fingerprint",
         });
     }
-    let expected_rows = family.loop_count().checked_mul(family.loop_count()).ok_or(
-        ArtifactPersistenceError::ResourceCountOverflow {
+    // L(L+E) ordinary rows: every loop derivative contracted with every loop
+    // and external momentum (E <= 1, so there are no Lorentz rows).
+    let expected_rows = family
+        .loop_count()
+        .checked_add(family.external_count())
+        .and_then(|contractions| contractions.checked_mul(family.loop_count()))
+        .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
             resource: "ordinary source rows",
-        },
-    )?;
+        })?;
     if source_plan.expected_rows != expected_rows {
         return Err(ArtifactPersistenceError::SemanticMismatch {
             field: "complete ordinary source count",

@@ -47,8 +47,29 @@ pub enum CandidateFamilyAdmission {
     /// applier accepts it, but consumers that assume unit masses (for
     /// example common-mass power extraction) must check it and refuse such
     /// programs. A candidate program is never a closing artifact under
-    /// either policy.
+    /// any policy.
     ParametricVacuum,
+    /// The publication shape of a propagator-type ("p-integral") family:
+    /// one external momentum `q` with numeric Gram `q.q = +-1`, rational
+    /// denominator constants, sole parameter `d` and no power shifts (see
+    /// [`crate::family::UnitScaleKinematics::UnitScalePropagator`]). The
+    /// common-scale exponent of [`CandidateDecomposition`] then counts powers
+    /// of `q^2 / q.q`, exactly as it counts `m^2` for a unit-mass vacuum.
+    UnitScalePropagator,
+}
+
+impl CandidateFamilyAdmission {
+    /// The unit-scale admission matching a family's kinematics:
+    /// [`Self::UnitScalePropagator`] for a family with external momenta and
+    /// [`Self::UnitMassVacuum`] otherwise. The selected predicate is still
+    /// checked in full when a program is prepared.
+    pub fn unit_scale_for(family: &crate::family::IntegralFamily) -> Self {
+        if family.external_count() == 0 {
+            Self::UnitMassVacuum
+        } else {
+            Self::UnitScalePropagator
+        }
+    }
 }
 
 /// Exact arithmetic result of candidate formulas, not certified IBP provenance
@@ -87,7 +108,9 @@ impl CandidateDecomposition {
 
     /// Common-mass-squared exponent for one returned terminal. The constructor
     /// admits the generic unit-mass vacuum family through the existing family
-    /// service. No mass normalization or numerical master evaluation occurs here.
+    /// service. For a [`CandidateFamilyAdmission::UnitScalePropagator`]
+    /// program the same exponent counts powers of the external scale
+    /// `q^2 / q.q`. No normalization or numerical master evaluation occurs here.
     pub fn common_mass_squared_power(
         &self,
         terminal: &IntegralKey,

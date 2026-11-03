@@ -31,11 +31,13 @@ pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v5";
 
 /// Request a sector-complete closing artifact for an external family.
 ///
-/// The existing core artifact admission currently requires an unshifted,
-/// unit-mass vacuum with `d` as its sole scalar parameter. Every denominator
-/// must have constant term `-1`. Coverage includes every sector in the
-/// declared root domain. By default that domain is the unrestricted family;
-/// `nonpositive_indices` can explicitly keep numerator coordinates inactive.
+/// The core artifact admission requires an unshifted unit-scale family with
+/// `d` as its sole scalar parameter: a unit-mass vacuum (every denominator
+/// constant `-1`) or a propagator-type family with one external momentum of
+/// numeric square `+-1` (see `docs/p_integrals.md`). Coverage includes every
+/// sector in the declared root domain. By default that domain is the
+/// unrestricted family; `nonpositive_indices` can explicitly keep numerator
+/// coordinates inactive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyCloseRequest {
     pub source: String,
@@ -281,8 +283,9 @@ fn close<const N: usize>(
             return AppError::resource(resource);
         }
         AppError::input(format!(
-            "family close requires an unshifted unit-mass vacuum, denominator constant terms -1, \
-             and d as its sole scalar parameter: {error}"
+            "family close requires an unshifted unit-mass vacuum (denominator constant terms -1) \
+             or unit-scale propagator family (one external momentum, q.q = +-1), \
+             with d as its sole scalar parameter: {error}"
         ))
     })?;
     let preparation::Prepared {
