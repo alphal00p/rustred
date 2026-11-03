@@ -8,7 +8,7 @@ use super::{
 use crate::{
     CandidateBundleLimits, CandidateCheckpointOptions, CandidateExactBackend,
     CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePolicy, InputFormat,
-    MAX_CANDIDATE_BUNDLE_BYTES,
+    MAX_CANDIDATE_BUNDLE_BYTES, SectorFailurePolicy,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +34,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub nonpositive_indices: Vec<usize>,
     pub selected_sectors: Option<Vec<Vec<bool>>>,
     pub root_zero_census: bool,
+    pub sector_failures: SectorFailurePolicy,
     pub force: bool,
 }
 
@@ -96,6 +97,7 @@ fn parse(
     let mut nonpositive_indices = None;
     let mut selected_sectors = None;
     let mut root_zero_census = false;
+    let mut sector_failures = None;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
     let mut max_total_excess_degree = None;
@@ -109,6 +111,21 @@ fn parse(
                     return Err(ArgError::DuplicateOption("--root-zero-census"));
                 }
                 root_zero_census = true;
+            }
+            "--sector-failures" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--sector-failures")?;
+                let parsed = match value.as_str() {
+                    "abort" => SectorFailurePolicy::Abort,
+                    "report" => SectorFailurePolicy::Report,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--sector-failures",
+                            value,
+                            expected: "abort or report",
+                        });
+                    }
+                };
+                set_once(&mut sector_failures, "--sector-failures", parsed)?;
             }
             "--case-max-work-items"
             | "--case-max-terms-per-conjunction"
@@ -519,6 +536,7 @@ fn parse(
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
             selected_sectors,
             root_zero_census,
+            sector_failures: sector_failures.unwrap_or_default(),
             force,
         }))
     }

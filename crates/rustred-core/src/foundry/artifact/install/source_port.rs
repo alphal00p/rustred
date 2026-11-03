@@ -683,6 +683,30 @@ pub(crate) fn validate_unit_mass_family(
     Ok(())
 }
 
+/// The unit-scale publication shape of either kinematics: the unit-mass
+/// vacuum of [`validate_unit_mass_family`], or a propagator-type family with
+/// one external momentum of unit numeric square
+/// ([`crate::family::UnitScaleKinematics::UnitScalePropagator`]).
+pub(crate) fn validate_unit_scale_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<crate::family::UnitScaleKinematics, ArtifactError> {
+    family
+        .unit_scale_kinematics()?
+        .ok_or(ArtifactError::UnsupportedClosureShape)
+}
+
+/// [`validate_unit_scale_family`] restricted to propagator-type families.
+pub(crate) fn validate_unit_scale_propagator_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<(), ArtifactError> {
+    match validate_unit_scale_family(family)? {
+        crate::family::UnitScaleKinematics::UnitScalePropagator { .. } => Ok(()),
+        crate::family::UnitScaleKinematics::UnitMassVacuum => {
+            Err(ArtifactError::UnsupportedClosureShape)
+        }
+    }
+}
+
 /// Admission for the explicitly uncertified candidate applier only.
 ///
 /// This is [`validate_unit_mass_family`] without its unit-mass, d-only and

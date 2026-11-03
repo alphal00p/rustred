@@ -32,6 +32,13 @@
 
 include!(concat!(env!("OUT_DIR"), "/runtime_arities.rs"));
 
+/// Largest arity the campaign/application layer represents: its persisted
+/// owner masks and compact walk domains are 32-bit. This bounds which
+/// registered arities `with_app_runtime_arities!` exposes; the registry itself
+/// (`RUSTRED_RUNTIME_ARITIES`) decides which are compiled. Five-loop
+/// propagator families need 20 coordinates, six-loop vacuum families 21.
+pub const MAX_CAMPAIGN_ARITY: usize = 32;
+
 /// Sorted, unique arities compiled into the dynamic bridge and default dispatcher.
 pub fn compiled_runtime_arities() -> &'static [usize] {
     COMPILED_RUNTIME_ARITIES
@@ -78,7 +85,7 @@ mod campaign_storage_tests {
         let expected: Vec<_> = super::compiled_runtime_capacities()
             .iter()
             .copied()
-            .filter(|width| *width <= 16)
+            .filter(|width| *width <= super::MAX_CAMPAIGN_ARITY)
             .collect();
         assert_eq!(application, expected);
         #[cfg(feature = "capacity-dispatch")]

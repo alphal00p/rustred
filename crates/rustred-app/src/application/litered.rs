@@ -1,5 +1,6 @@
 //! `litered-reduce`: the UNCERTIFIED LiteRed lane over a saved candidate
-//! bundle (RR-8). Loads the bundle under the parametric-vacuum admission,
+//! bundle (RR-8). Loads the bundle under the parametric-vacuum admission (the
+//! unit-scale propagator admission for a family with an external momentum),
 //! builds the RustRed sector-symmetry census, expands the requested targets
 //! into a Zp application DAG, compresses the candidate terminals with census
 //! rows and returns exact coefficients onto the compressed basis at rational
@@ -28,9 +29,7 @@ use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::Rational;
 
 use super::AppError;
-use super::candidate_bundle::{
-    CandidateBundleLimits, load_generated_candidate_bundle_with_admission,
-};
+use super::candidate_bundle::{CandidateBundleLimits, load_bundle};
 
 pub const LITERED_REDUCE_SPEC_SCHEMA: &str = "rustred.litered-reduce-spec.v1";
 pub const LITERED_REDUCE_OUTPUT_SCHEMA: &str = "rustred.litered-reduce-output.v1";
@@ -171,9 +170,13 @@ pub fn litered_reduce(spec: &LiteRedReduceSpec) -> Result<Value, AppError> {
 
 fn run<const N: usize>(spec: &LiteRedReduceSpec, bytes: &[u8]) -> Result<Value, AppError> {
     let total = Instant::now();
+    // The default is the parametric vacuum lane, and the unit-scale
+    // propagator shape for a family with an external momentum.
     let admission = match spec.admission.as_deref() {
-        None | Some("parametric-vacuum") => CandidateFamilyAdmission::ParametricVacuum,
-        Some("unit-mass-vacuum") => CandidateFamilyAdmission::UnitMassVacuum,
+        None => None,
+        Some("parametric-vacuum") => Some(CandidateFamilyAdmission::ParametricVacuum),
+        Some("unit-mass-vacuum") => Some(CandidateFamilyAdmission::UnitMassVacuum),
+        Some("unit-scale-propagator") => Some(CandidateFamilyAdmission::UnitScalePropagator),
         Some(other) => return Err(AppError::input(format!("unknown admission {other:?}"))),
     };
     let rows = match spec.rows.as_deref() {
@@ -187,12 +190,19 @@ fn run<const N: usize>(spec: &LiteRedReduceSpec, bytes: &[u8]) -> Result<Value, 
         Some(other) => return Err(AppError::input(format!("unknown order {other:?}"))),
     };
     let start = Instant::now();
-    let (family, reducer) = load_generated_candidate_bundle_with_admission::<N>(
+    let (family, reducer) = load_bundle::<N>(
         bytes,
         bundle_limits(spec),
         ReductionLimits::default(),
-        admission,
+        |family| {
+            admission.unwrap_or(if family.external_count() == 0 {
+                CandidateFamilyAdmission::ParametricVacuum
+            } else {
+                CandidateFamilyAdmission::UnitScalePropagator
+            })
+        },
     )?;
+    let admission = reducer.admission();
     let load_seconds = start.elapsed().as_secs_f64();
     let root = reducer.root_sector();
     let family = Arc::new(family);

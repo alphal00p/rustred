@@ -94,9 +94,9 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
     bundle_limits: CandidateBundleLimits,
     dispatch_policy: RuleDispatchPolicy,
 ) -> Result<CheckedPriorityOwnerExport, AppError> {
-    if !(1..=16).contains(&N) {
+    if !(1..=rustred::MAX_CAMPAIGN_ARITY).contains(&N) {
         return Err(error(
-            "priority owner arity must be between one and sixteen",
+            "priority owner arity exceeds the campaign representation",
         ));
     }
     let base = codec::read(base_owner_bytes, bundle_limits)?;

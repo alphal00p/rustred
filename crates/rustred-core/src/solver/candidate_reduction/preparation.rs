@@ -110,7 +110,7 @@ impl<const N: usize> CandidateReducer<N> {
             zero_certificates,
             limits,
             scope,
-            CandidateFamilyAdmission::UnitMassVacuum,
+            CandidateFamilyAdmission::unit_scale_for(family),
         )
     }
 

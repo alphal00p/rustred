@@ -163,7 +163,7 @@ fn dispatch_solve(
                 Ok((summary.sectors, summary.solved_sectors, summary.rules, summary.finite_residuals, summary.elapsed))
                 }
                 ),*
-                _ => Err(AppError::input(format!("family arity {arity} exceeds the diagnostic dispatch limit 16"))),
+                _ => Err(AppError::input(format!("family arity {arity} is not a compiled campaign storage width"))),
             }
         };
     }

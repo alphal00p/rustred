@@ -73,16 +73,20 @@ impl ExactComparisonBudget {
     }
 }
 
+/// Admit scalarized syntax: loop momenta only inside `dot(loop, loop)` or
+/// `dot(loop, external)` products with a declared external-momentum label.
 pub(super) fn validate_scalar_syntax(
     numerator: AtomView<'_>,
     dot_head: Symbol,
     loop_momenta: &[Atom],
+    external_momenta: &[Atom],
     comparisons: &mut ExactComparisonBudget,
 ) -> Result<(), ScalarNumeratorError> {
     fn visit<'a>(
         atom: AtomView<'a>,
         dot_head: Symbol,
         loop_momenta: &[Atom],
+        external_momenta: &[Atom],
         comparisons: &mut ExactComparisonBudget,
         pending: &mut Vec<AtomView<'a>>,
     ) -> Result<(), ScalarNumeratorError> {
@@ -142,9 +146,20 @@ pub(super) fn validate_scalar_syntax(
                             Ok(())
                         }
                     }
-                    _ => Err(ScalarNumeratorError::MixedLoopScalarProduct {
-                        expression: atom.to_owned(),
-                    }),
+                    (Some(_), None) | (None, Some(_)) => {
+                        let other = if left.is_none() {
+                            left_argument
+                        } else {
+                            right_argument
+                        };
+                        if resolve_loop(other, external_momenta, comparisons)?.is_some() {
+                            Ok(())
+                        } else {
+                            Err(ScalarNumeratorError::MixedLoopScalarProduct {
+                                expression: atom.to_owned(),
+                            })
+                        }
+                    }
                 }
             }
             AtomView::Fun(function) => {
@@ -176,7 +191,14 @@ pub(super) fn validate_scalar_syntax(
 
     let mut pending = vec![numerator];
     while let Some(atom) = pending.pop() {
-        visit(atom, dot_head, loop_momenta, comparisons, &mut pending)?;
+        visit(
+            atom,
+            dot_head,
+            loop_momenta,
+            external_momenta,
+            comparisons,
+            &mut pending,
+        )?;
     }
     Ok(())
 }

@@ -75,9 +75,10 @@ impl LoweredScalarNumeratorTerm {
         &self.integral
     }
 
-    /// Additional power of the physical common mass squared.
+    /// Additional power of the physical common mass squared (for a
+    /// propagator-type family: of the external scale `q^2 / q.q`).
     ///
-    /// A unit-mass affine constant has mass dimension two, whereas a
+    /// A unit-scale affine constant has mass dimension two, whereas a
     /// denominator branch already carries that dimension. Each selected
     /// constant branch therefore contributes one explicit power.
     pub const fn common_mass_squared_power(&self) -> u32 {

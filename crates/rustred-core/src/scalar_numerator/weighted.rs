@@ -191,6 +191,7 @@ pub(super) fn lower_weighted_in_request(
         numerator.as_view(),
         prepared.dot_head,
         &prepared.loop_momenta,
+        &prepared.external_momenta,
         &mut comparisons,
     )?;
     #[cfg(test)]

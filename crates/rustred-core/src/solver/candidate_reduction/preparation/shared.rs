@@ -86,7 +86,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
         family,
         zero_certificates,
         limits,
-        CandidateFamilyAdmission::UnitMassVacuum,
+        CandidateFamilyAdmission::unit_scale_for(family),
     )
 }
 
@@ -119,6 +119,16 @@ pub(in crate::solver::candidate_reduction) fn prepare_family_with_admission<cons
         CandidateFamilyAdmission::ParametricVacuum => {
             crate::foundry::artifact::validate_parametric_vacuum_family(family)
                 .map_err(|e| CandidateReductionError::UnsupportedFamily(e.to_string()))?
+        }
+        CandidateFamilyAdmission::UnitScalePropagator => {
+            crate::foundry::artifact::validate_unit_scale_propagator_family(family).map_err(
+                |error| match crate::reduction::resource_limit_error(&error) {
+                    Some(resource) => {
+                        crate::reduction::ReductionError::Resources(resource.clone()).into()
+                    }
+                    None => CandidateReductionError::UnsupportedFamily(error.to_string()),
+                },
+            )?
         }
     }
     let generator = ParametricIbpGenerator::try_new(family).map_err(invalid_input)?;

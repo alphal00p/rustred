@@ -1,8 +1,8 @@
-//! Public vacuum sector-symmetry census and solver-time router.
+//! Public sector-symmetry census and solver-time router.
 //!
 //! [`SectorSymmetryCensus::discover`] partitions caller-declared sectors of
-//! one vacuum family (typically every sector not proved zero by
-//! [`crate::sector::zero::Analyzer`]) into exact equivalence classes:
+//! one vacuum or propagator-type family (typically every sector not proved
+//! zero by [`crate::sector::zero::Analyzer`]) into exact equivalence classes:
 //!
 //! - every sector receives the native canonical key of its mass-colored
 //!   projector graph ([`CanonicalSupportKey`]);
@@ -12,7 +12,10 @@
 //!   of hashing or input order;
 //! - every other member owns an exactly verified route to its representative:
 //!   a loop-momentum map `k_member = A k_representative` with unit Jacobian
-//!   whose active denominators map by a unit bijection, complete constants
+//!   (with external momenta `k_member = A k_rep + B p_rep`, `p_member =
+//!   C p_rep`, each external momentum fixed up to sign by the marked
+//!   projector graph) whose active denominators map by a unit bijection,
+//!   complete constants
 //!   (masses, including parameter-dependent ones such as `-1 - eta`)
 //!   included, compiled by [`integral_transport::compile_with_affine_constants`]
 //!   under [`SectorSymmetryCensusOptions::affine_constants`];
@@ -399,7 +402,7 @@ impl SectorSymmetryRelation {
     }
 }
 
-/// Verified sector-symmetry partition and router for one vacuum family.
+/// Verified sector-symmetry partition and router for one family.
 #[derive(Debug)]
 pub struct SectorSymmetryCensus {
     family: Arc<IntegralFamily>,

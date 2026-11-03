@@ -31,6 +31,7 @@ pub struct FamilyScalarNumeratorService<'family> {
 pub(super) struct PreparedScalarProducts {
     pub(super) dot_head: Symbol,
     pub(super) loop_momenta: Vec<Atom>,
+    pub(super) external_momenta: Vec<Atom>,
     pub(super) scalar_products: Vec<Atom>,
     pub(super) scalar_product_variables: Arc<Vec<PolyVariable>>,
     pub(super) limits: ScalarNumeratorLimits,
@@ -63,7 +64,13 @@ impl<'artifact> ScalarNumeratorService<'artifact> {
         }
         Ok(Self {
             artifact,
-            prepared: PreparedScalarProducts::try_new(family, dot_head, loop_momenta, limits)?,
+            prepared: PreparedScalarProducts::try_new(
+                family,
+                dot_head,
+                loop_momenta,
+                Vec::new(),
+                limits,
+            )?,
         })
     }
 
@@ -93,18 +100,48 @@ impl<'family> FamilyScalarNumeratorService<'family> {
     /// artifact. Eligibility is checked independently against the shared
     /// unit-mass, d-only, single-scale vacuum family policy. The authenticated
     /// family's existing inverse basis is reused, never reconstructed here.
+    /// A propagator-type family needs its external-momentum labels, see
+    /// [`Self::try_new_with_external_momenta`].
     pub fn try_new(
         family: &'family IntegralFamily,
         dot_head: Symbol,
         loop_momenta: Vec<Atom>,
         limits: ScalarNumeratorLimits,
     ) -> Result<Self, ScalarNumeratorError> {
+        Self::try_new_with_external_momenta(family, dot_head, loop_momenta, Vec::new(), limits)
+    }
+
+    /// As [`Self::try_new`] for either unit-scale kinematics
+    /// ([`crate::family::UnitScaleKinematics`]): a unit-mass vacuum family
+    /// without external labels, or a propagator-type family with one label
+    /// per external momentum. Loop-external products `dot(k, p)` then lower
+    /// through the family's `k.p` coordinates, whose constants are multiples
+    /// of the unit external scale: [`LoweredScalarNumeratorTerm`]'s
+    /// common-scale power counts `q^2 / q.q` exactly as it counts `m^2` for a
+    /// vacuum family, and the weighted lane's `common_mass_squared` argument
+    /// is that external scale. External-external products such as
+    /// `dot(q, q)` are scalar spectators.
+    ///
+    /// [`LoweredScalarNumeratorTerm`]: super::LoweredScalarNumeratorTerm
+    pub fn try_new_with_external_momenta(
+        family: &'family IntegralFamily,
+        dot_head: Symbol,
+        loop_momenta: Vec<Atom>,
+        external_momenta: Vec<Atom>,
+        limits: ScalarNumeratorLimits,
+    ) -> Result<Self, ScalarNumeratorError> {
         validate_dot_head(dot_head)?;
-        crate::foundry::artifact::validate_unit_mass_family(family)
+        crate::foundry::artifact::validate_unit_scale_family(family)
             .map_err(ScalarNumeratorError::FamilyEligibility)?;
         Ok(Self {
             family,
-            prepared: PreparedScalarProducts::try_new(family, dot_head, loop_momenta, limits)?,
+            prepared: PreparedScalarProducts::try_new(
+                family,
+                dot_head,
+                loop_momenta,
+                external_momenta,
+                limits,
+            )?,
         })
     }
 
@@ -198,6 +235,7 @@ impl PreparedScalarProducts {
         family: &IntegralFamily,
         dot_head: Symbol,
         loop_momenta: Vec<Atom>,
+        external_momenta: Vec<Atom>,
         limits: ScalarNumeratorLimits,
     ) -> Result<Self, ScalarNumeratorError> {
         if loop_momenta.len() != family.loop_count() {
@@ -205,6 +243,22 @@ impl PreparedScalarProducts {
                 expected: family.loop_count(),
                 actual: loop_momenta.len(),
             });
+        }
+        if external_momenta.len() != family.external_count() {
+            return Err(ScalarNumeratorError::WrongExternalMomentumCount {
+                expected: family.external_count(),
+                actual: external_momenta.len(),
+            });
+        }
+        for (external, momentum) in external_momenta.iter().enumerate() {
+            if loop_momenta.contains(momentum) || external_momenta[..external].contains(momentum) {
+                return Err(ScalarNumeratorError::DuplicateExternalMomentum { external });
+            }
+            if contains_head(momentum.as_view(), dot_head)? {
+                return Err(ScalarNumeratorError::ScalarProductHeadInLoopMomentum {
+                    momentum: loop_momenta.len() + external,
+                });
+            }
         }
         let duplicate_checks = checked_mul(
             "loop-momentum label equality checks",
@@ -264,14 +318,18 @@ impl PreparedScalarProducts {
                 requested: family.coordinates().len(),
             })?;
         for coordinate in family.coordinates() {
-            let ScalarProductCoordinate::LoopLoop { left, right } = *coordinate else {
-                return Err(ScalarNumeratorError::UnsupportedArtifact {
-                    detail: "the vacuum family contains a loop-external coordinate",
-                });
+            let (left, right) = match *coordinate {
+                ScalarProductCoordinate::LoopLoop { left, right } => {
+                    (&loop_momenta[left], &loop_momenta[right])
+                }
+                ScalarProductCoordinate::LoopExternal {
+                    loop_index,
+                    external_index,
+                } => (&loop_momenta[loop_index], &external_momenta[external_index]),
             };
             let scalar_product = FunctionBuilder::new(dot_head)
-                .add_arg(loop_momenta[left].clone())
-                .add_arg(loop_momenta[right].clone())
+                .add_arg(left.clone())
+                .add_arg(right.clone())
                 .finish();
             variables.push(
                 PolyVariable::try_from(scalar_product.clone()).map_err(|detail| {
@@ -284,6 +342,7 @@ impl PreparedScalarProducts {
         Ok(Self {
             dot_head,
             loop_momenta,
+            external_momenta,
             scalar_products,
             scalar_product_variables: Arc::new(variables),
             limits,

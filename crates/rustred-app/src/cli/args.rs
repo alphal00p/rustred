@@ -452,6 +452,8 @@ FAMILY-CANDIDATES OPTIONS:
                                 Incompatible with --permutation; separate from source scheduling
     --selected-sectors <MASKS>   Generate only comma-separated nonzero binary masks, not their downsets
     --root-zero-census          Analyze zeros only in the physical root downset (never assumes omitted sectors zero)
+    --sector-failures <POLICY>   abort, or report: omit a failed sector (its integrals stay uncovered)
+                                and list it in the report [default: abort]; not with checkpoints
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]

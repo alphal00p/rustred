@@ -6,7 +6,10 @@ use std::time::Instant;
 
 use rustred::family::IntegralFamily;
 use rustred::persistence::{CoefficientTableBuilder, NativeFamilyRecord};
-use rustred::solver::{SectorConfig, SectorExecutionError, SectorExecutor, SectorSolveOptions};
+use rustred::solver::{
+    CaseIntersectionFailure, SectorCompleted, SectorConfig, SectorEvent, SectorExecutionError,
+    SectorExecutor, SectorSolveError, SectorSolveOptions,
+};
 use serde::Serialize;
 
 use crate::application::AppError;
@@ -121,6 +124,11 @@ fn generate_request(
         ));
     }
     policy::validate_request_scope(&request)?;
+    if request.sector_failures == SectorFailurePolicy::Report && request.checkpoint.is_some() {
+        return Err(AppError::input(
+            "reported sector failures cannot be combined with checkpoints",
+        ));
+    }
     let parse = || match native_family {
         Some(family) => Ok(family),
         None => preparation::family(&request.source, request.input_format).map(Arc::new),
@@ -277,6 +285,7 @@ fn generate<const N: usize>(
             elapsed: admitted_at,
         });
     }
+    let mut failed_sectors = Vec::new();
     // A fully saved campaign only assembles; it must not initialize workers or
     // execute any sector search. Completion callbacks retain small receipts on
     // disk, not all expanded exact solutions in the executor's result vector.
@@ -321,93 +330,128 @@ fn generate<const N: usize>(
         let symbolic_exact_backend = request
             .exact_backend
             .solver_backend(request.bundle_limits.diagnostics_enabled)?;
-        executor
-            .map_configured_with_error_observer(
-                &prepared.sources,
-                &jobs,
-                |ordinal, _| SectorConfig {
-                    zero_sectors: prepared.zeros.clone(),
-                    permutation: prepared.permutation,
-                    integral_order: request.integral_order.clone(),
-                    symbolic_exact_backend,
-                    numerical_exact_backend: request.exact_backend.numerical_backend(),
-                    source_discovery: source_plans
-                        .as_ref()
-                        .map(|plans| plans[ordinal].clone())
-                        .unwrap_or_default(),
-                    rule_selection: rule_selection_plans
-                        .as_ref()
-                        .map(|plans| plans[ordinal].clone())
-                        .unwrap_or_default(),
-                    ..Default::default()
-                },
-                SectorSolveOptions {
-                    numerical_depth: request.numerical_depth,
-                    max_numerator_rank: request.max_numerator_rank,
-                    finite_case_policy: request.finite_case_policy,
-                    finite_case_limits: request.finite_case_limits,
-                    case_intersection_limits: request.case_intersection_limits,
-                    ..Default::default()
-                },
-                |ordinal, sector, event| {
-                    emit(observe, || FamilyCloseProgress::Generating {
-                        ordinal: pending[ordinal].0,
-                        sector: sector_mask(sector),
-                        stage: generation_stage(event),
-                        elapsed: started.elapsed(),
-                    })
-                },
-                |error| {
-                    if matches!(error, SectorExecutionError::Cancelled { .. }) {
-                        return;
+        let configure = |ordinal: usize, _: [bool; N]| SectorConfig {
+            zero_sectors: prepared.zeros.clone(),
+            permutation: prepared.permutation,
+            integral_order: request.integral_order.clone(),
+            symbolic_exact_backend,
+            numerical_exact_backend: request.exact_backend.numerical_backend(),
+            source_discovery: source_plans
+                .as_ref()
+                .map(|plans| plans[ordinal].clone())
+                .unwrap_or_default(),
+            rule_selection: rule_selection_plans
+                .as_ref()
+                .map(|plans| plans[ordinal].clone())
+                .unwrap_or_default(),
+            ..Default::default()
+        };
+        let options = SectorSolveOptions {
+            numerical_depth: request.numerical_depth,
+            max_numerator_rank: request.max_numerator_rank,
+            finite_case_policy: request.finite_case_policy,
+            finite_case_limits: request.finite_case_limits,
+            case_intersection_limits: request.case_intersection_limits,
+            ..Default::default()
+        };
+        let observe_event = |ordinal: usize, sector: [bool; N], event: SectorEvent<'_, N>| {
+            emit(observe, || FamilyCloseProgress::Generating {
+                ordinal: pending[ordinal].0,
+                sector: sector_mask(sector),
+                stage: generation_stage(event),
+                elapsed: started.elapsed(),
+            })
+        };
+        let observe_error = |error: &SectorExecutionError<N, AppError>| {
+            if matches!(error, SectorExecutionError::Cancelled { .. }) {
+                return;
+            }
+            emit(observe, || {
+                generation_failure(error, pending[error.ordinal()].0, started.elapsed())
+            })
+        };
+        let consume = |done: SectorCompleted<N>| {
+            // Keep the default result receipt small; only opt-in
+            // portfolios allocate a per-sector diagnostic summary.
+            let selection_stats = done.solution.stats.rule_selection.map(Box::new);
+            if done.solution.max_numerator_rank != request.max_numerator_rank {
+                return Err(AppError::internal_invariant(
+                    "generated sector numerator-rank scope differs from its request",
+                ));
+            }
+            if done.solution.finite_case_policy != request.finite_case_policy {
+                return Err(AppError::internal_invariant(
+                    "generated sector finite-case policy differs from its request",
+                ));
+            }
+            emit(observe, || FamilyCloseProgress::GeneratedSector {
+                ordinal: pending[done.ordinal].0,
+                sector: sector_mask(done.sector),
+                rules: done.solution.rules.len(),
+                finite_residuals: done.solution.finite_residuals.len(),
+                elapsed: started.elapsed(),
+            });
+            if let Some(store) = &store {
+                let bytes = save::encode_sector(
+                    &request,
+                    &prepared.family,
+                    root,
+                    done.sector,
+                    &done.solution,
+                )?;
+                let receipt = store.publish(pending[done.ordinal].0, &bytes)?;
+                emit(observe, || FamilyCloseProgress::CheckpointedSector {
+                    ordinal: receipt.ordinal,
+                    sector: sector_mask(done.sector),
+                    bytes: receipt.bytes,
+                    elapsed: started.elapsed(),
+                });
+                Ok::<_, AppError>((None, selection_stats))
+            } else {
+                Ok((Some((done.sector, done.solution)), selection_stats))
+            }
+        };
+        match request.sector_failures {
+            SectorFailurePolicy::Abort => executor
+                .map_configured_with_error_observer(
+                    &prepared.sources,
+                    &jobs,
+                    configure,
+                    options,
+                    observe_event,
+                    observe_error,
+                    consume,
+                )
+                .map_err(|e| execution_error(e, &pending))?,
+            SectorFailurePolicy::Report => {
+                let mut solved = Vec::with_capacity(jobs.len());
+                for outcome in executor.map_each_configured_with_error_observer(
+                    &prepared.sources,
+                    &jobs,
+                    configure,
+                    options,
+                    observe_event,
+                    observe_error,
+                    consume,
+                ) {
+                    match outcome {
+                        Ok(value) => solved.push(value),
+                        Err(SectorExecutionError::Solve {
+                            ordinal,
+                            sector,
+                            source,
+                        }) => failed_sectors.push(FailedSector {
+                            ordinal: pending[ordinal].0,
+                            sector: sector[..prepared.family.denominator_count()].to_vec(),
+                            kind: failure_kind(&source),
+                            error: source.to_string(),
+                        }),
+                        Err(error) => return Err(execution_error(error, &pending)),
                     }
-                    emit(observe, || {
-                        generation_failure(error, pending[error.ordinal()].0, started.elapsed())
-                    })
-                },
-                |done| {
-                    // Keep the default result receipt small; only opt-in
-                    // portfolios allocate a per-sector diagnostic summary.
-                    let selection_stats = done.solution.stats.rule_selection.map(Box::new);
-                    if done.solution.max_numerator_rank != request.max_numerator_rank {
-                        return Err(AppError::internal_invariant(
-                            "generated sector numerator-rank scope differs from its request",
-                        ));
-                    }
-                    if done.solution.finite_case_policy != request.finite_case_policy {
-                        return Err(AppError::internal_invariant(
-                            "generated sector finite-case policy differs from its request",
-                        ));
-                    }
-                    emit(observe, || FamilyCloseProgress::GeneratedSector {
-                        ordinal: pending[done.ordinal].0,
-                        sector: sector_mask(done.sector),
-                        rules: done.solution.rules.len(),
-                        finite_residuals: done.solution.finite_residuals.len(),
-                        elapsed: started.elapsed(),
-                    });
-                    if let Some(store) = &store {
-                        let bytes = save::encode_sector(
-                            &request,
-                            &prepared.family,
-                            root,
-                            done.sector,
-                            &done.solution,
-                        )?;
-                        let receipt = store.publish(pending[done.ordinal].0, &bytes)?;
-                        emit(observe, || FamilyCloseProgress::CheckpointedSector {
-                            ordinal: receipt.ordinal,
-                            sector: sector_mask(done.sector),
-                            bytes: receipt.bytes,
-                            elapsed: started.elapsed(),
-                        });
-                        Ok::<_, AppError>((None, selection_stats))
-                    } else {
-                        Ok((Some((done.sector, done.solution)), selection_stats))
-                    }
-                },
-            )
-            .map_err(|e| execution_error(e, &pending))?
+                }
+                solved
+            }
+        }
     };
     let assemble = move || {
         let prepared = prepared;
@@ -515,6 +559,10 @@ fn generate<const N: usize>(
             total_us: u128,
             #[serde(skip_serializing_if = "Option::is_none")]
             checkpoint: Option<checkpoint::Report>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            sector_failures: Option<&'static str>,
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            failed_sectors: Vec<FailedSector>,
         }
         let report = Report {
             schema: FAMILY_CANDIDATES_SCHEMA,
@@ -574,6 +622,9 @@ fn generate<const N: usize>(
                     })
                 })
                 .transpose()?,
+            sector_failures: (request.sector_failures != SectorFailurePolicy::Abort)
+                .then(|| request.sector_failures.as_str()),
+            failed_sectors,
         };
         Ok(CandidateBundleResult {
             bundle: bytes,
@@ -585,6 +636,34 @@ fn generate<const N: usize>(
     match execution {
         Some(pool) => pool.install(assemble),
         None => assemble(),
+    }
+}
+
+/// One sector left out of a bundle under [`SectorFailurePolicy::Report`].
+#[derive(Serialize)]
+struct FailedSector {
+    ordinal: usize,
+    sector: Vec<bool>,
+    kind: &'static str,
+    error: String,
+}
+
+/// Stable kind of a failed sector search, for reports and ledgers.
+fn failure_kind<const N: usize>(error: &SectorSolveError<N>) -> &'static str {
+    match error {
+        SectorSolveError::Intersection(error)
+            if error.failure == CaseIntersectionFailure::UnsupportedGeometry =>
+        {
+            "unsupported-nonlinear-equalities"
+        }
+        SectorSolveError::Intersection(_) => "case-intersection",
+        SectorSolveError::Search { .. } => "search",
+        SectorSolveError::Geometry { .. } => "affine-geometry",
+        SectorSolveError::Exceptions { .. } => "exceptions",
+        SectorSolveError::NonProgress { .. } => "non-progress",
+        SectorSolveError::CaseBudget { .. } => "case-budget",
+        SectorSolveError::Numeric(_) => "numeric",
+        SectorSolveError::FiniteRetention { .. } => "finite-retention",
     }
 }
 

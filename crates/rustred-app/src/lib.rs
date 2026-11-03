@@ -143,8 +143,8 @@ pub use application::{
     K6OrbitCampaignProgress, K6OrbitCampaignState, K6WaveCampaignProgress, K6WaveCampaignState,
     MAX_CANDIDATE_BUNDLE_BYTES, MAX_CLOSING_RULE_APPLICATIONS, MAX_FOUNDRY_CAMPAIGN_PROBES,
     MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, ParseClosingFamilySelectorError, ParseInputFormatError,
-    ParseRelationSelectionError, RelationSelection, SourcePortLimits, campaign_plan,
-    campaign_preflight, certify_candidates, certify_candidates_with_progress,
+    ParseRelationSelectionError, RelationSelection, SectorFailurePolicy, SourcePortLimits,
+    campaign_plan, campaign_preflight, certify_candidates, certify_candidates_with_progress,
     closing_artifact_generate, closing_artifact_inspect, closing_artifact_reduce, derive,
     encode_checked_priority_owner, encode_checked_priority_owner_with_policy,
     encode_generated_candidate_sector, encode_generated_domain_overlay, family_candidates,
@@ -170,15 +170,16 @@ pub fn preparation_monitor_main_entry() -> i32 {
 }
 
 /// Shared admission for the dynamic campaign entry points. Their persisted
-/// representation retains its existing 16-coordinate limit independently of
-/// the finite reducer's larger explicit arities.
+/// representation is bounded by [`rustred::MAX_CAMPAIGN_ARITY`] coordinates
+/// independently of the finite reducer's larger explicit arities.
 pub(crate) fn ensure_runtime_arity(arity: usize) -> Result<(), AppError> {
-    if arity > 16 || !rustred::compiled_runtime_arities().contains(&arity) {
+    let limit = rustred::MAX_CAMPAIGN_ARITY;
+    if arity > limit || !rustred::compiled_runtime_arities().contains(&arity) {
         return Err(AppError::input(format!(
-            "campaign arity {arity} is not compiled; registered arities at most 16 are {:?}",
+            "campaign arity {arity} is not compiled; registered arities at most {limit} are {:?}",
             rustred::compiled_runtime_arities()
                 .iter()
-                .filter(|&&n| n <= 16)
+                .filter(|&&n| n <= limit)
                 .collect::<Vec<_>>()
         )));
     }

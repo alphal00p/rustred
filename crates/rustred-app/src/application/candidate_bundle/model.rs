@@ -253,6 +253,32 @@ pub struct FamilyCandidatesRequest {
     /// Optional trusted-local persistence of completed sectors. Missing work
     /// can resume without repeating completed solves; this grants no authority.
     pub checkpoint: Option<super::CandidateCheckpointOptions>,
+    /// Whether a failed sector solve fails the family or is reported.
+    pub sector_failures: SectorFailurePolicy,
+}
+
+/// What `family-candidates` does when the search of one sector fails.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SectorFailurePolicy {
+    /// The first failed sector fails the whole family.
+    #[default]
+    Abort,
+    /// A sector whose search fails (for example on an exceptional locus with
+    /// unsupported nonlinear equalities) is left out of the bundle and listed
+    /// in the report's `failed_sectors` with a typed kind. Its integrals stay
+    /// uncovered at application, as for an unselected sector; no rank cap or
+    /// other scope change is applied. Preparation, consumer and cancellation
+    /// errors still fail the family. Not combinable with checkpoints.
+    Report,
+}
+
+impl SectorFailurePolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Abort => "abort",
+            Self::Report => "report",
+        }
+    }
 }
 
 impl FamilyCandidatesRequest {
@@ -275,6 +301,7 @@ impl FamilyCandidatesRequest {
             root_zero_census: false,
             bundle_limits: CandidateBundleLimits::default(),
             checkpoint: None,
+            sector_failures: SectorFailurePolicy::default(),
         }
     }
 

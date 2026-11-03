@@ -144,12 +144,13 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         solutions.push(decoded.pop().expect("checked single sector"));
     }
     let ordering = super::super::order::request_policy(request, N)?;
+    let admission = rustred::solver::CandidateFamilyAdmission::unit_scale_for(&prepared.family);
     super::finish_reducer(
         prepared,
         solutions,
         ordering,
         request.max_numerator_rank,
         reduction_limits,
-        rustred::solver::CandidateFamilyAdmission::UnitMassVacuum,
+        admission,
     )
 }

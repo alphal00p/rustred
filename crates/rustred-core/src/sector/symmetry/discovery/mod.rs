@@ -13,9 +13,22 @@
 //! diagonal. Parameter-dependent constants such as a deformed `-1 - eta` line
 //! are therefore colored apart from unit lines without sampling.
 //!
+//! External momenta enter as additional rows: the line momenta are taken
+//! over the loop momenta followed by the external momenta, and every external
+//! momentum contributes its own unit row, a pseudo-line whose center carries
+//! its index as color. A signed permutation therefore fixes each external
+//! momentum up to sign, and the recovered change of basis is the affine loop
+//! map `k = A k' + B p'` with `p = C p'`, `C` a signed diagonal (for one
+//! external momentum `q -> +-q`). Line centers carry the line's mass, the
+//! denominator constant minus its external `r.G.r` part, so `k^2` and
+//! `(k-q)^2` share a color. For a propagator-type family this is the graph
+//! with both external vertices marked, and only `q`-preserving automorphisms
+//! are proposed.
+//!
 //! The projector is only a discovery representation. Every recovered map
-//! passes the existing complete family-map verifier, active-row bijection,
-//! exact mass/scale checks, and unconditional unit-Jacobian check.
+//! passes the existing complete family-map verifier (including the external
+//! Gram congruence), active-row bijection, exact mass/scale checks, and
+//! unconditional unit-Jacobian check.
 //!
 //! This sector-owned service is shared by the public
 //! [`SectorSymmetryCensus`](super::SectorSymmetryCensus) and by the terminal
@@ -59,13 +72,9 @@ pub(crate) fn checkpoint(cancel: Cancel<'_>) -> Result<(), DiscoveryError> {
     }
 }
 
-/// Discovery admits vacuum families without analytic power shifts only.
+/// Discovery admits families without analytic power shifts only. External
+/// momenta are admitted; their maps fix each external momentum up to sign.
 pub(crate) fn eligible(family: &IntegralFamily) -> Result<(), DiscoveryError> {
-    if family.external_count() != 0 {
-        return Err(DiscoveryError::Invalid(
-            "sector symmetry requires vacuum kinematics",
-        ));
-    }
     if family.power_shifts().iter().any(|shift| !shift.is_zero()) {
         return Err(DiscoveryError::Invalid(
             "sector symmetry does not authorize analytic power shifts",
@@ -91,8 +100,22 @@ impl PartialOrd for MassColor {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum VertexColor {
-    Center { mass: MassColor, diagonal: Rational },
+    Center {
+        mass: MassColor,
+        diagonal: Rational,
+    },
+    /// The pseudo-line of one external momentum, by index.
+    External {
+        index: usize,
+        diagonal: Rational,
+    },
     Orientation,
+}
+
+/// Center color of one row before its projector diagonal is known.
+enum RowColor {
+    Line(Coefficient),
+    External(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -174,6 +197,8 @@ pub(crate) struct PreparedSupport {
     family: Arc<IntegralFamily>,
     root: Mask,
     slots: Vec<usize>,
+    /// The active line rows (in `slots` order) followed by one unit row per
+    /// external momentum, over the loop and then the external momenta.
     rows: NativeMatrix,
     basis_slots: Vec<usize>,
     inverse: NativeMatrix,
@@ -213,9 +238,10 @@ pub(crate) fn verify_finite_root(
     if loops == 0 || lines < loops {
         return Ok(false);
     }
-    check_shape(lines, loops, limits)?;
-    let live = lines
-        .checked_mul(loops)
+    let rank = momentum_rank(family);
+    check_shape(lines + family.external_count(), rank, limits)?;
+    let live = (lines + family.external_count())
+        .checked_mul(rank)
         .and_then(|entries| entries.checked_mul(2))
         .ok_or(DiscoveryError::Invalid(
             "sector symmetry finite root live entry count overflow",
@@ -228,7 +254,8 @@ pub(crate) fn verify_finite_root(
     let variables = Arc::new((0..loops).map(PolyVariable::Temporary).collect());
     let mut momenta = vec![Momentum::Unprepared; family.denominator_count()];
     let mut rows = Vec::new();
-    rows.try_reserve_exact(lines).map_err(exact)?;
+    rows.try_reserve_exact(lines + family.external_count())
+        .map_err(exact)?;
     for (slot, &active) in root.active_bits().iter().enumerate() {
         if !active {
             continue;
@@ -240,9 +267,25 @@ pub(crate) fn verify_finite_root(
         };
         rows.push(row.clone());
     }
-    let rank = matrix(&rows, limits)?.rank();
+    rows.extend(external_rows(family));
+    let matrix_rank = matrix(&rows, limits)?.rank();
     checkpoint(cancel)?;
-    Ok(rank == loops)
+    Ok(matrix_rank == rank)
+}
+
+/// Columns of a momentum row: the loop momenta, then the external momenta.
+fn momentum_rank(family: &IntegralFamily) -> usize {
+    family.loop_count() + family.external_count()
+}
+
+/// One unit pseudo-line row per external momentum.
+fn external_rows(family: &IntegralFamily) -> impl Iterator<Item = Vec<Rational>> + '_ {
+    let rank = momentum_rank(family);
+    (family.loop_count()..rank).map(move |column| {
+        (0..rank)
+            .map(|entry| Rational::from(i64::from(entry == column)))
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -296,24 +339,31 @@ fn prepare_support_cached(
     if loops == 0 || slots.len() < loops {
         return Ok(None);
     }
-    check_shape(slots.len(), loops, limits)?;
-    check_shape(slots.len(), slots.len(), limits)?;
-    check_geometry_live_entries(slots.len(), loops, limits)?;
+    let rank = momentum_rank(family);
+    let count = slots.len() + family.external_count();
+    check_shape(count, rank, limits)?;
+    check_shape(count, count, limits)?;
+    check_geometry_live_entries(count, rank, limits)?;
     let variables = Arc::new((0..loops).map(PolyVariable::Temporary).collect());
     let mut rows = Vec::new();
-    rows.try_reserve_exact(slots.len()).map_err(exact)?;
+    rows.try_reserve_exact(count).map_err(exact)?;
+    let mut colors = Vec::new();
+    colors.try_reserve_exact(count).map_err(exact)?;
     for &slot in &slots {
         checkpoint(cancel)?;
         prepare_momentum(family, slot, &variables, momenta, limits)?;
         let Momentum::Row(row) = &momenta[slot] else {
             return Ok(None);
         };
+        colors.push(RowColor::Line(line_mass(family, slot, row, limits)?));
         rows.push(row.clone());
     }
+    rows.extend(external_rows(family));
+    colors.extend((0..family.external_count()).map(RowColor::External));
     let all = matrix(&rows, limits)?;
     checkpoint(cancel)?;
     let mut transpose = all.transpose();
-    if transpose.row_reduce(u32::try_from(rows.len()).map_err(exact)?) != loops {
+    if transpose.row_reduce(u32::try_from(rows.len()).map_err(exact)?) != rank {
         return Ok(None);
     }
     // Native RREF pivot columns identify independent ORIGINAL momentum rows.
@@ -333,11 +383,7 @@ fn prepare_support_cached(
     drop(basis);
     checkpoint(cancel)?;
     let projector = projector(&all)?;
-    let masses = slots
-        .iter()
-        .map(|&slot| family.denominators()[slot].constant().clone())
-        .collect::<Vec<_>>();
-    let graph = signed_graph(&projector, &masses, cancel)?;
+    let graph = signed_graph(&projector, colors, cancel)?;
     checkpoint(cancel)?;
     let canonical = graph.canonize();
     checkpoint(cancel)?;
@@ -440,19 +486,21 @@ pub(crate) fn match_supports(
     recover(source, target, &action, limits, cancel)
 }
 
-/// The exact identity map of one family, with empty external blocks.
+/// The exact identity map of one family: unit loop and external blocks and
+/// no loop-external shift.
 pub(crate) fn identity_map(
     family: &IntegralFamily,
     limits: Limits,
 ) -> Result<MomentumMap, DiscoveryError> {
     let loops = family.loop_count();
+    let externals = family.external_count();
     let context = family.coefficient_context();
-    Ok(MomentumMap::new(
+    let unit = |size: usize| {
         CoefficientMatrix::try_new_with_max_entries(
-            loops,
-            loops,
-            (0..loops).flat_map(|left| {
-                (0..loops).map(move |right| {
+            size,
+            size,
+            (0..size).flat_map(|left| {
+                (0..size).map(move |right| {
                     if left == right {
                         context.one()
                     } else {
@@ -462,12 +510,52 @@ pub(crate) fn identity_map(
             }),
             limits.max_matrix_entries,
         )
+        .map_err(exact)
+    };
+    Ok(MomentumMap::new(
+        unit(loops)?,
+        CoefficientMatrix::try_new_with_max_entries(
+            loops,
+            externals,
+            (0..loops * externals).map(|_| context.zero()),
+            limits.max_matrix_entries,
+        )
         .map_err(exact)?,
-        CoefficientMatrix::try_new_with_max_entries(loops, 0, [], limits.max_matrix_entries)
-            .map_err(exact)?,
-        CoefficientMatrix::try_new_with_max_entries(0, 0, [], limits.max_matrix_entries)
-            .map_err(exact)?,
+        unit(externals)?,
     ))
+}
+
+/// The mass of one line: its denominator constant minus the external part
+/// `r_external.G.r_external` of its momentum square. For a vacuum family
+/// this is the constant itself.
+fn line_mass(
+    family: &IntegralFamily,
+    slot: usize,
+    row: &[Rational],
+    limits: Limits,
+) -> Result<Coefficient, DiscoveryError> {
+    let context = family.coefficient_context();
+    let mut mass = family.denominators()[slot].constant().clone();
+    let external = &row[family.loop_count()..];
+    for (alpha, left) in external.iter().enumerate() {
+        for (beta, right) in external.iter().enumerate() {
+            if left.is_zero() || right.is_zero() {
+                continue;
+            }
+            let weight = coefficient(&(left * right), context, limits)?;
+            let term = context
+                .try_mul(
+                    &weight,
+                    &family.external_gram()[alpha][beta],
+                    limits.exact_algebra,
+                )
+                .map_err(exact)?;
+            mass = context
+                .try_sub(&mass, &term, limits.exact_algebra)
+                .map_err(exact)?;
+        }
+    }
+    Ok(mass)
 }
 
 fn projector(rows: &NativeMatrix) -> Result<NativeMatrix, DiscoveryError> {
@@ -479,10 +567,10 @@ fn projector(rows: &NativeMatrix) -> Result<NativeMatrix, DiscoveryError> {
 
 fn signed_graph(
     projector: &NativeMatrix,
-    masses: &[Coefficient],
+    colors: Vec<RowColor>,
     cancel: Cancel<'_>,
 ) -> Result<ProposalGraph, DiscoveryError> {
-    let count = masses.len();
+    let count = colors.len();
     count.checked_mul(3).ok_or(DiscoveryError::Invalid(
         "sector symmetry graph vertex count overflow",
     ))?;
@@ -493,11 +581,15 @@ fn signed_graph(
             "sector symmetry graph edge count overflow",
         ))?;
     let mut graph = Graph::new();
-    for (line, mass) in masses.iter().enumerate() {
+    for (line, color) in colors.into_iter().enumerate() {
         let index = u32::try_from(line).map_err(exact)?;
-        graph.add_node(VertexColor::Center {
-            mass: MassColor(mass.clone()),
-            diagonal: projector[(index, index)].clone(),
+        let diagonal = projector[(index, index)].clone();
+        graph.add_node(match color {
+            RowColor::Line(mass) => VertexColor::Center {
+                mass: MassColor(mass),
+                diagonal,
+            },
+            RowColor::External(index) => VertexColor::External { index, diagonal },
         });
         graph.add_node(VertexColor::Orientation);
         graph.add_node(VertexColor::Orientation);
@@ -548,11 +640,10 @@ fn recover(
 ) -> Result<Option<Arc<VerifiedMap>>, DiscoveryError> {
     checkpoint(cancel)?;
     let target_rows: Vec<_> = target.rows.row_iter().map(<[_]>::to_vec).collect();
+    let count = target_rows.len();
     let mut permuted_rows = Vec::new();
-    permuted_rows
-        .try_reserve_exact(source.slots.len())
-        .map_err(exact)?;
-    for line in 0..source.slots.len() {
+    permuted_rows.try_reserve_exact(count).map_err(exact)?;
+    for line in 0..count {
         let center = action[3 * line];
         let plus = action[3 * line + 1];
         let minus = action[3 * line + 2];
@@ -565,6 +656,12 @@ fn recover(
         {
             return Err(DiscoveryError::Invalid(
                 "native signed graph action broke line pairing",
+            ));
+        }
+        // Colors keep every external pseudo-line on itself.
+        if (line >= source.slots.len() || center / 3 >= source.slots.len()) && center / 3 != line {
+            return Err(DiscoveryError::Invalid(
+                "native signed graph action moved an external momentum",
             ));
         }
         let row = &target_rows[center / 3];
@@ -596,25 +693,39 @@ fn recover(
             "native signed projector action failed momentum replay",
         ));
     }
+    // `linear` is the block matrix [[A, B], [0, C]] of `k = A k' + B p'`,
+    // `p = C p'` over the loop and external columns.
     let loops = source.family.loop_count();
+    let rank = momentum_rank(&source.family);
     let context = source.family.coefficient_context();
     let entries = linear
         .into_vec()
         .iter()
         .map(|value| coefficient(value, context, limits))
         .collect::<Result<Vec<_>, _>>()?;
-    let map = MomentumMap::new(
+    if (loops..rank).any(|row| (0..loops).any(|column| !entries[row * rank + column].is_zero())) {
+        return Err(DiscoveryError::Invalid(
+            "native signed projector action mixed an external momentum with loops",
+        ));
+    }
+    let block = |rows: std::ops::Range<usize>, columns: std::ops::Range<usize>| {
         CoefficientMatrix::try_new_with_max_entries(
-            loops,
-            loops,
-            entries,
+            rows.len(),
+            columns.len(),
+            rows.flat_map(|row| {
+                columns
+                    .clone()
+                    .map(|column| entries[row * rank + column].clone())
+                    .collect::<Vec<_>>()
+            }),
             limits.max_matrix_entries,
         )
-        .map_err(exact)?,
-        CoefficientMatrix::try_new_with_max_entries(loops, 0, [], limits.max_matrix_entries)
-            .map_err(exact)?,
-        CoefficientMatrix::try_new_with_max_entries(0, 0, [], limits.max_matrix_entries)
-            .map_err(exact)?,
+        .map_err(exact)
+    };
+    let map = MomentumMap::new(
+        block(0..loops, 0..loops)?,
+        block(0..loops, loops..rank)?,
+        block(loops..rank, loops..rank)?,
     );
     let verified =
         Arc::new(symmetry::verify(&source.family, &target.family, map, limits).map_err(exact)?);

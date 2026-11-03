@@ -11,8 +11,8 @@ pub mod algebra;
 #[macro_use]
 pub mod arity;
 pub use arity::{
-    campaign_storage_arity, compiled_runtime_arities, compiled_runtime_capacities, fits_storage,
-    storage_array,
+    MAX_CAMPAIGN_ARITY, campaign_storage_arity, compiled_runtime_arities,
+    compiled_runtime_capacities, fits_storage, storage_array,
 };
 pub mod campaign;
 mod diagnostic;
