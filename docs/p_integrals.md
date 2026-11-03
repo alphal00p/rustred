@@ -149,6 +149,10 @@ these are `(L+E) x (L+E)` integer matrices over `(k, q)`:
   loop momenta.
 - Vacuum selections keep their `L x L` format.
 
+The routed-campaign and saved-application loaders have no vacuum gate left,
+and the witness format is unit-tested. No p publication has been routed end
+to end yet; plan item M3 produces the first ones.
+
 ## Scalar numerators
 
 `FamilyScalarNumeratorService::try_new_with_external_momenta(family, dot,
