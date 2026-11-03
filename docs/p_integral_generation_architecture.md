@@ -3,6 +3,14 @@
 Status: design (milestone M1, 2026-11-03). Nothing described here is implemented.
 It is implemented in M2 (1L-3L) and M3 (4L) and reused unchanged at 5L.
 
+Amended 2026-11-03: Forcer's rule cascade is adopted (plan §3.5; DECISIONS ~11:00, ~11:20, ~11:50,
+~12:50; evidence in `WS/SCRATCHPAD/forcer-tricks/` and `WS/notes/forcer-tricks-*.md`):
+
+- the lanes become Zero > SeriesParallel > Insertion > Carpet > Triangle > Diamond > Custom;
+- eps-lines (Forcer's crossed lines) and Gamma tags are first-class;
+- the graph engine is a new graphica-based crate `rustred-topology`, with a cached, eps-sensitive
+  topology-analysis service (§2.4).
+
 Scope:
 
 - Massless propagator-type integrals ("p-integrals"):
@@ -28,6 +36,9 @@ Paths:
   - `np4_lanes.py`: lanes of the 4L non-planar failures.
 - Earlier evidence: `WS/study/pint-closure-study/REPORT.md` (strategies S1-S15, loci L0-L4,
   experiments E1-E4) and `WS/study/pint-study/notes/{rustred,feasibility}.md`.
+- Forcer citations: `pf` = `generation/pathforcer.py` and `fa` = `forcer/forcer-aux.h` of
+  benruijl/forcer `68a30bf`; `Th` = Ruijl's thesis; `FP` = the Forcer paper (arXiv:1704.06650);
+  `DR` = the diamond-rule paper (arXiv:1504.08258).
 
 ## 0. Decisions
 
@@ -46,26 +57,26 @@ Paths:
    - The class key is the existing projector-graph key of symmetry discovery.
    - The glued `q` line is added as one extra row with a new `External` vertex colour.
    - Whitney twists are merged for free, because the projector is a matroid invariant.
-3. **Four lanes, one per owner class, chosen by a fixed decision function.**
-   - The lanes, in order: `Zero` > `SeriesParallel` (analytic G-function lane) > `Triangle`
-     (Forcer rule template) > `Generic` (SpIRed, all-rank, with ledger).
-   - Reserved lanes with frozen interfaces:
-     - `Diamond` (rung L3);
-     - `ShiftedPrimitive` (insertions integrated into non-series-parallel owners);
-     - `Product` (block factorisation).
-4. **Lane census** [M] (`lane_census.py`; counts are labelled sectors / (WL hash, lane)
-   classes, a lower bound on isomorphism classes):
-
-   | L | labelled | SeriesParallel | Triangle | Generic |
-   |---|---:|---:|---:|---:|
-   | 2 | 8 | 7 / 3 | 1 / 1 | 0 |
-   | 3 | 175 | 121 / 14 | 30 / 8 | 24 / 5 |
-   | 4 | 4,519 | 2,366 / 79 | 1,005 / 104 | 1,148 / 89 |
-   | 5 | 180,644 | 69,392 / 544 | 47,214 / 1,867 | 64,038 / 1,636 |
-
-   - On the measured 5L canary (E1), the analytic and template lanes absorb 18 of the
-     33 batch-B failures. Section 3.6 has the details.
-   - All three failing 4L non-planar sectors leave the generic lane or are integer-empty.
+   - Each line row is coloured by its eps units `j` (Forcer's crossed lines). The eps on the
+     external line is excluded: it is a prefactor and lives in the Gamma tag (§3.2).
+3. **Seven lanes, Forcer's cascade, chosen per DAG node by a fixed decision function.**
+   - The lanes, in order: `Zero` > `SeriesParallel` (fast path of Insertion) > `Insertion` >
+     `Carpet` > `Triangle` > `Diamond` > `Custom` (SpIRed, all-rank, with ledger; Forcer's custom
+     nodes, eps-nodes included; called Generic in the first draft).
+   - Forcer's order is insertion > carpet > triangle > diamond > custom [R pf:1392, :2763;
+     Th p.67].
+   - Reserved lanes with frozen interfaces: only `Product` (block factorisation) and
+     `HigherInsertion` (integrating higher-loop insertions; 283 -> 279 custom nodes at 5L [M]).
+   - `ShiftedPrimitive` is dissolved into `Insertion` plus `Custom` on eps-nodes.
+4. **Cascade census** [M] (exact; replaces the first draft's WL lane census):
+   - 4L: 427 DAG nodes (Forcer's 438 with eps-on-q keys), 21 custom.
+   - 5L: 6,197 nodes, 283 custom: 129 5L integer, 88 4L-eps, 42 3L-eps, 14 2L-eps and 10 lower
+     integer.
+   - M1's exact series-parallel / triangle / generic class counts: 4L 79 / 107 / 94; 5L
+     547 / 1,898 / 1,697 (the WL lower bounds were 544 / 1,867 / 1,636).
+   - On the measured 5L canary (E1), 26 of the 33 batch-B failures are rule nodes. Section 3.6
+     has the details.
+   - The three failing 4L non-planar sectors are insertion nodes.
 5. **Refusals become typed ledger entries.**
    - A new `LocusPolicy::Ledger` turns an exceptional branch the generator cannot admit into a
      `DeferredLocus`, instead of aborting the sector at the `?` in
@@ -77,8 +88,9 @@ Paths:
      case-intersection engine.
    - L2 (portfolio fall-through, chart re-solve, deeper search) runs in the rule selection and
      the sector queue.
-   - L3 (diamond template) and L4 (bounded rank split) are post-hoc rungs whose output is owner
-     overlays.
+   - L3 (locus-chart templates: eps-triangle, S0-scan rules) and L4 (bounded rank split) are
+     post-hoc rungs whose output is owner overlays. Triangle and Diamond are lanes, not rungs.
+   - Ledger entries arise only in custom nodes.
    - Whatever is left falls through to the runtime safety net: local Laporta through the bridge,
      cached as an overlay rule.
 7. **Global descent certificate.**
@@ -99,8 +111,9 @@ Paths:
    - Kira runs as a clean-room external process, only for relations that are still missing.
    - The result ships as a relations layer v2 with row provenance.
    - The series-parallel lane's masters carry closed Gamma-function values.
+   - Terminals carry Gamma tags; vakint expands each tag exactly, to any eps depth.
 10. **Application.**
-    - One new Ordered adapter (`PKey` = presentation + key, stages Route/Apply).
+    - One new Ordered adapter (`PKey` = presentation + Gamma tag + key, stages Route/Apply).
     - Unchanged `modular_polynomial` `Z_p(d)` replay and concurrent windows.
     - Step, tail and result caches keyed by owner class, so they are shared across families,
       diagrams and users.
@@ -116,7 +129,11 @@ Paths:
 | owner class | The marked-matroid class of a nonzero sector (glued graph `Gamma + e0`, `e0` = the `q` line). Identified by `OwnerClassId(u64)`. |
 | owner | The program serving one class: a presentation, a lane, a program, its terminals and a descent witness. |
 | route | A verified map from a labelled sector to its owner's presentation. It is a signed affine loop map. |
-| terminal | A key at which reduction stops: series-parallel class masters and generic-lane finite residuals. |
+| eps-line | A line whose power carries `j` eps units, `a + j eps` (Forcer's crossed line). It comes from an integrated insertion and is never pinched. |
+| eps-node | A DAG node with at least one eps-line; its family has `power_shifts`. |
+| Gamma tag | A sparse small-integer exponent vector over `Gamma(1 + m eps)`, `m != 0`. Tags add along a path. |
+| DAG node | A topology of the discovery DAG (§2.4): eps-coloured canonical graph plus its lane. |
+| terminal | A key at which reduction stops: (tag, trivial node) and (tag, custom-node residual). |
 | ledger | `LocusLedger`: every generator refusal and how it was discharged. |
 | library | Everything above for one loop count, plus the relations layer and version constants. |
 
@@ -138,8 +155,10 @@ Invariant: every key the application meets is one of three things:
   - `P` depends only on the cycle space, so the key is a matroid invariant. Hence 2-isomorphic
     (Whitney-twisted) sectors get the same key.
 - **Change 1.** `eligible()` (`discovery/mod.rs:63-74`) admits `E = 1` families with a numeric
-  Gram matrix.
-  - Power shifts stay rejected until the ShiftedPrimitive lane exists.
+  Gram matrix (done in P0).
+  - From M2 it also admits power shifts (`discovery/mod.rs:69`): eps-nodes are owners too.
+  - Each line row is coloured by its eps units `j`. The eps on the external line is excluded: it
+    is a prefactor and lives in the Gamma tag.
 - **Change 2.** `line_momentum()` (`discovery/line.rs:52`) currently skips lines with external
   components. It now returns rows over `(k_1..k_L, q)`.
 - **Change 3.** One virtual row `e0 = (0,..,0,1)` is appended (the glued line) with a new
@@ -157,18 +176,24 @@ Invariant: every key the application meets is one of three things:
 - **Rejected alternative.** Graph canonisation with marked external vertices gives 4,142 classes
   at 5L instead of the 2,243 marked-matroid classes, and routes would then also need explicit
   Whitney-twist maps.
+- **Lane decision on a class.** The lane matchers are graph tests, so they run over every graph
+  representative of the class, or use matchers stated in cocircuit terms.
+  - The action is class-invariant in 22/22, 183/183 and 2,242/2,243 classes at 3L/4L/5L. The one
+    5L exception is a Whitney pair with its triangle on one twist only [M].
+- **CI test.** The graph-side marked-matroid key and the projector key partition the 180,644 5L
+  labelled sectors identically (2,243 classes).
 
 ### 2.2 Presentations
 
 Each class has one owner presentation, chosen deterministically:
 
-- **Induced** (series-parallel and generic lanes).
+- **Induced** (series-parallel and custom lanes).
   - The labelled sector that comes first in the order (t descending, family name, mask) is the
     representative.
   - The owner presentation is its top family, with the owner sector = that mask.
   - Consequences:
     - owners of the same top family share one `IntegralFamily` and one `SourceSystem`;
-    - every child of a generic rule is a labelled sector of that top family, which the census
+    - every child of a custom rule is a labelled sector of that top family, which the census
       already routes;
     - this is the configuration in which E1 and E2 were measured.
 - **Triangle** (triangle lane).
@@ -182,8 +207,19 @@ Each class has one owner presentation, chosen deterministically:
     or free of `k`. That is exactly the presentation the triangle rule needs (§3.3).
   - The sector is the top sector. Only three subsectors are reachable (`b`, `c1` or `c2` dropped)
     and each gets one route.
+- **Insertion-adapted** (insertion lane). The loop momentum runs through the bubble pair; the
+  transverse decomposition of §3.2 applies.
+- **Carpet-adapted** (carpet lane). The outer loop momentum is `p`; no ISP contains `p1` or `p2`
+  (fa:1105).
+- **Diamond-adapted** (diamond lane). Dots avoid the A-lines; the basis is `k_i`/`l_i`
+  (Th eq. 26).
+- **eps-node** presentations. Fewer coordinates, `power_shifts`, padded to `N` in `PKey`.
 - **Caller** families (vakint input built from an Atom or a HEPKit dot graph with an arbitrary
   routing). They are registered at run time and routed on demand (§5.4).
+
+A presentation is a pure function of (NodeKey, lane), so that caches stay stable. Forcer's
+parent-aware dot-basis choice (minimal `Sum (#rewrite terms)^2`, Th p.68) is allowed only as a
+frozen, versioned choice.
 
 ### 2.3 Census (`rustred p-census`)
 
@@ -203,7 +239,15 @@ Sources:
 The census carries the graph (as `FamilyPresentation` momentum-routing metadata), because the
 lane tests are graph tests on the representative.
 
-Steps:
+Roots and passes:
+
+- Roots = every integer sector class of every top family, eagerly. The resulting IBP set is
+  identical to demand-driven discovery [M], and eager roots cover arbitrary caller sectors.
+- `p-census` = DAG pass A (§2.4) plus the existing integer labelled-sector route census below,
+  kept as a cross-check.
+- Completeness: every DAG edge target is a node or a zero proof.
+
+Steps of the labelled-sector route census:
 
 1. Run the zero analyzer over all `2^t` masks of each family (`sector::zero::Analyzer`, exact;
    existing `ZeroTerminalProof` tags).
@@ -224,16 +268,49 @@ Cost [M/E]:
 - the graph criterion takes 8 s over all 180,644 5L labelled sectors in Python;
 - the RustRed census is minutes at 4L and under 1 core-h at 5L [E].
 
+### 2.4 Discovery DAG and topology service (`crates/rustred-topology`)
+
+A new crate `rustred-topology` [R graph-tools]:
+
+- It depends only on graphica (`symbolica::graph`).
+- Not linnet: linnet has no 2-vertex cuts, no SPQR and no matchers, and its default features pull
+  `gammaloop-workspace-hack` and rand 0.8 (`linnet/Cargo.toml:45,69,79-80`). linnet, FeynKit and
+  HEPKit stay as ingress (dot graphs) and as rendering of matches and of the DAG.
+
+API:
+
+- `PTopo::normalise`: zero test; series merges that add eps units.
+- `graph_key`: eps-coloured canonical form plus automorphisms.
+- `class_key`: the marked-matroid key of §2.1.
+- `decompose`: the 2-separations of `Gamma + e0`.
+- `matches(order)`: the lane roles (`a_i`, `b_i`, `c_i`, spectators, `k`-line), the adapted basis
+  and the children.
+- `reduction_graph(roots, order)`: Forcer's Alg. 2, level-ordered by `t`.
+
+Output and cache:
+
+- `p-topologies.json`: nodes, actions, roles, edges and edge maps; versioned by
+  `P_TOPOLOGY_VERSION`.
+- In-process cache `DashMap<GraphKey, Arc<NodeInfo>>`. The census, the generation and the runtime
+  caller routing share it.
+- Cost: 5.35 us per canonisation; the 5L DAG in 3.6 s [M].
+
+Gate: the 4L DAG equals Forcer's 438 nodes node by node, with identical actions and 21 custom;
+43 nodes at 3L; 7 at 2L [M simulator].
+
 ## 3. Lanes
 
 ### 3.1 Decision function (`propagator/lane.rs`)
 
 ```text
-lane(class) =
+lane(node) =
   Zero                 if the zero analyzer proves the sector scaleless
   SeriesParallel       if Gamma + e0 is series-parallel (no K4 minor; a matroid property)
+  Insertion(pair)      the first parallel pair (one-loop bubble) not containing e0
+  Carpet(r)            an element parallel to e0 with a nontrivial blob
   Triangle(tri)        if the representative graph has an ADMISSIBLE triangle
-  Generic              otherwise
+  Diamond(dia)         if the representative graph has an admissible diamond (§3.5)
+  Custom               otherwise
 ```
 
 **Admissible triangle** (exactly Forcer's rule):
@@ -241,7 +318,9 @@ lane(class) =
 - lines `b`, `a1`, `a2` form a 3-cycle;
 - both endpoints of `b` are internal vertices of degree 3;
 - their third lines `c1` and `c2` are active lines, with `c1 != c2`;
-- `c1` and `c2` are not triangle lines.
+- `c1` and `c2` are not triangle lines;
+- `b`, `c1` and `c2` are integer lines; `a1` and `a2` may carry eps;
+- numerators are only `k.X` (pf:1450-1481, fa:1536-1542).
 
 In momentum terms, `mom(a1) - mom(b)` and `mom(a2) - mom(b)` are, up to sign, the momenta of two
 distinct active lines. When the third line is `q`, or `p1` is the sum of two lines, the rule
@@ -250,11 +329,12 @@ would contain `p1^2` terms that do not descend. Such triangles are inadmissible.
 Choice among admissible triangles:
 
 1. most series-parallel children;
-2. then the smallest canonical labels.
+2. then Forcer's canonical image that minimises the powers of the lowered lines (pf:2242-2245).
 
 The choice is deterministic.
 
-Census [M]:
+Census of the first draft [M] (M1 lanes only, WL lower bounds; the generic column now splits
+into Insertion, Carpet, Diamond and Custom, see §0 item 4):
 
 - About 92.7% of 5L labelled sectors contain some graph triangle. Only 26.1% take the triangle
   lane, that is, they are not series-parallel and have an admissible triangle.
@@ -274,9 +354,16 @@ Consequences:
 
 - Every 5L sector with t <= 7 takes the series-parallel lane. Those are the sectors where
   E1 batch B had 5 FAIL and 5 TIMEOUT.
-- The generic lane is concentrated in t = 8..13 classes that carry insertions.
+- The first draft's generic classes are concentrated in t = 8..13 and carry insertions. The
+  cascade sends them through Insertion and Carpet: 283 custom nodes remain at 5L, 21 at 4L.
+- Rule order does not change the custom set: Forcer order, carpet-last and triangle-first each
+  give 283 [M]. It changes the DAG size (5,773-6,250 nodes) and the runtime. Default: Forcer
+  order; ablation at M5.
 
 ### 3.2 SeriesParallel lane: one-loop insertions and G-functions (`propagator/series_parallel/`)
+
+SeriesParallel is the fast path of the Insertion lane (§3.2b): the whole class in one closed
+step. Both share one bubble kernel (Th eqs. 15-17, the transverse decomposition below).
 
 **What it computes.** For a sector whose glued graph is series-parallel, the integral at any
 integer point `n` (positive lines, nonpositive numerators) is closed-form:
@@ -322,13 +409,15 @@ integer point `n` (positive lines, nonpositive numerators) is closed-form:
    (rational in `d`) x `Gamma`-monomial.
 5. Normalise every `Gamma(a + j d/2)` to the class's canonical offset per slope `j`. The Pochhammer
    ratio is rational in `d`.
-   - All terms must share one `Gamma` type (assert).
+   - The remaining `Gamma` factors form a Gamma tag: an exponent vector over `Gamma(1 + m eps)`,
+     `m != 0` (this replaces the first draft's assert "one `Gamma` type per class").
    - `1/Gamma(nonpositive integer)` = 0 (a massless tadpole).
    - A `Gamma(nonpositive integer)` in a numerator is a typed refusal: `Uncovered`, then the
      runtime safety net.
 
 **Data.** `SpPlan` is small JSON. `sp-masters.json` gives, per class master, the exact
 `Gamma`-monomial value for vakint, at any `eps` depth, with no numerical table.
+The class master is `T_class = (tag, trivial node)`.
 
 **Ordered integration.**
 
@@ -350,6 +439,39 @@ integer point `n` (positive lines, nonpositive numerators) is closed-form:
   both programs for the same sector.
 - Routing invariance under random unimodular maps and `q -> -q`.
 
+M5 measures the series-parallel one-step form against per-bubble insertion steps.
+
+### 3.2b Insertion lane (`propagator/insertion.rs`)
+
+Forcer's insertion rule [R Th eqs. 15-17 p.42; pf:1483-1496].
+
+**Step.**
+
+- Integrate the first one-loop bubble (two lines with the same endpoints; any eps on its lines,
+  any integer powers, any numerator in the bubble momentum) with the shared bubble kernel of §3.2.
+- Output: terms (relative tag, child eps-node key, `Q(d)` weight), after series merges.
+- The edge map is not bijective: `D^-a D^-b -> D^-(a+b)`, and the eps units add.
+- The child has `L - 1` loops.
+
+**No exception branches** [D]. The only integer-argument Gammas are `1/Gamma(line power)`, which
+is zero for an absent line. Every other Gamma has eps slope >= 1.
+
+Counts [M]: 335 nodes at 4L, 4,838 at 5L. Insertion takes the custom count from 1,741 to 283
+overall (5L integer 1,618 -> 129; 4L 123 -> 21).
+
+### 3.2c Carpet lane (`propagator/carpet.rs`)
+
+Forcer's carpet rule [R Th eq. 18 p.44 = FP eq. 26 p.35; pf:1413-1448].
+
+- Applies when a line `r` joins the two external vertices and the rest is any `(L-1)`-loop
+  two-point blob; eps is allowed.
+- Step: the double sum over `sigma` and `j`, with tensor reduction of the `p_i.q` numerators.
+- Output: the `(L-1)`-loop blob key with its integer powers unchanged, and a relative tag from
+  `G(alpha + Sum a - L_sub d/2 - sigma, beta)`.
+- No exception branches [D].
+
+Counts [M]: 24 nodes at 4L, 281 at 5L. At 5L the carpet maps nodes onto the 4L integer library.
+
 ### 3.3 Triangle lane: Forcer's rule as a RustRed template (`propagator/triangle.rs`)
 
 **The rule.** In the triangle presentation (§2.2), the IBP row `(d/dk) . k` of the owner family is
@@ -358,6 +480,13 @@ exactly Ruijl's eq. 25 [R thesis, `notes/literature/ThesisBenRuijl.txt:2470-2560
 `(d + N - n_a1 - n_a2 - 2 n_b) I = n_a1 A1+(B- - C1-) I + n_a2 A2+(B- - C2-) I`
 
 where `N = sum over the k-linear ISPs i of (-n_i)`.
+
+**eps on the apex lines.** `a1` and `a2` may carry `j1` and `j2` eps units.
+
+- The pivot becomes `d + N - n_a1 - n_a2 - 2 n_b - (j1 + j2)(4 - d)/2`. Its `d` coefficient is
+  `1 + (j1 + j2)/2 != 0`, so the rule stays exception-free.
+- `b`, `c1` and `c2` must be integer lines. eps there makes the node custom (93 such blocked
+  nodes at 5L [M]).
 
 **Construction (no hand-written formula is trusted):**
 
@@ -371,7 +500,7 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
    - The strict-descent check runs against the owner order.
    - `extract_exceptions` returns **no branch**: the pivot's `d` coefficient is 1, so the factor
      is "impossible" [R `exception.rs` coefficient-list rule].
-5. On any shape mismatch, fall back to the generic lane for that class, and record why.
+5. On any shape mismatch, fall back to the custom lane for that class, and record why.
 
 **Order.**
 
@@ -389,6 +518,8 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
   `modular_polynomial`.
 - The frontier is the `(a1, a2, b, c1, c2)` lattice per numerator. Ordered merging turns
   Forcer's "summed" recursion into dynamic programming.
+- We keep this recursive form. Forcer's default is the summed form (`TRIANGLESMETHOD 3`,
+  fa:479-640); M5 compares the two.
 
 **Exactness note.** The intermediate factors `d + integer` vanish at `d = 4` for some indices.
 - Because reduction stays in `Q(d)` and the final coefficient onto a fixed basis is unique, these
@@ -402,7 +533,10 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
 - In batch B, the 5 triangle-lane failures (1 FAIL, 4 TIMEOUT) need no generation at all. They
   include the Petersen 8-line three-quadric locus `10011011101100000000`.
 
-### 3.4 Generic lane: SpIRed, all-rank, with ledger
+### 3.4 Custom lane: SpIRed, all-rank, with ledger
+
+Custom owners are the custom DAG nodes only: 2 / 21 / 283 at 3L / 4L / 5L [M]. They include
+eps-nodes with `power_shifts`.
 
 Runs `family_candidates_from_family_controlled` on the induced presentation, with
 `selected_sectors` = the owner masks of that top family. Settings:
@@ -415,27 +549,49 @@ Runs `family_candidates_from_family_controlled` on the induced presentation, wit
 The p generation request rejects `max_numerator_rank` and `RetainRankFinite`; only L4 uses
 them, per locus.
 
-Accelerator to try in M3: a triangle-first source order, which visits the `(d/dk).k` rows of
-inadmissible triangles first. SpIRed already finds "d-benign" triangle-shaped pivots there [M E2].
+eps-axes:
 
-### 3.5 Reserved lanes (interfaces frozen in M2, implemented only when a gate needs them)
+- An eps-axis is always in the support, with excess `|n - 1|` (Th eqs. 57-59). It is implemented
+  as two charts per eps-axis [E].
+- The admission gates that refuse power shifts are lifted in M2 (T7): `discovery/mod.rs:69`,
+  `install/source_port.rs:699`, the unit-scale shape of P0 (`family/unit_scale.rs`, whose scale law
+  then counts the shifts) and the terminal services.
+- The coefficient context stays `{d}`, so `Z_p(d)` replay still applies.
+
+To measure in M3: in the support-primary SpIRed order, a tie-break that prefers right-hand sides
+in rule-closed subsectors over custom subsectors.
+
+Accelerator kept from the first draft: a triangle-first source order, which visits the
+`(d/dk).k` rows of inadmissible triangles first. SpIRed already finds "d-benign" triangle-shaped
+pivots there [M E2].
+
+### 3.5 Diamond lane and reserved lanes
+
+**Diamond** (`propagator/diamond.rs`), promoted from rung L3 to a primary lane [R Th eqs. 26-35
+pp.47-52; DR eqs. 3-8; pf:1030-1061; arXiv:1504.08258]:
+
+- Shape: `L + 1` paths T-`x_i`-B through 3-valent `x_i`, plus optional T-B spectator lines.
+  `b_i` and `c_i` are integer lines; `a_i` may carry eps.
+- Template: built from the `Sum (d/dk_i).k_i + Sum (d/dl_i).l_i` rows in the diamond-adapted
+  presentation, validated like §3.3.
+- Its pivot `E` has `d` coefficient `L + S + Sum j_a/2 + Sum j_s > 0`, so it is exception-free.
+- Counts [M]: 4 nodes at 4L, including `no3`, which Forcer overrides with `SchemeZno3`; 42 at 5L.
+- Carpet and diamond together remove about 60 5L integer custom classes (32 + 28 of the first
+  draft's generic classes) [D].
+
+Reserved lanes (interfaces frozen in M2, implemented only when a gate needs them):
 
 | Lane | What | Gate |
 |---|---|---|
-| `Diamond` (L3) | Ruijl's diamond rule (thesis §3.4.2; arXiv:1511.08236), built from a combination of `(d/dk_i).k_i` rows, validated like §3.3. Applied on a locus chart or on a whole sector. | A 5L generic locus survives L0-L2. |
-| `ShiftedPrimitive` | Integrate the series-parallel insertions of a generic class (Forcer style), giving a primitive owner with power shifts `j(4-d)/2`. | The 4L generic-lane cost or the 5L canary shows that the 1,488 insertion classes dominate. |
 | `Product` | A sector made of a chain of blocks between the external vertices: the product of block reductions after tensor reduction in `q` (the same transverse kernel as §3.2). It needs product terminals. | The 5L canary shows failures in low-`t` factorised sectors. |
+| `HigherInsertion` | Integrate higher-loop insertions; 283 -> 279 custom nodes at 5L [M]. | 5L, decided from the canary. |
+| `EpsTriangle` | Mincer's eps-central-line triangle (Mincer eqs. 15-16). | 5L, decided from the canary. |
 
-`ShiftedPrimitive` details:
+`ShiftedPrimitive` is removed: it is dissolved into Insertion plus Custom on eps-nodes.
 
-- The family model, the IBP generator and the zero analyzer already accept `power_shifts`. The
-  admission gates must be lifted:
-  - `discovery/mod.rs:69`;
-  - `install/source_port.rs:699`;
-  - the terminal services.
-- The coefficient context stays `{d}`, so `Z_p(d)` replay still applies.
+### 3.6 What the cascade does to the measured failures [M]
 
-### 3.6 What the lanes do to the measured failures [M]
+First-draft table (M1 lanes):
 
 | Set | Series-parallel | Triangle | Generic |
 |---|---|---|---|
@@ -443,13 +599,23 @@ inadmissible triangles first. SpIRed already finds "d-benign" triangle-shaped pi
 | E1 batch B (128 lower) | 37 OK, 6 FAIL, 7 TIMEOUT | 30 OK, 1 FAIL, 4 TIMEOUT | 28 OK, 5 FAIL, 10 TIMEOUT |
 | 4L non-planar refusals | `11011001011000` (curve), `11110101000000` (intrinsic quadric) | - | `11010101011000` (integer-empty; L0) |
 
-At 4L the generic lane needs only L0. The heavy 5L tails (Petersen bc09, cf742) stay generic.
-They are 5L work: in-sector parallelism and checkpointing (S14), or Diamond/ShiftedPrimitive.
+Cascade cross-reference:
+
+- Batch B, 33 non-OK sectors: 26 are rule nodes (insertion 22, triangle 3, diamond 1) and 7 are
+  custom (bc09 t = 11, 12, 13, 13; cf742 t = 10, 12; 94d07 t = 12).
+- 18 of them have no custom descendant.
+- Against the first draft's lanes (18), that is 8 more, all first-draft generic.
+- The three 4L non-planar refusals are insertion nodes `d176`, `d172` and `d95`.
+- The 22 first-draft generic tops are 3 diamond + 19 custom.
+
+The heavy 5L tails (Petersen bc09, cf742) stay custom. They are 5L work: in-sector parallelism
+and checkpointing (S14), and the reserved lanes.
 
 ## 4. LocusLedger and the discharge ladder
 
 ### 4.1 From refusal to ledger entry (`solver/sector.rs`, `solver/sector/ledger.rs`)
 
+- **Scope.** Ledger entries arise only in custom nodes; the rule lanes are exception-free.
 - **Option.** `SectorSolveOptions.locus_policy: LocusPolicy { Abort (default; vacuum unchanged),
   Ledger }`.
 - **New admission method.** `SectorRule::admit_exceptional_cases_partial` returns
@@ -497,12 +663,13 @@ They are 5L work: in-sector parallelism and checkpointing (S14), or Diamond/Shif
 - `Empty{certificate}` (L0);
 - `Split{rung, cases, overlay_rules}` (L1, or L0 bounded);
 - `Rescued{how: PortfolioOrder(i) | ChartResolve | DeepSearch{radius}, overlay_rules}` (L2);
-- `Template{Diamond, overlay_rules}` (L3);
+- `Template{EpsTriangle | S0Scan, overlay_rules}` (L3);
 - `Bounded{r_cap, overlay_rules}` (L4);
 - `Runtime` (residual: local Laporta at run time).
 
 Shipping gate: no entry is `Pending`. The count of `Runtime` entries is reported, and it must
-be 0 at 4L.
+be 0 at 4L. The 4L ledger is likely empty, so this holds trivially there; the rung tests use the
+5L locus files.
 
 ### 4.2 L0 and L1, inside the intersection engine (`solver/case/intersection/`)
 
@@ -563,7 +730,8 @@ series-parallel or L0 anyway.
 
 ### 4.4 L3, L4 and the runtime contract
 
-- **L3: Diamond template** (§3.5), on the locus chart. Its output is overlay rules.
+- **L3: locus-chart templates**, on the locus chart: the eps-triangle and S0-scan rules. Its
+  output is overlay rules. Triangle and Diamond are lanes now (§3.3, §3.5), not rungs.
 - **L4: bounded rank split**, on the locus only.
   - `intersect_many_with_max_numerator_rank(branch, R_cap)`, with `R_cap = 17` [E].
   - The rank slices are solved by `solve_case_queue` on fragment cases. The existing API accepts
@@ -611,9 +779,11 @@ library has its own loader (§7.1).
 
 - every nonzero labelled sector of every top family (4L: 4,519; 5L: 180,644);
 - 3 routes per triangle owner;
-- none for series-parallel owners.
+- none for series-parallel owners;
+- one edge map per DAG rule edge (insertion, carpet, triangle, diamond): a verified `(A, b, c)`
+  plus a merge list (the insertion edge map is not bijective, §3.2b).
 
-Children of generic rules are labelled sectors of their own top family, so they are already
+Children of custom rules are labelled sectors of their own top family, so they are already
 covered.
 
 ### 5.3 Zero proofs
@@ -646,10 +816,15 @@ Load-time checks:
 1. every owner order is support-primary (`CompiledOrder::is_support_primary`);
 2. every rule is checked per RHS term by the existing strict-descent comparison, and stores a
    `DescentWitness { SameSectorStrict | Subsector }`;
-3. every route maps `t` lines to an owner with the same `t`, and its outputs are Apply keys,
-   never routed again;
-4. series-parallel steps emit terminals only;
-5. overlays satisfy check 2.
+3. every route and every DAG edge map is verified; a route maps `t` lines to an owner with the
+   same `t`, and its outputs are Apply keys, never routed again;
+4. series-parallel, insertion and carpet steps emit terminals, or keys with smaller `t` (and
+   `L - 1` loops);
+5. overlays satisfy check 2;
+6. eps-axes are forced active in every support mask. The `power > 0` masks are fixed at
+   `sector/ordering.rs:26`, routed `ordered.rs:111-112` and `layered.rs:103-110`.
+
+`t` counts eps-lines too; they are never pinched.
 
 Then the lexicographic measure (`t`, Route > Apply, owner order) strictly decreases along every
 step. That is well-founded: the supports are finite, and each owner order is a validated
@@ -661,13 +836,21 @@ owner's order.
 
 ## 6. Terminals and the master basis
 
-- **Terminals.** There are two kinds:
-  - series-parallel class masters `T_class`, with closed values (`sp-masters.json`);
-  - finite residuals of generic owners.
+- **Terminals.** There are two kinds, each with a Gamma tag:
+  - (tag, trivial node): series-parallel class masters `T_class` and the ends of insertion and
+    carpet chains, with closed values (`sp-masters.json`);
+  - (tag, custom-node residual): finite residuals of custom owners.
 
-  Triangle owners have none.
+  Triangle and diamond owners have none.
 - **Reference basis.** Up to 4L it is Forcer's masters (Masters.prc; the authors gave
   permission). At 5L it is GGPPSS's 281 masters.
+  - 4L: Forcer's 16 masters in Forcer's own convention, 7 of them with eps-lines (FP App. C),
+    plus tags.
+  - `p-basis` maps residuals within the same node.
+  - A translation table maps tags to and from `GschemeConstants` and `G10..G40`.
+  - The ALARM sentinels of Masters.prc feed the vakint Oep guard.
+  - 5L: one recorded de-insertion witness per (tag, node) gives an integer 5L integral for Kira.
+    If the system is not square, cross-tag relations are needed.
   - The reduction coefficients onto a fixed basis are unique.
   - So our exact `Q(d)` coefficients onto Forcer's basis equal Forcer's own. Whatever master
     depth suffices for Forcer suffices for us.
@@ -703,7 +886,7 @@ owner's order.
     - masters with `class` and `origin` fields.
   - The base is bound to the library version constant and the terminal inventory. A structural
     check at load verifies that every source is a terminal and every coefficient is exact.
-  - Expected size: 1L-3L trivial (3L: about 5 generic classes); 4L about 28 masters.
+  - Expected size: 1L-3L trivial (3L: 2 custom owners); 4L 16 masters plus tags.
 
 ## 7. Application and performance
 
@@ -712,10 +895,15 @@ owner's order.
 ```rust
 pub struct PresentationId(pub u32);
 pub struct OwnerClassId(pub u64);
-pub enum OwnerLane { Zero, SeriesParallel, Triangle, Generic, Diamond, ShiftedPrimitive, Product }
+pub enum OwnerLane {
+    Zero, SeriesParallel, Insertion, Carpet, Triangle, Diamond, Custom,
+    Product, // reserved
+}
+pub struct GammaTag(/* sparse small-integer exponents over Gamma(1 + m eps), m != 0 */);
 pub enum OwnerProgram<const N: usize> {
     SeriesParallel(Arc<SpPlan>),
-    Rules(Arc<CandidateOwnerPrograms<N>>), // triangle (1 rule) or generic (+ overlays)
+    Insertion(Arc<InsertionPlan>), Carpet(Arc<CarpetPlan>),
+    Rules(Arc<CandidateOwnerPrograms<N>>), // triangle or diamond (1 rule) or custom (+ overlays)
     Missing { ledger: u32 },               // whole-sector ResourceStop: runtime only
 }
 pub struct POwner<const N: usize> {
@@ -741,8 +929,8 @@ pub struct PReductionRequest {
 Module layout:
 
 - `class.rs`, `census.rs`, `presentation.rs`, `lane.rs`;
-- `series_parallel/{plan,gamma,bubble,eval}.rs`;
-- `triangle.rs`, `descent.rs`;
+- `series_parallel/{plan,gamma,bubble,eval}.rs` (the bubble kernel is shared with `insertion.rs`);
+- `insertion.rs`, `carpet.rs`, `triangle.rs`, `diamond.rs`, `descent.rs`, `tag.rs`;
 - `application.rs`: the `OrderedKernel`, `OrderedStepper` and `ConcurrentOrderedKernel`
   implementation;
 - `cache.rs`, `overlay.rs`.
@@ -755,18 +943,24 @@ come from P0 (rustred-p0).
 
 **Kernel.**
 
-- `Key = PKey { presentation, stage: Route | Apply, powers }`.
-- Phases: two per support size (Route, then Apply), `t` descending. Children always land in the
-  same or a later phase, as the engine requires (`ordered_reduction/mod.rs:1-120`).
+- `Key = PKey { presentation, tag: GammaTag, stage: Route | Apply, powers }`. Alternatively the
+  tag is a batch dimension of the weight. eps-node keys are padded to `N`.
+- The coefficient context stays `{d}`; `modular_polynomial` is unchanged.
+- Phases come from the DAG nodes: `t` descending, then Route and Apply per node. Children always
+  land in the same or a later phase, as the engine requires (`ordered_reduction/mod.rs:1-120`).
+  Loop counts mix within one `t` level: Forcer's level 8 holds 13 3L and 87 4L topologies [M].
+- Step, tail and result cache identities stay tag-free; their values carry relative tags. This
+  corrects the claim of `WS/notes/forcer-tricks-ordering.md` that tails and results need the tag
+  in their identity [D].
 - Apply steps by lane:
-  - series-parallel: the closed step;
+  - series-parallel, insertion and carpet: the closed steps;
   - rule-based owners: the existing `CandidateEvaluator` dispatch;
   - `Uncovered`: the overlay, then local Laporta.
 - The engine, the windows, the tail and the step cache are reused as they are.
 
 **Lazy loading.** Owners are prepared on first use (the existing `owner_preparation:
 on_first_use`). At 4L most owners are templates or plans, so cold start is dominated by the
-roughly 89 generic owners [E].
+21 custom owners [E].
 
 ### 7.2 `Z_p(d)` replay
 
@@ -775,7 +969,8 @@ roughly 89 generic owners [E].
 - The p library guarantees context `{d}`:
   - `q^2 = 1` is numeric;
   - homogeneity `(q^2)^{L d/2 - sum n}` is restored by vakint;
-  - power shifts, when they come, are in `d` only.
+  - power shifts (eps-lines) are in `d` only;
+  - Gamma tags stay outside the weights.
 - At concrete indices every step coefficient lies in `Q(d)`:
   - triangle: one linear factor;
   - series-parallel: products of linear Pochhammer factors;
@@ -850,13 +1045,15 @@ The tail table closes single-terminal suffixes in one product per entry key (`ta
 p-library-L<k>/
   library.json        rustred.p-owner-library.v1: versions, presentations[], owners[{class, lane,
                       presentation, payload, terminals, order}], counts
-  families/*.rrbin    native family records (top families, triangle presentations)
+  families/*.rrbin    native family records (top families, adapted and eps-node presentations)
   census.rrbin        routes (SignedAffineLoopMap) + zero proofs; census.json summary
-  owners/*.rrbin      candidate payloads (generic, triangle), gzip 32 MiB chunks as today
+  owners/*.rrbin      candidate payloads (custom, triangle, diamond), gzip 32 MiB chunks as today
   overlays/*.rrbin    L2-L4 discharge rules
   sp/plans.json       SpPlan per series-parallel class;  sp/masters.json  Gamma-monomial values
   locus-ledger.json   rustred.p-locus-ledger.v1
   layer/layer.json    rustred.saved-application-layer.v2 (+ layer.rrbin)
+  topology/p-topologies.json   DAG nodes, actions, roles, edges, edge maps (§2.4)
+  topology/edges.rrbin         verified edge maps
 ```
 
 Version constants (hand-bumped, in `propagator/mod.rs`):
@@ -867,14 +1064,16 @@ Version constants (hand-bumped, in `propagator/mod.rs`):
   identity;
 - `P_SP_LANE_SEMANTICS`;
 - `P_TRIANGLE_TEMPLATE_VERSION`;
-- `P_LOCUS_LEDGER_SCHEMA`.
+- `P_LOCUS_LEDGER_SCHEMA`;
+- `P_TOPOLOGY_VERSION`, `P_GAMMA_TAG_VERSION`, `P_INSERTION_KERNEL_VERSION`,
+  `P_CARPET_KERNEL_VERSION` and `P_DIAMOND_TEMPLATE_VERSION`.
 
 `ORDERED_STEP_SEMANTICS` is not bumped: existing adapters do not change.
 
 Packaging:
 
-- 1L-3L are embedded in vakint (the 3L library has 14 series-parallel plans, 8 one-rule owners and
-  about 5 small generic owners).
+- 1L-3L are embedded in vakint. The 3L built-in library has 43 DAG nodes and 2 SpIRed owners
+  (NO and the 2L kite with an eps-line).
 - 4L goes to vakint-external-data `p/4L/`.
 
 5L readiness:
@@ -899,6 +1098,14 @@ Additional 4L acceptance:
   `PUncoveredPolicy::Reject`. Required: 0 `Uncovered`, 0 `MissingOwner`, 0 descent failures.
 - A Forcer-frozen fixture set is kept as data for `just test_vakint`.
 
+Cascade checks (added with the Forcer cascade):
+
+- the 4L DAG equals Forcer's: 438 nodes, identical actions, 21 custom (eps-on-q convention);
+- exact symbolic comparison with Forcer output, after mapping tags to G-constants;
+- the insertion kernel against Forcer's `reduceG` identities;
+- the carpet against Th eq. 18 on 2L and 3L closed forms;
+- the diamond template against SpIRed on Forcer's 4 diamond nodes.
+
 Test placement:
 
 - RustRed unit tests per rung use `WS/study/pint-closure-study/scratch/runs/e2/locus_*.json`.
@@ -909,8 +1116,9 @@ Test placement:
 
 - Suite: the 64 tops, the 128 batch-B sectors, and the cf742 e13 top (`runs/e1/jobsA.txt`,
   `jobsB.txt`, `runs/e4`).
-- For each sector, report the lane. For generic sectors also report outcome, time, RSS, rules,
+- For each sector, report the lane. For custom sectors also report outcome, time, RSS, rules,
   residuals and ledger entries by cause and rung.
+- Also report the pass-A census numbers (§2.3) and the eps-owner generation sample.
 - Compare with the E1 baseline (resultsA/B.jsonl) and with the §3.6 table.
 - Warning signs:
   - lane drift;
@@ -928,56 +1136,64 @@ task.
 | # | Task | Size | Depends | Output, check |
 |---|---|---|---|---|
 | **M2** | | | | |
-| T1 | Class key: External colour, `q` rows, glued `e0`; `OwnerClassId` | M | P0 | Unit: kite, LA/BE/NO classes; Whitney-twist pair maps |
-| T2 | `p-census`: family input, zero proofs, maps, verify; completeness | M | T1 | 1L-4L counts = graph census (8/175/4,519); 0 MissingOwner |
-| T3 | Lane planner plus presentations (induced, triangle); `lane.rs` | M | T2 | Lane counts equal `lane_census.py` |
-| T4 | Series-parallel lane: plan, Gamma monomials, transverse bubble, step | L | T3 | §9 rows L1-L3 exact |
-| T5 | Triangle template: row extraction, shape check, order, `finish_rule` | M | T3 | Kite and 3L tops exact against SpIRed |
-| T6 | `PLibrary` and the Ordered adapter (`PKey`), routes, lazy owners, overlays hook, step-cache binding | L | T2-T5 | 1L-3L reductions through the Ordered engine (exact and `modular_polynomial`); vacuum tests unchanged |
-| T7 | Generic lane through `family_candidates_from_family_controlled`; `LocusPolicy` plumbing (no rungs yet) | M | T3 | 3L generic classes generated all-rank |
+| T1 | Class key: External colour, `q` rows, glued `e0`, eps-unit colours; `OwnerClassId` | M | P0 | Unit: kite, LA/BE/NO classes; Whitney-twist pair maps |
+| T1b | `rustred-topology` crate (§2.4) and the Forcer DAG golden test | M | T1 | 4L DAG = Forcer's 438 nodes, 21 custom; 3L 43; 2L 7 |
+| T2 | `p-census`: eager roots, DAG pass A, family input, zero proofs, maps, verify; completeness | M | T1b | 1L-4L counts = graph census (8/175/4,519); every DAG edge target a node or a zero; 0 MissingOwner |
+| T3 | Lane planner plus presentations (induced, insertion, carpet, triangle, diamond, eps-node); `lane.rs` | M | T2 | Lane counts equal the cascade census (§0 item 4) |
+| T4 | Bubble kernel shared by SeriesParallel and Insertion, with Gamma tags: plan, transverse bubble, step | L | T3 | §9 rows L1-L3 exact; kernel vs Forcer's `reduceG` identities |
+| T4b | Carpet kernel | M | T4 | Carpet vs Th eq. 18 on 2L/3L closed forms |
+| T5 | Triangle template with eps on the apex lines: row extraction, shape check, order, `finish_rule` | S | T3 | Kite and 3L tops exact against SpIRed |
+| T6 | `PLibrary` and the Ordered adapter (`PKey` with tag, padded arity, eps support masks), routes and edge maps, lazy owners, overlays hook, step-cache binding | L | T2-T5 | 1L-3L reductions through the Ordered engine (exact and `modular_polynomial`); vacuum tests unchanged |
+| T7 | Custom lane through `family_candidates_from_family_controlled`; `power_shifts` admission and eps-axis order; `LocusPolicy` plumbing (no rungs yet) | M-L | T3 | First eps owner = the 2L kite; 3L custom owners generated all-rank |
 | T8 | `p-package`; built-in 1L-3L bytes; `PReductionRequest` API used by vakint | M | T6, T7 | vakint integration agent green |
-| T9 | 1L-3L basis (`p-basis`, RustRed provenance); `sp-masters.json` | S | T8 | Forcer battery 1L-3L |
-| T10 | Benchmark v1 numbers; canary run #1 (lanes only plus generic re-runs) | S | T8 | Table |
+| T9 | 1L-3L basis = Forcer's masters (`p-basis`, RustRed provenance); `sp-masters.json`; tag translation table | S | T8 | Forcer battery 1L-3L |
+| T10 | Benchmark v1 numbers; canary run #1 (lanes only plus custom re-runs) | S | T8 | Table |
 | **M3** | | | | |
+| T5b | Diamond template | M | T5 | Template vs SpIRed on Forcer's 4 diamond nodes |
 | T11 | L0 `emptiness/` (binary form, orthant, bounded, congruence) | M | - | 4L `11010101011000` proved empty; vacuum suite unchanged |
 | T12 | L1 `affine_bilinear.rs` | S | - | Petersen top locus gives 4 cases; synthetic tests |
 | T13 | L2 fall-through, at least 3 alternatives, chart re-solve, deep search | M | T7 | E3 cases rescued |
-| T14 | `p-discharge`: ledger driver, L4 bounded split, overlays, gates | M | T11-T13 | 0 `Pending` at 4L |
-| T15 | 4L census and generation (about 89 generic classes, less than 2 core-h [E]) | S | T6, T14 | Library L4 |
+| T14 | `p-discharge`: ledger driver, L3 locus-chart templates, L4 bounded split, overlays, gates | M | T11-T13 | 0 `Pending` at 4L (the 4L ledger may be empty; rung tests use the 5L locus files) |
+| T15 | 4L census and generation: the 21 custom nodes | S | T6, T14, T5b | Library L4 |
 | T16 | Runtime safety net (`LocalLaporta` overlay, cache) | M | T6 | Forced `Uncovered` test is exact |
-| T17 | 4L basis onto Forcer's 28; RustRed rows first, Kira stopgap if non-square | M-L | T15 | Layer v2; fresh-`d` checks |
+| T17 | 4L basis: the within-node map onto Forcer's 16 masters (plus tags) | S-M | T15 | Layer v2; fresh-`d` checks |
 | T18 | 4L validation (§9) | M | T17 | All rows green |
 | T19 | Performance: `modular_polynomial` default, 16 threads, chunked route expansion, cache (base and delta, merge) | M | T6 | Benchmark targets §7.5 |
-| T20 | Canary run #2; gate decisions for Diamond, ShiftedPrimitive, Product | S | T15 | Table plus a recommendation |
+| T20 | Canary run #2 with the eps-owner cost and the rule-order ablation; gate decisions for Product, HigherInsertion, EpsTriangle | S | T15 | Table plus a recommendation |
 
 Risks and mitigations:
 
 1. **T6 is the largest refactor.** Keep it additive: a new module and a new adapter. The vacuum
    paths and stamps stay byte-identical, which is tested.
-2. **Series-parallel cost at rank 8.** Memoise bubble kernels; key the cache by class. The term
+2. **Bubble-kernel cost at rank 8.** Memoise bubble kernels; key the cache by class. The term
    budget refuses with `Uncovered` (exact fallback).
-3. **Triangle shape mismatches** (sign conventions, ISP choice). The template is validated by
-   RustRed's own row, and any mismatch falls back to the generic lane.
+3. **Triangle and diamond shape mismatches** (sign conventions, ISP choice). The templates are
+   validated by RustRed's own rows, and any mismatch falls back to the custom lane.
 4. **4L basis not square.** Bridge Laporta in boxes first; the Kira pipeline is ready.
-5. **Census key instability across Symbolica updates.** `P_CLASS_KEY_VERSION`, plus a golden test
-   on the 3L classes.
-6. **5L generic tails** (bc09, cf742; the 10 batch-B timeouts are all generic). Out of M2/M3. The
-   canary gates S14 (in-sector parallelism and checkpointing) and the reserved lanes.
+5. **Census key instability across Symbolica updates.** `P_CLASS_KEY_VERSION` and
+   `P_TOPOLOGY_VERSION`, plus golden tests on the 3L classes and the 4L Forcer DAG.
+6. **5L custom tails** (bc09, cf742, 94d07). Out of M2/M3. The canary gates S14 (in-sector
+   parallelism and checkpointing) and the reserved lanes.
 
 Open points to settle in M2/M3 (measured, not guessed):
 
-- The exact marked-matroid class counts per lane. The numbers above are graph-criterion (WL,
-  lane) lower bounds.
-- The terminal count of the 4L generic owners against Forcer's 13 hard masters.
-- The fraction of generic-lane cost due to insertion classes; this decides `ShiftedPrimitive`.
+- The exact marked-matroid class counts per lane, recomputed by RustRed against the cascade
+  census of §0 item 4.
+- The terminal count of the 21 4L custom owners against Forcer's 16 masters.
 - Whether the 4L reference basis ever exceeds the depth of the Masters.prc tables (Oep guard
   telemetry).
+- The series-parallel one-step form against per-bubble insertion, and the recursive against the
+  summed triangle (M5).
 
 ## References
 
 - Chetyrkin, Tkachov, Nucl. Phys. B192 (1981) 159: IBP and the triangle rule.
+- Chetyrkin, Tkachov 1981: the carpet rule. Tkachov 1983: the summed triangle.
+- Larin, Tkachov, Vermaseren, the Mincer manual NIKHEF-H/91-18: carpet origin; eps-central-line
+  triangle, eqs. 15-16.
 - Ruijl, Ueda, Vermaseren, Forcer: arXiv:1704.06650. Ruijl's thesis §3.4 (triangle eq. 25,
-  diamond). Diamond rule: arXiv:1511.08236.
+  diamond). Diamond rule: Ruijl, Ueda, Vermaseren, PLB 746 (2015) 347, arXiv:1504.08258.
+- Forcer source: benruijl/forcer `68a30bf` (`pathforcer.py`, `forcer-aux.h`, `Masters.prc`).
 - Grozin, Lectures on QED and QCD, hep-ph/0508242: G-functions and massless one-loop tensor
   integrals.
 - Lee, Smirnov, Smirnov: arXiv:1108.0732 (4L masters). GGPPSS: arXiv:2104.08272 (5L masters).
