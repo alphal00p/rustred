@@ -2265,25 +2265,26 @@ mod tests {
         }
     }
 
-    /// A composition whose outputs are much simpler than the terminals needs
-    /// fewer sample points and primes than lifting the terminals.
+    /// A composition whose output is much simpler than the terminals (here
+    /// T7 - T7, exactly zero) needs fewer sample points and primes than
+    /// lifting the terminals.
     #[test]
     fn composing_to_a_simple_output_samples_fewer_points_and_primes() {
         let (_, raw) = run_reported(sampled(1, 16));
-        struct Collapse(CoefficientContext, Coefficient);
+        struct Collapse(Coefficient, Coefficient);
         impl OrderedTerminalComposer for Collapse {
             fn plan<'a>(
                 &'a self,
                 terminals: &[IntegralKey],
             ) -> Result<Option<OrderedCompositionPlan<'a>>, ReductionError> {
-                // Only terminal [7] (a small coefficient) reaches the output.
+                // Only terminal [7] reaches the output, with 1 - 1.
                 Ok(Some(OrderedCompositionPlan {
                     stages: vec![OrderedCompositionStage {
                         rows: terminals
                             .iter()
                             .map(|key| {
                                 if key.powers()[0] == 7 {
-                                    vec![(0, &self.1)]
+                                    vec![(0, &self.0), (0, &self.1)]
                                 } else {
                                     vec![]
                                 }
@@ -2296,13 +2297,13 @@ mod tests {
             }
         }
         let context = CoefficientContext::try_new(["d"]).unwrap();
-        let one = context.one();
+        let (one, minus_one) = (context.one(), context.integer(-1));
         let (inner, initial, conditions) = ladder();
         modular::take_reported_statistics();
         let result = run_with_arithmetic(
             &mut Composing {
                 inner,
-                composer: Some(std::sync::Arc::new(Collapse(context, one))),
+                composer: Some(std::sync::Arc::new(Collapse(one, minus_one))),
             },
             &mut ReductionRequest::default(),
             initial,
@@ -2311,18 +2312,7 @@ mod tests {
         )
         .unwrap();
         let composed = modular::take_reported_statistics().pop().unwrap();
-        let (mut kernel, initial, conditions) = ladder();
-        let exact = run(
-            &mut kernel,
-            &mut ReductionRequest::default(),
-            initial,
-            conditions,
-        )
-        .unwrap();
-        assert_eq!(
-            result.composed.unwrap().coefficients,
-            vec![exact.terms[&IntegralKey::try_new([7]).unwrap()].clone()]
-        );
+        assert_eq!(result.composed.unwrap().coefficients, vec![context.zero()]);
         assert!(composed.points_per_prime < raw.points_per_prime);
         assert!(composed.points_replayed < raw.points_replayed);
         assert!(composed.primes <= raw.primes);
