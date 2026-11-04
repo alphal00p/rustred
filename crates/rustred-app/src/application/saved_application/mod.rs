@@ -753,6 +753,8 @@ impl<const N: usize> PreparedSavedApplication<N> {
         let mut observation = observer.and_then(|observer| {
             progress::SavedObservation::new(observer, family.fingerprint(), reduced.terms().len())
         });
+        let stage_started = Instant::now();
+        let raw_terminals = reduced.terms().len();
         let result = (|| {
             let mut output = BTreeMap::new();
             // Keep deterministic encounter order in the output, but use native
@@ -894,6 +896,15 @@ impl<const N: usize> PreparedSavedApplication<N> {
         if let Some(observation) = observation.as_mut() {
             observation.finish(family.fingerprint(), &result);
         }
+        report_stage(&serde_json::json!({
+            "stage": "terminal_substitution",
+            "mode": "exact",
+            "seconds": stage_started.elapsed().as_secs_f64(),
+            "raw_terminals": raw_terminals,
+            "outputs": result.as_ref().map_or(0, |r| r.terms.len()),
+            "additions": result.as_ref().map_or(0, |r| r.terminal_substitution_additions),
+            "ok": result.is_ok(),
+        }));
         result
     }
 
@@ -1118,6 +1129,22 @@ impl<const N: usize> PreparedSavedApplication<N> {
             metadata,
             inputs,
         })
+    }
+}
+
+/// Append one JSON line per saved-application stage to the file named by
+/// `RUSTRED_SAVED_APPLICATION_STAGES` (instrumentation only; no effect on
+/// results).
+pub(crate) fn report_stage(line: &Value) {
+    if let Some(path) = std::env::var_os("RUSTRED_SAVED_APPLICATION_STAGES") {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{line}");
+        }
     }
 }
 

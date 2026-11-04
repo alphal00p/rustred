@@ -255,7 +255,11 @@ fn inputs(
         hasher.update(b"\n");
         inputs.push((key, coefficient(context, text)?));
     }
-    if request["input_digest"].as_str() != Some(hasher.finalize().to_hex().as_str()) {
+    // Requests synthesized from a recorded template (other entry
+    // keys of the same program) carry `"synthetic_inputs": true` and no digest.
+    if request["synthetic_inputs"] != true
+        && request["input_digest"].as_str() != Some(hasher.finalize().to_hex().as_str())
+    {
         return Err("parsed inputs do not reproduce the recorded input digest".into());
     }
     Ok(inputs)
@@ -1000,6 +1004,21 @@ mod saved {
             "seconds": (owners.preparation_time - owners_before).as_secs_f64(),
             "prepared_owners": owners.prepared_owners, "declared_owners": owners.declared_owners}));
         report_step_cache(options, cache.as_deref())?;
+        // ORDERED_REPLAY_OUTPUT_TERMS=<file>: write the exact output terms and guards there.
+        if let Some(path) = std::env::var_os("ORDERED_REPLAY_OUTPUT_TERMS") {
+            let terms: Vec<Value> = reduced
+                .terms()
+                .iter()
+                .map(|(terminal, coefficient)| {
+                    json!({"powers": powers(terminal.integral()), "coefficient": canonical(coefficient)})
+                })
+                .collect();
+            let guards: Vec<String> = reduced.nonzero_conditions().iter().map(canonical).collect();
+            std::fs::write(
+                path,
+                serde_json::to_string_pretty(&json!({"terms": terms, "nonzero_conditions": guards}))?,
+            )?;
+        }
         let output = output_digest(
             reduced.terms().iter().map(|(terminal, coefficient)| {
                 (
