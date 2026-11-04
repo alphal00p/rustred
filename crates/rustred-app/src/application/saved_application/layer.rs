@@ -1141,7 +1141,7 @@ pub(super) fn compose_maps(
     Ok((
         TerminalMaps {
             families: base.families.clone(),
-            rows: output,
+            rows: output.into(),
             remaining,
             layer: None,
         },

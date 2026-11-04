@@ -36,6 +36,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
                 return Err(error);
             }
         };
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_linear_combination_with_observation(
@@ -57,6 +58,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         cancel: Option<&AtomicBool>,
     ) -> Result<SavedApplicationReduction, AppError> {
         begin_observation(observer, self.family().fingerprint());
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_routed_linear_combination_with_observation(

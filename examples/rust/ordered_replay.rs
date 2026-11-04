@@ -120,6 +120,7 @@ struct Options {
     step_cache_read_only: bool,
     ignore_recorded_counters: bool,
     route_layers: Option<rustred::solver::OrderedRouteLayering>,
+    terminal_composition: Option<rustred_app::SavedApplicationTerminalComposition>,
 }
 
 impl Options {
@@ -139,6 +140,7 @@ impl Options {
             step_cache_read_only: false,
             ignore_recorded_counters: false,
             route_layers: None,
+            terminal_composition: None,
         };
         while let Some(arg) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -172,6 +174,16 @@ impl Options {
                 "--step-cache-read-only" => options.step_cache_read_only = true,
                 "--ignore-recorded-counters" => options.ignore_recorded_counters = true,
                 "--route-layers" => options.route_layers = Some(value("--route-layers")?.parse()?),
+                "--terminal-composition" => {
+                    options.terminal_composition =
+                        Some(match value("--terminal-composition")?.as_str() {
+                            "exact" => rustred_app::SavedApplicationTerminalComposition::Exact,
+                            "modular" => rustred_app::SavedApplicationTerminalComposition::Modular,
+                            other => {
+                                return Err(format!("unknown terminal composition {other}").into());
+                            }
+                        })
+                }
                 _ if request.is_none() && !arg.starts_with("--") => request = Some(arg.into()),
                 _ => return Err(format!("unexpected argument {arg}").into()),
             }
@@ -968,6 +980,11 @@ mod saved {
         if let Some(layering) = options.route_layers {
             prepared.set_ordered_route_layering(layering);
         }
+        if let Some(composition) = options.terminal_composition {
+            prepared.set_terminal_composition(composition);
+        }
+        emit(json!({"event": "terminal_composition",
+            "mode": format!("{:?}", prepared.terminal_composition())}));
         emit(
             json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str(),
             "adjoint_tail": prepared.ordered_scheduler_options().adjoint_tail}),
@@ -1016,7 +1033,9 @@ mod saved {
             let guards: Vec<String> = reduced.nonzero_conditions().iter().map(canonical).collect();
             std::fs::write(
                 path,
-                serde_json::to_string_pretty(&json!({"terms": terms, "nonzero_conditions": guards}))?,
+                serde_json::to_string_pretty(
+                    &json!({"terms": terms, "nonzero_conditions": guards}),
+                )?,
             )?;
         }
         let output = output_digest(

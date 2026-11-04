@@ -27,6 +27,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::compose::{PrimeProgram, Program};
+
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::{Field, Ring, RingOps};
@@ -40,7 +42,7 @@ use crate::reduction::ReductionError;
 use crate::reduction::ordered_reduction::arithmetic::SampledOptions;
 
 /// Incremental univariate Thiele interpolation over one prime field.
-struct Thiele {
+pub(super) struct Thiele {
     nodes: Vec<Fe>,
     differences: Vec<Fe>,
     p_prev: Poly,
@@ -49,11 +51,11 @@ struct Thiele {
     q: Poly,
     checks: usize,
     consumed: usize,
-    result: Option<(Poly, Poly)>,
+    pub(super) result: Option<(Poly, Poly)>,
 }
 
 impl Thiele {
-    fn new(f: &Zp64) -> Self {
+    pub(super) fn new(f: &Zp64) -> Self {
         Self {
             nodes: vec![],
             differences: vec![],
@@ -69,7 +71,7 @@ impl Thiele {
 
     /// Consume new samples; true once `required` consecutive fresh samples
     /// agree with the current convergent.
-    fn feed(&mut self, f: &Zp64, xs: &[Fe], ys: &[Fe], required: usize) -> bool {
+    pub(super) fn feed(&mut self, f: &Zp64, xs: &[Fe], ys: &[Fe], required: usize) -> bool {
         if self.result.is_some() {
             return true;
         }
@@ -138,8 +140,9 @@ impl Thiele {
     }
 }
 
-/// Values of all output terminals at the good points of one prime.
-struct PrimeSamples {
+/// Values of all output terminals (or composed outputs) at the good points
+/// of one prime.
+struct PrimeSamples<'p> {
     field: Zp64,
     xs: Vec<Fe>,
     ys: Vec<Vec<Fe>>,
@@ -147,17 +150,29 @@ struct PrimeSamples {
     rng: StdRng,
     /// Points drawn, including bad ones.
     drawn: usize,
+    /// The terminal composition modulo this prime, when composing.
+    program: Option<Arc<PrimeProgram<'p>>>,
+    /// The prime reduces a composition coefficient's denominator to zero.
+    unusable: bool,
 }
 
-impl PrimeSamples {
-    fn new(prime: u64, seed: u64, terminals: usize) -> Self {
+impl<'p> PrimeSamples<'p> {
+    fn new(prime: u64, seed: u64, terminals: usize, compose: Option<&'p Program>) -> Self {
+        let field = Zp64::new(prime);
+        let (program, unusable) = match compose.map(|program| program.reduce(&field)) {
+            None => (None, false),
+            Some(Some(program)) => (Some(Arc::new(program)), false),
+            Some(None) => (None, true),
+        };
         Self {
-            field: Zp64::new(prime),
+            field,
             xs: vec![],
             ys: vec![vec![]; terminals],
             used: HashSet::new(),
             rng: StdRng::seed_from_u64(seed ^ prime.rotate_left(17)),
             drawn: 0,
+            program,
+            unusable,
         }
     }
 
@@ -196,10 +211,12 @@ impl PrimeSamples {
 }
 
 /// One replay batch: points of the prime `owner` of the round.
-struct Job {
+struct Job<'p> {
     owner: usize,
     field: Zp64,
     points: Vec<Fe>,
+    /// The terminal composition modulo the job's prime, when composing.
+    program: Option<Arc<PrimeProgram<'p>>>,
 }
 
 /// Narrowest batch worth replaying: per-operation overheads (one frontier
@@ -230,10 +247,21 @@ pub(super) struct SampledSource<'a> {
     seed: u64,
     /// Points per prime once the first image fixed the degrees.
     needed: Option<usize>,
+    /// Terminal composition applied at every sample point before the
+    /// interpolation: the outputs are then the composed outputs.
+    compose: Option<&'a Program>,
+    /// `0..outputs`: the value rows of composed replay batches.
+    identity: Vec<usize>,
 }
 
 impl<'a> SampledSource<'a> {
-    pub fn new(trace: &'a Trace, slots: &'a [usize], options: SampledOptions, seed: u64) -> Self {
+    pub fn new(
+        trace: &'a Trace,
+        slots: &'a [usize],
+        options: SampledOptions,
+        seed: u64,
+        compose: Option<&'a Program>,
+    ) -> Self {
         Self {
             trace,
             slots,
@@ -241,7 +269,27 @@ impl<'a> SampledSource<'a> {
             options,
             seed,
             needed: None,
+            compose,
+            identity: compose.map_or(vec![], |program| (0..program.outputs()).collect()),
         }
+    }
+
+    /// Interpolated outputs: the terminals, or the composed outputs.
+    fn outputs(&self) -> usize {
+        self.compose.map_or(self.slots.len(), Program::outputs)
+    }
+
+    /// Row of every output in the value tables of the replay batches.
+    fn columns(&self) -> &[usize] {
+        if self.compose.is_some() {
+            &self.identity
+        } else {
+            self.slots
+        }
+    }
+
+    fn prime_samples(&self, prime: u64) -> PrimeSamples<'a> {
+        PrimeSamples::new(prime, self.seed, self.outputs(), self.compose)
     }
 
     /// The structure of every image: fixed by the recording.
@@ -268,23 +316,39 @@ impl<'a> SampledSource<'a> {
     }
 
     /// Replay `jobs`; `None` marks a prime dividing a constant denominator.
+    /// Composing jobs return the composed outputs' values (rows `0..outputs`)
+    /// and mark the poles of composition coefficients as bad points.
     fn replay(
         &self,
-        jobs: Vec<Job>,
+        jobs: Vec<Job<'a>>,
         executor: &Executor,
         statistics: &mut ModularStatistics,
     ) -> Result<Vec<(usize, Vec<Fe>, Option<ReplayBatch>)>, ReductionError> {
         let started = Instant::now();
         let trace = self.trace;
+        let slots = self.slots;
         let results = executor.map(jobs, |job| {
             let begun = Instant::now();
-            let result = replay(trace, &job.field, &job.points);
-            (job.owner, job.points, result, begun.elapsed().as_secs_f64())
+            let mut result = replay(trace, &job.field, &job.points);
+            let replayed = begun.elapsed().as_secs_f64();
+            if let (Ok(batch), Some(program)) = (&mut result, &job.program) {
+                let width = job.points.len();
+                let values = &batch.values;
+                let composed = program.apply(
+                    &job.points,
+                    |t| &values[slots[t] * width..(slots[t] + 1) * width],
+                    &mut batch.good,
+                );
+                batch.values = composed;
+            }
+            let composed = begun.elapsed().as_secs_f64() - replayed;
+            (job.owner, job.points, result, replayed, composed)
         });
         statistics.replay_seconds += started.elapsed().as_secs_f64();
         let mut output = Vec::with_capacity(results.len());
-        for (owner, points, result, cpu) in results {
+        for (owner, points, result, cpu, composed) in results {
             statistics.replay_cpu_seconds += cpu;
+            statistics.composition_cpu_seconds += composed;
             statistics.batches += 1;
             statistics.points_replayed += points.len();
             match result {
@@ -307,16 +371,20 @@ impl<'a> SampledSource<'a> {
     /// interpolations and return the primes whose interpolation is not done.
     fn sample_round(
         &self,
-        samples: &mut [PrimeSamples],
+        samples: &mut [PrimeSamples<'a>],
         states: &mut [Thiele],
         usable: &mut [bool],
         requests: &[(usize, usize)],
         executor: &Executor,
         statistics: &mut ModularStatistics,
     ) -> Result<Vec<usize>, ReductionError> {
-        let terminals = self.slots.len();
+        let terminals = self.outputs();
         let mut jobs = vec![];
         for &(owner, count) in requests {
+            if samples[owner].unusable {
+                usable[owner] = false;
+                continue;
+            }
             self.points_budget(&samples[owner], count)?;
             let mut points = samples[owner].fresh_points(count);
             let batches = batches(&self.options, count, requests.len(), executor.threads());
@@ -327,13 +395,14 @@ impl<'a> SampledSource<'a> {
                     owner,
                     field: samples[owner].field.clone(),
                     points: std::mem::replace(&mut points, rest),
+                    program: samples[owner].program.clone(),
                 });
             }
         }
         for (owner, points, batch) in self.replay(jobs, executor, statistics)? {
             match batch {
                 Some(batch) if usable[owner] => {
-                    samples[owner].absorb(&points, &batch, self.slots, statistics)
+                    samples[owner].absorb(&points, &batch, self.columns(), statistics)
                 }
                 Some(_) => {}
                 None => usable[owner] = false,
@@ -363,11 +432,11 @@ impl<'a> SampledSource<'a> {
 
     fn images_of(
         &self,
-        samples: &[PrimeSamples],
+        samples: &[PrimeSamples<'a>],
         states: Vec<Thiele>,
         usable: &[bool],
     ) -> Vec<Option<PrimeImages<()>>> {
-        let terminals = self.slots.len();
+        let terminals = self.outputs();
         let mut states = states.into_iter();
         samples
             .iter()
@@ -396,8 +465,11 @@ impl<'a> SampledSource<'a> {
         executor: &Executor,
         statistics: &mut ModularStatistics,
     ) -> Result<Option<PrimeImages<()>>, ReductionError> {
-        let terminals = self.slots.len();
-        let mut samples = [PrimeSamples::new(prime, self.seed, terminals)];
+        let terminals = self.outputs();
+        let mut samples = [self.prime_samples(prime)];
+        if samples[0].unusable {
+            return Ok(None);
+        }
         let mut states: Vec<Thiele> = (0..terminals)
             .map(|_| Thiele::new(&samples[0].field))
             .collect();
@@ -451,11 +523,11 @@ impl<'a> SampledSource<'a> {
         executor: &Executor,
         statistics: &mut ModularStatistics,
     ) -> Result<Vec<Option<PrimeImages<()>>>, ReductionError> {
-        let terminals = self.slots.len();
+        let terminals = self.outputs();
         let needed = self.needed.expect("degrees discovered");
-        let mut samples: Vec<PrimeSamples> = primes
+        let mut samples: Vec<PrimeSamples<'a>> = primes
             .iter()
-            .map(|prime| PrimeSamples::new(*prime, self.seed, terminals))
+            .map(|prime| self.prime_samples(*prime))
             .collect();
         let mut states: Vec<Thiele> = samples
             .iter()
@@ -489,7 +561,7 @@ impl<'a> SampledSource<'a> {
     }
 }
 
-impl ImageSource for SampledSource<'_> {
+impl<'a> ImageSource for SampledSource<'a> {
     type Structure = ();
     type Error = ReductionError;
 
@@ -531,11 +603,20 @@ impl ImageSource for SampledSource<'_> {
         statistics: &mut ModularStatistics,
     ) -> Result<Vec<Verification<()>>, ReductionError> {
         let count = self.checks();
-        let jobs: Vec<Job> = primes
+        let mut unusable = vec![false; primes.len()];
+        let jobs: Vec<Job<'a>> = primes
             .iter()
             .enumerate()
-            .map(|(owner, &prime)| {
+            .filter_map(|(owner, &prime)| {
                 let field = Zp64::new(prime);
+                let program = match self.compose.map(|program| program.reduce(&field)) {
+                    None => None,
+                    Some(Some(program)) => Some(Arc::new(program)),
+                    Some(None) => {
+                        unusable[owner] = true;
+                        return None;
+                    }
+                };
                 let mut rng = StdRng::seed_from_u64(
                     self.seed ^ VERIFICATION_POINTS_SALT ^ prime.rotate_left(29),
                 );
@@ -547,18 +628,22 @@ impl ImageSource for SampledSource<'_> {
                         points.push(field.to_element(value));
                     }
                 }
-                Job {
+                Some(Job {
                     owner,
                     field,
                     points,
-                }
+                    program,
+                })
             })
             .collect();
-        let slots = self.slots;
-        let mut outcomes = vec![];
+        let slots = self.columns();
+        let mut outcomes: Vec<Option<Verification<()>>> = unusable
+            .iter()
+            .map(|&unusable| unusable.then_some(Verification::Unusable))
+            .collect();
         for (owner, points, batch) in self.replay(jobs, executor, statistics)? {
             let Some(batch) = batch else {
-                outcomes.push(Verification::Unusable);
+                outcomes[owner] = Some(Verification::Unusable);
                 continue;
             };
             let field = Zp64::new(primes[owner]);
@@ -579,10 +664,10 @@ impl ImageSource for SampledSource<'_> {
                     }))
                 });
             if good.len() < count || checked.iter().any(Option::is_none) {
-                outcomes.push(Verification::Unusable);
+                outcomes[owner] = Some(Verification::Unusable);
                 continue;
             }
-            outcomes.push(Verification::Checked {
+            outcomes[owner] = Some(Verification::Checked {
                 disagreeing: checked
                     .iter()
                     .enumerate()
@@ -591,7 +676,10 @@ impl ImageSource for SampledSource<'_> {
                     .collect(),
             });
         }
-        Ok(outcomes)
+        outcomes
+            .into_iter()
+            .map(|outcome| outcome.ok_or_else(|| error("a verification prime has no outcome")))
+            .collect()
     }
 }
 

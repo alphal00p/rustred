@@ -26,6 +26,7 @@
 //!
 //! All parallel work runs on the request's executor (`executor.rs`): inline
 //! for one thread, else a private pool.
+mod compose;
 mod executor;
 #[cfg(test)]
 pub(crate) use executor::pools_built_on_this_thread;
@@ -53,6 +54,7 @@ use super::OrderedWeights;
 use super::arithmetic::{
     ModularCommon, OrderedWeightArithmetic, PolynomialOptions, SampledOptions,
 };
+use super::composition::{ComposedTerminals, OrderedTerminalComposer};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionLimits};
@@ -351,6 +353,18 @@ pub(crate) struct ModularStatistics {
     /// only when statistics are reported. Equal digests mean identical
     /// replays.
     pub trace_digest: Option<u64>,
+    /// Terminal composition (compose before lift): whether it ran, its
+    /// outputs (the lifted coefficients), plan entries and distinct
+    /// coefficients, the CPU seconds of the per-prime composition (summed
+    /// over jobs), the seconds to build the plan, and the points of the
+    /// `ModularPolynomial` compositions.
+    pub composed: bool,
+    pub composed_outputs: usize,
+    pub composition_entries: usize,
+    pub composition_coefficients: usize,
+    pub composition_cpu_seconds: f64,
+    pub composition_plan_seconds: f64,
+    pub composition_points: usize,
 }
 
 impl ModularStatistics {
@@ -371,6 +385,9 @@ impl ModularStatistics {
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
                 "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{},",
+                "\"composed\":{},\"composed_outputs\":{},\"composition_entries\":{},",
+                "\"composition_coefficients\":{},\"composition_cpu_seconds\":{:.6},",
+                "\"composition_plan_seconds\":{:.6},\"composition_points\":{},",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -415,6 +432,13 @@ impl ModularStatistics {
             self.peak_weight_words,
             self.trace_digest
                 .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.composed,
+            self.composed_outputs,
+            self.composition_entries,
+            self.composition_coefficients,
+            self.composition_cpu_seconds,
+            self.composition_plan_seconds,
+            self.composition_points,
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
@@ -615,11 +639,13 @@ impl ModularRecorder {
     }
 
     /// Evaluate the trace modulo primes and lift the live terminal
-    /// accumulators over Q.
+    /// accumulators over Q, or, when `composer` supplies a plan for them,
+    /// only their composition (compose before lift, `composition.rs`).
     pub(crate) fn finish(
         self,
         terms: BTreeMap<IntegralKey, ModularWeight>,
-    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, ModularStatistics), ReductionError> {
+        composer: Option<&dyn OrderedTerminalComposer>,
+    ) -> Result<(Finished, ModularStatistics), ReductionError> {
         let record_seconds = self.started.elapsed().as_secs_f64();
         let prepare = Instant::now();
         let constant_total = self.constant_count as usize;
@@ -700,18 +726,55 @@ impl ModularRecorder {
         }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
+        // The caller's plan for the live terminals, if it composes them.
+        let planning = Instant::now();
+        let plan = match composer {
+            Some(composer) => composer.plan(&keys)?,
+            None => None,
+        };
+        let program = match &plan {
+            Some(plan) => {
+                plan.validate(keys.len())?;
+                Some(compose::Program::new(plan, keys.len()))
+            }
+            None => None,
+        };
+        let labels = plan.map(|plan| plan.labels);
+        if let Some(program) = &program {
+            statistics.composed = true;
+            statistics.composed_outputs = program.outputs();
+            statistics.composition_entries = program.entries;
+            statistics.composition_coefficients = program.distinct_coefficients();
+            statistics.composition_plan_seconds = planning.elapsed().as_secs_f64();
+        }
+        let finished = |coefficients: Vec<Coefficient>| match (&program, &labels) {
+            (Some(_), Some(labels)) => Finished::Composed(ComposedTerminals {
+                terminals: keys.clone(),
+                labels: labels.clone(),
+                coefficients,
+            }),
+            _ => Finished::Terminals(
+                keys.iter()
+                    .cloned()
+                    .zip(coefficients)
+                    .filter(|(_, coefficient)| !coefficient.is_zero())
+                    .collect(),
+            ),
+        };
         let has_cancellations = trace
             .ops
             .iter()
             .any(|op| matches!(op.tag(), OpTag::Cancel | OpTag::TermCancel));
         if slots.is_empty() && !has_cancellations {
             // Nothing to reconstruct and no erasure to certify.
-            return Ok((BTreeMap::new(), statistics));
+            let outputs = program.as_ref().map_or(0, compose::Program::outputs);
+            return Ok((finished(vec![self.context.zero(); outputs]), statistics));
         }
         let executor = Executor::new(self.common.threads)?;
         let lifted = match self.lifter {
             Lifter::Sampled(options) => {
-                let mut source = SampledSource::new(&trace, &slots, options, self.common.seed);
+                let mut source =
+                    SampledSource::new(&trace, &slots, options, self.common.seed, program.as_ref());
                 let lifted = lift::lift(
                     &mut source,
                     &self.context,
@@ -729,7 +792,14 @@ impl ModularRecorder {
                 lifted
             }
             Lifter::Polynomial(options) => {
-                let mut source = PolynomialSource::new(&trace, &slots, &basis, options);
+                let mut source = PolynomialSource::new(
+                    &trace,
+                    &slots,
+                    &basis,
+                    options,
+                    program.as_ref(),
+                    self.common.seed,
+                );
                 let lifted = lift::lift(
                     &mut source,
                     &self.context,
@@ -749,14 +819,16 @@ impl ModularRecorder {
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
         let coefficients = lifted?.coefficients;
-        let mut output = BTreeMap::new();
-        for (key, coefficient) in keys.into_iter().zip(coefficients) {
-            if !coefficient.is_zero() {
-                output.insert(key, coefficient);
-            }
-        }
-        Ok((output, statistics))
+        Ok((finished(coefficients), statistics))
     }
+}
+
+/// Result of [`ModularRecorder::finish`].
+pub(crate) enum Finished {
+    /// The nonzero terminal coefficients.
+    Terminals(BTreeMap<IntegralKey, Coefficient>),
+    /// The composed outputs of the caller's plan.
+    Composed(ComposedTerminals),
 }
 
 impl OrderedWeights for ModularRecorder {

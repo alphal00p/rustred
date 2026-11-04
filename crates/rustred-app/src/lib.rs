@@ -52,6 +52,7 @@ pub use application::{
     SavedApplicationRunningCache, SavedApplicationRunningCacheBase,
     SavedApplicationRunningCacheControl, SavedApplicationRunningCacheOptions,
     SavedApplicationRunningCacheReport, SavedApplicationRunningCacheSnapshot,
+    SavedApplicationTerminalComposition,
     SavedApplicationWitness, SavedApplicationWitnessKind, compose_saved_application_layer,
     export_saved_application, export_saved_application_with_policy, layer_minimality_claim,
     load_saved_application, load_saved_application_with_policy, parse_layer_coefficient,

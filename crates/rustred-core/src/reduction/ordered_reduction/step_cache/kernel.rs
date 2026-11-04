@@ -232,6 +232,11 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
     fn context(&self) -> &CoefficientContext {
         self.inner.context()
     }
+    fn terminal_composer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reduction::OrderedTerminalComposer>> {
+        self.inner.terminal_composer()
+    }
     fn limits(&self) -> ReductionLimits {
         self.inner.limits()
     }
