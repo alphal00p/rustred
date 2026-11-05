@@ -10,6 +10,7 @@ mod litered;
 mod owner_domains;
 mod owner_guarded;
 mod owner_match;
+mod p;
 #[cfg(test)]
 pub(crate) use owner_match::walk_request_from_argv;
 mod artifact_inspect;
@@ -103,6 +104,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::FamilyClose(arguments) => family_close_cli(arguments),
         Command::FamilyCandidates(arguments) => candidates::generate(arguments),
         Command::FamilyCandidatesBatch(arguments) => candidates_batch::run(arguments),
+        Command::P(subcommand, arguments) => p::run(subcommand, arguments),
         Command::LiteRedReduce(arguments) => litered::run(arguments),
         Command::CandidateInspect(arguments) => candidate_inspect::run(arguments),
         Command::CertifyCandidates(arguments) => candidates::certify(arguments),

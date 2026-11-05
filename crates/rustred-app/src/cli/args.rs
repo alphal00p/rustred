@@ -24,6 +24,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
+use super::p::PSubcommand;
 use crate::{ClosingFamilySelector, InputFormat, RelationSelection};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,6 +165,7 @@ pub(crate) enum Command {
     FamilyClose(FamilyCloseArgs),
     FamilyCandidates(FamilyCandidatesArgs),
     FamilyCandidatesBatch(Vec<OsString>),
+    P(PSubcommand, Vec<OsString>),
     LiteRedReduce(Vec<OsString>),
     CandidateInspect(CandidateInspectArgs),
     CertifyCandidates(CertifyCandidatesArgs),
@@ -290,6 +292,12 @@ pub(crate) fn parse_args(
         "family-close" => family_close::parse(arguments),
         "family-candidates" => candidates::parse_generation(arguments),
         "family-candidates-batch" => Ok(Command::FamilyCandidatesBatch(arguments.collect())),
+        "p-census" => Ok(Command::P(PSubcommand::Census, arguments.collect())),
+        "p-generate" => Ok(Command::P(PSubcommand::Generate, arguments.collect())),
+        "p-basis" => Ok(Command::P(PSubcommand::Basis, arguments.collect())),
+        "p-package" => Ok(Command::P(PSubcommand::Package, arguments.collect())),
+        "p-validate" => Ok(Command::P(PSubcommand::Validate, arguments.collect())),
+        "p-canary" => Ok(Command::P(PSubcommand::Canary, arguments.collect())),
         "litered-reduce" => Ok(Command::LiteRedReduce(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),
         "preparation-monitor" => Ok(Command::PreparationMonitor(arguments.collect())),
