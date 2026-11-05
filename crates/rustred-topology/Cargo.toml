@@ -1,0 +1,26 @@
+[package]
+name = "rustred-topology"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Massless propagator topologies for RustRed: eps-coloured canonical keys, Forcer's rule matchers and the reduction DAG"
+license = "MIT"
+
+[lib]
+name = "rustred_topology"
+path = "src/lib.rs"
+
+# graphica with the features rustred-core already enables (none: symbolica depends on it with
+# default-features = false). Its numerica backend is chosen by the embedding crate's native/wasm
+# features, as for symbolica; no Symbolica and no linnet here.
+[dependencies]
+graphica = { version = "3.0.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smallvec = "1"
+
+# Standalone test builds of this crate pick the numerica backend that rustred-core's default
+# `native` feature selects (graphica alone does not compile without one).
+[dev-dependencies]
+numerica = { version = "3.0.1", default-features = false, features = ["integer-gmp", "float-mpfr"] }
