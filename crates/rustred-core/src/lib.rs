@@ -22,6 +22,7 @@ pub mod identity;
 pub mod input;
 pub mod persistence;
 mod platform;
+pub mod propagator;
 pub mod reduction;
 /// Shared, cooperative RAM and elapsed-time budgets. A single scoped budget
 /// can span ingress, exact algebra, routing, and lower-family reduction.

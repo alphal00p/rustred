@@ -44,6 +44,7 @@ pub use master_reduction::{
 mod model;
 mod options;
 mod producer;
+pub mod propagator;
 mod resource_policy;
 mod routed_campaign;
 pub use routed_campaign::finite_demand::lifecycle::{

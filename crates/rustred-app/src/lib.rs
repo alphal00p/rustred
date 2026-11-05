@@ -1,5 +1,7 @@
 mod application;
 pub use application::family_candidates_on_executor;
+/// The p library on disk and in vakint (plan M2 section 4).
+pub use application::propagator;
 pub use application::{
     CacheLookupBudgetPolicy, CachePreparationBackend, CachePreparationCapabilities,
     CachePreparationOptions, CachePreparationPrimerBudget, CachePreparationReport,
