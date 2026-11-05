@@ -66,20 +66,48 @@ pub fn extract_exceptions<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> Result<ExceptionalConditions, ExceptionError> {
-    preflight(candidate, indices, sector)?;
+    extract_exceptions_two_sided(candidate, indices, sector, &[false; N])
+}
+
+/// [`extract_exceptions`] with two-sided eps axes (plan M2 sec.3.4).
+///
+/// On a two-sided axis every integer power lies in one support and the
+/// order is the injective `e(n)` (`rustred_order::two_sided_excess`); the raw
+/// sign of a symbolic power is only a chart. A rule is ordered for a
+/// generic symbolic power, so every chart crossing is an exceptional branch
+/// solved on its own (fixed) case, where the order is exact:
+/// - chart `n <= 0` (inactive): an RHS shift `+s` reaches `n + s >= 1` for
+///   `n = 0, -1, .., 1-s`; these are the existing activation branches, and a
+///   numeric RHS power `> 0` on such an axis is a legal chart crossing;
+/// - chart `n >= 1` (active), the mirror: an RHS shift `-s` reaches
+///   `n - s <= 0` for `n = 1, .., s`, so these values become branches too.
+///
+/// A branch is skipped where the term's coefficient vanishes, as for the
+/// activation branches. With no two-sided axis this is exactly
+/// [`extract_exceptions`].
+pub(crate) fn extract_exceptions_two_sided<const N: usize>(
+    candidate: &RuleCandidate<N>,
+    indices: &[usize; N],
+    sector: &[bool; N],
+    two_sided: &[bool; N],
+) -> Result<ExceptionalConditions, ExceptionError> {
+    preflight(candidate, indices, sector, two_sided)?;
     if candidate.rhs.is_empty() {
         // No coefficient variable map exists in an empty RHS and there are
         // no denominators or terms capable of activating another sector.
         return Ok(ExceptionalConditions::default());
     }
-    catch_unwind(AssertUnwindSafe(|| extract(candidate, indices, sector)))
-        .map_err(|_| ExceptionError::NativeAlgebra)
+    catch_unwind(AssertUnwindSafe(|| {
+        extract(candidate, indices, sector, two_sided)
+    }))
+    .map_err(|_| ExceptionError::NativeAlgebra)
 }
 
 fn preflight<const N: usize>(
     candidate: &RuleCandidate<N>,
     indices: &[usize; N],
     sector: &[bool; N],
+    two_sided: &[bool; N],
 ) -> Result<(), ExceptionError> {
     if candidate.target != candidate.case.integral() || !candidate.case.is_in_sector(sector) {
         return Err(ExceptionError::InvalidInput(
@@ -109,7 +137,11 @@ fn preflight<const N: usize>(
                     "RHS and target must share their symbolic-coordinate pattern",
                 ));
             }
-            if !active && !term.integral[axis].is_symbolic() && term.integral[axis].value() > 0 {
+            if !active
+                && !two_sided[axis]
+                && !term.integral[axis].is_symbolic()
+                && term.integral[axis].value() > 0
+            {
                 return Err(ExceptionError::InvalidInput(
                     "numeric RHS index activates an inactive sector coordinate",
                 ));
@@ -142,6 +174,7 @@ fn extract<const N: usize>(
     candidate: &RuleCandidate<N>,
     indices: &[usize; N],
     sector: &[bool; N],
+    two_sided: &[bool; N],
 ) -> ExceptionalConditions {
     let template = &candidate.rhs[0].coefficient.numerator;
     let parameter_positions: Vec<_> = (0..template.nvars())
@@ -214,6 +247,32 @@ fn extract<const N: usize>(
                     .variable(&template.variables()[position])
                     .expect("preflight checked the variable-map position");
                 let equation = &variable + &template.constant(Integer::from(boundary));
+                branches.push(vec![equation]);
+            }
+        }
+    }
+    // Mirror branches of a two-sided axis in its chart n >= 1 (see
+    // `extract_exceptions_two_sided`): a shift -s leaves the chart at n <= s.
+    for term in &candidate.rhs {
+        for (axis, (&position, active)) in indices.iter().zip(sector).enumerate() {
+            let power = term.integral[axis];
+            if !two_sided[axis] || !*active || !power.is_symbolic() || power.value() >= 0 {
+                continue;
+            }
+            for value in 1..=-power.value() {
+                let value = Integer::from(value);
+                if term
+                    .coefficient
+                    .numerator
+                    .replace(position, &value)
+                    .is_zero()
+                {
+                    continue;
+                }
+                let variable = template
+                    .variable(&template.variables()[position])
+                    .expect("preflight checked the variable-map position");
+                let equation = &variable - &template.constant(value);
                 branches.push(vec![equation]);
             }
         }

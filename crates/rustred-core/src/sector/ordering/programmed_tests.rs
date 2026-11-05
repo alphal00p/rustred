@@ -18,6 +18,7 @@ fn descriptor(n: usize) -> OrderDescriptor {
         coordinate_groups: CoordinateGroups::InactiveFirst,
         active_direction: Direction::Descending,
         inactive_direction: Direction::Ascending,
+        two_sided: Vec::new(),
     }
 }
 
@@ -280,4 +281,69 @@ fn order_transport_commutes_with_both_core_and_source_port_comparisons() {
             );
         }
     }
+}
+
+#[test]
+fn two_sided_keys_force_their_axes_into_the_sector_with_injective_excess() {
+    let program = CompiledOrder::compile(
+        OrderDescriptor::spired_uncut_two_sided(vec![false, true, false]),
+        Limits::default(),
+    )
+    .unwrap();
+    let policy = OrderingPolicy::try_programmed(program).unwrap();
+    // Raw sign changes on the two-sided axis keep the key's sector.
+    for n in -6..=6 {
+        let key = policy.complexity_key(&[1, n, 0]).unwrap();
+        assert_eq!(key.sector().active_bits(), &[true, true, false]);
+        assert_eq!(key.propagators(), 2);
+        assert_eq!(
+            key.index_excess()[1],
+            rustred_order::two_sided_excess(n).unwrap()
+        );
+    }
+    // n = 1 is the unique minimum; then n = 0, 2, -1, ...
+    let ladder: Vec<_> = [1, 0, 2, -1, 3, -2]
+        .iter()
+        .map(|&n| policy.complexity_key(&[1, n, 0]).unwrap())
+        .collect();
+    assert!(ladder.windows(2).all(|pair| pair[0] < pair[1]));
+    let witness = policy.prove_strict_descent(&[1, 0, 0], &[1, 1, 0]).unwrap();
+    assert!(witness.verify());
+    assert!(policy.prove_strict_descent(&[1, 1, 0], &[1, 0, 0]).is_err());
+    // The solver comparator of every raw chart carries the same axes and
+    // agrees with the keys on concrete powers.
+    for chart in [[true, true, false], [true, false, false]] {
+        let order = IntegralOrder::from_persisted_policy(chart, &policy).unwrap();
+        assert_eq!(order.two_sided_axes(), [false, true, false]);
+        for a in [[1, 1, 0], [1, 0, 0], [2, -1, 0], [1, 2, -1], [3, 0, 0]] {
+            for b in [[1, 1, 0], [1, 0, 0], [2, -1, 0], [1, 2, -1], [1, 3, 0]] {
+                let expected = policy
+                    .complexity_key(&a.map(i64::from))
+                    .unwrap()
+                    .cmp(&policy.complexity_key(&b.map(i64::from)).unwrap());
+                assert_eq!(
+                    order
+                        .compare(
+                            &Integral::numeric(a).unwrap(),
+                            &Integral::numeric(b).unwrap()
+                        )
+                        .reverse(),
+                    expected
+                );
+            }
+        }
+    }
+    // Without two-sided axes the legacy keys are unchanged.
+    let plain = OrderingPolicy::try_programmed(
+        CompiledOrder::compile(OrderDescriptor::spired_uncut(3), Limits::default()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        plain
+            .complexity_key(&[1, 0, 0])
+            .unwrap()
+            .sector()
+            .active_bits(),
+        &[true, false, false]
+    );
 }
