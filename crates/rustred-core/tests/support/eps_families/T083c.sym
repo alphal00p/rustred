@@ -1,0 +1,22 @@
+I(
+  name(T083c),
+  loops(k1,k2,k3,k4),
+  externals(q),
+  dimension(d),
+  prop(D1,(k1)^2,1),
+  prop(D2,(k2)^2,1),
+  prop(D3,(-k1-k2)^2,1),
+  prop(D4,(k1-k3)^2,1),
+  prop(D5,(k3)^2,1),
+  prop(D6,(k2-k4)^2,1),
+  prop(D7,(k4)^2,1),
+  prop(D8,(k1+k2-q)^2,1),
+  prop(D9,(-k3-k4+q)^2,1),
+  prop(D10,(k1+q)^2,0),
+  prop(D11,(k3+q)^2,0),
+  prop(D12,(k4+q)^2,0),
+  prop(D13,(k1-k4)^2,0),
+  prop(D14,(k2-k3)^2,0),
+  gram(q,q,1)
+  ,power_shift(D2,2-d/2)
+)
