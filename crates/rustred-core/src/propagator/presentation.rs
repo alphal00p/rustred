@@ -226,8 +226,10 @@ impl Presentation {
         Ok(presentation)
     }
 
-    /// The slots describe the family exactly: one external with `q.q = -1`,
-    /// context `{d}`, lines first, every denominator row and power shift.
+    /// The slots describe the family exactly: `loops >= 1` (no `L = 0`
+    /// presentation exists, the trivial node has none), one external with
+    /// `q.q = -1`, context `{d}`, dimension `d`, lines first, every denominator
+    /// row and power shift.
     pub fn validate(&self) -> Result<(), PError> {
         let family = &self.family;
         let context = family.coefficient_context();
@@ -245,6 +247,9 @@ impl Presentation {
                 "a family with {} loops and q.q = {P_EXTERNAL_SQUARE} is required",
                 self.loops
             )));
+        }
+        if context.parameter("d").as_ref() != Some(family.dimension()) {
+            return Err(fail("the family's dimension must be d".to_owned()));
         }
         if self.slots.len() != family.denominator_count() || self.slots.len() > MAX_SLOTS {
             return Err(fail(format!(
@@ -435,6 +440,11 @@ pub enum EdgeKind {
 /// `integrated_loop`, in order, to the child's loops. Its external column is
 /// the parent's `q` on an Insertion edge; on a Carpet edge it is the parent's
 /// outer loop `p`, which becomes the child's `q` (the blob's external momentum).
+///
+/// Every map joins two presentations, so a rule edge into the trivial node
+/// (`1L -> L = 0`) has none: the owner emits [`PTerminal::Unit`] there.
+///
+/// [`PTerminal::Unit`]: super::library::PTerminal::Unit
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EdgeMap {
     pub parent: PresentationId,
@@ -489,15 +499,17 @@ fn outer_row(kind: EdgeKind, integrated: usize, momentum: &[i64]) -> Option<Vec<
     Some(row)
 }
 
-/// Exact check of an edge map: arities, a unimodular `outer_map`, every kept
-/// parent line lands on its child line up to sign, the integrated lines are
-/// the ones the rule removes, every child line is hit, and eps units add
-/// (`+ 1` on the merged line of an insertion).
+/// Exact check of an edge map: both presentations are valid, arities, a
+/// unimodular `outer_map`, every kept parent line lands on its child line up to
+/// sign, the integrated lines are the ones the rule removes, every child line
+/// is hit, and eps units add (`+ 1` on the merged line of an insertion).
 pub fn verify_edge_map(
     parent: &Presentation,
     child: &Presentation,
     map: &EdgeMap,
 ) -> Result<(), PError> {
+    parent.validate()?;
+    child.validate()?;
     let fail = |detail: String| {
         PError::Contract(format!(
             "edge map {} -> {}: {detail}",
@@ -634,6 +646,12 @@ struct ContractCheck<'a> {
 }
 
 impl<'a> ContractCheck<'a> {
+    /// A checker reads the rows unguarded, so the presentation is validated first.
+    fn new(presentation: &'a Presentation, rule: &'static str) -> Result<Self, PError> {
+        presentation.validate()?;
+        Ok(Self { presentation, rule })
+    }
+
     fn fail(&self, detail: impl fmt::Display) -> PError {
         PError::Contract(format!(
             "{} contract, presentation {}: {detail}",
@@ -705,10 +723,7 @@ impl<'a> ContractCheck<'a> {
 /// `k_l` occurs only in the two bubble lines (`+-k_l` in `lines[0]`, `+-(k_l - P)`
 /// in `lines[1]`, `P` free of `k_l`) and in ISPs `k_l.Y` (`Y` free of `k_l`).
 pub fn check_insertion_contract(p: &Presentation, r: &BubbleRoles) -> Result<(), PError> {
-    let check = ContractCheck {
-        presentation: p,
-        rule: "insertion",
-    };
+    let check = ContractCheck::new(p, "insertion")?;
     let l = check.loop_index(r.loop_index)?;
     check.distinct(&r.lines)?;
     let (first, second) = (check.line(r.lines[0])?, check.line(r.lines[1])?);
@@ -728,10 +743,7 @@ pub fn check_insertion_contract(p: &Presentation, r: &BubbleRoles) -> Result<(),
 /// so no ISP contains `p.q`. `p` itself does occur in blob lines: the blob is a
 /// two-point function of `p`.
 pub fn check_carpet_contract(p: &Presentation, r: &CarpetRoles) -> Result<(), PError> {
-    let check = ContractCheck {
-        presentation: p,
-        rule: "carpet",
-    };
+    let check = ContractCheck::new(p, "carpet")?;
     let outer = check.loop_index(r.outer_loop)?;
     let width = check.width();
     let external = width - 1;
@@ -768,10 +780,7 @@ pub fn check_carpet_contract(p: &Presentation, r: &CarpetRoles) -> Result<(), PE
 /// `p_i = +-mom(c[i])`, and in ISPs `k.X` (`X` free of `k`). `b` and `c` are
 /// integer lines; the apex lines `a` may carry eps.
 pub fn check_triangle_contract(p: &Presentation, r: &TriangleRoles) -> Result<(), PError> {
-    let check = ContractCheck {
-        presentation: p,
-        rule: "triangle",
-    };
+    let check = ContractCheck::new(p, "triangle")?;
     let l = check.loop_index(r.k_loop)?;
     let roles = [r.b, r.a[0], r.a[1], r.c[0], r.c[1]];
     check.distinct(&roles)?;

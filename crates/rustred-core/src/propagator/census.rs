@@ -61,7 +61,7 @@ impl SignedAffineLoopMap {
     pub fn is_unimodular(&self) -> bool {
         let size = usize::from(self.loops_in);
         if self.loops_in != self.loops_out
-            || self.external_sign.abs() != 1
+            || !matches!(self.external_sign, 1 | -1)
             || self.loop_linear.len() != size * size
             || self.loop_external.len() != size
         {
@@ -115,7 +115,9 @@ pub fn p_census(
 }
 
 impl PCensus {
-    /// Register a class under its id; distinct bytes under one id fail closed.
+    /// Register a class under its id. An equal record is a no-op; anything else
+    /// under a taken id fails closed, so build a record completely first (a
+    /// plain `classes.insert` would overwrite silently).
     pub fn insert_class(&mut self, record: PClassRecord) -> Result<OwnerClassId, PError> {
         self.insert_class_as(record.key.id(), record)
     }
@@ -128,17 +130,26 @@ impl PCensus {
         id: OwnerClassId,
         record: PClassRecord,
     ) -> Result<OwnerClassId, PError> {
-        if let Some(present) = self.classes.get(&id)
-            && present.key.canonical != record.key.canonical
-        {
-            return Err(PError::MalformedLibrary(format!(
-                "owner class id {:016x} names two canonical keys ({} and {})",
-                id.0,
-                present.key.label(),
-                record.key.label()
-            )));
+        match self.classes.get(&id) {
+            Some(present) if *present == record => {}
+            Some(present) if present.key.canonical != record.key.canonical => {
+                return Err(PError::MalformedLibrary(format!(
+                    "owner class id {:016x} names two canonical keys ({} and {})",
+                    id.0,
+                    present.key.label(),
+                    record.key.label()
+                )));
+            }
+            Some(present) => {
+                return Err(PError::MalformedLibrary(format!(
+                    "owner class {} has two records",
+                    present.key.label()
+                )));
+            }
+            None => {
+                self.classes.insert(id, record);
+            }
         }
-        self.classes.insert(id, record);
         Ok(id)
     }
 

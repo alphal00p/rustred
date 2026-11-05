@@ -17,12 +17,18 @@ use super::{P_GAMMA_TAG_MAX_M, P_GAMMA_TAG_WIDTH};
 const MAX_EXPONENT: i16 = 127;
 
 fn in_range(m: i8, e: i16) -> bool {
-    m != 0 && (-P_GAMMA_TAG_MAX_M..=P_GAMMA_TAG_MAX_M).contains(&m) && e.abs() <= MAX_EXPONENT
+    m != 0
+        && (-P_GAMMA_TAG_MAX_M..=P_GAMMA_TAG_MAX_M).contains(&m)
+        && (-MAX_EXPONENT..=MAX_EXPONENT).contains(&e)
 }
 
-/// Dense slot of `m != 0`, `|m| <= 8`: `-8..=-1` then `1..=8`.
+/// Dense slot of `m != 0` in range: negative `m` ascending, then positive `m`.
 fn slot(m: i8) -> usize {
-    let index = if m < 0 { m + 8 } else { m + 7 };
+    let index = if m < 0 {
+        m + P_GAMMA_TAG_MAX_M
+    } else {
+        m + P_GAMMA_TAG_MAX_M - 1
+    };
     index as usize
 }
 
@@ -61,7 +67,9 @@ impl GammaTag {
     }
 
     /// The product of two tags. Exponents saturate at `i16`: a saturated tag is
-    /// far outside the key range, so [`Self::encode_dense`] refuses it.
+    /// far outside the key range, so [`Self::encode_dense`] refuses it. Later
+    /// additions can leave saturation (saturated `+ 127 -` saturated is one, not
+    /// `127`), so encode an absolute tag after every add.
     pub fn add(&self, other: &Self) -> Self {
         let mut exponents = SmallVec::with_capacity(self.0.len() + other.0.len());
         let (mut left, mut right) = (self.0.iter().peekable(), other.0.iter().peekable());

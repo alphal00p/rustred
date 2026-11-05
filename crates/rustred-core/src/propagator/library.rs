@@ -22,7 +22,7 @@ use super::programs::{CustomPayloadRef, lane_program};
 use super::step::PLaneStep;
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
-use super::topology::Dag;
+use super::topology::{Dag, NodeInfo};
 use super::{NodeIndex, OwnerClassId, PTerminalId, PresentationId, p_versions};
 
 #[derive(Clone)]
@@ -80,7 +80,15 @@ impl POwner {
         }
     }
 
-    /// The owner's program, built once through [`lane_program`].
+    /// An owner whose program is `program`, for tests and fake lanes.
+    fn seeded(spec: POwnerSpec, program: OwnerProgram) -> Self {
+        Self {
+            spec,
+            program: OnceLock::from(Ok(program)),
+        }
+    }
+
+    /// The owner's program: the seeded one, or built once through [`lane_program`].
     pub fn program(&self, library: &PLibrary) -> Result<&OwnerProgram, PError> {
         self.program
             .get_or_init(|| lane_program(library, &self.spec))
@@ -303,6 +311,11 @@ fn malformed(detail: impl Into<String>) -> PError {
     PError::MalformedLibrary(detail.into())
 }
 
+/// `mask` has no bit beyond the first `slots <= 64` axes.
+fn on_slots(mask: u64, slots: usize) -> bool {
+    mask.checked_shr(slots as u32).is_none_or(|rest| rest == 0)
+}
+
 impl PLibraryBuilder {
     /// Add the next presentation: `p.id` must be its index, and `p` a valid
     /// presentation in the library's context and within its scope.
@@ -349,10 +362,27 @@ impl PLibraryBuilder {
     }
 
     pub fn add_owner(&mut self, owner: POwnerSpec) -> Result<(), PError> {
-        let class = owner.class;
-        if self.owners.insert(class, POwner::new(owner)).is_some() {
+        self.insert_owner(POwner::new(owner))
+    }
+
+    /// [`Self::add_owner`] with `program` in place of the one `lane_program`
+    /// would build: fake lanes and `OwnerProgram::Missing` of hand-built test
+    /// libraries; assembly and the loader use `add_owner`.
+    #[doc(hidden)]
+    pub fn add_owner_with_program(
+        &mut self,
+        owner: POwnerSpec,
+        program: OwnerProgram,
+    ) -> Result<(), PError> {
+        self.insert_owner(POwner::seeded(owner, program))
+    }
+
+    fn insert_owner(&mut self, owner: POwner) -> Result<(), PError> {
+        let class = owner.spec.class;
+        if self.owners.contains_key(&class) {
             return Err(malformed(format!("two owners of class {:016x}", class.0)));
         }
+        self.owners.insert(class, owner);
         Ok(())
     }
 
@@ -394,70 +424,37 @@ impl PLibraryBuilder {
         Ok(())
     }
 
-    /// Check the program as a whole: one context `{d}`, one canonical key per
-    /// class id, every census class with exactly its owner record, every
-    /// reference in range.
-    pub fn build(self) -> Result<PLibrary, PError> {
+    /// Check the program as a whole: one context `{d}`, a non-empty scope of
+    /// `L >= 1`, one canonical key per class id, every census class with exactly
+    /// its owner record, and every reference resolved:
+    /// - presentations: `Induced` names a top and a mask on its slots; a
+    ///   `NodeRef` names a topology node with its graph key;
+    /// - census: supports lie on the slots and contain the forced axes, routes
+    ///   go to a known class with the arities of both presentations, class
+    ///   nodes exist in the topology;
+    /// - owners: the node exists, edge maps exist and leave the owner's
+    ///   presentation, terminals exist;
+    /// - residual terminals name a known class, with a key of the arity of its
+    ///   owner presentation.
+    ///
+    /// Lane roles are not read here: the steps check them (`check_*_contract`).
+    pub fn build(mut self) -> Result<PLibrary, PError> {
         if self.context.parameter_names() != ["d"] {
             return Err(PError::ContextMismatch);
         }
-        let census = self.census.ok_or_else(|| malformed("no census"))?;
+        if self.scope.is_empty() || *self.scope.start() == 0 {
+            return Err(malformed(format!(
+                "scope {:?}, a non-empty scope of L >= 1 is required",
+                self.scope
+            )));
+        }
+        let census = self.census.take().ok_or_else(|| malformed("no census"))?;
         census.check_class_ids()?;
-        let presentations = self.presentations.len();
-        let known = |id: PresentationId| (id.0 as usize) < presentations;
-        for ((presentation, support), fate) in &census.sectors {
-            if !known(*presentation) {
-                return Err(malformed(format!(
-                    "the census names presentation {}",
-                    presentation.0
-                )));
-            }
-            if let PSectorFate::Owner { class, .. } = fate
-                && !census.classes.contains_key(class)
-            {
-                return Err(malformed(format!(
-                    "sector ({}, {support:#x}) routes to the unknown class {:016x}",
-                    presentation.0, class.0
-                )));
-            }
-        }
-        for (class, record) in &census.classes {
-            let owner = self.owners.get(class).ok_or_else(|| {
-                malformed(format!("class {} has no owner record", record.key.label()))
-            })?;
-            if !known(record.owner.0) || owner.spec.presentation != record.owner.0 {
-                return Err(malformed(format!(
-                    "class {} is owned by presentation {}, its owner record says {}",
-                    record.key.label(),
-                    record.owner.0.0,
-                    owner.spec.presentation.0
-                )));
-            }
-        }
-        for (class, owner) in &self.owners {
-            if !census.classes.contains_key(class) {
-                return Err(malformed(format!(
-                    "owner of class {:016x} outside the census",
-                    class.0
-                )));
-            }
-            if let Some(&edge) = owner
-                .spec
-                .edge_maps
-                .iter()
-                .find(|&&e| e >= self.edge_maps.len())
-            {
-                return Err(malformed(format!("owner names edge map {edge}")));
-            }
-            if let Some(terminal) = owner
-                .spec
-                .terminals
-                .iter()
-                .find(|terminal| terminal.0 as usize >= self.terminals.len())
-            {
-                return Err(malformed(format!("owner names terminal {}", terminal.0)));
-            }
-        }
+        self.check_presentations()?;
+        self.check_classes(&census)?;
+        self.check_sectors(&census)?;
+        self.check_owners(&census)?;
+        self.check_terminals(&census)?;
         let mut tops = BTreeMap::new();
         for presentation in &self.presentations {
             if let PresentationKind::Top { name } = &presentation.kind
@@ -478,5 +475,169 @@ impl PLibraryBuilder {
             terminals: self.terminals,
             basis_map: self.basis_map,
         })
+    }
+
+    fn presentation(&self, id: PresentationId) -> Result<&Presentation, PError> {
+        self.presentations
+            .get(id.0 as usize)
+            .map(Arc::as_ref)
+            .ok_or_else(|| malformed(format!("unknown presentation {}", id.0)))
+    }
+
+    fn node(&self, index: NodeIndex) -> Result<&NodeInfo, PError> {
+        let dag = self
+            .topology
+            .as_ref()
+            .ok_or_else(|| malformed(format!("node {} without a topology", index.0)))?;
+        dag.nodes
+            .get(index.0 as usize)
+            .ok_or_else(|| malformed(format!("node {} is not in the topology", index.0)))
+    }
+
+    /// `support` of presentation `id`, whose forced axes it must contain.
+    fn sector_presentation(
+        &self,
+        id: PresentationId,
+        support: u64,
+    ) -> Result<&Presentation, PError> {
+        let presentation = self.presentation(id)?;
+        let forced = presentation.forced_axes();
+        if !on_slots(support, presentation.slots.len()) || support & forced != forced {
+            return Err(malformed(format!(
+                "support {support:#x} of presentation {}, forced axes {forced:#x}",
+                id.0
+            )));
+        }
+        Ok(presentation)
+    }
+
+    fn check_presentations(&self) -> Result<(), PError> {
+        for presentation in &self.presentations {
+            if let Some(node) = &presentation.node
+                && self.node(node.index)?.key.0 != node.graph_key
+            {
+                return Err(malformed(format!(
+                    "presentation {} has another graph key than node {}",
+                    presentation.id.0, node.index.0
+                )));
+            }
+            if let PresentationKind::Induced { top, mask } = presentation.kind {
+                let source = self.presentation(top)?;
+                if !matches!(source.kind, PresentationKind::Top { .. })
+                    || !on_slots(mask, source.slots.len())
+                {
+                    return Err(malformed(format!(
+                        "presentation {} is induced by mask {mask:#x} of presentation {}",
+                        presentation.id.0, top.0
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_classes(&self, census: &PCensus) -> Result<(), PError> {
+        for (class, record) in &census.classes {
+            let label = record.key.label();
+            let owner = self
+                .owners
+                .get(class)
+                .ok_or_else(|| malformed(format!("class {label} has no owner record")))?;
+            let (presentation, support) = record.owner;
+            if owner.spec.presentation != presentation {
+                return Err(malformed(format!(
+                    "class {label} is owned by presentation {}, its owner record says {}",
+                    presentation.0, owner.spec.presentation.0
+                )));
+            }
+            self.sector_presentation(presentation, support)?;
+            for &node in record.node.iter().chain(&record.nodes) {
+                self.node(node)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// After [`Self::check_classes`]: class owners exist.
+    fn check_sectors(&self, census: &PCensus) -> Result<(), PError> {
+        for (&(id, support), fate) in &census.sectors {
+            let source = self.sector_presentation(id, support)?;
+            let PSectorFate::Owner { class, map } = fate else {
+                continue;
+            };
+            let record = census.classes.get(class).ok_or_else(|| {
+                malformed(format!(
+                    "sector ({}, {support:#x}) routes to the unknown class {:016x}",
+                    id.0, class.0
+                ))
+            })?;
+            let target = self.presentation(record.owner.0)?;
+            if (map.loops_in, map.loops_out) != (source.loops, target.loops) {
+                return Err(malformed(format!(
+                    "sector ({}, {support:#x}) routes {} -> {} loops, not {} -> {}",
+                    id.0, map.loops_in, map.loops_out, source.loops, target.loops
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn check_owners(&self, census: &PCensus) -> Result<(), PError> {
+        for (class, owner) in &self.owners {
+            let spec = &owner.spec;
+            if !census.classes.contains_key(class) {
+                return Err(malformed(format!(
+                    "owner of class {:016x} outside the census",
+                    class.0
+                )));
+            }
+            if let Some(node) = spec.node {
+                self.node(node)?;
+            }
+            for &edge in &spec.edge_maps {
+                let map = self
+                    .edge_maps
+                    .get(edge)
+                    .ok_or_else(|| malformed(format!("owner names edge map {edge}")))?;
+                if map.parent != spec.presentation {
+                    return Err(malformed(format!(
+                        "an owner on presentation {} names edge map {edge} of presentation {}",
+                        spec.presentation.0, map.parent.0
+                    )));
+                }
+            }
+            if let Some(terminal) = spec
+                .terminals
+                .iter()
+                .find(|terminal| terminal.0 as usize >= self.terminals.len())
+            {
+                return Err(malformed(format!("owner names terminal {}", terminal.0)));
+            }
+        }
+        Ok(())
+    }
+
+    /// After [`Self::check_classes`]: class owners exist.
+    fn check_terminals(&self, census: &PCensus) -> Result<(), PError> {
+        for terminal in &self.terminals {
+            let PTerminal::Residual { owner, key } = terminal else {
+                continue;
+            };
+            let record = census.classes.get(owner).ok_or_else(|| {
+                malformed(format!(
+                    "a residual terminal of the unknown class {:016x}",
+                    owner.0
+                ))
+            })?;
+            let arity = self.presentation(record.owner.0)?.slots.len();
+            if key.powers().len() != arity {
+                return Err(malformed(format!(
+                    "a residual key of class {} has {} slots, not {arity}",
+                    record.key.label(),
+                    key.powers().len()
+                )));
+            }
+        }
+        Ok(())
     }
 }

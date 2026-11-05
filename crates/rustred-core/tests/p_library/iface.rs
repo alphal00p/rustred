@@ -1,12 +1,13 @@
 //! Frozen p-library interfaces: tags, terminal codec, class ids, presentations,
 //! contracts, builder, families (owner: M2-I0 rr-iface).
 use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rustred::algebra::{CoefficientContext, ExactAlgebraLimits};
-use rustred::family::IntegralKey;
+use rustred::family::{IntegralFamily, IntegralKey};
 use rustred::propagator::census::{
     PCensus, PCensusOptions, PClassRecord, PSectorFate, SignedAffineLoopMap, p_census,
 };
@@ -22,16 +23,20 @@ use rustred::propagator::library::{
 };
 use rustred::propagator::present::{edge_map, present};
 use rustred::propagator::presentation::{
-    AffineSlotForm, EdgeKind, EdgeMap, Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
-    check_carpet_contract, check_insertion_contract, check_triangle_contract, verify_edge_map,
+    AffineSlotForm, EdgeKind, EdgeMap, NodeRef, Presentation, PresentationKind, Slot, SlotIsp,
+    SlotLine, check_carpet_contract, check_insertion_contract, check_triangle_contract,
+    verify_edge_map,
 };
 use rustred::propagator::programs::lane_program;
 use rustred::propagator::step::{PKeyView, PLaneStep, PStepContext, PStepOut};
 use rustred::propagator::tag::GammaTag;
 use rustred::propagator::terminal::PTerminalCodec;
-use rustred::propagator::topology::{Dag, DagEdge, NodeInfo};
+use rustred::propagator::topology::{
+    ChildMode, Dag, DagEdge, NodeInfo, PTopo, canonical, reduction_graph,
+};
 use rustred::propagator::{
-    OwnerClassId, P_FAMILIES_SCHEMA, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId, p_versions,
+    NodeIndex, OwnerClassId, P_FAMILIES_SCHEMA, P_FAMILIES_VERSION, P_GAMMA_TAG_WIDTH, PTerminalId,
+    PresentationId, p_versions,
 };
 use symbolica::prelude::Rational;
 
@@ -150,6 +155,8 @@ fn gamma_tags_out_of_range_fail_closed() {
         vec![(-9, 1)],
         vec![(1, 128)],
         vec![(1, -128)],
+        vec![(1, i16::MAX)],
+        vec![(1, i16::MIN)],
         vec![(1, 100), (1, 100)],
     ] {
         assert_eq!(GammaTag::from_pairs(pairs), Err(PError::TagOutOfRange));
@@ -176,11 +183,25 @@ fn gamma_tags_out_of_range_fail_closed() {
         Err(PError::TagOutOfRange)
     );
 
+    let mut saturated = GammaTag::from_pairs([(1, -100)]).unwrap();
+    for _ in 0..12 {
+        saturated = saturated.add(&saturated);
+    }
+    assert_eq!(saturated.exponents(), [(1, i16::MIN)]);
+    assert_eq!(
+        saturated.encode_dense(&mut slots),
+        Err(PError::TagOutOfRange)
+    );
+    assert_eq!(saturated.neg().exponents(), [(1, i16::MAX)]);
+    assert_eq!(slots, [1]);
+
     assert_eq!(GammaTag::decode_dense(&[0; 15]), Err(PError::TagOutOfRange));
     let mut wide = [0; P_GAMMA_TAG_WIDTH];
     wide[3] = 128;
     assert_eq!(GammaTag::decode_dense(&wide), Err(PError::TagOutOfRange));
     wide[3] = i64::MAX;
+    assert_eq!(GammaTag::decode_dense(&wide), Err(PError::TagOutOfRange));
+    wide[3] = i64::from(i16::MIN);
     assert_eq!(GammaTag::decode_dense(&wide), Err(PError::TagOutOfRange));
 }
 
@@ -215,6 +236,12 @@ fn terminal_codec_round_trips_random_keys_within_i8() {
     assert_malformed(PTerminalCodec::decode(
         &IntegralKey::try_new(digits).unwrap(),
     ));
+    let mut tag_slots = vec![0; PTerminalCodec::KEY_SLOTS];
+    tag_slots[4] = i64::from(i16::MIN);
+    assert_eq!(
+        PTerminalCodec::decode(&IntegralKey::try_new(tag_slots).unwrap()),
+        Err(PError::TagOutOfRange)
+    );
 }
 
 fn class_key(bytes: &[u8]) -> OwnerClassKey {
@@ -269,6 +296,22 @@ fn a_forced_class_id_collision_is_malformed() {
     assert_eq!(census.insert_class(first.clone()), Ok(id));
     assert_malformed(census.insert_class_as(id, second.clone()));
     assert_eq!(census.classes[&id], first, "the first key stays");
+
+    // The same canonical bytes with another record never overwrite it.
+    let moved_owner = PClassRecord {
+        owner: (PresentationId(7), 0b1),
+        ..first.clone()
+    };
+    let other_nodes = PClassRecord {
+        nodes: vec![NodeIndex(3)],
+        ..first.clone()
+    };
+    let mut other_shape = first.clone();
+    other_shape.key.loops = 2;
+    for record in [moved_owner, other_nodes, other_shape] {
+        assert_malformed(census.insert_class(record));
+    }
+    assert_eq!(census.classes[&id], first);
 
     let mut builder = PLibrary::builder(context(), 1..=1);
     builder.add_presentation(bubble()).unwrap();
@@ -379,15 +422,14 @@ fn the_library_exposes_what_it_was_built_from() {
         builder.add_presentation((**top).clone()).unwrap();
     }
 
+    let record = class_record(b"kite", 1);
+    let id = record.key.id();
     assert_eq!(builder.add_terminal(PTerminal::Unit), Ok(PTerminalId(0)));
-    let key = IntegralKey::try_new([1, 1]).unwrap();
-    let owner = OwnerClassId(5);
-    let residual = PTerminal::Residual { owner, key };
+    let key = IntegralKey::try_new([1, 1, 1, 1, 1]).unwrap();
+    let residual = PTerminal::Residual { owner: id, key };
     assert_eq!(builder.add_terminal(residual.clone()), Ok(PTerminalId(1)));
     assert_eq!(builder.add_terminal(residual.clone()), Ok(PTerminalId(1)));
 
-    let record = class_record(b"kite", 1);
-    let id = record.key.id();
     let mut census = PCensus::default();
     census.insert_class(record).unwrap();
     builder.set_census(census.clone()).unwrap();
@@ -514,6 +556,9 @@ fn scalar_products_are_exact_on_the_slots() {
     let bubble = bubble();
     assert_exact_scalar_products(&bubble);
     assert_exact_scalar_products(&kite());
+    // Unit-row ISPs, left != right, as in every node presentation.
+    assert_exact_scalar_products(&carpet());
+    assert_exact_scalar_products(&nested_bubble());
     let (_, tops) = load_p_families(P_FAMILIES_V1_JSON).unwrap();
     assert_exact_scalar_products(&tops[4]);
 
@@ -570,6 +615,26 @@ fn forced_axes_are_the_eps_lines_and_slots_match_the_family() {
     let mut unordered = bubble();
     unordered.slots[0] = isp(&[1, 0], &[1, 0]);
     assert_contract(unordered.validate());
+
+    // The right denominators in a fixed dimension are another family.
+    let good = bubble();
+    let family = IntegralFamily::new(
+        "four_dimensional",
+        vec!["k1".to_owned()],
+        vec!["q".to_owned()],
+        good.family.coefficient_context().clone(),
+        good.family.coefficient_context().integer(4),
+        good.family.denominators().to_vec(),
+        good.family.external_gram().to_vec(),
+        good.family.power_shifts().to_vec(),
+    )
+    .unwrap();
+    let four_dimensional = Presentation {
+        family: Arc::new(family),
+        ..good
+    };
+    assert_contract(four_dimensional.validate());
+    assert_contract(PLibrary::builder(context.clone(), 1..=1).add_presentation(four_dimensional));
 }
 
 #[test]
@@ -940,6 +1005,41 @@ fn absorbed_and_carpet_edges_are_verified() {
 }
 
 #[test]
+fn tampered_presentations_are_typed_errors_not_panics() {
+    let tampered = |presentation: &Presentation, slot: usize, row: Vec<i64>| {
+        let mut broken = presentation.clone();
+        broken.slots[slot] = line(&row);
+        broken
+    };
+    let bubble_roles = BubbleRoles {
+        lines: [0, 1],
+        loop_index: 0,
+    };
+    let triangle_roles = TriangleRoles {
+        b: 0,
+        a: [1, 2],
+        c: [3, 4],
+        k_loop: 0,
+    };
+    for row in [vec![1], vec![i64::MIN, 0, 0], vec![1 << 40, 0, 0]] {
+        let bubble = tampered(&bubble(), 1, row.clone());
+        assert_contract(check_insertion_contract(&bubble, &bubble_roles));
+        let carpet = tampered(&carpet(), 1, row.clone());
+        assert_contract(check_carpet_contract(&carpet, &CARPET_ROLES));
+        let triangle = tampered(&triangle_kite(0, 0), 1, row.clone());
+        assert_contract(check_triangle_contract(&triangle, &triangle_roles));
+        let parent = tampered(&nested_bubble(), 1, row.clone());
+        assert_contract(verify_edge_map(
+            &parent,
+            &one_loop_child(1),
+            &insertion_edge(),
+        ));
+        let child = tampered(&one_loop_child(1), 1, row);
+        assert_contract(verify_edge_map(&nested_bubble(), &child, &insertion_edge()));
+    }
+}
+
+#[test]
 fn loop_maps_act_on_momentum_rows() {
     let map = SignedAffineLoopMap {
         loops_in: 2,
@@ -958,10 +1058,28 @@ fn loop_maps_act_on_momentum_rows() {
     };
     assert!(!map.is_unimodular());
     assert!(!unit_map(0, 2).is_unimodular());
+    assert!(!unit_map(0, i8::MIN).is_unimodular());
     assert_contract(
         unit_map(0, 1)
             .map_momentum(&[i64::MAX, 0])
             .and_then(|row| unit_map(i64::MAX, 1).map_momentum(&row)),
+    );
+}
+
+/// A change of the file needs a bump of `P_FAMILIES_VERSION` and a new pin here.
+#[test]
+fn the_families_file_is_pinned_to_its_version() {
+    assert_eq!(
+        (
+            P_FAMILIES_VERSION,
+            blake3::hash(P_FAMILIES_V1_JSON.as_bytes())
+                .to_hex()
+                .as_str()
+        ),
+        (
+            1,
+            "654b53417c3a0b1dc2a5731e52105ec7d2daa27591b897ee1a2628a50a9d4250"
+        )
     );
 }
 
@@ -1154,10 +1272,249 @@ fn the_frozen_signatures_hold() {
     let _: fn(&PLibrary, &POwnerSpec) -> Result<OwnerProgram, PError> = lane_program;
     let _: fn(&PLibrary, PReductionRequest<'_>) -> Result<PReduction, PError> = PLibrary::reduce;
     let _: fn(&mut PLibraryBuilder, Arc<Dag>) -> Result<(), PError> = PLibraryBuilder::set_topology;
+    let _: fn(&mut PLibraryBuilder, POwnerSpec, OwnerProgram) -> Result<(), PError> =
+        PLibraryBuilder::add_owner_with_program;
 
     let program = OwnerProgram::Lane(Arc::new(FakeLane));
     assert_eq!(format!("{program:?}"), "Lane(Insertion)");
     let mut builder = PLibrary::builder(context(), 1..=1);
     builder.set_basis_map(Arc::new(FakeBasis)).unwrap();
     assert_malformed(builder.set_basis_map(Arc::new(FakeBasis)));
+}
+
+#[test]
+fn seeded_programs_never_reach_the_factory() {
+    let lane_record = class_record(b"seeded lane", 0);
+    let missing_record = class_record(b"seeded missing", 0);
+    let (lane, missing) = (lane_record.key.id(), missing_record.key.id());
+    let mut census = PCensus::default();
+    census.insert_class(lane_record).unwrap();
+    census.insert_class(missing_record).unwrap();
+
+    let step: Arc<dyn PLaneStep> = Arc::new(FakeLane);
+    let mut builder = PLibrary::builder(context(), 1..=1);
+    builder.add_presentation(bubble()).unwrap();
+    builder
+        .add_owner_with_program(owner_spec(lane, 0), OwnerProgram::Lane(step.clone()))
+        .unwrap();
+    builder
+        .add_owner_with_program(owner_spec(missing, 0), OwnerProgram::Missing { ledger: 7 })
+        .unwrap();
+    assert_malformed(builder.add_owner(owner_spec(lane, 0)));
+    assert_malformed(
+        builder.add_owner_with_program(owner_spec(missing, 0), OwnerProgram::Missing { ledger: 8 }),
+    );
+    builder.set_census(census).unwrap();
+    let library = builder.build().unwrap();
+
+    let owner = library.owner(lane).unwrap();
+    let Ok(OwnerProgram::Lane(seeded)) = owner.program(&library) else {
+        panic!("the seeded lane is gone");
+    };
+    assert!(Arc::ptr_eq(seeded, &step));
+    assert!(matches!(
+        library.owner(missing).unwrap().program(&library),
+        Ok(OwnerProgram::Missing { ledger: 7 })
+    ));
+}
+
+/// A one-class library on `presentation`, `edit`ed before it is built.
+fn built_with(
+    presentation: Presentation,
+    edit: impl FnOnce(&mut PLibraryBuilder, &mut PCensus, &mut POwnerSpec) -> Result<(), PError>,
+) -> Result<PLibrary, PError> {
+    let mut census = PCensus::default();
+    let id = census.insert_class(class_record(b"bubble", 0))?;
+    let mut owner = owner_spec(id, 0);
+    let mut builder = PLibrary::builder(context(), 1..=2);
+    builder.add_presentation(presentation)?;
+    edit(&mut builder, &mut census, &mut owner)?;
+    builder.add_owner(owner)?;
+    builder.set_census(census)?;
+    builder.build()
+}
+
+fn bubble_topology() -> PTopo {
+    PTopo::new(2, 0, 1, [(0, 1, 0), (0, 1, 0)])
+}
+
+fn bubble_dag() -> Arc<Dag> {
+    Arc::new(reduction_graph(&[bubble_topology()], ChildMode::ForcerTree))
+}
+
+#[test]
+fn the_scope_needs_loops() {
+    for scope in [RangeInclusive::new(3, 1), 0..=1] {
+        let mut builder = PLibrary::builder(context(), scope);
+        builder.set_census(PCensus::default()).unwrap();
+        assert_malformed(builder.build());
+    }
+}
+
+#[test]
+fn every_node_reference_needs_the_topology() {
+    built_with(bubble(), |_, _, _| Ok(())).unwrap();
+
+    // Owners and class records name existing nodes of a set topology.
+    let in_topology = |node: NodeIndex| {
+        move |builder: &mut PLibraryBuilder, _: &mut PCensus, owner: &mut POwnerSpec| {
+            builder.set_topology(bubble_dag())?;
+            owner.node = Some(node);
+            Ok(())
+        }
+    };
+    built_with(bubble(), in_topology(NodeIndex(0))).unwrap();
+    assert_malformed(built_with(bubble(), in_topology(NodeIndex(99))));
+    assert_malformed(built_with(bubble(), |_, _, owner| {
+        owner.node = Some(NodeIndex(0));
+        Ok(())
+    }));
+    for nodes in [(Some(NodeIndex(99)), vec![]), (None, vec![NodeIndex(99)])] {
+        assert_malformed(built_with(bubble(), |builder, census, owner| {
+            builder.set_topology(bubble_dag())?;
+            let class = census.classes.get_mut(&owner.class).unwrap();
+            (class.node, class.nodes) = nodes;
+            Ok(())
+        }));
+    }
+
+    // A presentation names its node with the node's graph key.
+    let at_node = |index: u32, graph_key: Arc<[u8]>| {
+        let mut presentation = bubble();
+        presentation.node = Some(NodeRef {
+            index: NodeIndex(index),
+            graph_key,
+        });
+        presentation
+    };
+    let key = canonical(&bubble_topology()).0.0;
+    let with_dag = |builder: &mut PLibraryBuilder, _: &mut PCensus, _: &mut POwnerSpec| {
+        builder.set_topology(bubble_dag())
+    };
+    assert_eq!(bubble_dag().nodes[0].key.0, key);
+    built_with(at_node(0, key.clone()), with_dag).unwrap();
+    assert_malformed(built_with(at_node(1 << 20, key.clone()), with_dag));
+    assert_malformed(built_with(at_node(0, Arc::from(&[1_u8][..])), with_dag));
+    assert_malformed(built_with(at_node(0, key), |_, _, _| Ok(())));
+}
+
+#[test]
+fn every_induced_presentation_needs_its_top() {
+    let induced = |top: u32, mask: u64| {
+        let mut presentation = hand_built(1, 1, vec![line(&[1, 0]), line(&[1, -1])]);
+        presentation.kind = PresentationKind::Induced {
+            top: PresentationId(top),
+            mask,
+        };
+        presentation
+    };
+    let library = |top_kind: PresentationKind, induced: Presentation| {
+        let mut builder = PLibrary::builder(context(), 1..=1);
+        let mut top = bubble();
+        top.kind = top_kind;
+        builder.add_presentation(top)?;
+        builder.add_presentation(induced)?;
+        builder.set_census(PCensus::default())?;
+        builder.build()
+    };
+    let top = || PresentationKind::Top {
+        name: "P1L".to_owned(),
+    };
+    library(top(), induced(0, 0b11)).unwrap();
+    assert_malformed(library(top(), induced(99, 0b11)));
+    assert_malformed(library(top(), induced(0, 0b100)));
+    assert_malformed(library(PresentationKind::EpsNode, induced(0, 0b11)));
+}
+
+#[test]
+fn supports_contain_the_forced_axes_and_lie_on_the_slots() {
+    let eps_bubble = || hand_built(0, 1, vec![line(&[1, 0]), eps_line(&[1, -1], 1)]);
+    let with_sector = |support: u64| {
+        built_with(eps_bubble(), move |_, census, _| {
+            census
+                .sectors
+                .insert((PresentationId(0), support), PSectorFate::Zero);
+            Ok(())
+        })
+    };
+    with_sector(0b11).unwrap();
+    with_sector(0b10).unwrap();
+    assert_malformed(with_sector(0b01));
+    assert_malformed(with_sector(0b110));
+
+    assert_malformed(built_with(eps_bubble(), |_, census, owner| {
+        census.classes.get_mut(&owner.class).unwrap().owner = (PresentationId(0), 0b01);
+        Ok(())
+    }));
+    assert_malformed(built_with(bubble(), |_, census, owner| {
+        census.classes.get_mut(&owner.class).unwrap().owner.1 = 0b100;
+        Ok(())
+    }));
+    assert_malformed(built_with(bubble(), |_, census, _| {
+        let unknown = (PresentationId(9), 0b11);
+        census.sectors.insert(unknown, PSectorFate::Zero);
+        Ok(())
+    }));
+}
+
+#[test]
+fn routes_keep_the_loop_counts_of_their_presentations() {
+    let route = |loops_in: u8, loops_out: u8| {
+        let columns = usize::from(loops_in) * usize::from(loops_out);
+        SignedAffineLoopMap {
+            loops_in,
+            loops_out,
+            loop_linear: vec![1; columns].into_boxed_slice(),
+            loop_external: vec![0; usize::from(loops_in)].into_boxed_slice(),
+            external_sign: 1,
+        }
+    };
+    let with_route = |map: SignedAffineLoopMap| {
+        built_with(bubble(), move |_, census, owner| {
+            let fate = PSectorFate::Owner {
+                class: owner.class,
+                map,
+            };
+            census.sectors.insert((PresentationId(0), 0b11), fate);
+            Ok(())
+        })
+    };
+    with_route(route(1, 1)).unwrap();
+    assert_malformed(with_route(route(2, 1)));
+    assert_malformed(with_route(route(1, 2)));
+}
+
+#[test]
+fn owner_edge_maps_leave_the_owner_presentation() {
+    let library = |owner_presentation: u32| {
+        let mut census = PCensus::default();
+        let id = census.insert_class(class_record(b"node", owner_presentation))?;
+        let mut builder = PLibrary::builder(context(), 1..=2);
+        builder.add_presentation(nested_bubble())?;
+        builder.add_presentation(one_loop_child(1))?;
+        let mut owner = owner_spec(id, owner_presentation);
+        owner.edge_maps = vec![builder.add_edge_map(insertion_edge())?];
+        builder.add_owner(owner)?;
+        builder.set_census(census)?;
+        builder.build()
+    };
+    library(0).unwrap();
+    assert_malformed(library(1));
+}
+
+#[test]
+fn residual_terminals_name_a_class_and_its_arity() {
+    let with_residual = |unknown: bool, slots: usize| {
+        built_with(bubble(), move |builder, _, owner| {
+            let class = OwnerClassId(owner.class.0 ^ u64::from(unknown));
+            builder.add_terminal(PTerminal::Residual {
+                owner: class,
+                key: IntegralKey::try_new(vec![1; slots]).unwrap(),
+            })?;
+            Ok(())
+        })
+    };
+    with_residual(false, 2).unwrap();
+    assert_malformed(with_residual(true, 2));
+    assert_malformed(with_residual(false, 3));
 }
