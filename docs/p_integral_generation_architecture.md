@@ -1,7 +1,7 @@
 # Closed p-integral reduction programs: generation architecture
 
-Status: design (milestone M1, 2026-11-03). Nothing described here is implemented.
-It is implemented in M2 (1L-3L) and M3 (4L) and reused unchanged at 5L.
+Status: design (milestone M1, 2026-11-03), amended for M2 on 2026-11-05 (below). It is being
+implemented in M2 (1L-3L) and M3 (4L) and reused unchanged at 5L.
 
 Amended 2026-11-03: Forcer's rule cascade is adopted (plan §3.5; DECISIONS ~11:00, ~11:20, ~11:50,
 ~12:50; evidence in `WS/SCRATCHPAD/forcer-tricks/` and `WS/notes/forcer-tricks-*.md`):
@@ -10,6 +10,42 @@ Amended 2026-11-03: Forcer's rule cascade is adopted (plan §3.5; DECISIONS ~11:
 - eps-lines (Forcer's crossed lines) and Gamma tags are first-class;
 - the graph engine is a new graphica-based crate `rustred-topology`, with a cached, eps-sensitive
   topology-analysis service (§2.4).
+
+Amended 2026-11-05 for M2 (`WS/M2_PLAN.md` §1 decisions D1-D12, §3 normative architecture, §4
+frozen interfaces, §12 departures; design reports in `WS/SCRATCHPAD/m2-design/`). Where this
+document and the M2 plan differ, the plan wins. The normalisation conventions C1-C4 are stated in
+`docs/p_integrals.md` ("p-library conventions"). Each amendment is marked "M2 amendment" in place:
+
+1. The production DAG is Forcer's tree (`ChildMode::ForcerTree`); Demand is a diagnostic. 438 vs
+   427 at 4L is child semantics, not eps on `q` (§0 item 4, §2.3, §2.4, §9); 335 is the ForcerTree
+   insertion count (§3.2b). (`WS/M2_PLAN.md:46`, departure 1 at `:1364`;
+   `WS/SCRATCHPAD/m2-design/cascade.md:13-26`.)
+2. Eps axes are two-sided inside SpIRed, opt-in, with the injective excess `e(n)` and a hard
+   false-knock-out guard; the p-path shift gates are listed with their current lines (§2.1, §3.4,
+   §5.1, §5.5). (`WS/M2_PLAN.md:47`, `:60`, §3.4 at `:188`, departures 2 and 20 at `:1368`,
+   `:1408`; `WS/SCRATCHPAD/m2-design/rr-code.md:81-146`.)
+3. The carpet-adapted contract routes `q` only through `r` (§2.2, §3.2c). (`WS/M2_PLAN.md` §4
+   contract text; `WS/SCRATCHPAD/m2-design/critique-phys.md:24-40`.)
+4. SeriesParallel is the Insertion step along the chain; `SpPlan` is the test oracle (§3.2).
+   (`WS/M2_PLAN.md:50`, departure 4 at `:1376`.)
+5. Triangle is a template `PLaneStep` built from RustRed's own IBP row (§3.3).
+   (`WS/M2_PLAN.md:49`, departure 3 at `:1374`; `crates/rustred-core/src/solver/source.rs:90`.)
+6. Every DAG node gets a lane-adapted node presentation; the owner of a class is its
+   min-GraphKey node; `GraphKey` and `OwnerClassKey` are separate identities (§1, §2.2).
+   (`WS/M2_PLAN.md:53`, departure 7 at `:1380`; `WS/SCRATCHPAD/m2-design/critique-phys.md:62-88`.)
+7. `PLibrary` is non-generic; Custom owners run as `CustomStep<M>` (§7.1). (`WS/M2_PLAN.md:58`,
+   departure 19 at `:1405`; `crates/rustred-core/build.rs:98`.)
+8. One library program per release scope (built-in: 1L-3L), with the identity string
+   `"p-library:scope=<a>-<b>:" + p_versions()` (§1, §7.4, §8). (`WS/M2_PLAN.md:55`, departure 18
+   at `:1401`.)
+9. The Gamma tag is part of step and tail identities; there is no `results/` layer (§0 item 10,
+   §7.1, §7.4). (`WS/M2_PLAN.md:51`, departure 5 at `:1377`; gammaloop
+   `crates/vakint/src/rustred_evaluation/cache.rs:41-44`.)
+10. `register_family`, the `LocusPolicy` plumbing, the Diamond lane and run-time use of the
+    TopologyService move to M3; Diamond detection stays in M2 (§0, §2.4, §3.1, §3.5, §4, §5.4).
+    (`WS/M2_PLAN.md:62`, departures 9 and 17 at `:1383`, `:1400`.)
+11. The task breakdown of §10 is superseded by `WS/M2_PLAN.md` §5-6 for M2 (departure 16 at
+    `WS/M2_PLAN.md:1396`).
 
 Scope:
 
@@ -69,7 +105,15 @@ Paths:
      `HigherInsertion` (integrating higher-loop insertions; 283 -> 279 custom nodes at 5L [M]).
    - `ShiftedPrimitive` is dissolved into `Insertion` plus `Custom` on eps-nodes.
 4. **Cascade census** [M] (exact; replaces the first draft's WL lane census):
-   - 4L: 427 DAG nodes (Forcer's 438 with eps-on-q keys), 21 custom.
+   - 4L: 438 DAG nodes in Forcer-tree child semantics, equal to Forcer's 438 node by node,
+     21 custom; 3L 43 and 2L 7 (sub-DAGs of Forcer's own file, identical actions).
+   - M2 amendment: the earlier "427 DAG nodes (Forcer's 438 with eps-on-q keys)" was a wrong
+     cause. Forcer's 438 keys are pairwise distinct with and without the eps on `q` [M
+     `WS/SCRATCHPAD/m2-design/cascade.md` §0 item 1]. 427 is the Demand child semantics (children
+     = rule outputs only, eager integer roots), 426 with another triangle choice. Demand is not
+     closed under the subsector masks that run-time keys reach; ForcerTree is closed under single
+     integer-line contractions. The production DAG is therefore ForcerTree; Demand is a
+     diagnostic (plan D1, departure 1). The custom set (21) is the same in both.
    - 5L: 6,197 nodes, 283 custom: 129 5L integer, 88 4L-eps, 42 3L-eps, 14 2L-eps and 10 lower
      integer.
    - M1's exact series-parallel / triangle / generic class counts: 4L 79 / 107 / 94; 5L
@@ -77,7 +121,9 @@ Paths:
    - On the measured 5L canary (E1), 26 of the 33 batch-B failures are rule nodes. Section 3.6
      has the details.
    - The three failing 4L non-planar sectors are insertion nodes.
-5. **Refusals become typed ledger entries.**
+5. **Refusals become typed ledger entries.** (M2 amendment: the `LocusPolicy` plumbing is M3;
+   no 1L-3L owner needs loci. M2 generates under the default `Abort`; contingency C3 of the plan
+   pulls the plumbing into M2 only on an abort.)
    - A new `LocusPolicy::Ledger` turns an exceptional branch the generator cannot admit into a
      `DeferredLocus`, instead of aborting the sector at the `?` in
      `solver/sector.rs:484-490`.
@@ -118,15 +164,18 @@ Paths:
     - Step, tail and result caches keyed by owner class, so they are shared across families,
       diagrams and users.
     - Caches are versioned by constants, never by program digests.
+    - M2 amendment: step and tail caches only, with the Gamma tag in the record identity; no
+      result cache (§7.4). One library program per release scope shares one step cache across
+      its loop counts (§7.4).
 
 ## 1. Vocabulary
 
 | Term | Meaning |
 |---|---|
 | top family | An L-loop p-family: one (L+1)-loop cubic vacuum parent with one line cut. Counts: 1/1/3/11/64 at L = 1..5. `C = L(L+1)/2 + L` coordinates (2/5/9/14/20). |
-| presentation | An `IntegralFamily` plus the role of its coordinates. The kinds are: labelled top family, owner presentation, caller family. Identified by `PresentationId(u32)`. |
+| presentation | An `IntegralFamily` plus the role of its coordinates. The kinds are: labelled top family, owner presentation, caller family. Identified by `PresentationId(u32)`. M2 amendment: kinds `Top`, `Induced`, `InsertionAdapted`, `CarpetAdapted`, `TriangleAdapted`, `EpsNode`, `Caller` (M3); every DAG node gets a lane-adapted node presentation; `PresentationId` is library-local. |
 | labelled sector | A (presentation, positive-line mask) pair. |
-| owner class | The marked-matroid class of a nonzero sector (glued graph `Gamma + e0`, `e0` = the `q` line). Identified by `OwnerClassId(u64)`. |
+| owner class | The marked-matroid class of a nonzero sector (glued graph `Gamma + e0`, `e0` = the `q` line). Identified by `OwnerClassId(u64)`. M2 amendment: key `OwnerClassKey` (`propagator/class.rs`), separate from the DAG-node key `GraphKey` (`rustred-topology`). |
 | owner | The program serving one class: a presentation, a lane, a program, its terminals and a descent witness. |
 | route | A verified map from a labelled sector to its owner's presentation. It is a signed affine loop map. |
 | eps-line | A line whose power carries `j` eps units, `a + j eps` (Forcer's crossed line). It comes from an integrated insertion and is never pinched. |
@@ -135,7 +184,7 @@ Paths:
 | DAG node | A topology of the discovery DAG (§2.4): eps-coloured canonical graph plus its lane. |
 | terminal | A key at which reduction stops: (tag, trivial node) and (tag, custom-node residual). |
 | ledger | `LocusLedger`: every generator refusal and how it was discharged. |
-| library | Everything above for one loop count, plus the relations layer and version constants. |
+| library | Everything above for one release scope, plus the relations layer and version constants. M2 amendment: one library program per release scope (built-in: scope 1-3, all vakint tops with L <= 3 as DAG roots), not one library per loop count. |
 
 Invariant: every key the application meets is one of three things:
 
@@ -154,9 +203,11 @@ Invariant: every key the application meets is one of three things:
     [R `discovery/mod.rs:1-18`].
   - `P` depends only on the cycle space, so the key is a matroid invariant. Hence 2-isomorphic
     (Whitney-twisted) sectors get the same key.
-- **Change 1.** `eligible()` (`discovery/mod.rs:63-74`) admits `E = 1` families with a numeric
-  Gram matrix (done in P0).
-  - From M2 it also admits power shifts (`discovery/mod.rs:69`): eps-nodes are owners too.
+- **Change 1.** `eligible()` admits `E = 1` families with a numeric Gram matrix (done in P0).
+  - From M2 it also admits power shifts: eps-nodes are owners too. M2 amendment: the gate is at
+    `crates/rustred-core/src/sector/symmetry/discovery/mod.rs:77-83` (the test at `:78`), not
+    `:69`; Changes 2 and 3 landed in P0. Owner class keys are computed on the support
+    `raw ∪ forced` (§3.4).
   - Each line row is coloured by its eps units `j`. The eps on the external line is excluded: it
     is a prefactor and lives in the Gamma tag.
 - **Change 2.** `line_momentum()` (`discovery/line.rs:52`) currently skips lines with external
@@ -170,6 +221,9 @@ Invariant: every key the application meets is one of three things:
   - `OwnerClassKey { loops, lines, canonical: Arc<[u8]> }` holds the canonical graph encoding.
   - `OwnerClassId(u64)` is the low 64 bits of `blake3(canonical)`. It is displayed as
     `L4T09-<16 hex>`.
+  - M2 amendment (plan §3.1, §4): `OwnerClassKey { loops, lines, eps_lines, canonical }`;
+    `OwnerClassId` = low 64 bits of `blake3(P_CLASS_KEY_VERSION LE || bytes)`, used as a name.
+    Distinct canonical bytes with an equal id are `PError::MalformedLibrary` at build and load.
   - The digest is a name, not a certificate. Its stability is governed by
     `P_CLASS_KEY_VERSION`, which is bumped when the Symbolica canonical form or the encoding
     changes.
@@ -185,7 +239,14 @@ Invariant: every key the application meets is one of three things:
 
 ### 2.2 Presentations
 
-Each class has one owner presentation, chosen deterministically:
+Each class has one owner presentation, chosen deterministically.
+
+M2 amendment (plan §3.1, D7, departure 7; critique-phys MF3 item 1): every DAG node gets a
+lane-adapted node presentation (`present`, `propagator/present.rs`). The owner of a class is the
+lane-adapted presentation of its min-GraphKey DAG node; the census picks exactly this owner, so
+the owner does not depend on the library's presentation list. The Induced presentation (the
+vakint top-family sector) is used only for integer Custom nodes. The "first labelled sector in
+(t descending, family name, mask)" rule below is superseded. The list of the first draft:
 
 - **Induced** (series-parallel and custom lanes).
   - The labelled sector that comes first in the order (t descending, family name, mask) is the
@@ -208,14 +269,26 @@ Each class has one owner presentation, chosen deterministically:
   - The sector is the top sector. Only three subsectors are reachable (`b`, `c1` or `c2` dropped)
     and each gets one route.
 - **Insertion-adapted** (insertion lane). The loop momentum runs through the bubble pair; the
-  transverse decomposition of §3.2 applies.
+  transverse decomposition of §3.2 applies. M2 contract (`check_insertion_contract`, plan §4):
+  `k_l` occurs only in the two bubble line slots (`k_l` and `k_l - P`, `P` free of `k_l`) and in
+  ISP slots `k_l.Y` (`Y` free of `k_l`).
 - **Carpet-adapted** (carpet lane). The outer loop momentum is `p`; no ISP contains `p1` or `p2`
   (fa:1105).
+  - M2 amendment, corrected contract (`check_carpet_contract`, plan §4; critique-phys MF1; Forcer
+    restricts only dot products, fa:1103): `q` is routed only through `r = (p - q)^2`, with
+    `p = mom(third)`, or `p` = the blob's external momentum when `third` is absent. Every other
+    line slot is `q`-free. Every ISP is either `q`-free or `l.q` with `l` a blob loop momentum (no
+    `p` component). No ISP contains `p.q`: it is expressed through `r`, `third` and `p^2`.
+  - The blob is a two-point function of `p`, so `p` necessarily occurs in blob lines (for example
+    `(l - p)^2`); a contract that kept `p` out of the blob lines would reject every real carpet.
 - **Diamond-adapted** (diamond lane). Dots avoid the A-lines; the basis is `k_i`/`l_i`
   (Th eq. 26).
 - **eps-node** presentations. Fewer coordinates, `power_shifts`, padded to `N` in `PKey`.
+  M2 amendment: no padding; keys have the presentation's own arity plus the dense tag slots
+  (§7.1). An eps line stores `power_shift = j (4-d)/2` on a line slot.
 - **Caller** families (vakint input built from an Atom or a HEPKit dot graph with an arbitrary
-  routing). They are registered at run time and routed on demand (§5.4).
+  routing). They are registered at run time and routed on demand (§5.4). M2 amendment: M3; in
+  M2 vakint canonicalises its inputs to its own registered families.
 
 A presentation is a pure function of (NodeKey, lane), so that caches stay stable. Forcer's
 parent-aware dot-basis choice (minimal `Sum (#rewrite terms)^2`, Th p.68) is allowed only as a
@@ -244,6 +317,13 @@ Roots and passes:
 
 - Roots = every integer sector class of every top family, eagerly. The resulting IBP set is
   identical to demand-driven discovery [M], and eager roots cover arbitrary caller sectors.
+  - M2 amendment: the production DAG is `reduction_graph(tops, ChildMode::ForcerTree)` with the
+    top families as roots: children = rule output plus the contraction of every integer,
+    non-multi-edge line (pf:1576-1592). It is closed under the single integer-line contractions
+    that run-time keys reach. The eager-roots Demand DAG is a diagnostic (§0 item 4).
+  - M2 amendment: the input `p-families.v1.json` is exported from vakint's registry
+    (`crates/rustred-core/data/p/p-families.v1.json`, slot order = lines then ISPs); the census
+    runs over the tops and every node presentation.
 - `p-census` = DAG pass A (§2.4) plus the existing integer labelled-sector route census below,
   kept as a cross-check.
 - Completeness: every DAG edge target is a node or a zero proof.
@@ -294,10 +374,16 @@ Output and cache:
   `P_TOPOLOGY_VERSION`.
 - In-process cache `DashMap<GraphKey, Arc<NodeInfo>>`. The census, the generation and the runtime
   caller routing share it.
+  - M2 amendment: a sharded `RwLock<HashMap<GraphKey, Arc<NodeInfo>>>` with hit/miss counters
+    (there is no dashmap dependency). In M2 only `reduction_graph` uses it, at generation; run-time
+    use (key recomputation, caller routing) is M3, so the graphica skew between rustred's vendored
+    symbolica and gammaloop's patched graphica cannot change run-time keys in M2.
 - Cost: 5.35 us per canonisation; the 5L DAG in 3.6 s [M].
 
 Gate: the 4L DAG equals Forcer's 438 nodes node by node, with identical actions and 21 custom;
-43 nodes at 3L; 7 at 2L [M simulator].
+43 nodes at 3L; 7 at 2L [M simulator]. M2 amendment: in `ChildMode::ForcerTree`, which is also
+the production mode; the DAG built from vakint's families must equal it. The 3L DAG holds 10
+eps-nodes (1L d4, d6, d7; 2L d11, d13, d14, d15, d17, d30, t1star05) [M cascade.md §0 item 4].
 
 ## 3. Lanes
 
@@ -313,6 +399,10 @@ lane(node) =
   Diamond(dia)         if the representative graph has an admissible diamond (§3.5)
   Custom               otherwise
 ```
+
+M2 amendment: lanes are decided per DAG node (`decide`, `propagator/decide.rs`), not per class:
+the action is class-invariant at <= 4L but not at 5L. Diamond is detected in M2 (for the 4L
+golden); the Diamond lane is M3. The 1L-3L DAG has no diamond node.
 
 **Admissible triangle** (exactly Forcer's rule):
 
@@ -365,6 +455,13 @@ Consequences:
 
 SeriesParallel is the fast path of the Insertion lane (§3.2b): the whole class in one closed
 step. Both share one bubble kernel (Th eqs. 15-17, the transverse decomposition below).
+
+M2 amendment (plan D4, departure 4): in M2 the SeriesParallel lane IS the Insertion step applied
+along the chain (`SeriesParallelStep` delegates to `InsertionStep`); every SP node has Forcer
+action Insertion [M]. The transverse `SpPlan` evaluation described below is the independent test
+oracle, not the production path. A single-step fold exists only behind a flag (default off); the
+comparison of the two forms is an M3/M5 ablation. Kernel signs follow convention C2
+(`docs/p_integrals.md`).
 
 **What it computes.** For a sector whose glued graph is series-parallel, the integral at any
 integer point `n` (positive lines, nonpositive numerators) is closed-form:
@@ -457,8 +554,9 @@ Forcer's insertion rule [R Th eqs. 15-17 p.42; pf:1483-1496].
 **No exception branches** [D]. The only integer-argument Gammas are `1/Gamma(line power)`, which
 is zero for an absent line. Every other Gamma has eps slope >= 1.
 
-Counts [M]: 335 nodes at 4L, 4,838 at 5L. Insertion takes the custom count from 1,741 to 283
-overall (5L integer 1,618 -> 129; 4L 123 -> 21).
+Counts [M]: 335 nodes at 4L (M2 amendment: the ForcerTree insertion count; Demand gives 324,
+or 323 with another triangle choice [M cascade.md §0 item 1]), 4,838 at 5L. Insertion takes the
+custom count from 1,741 to 283 overall (5L integer 1,618 -> 129; 4L 123 -> 21).
 
 ### 3.2c Carpet lane (`propagator/carpet.rs`)
 
@@ -470,6 +568,9 @@ Forcer's carpet rule [R Th eq. 18 p.44 = FP eq. 26 p.35; pf:1413-1448].
 - Output: the `(L-1)`-loop blob key with its integer powers unchanged, and a relative tag from
   `G(alpha + Sum a - L_sub d/2 - sigma, beta)`.
 - No exception branches [D].
+- M2 amendment: the presentation satisfies the corrected carpet-adapted contract of §2.2 (`q`
+  only through `r`); blob numerators `(l.q)^k` with `k >= 2` and the `third`-absent case are
+  tested. Fallback if the lane slips: d121 and d60 become Custom owners (plan contingency C2).
 
 Counts [M]: 24 nodes at 4L, 281 at 5L. At 5L the carpet maps nodes onto the 4L integer library.
 
@@ -488,6 +589,28 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
   `1 + (j1 + j2)/2 != 0`, so the rule stays exception-free.
 - `b`, `c1` and `c2` must be integer lines. eps there makes the node custom (93 such blocked
   nodes at 5L [M]).
+
+M2 amendment (plan D3, departure 3): the rule is a template `PLaneStep` (`TriangleStep`,
+`propagator/triangle.rs`) applied by our own step, not a SpIRed `SectorRule`.
+
+- `TriangleTemplate::extract` builds `SourceSystem::from_family`
+  (`crates/rustred-core/src/solver/source.rs:90`) on the triangle-adapted presentation and takes
+  the `(d/dk).k` row, `k = mom(b)`. The coefficients come only from RustRed's own row; "no
+  hand-written formula is trusted" is kept.
+- Shape check: zero-shift coefficient `d + N - n_a1 - n_a2 - 2 n_b - (j1 + j2)(4-d)/2` and exactly
+  four shifted terms. A mismatch is `TemplateMismatch`; the class then falls back to Custom, and
+  the reason is recorded.
+- The step maps `I(n)` to four children divided by the pivot. Children with `b`, `c1` or `c2` at
+  0 are Route keys (subsector); the others are Apply keys of the same owner. The descent is strict
+  in `n_b + n_c1 + n_c2`.
+- It is exception-free (the pivot's `d` coefficient never vanishes), so it needs neither
+  `finish_rule` nor exception extraction. The eps apex (d30 at 3L) works without two-sided SpIRed,
+  power shifts being lifted into rows by the IBP generator
+  (`crates/rustred-core/src/identity/generator/construction.rs:76-81`).
+- This decouples the Triangle lane from the two-sided SpIRed work. Version constant:
+  `P_TRIANGLE_TEMPLATE_VERSION`.
+
+The construction of the first draft (superseded in M2 by the bullets above):
 
 **Construction (no hand-written formula is trusted):**
 
@@ -512,6 +635,7 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
   by 1, and at power 0 the support shrinks. The rule descends strictly, and never raises the rank.
 
 **Program.** The owner program is one `SectorRule`, with no residuals, all-rank by construction.
+(M2 amendment: one `TriangleStep`, no candidate payload; see above.)
 
 - It uses the existing candidate payload format, so the Ordered engine, the step cache and the
   serialisation are unchanged.
@@ -537,7 +661,8 @@ where `N = sum over the k-linear ISPs i of (-n_i)`.
 ### 3.4 Custom lane: SpIRed, all-rank, with ledger
 
 Custom owners are the custom DAG nodes only: 2 / 21 / 283 at 3L / 4L / 5L [M]. They include
-eps-nodes with `power_shifts`.
+eps-nodes with `power_shifts`. At 1L-3L they are NO (integer, Induced presentation) and the eps
+kite t1star05. M2 amendment: they run as `CustomStep<M>` (§7.1).
 
 Runs `family_candidates_from_family_controlled` on the induced presentation, with
 `selected_sectors` = the owner masks of that top family. Settings:
@@ -545,18 +670,60 @@ Runs `family_candidates_from_family_controlled` on the induced presentation, wit
 - `SectorSolveOptions::default()`: unrestricted, `SearchFinite`, numerical depth 2;
 - `RuleSelectionPolicy::BoundedPortfolio` with at least 3 alternative source orders and
   fall-through (§4.3);
-- `LocusPolicy::Ledger`.
+- `LocusPolicy::Ledger` (M2 amendment: M3; M2 uses the default `Abort`, see §0 item 5).
 
 The p generation request rejects `max_numerator_rank` and `RetainRankFinite`; only L4 uses
 them, per locus.
 
-eps-axes:
+eps-axes (M2 amendment, plan §3.4, D2, D10, departures 2 and 20; this replaces the first
+draft's "excess `|n - 1|`, two charts per eps-axis" and its gate list):
 
-- An eps-axis is always in the support, with excess `|n - 1|` (Th eqs. 57-59). It is implemented
-  as two charts per eps-axis [E].
-- The admission gates that refuse power shifts are lifted in M2 (T7): `discovery/mod.rs:69`,
-  `install/source_port.rs:699`, the unit-scale shape of P0 (`family/unit_scale.rs`, whose scale law
-  then counts the shifts) and the terminal services.
+- An eps line has power `n + j eps`, `n` in Z, `j` in 1..3, stored as `power_shift = j (4-d)/2`
+  on a line slot of a massless one-external family.
+- Two supports, never mixed: `raw(key) = {i: n_i > 0}` (the SpIRed chart; candidate dispatch is
+  keyed by it) and `support(key) = raw ∪ forced`, `forced = {i: power_shift_i != 0}` (graphs,
+  classes, census, routes, phases, descent, transport). The zero analyzer already uses
+  `raw ∪ shifted` (`crates/rustred-core/src/sector/zero/analysis.rs:180-193`).
+- Why two-sided: SpIRed cannot close the charts one-sided. The top chart lowers the eps axis
+  1 -> 0 into the `n <= 0` chart, which one-sided SpIRed treats as a subsector; that chart fails
+  closed with "numeric RHS index activates an inactive sector coordinate"
+  (`crates/rustred-core/src/solver/exception.rs:110-116`) or does not terminate [M
+  `WS/SCRATCHPAD/m2-design/rr-code.md` §0.1]. Solving only the top chart produced false
+  knock-outs.
+- Two-sided eps axes inside SpIRed, opt-in: `FamilyCandidatesRequest.two_sided_eps_axes`
+  (default false; set only by `p-generate` and the test helper `generate_eps_family`). An axis
+  qualifies only with a shift of exactly `j(4-d)/2`, `j != 0`, on a line slot of a one-external
+  family; any other shift with the option set is a typed refusal. Every existing shifted-family
+  test stays byte-identical.
+- Order: a two-sided axis is always in the support, with the injective excess
+  `e(n) = 2(n-1)` for `n >= 1` and `e(n) = 2(1-n)-1` for `n <= 0` (n = 1 -> 0 is the master
+  position, n = 0 -> 1, n = 2 -> 2, n = -1 -> 3, ...). It is identical in
+  `crates/rustred-core/src/solver/index.rs`, `crates/rustred-order/src/compare.rs` and
+  `crates/rustred-core/src/sector/ordering.rs` (whose complexity key stays "exact, injective",
+  `ordering.rs:23`). The generation order equals the run-time descent check, which requires a
+  strict decrease (`crates/rustred-core/src/reduction/ordered_reduction/mod.rs:276-291`).
+  `|n - 1|` is not injective and would break the exact complexity key.
+- Custom eps owners: `selected_sectors` = all `2^j` raw charts of the owner support; chart+
+  rules may produce chart- terms only if they descend in this order; residuals sit at `n = 1`.
+- Hard false-knock-out guard: `generate_custom_owner` and `generate_eps_family` compute the
+  Lee-Pomeransky count with shifts (`MasterCounter::try_new_p_shifted`); `LP >= 1` with 0
+  residuals is `PError::Generation`. The payload's two-sided data must cover every forced axis
+  and every raw chart must be present. `library.json` records `lp_count` and `residuals` per
+  Custom owner; the descent certificate and the loader re-check `lp_count >= 1 => residuals >= 1`.
+- Admission (plan D10): eps families enter only through a p-only path,
+  `IntegralFamily::shifted_unit_scale_kinematics()`. Every existing unit-scale consumer keeps
+  refusing shifted families. The p-path shift gates, all in `crates/rustred-core/src/`, are:
+  - `family/unit_scale.rs:42` (`unit_scale_kinematics()` keeps refusing shifts);
+  - `sector/symmetry/integral_transport/compile.rs:104-110` (opened only for p-admitted families);
+  - `sector/masters/counter.rs:89-96` (`try_new` keeps refusing; opt-in `try_new_p_shifted`);
+  - `sector/symmetry/discovery/mod.rs:77-83`.
+
+  `foundry/artifact/install/source_port.rs:699` is vacuum-only
+  (`validate_parametric_vacuum_family`) and is not a p-path gate.
+- Transport treats forced axes as bijective lines at every power. Today
+  `crates/rustred-core/src/sector/symmetry/integral_transport/transport.rs:236-240` treats a
+  power `< 0` as a numerator factor and a power 0 as an absent line, which would be silently
+  wrong for an eps line.
 - The coefficient context stays `{d}`, so `Z_p(d)` replay still applies.
 
 To measure in M3: in the support-primary SpIRed order, a tie-break that prefers right-hand sides
@@ -569,7 +736,9 @@ pivots there [M E2].
 ### 3.5 Diamond lane and reserved lanes
 
 **Diamond** (`propagator/diamond.rs`), promoted from rung L3 to a primary lane [R Th eqs. 26-35
-pp.47-52; DR eqs. 3-8; pf:1030-1061; arXiv:1504.08258]:
+pp.47-52; DR eqs. 3-8; pf:1030-1061; arXiv:1504.08258]. M2 amendment: the lane is M3 (task T5b);
+M2 only detects diamonds (`rustred-topology`, for the 4L golden). There is no diamond node at
+1L-3L.
 
 - Shape: `L + 1` paths T-`x_i`-B through 3-valent `x_i`, plus optional T-B spectator lines.
   `b_i` and `c_i` are integer lines; `a_i` may carry eps.
@@ -613,6 +782,11 @@ The heavy 5L tails (Petersen bc09, cf742) stay custom. They are 5L work: in-sect
 and checkpointing (S14), and the reserved lanes.
 
 ## 4. LocusLedger and the discharge ladder
+
+M2 amendment: this whole section is M3 (tasks T11-T14, T16), including the `LocusPolicy` plumbing
+(it touches about 29 `SectorSolution` literals and the bundle codec). In M2 no owner needs loci,
+generation uses `Abort`, and the run-time policy is `PUncoveredPolicy::Reject` only. Contingency C3
+of the plan pulls the plumbing into M2 if NO or t1star05 aborts.
 
 ### 4.1 From refusal to ledger entry (`solver/sector.rs`, `solver/sector/ledger.rs`)
 
@@ -776,6 +950,14 @@ None of these changes for externals: `verify` already accepts two different fami
 The app-level gates at `routed_campaign/prepare.rs:260` and `:360` stay vacuum-only. The p
 library has its own loader (§7.1).
 
+M2 amendment: this subsection is stale after P0. P0 removed the app-level vacuum gates of
+`routed_campaign/prepare.rs` (the routed-campaign and saved-application loaders have no vacuum
+gate left, `docs/p_integrals.md`). What still refuses eps families on this chain is
+`integral_transport/compile.rs:104-110` and the power `<= 0` branch of `transport.rs:236-240`,
+both handled on the p-only path (§3.4). Route records are `SignedAffineLoopMap { loops_in,
+loops_out, loop_linear, loop_external, external_sign }` (plan §4); forced axes map onto
+equal-shift axes.
+
 ### 5.2 Route table contents
 
 - every nonzero labelled sector of every top family (4L: 4,519; 5L: 180,644);
@@ -794,6 +976,9 @@ There is one per zero labelled sector: the analyzer decision, replayed at load w
 proved at generation time.
 
 ### 5.4 Caller families (entry routes)
+
+M2 amendment: `register_family` is M3 (plan D11, departure 9). In M2 vakint canonicalises its
+inputs to its registered families (`P_FAMILIES`), and run time never recomputes keys.
 
 `PLibrary::register_family(Arc<IntegralFamily>) -> PresentationId` accepts any vakint family:
 
@@ -824,6 +1009,11 @@ Load-time checks:
 5. overlays satisfy check 2;
 6. eps-axes are forced active in every support mask. The `power > 0` masks are fixed at
    `sector/ordering.rs:26`, routed `ordered.rs:111-112` and `layered.rs:103-110`.
+   M2 amendment: the vacuum routed sites (`engine/ordered.rs:111`, `engine/layered.rs:103-110`)
+   are not touched; the p adapter computes `support = raw ∪ forced` itself, and the order uses the
+   injective `e(n)` of §3.4.
+7. M2 amendment, hard guard: every Custom owner with `lp_count >= 1` has `residuals >= 1`, the
+   two-sided data covers every forced axis, and every raw chart is present (§3.4).
 
 `t` counts eps-lines too; they are never pinched.
 
@@ -893,6 +1083,29 @@ owner's order.
 
 ### 7.1 Library and adapter (`crates/rustred-core/src/propagator/`)
 
+M2 amendment (plan D9, departure 19; critique-eng MF4, critique-phys MF6): the generic sketch below
+is superseded by the frozen interfaces of `WS/M2_PLAN.md` §4.
+
+- `PLibrary`, `POwner`, `PLaneStep` and `PStepContext` are non-generic. Keys are dynamic
+  `IntegralKey`s of the presentation's arity plus `P_GAMMA_TAG_WIDTH` dense tag slots; the Ordered
+  engine is generic over the key type only
+  (`crates/rustred-core/src/reduction/ordered_reduction/mod.rs:69-122`).
+- `OwnerProgram` is `Lane(Arc<dyn PLaneStep>)` or `Missing { ledger }`; every lane (SeriesParallel,
+  Insertion, Carpet, Triangle, Custom) is a `PLaneStep`.
+- Custom owners run as `CustomStep<const M: usize>`, `M` = the owner presentation's arity
+  (t1star05 5, NO 9), created by `custom::build_custom_step` through
+  `with_candidate_runtime_arities!` (`crates/rustred-core/build.rs:98`). Preparation requires
+  family arity == storage `N` without `capacity-dispatch`
+  (`solver/candidate_reduction/preparation/shared.rs:102`, `arity.rs:65-70`), and vakint builds
+  rustred with `default-features = false`: hence one `N` per owner, not per library.
+- An arity outside `compiled_runtime_arities()` (default 1..=16, `build.rs:10-12`) is
+  `PError::Unsupported` naming `RUSTRED_RUNTIME_ARITIES` (fail closed). 5L owners (`M = 20`) need
+  a build with 20 in the registry (M3).
+- Loading: `load_p_library(PLibrarySource, PLibraryOptions)` in the app crate, not
+  `PLibrary::load`.
+
+The first draft's sketch:
+
 ```rust
 pub struct PresentationId(pub u32);
 pub struct OwnerClassId(pub u64);
@@ -947,6 +1160,9 @@ homogeneity proof `CommonMassHomogeneityProof::UniformExternalScale` come from P
 
 - `Key = PKey { presentation, tag: GammaTag, stage: Route | Apply, powers }`. Alternatively the
   tag is a batch dimension of the weight. eps-node keys are padded to `N`.
+  M2 amendment: `PKey::{Route{presentation, view}, Apply{class, view}}`, `view` = powers
+  (presentation arity) ++ `P_GAMMA_TAG_WIDTH` dense tag slots; no padding. Phases are per `t`
+  (Route(t) then Apply(t)), not per node (plan departure 11).
 - The coefficient context stays `{d}`; `modular_polynomial` is unchanged.
 - Phases come from the DAG nodes: `t` descending, then Route and Apply per node. Children always
   land in the same or a later phase, as the engine requires (`ordered_reduction/mod.rs:1-120`).
@@ -954,10 +1170,14 @@ homogeneity proof `CommonMassHomogeneityProof::UniformExternalScale` come from P
 - Step, tail and result cache identities stay tag-free; their values carry relative tags. This
   corrects the claim of `WS/notes/forcer-tricks-ordering.md` that tails and results need the tag
   in their identity [D].
+  M2 amendment (plan D5, departure 5): reversed. Steps carry relative tags, children carry
+  absolute tags (parent + relative), and step and tail identities include the absolute tag.
+  Different tags never merge on the frontier. Tag-free identities (a step-cache rebase hook) are
+  an M3 item if the measured tag multiplicity exceeds 1.5.
 - Apply steps by lane:
   - series-parallel, insertion and carpet: the closed steps;
   - rule-based owners: the existing `CandidateEvaluator` dispatch;
-  - `Uncovered`: the overlay, then local Laporta.
+  - `Uncovered`: the overlay, then local Laporta (M2 amendment: M3; M2 rejects, fail closed).
 - The engine, the windows, the tail and the step cache are reused as they are.
 
 **Lazy loading.** Owners are prepared on first use (the existing `owner_preparation:
@@ -1005,7 +1225,19 @@ The tail table closes single-terminal suffixes in one product per entry key (`ta
   `p-library:L<loops>:<P_OWNER_LIBRARY_SEMANTICS>:<P_CENSUS_VERSION>`.
   - Version constants only: no program digest (user rule).
   - The vacuum stamps are untouched.
+  - M2 amendment (plan D8, departure 18; critique-phys MF3): one library program per release
+    scope. The identity is `PLibrary::identity() = "p-library:scope=<a>-<b>:" + p_versions()`:
+    every `P_*` version constant (including `P_PRESENTATION_VERSION`, `P_FAMILIES_VERSION` and
+    `P_TOPOLOGY_VERSION`) and the scope; no `L`, no digest. One cache directory serves every loop
+    count of the program ("the caller keeps one cache per program",
+    `crates/rustred-core/src/reduction/ordered_reduction/step_cache/mod.rs:120-128`). Records are
+    meaningful only inside one program identity; golden inventories make "content changed,
+    identity unchanged" a test failure. Stable cross-program ids are M3.
 - **Record identity.**
+  - M2 amendment: stages `ClassRoute { class: presentation index as u64 }` (wire tag 4) and
+    `ClassApply { class: OwnerClassId }` (wire tag 5); tags 0-3 are taken
+    (`step_cache/codec.rs:211-247`). Powers are followed by the absolute Gamma tag slots; caller
+    families are M3. Shards are (stage, `t`, class).
   - Apply records: (Apply, owner class `u64` in the shard `class` field, powers in the owner
     presentation).
   - Route records: (Route, source presentation class, powers).
@@ -1018,7 +1250,13 @@ The tail table closes single-terminal suffixes in one product per entry key (`ta
 - **Why records are shared.** Everything below the entry route is expressed in owner-class
   coordinates. One class's records therefore serve every family, diagram and user that reaches
   that class.
-- **Layers.** `<root>/<library-version>/` contains:
+- **Layers.** M2 amendment: M2 ships `steps/` and `tails/` only. There is no `results/` layer:
+  vakint's depth-first completed-result caches were removed
+  (gammaloop `crates/vakint/src/rustred_evaluation/cache.rs:41-44`), and the tag is in the step
+  identity (D5). `results/`, `overlays/`, base/delta merge and `rustred p-cache` are M3
+  performance items. The first draft's layout:
+
+  `<root>/<library-version>/` contains:
   - `steps/` (Ordered step shards);
   - `tails/` (tail tables, single terminal, shareable);
   - `results/`: completed `(class, key)` reductions with guards, using the existing
@@ -1042,6 +1280,18 @@ The tail table closes single-terminal suffixes in one product per entry key (`ta
   1 and 16 threads.
 
 ## 8. Data formats and version constants
+
+M2 amendment: one library directory per program (built-in scope 1-3), not `p-library-L<k>/`.
+M2 ships no `sp/plans.json` (SeriesParallel runs as the insertion chain, §3.2), no `overlays/`
+and no `locus-ledger.json` (§4). `library.json`
+(`rustred.p-owner-library.v1`) records `lp_count` and `residuals` per Custom owner. The version
+constants are those of `WS/M2_PLAN.md` §4 (`propagator/mod.rs`): `P_OWNER_LIBRARY_SEMANTICS`,
+`P_CLASS_KEY_VERSION`, `P_CENSUS_VERSION`, `P_PRESENTATION_VERSION`, `P_FAMILIES_VERSION`,
+`P_GAMMA_TAG_VERSION`, `P_INSERTION_KERNEL_VERSION`, `P_CARPET_KERNEL_VERSION`,
+`P_TRIANGLE_TEMPLATE_VERSION`, `P_CUSTOM_OWNER_VERSION`, `P_TOPOLOGY_VERSION`, and the schemas
+`rustred.p-owner-library.v1`, `rustred.p-families.v1`, `rustred.p-basis-layer.v1`; `p_versions()`
+lists them in a fixed order. `P_SP_LANE_SEMANTICS`, `P_LOCUS_LEDGER_SCHEMA` and
+`P_DIAMOND_TEMPLATE_VERSION` arrive with their M3 lanes. The first draft's layout:
 
 ```text
 p-library-L<k>/
@@ -1102,7 +1352,8 @@ Additional 4L acceptance:
 
 Cascade checks (added with the Forcer cascade):
 
-- the 4L DAG equals Forcer's: 438 nodes, identical actions, 21 custom (eps-on-q convention);
+- the 4L DAG equals Forcer's: 438 nodes, identical actions, 21 custom (M2 amendment:
+  `ChildMode::ForcerTree`, not an eps-on-q convention; §0 item 4);
 - exact symbolic comparison with Forcer output, after mapping tags to G-constants;
 - the insertion kernel against Forcer's `reduceG` identities;
 - the carpet against Th eq. 18 on 2L and 3L closed forms;
@@ -1131,6 +1382,10 @@ Test placement:
 ## 10. Work breakdown
 
 Sizes: S <= 2 days, M 3-5 days, L 1-2 weeks of agent time.
+
+M2 amendment (plan departure 16): for M2 this table is superseded by `WS/M2_PLAN.md` §5-6 (23
+tasks: T7 -> T7a/T7b/T7c, T8 -> T8a/T8b, T10 -> T10a/T10b/T10c, new M2-I0 and M2-D0, vakint
+V1-V5; T1b runs without T1). The `LocusPolicy` plumbing of T7 moves to M3.
 
 The dependency on P0 (rustred-p0: admission of `E = 1`, homogeneity, row counts) holds for every
 task.
