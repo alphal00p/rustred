@@ -345,10 +345,11 @@ These exact values pin C1-C4. Tests use them as anchors.
 
 ### Pinned master definitions
 
-From Forcer (`forcer-rules.h:15`, `:16`, `:242`; `forcer.h:276`, `:277`):
+From Forcer's sources (benruijl/forcer):
 
-- `Master(t105) = Zt1star5(1,1,1,1,1) Q^2`.
-- `Master(no) = Zno(1^8, 0) Q^4`.
+- `Master(t105) = Zt1star5(1,1,1,1,1) Q^2` (`forcer-rules.h:15`, `:242`;
+  `forcer.h:277`).
+- `Master(no) = Zno(1^8, 0) Q^4` (`forcer-rules.h:16`; `forcer.h:276`).
 
 Under C1 at `Q^2 = 1`:
 
