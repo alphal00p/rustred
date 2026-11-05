@@ -42,3 +42,6 @@ pub mod descent;
 
 // Basis layer onto the Forcer masters (M2-T9).
 pub mod basis;
+
+// Version of the topology keys and the reduction DAG (integrator topology commit).
+pub use rustred_topology::P_TOPOLOGY_VERSION;

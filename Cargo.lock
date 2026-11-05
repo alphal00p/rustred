@@ -1436,6 +1436,7 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "rustred-order",
+ "rustred-topology",
  "serde",
  "serde_json",
  "smallvec",
