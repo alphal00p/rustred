@@ -320,6 +320,7 @@ fn prefix_order_cannot_borrow_a_sector_primary_certificate() {
         coordinate_groups: CoordinateGroups::InactiveFirst,
         active_direction: Direction::Descending,
         inactive_direction: Direction::Ascending,
+        two_sided: Vec::new(),
     };
     request.ordering = OrderingPolicy::try_programmed(
         CompiledOrder::compile(descriptor, Limits::default()).unwrap(),

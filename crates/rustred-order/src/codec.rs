@@ -4,21 +4,32 @@ use super::descriptor::{
 
 const MAGIC_V1: &[u8; 8] = b"RRDORD01";
 const MAGIC_V2: &[u8; 8] = b"RRDORD02";
+/// Two-sided coordinates present: the v2 header (prefix count always written,
+/// possibly zero), then the v1/v2 payload, then one 0/1 byte per coordinate.
+const MAGIC_V3: &[u8; 8] = b"RRDORD03";
 
 pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
     let size = descriptor.support_weights.len();
+    let two_sided = !descriptor.two_sided.is_empty();
     let bytes = OrderDescriptor::dimensions(
         size,
         descriptor.pre_support_degree_rows.len(),
         descriptor.degree_rows.len(),
+        two_sided,
         Limits {
             max_encoded_bytes: usize::MAX,
             max_comparison_terms: usize::MAX,
         },
     )?;
     let mut result = reserve(bytes)?;
-    let has_prefix = !descriptor.pre_support_degree_rows.is_empty();
-    result.extend_from_slice(if has_prefix { MAGIC_V2 } else { MAGIC_V1 });
+    let has_prefix = two_sided || !descriptor.pre_support_degree_rows.is_empty();
+    result.extend_from_slice(if two_sided {
+        MAGIC_V3
+    } else if has_prefix {
+        MAGIC_V2
+    } else {
+        MAGIC_V1
+    });
     result.extend_from_slice(
         &u64::try_from(size)
             .map_err(|_| Error::DimensionOverflow)?
@@ -67,6 +78,7 @@ pub(crate) fn encode(descriptor: &OrderDescriptor) -> Result<Box<[u8]>, Error> {
             result.extend_from_slice(&weight.to_le_bytes());
         }
     }
+    result.extend(descriptor.two_sided.iter().map(|&flag| u8::from(flag)));
     debug_assert_eq!(bytes, result.len());
     Ok(result.into_boxed_slice())
 }
@@ -86,9 +98,10 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
             limit: limits.max_encoded_bytes,
         });
     }
-    let has_prefix = match bytes.get(..8) {
-        Some(magic) if magic == MAGIC_V1 => false,
-        Some(magic) if magic == MAGIC_V2 => true,
+    let (has_prefix, two_sided) = match bytes.get(..8) {
+        Some(magic) if magic == MAGIC_V1 => (false, false),
+        Some(magic) if magic == MAGIC_V2 => (true, false),
+        Some(magic) if magic == MAGIC_V3 => (true, true),
         _ => return Err(Error::InvalidEncoding),
     };
     let mut reader = Reader { bytes, cursor: 8 };
@@ -97,12 +110,15 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
     let pre_row_count = if has_prefix { reader.usize()? } else { 0 };
     // Canonical v2 always has a nonempty prefix; empty descriptors retain
     // exactly their original v1 bytes, not a second equivalent encoding.
-    if has_prefix && pre_row_count == 0 {
+    // v3 is distinguished by its two-sided flags and may have an empty prefix.
+    if has_prefix && !two_sided && pre_row_count == 0 {
         return Err(Error::InvalidEncoding);
     }
     // Reject hostile dimensions, truncated payloads and trailing bytes before
     // any dimension-dependent allocation, including the row container.
-    if OrderDescriptor::dimensions(size, pre_row_count, row_count, limits)? != bytes.len() {
+    if OrderDescriptor::dimensions(size, pre_row_count, row_count, two_sided, limits)?
+        != bytes.len()
+    {
         return Err(Error::InvalidEncoding);
     }
     let coordinate_groups = match reader.byte()? {
@@ -130,6 +146,21 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
             inactive: reader.weights(size)?,
         });
     }
+    let mut flags = Vec::new();
+    if two_sided {
+        flags = reserve(size)?;
+        for _ in 0..size {
+            flags.push(match reader.byte()? {
+                0 => false,
+                1 => true,
+                _ => return Err(Error::InvalidEncoding),
+            });
+        }
+        // An all-false v3 payload would be a second encoding of v1/v2.
+        if !flags.contains(&true) {
+            return Err(Error::InvalidEncoding);
+        }
+    }
     debug_assert_eq!(reader.cursor, bytes.len());
     Ok(OrderDescriptor {
         pre_support_degree_rows,
@@ -140,6 +171,7 @@ pub(crate) fn decode(bytes: &[u8], limits: Limits) -> Result<OrderDescriptor, Er
         coordinate_groups,
         active_direction,
         inactive_direction,
+        two_sided: flags,
     })
 }
 

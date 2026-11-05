@@ -147,6 +147,7 @@ fn descriptor(arity: usize) -> OrderDescriptor {
         coordinate_groups: CoordinateGroups::ActiveFirst,
         active_direction: Direction::Descending,
         inactive_direction: Direction::Descending,
+        two_sided: Vec::new(),
     }
 }
 

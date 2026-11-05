@@ -15,6 +15,7 @@ impl CompiledOrder {
             size,
             self.descriptor().pre_support_degree_rows.len(),
             self.descriptor().degree_rows.len(),
+            !self.descriptor().two_sided.is_empty(),
             limits,
         )?;
         permutation(source_for_target, size)?;
@@ -58,6 +59,13 @@ impl CompiledOrder {
                 coordinate_groups: source.coordinate_groups,
                 active_direction: source.active_direction,
                 inactive_direction: source.inactive_direction,
+                two_sided: if source.two_sided.is_empty() {
+                    Vec::new()
+                } else {
+                    let mut flags = reserve(size)?;
+                    flags.extend(source_for_target.iter().map(|&s| source.two_sided[s]));
+                    flags
+                },
             },
             limits,
         )

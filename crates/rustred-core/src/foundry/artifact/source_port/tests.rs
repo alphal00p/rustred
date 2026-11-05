@@ -197,6 +197,7 @@ fn multi_index_programmed_generation_replays_under_its_actual_descriptor() {
             coordinate_groups: CoordinateGroups::InactiveFirst,
             active_direction: Direction::Descending,
             inactive_direction: Direction::Ascending,
+            two_sided: Vec::new(),
         },
         Default::default(),
     )

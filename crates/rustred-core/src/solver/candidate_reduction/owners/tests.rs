@@ -34,6 +34,7 @@ fn direct_reducer_and_owner_admission_bind_solution_order_and_sector() {
             coordinate_groups: CoordinateGroups::ActiveFirst,
             active_direction: Direction::Descending,
             inactive_direction: Direction::Ascending,
+            two_sided: Vec::new(),
         },
         Default::default(),
     )

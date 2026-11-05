@@ -570,6 +570,7 @@ mod tests {
                         coordinate_groups: rustred_order::CoordinateGroups::ActiveFirst,
                         active_direction: rustred_order::Direction::Ascending,
                         inactive_direction: rustred_order::Direction::Descending,
+                        two_sided: Vec::new(),
                     },
                     Default::default(),
                 )

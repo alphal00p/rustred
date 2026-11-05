@@ -18,7 +18,10 @@ mod descriptor;
 mod transport;
 
 pub use compare::{Comparison, Component};
-pub use descriptor::{CoordinateGroups, DegreeRow, Direction, Error, Limits, OrderDescriptor};
+pub use descriptor::{
+    CoordinateGroups, DegreeRow, Direction, Error, Limits, MAX_TWO_SIDED_POWER, OrderDescriptor,
+    two_sided_excess,
+};
 
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
@@ -74,9 +77,16 @@ impl CompiledOrder {
 
     /// Whether the support subkey is the complete leading prefix. Consumers
     /// whose proofs induct on sectors must require this separately from the
-    /// fixed-support total-excess capability below.
+    /// fixed-support total-excess capability below. False with two-sided
+    /// axes: their raw sign changes inside one support, so raw-sector
+    /// induction does not apply.
     pub fn is_support_primary(&self) -> bool {
-        self.descriptor().pre_support_degree_rows.is_empty()
+        self.descriptor().pre_support_degree_rows.is_empty() && !self.has_two_sided()
+    }
+
+    /// Whether any coordinate is two-sided ([`OrderDescriptor::two_sided`]).
+    pub fn has_two_sided(&self) -> bool {
+        !self.descriptor().two_sided.is_empty()
     }
 
     /// On one fixed support, descent under this program cannot increase
@@ -85,7 +95,12 @@ impl CompiledOrder {
     /// these differ by a constant. A later E row cannot override an earlier
     /// rank/weighted row's increasing-E decision.
     /// This is not a bound on a support-changing or transported successor.
+    /// False with two-sided axes, whose excess `e(n)` is not the one-sided
+    /// excess that consumers of this capability sum.
     pub fn has_total_excess_primary(&self) -> bool {
+        if self.has_two_sided() {
+            return false;
+        }
         let descriptor = self.descriptor();
         let row = descriptor
             .pre_support_degree_rows

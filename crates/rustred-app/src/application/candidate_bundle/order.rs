@@ -94,6 +94,7 @@ impl CandidateIntegralOrder {
                 },
                 active_direction: direction(self.active_direction),
                 inactive_direction: direction(self.inactive_direction),
+                two_sided: Vec::new(),
             },
             limits,
         )
