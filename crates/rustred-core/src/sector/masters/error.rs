@@ -18,6 +18,17 @@ pub enum MasterCountError {
     UnsupportedNonzeroPowerShift {
         denominator: usize,
     },
+    /// [`super::MasterCounter::try_new_p_shifted`] admits only massless
+    /// propagator-type families with eps lines
+    /// ([`crate::family::IntegralFamily::shifted_unit_scale_kinematics`]).
+    ShiftedFamilyAdmission {
+        detail: String,
+    },
+    /// A sector of an eps family must contain every forced (eps) axis: an eps
+    /// line is present at every integer power.
+    ForcedAxisInactive {
+        denominator: usize,
+    },
     WrongArity {
         expected: usize,
         actual: usize,
@@ -67,6 +78,14 @@ impl fmt::Display for MasterCountError {
             Self::UnsupportedNonzeroPowerShift { denominator } => write!(
                 formatter,
                 "power shift {denominator} is nonzero; master counting supports integer indices only"
+            ),
+            Self::ShiftedFamilyAdmission { detail } => write!(
+                formatter,
+                "the shifted master count does not admit this family: {detail}"
+            ),
+            Self::ForcedAxisInactive { denominator } => write!(
+                formatter,
+                "sector omits the forced eps axis {denominator}; an eps line belongs to every sector of its family"
             ),
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "sector has arity {actual}, expected {expected}")

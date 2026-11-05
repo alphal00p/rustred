@@ -43,6 +43,9 @@ pub struct MasterCounter {
     max_attempts: usize,
     streams: Vec<SampleStream>,
     verdicts: HashMap<Mask, MasterCount>,
+    /// Forced (eps) axes of a shifted p family, in increasing order; empty
+    /// for [`MasterCounter::try_new`].
+    forced: Box<[usize]>,
 }
 
 /// Memoized exact scalelessness of sectors and Euler faces.
@@ -94,6 +97,65 @@ impl MasterCounter {
         {
             return Err(MasterCountError::UnsupportedNonzeroPowerShift { denominator });
         }
+        Self::build(family, options, Box::new([]))
+    }
+
+    /// Opt-in count for the p path: a massless propagator-type family whose
+    /// power shifts are `j (4-d)/2` on line slots, as admitted by
+    /// [`IntegralFamily::shifted_unit_scale_kinematics`] (unshifted p
+    /// families included). An eps (forced) line has a non-integer power and
+    /// is never pinched, so every sector must contain the forced axes and
+    /// the masters with top sector `S` are
+    ///
+    /// - Euler: `e(S) = sum_{F <= T <= S} (-1)^(|S|-|T|) c(T)`, the Moebius
+    ///   inversion only over faces `T` that contain the forced set `F`;
+    /// - Morse: the mixed critical points of `G_S`, with `x_i dG/dx_i + u_i G`
+    ///   for forced and `dG/dx_i` for every other parameter
+    ///   (`ideal::SectorPolynomial::mixed`).
+    ///
+    /// The verdict rule is that of [`Self::try_new`]. Without forced axes the
+    /// count equals [`Self::try_new`]'s. [`Self::try_new`] is unchanged and
+    /// keeps refusing every power shift.
+    pub fn try_new_p_shifted(
+        family: &IntegralFamily,
+        options: MasterCountOptions,
+    ) -> Result<Self, MasterCountError> {
+        if !(2..=MAX_SAMPLES).contains(&options.samples) {
+            return Err(MasterCountError::InvalidSampleCount {
+                samples: options.samples,
+            });
+        }
+        let admitted = family.shifted_unit_scale_kinematics().map_err(|error| {
+            MasterCountError::ShiftedFamilyAdmission {
+                detail: error.to_string(),
+            }
+        })?;
+        let Some(admitted) = admitted else {
+            return Err(
+                match family
+                    .power_shifts()
+                    .iter()
+                    .position(|shift| !shift.is_zero())
+                {
+                    Some(denominator) => {
+                        MasterCountError::UnsupportedNonzeroPowerShift { denominator }
+                    }
+                    None => MasterCountError::ShiftedFamilyAdmission {
+                        detail: "not a massless propagator-type family with one external momentum"
+                            .to_owned(),
+                    },
+                },
+            );
+        };
+        let forced = admitted.forced.iter().map(|&(axis, _)| axis).collect();
+        Self::build(family, options, forced)
+    }
+
+    fn build(
+        family: &IntegralFamily,
+        options: MasterCountOptions,
+        forced: Box<[usize]>,
+    ) -> Result<Self, MasterCountError> {
         let symanzik = SymanzikPolynomials::try_from_family_with_limits(
             family,
             FeynmanPolynomialLimits::default(),
@@ -128,6 +190,7 @@ impl MasterCounter {
             max_attempts: options.max_attempts,
             streams: SampleStream::seeded(options.seed, options.samples),
             verdicts: HashMap::new(),
+            forced,
         })
     }
 
@@ -138,6 +201,13 @@ impl MasterCounter {
                 expected: self.kinematics.denominators,
                 actual: sector.arity(),
             });
+        }
+        if let Some(&denominator) = self
+            .forced
+            .iter()
+            .find(|&&axis| !sector.active_bits()[axis])
+        {
+            return Err(MasterCountError::ForcedAxisInactive { denominator });
         }
         if let Some(verdict) = self.verdicts.get(sector) {
             return Ok(verdict.clone());
@@ -203,26 +273,54 @@ impl MasterCounter {
             saturation,
             max_attempts,
             streams,
+            forced,
             ..
         } = self;
         let (field, point) = streams[stream].point(kinematics, *max_attempts)?;
         let restrict = |face: &[usize]| {
             SectorPolynomial::restrict(field, &point.g, face, feynman_variables, saturation)
         };
-        let morse = match restrict(active).morse()? {
+        let top = restrict(active);
+        let morse = if forced.is_empty() {
+            top.morse()?
+        } else {
+            let twisted: Vec<bool> = active
+                .iter()
+                .map(|position| forced.contains(position))
+                .collect();
+            let exponents: Vec<_> = active
+                .iter()
+                .map(|&position| point.exponents[position])
+                .collect();
+            top.mixed(&twisted, &exponents)?
+        };
+        let morse = match morse {
             Staircase::Finite(count) => Some(count),
             Staircase::Infinite => None,
         };
 
         let mut euler = 0_i64;
-        // Nonempty faces T of S as bit subsets of the active positions;
-        // MAX_ACTIVE_DENOMINATORS keeps the shift in range.
-        for subset in 1_u64..(1_u64 << active.len()) {
+        // Faces T of S that contain every forced axis, as the forced axes
+        // plus a bit subset of the other active positions; without forced
+        // axes the subset is nonempty. MAX_ACTIVE_DENOMINATORS keeps the
+        // shift in range.
+        let free: Vec<usize> = active
+            .iter()
+            .copied()
+            .filter(|position| !forced.contains(position))
+            .collect();
+        let first = u64::from(forced.is_empty());
+        for subset in first..(1_u64 << free.len()) {
             let face: Vec<usize> = active
                 .iter()
-                .enumerate()
-                .filter(|(bit, _)| subset >> bit & 1 == 1)
-                .map(|(_, &position)| position)
+                .copied()
+                .filter(|position| {
+                    forced.contains(position)
+                        || free
+                            .iter()
+                            .position(|free| free == position)
+                            .is_some_and(|bit| subset >> bit & 1 == 1)
+                })
                 .collect();
             let mask = Mask::try_new(
                 (0..kinematics.denominators).map(|position| face.contains(&position)),

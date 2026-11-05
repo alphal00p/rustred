@@ -128,6 +128,51 @@ impl<'a> SectorPolynomial<'a> {
         self.quotient(ideal)
     }
 
+    /// `dim Zp[x_T, t] / <E_i, 1 - t G>` with `E_i = x_i dG/dx_i + u_i G` on
+    /// a twisted (eps, non-integer exponent) parameter and `E_i = dG/dx_i`
+    /// on every other one: the critical points of
+    /// `log G + sum_{twisted} u_i log x_i` restricted to the twisted torus.
+    /// It counts the masters whose top sector is `T` in a family whose
+    /// twisted lines are never pinched; with no twisted parameter it is
+    /// [`Self::morse`].
+    ///
+    /// Invariant: `twisted` and `exponents` hold one value per active
+    /// parameter.
+    pub(super) fn mixed(
+        &self,
+        twisted: &[bool],
+        exponents: &[ModularElement],
+    ) -> Result<Staircase, MasterCountError> {
+        debug_assert_eq!(twisted.len(), self.active());
+        debug_assert_eq!(exponents.len(), self.active());
+        let mut ideal = Vec::with_capacity(self.variables.len());
+        for variable in 0..self.active() {
+            let mut equation = self.zero();
+            for (coefficient, monomial) in &self.terms {
+                if twisted[variable] {
+                    let weight = self.field.add(
+                        &self.field.to_element(u32::from(monomial[variable])),
+                        &exponents[variable],
+                    );
+                    equation.append_monomial(self.field.mul(coefficient, &weight), monomial);
+                } else if monomial[variable] != 0 {
+                    let mut lowered = monomial.clone();
+                    lowered[variable] -= 1;
+                    equation.append_monomial(
+                        self.field.mul(
+                            coefficient,
+                            &self.field.to_element(u32::from(monomial[variable])),
+                        ),
+                        &lowered,
+                    );
+                }
+            }
+            ideal.push(equation);
+        }
+        ideal.push(self.saturation());
+        self.quotient(ideal)
+    }
+
     fn zero(&self) -> ModularPolynomial {
         ModularPolynomial::new(self.field, Some(self.terms.len()), self.variables.clone())
     }
