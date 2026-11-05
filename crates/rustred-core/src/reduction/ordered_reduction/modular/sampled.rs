@@ -210,6 +210,18 @@ impl<'p> PrimeSamples<'p> {
     }
 }
 
+/// The first `count` reconstruction points drawn at `prime` (test hook).
+#[cfg(test)]
+pub(super) fn first_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+    let mut samples = PrimeSamples::new(prime, seed, 0, None);
+    let field = samples.field.clone();
+    samples
+        .fresh_points(count)
+        .iter()
+        .map(|x| super::field::to_u64(&field, x))
+        .collect()
+}
+
 /// One replay batch: points of the prime `owner` of the round.
 struct Job<'p> {
     owner: usize,

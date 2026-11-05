@@ -354,7 +354,8 @@ impl ImageSource for PolynomialSource<'_> {
                 }
                 Some(composed) => {
                     for (index, (terminals, points)) in indices.into_iter().zip(composed) {
-                        statistics.composition_points += points;
+                        statistics.composition_points += points.drawn;
+                        statistics.bad_points += points.bad;
                         images[index] = terminals.map(|terminals| PrimeImages {
                             structure: self.structure.clone(),
                             terminals,

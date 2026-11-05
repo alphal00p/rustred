@@ -353,6 +353,18 @@ impl PrimeStream {
     }
 }
 
+/// The first `count` primes of the reconstruction (or verification) stream of
+/// a lift with `seed` (test hook).
+#[cfg(test)]
+pub(super) fn first_primes(seed: u64, verification: bool, count: usize) -> Vec<u64> {
+    let mut stream = if verification {
+        PrimeStream::new(seed, VERIFICATION_SALT, (1 << 62) + (1 << 61), 5)
+    } else {
+        PrimeStream::new(seed, LIFT_SALT, 1 << 62, 3)
+    };
+    stream.take(count).expect("64-bit primes")
+}
+
 /// Reconstruction primes: `[2^62, 2^62 + 2^61)` plus the primes consumed.
 const LIFT_SALT: u64 = 0x6c69_6674;
 /// Verification primes: `[2^62 + 2^61, 2^62 + 2^61 + 2^59)`.

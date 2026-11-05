@@ -328,6 +328,9 @@ pub(crate) struct ModularStatistics {
     pub max_coefficient_bits: usize,
     /// Consumed images outside the winning signature group.
     pub unlucky_images: usize,
+    /// Points dropped as poles: of a step coefficient (`ModularSampled`), of a
+    /// composition coefficient, or of a terminal image at a composition point
+    /// (`ModularPolynomial`).
     pub bad_points: usize,
     pub verification_failures: usize,
     pub cancel_checks: usize,
@@ -365,6 +368,12 @@ pub(crate) struct ModularStatistics {
     pub composition_cpu_seconds: f64,
     pub composition_plan_seconds: f64,
     pub composition_points: usize,
+    /// The composed lift failed closed (a `ModularWeights` error: prime or
+    /// point budget, ...) and the raw terminals were lifted instead (the
+    /// caller then substitutes exactly); the wall seconds of the failed
+    /// composed attempt. The other counters are those of the raw lift.
+    pub composition_fallback: bool,
+    pub composition_fallback_seconds: f64,
 }
 
 impl ModularStatistics {
@@ -388,6 +397,7 @@ impl ModularStatistics {
                 "\"composed\":{},\"composed_outputs\":{},\"composition_entries\":{},",
                 "\"composition_coefficients\":{},\"composition_cpu_seconds\":{:.6},",
                 "\"composition_plan_seconds\":{:.6},\"composition_points\":{},",
+                "\"composition_fallback\":{},\"composition_fallback_seconds\":{:.6},",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -439,6 +449,8 @@ impl ModularStatistics {
             self.composition_cpu_seconds,
             self.composition_plan_seconds,
             self.composition_points,
+            self.composition_fallback,
+            self.composition_fallback_seconds,
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
@@ -747,13 +759,15 @@ impl ModularRecorder {
             statistics.composition_coefficients = program.distinct_coefficients();
             statistics.composition_plan_seconds = planning.elapsed().as_secs_f64();
         }
-        let finished = |coefficients: Vec<Coefficient>| match (&program, &labels) {
-            (Some(_), Some(labels)) => Finished::Composed(ComposedTerminals {
+        // The composed outputs (with the plan's labels) or the nonzero
+        // terminals (no plan, or the composed lift fell back).
+        let finished = |coefficients: Vec<Coefficient>, labels| match labels {
+            Some(labels) => Finished::Composed(ComposedTerminals {
                 terminals: keys.clone(),
-                labels: labels.clone(),
+                labels,
                 coefficients,
             }),
-            _ => Finished::Terminals(
+            None => Finished::Terminals(
                 keys.iter()
                     .cloned()
                     .zip(coefficients)
@@ -768,58 +782,119 @@ impl ModularRecorder {
         if slots.is_empty() && !has_cancellations {
             // Nothing to reconstruct and no erasure to certify.
             let outputs = program.as_ref().map_or(0, compose::Program::outputs);
-            return Ok((finished(vec![self.context.zero(); outputs]), statistics));
+            return Ok((
+                finished(vec![self.context.zero(); outputs], labels),
+                statistics,
+            ));
         }
         let executor = Executor::new(self.common.threads)?;
-        let lifted = match self.lifter {
-            Lifter::Sampled(options) => {
-                let mut source =
-                    SampledSource::new(&trace, &slots, options, self.common.seed, program.as_ref());
-                let lifted = lift::lift(
-                    &mut source,
-                    &self.context,
-                    &self.common,
-                    &executor,
-                    &mut statistics,
-                );
-                // The structure is fixed by this recording.
-                if let Ok(lifted) = &lifted {
-                    debug_assert!(std::sync::Arc::ptr_eq(
-                        &lifted.structure,
-                        source.structure()
-                    ));
+        let lift_with =
+            |program: Option<&compose::Program>, statistics: &mut ModularStatistics| match self
+                .lifter
+            {
+                Lifter::Sampled(options) => {
+                    let mut source =
+                        SampledSource::new(&trace, &slots, options, self.common.seed, program);
+                    let lifted = lift::lift(
+                        &mut source,
+                        &self.context,
+                        &self.common,
+                        &executor,
+                        statistics,
+                    );
+                    // The structure is fixed by this recording.
+                    if let Ok(lifted) = &lifted {
+                        debug_assert!(std::sync::Arc::ptr_eq(
+                            &lifted.structure,
+                            source.structure()
+                        ));
+                    }
+                    lifted
                 }
-                lifted
-            }
-            Lifter::Polynomial(options) => {
-                let mut source = PolynomialSource::new(
-                    &trace,
-                    &slots,
-                    &basis,
-                    options,
-                    program.as_ref(),
-                    self.common.seed,
-                );
-                let lifted = lift::lift(
-                    &mut source,
-                    &self.context,
-                    &self.common,
-                    &executor,
-                    &mut statistics,
-                );
-                if let Ok(lifted) = &lifted {
-                    debug_assert!(std::sync::Arc::ptr_eq(
-                        &lifted.structure,
-                        source.structure()
-                    ));
+                Lifter::Polynomial(options) => {
+                    let mut source = PolynomialSource::new(
+                        &trace,
+                        &slots,
+                        &basis,
+                        options,
+                        program,
+                        self.common.seed,
+                    );
+                    let lifted = lift::lift(
+                        &mut source,
+                        &self.context,
+                        &self.common,
+                        &executor,
+                        statistics,
+                    );
+                    if let Ok(lifted) = &lifted {
+                        debug_assert!(std::sync::Arc::ptr_eq(
+                            &lifted.structure,
+                            source.structure()
+                        ));
+                    }
+                    lifted
                 }
-                lifted
-            }
+            };
+        let attempt = Instant::now();
+        let before = program.is_some().then(|| statistics.clone());
+        let mut lifted = lift_with(program.as_ref(), &mut statistics);
+        let mut labels = labels;
+        // A composed lift that fails closed (its prime or point budget, or
+        // any other `ModularWeights` failure) lifts the raw terminals once
+        // instead: the outputs can be more complex than the terminals, and the
+        // caller then substitutes the terminals exactly (the historical path).
+        // Other errors (limits, cancellation, ...) are returned as they are.
+        let failed = match (&lifted, &before) {
+            (Err(ReductionError::ModularWeights { detail }), Some(_)) => Some(detail.clone()),
+            _ => None,
         };
+        if let (Some(detail), Some(before)) = (failed, before) {
+            let seconds = attempt.elapsed().as_secs_f64();
+            if statistics_requested() {
+                report_line(&format!(
+                    "{{\"stage\":\"composition_fallback\",\"seconds\":{seconds:.6},\"error\":\"{}\"}}",
+                    json_escape(&detail)
+                ));
+            }
+            statistics = before;
+            statistics.composed = false;
+            statistics.composition_fallback = true;
+            statistics.composition_fallback_seconds = seconds;
+            labels = None;
+            lifted = lift_with(None, &mut statistics);
+        }
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
         let coefficients = lifted?.coefficients;
-        Ok((finished(coefficients), statistics))
+        Ok((finished(coefficients, labels), statistics))
+    }
+}
+
+/// Deterministic primes and points of the modular arithmetics, so that tests
+/// can place unusable primes and bad points inside a full lift.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    /// The first `count` reconstruction primes of a lift with `seed`.
+    pub(crate) fn lift_primes(seed: u64, count: usize) -> Vec<u64> {
+        super::lift::first_primes(seed, false, count)
+    }
+
+    /// The first `count` verification primes of a lift with `seed`.
+    pub(crate) fn verification_primes(seed: u64, count: usize) -> Vec<u64> {
+        super::lift::first_primes(seed, true, count)
+    }
+
+    /// The first `count` reconstruction sample points `ModularSampled` draws
+    /// at `prime`.
+    pub(crate) fn sample_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+        super::sampled::first_points(seed, prime, count)
+    }
+
+    /// The first `count` points a `ModularPolynomial` composition draws at
+    /// `prime`.
+    pub(crate) fn composition_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+        super::compose::first_compose_points(seed, prime, count)
     }
 }
 
@@ -1154,6 +1229,20 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
     #[cfg(test)]
     REPORTED.with(|reported| reported.borrow_mut().push(statistics.clone()));
     report_line(&statistics.to_json());
+}
+
+/// `text` as the body of a JSON string (statistics lines only).
+fn json_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 pub(super) fn report_line(line: &str) {

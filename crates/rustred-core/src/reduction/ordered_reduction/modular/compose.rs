@@ -202,6 +202,19 @@ impl PrimeProgram<'_> {
     }
 }
 
+/// Points of one `ModularPolynomial` composition: drawn, and bad (poles of a
+/// terminal image or of a plan coefficient, dropped).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ComposePoints {
+    pub drawn: usize,
+    pub bad: usize,
+}
+
+/// The point generator of `compose_images` at `prime`.
+fn compose_rng(seed: u64, prime: u64) -> StdRng {
+    StdRng::seed_from_u64(seed ^ COMPOSE_POINTS_SALT ^ prime.rotate_left(23))
+}
+
 /// Images of the composed outputs at one prime from the images of the plan's
 /// inputs there (`ModularPolynomial`); `Ok(None)` for an unusable prime.
 pub(super) fn compose_images(
@@ -209,13 +222,13 @@ pub(super) fn compose_images(
     prime: u64,
     inputs: &[Image],
     seed: u64,
-) -> Result<(Option<Vec<Image>>, usize), ReductionError> {
+) -> Result<(Option<Vec<Image>>, ComposePoints), ReductionError> {
     if inputs.len() != program.inputs {
         return Err(error("composition inputs differ from the plan"));
     }
     let f = Zp64::new(prime);
     let Some(reduced) = program.reduce(&f) else {
-        return Ok((None, 0));
+        return Ok((None, ComposePoints::default()));
     };
     let outputs = program.outputs;
     let fe = |values: &[u64]| -> Poly { values.iter().map(|v| f.to_element(*v)).collect() };
@@ -226,9 +239,10 @@ pub(super) fn compose_images(
     let mut states: Vec<Thiele> = (0..outputs).map(|_| Thiele::new(&f)).collect();
     let mut xs: Vec<Fe> = vec![];
     let mut ys: Vec<Vec<Fe>> = vec![vec![]; outputs];
-    let mut rng = StdRng::seed_from_u64(seed ^ COMPOSE_POINTS_SALT ^ prime.rotate_left(23));
+    let mut rng = compose_rng(seed, prime);
     let mut used = HashSet::new();
     let mut drawn = 0usize;
+    let mut bad = 0usize;
     let mut count = COMPOSE_FIRST_POINTS;
     let mut open: Vec<usize> = (0..outputs).collect();
     while !open.is_empty() {
@@ -263,6 +277,7 @@ pub(super) fn compose_images(
         let composed = reduced.apply(&points, |t| &values[t * width..(t + 1) * width], &mut good);
         for (j, x) in points.iter().enumerate() {
             if !good[j] {
+                bad += 1;
                 continue;
             }
             xs.push(*x);
@@ -280,7 +295,22 @@ pub(super) fn compose_images(
             image_from(&f, &numerator, &denominator)
         })
         .collect();
-    Ok((Some(images), drawn))
+    Ok((Some(images), ComposePoints { drawn, bad }))
+}
+
+/// The first `count` points `compose_images` draws at `prime` (test hook).
+#[cfg(test)]
+pub(super) fn first_compose_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+    let mut rng = compose_rng(seed, prime);
+    let mut used = HashSet::new();
+    let mut points = Vec::with_capacity(count);
+    while points.len() < count {
+        let value = rng.random_range(2..prime);
+        if used.insert(value) {
+            points.push(value);
+        }
+    }
+    points
 }
 
 #[cfg(test)]
@@ -351,7 +381,8 @@ mod tests {
                 .collect();
             let (composed, points) = compose_images(&program, prime, &inputs, 7).unwrap();
             let composed = composed.expect("usable prime");
-            assert!(points >= COMPOSE_FIRST_POINTS);
+            assert!(points.drawn >= COMPOSE_FIRST_POINTS);
+            assert_eq!(points.bad, 0);
             assert_eq!(
                 composed[0],
                 image(prime, &DenseRational::from_coefficient(&out0))
@@ -361,6 +392,40 @@ mod tests {
                 image(prime, &DenseRational::from_coefficient(&out1))
             );
         }
+    }
+
+    /// A pole of a terminal image (at the first composition point) and of a
+    /// plan coefficient (at the second) are bad points, dropped; the composed
+    /// image is still the image of the exact composition.
+    #[test]
+    fn poles_at_composition_points_are_dropped() {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let c = |text: &str| context.coefficient_fixture(text);
+        let (prime, seed) = (1_000_000_007u64, 11);
+        let poles = first_compose_points(seed, prime, 2);
+        let terminals = [c(&format!("(d^2+3)/(d-{})", poles[0])), c("(2*d+1)/(d+4)")];
+        let a = c(&format!("(d+1)/(d-{})", poles[1]));
+        let b = c("3");
+        let plan = OrderedCompositionPlan {
+            stages: vec![OrderedCompositionStage {
+                rows: vec![vec![(0, &a)], vec![(0, &b)]],
+                width: 1,
+            }],
+            labels: Arc::new(()),
+        };
+        plan.validate(2).unwrap();
+        let exact = &(&terminals[0] * &a) + &(&terminals[1] * &b);
+        let program = Program::new(&plan, 2);
+        let inputs: Vec<Image> = terminals
+            .iter()
+            .map(|t| image(prime, &DenseRational::from_coefficient(t)))
+            .collect();
+        let (composed, points) = compose_images(&program, prime, &inputs, seed).unwrap();
+        assert_eq!(points.bad, 2);
+        assert_eq!(
+            composed.expect("usable prime")[0],
+            image(prime, &DenseRational::from_coefficient(&exact))
+        );
     }
 
     #[test]

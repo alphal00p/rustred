@@ -2102,6 +2102,18 @@ mod tests {
             }
         }
 
+        /// Add `(terminal, middle, coefficient)` entries to the first stage.
+        fn with_entries(mut self, entries: &[(i64, u32, String)]) -> Self {
+            for (terminal, middle, coefficient) in entries {
+                let coefficient = self.context.coefficient_fixture(coefficient);
+                self.first
+                    .get_mut(terminal)
+                    .expect("a ladder terminal")
+                    .push((*middle, coefficient));
+            }
+            self
+        }
+
         /// The exact composition of exact terminal coefficients.
         fn compose(&self, terms: &BTreeMap<IntegralKey, Coefficient>) -> Vec<Coefficient> {
             let mut middle = vec![self.context.zero(); self.second.len()];
@@ -2316,5 +2328,143 @@ mod tests {
         assert!(composed.points_per_prime < raw.points_per_prime);
         assert!(composed.points_replayed < raw.points_replayed);
         assert!(composed.primes <= raw.primes);
+    }
+
+    /// Unusable primes and bad points inside a full composed lift. A plan
+    /// coefficient whose denominator content is the first and the third
+    /// reconstruction prime and the first verification prime makes those
+    /// primes unusable (`ModularSampled`: discovery, a later round and, with
+    /// two verification primes, the owner-indexed verification;
+    /// `ModularPolynomial`: the rounds and the verification images);
+    /// coefficients with a pole at the first sample point (`ModularSampled`)
+    /// and at the first composition point (`ModularPolynomial`) of the second
+    /// reconstruction prime give bad points there. The lifted outputs are
+    /// still exactly the composition of the exact terminals.
+    #[test]
+    fn composed_lifts_skip_unusable_primes_and_bad_points() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let common = ModularCommon {
+            verification_primes: 2,
+            ..Default::default()
+        };
+        let lift = modular::test_hooks::lift_primes(common.seed, 3);
+        let verification = modular::test_hooks::verification_primes(common.seed, 1);
+        let sample_pole = modular::test_hooks::sample_points(common.seed, lift[1], 1)[0];
+        let compose_pole = modular::test_hooks::composition_points(common.seed, lift[1], 1)[0];
+        let rows = std::sync::Arc::new(LadderRows::new(None).with_entries(&[
+            (
+                0,
+                3,
+                format!("(d+2)/({}*{}*{})", lift[0], lift[2], verification[0]),
+            ),
+            (1, 4, format!("1/(d-{sample_pole})")),
+            (9, 0, format!("(3*d-1)/(d-{compose_pole})")),
+        ]));
+        let expected = rows.compose(&exact.terms);
+        let mut arithmetics = vec![];
+        for threads in [1, 3] {
+            arithmetics.push(OrderedWeightArithmetic::ModularSampled(
+                ModularCommon { threads, ..common },
+                SampledOptions {
+                    batch_points: 8,
+                    ..Default::default()
+                },
+            ));
+        }
+        for (threads, lanes) in [(1, 1), (2, 2), (4, 3)] {
+            arithmetics.push(OrderedWeightArithmetic::ModularPolynomial(
+                ModularCommon { threads, ..common },
+                PolynomialOptions {
+                    lanes,
+                    ..Default::default()
+                },
+            ));
+        }
+        for arithmetic in arithmetics {
+            let (result, statistics) = run_composed(arithmetic, rows.clone());
+            let composed = result.composed.as_ref().expect("composed request");
+            assert_eq!(composed.coefficients, expected, "{arithmetic}");
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert!(statistics.composed && !statistics.composition_fallback);
+            assert!(
+                statistics.unusable_primes >= 3,
+                "{arithmetic}: {} unusable primes",
+                statistics.unusable_primes
+            );
+            assert!(
+                statistics.bad_points >= 1,
+                "{arithmetic}: {} bad points",
+                statistics.bad_points
+            );
+        }
+    }
+
+    /// A composed lift that fails closed falls back to the raw lift once.
+    /// Here the outputs need far more primes than the budget (a plan
+    /// coefficient of about 2,000 bits) while the raw terminals fit in it:
+    /// the request returns the exact terminal map (which the caller then
+    /// substitutes exactly), with the fallback reported.
+    #[test]
+    fn a_composed_lift_that_fails_closed_falls_back_to_the_raw_lift() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let rows = std::sync::Arc::new(LadderRows::new(None).with_entries(&[(
+            2,
+            4,
+            "(d+1)/(7^700*(d+5))".to_owned(),
+        )]));
+        let with_budget = |arithmetic: OrderedWeightArithmetic, max_primes: usize| match arithmetic
+        {
+            OrderedWeightArithmetic::ModularSampled(common, options) => {
+                OrderedWeightArithmetic::ModularSampled(
+                    ModularCommon {
+                        max_primes,
+                        ..common
+                    },
+                    options,
+                )
+            }
+            OrderedWeightArithmetic::ModularPolynomial(common, options) => {
+                OrderedWeightArithmetic::ModularPolynomial(
+                    ModularCommon {
+                        max_primes,
+                        ..common
+                    },
+                    options,
+                )
+            }
+            OrderedWeightArithmetic::Exact => unreachable!("modular arithmetics only"),
+        };
+        for arithmetic in [
+            sampled(2, 8),
+            polynomial(2, 2, PolynomialDenominators::Factorized, false),
+        ] {
+            let (raw, raw_statistics) = run_reported(arithmetic);
+            assert_eq!(raw.terms, exact.terms);
+            let budget = raw_statistics.primes
+                + raw_statistics.unusable_primes
+                + raw_statistics.verification_primes
+                + 2;
+            let (result, statistics) = run_composed(with_budget(arithmetic, budget), rows.clone());
+            assert!(result.composed.is_none(), "{arithmetic}");
+            assert_eq!(result.terms, exact.terms, "{arithmetic}");
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert!(statistics.composition_fallback && !statistics.composed);
+            assert!(statistics.composition_fallback_seconds > 0.0);
+            assert_eq!(statistics.primes, raw_statistics.primes);
+        }
     }
 }
