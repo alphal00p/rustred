@@ -36,6 +36,7 @@ pub use error::{ArtifactError, ArtifactPersistenceError};
 pub use factorization::{
     FactorizationFactor, FactorizationMasterEmbedding, FactorizationRule, UnimodularLoopBasis,
 };
+pub use install::validate_shifted_p_family;
 pub(crate) use install::{
     validate_parametric_vacuum_family, validate_unit_scale_family,
     validate_unit_scale_propagator_family,

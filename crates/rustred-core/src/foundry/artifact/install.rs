@@ -26,6 +26,7 @@ pub(super) use source_port::ALGORITHM_ID as SOURCE_PORT_ALGORITHM_ID;
 #[cfg(test)]
 pub(super) use source_port::install_source_port;
 pub(super) use source_port::install_source_port_with_limits;
+pub use source_port::validate_shifted_p_family;
 pub(super) use source_port::{
     VerifiedTotalExcessScope, install_source_port_through_total_excess_with_limits,
     install_source_port_through_total_excess_with_observer,
