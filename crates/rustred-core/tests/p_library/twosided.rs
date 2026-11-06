@@ -4,7 +4,9 @@
 //! integer `n` lies in one support. [`generate_eps_family`] solves every raw
 //! chart (`n >= 1` or `n <= 0` per eps axis) of a family's owner support with
 //! the opt-in two-sided sources and the default two-sided order program,
-//! then enforces the hard false-knock-out guard of plan M2 sec.3.4. The tests
+//! then enforces the hard false-knock-out guard of plan M2 sec.3.4. A family
+//! with no eps axis (bubu) has one chart and runs under the plain SpIRed
+//! program through the same helpers, with the same LP and guard. The tests
 //! pin the 2L regression set (acceptance (a)), strict descent of every rule
 //! step and closure of random points onto the residual keys (b), the
 //! injective excess `e(n)` and the identity of generation and runtime order,
@@ -82,7 +84,9 @@ pub(crate) struct EpsOutcome {
     pub support: Vec<bool>,
     /// Forced axes: nonzero power shift.
     pub forced: Vec<bool>,
-    /// Two-sided axes of the sources and of the order program.
+    /// Two-sided axes of the sources and of the order program, one flag per
+    /// line: all false for a family with no eps axis (the program then has
+    /// no two-sided data at all).
     pub two_sided: Vec<bool>,
     /// The generation order, persisted as is: the runtime descent order.
     pub policy: OrderingPolicy,
@@ -97,7 +101,8 @@ pub(crate) struct EpsOutcome {
 
 /// Generate the two-sided rules of an eps family (compact `I(...)` input)
 /// and enforce the hard guard: two-sided axes cover every forced axis, all
-/// `2^j` raw charts are present, and `LP >= 1` implies a residual. One worker.
+/// `2^j` raw charts are present, and no fewer residuals than the LP count. One
+/// worker. A family with no eps axis runs under `OrderDescriptor::spired_uncut`.
 ///
 /// A test helper: the guard's refusal is the `Err(String)` of
 /// [`check_eps_guard`]; `PError::Generation` (plan M2 sec.3.4) belongs to the
@@ -107,7 +112,8 @@ pub(crate) fn generate_eps_family(sym: &str, charts: EpsCharts<'_>) -> Result<Ep
 }
 
 /// [`generate_eps_family`] under another two-sided order program, built
-/// from the family's two-sided flags.
+/// from the family's two-sided flags. A family with no eps axis has no such
+/// flags: `order` is not called (see [`order_program`]).
 pub(crate) fn generate_eps_family_with(
     sym: &str,
     charts: EpsCharts<'_>,
@@ -207,7 +213,12 @@ fn generate_unguarded(
     dispatch!(5, 9, 14)
 }
 
-/// The hard false-knock-out guard of plan M2 sec.3.4 on a generation outcome.
+/// The hard false-knock-out guard of plan M2 sec.3.4 on a generation outcome;
+/// `forced`, `two_sided` and `support` carry one flag per line.
+///
+/// Residuals are compared with the LP count itself, stricter than the plan's
+/// `LP >= 1 => residuals >= 1`: these sectors solve without symmetry relations
+/// and LP is the count without symmetries, so a correct run never has fewer.
 pub(crate) fn check_eps_guard(
     forced: &[bool],
     two_sided: &[bool],
@@ -216,6 +227,14 @@ pub(crate) fn check_eps_guard(
     lp: u32,
     residuals: usize,
 ) -> Result<(), String> {
+    if two_sided.len() != forced.len() || support.len() != forced.len() {
+        return Err(format!(
+            "hard guard: {} forced, {} two-sided and {} support flags",
+            forced.len(),
+            two_sided.len(),
+            support.len()
+        ));
+    }
     if forced.iter().zip(two_sided).any(|(&f, &t)| f && !t) {
         return Err("hard guard: a forced (eps) axis is not two-sided".into());
     }
@@ -228,9 +247,9 @@ pub(crate) fn check_eps_guard(
             expected.len()
         ));
     }
-    if lp >= 1 && residuals == 0 {
+    if residuals < lp as usize {
         return Err(format!(
-            "false knock-out guard: LP={lp}, residuals=0 (plan M2 sec.3.4)"
+            "false knock-out guard: LP={lp}, residuals={residuals} (plan M2 sec.3.4)"
         ));
     }
     Ok(())
@@ -263,6 +282,31 @@ fn lp_with_shifts(family: &IntegralFamily, support: &[bool]) -> Result<u32, Stri
     }
 }
 
+/// The order program of a generation. With no eps axis it is the plain SpIRed
+/// program without flags (`order` on all-false flags would not compile,
+/// `Error::InvalidTwoSided`); otherwise `order`, which must carry the axes.
+fn order_program(
+    name: &str,
+    two_sided: &[bool],
+    order: fn(Vec<bool>) -> OrderDescriptor,
+) -> Result<CompiledOrder, String> {
+    if !two_sided.contains(&true) {
+        return CompiledOrder::compile(
+            OrderDescriptor::spired_uncut(two_sided.len()),
+            Default::default(),
+        )
+        .map_err(|e| e.to_string());
+    }
+    let program = CompiledOrder::compile(order(two_sided.to_vec()), Default::default())
+        .map_err(|e| e.to_string())?;
+    if program.two_sided() != two_sided {
+        return Err(format!(
+            "{name}: the order program does not carry the eps axes"
+        ));
+    }
+    Ok(program)
+}
+
 fn generate<const N: usize>(
     name: String,
     family: Arc<IntegralFamily>,
@@ -280,16 +324,7 @@ fn generate<const N: usize>(
         .set_two_sided_eps_axes(&family)
         .map_err(|e| e.to_string())?;
     let two_sided = axes[..n].to_vec();
-    if !two_sided.contains(&true) {
-        return Err(format!("{name}: no two-sided eps axis"));
-    }
-    let program = CompiledOrder::compile(order(two_sided.clone()), Default::default())
-        .map_err(|e| e.to_string())?;
-    if program.two_sided() != two_sided.as_slice() {
-        return Err(format!(
-            "{name}: the order program does not carry the eps axes"
-        ));
-    }
+    let program = order_program(&name, &two_sided, order)?;
     let policy = OrderingPolicy::try_programmed(program.clone()).map_err(|e| e.to_string())?;
     let zeros = zero_sectors::<N>(&family, &support)?;
     let config = SectorConfig {
@@ -579,8 +614,14 @@ impl DynRule {
             if denominator.is_zero() {
                 return Err(format!("rule coefficient has a pole at {key:?}"));
             }
-            let value = &evaluate(&numerator, d_position, d_value)
-                / &evaluate(&denominator, d_position, d_value);
+            // Exact in `d`, but this value of `d` may hit a (spurious) pole.
+            let at_d = evaluate(&denominator, d_position, d_value);
+            if at_d.is_zero() {
+                return Err(format!(
+                    "rule coefficient has a pole at {key:?}, d = {d_value}"
+                ));
+            }
+            let value = &evaluate(&numerator, d_position, d_value) / &at_d;
             let child = coordinates
                 .iter()
                 .zip(key)
@@ -801,18 +842,26 @@ fn random_points_reduce_onto_the_residual_keys_with_strict_descent_witnesses() {
 #[test]
 fn every_rule_term_descends_at_its_own_chart_points() {
     // Each rule applied at each covered point of a box in its chart: every
-    // RHS term carries a strict-descent witness of the generation order.
+    // RHS term carries a strict-descent witness of the generation order, and
+    // the box leaves no rule unchecked.
+    let d = Rational::from((Integer::from(37), Integer::from(10)));
     for name in ["T001c", "T013c", "T007c", "T003c", "T005c"] {
         let outcome = generated(name);
         let mut checked = 0usize;
         for (chart, rules) in &outcome.program.rules {
-            for point in chart_box(chart, &outcome.forced, 3) {
-                for rule in rules.iter().filter(|rule| rule.applies(&point, chart)) {
-                    let d = Rational::from((Integer::from(37), Integer::from(10)));
-                    for (child, _) in rule.apply(&point, outcome.program.d_position, &d).unwrap() {
+            let points = chart_box(chart, &outcome.forced, 3);
+            for (index, rule) in rules.iter().enumerate() {
+                let covered: Vec<_> = points.iter().filter(|p| rule.applies(p, chart)).collect();
+                assert!(
+                    !covered.is_empty(),
+                    "{name} chart {}: the box misses rule {index}",
+                    mask(chart)
+                );
+                for point in covered {
+                    for (child, _) in rule.apply(point, outcome.program.d_position, &d).unwrap() {
                         let witness = outcome
                             .policy
-                            .prove_strict_descent(&point, &child)
+                            .prove_strict_descent(point, &child)
                             .unwrap_or_else(|e| panic!("{name} {point:?} -> {child:?}: {e}"));
                         assert!(witness.verify());
                         checked += 1;
@@ -956,8 +1005,14 @@ fn hard_guard_rejects_a_zero_residual_outcome_with_lp_one() {
     assert!(check_eps_guard(&forced, &forced, &support, &charts, 0, 0).is_ok());
     let error = check_eps_guard(&forced, &forced, &support, &charts, 1, 0).unwrap_err();
     assert!(error.contains("false knock-out guard"), "{error}");
+    // Fewer residuals than LP is a knock-out too; more are not refused here.
+    let error = check_eps_guard(&forced, &forced, &support, &charts, 2, 1).unwrap_err();
+    assert!(error.contains("false knock-out guard"), "{error}");
+    assert!(check_eps_guard(&forced, &forced, &support, &charts, 1, 2).is_ok());
     // Two-sided data must cover every forced axis, all 2^j charts present.
     assert!(check_eps_guard(&forced, &[false; 5], &support, &charts, 1, 1).is_err());
+    // Missing two-sided data does not pass as covering nothing.
+    assert!(check_eps_guard(&forced, &[], &support, &charts, 1, 1).is_err());
     assert!(check_eps_guard(&forced, &forced, &support, &charts[..1], 1, 1).is_err());
     // The one-sided S1 failure mode: solving only the top chart of T001c.
     let top = vec![vec![true; 5]];
@@ -1005,6 +1060,128 @@ fn chart_by_chart_runs_keep_each_chart_and_the_union_passes_the_guard() {
     // The guard still bites: a missing chart, or no residual with LP >= 1.
     assert!(guard(&charts[..charts.len() - 1], residuals.len()).is_err());
     assert!(guard(&charts, 0).is_err());
+}
+
+#[test]
+fn a_family_without_eps_axes_runs_under_the_plain_order_through_both_entry_points() {
+    // The integer 2L kite: T007c without its eps line. One chart, no flags,
+    // the same LP count and guard as an eps family.
+    let source = eps_family_source("T007c").replace("  ,power_shift(D1,2-d/2)\n", "");
+    assert!(!source.contains("power_shift"));
+    let charts = eps_family_charts(&source).unwrap();
+    assert_eq!(charts, [vec![true; 5]]);
+    let whole = generate_eps_family(&source, EpsCharts::All).unwrap();
+    assert_eq!(whole.forced, [false; 5]);
+    assert_eq!(whole.two_sided, [false; 5]);
+    assert_eq!(whole.lp, 0);
+    assert!(whole.residual_keys.is_empty());
+    assert_eq!(whole.rules, 5);
+    let plain = CompiledOrder::compile(OrderDescriptor::spired_uncut(5), Default::default());
+    let plain = OrderingPolicy::try_programmed(plain.unwrap()).unwrap();
+    assert_eq!(whole.policy.stable_id(), plain.stable_id());
+    // The order argument has nothing to act on.
+    let other = generate_eps_family_with(&source, EpsCharts::All, eps_first_two_sided).unwrap();
+    assert_eq!(other.policy.stable_id(), plain.stable_id());
+    assert_eq!(other.rules, whole.rules);
+    // Chart by chart, and the guard on the union still bites.
+    let run = generate_eps_charts(&source, &charts, 1).unwrap();
+    assert_eq!((run.lp, run.rules), (whole.lp, whole.rules));
+    assert_eq!(&run.charts[0].chart, &charts[0]);
+    let guard = |lp: u32, residuals: usize| {
+        check_eps_guard(
+            &run.forced,
+            &run.two_sided,
+            &run.support,
+            &charts,
+            lp,
+            residuals,
+        )
+    };
+    guard(run.lp, run.residual_keys.len()).unwrap();
+    assert!(guard(1, 0).is_err());
+    // The rules apply and descend: the top key leaves the owner sector.
+    let reduction = whole.reduce(&[1, 2, 1, 1, 1]).unwrap();
+    assert!(reduction.residuals.is_empty());
+    assert!(reduction.steps > 0 && !reduction.exits.is_empty());
+}
+
+#[test]
+#[ignore = "slow: arity 14, generates the 4L bubu twice (minutes in debug)"]
+fn bubu_runs_under_the_plain_order_through_both_entry_points() {
+    // T148 has no power shift (targets.tsv eps_weights []), LP 0.
+    let source = eps_family_source("bubu");
+    let charts = eps_family_charts(source).unwrap();
+    assert_eq!(charts.len(), 1);
+    let whole = generate_eps_family(source, EpsCharts::All).unwrap();
+    let run = generate_eps_charts(source, &charts, 1).unwrap();
+    for outcome in [&whole, &run] {
+        assert_eq!(outcome.lp, 0);
+        assert!(outcome.residual_keys.is_empty());
+        assert!(!outcome.two_sided.contains(&true));
+        assert_eq!(outcome.rules, 139);
+    }
+}
+
+#[test]
+fn a_two_sided_rule_at_a_pole_of_the_test_dimension_is_an_error_not_a_panic() {
+    // Coefficients are exact in `d`; `reduce` works at the fixed d = 37/10.
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let limits = Default::default();
+    let d = context.parameter("d").unwrap();
+    let pole = context
+        .try_sub(
+            &context.try_mul(&context.integer(10), &d, limits).unwrap(),
+            &context.integer(37),
+            limits,
+        )
+        .unwrap();
+    let coefficient = context.try_div(&context.one(), &pole, limits).unwrap();
+    let rule = DynRule {
+        fixed: vec![None],
+        affine: vec![],
+        exceptions: vec![],
+        rhs: vec![(vec![Coordinate::Offset(-1)], coefficient)],
+        indices: vec![],
+    };
+    let at = |numerator: i64| {
+        let value = Rational::from((Integer::from(numerator), Integer::from(10)));
+        rule.apply(&[2], 0, &value)
+    };
+    let error = at(37).unwrap_err();
+    assert!(error.contains("pole"), "{error}");
+    assert_eq!(
+        at(47).unwrap(),
+        vec![(
+            vec![1],
+            Rational::from((Integer::from(1), Integer::from(10)))
+        )]
+    );
+    // The real case: T013c's rule at this key has the factor 10d - 37 and the
+    // integral is regular, so the applier refuses instead of guessing.
+    let downset = generate_eps_family(eps_family_source("T013c"), EpsCharts::Downset).unwrap();
+    let error = downset.reduce(&[1, 0, -1, 1, 2]).err().unwrap();
+    assert!(error.contains("pole"), "{error}");
+}
+
+#[test]
+fn the_option_refuses_a_family_of_another_arity_than_the_sources() {
+    let compile = |name: &str| {
+        Compiler::new(Limits::default())
+            .unwrap()
+            .compile_compact(eps_family_source(name), None)
+            .unwrap()
+            .into_lowered(LoweringLimits::default())
+            .unwrap()
+            .into_family()
+    };
+    // A valid eps family, but not the one these sources were prepared from.
+    let mut sources =
+        SourceSystem::<14>::from_family_with_capacity(&compile("T007c"), true).unwrap();
+    let error = sources
+        .set_two_sided_eps_axes(&compile("T074c"))
+        .unwrap_err();
+    assert!(error.to_string().contains("family arity"), "{error}");
+    assert_eq!(sources.two_sided_axes(), [false; 14]);
 }
 
 #[test]
