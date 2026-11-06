@@ -1,7 +1,9 @@
 use crate::algebra::CoefficientContext;
 use crate::solver::{CoordinateCase, Integral, Power, RuleCandidate, SearchStats, Term};
 
-use super::{ExceptionError, ExceptionalConditions, extract_exceptions};
+use super::{
+    ExceptionError, ExceptionalConditions, extract_exceptions, extract_exceptions_two_sided,
+};
 
 fn candidate<const N: usize>(
     context: &CoefficientContext,
@@ -206,5 +208,120 @@ fn zero_indices_and_zero_variables_with_a_constant_rhs_have_no_exceptions() {
     assert_eq!(
         extract_exceptions(&rule, &[], &[]).unwrap(),
         ExceptionalConditions::default()
+    );
+}
+
+#[test]
+fn a_shift_down_on_an_active_two_sided_axis_creates_the_mirror_branches() {
+    let context = CoefficientContext::new(["n0"]);
+    let two_sided = |rule: &RuleCandidate<1>| {
+        extract_exceptions_two_sided(rule, &[0], &[true], &[true]).unwrap()
+    };
+    let rule = candidate(&context, &[([-2], "1")]);
+    // One-sided, a symbolic shift has no exception in the chart n >= 1 ...
+    assert_eq!(
+        extract_exceptions(&rule, &[0], &[true]).unwrap(),
+        ExceptionalConditions::default()
+    );
+    // ... two-sided, n = 1, 2 cross into the chart n <= 0 and are solved apart.
+    assert_eq!(
+        two_sided(&rule),
+        expected(&context, &[&["n0-1"], &["n0-2"]])
+    );
+    // A shift up stays in the chart.
+    assert_eq!(
+        two_sided(&candidate(&context, &[([2], "1")])),
+        ExceptionalConditions::default()
+    );
+}
+
+#[test]
+fn a_mirror_branch_is_skipped_exactly_when_the_term_vanishes_on_it() {
+    let context = CoefficientContext::new(["n0"]);
+    let two_sided = |terms: &[([i16; 1], &str)]| {
+        extract_exceptions_two_sided(&candidate(&context, terms), &[0], &[true], &[true]).unwrap()
+    };
+    assert_eq!(
+        two_sided(&[([-2], "n0-1")]),
+        expected(&context, &[&["n0-2"]])
+    );
+    assert_eq!(
+        two_sided(&[([-3], "(n0-1)*(n0-3)")]),
+        expected(&context, &[&["n0-2"]])
+    );
+    assert_eq!(
+        two_sided(&[([-2], "(n0-1)*(n0-2)")]),
+        ExceptionalConditions::default()
+    );
+    // The skip does not remove a denominator exception (the factor n0+3 here),
+    // and another term keeps the branch its neighbour vanishes on.
+    assert_eq!(
+        two_sided(&[([-1], "(n0-1)/(n0+3)")]),
+        expected(&context, &[&["n0+3"]])
+    );
+    assert_eq!(
+        two_sided(&[([-1], "n0-1"), ([-2], "1")]),
+        expected(&context, &[&["n0-1"], &["n0-2"]])
+    );
+}
+
+#[test]
+fn mirror_branches_belong_to_the_active_two_sided_symbolic_axes_only() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let rule = candidate(&context, &[([-1, -1], "1")]);
+    assert_eq!(
+        extract_exceptions_two_sided(&rule, &[0, 1], &[true, true], &[true, false]).unwrap(),
+        expected(&context, &[&["n0-1"]])
+    );
+    // A fixed power on a two-sided axis has one chart: no branch to split off.
+    let mut fixed = candidate(&context, &[([0, -1], "1")]);
+    fixed.case = CoordinateCase::new([Some(2), None]).unwrap().into();
+    fixed.target = fixed.case.integral();
+    fixed.rhs[0].integral =
+        Integral::new([Power::new(false, 1).unwrap(), Power::new(true, -1).unwrap()]);
+    assert_eq!(
+        extract_exceptions_two_sided(&fixed, &[0, 1], &[true, true], &[true, false]).unwrap(),
+        ExceptionalConditions::default()
+    );
+}
+
+#[test]
+fn an_inactive_two_sided_axis_keeps_the_activation_branches() {
+    let context = CoefficientContext::new(["n0"]);
+    let rule = candidate(&context, &[([2], "n0")]);
+    let one_sided = extract_exceptions(&rule, &[0], &[false]).unwrap();
+    assert_eq!(one_sided, expected(&context, &[&["n0+1"]]));
+    assert_eq!(
+        extract_exceptions_two_sided(&rule, &[0], &[false], &[true]).unwrap(),
+        one_sided
+    );
+    // No mirror on this side: a shift down stays in the chart n <= 0.
+    let down = candidate(&context, &[([-2], "1")]);
+    assert_eq!(
+        extract_exceptions_two_sided(&down, &[0], &[false], &[true]).unwrap(),
+        ExceptionalConditions::default()
+    );
+}
+
+#[test]
+fn a_numeric_activation_is_a_legal_chart_crossing_only_on_a_two_sided_axis() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let mut rule = candidate(&context, &[([0, -1], "1/(n1-3)")]);
+    rule.case = CoordinateCase::new([Some(0), None]).unwrap().into();
+    rule.target = rule.case.integral();
+    rule.rhs[0].integral =
+        Integral::new([Power::new(false, 1).unwrap(), Power::new(true, -1).unwrap()]);
+    let sector = [false, true];
+    let refused =
+        ExceptionError::InvalidInput("numeric RHS index activates an inactive sector coordinate");
+    assert_eq!(extract_exceptions(&rule, &[0, 1], &sector), Err(refused));
+    // Another axis being two-sided does not admit it.
+    assert_eq!(
+        extract_exceptions_two_sided(&rule, &[0, 1], &sector, &[false, true]),
+        Err(refused)
+    );
+    assert_eq!(
+        extract_exceptions_two_sided(&rule, &[0, 1], &sector, &[true, false]).unwrap(),
+        expected(&context, &[&["n1-3"]])
     );
 }

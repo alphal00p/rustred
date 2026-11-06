@@ -58,6 +58,13 @@ fn refusal(request: FamilyCandidatesRequest) -> String {
     }
 }
 
+/// `(reused, newly solved)` sectors of a checkpointed generation's report.
+fn checkpoint_sectors(report: &str) -> (i64, i64) {
+    let report: toml::Value = toml::from_str(report).unwrap();
+    let count = |field: &str| report["checkpoint"][field].as_integer().unwrap();
+    (count("reused_sectors"), count("newly_solved_sectors"))
+}
+
 #[test]
 fn a_two_sided_generation_closes_every_chart_and_persists_its_order() {
     for root_zero_census in [false, true] {
@@ -133,9 +140,12 @@ fn a_two_sided_checkpoint_resumes_under_its_own_order_only() {
     let mut request = two_sided_request();
     request.checkpoint = Some(CandidateCheckpointOptions::new(directory.join("ckpt")));
     let generated = family_candidates(request.clone()).unwrap();
+    assert_eq!(checkpoint_sectors(generated.to_toml()), (0, 4));
 
+    // A resume reuses all four charts and solves nothing.
     request.checkpoint.as_mut().unwrap().resume = true;
     let resumed = family_candidates(request.clone()).unwrap();
+    assert_eq!(checkpoint_sectors(resumed.to_toml()), (4, 0));
     assert!(
         equivalent_generated_programs(generated.bundle(), resumed.bundle(), Default::default())
             .unwrap()

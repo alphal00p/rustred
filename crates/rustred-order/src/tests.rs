@@ -1188,6 +1188,102 @@ fn two_sided_concrete_retained_mixed_and_shift_views_agree_with_a_reference() {
 }
 
 #[test]
+fn two_sided_pre_support_rows_count_e_plus_one_in_every_view() {
+    // Pre-support rows take absolute powers; a two-sided axis contributes
+    // e(n) + 1 under its active weight, on both sides of zero.
+    let flags = vec![true, false, true];
+    let row = DegreeRow {
+        active: vec![2, 1, 1],
+        inactive: vec![1, 3, 1],
+    };
+    let mut descriptor = OrderDescriptor::spired_uncut_two_sided(flags.clone());
+    descriptor.pre_support_degree_rows = vec![row.clone()];
+    let order = compile(descriptor);
+    let prefix = |p: &[i64]| -> i128 {
+        (0..3)
+            .map(|axis| {
+                let n = p[axis];
+                if flags[axis] {
+                    i128::from(row.active[axis]) * i128::from(two_sided_excess(n).unwrap() + 1)
+                } else if n > 0 {
+                    i128::from(row.active[axis]) * i128::from(n)
+                } else {
+                    i128::from(row.inactive[axis]) * -i128::from(n)
+                }
+            })
+            .sum()
+    };
+    let retained = |p: &[i64]| -> (Vec<bool>, Vec<u64>) {
+        p.iter()
+            .zip(&flags)
+            .map(|(&n, &ts)| {
+                if ts {
+                    (true, two_sided_excess(n).unwrap())
+                } else if n > 0 {
+                    (true, (n - 1) as u64)
+                } else {
+                    (false, n.unsigned_abs())
+                }
+            })
+            .unzip()
+    };
+    let points = cube(3, -3, 3);
+    for a in &points {
+        for b in &points {
+            let expected = prefix(a)
+                .cmp(&prefix(b))
+                .then_with(|| two_sided_reference(&flags, true, a, b));
+            let compared = order.compare(a, b).unwrap();
+            assert_eq!(compared.ordering, expected, "{a:?} {b:?}");
+            if prefix(a) != prefix(b) {
+                assert_eq!(
+                    compared.component,
+                    Some(Component::PreSupportDegreeRow(0)),
+                    "{a:?} {b:?}"
+                );
+            }
+            let ((sa, xa), (sb, xb)) = (retained(a), retained(b));
+            assert_eq!(order.compare_excess(&sa, &xa, &sb, &xb).unwrap(), compared);
+        }
+    }
+    // Offsets on a chart of every axis: the views agree with translated points.
+    for chart_bits in 0..8u32 {
+        let chart: Vec<bool> = (0..3).map(|i| chart_bits >> i & 1 == 1).collect();
+        let base: Vec<i64> = chart.iter().map(|&c| if c { 6 } else { -6 }).collect();
+        let symbolic = [true, false, true];
+        let mixed_at = |s: &[i64]| -> Vec<i64> {
+            (0..3)
+                .map(|i| if symbolic[i] { base[i] + s[i] } else { s[i] })
+                .collect()
+        };
+        let shift_at = |s: &[i64]| -> Vec<i64> { (0..3).map(|i| base[i] + s[i]).collect() };
+        let signed = |s: &[i64]| -> Vec<i128> {
+            s.iter()
+                .zip(&chart)
+                .map(|(&v, &c)| if c { i128::from(v) } else { -i128::from(v) })
+                .collect()
+        };
+        for a in cube(3, -2, 2) {
+            for b in cube(3, -2, 2) {
+                assert_eq!(
+                    order.compare_mixed(&chart, &symbolic, &a, &b).unwrap(),
+                    order.compare(&mixed_at(&a), &mixed_at(&b)).unwrap(),
+                    "chart {chart:?} {a:?} {b:?}"
+                );
+                let expected = order.compare(&shift_at(&a), &shift_at(&b)).unwrap();
+                assert_eq!(order.compare_shifts(&chart, &a, &b).unwrap(), expected);
+                assert_eq!(
+                    order
+                        .compare_shift_excess(&chart, &signed(&a), &signed(&b))
+                        .unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn two_sided_codec_is_v3_canonical_and_refuses_hostile_bytes() {
     let order = compile(OrderDescriptor::spired_uncut_two_sided(vec![
         true, false, true,
