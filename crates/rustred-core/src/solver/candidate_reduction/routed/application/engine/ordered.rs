@@ -738,10 +738,12 @@ fn step_cache_node<const N: usize>(
                 )
                 .into()
             }),
-        NodeStage::Integral => Err(ordered_reduction::step_cache::failure(
-            "a recorded saved-application child is not a Route or Apply identity",
-        )
-        .into()),
+        NodeStage::Integral | NodeStage::ClassRoute(_) | NodeStage::ClassApply(_) => {
+            Err(ordered_reduction::step_cache::failure(
+                "a recorded saved-application child is not a Route or Apply identity",
+            )
+            .into())
+        }
     }
 }
 

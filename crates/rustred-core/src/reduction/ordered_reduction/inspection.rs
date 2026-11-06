@@ -22,6 +22,10 @@ pub enum OrderedKeyStage<'a> {
     Route,
     /// Saved application: apply this owner's saved rules to the integral.
     Apply { owner_sector: &'a [bool] },
+    /// Propagator library: route the key of presentation `class` to its owner.
+    ClassRoute { class: u64 },
+    /// Propagator library: apply the program of owner class `class`.
+    ClassApply { class: u64 },
 }
 
 /// One pending frontier identity and its accumulated weight.

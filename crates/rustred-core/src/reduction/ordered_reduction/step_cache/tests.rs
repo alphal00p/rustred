@@ -58,6 +58,8 @@ pub(crate) fn phase_snapshot(event: &OrderedPhaseEvent<'_>) -> Vec<String> {
             OrderedKeyStage::Integral => "integral".to_owned(),
             OrderedKeyStage::Route => "route".to_owned(),
             OrderedKeyStage::Apply { owner_sector } => format!("apply {owner_sector:?}"),
+            OrderedKeyStage::ClassRoute { class } => format!("class route {class}"),
+            OrderedKeyStage::ClassApply { class } => format!("class apply {class}"),
         };
         lines.push(format!(
             "frontier {} {stage} {:?} {}",
@@ -144,6 +146,14 @@ fn identities_round_trip_and_wide_identities_are_not_recorded() {
                 owner_sector: &[true, true, false, true],
             },
             NodeStage::Apply(0b1011),
+        ),
+        (
+            OrderedKeyStage::ClassRoute { class: 7 },
+            NodeStage::ClassRoute(7),
+        ),
+        (
+            OrderedKeyStage::ClassApply { class: u64::MAX },
+            NodeStage::ClassApply(u64::MAX),
         ),
     ] {
         let mut bytes = vec![7u8];
