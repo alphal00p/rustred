@@ -30,6 +30,7 @@ fn independently_programmed_owners_compose_after_a_strict_pinch() {
                     coordinate_groups: CoordinateGroups::ActiveFirst,
                     active_direction: Direction::Descending,
                     inactive_direction: Direction::Ascending,
+                    two_sided: Vec::new(),
                 },
                 Default::default(),
             )

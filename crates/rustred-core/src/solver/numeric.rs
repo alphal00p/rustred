@@ -123,10 +123,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut pending = vec![true; cases.len()];
         let mut remaining = cases.len();
         let mut current = Some(0);
-        let mut seeds = Seeds::new(
+        let two_sided = self.order.two_sided_axes();
+        let mut seeds = Seeds::new_two_sided(
             cases[0].integral(),
             *self.order.sector(),
             self.seed_frozen(),
+            two_sided,
         );
         let mut visited = BTreeSet::new();
         let mut probe: Option<Probe<N>> = None;
@@ -141,10 +143,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             if next.is_none() || seeds.depth() > max_depth {
                 current = current.and_then(|from| next_pending(&pending, from));
                 let Some(index) = current else { break };
-                seeds = Seeds::new(
+                seeds = Seeds::new_two_sided(
                     cases[index].integral(),
                     *self.order.sector(),
                     self.seed_frozen(),
+                    two_sided,
                 );
                 continue;
             }
@@ -336,7 +339,8 @@ fn switch_solved_centre<const N: usize>(
         // The caller retains the current Seed by value through the current
         // source batch, just like numSeedRunner::changeCase defers its update
         // of currentRepl until the next call of next().
-        *seeds = Seeds::new(cases[next].integral(), sector, removed_deltas);
+        let two_sided = seeds.two_sided();
+        *seeds = Seeds::new_two_sided(cases[next].integral(), sector, removed_deltas, two_sided);
     }
 }
 

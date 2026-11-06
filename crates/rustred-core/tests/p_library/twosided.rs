@@ -1,1 +1,1362 @@
 //! Opt-in two-sided SpIRed eps axes and the injective order (owner: M2-T7b rr-twosided).
+//!
+//! An eps line carries the power `n + j eps` (power shift `j (4-d)/2`); every
+//! integer `n` lies in one support. [`generate_eps_family`] solves every raw
+//! chart (`n >= 1` or `n <= 0` per eps axis) of a family's owner support with
+//! the opt-in two-sided sources and the default two-sided order program,
+//! then enforces the hard false-knock-out guard of plan M2 sec.3.4. A family
+//! with no eps axis (bubu) has one chart and runs under the plain SpIRed
+//! program through the same helpers, with the same LP and guard. The tests
+//! pin the 2L regression set (acceptance (a)), strict descent of every rule
+//! step and closure of random points onto the residual keys (b), the
+//! injective excess `e(n)` and the identity of generation and runtime order,
+//! and the guard (c).
+#![allow(dead_code)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::time::Instant;
+
+use rustred::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial};
+use rustred::family::{AffineDenominator, IntegralFamily};
+use rustred::input::{Compiler, Limits, LoweringLimits};
+use rustred::order::{CompiledOrder, OrderDescriptor, two_sided_excess};
+use rustred::sector::{
+    ComplexityKey, Mask, MasterCount, MasterCountOptions, MasterCounter, OrderingPolicy, zero,
+};
+use rustred::solver::{
+    Integral, IntegralOrder, SectorConfig, SectorExecutor, SectorSolution, SectorSolveOptions,
+    SourceSystem,
+};
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::Rational;
+
+/// The eps regression families (rules_study/knockout/families plus the new
+/// T005c and T007c), by name.
+pub(crate) const EPS_FAMILIES: &[(&str, &str)] = &[
+    ("T001c", include_str!("../support/eps_families/T001c.sym")),
+    ("T003c", include_str!("../support/eps_families/T003c.sym")),
+    ("T005c", include_str!("../support/eps_families/T005c.sym")),
+    ("T007c", include_str!("../support/eps_families/T007c.sym")),
+    ("T013c", include_str!("../support/eps_families/T013c.sym")),
+    ("T070c", include_str!("../support/eps_families/T070c.sym")),
+    ("T074c", include_str!("../support/eps_families/T074c.sym")),
+    ("T075c", include_str!("../support/eps_families/T075c.sym")),
+    ("T083c", include_str!("../support/eps_families/T083c.sym")),
+    ("T090c", include_str!("../support/eps_families/T090c.sym")),
+    ("T093c", include_str!("../support/eps_families/T093c.sym")),
+    ("bubu", include_str!("../support/eps_families/bubu.sym")),
+];
+
+pub(crate) fn eps_family_source(name: &str) -> &'static str {
+    EPS_FAMILIES
+        .iter()
+        .find(|(family, _)| *family == name)
+        .map(|(_, source)| *source)
+        .unwrap_or_else(|| panic!("unknown eps family {name}"))
+}
+
+/// Which raw charts to solve: all `2^j` charts of the owner support, or an
+/// explicit subset (the guard of [`generate_eps_family`] then refuses the
+/// outcome unless it is all; see [`generate_eps_charts`] for chart-by-chart
+/// runs), or every nonzero sector of the support's downset (a diagnostic: no
+/// guard, exits of the owner become keys of the program).
+pub(crate) enum EpsCharts<'a> {
+    All,
+    Only(&'a [Vec<bool>]),
+    Downset,
+}
+
+/// One solved raw chart.
+#[derive(Clone, Debug)]
+pub(crate) struct EpsChart {
+    pub chart: Vec<bool>,
+    pub rules: usize,
+    pub residuals: Vec<Vec<i64>>,
+    pub seconds: f64,
+}
+
+/// A two-sided generation of one eps family over its owner support.
+pub(crate) struct EpsOutcome {
+    pub name: String,
+    pub family: Arc<IntegralFamily>,
+    /// Lines of the owner (target power > 0) and every forced (eps) axis.
+    pub support: Vec<bool>,
+    /// Forced axes: nonzero power shift.
+    pub forced: Vec<bool>,
+    /// Two-sided axes of the sources and of the order program, one flag per
+    /// line: all false for a family with no eps axis (the program then has
+    /// no two-sided data at all).
+    pub two_sided: Vec<bool>,
+    /// The generation order, persisted as is: the runtime descent order.
+    pub policy: OrderingPolicy,
+    pub charts: Vec<EpsChart>,
+    pub rules: usize,
+    pub residual_keys: Vec<Vec<i64>>,
+    /// Lee-Pomeransky master count of the owner support with shifts.
+    pub lp: u32,
+    pub seconds: f64,
+    program: EpsProgram,
+}
+
+/// Generate the two-sided rules of an eps family (compact `I(...)` input)
+/// and enforce the hard guard: two-sided axes cover every forced axis, all
+/// `2^j` raw charts are present, and no fewer residuals than the LP count. One
+/// worker. A family with no eps axis runs under `OrderDescriptor::spired_uncut`.
+///
+/// A test helper: the guard's refusal is the `Err(String)` of
+/// [`check_eps_guard`]; `PError::Generation` (plan M2 sec.3.4) belongs to the
+/// production path, `generate_custom_owner`.
+pub(crate) fn generate_eps_family(sym: &str, charts: EpsCharts<'_>) -> Result<EpsOutcome, String> {
+    generate_eps_family_with(sym, charts, OrderDescriptor::spired_uncut_two_sided)
+}
+
+/// [`generate_eps_family`] under another two-sided order program, built
+/// from the family's two-sided flags. A family with no eps axis has no such
+/// flags: `order` is not called (see [`order_program`]).
+pub(crate) fn generate_eps_family_with(
+    sym: &str,
+    charts: EpsCharts<'_>,
+    order: fn(Vec<bool>) -> OrderDescriptor,
+) -> Result<EpsOutcome, String> {
+    let downset = matches!(charts, EpsCharts::Downset);
+    let outcome = generate_unguarded(sym, charts, order, 1)?;
+    if downset {
+        return Ok(outcome);
+    }
+    check_eps_guard(
+        &outcome.forced,
+        &outcome.two_sided,
+        &outcome.support,
+        &outcome
+            .charts
+            .iter()
+            .map(|c| c.chart.clone())
+            .collect::<Vec<_>>(),
+        outcome.lp,
+        outcome.residual_keys.len(),
+    )?;
+    Ok(outcome)
+}
+
+/// Solve exactly `charts` under the default two-sided order and report them
+/// chart by chart, WITHOUT the hard guard. `workers` solve charts side by
+/// side; they do not speed up one chart (measured, notes/rr-twosided.md). One
+/// failed chart fails the call, so a long run (M2-T10b) solves one chart per
+/// call or process to keep what it got. The caller owns the guard: run
+/// [`check_eps_guard`] on the union of the charts of [`eps_family_charts`],
+/// with the `lp` of any of the outcomes.
+pub(crate) fn generate_eps_charts(
+    sym: &str,
+    charts: &[Vec<bool>],
+    workers: usize,
+) -> Result<EpsOutcome, String> {
+    generate_unguarded(
+        sym,
+        EpsCharts::Only(charts),
+        OrderDescriptor::spired_uncut_two_sided,
+        workers,
+    )
+}
+
+/// All raw charts of the eps family's owner support; nothing is solved.
+pub(crate) fn eps_family_charts(sym: &str) -> Result<Vec<Vec<bool>>, String> {
+    let (_, family, target) = compile_eps_family(sym)?;
+    let (forced, support) = owner_axes(&family, &target);
+    Ok(all_charts(&support, &forced))
+}
+
+fn compile_eps_family(sym: &str) -> Result<(String, Arc<IntegralFamily>, Vec<i64>), String> {
+    let project = Compiler::new(Limits::default())
+        .map_err(|e| e.to_string())?
+        .compile_compact(sym, None)
+        .map_err(|e| e.to_string())?;
+    let name = project.name().to_owned();
+    let target: Vec<i64> = project
+        .propagators()
+        .iter()
+        .map(|p| p.target_power())
+        .collect();
+    let family = Arc::new(
+        project
+            .into_lowered(LoweringLimits::default())
+            .map_err(|e| e.to_string())?
+            .into_family(),
+    );
+    Ok((name, family, target))
+}
+
+/// The forced (eps) axes and the owner support (target power > 0 or forced).
+fn owner_axes(family: &IntegralFamily, target: &[i64]) -> (Vec<bool>, Vec<bool>) {
+    let forced: Vec<bool> = family.power_shifts().iter().map(|s| !s.is_zero()).collect();
+    let support = (0..forced.len())
+        .map(|i| target[i] > 0 || forced[i])
+        .collect();
+    (forced, support)
+}
+
+fn generate_unguarded(
+    sym: &str,
+    charts: EpsCharts<'_>,
+    order: fn(Vec<bool>) -> OrderDescriptor,
+    workers: usize,
+) -> Result<EpsOutcome, String> {
+    let (name, family, target) = compile_eps_family(sym)?;
+    macro_rules! dispatch {
+        ($($n:literal),*) => {
+            match family.denominator_count() {
+                $($n => generate::<$n>(name, family, &target, charts, order, workers),)*
+                other => Err(format!("eps family arity {other} is not instantiated in the tests")),
+            }
+        };
+    }
+    dispatch!(5, 9, 14)
+}
+
+/// The hard false-knock-out guard of plan M2 sec.3.4 on a generation outcome;
+/// `forced`, `two_sided` and `support` carry one flag per line.
+///
+/// Residuals are compared with the LP count itself, stricter than the plan's
+/// `LP >= 1 => residuals >= 1`: these sectors solve without symmetry relations
+/// and LP is the count without symmetries, so a correct run never has fewer.
+pub(crate) fn check_eps_guard(
+    forced: &[bool],
+    two_sided: &[bool],
+    support: &[bool],
+    charts: &[Vec<bool>],
+    lp: u32,
+    residuals: usize,
+) -> Result<(), String> {
+    if two_sided.len() != forced.len() || support.len() != forced.len() {
+        return Err(format!(
+            "hard guard: {} forced, {} two-sided and {} support flags",
+            forced.len(),
+            two_sided.len(),
+            support.len()
+        ));
+    }
+    if forced.iter().zip(two_sided).any(|(&f, &t)| f && !t) {
+        return Err("hard guard: a forced (eps) axis is not two-sided".into());
+    }
+    let expected: BTreeSet<Vec<bool>> = all_charts(support, forced).into_iter().collect();
+    let present: BTreeSet<Vec<bool>> = charts.iter().cloned().collect();
+    if present != expected {
+        return Err(format!(
+            "hard guard: {} of the {} raw charts of the owner support are present",
+            present.intersection(&expected).count(),
+            expected.len()
+        ));
+    }
+    if residuals < lp as usize {
+        return Err(format!(
+            "false knock-out guard: LP={lp}, residuals={residuals} (plan M2 sec.3.4)"
+        ));
+    }
+    Ok(())
+}
+
+/// Every raw chart of `support`: its non-forced lines active, each forced
+/// axis either `n >= 1` (active) or `n <= 0`.
+pub(crate) fn all_charts(support: &[bool], forced: &[bool]) -> Vec<Vec<bool>> {
+    let eps: Vec<usize> = (0..support.len()).filter(|&i| forced[i]).collect();
+    (0..1u64 << eps.len())
+        .map(|bits| {
+            let mut chart = support.to_vec();
+            for (bit, &axis) in eps.iter().enumerate() {
+                chart[axis] = bits >> bit & 1 == 0;
+            }
+            chart
+        })
+        .collect()
+}
+
+/// Lee-Pomeransky master count of the owner support, with shifts (M2-T7a).
+fn lp_with_shifts(family: &IntegralFamily, support: &[bool]) -> Result<u32, String> {
+    let mut counter = MasterCounter::try_new_p_shifted(family, MasterCountOptions::default())
+        .map_err(|e| e.to_string())?;
+    let top = Mask::try_new(support.iter().copied()).map_err(|e| e.to_string())?;
+    match counter.count(&top).map_err(|e| e.to_string())? {
+        MasterCount::Zero => Ok(0),
+        MasterCount::Counted(count) => u32::try_from(count).map_err(|e| e.to_string()),
+        other => Err(format!("no LP verdict on the owner support: {other:?}")),
+    }
+}
+
+/// The order program of a generation. With no eps axis it is the plain SpIRed
+/// program without flags (`order` on all-false flags would not compile,
+/// `Error::InvalidTwoSided`); otherwise `order`, which must carry the axes.
+fn order_program(
+    name: &str,
+    two_sided: &[bool],
+    order: fn(Vec<bool>) -> OrderDescriptor,
+) -> Result<CompiledOrder, String> {
+    if !two_sided.contains(&true) {
+        return CompiledOrder::compile(
+            OrderDescriptor::spired_uncut(two_sided.len()),
+            Default::default(),
+        )
+        .map_err(|e| e.to_string());
+    }
+    let program = CompiledOrder::compile(order(two_sided.to_vec()), Default::default())
+        .map_err(|e| e.to_string())?;
+    if program.two_sided() != two_sided {
+        return Err(format!(
+            "{name}: the order program does not carry the eps axes"
+        ));
+    }
+    Ok(program)
+}
+
+fn generate<const N: usize>(
+    name: String,
+    family: Arc<IntegralFamily>,
+    target: &[i64],
+    charts: EpsCharts<'_>,
+    order: fn(Vec<bool>) -> OrderDescriptor,
+    workers: usize,
+) -> Result<EpsOutcome, String> {
+    let start = Instant::now();
+    let n = family.denominator_count();
+    let (forced, support) = owner_axes(&family, target);
+    let mut sources =
+        SourceSystem::<N>::from_family_with_capacity(&family, true).map_err(|e| e.to_string())?;
+    let axes = sources
+        .set_two_sided_eps_axes(&family)
+        .map_err(|e| e.to_string())?;
+    let two_sided = axes[..n].to_vec();
+    let program = order_program(&name, &two_sided, order)?;
+    let policy = OrderingPolicy::try_programmed(program.clone()).map_err(|e| e.to_string())?;
+    let zeros = zero_sectors::<N>(&family, &support)?;
+    let config = SectorConfig {
+        zero_sectors: Arc::from(zeros.clone()),
+        integral_order: Some(program),
+        ..Default::default()
+    };
+    let charts = match charts {
+        EpsCharts::All => all_charts(&support, &forced),
+        EpsCharts::Only(charts) => charts.to_vec(),
+        EpsCharts::Downset => {
+            let free: Vec<usize> = (0..n).filter(|&i| support[i]).collect();
+            (0..1u64 << free.len())
+                .map(|bits| {
+                    let mut chart = vec![false; n];
+                    for (bit, &axis) in free.iter().enumerate() {
+                        chart[axis] = bits >> bit & 1 == 1;
+                    }
+                    chart
+                })
+                .filter(|chart| !zeros.contains(&std::array::from_fn(|i| i < n && chart[i])))
+                .collect()
+        }
+    };
+    // Before the solve, so that a refused count cannot lose a long run.
+    let lp = lp_with_shifts(&family, &support)?;
+    let executor = SectorExecutor::new(workers).map_err(|e| e.to_string())?;
+    let mut sectors = Vec::with_capacity(charts.len());
+    for chart in &charts {
+        let sector: [bool; N] = std::array::from_fn(|i| i < n && chart[i]);
+        if zeros.contains(&sector) {
+            return Err(format!("{name}: chart {} is a zero sector", mask(chart)));
+        }
+        sectors.push(sector);
+    }
+    // Completed charts come back in manifest order for any worker count.
+    let completed = executor
+        .map(
+            &sources,
+            &sectors,
+            &config,
+            SectorSolveOptions::default(),
+            |done| {
+                let solution = &done.solution;
+                Ok::<_, String>((
+                    EpsChart {
+                        chart: done.sector[..n].to_vec(),
+                        rules: solution.rules.len(),
+                        residuals: solution
+                            .finite_residuals
+                            .iter()
+                            .map(|key| powers(key, n))
+                            .collect(),
+                        seconds: (done.preconditioning + solution.stats.elapsed).as_secs_f64(),
+                    },
+                    dyn_rules(&sources, solution, n),
+                ))
+            },
+        )
+        .map_err(|e| format!("{name} chart {}: {e}", mask(&e.sector()[..n])))?;
+    let mut solved = Vec::with_capacity(completed.len());
+    let mut program_rules = BTreeMap::new();
+    for (chart, rules) in completed {
+        program_rules.insert(chart.chart.clone(), rules);
+        solved.push(chart);
+    }
+    let residual_keys: Vec<Vec<i64>> = solved
+        .iter()
+        .flat_map(|c| c.residuals.iter().cloned())
+        .collect();
+    Ok(EpsOutcome {
+        name,
+        support,
+        forced,
+        two_sided,
+        policy,
+        rules: solved.iter().map(|c| c.rules).sum(),
+        charts: solved,
+        residual_keys,
+        lp,
+        seconds: start.elapsed().as_secs_f64(),
+        program: EpsProgram {
+            rules: program_rules,
+            zeros: zeros.iter().map(|z| z[..n].to_vec()).collect(),
+            d_position: d_position(&family, &sources)?,
+        },
+        family,
+    })
+}
+
+/// Zero raw masks inside `support` (forced axes are always effective).
+fn zero_sectors<const N: usize>(
+    family: &IntegralFamily,
+    support: &[bool],
+) -> Result<Vec<[bool; N]>, String> {
+    let analyzer = zero::Analyzer::try_unrestricted(family).map_err(|e| e.to_string())?;
+    let n = family.denominator_count();
+    let free: Vec<usize> = (0..n).filter(|&i| support[i]).collect();
+    let mut zeros = Vec::new();
+    for bits in 0u64..1 << free.len() {
+        let mut sector = [false; N];
+        for (bit, &axis) in free.iter().enumerate() {
+            sector[axis] = bits >> bit & 1 == 1;
+        }
+        let raw = Mask::try_new(sector[..n].iter().copied()).map_err(|e| e.to_string())?;
+        if let zero::Decision::ProvedZero(_) = analyzer.analyze(&raw).map_err(|e| e.to_string())? {
+            zeros.push(sector);
+        }
+    }
+    Ok(zeros)
+}
+
+fn powers<const N: usize>(key: &Integral<N>, n: usize) -> Vec<i64> {
+    key.powers()[..n]
+        .iter()
+        .map(|p| i64::from(p.value()))
+        .collect()
+}
+
+fn mask(bits: &[bool]) -> String {
+    bits.iter().map(|&b| if b { '1' } else { '0' }).collect()
+}
+
+/// Position of the dimension `d` in the coefficient variable map.
+fn d_position<const N: usize>(
+    family: &IntegralFamily,
+    sources: &SourceSystem<N>,
+) -> Result<usize, String> {
+    // Parameters precede the index variables in the sources' variable map
+    // (`SourceSystem::from_family_with_capacity`), in the family's order.
+    let d = family.dimension();
+    let indices = sources.index_variables();
+    if d.numerator.nterms() != 1 || !d.denominator.is_one() {
+        return Err("the dimension is not a single parameter".into());
+    }
+    let exponents = d.numerator.exponents(0);
+    (0..exponents.len())
+        .find(|&position| exponents[position] == 1 && !indices.contains(&position))
+        .filter(|&position| {
+            sources.coefficient_variables().get(position) == d.numerator.variables().get(position)
+        })
+        .ok_or_else(|| "dimension variable not found".to_string())
+}
+
+// ----- a dynamic applier of generated sector rules (N-free) -----
+
+/// One coordinate of a rule term: an offset of the symbolic power, or a
+/// numeric power.
+#[derive(Clone, Copy, Debug)]
+enum Coordinate {
+    Offset(i64),
+    Numeric(i64),
+}
+
+struct DynRule {
+    fixed: Vec<Option<i64>>,
+    affine: Vec<CoefficientPolynomial>,
+    exceptions: Vec<Vec<CoefficientPolynomial>>,
+    rhs: Vec<(Vec<Coordinate>, Coefficient)>,
+    indices: Vec<usize>,
+}
+
+struct EpsProgram {
+    /// Rules by raw chart.
+    rules: BTreeMap<Vec<bool>, Vec<DynRule>>,
+    /// Zero raw sectors inside the support: their integrals vanish.
+    zeros: BTreeSet<Vec<bool>>,
+    d_position: usize,
+}
+
+fn dyn_rules<const N: usize>(
+    sources: &SourceSystem<N>,
+    solution: &SectorSolution<N>,
+    n: usize,
+) -> Vec<DynRule> {
+    let indices = sources.index_variables()[..n].to_vec();
+    let mut rules: Vec<DynRule> = solution
+        .rules
+        .iter()
+        .map(|rule| DynRule {
+            fixed: rule.candidate.case.fixed()[..n]
+                .iter()
+                .map(|v| v.map(i64::from))
+                .collect(),
+            affine: rule
+                .candidate
+                .case
+                .affine()
+                .map(|a| a.equations().to_vec())
+                .unwrap_or_default(),
+            exceptions: rule.exceptions.branches.clone(),
+            rhs: rule
+                .candidate
+                .rhs
+                .iter()
+                .map(|term| {
+                    let coordinates = term.integral.powers()[..n]
+                        .iter()
+                        .map(|p| {
+                            if p.is_symbolic() {
+                                Coordinate::Offset(i64::from(p.value()))
+                            } else {
+                                Coordinate::Numeric(i64::from(p.value()))
+                            }
+                        })
+                        .collect();
+                    (coordinates, term.coefficient.clone())
+                })
+                .collect(),
+            indices: indices.clone(),
+        })
+        .collect();
+    // Most specific first (more fixed coordinates, affine cases): every
+    // applicable rule is an identity on its domain, this only fixes the pick.
+    rules.sort_by_key(|rule| {
+        std::cmp::Reverse(
+            rule.fixed.iter().filter(|v| v.is_some()).count() + 16 * rule.affine.len(),
+        )
+    });
+    rules
+}
+
+/// A polynomial in `d` alone (index variables substituted) at `d = value`.
+fn evaluate(polynomial: &CoefficientPolynomial, d_position: usize, value: &Rational) -> Rational {
+    let mut sum = Rational::zero();
+    for term in 0..polynomial.nterms() {
+        let exponent = polynomial.exponents(term)[d_position];
+        let mut monomial = Rational::from(polynomial.coefficients[term].clone());
+        for _ in 0..exponent {
+            monomial = &monomial * value;
+        }
+        sum = &sum + &monomial;
+    }
+    sum
+}
+
+fn substitute(
+    polynomial: &CoefficientPolynomial,
+    indices: &[usize],
+    key: &[i64],
+) -> CoefficientPolynomial {
+    let mut value = polynomial.clone();
+    for (&position, &power) in indices.iter().zip(key) {
+        value = value.replace(position, &Integer::from(power));
+    }
+    value
+}
+
+impl DynRule {
+    fn applies(&self, key: &[i64], chart: &[bool]) -> bool {
+        for (axis, fixed) in self.fixed.iter().enumerate() {
+            match fixed {
+                Some(value) if key[axis] != *value => return false,
+                None if (key[axis] >= 1) != chart[axis] => return false,
+                _ => {}
+            }
+        }
+        if self
+            .affine
+            .iter()
+            .any(|equation| !substitute(equation, &self.indices, key).is_zero())
+        {
+            return false;
+        }
+        !self.exceptions.iter().any(|branch| {
+            branch
+                .iter()
+                .all(|equation| substitute(equation, &self.indices, key).is_zero())
+        })
+    }
+
+    /// RHS keys whose coefficient (exact in `d`) is nonzero at `key`, with
+    /// that coefficient's exact value at `d = d_value`.
+    fn apply(
+        &self,
+        key: &[i64],
+        d_position: usize,
+        d_value: &Rational,
+    ) -> Result<Vec<(Vec<i64>, Rational)>, String> {
+        let mut out = Vec::new();
+        for (coordinates, coefficient) in &self.rhs {
+            let numerator = substitute(&coefficient.numerator, &self.indices, key);
+            if numerator.is_zero() {
+                continue;
+            }
+            let denominator = substitute(&coefficient.denominator, &self.indices, key);
+            if denominator.is_zero() {
+                return Err(format!("rule coefficient has a pole at {key:?}"));
+            }
+            // Exact in `d`, but this value of `d` may hit a (spurious) pole.
+            let at_d = evaluate(&denominator, d_position, d_value);
+            if at_d.is_zero() {
+                return Err(format!(
+                    "rule coefficient has a pole at {key:?}, d = {d_value}"
+                ));
+            }
+            let value = &evaluate(&numerator, d_position, d_value) / &at_d;
+            let child = coordinates
+                .iter()
+                .zip(key)
+                .map(|(c, &x)| match c {
+                    Coordinate::Offset(offset) => x + offset,
+                    Coordinate::Numeric(value) => *value,
+                })
+                .collect();
+            out.push((child, value));
+        }
+        Ok(out)
+    }
+}
+
+/// Reduction of one key at `d = 37/10`: residual keys with their
+/// coefficients, the exits (a non-eps owner line at power <= 0: another
+/// owner's sector), the number of rule steps and of strict-descent witnesses.
+pub(crate) struct EpsReduction {
+    pub residuals: BTreeMap<Vec<i64>, Rational>,
+    pub exits: BTreeMap<Vec<i64>, Rational>,
+    pub steps: usize,
+    pub witnesses: usize,
+}
+
+impl EpsOutcome {
+    /// Reduce `key` (owner support powers, other slots at their key values)
+    /// with the generated rules, hardest key first, proving strict descent in
+    /// the generation order for every RHS term.
+    pub(crate) fn reduce(&self, key: &[i64]) -> Result<EpsReduction, String> {
+        let residual_set: BTreeSet<&Vec<i64>> = self.residual_keys.iter().collect();
+        let complexity = |k: &[i64]| -> Result<ComplexityKey, String> {
+            self.policy.complexity_key(k).map_err(|e| e.to_string())
+        };
+        let d_value = Rational::from((Integer::from(37), Integer::from(10)));
+        let mut frontier: BTreeMap<ComplexityKey, (Vec<i64>, Rational)> = BTreeMap::new();
+        frontier.insert(complexity(key)?, (key.to_vec(), Rational::one()));
+        let mut out = EpsReduction {
+            residuals: BTreeMap::new(),
+            exits: BTreeMap::new(),
+            steps: 0,
+            witnesses: 0,
+        };
+        while let Some((_, (key, coefficient))) = frontier.pop_last() {
+            if coefficient.is_zero() {
+                continue;
+            }
+            if residual_set.contains(&key) {
+                out.residuals.insert(key, coefficient);
+                continue;
+            }
+            // A chart without rules lies outside the generated program: an
+            // exit (for an owner: a non-eps line at power <= 0).
+            let chart: Vec<bool> = key.iter().map(|&x| x >= 1).collect();
+            if self.program.zeros.contains(&chart) {
+                continue;
+            }
+            let Some(rules) = self.program.rules.get(&chart) else {
+                // Every chart of the owner support is solved: a key there
+                // without rules would be a hole, never an exit.
+                let owner = (0..key.len()).all(|i| {
+                    (!self.support[i] || self.forced[i] || key[i] >= 1)
+                        && (self.support[i] || key[i] <= 0)
+                });
+                if owner {
+                    return Err(format!("{}: {key:?} is in no solved chart", self.name));
+                }
+                out.exits.insert(key, coefficient);
+                continue;
+            };
+            let rule = rules
+                .iter()
+                .find(|rule| rule.applies(&key, &chart))
+                .ok_or_else(|| format!("{}: no rule covers {key:?}", self.name))?;
+            out.steps += 1;
+            if out.steps > 200_000 {
+                return Err(format!("{}: reduction did not terminate", self.name));
+            }
+            for (child, c) in rule.apply(&key, self.program.d_position, &d_value)? {
+                let witness = self
+                    .policy
+                    .prove_strict_descent(&key, &child)
+                    .map_err(|e| format!("{}: {key:?} -> {child:?}: {e}", self.name))?;
+                if !witness.verify() {
+                    return Err(format!("{}: witness {key:?} -> {child:?} fails", self.name));
+                }
+                out.witnesses += 1;
+                let entry = frontier
+                    .entry(complexity(&child)?)
+                    .or_insert_with(|| (child.clone(), Rational::zero()));
+                entry.1 = &entry.1 + &(&coefficient * &c);
+            }
+        }
+        Ok(out)
+    }
+}
+
+// ----- deterministic random points -----
+
+struct Lcg(u64);
+impl Lcg {
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0 >> 33
+    }
+    fn range(&mut self, low: i64, high: i64) -> i64 {
+        low + (self.next() % (high - low + 1) as u64) as i64
+    }
+}
+
+/// A random owner key: eps powers in `eps`, non-eps lines at 1 + dots with at
+/// most `max_dots` dots in total, other slots at 0.
+fn random_key(outcome: &EpsOutcome, rng: &mut Lcg, eps: (i64, i64), max_dots: i64) -> Vec<i64> {
+    let mut key = vec![0; outcome.support.len()];
+    let mut dots = rng.range(0, max_dots);
+    let lines: Vec<usize> = (0..key.len())
+        .filter(|&i| outcome.support[i] && !outcome.forced[i])
+        .collect();
+    for &i in &lines {
+        key[i] = 1;
+    }
+    while dots > 0 {
+        key[lines[rng.range(0, lines.len() as i64 - 1) as usize]] += 1;
+        dots -= 1;
+    }
+    for (power, &forced) in key.iter_mut().zip(&outcome.forced) {
+        if forced {
+            *power = rng.range(eps.0, eps.1);
+        }
+    }
+    key
+}
+
+fn generated(name: &str) -> EpsOutcome {
+    generate_eps_family(eps_family_source(name), EpsCharts::All)
+        .unwrap_or_else(|error| panic!("{name}: {error}"))
+}
+
+// ----- acceptance (a): the 2L regression set -----
+
+#[test]
+fn two_loop_eps_families_close_with_their_lp_residuals_at_n_equal_one() {
+    // (family, LP, rules, residual keys) at the default two-sided order;
+    // targets.tsv masters_lp_nosym: T001 1, T013 2, T007 1, T003 0, T005 0.
+    // The rule totals pin the derivation (the cost table in
+    // notes/rr-twosided.md): a deliberate generation change updates them.
+    let expected: [(&str, u32, usize, &[[i64; 5]]); 5] = [
+        ("T001c", 1, 58, &[[1, 1, 1, 1, 1]]),
+        ("T013c", 2, 234, &[[1, 1, 1, 1, 1], [1, 2, 1, 1, 1]]),
+        ("T007c", 1, 18, &[[1, 1, 1, 1, 1]]),
+        ("T003c", 0, 42, &[]),
+        ("T005c", 0, 42, &[]),
+    ];
+    for (name, lp, rules, keys) in expected {
+        let outcome = generated(name);
+        assert_eq!(outcome.rules, rules, "{name} rules");
+        let found: BTreeSet<Vec<i64>> = outcome.residual_keys.iter().cloned().collect();
+        let keys: BTreeSet<Vec<i64>> = keys.iter().map(|k| k.to_vec()).collect();
+        assert_eq!(found, keys, "{name} residual keys");
+        assert_eq!(outcome.lp, lp, "{name}: LP with shifts = targets.tsv");
+        assert_eq!(
+            outcome.residual_keys.len(),
+            outcome.lp as usize,
+            "{name}: residuals = LP"
+        );
+        // Residuals only at eps n = 1, and only in the top chart.
+        for key in &outcome.residual_keys {
+            for (axis, &forced) in outcome.forced.iter().enumerate() {
+                assert!(
+                    !forced || key[axis] == 1,
+                    "{name}: residual {key:?} off n = 1"
+                );
+            }
+        }
+        // Every chart closed (a failed chart is an error of the generation).
+        assert_eq!(
+            outcome.charts.len(),
+            1 << outcome.forced.iter().filter(|&&f| f).count(),
+            "{name}"
+        );
+        assert_eq!(outcome.two_sided, outcome.forced, "{name}: eps axes");
+    }
+}
+
+// ----- acceptance (b): descent and closure -----
+
+#[test]
+fn random_points_reduce_onto_the_residual_keys_with_strict_descent_witnesses() {
+    for name in ["T001c", "T013c", "T007c", "T003c", "T005c"] {
+        let outcome = generated(name);
+        let mut rng = Lcg(0x7b5d_0001 ^ name.len() as u64);
+        let (mut steps, mut witnesses) = (0, 0);
+        let mut reached = BTreeSet::new();
+        for _ in 0..50 {
+            let key = random_key(&outcome, &mut rng, (-3, 4), 3);
+            let reduction = outcome
+                .reduce(&key)
+                .unwrap_or_else(|error| panic!("{name} {key:?}: {error}"));
+            // The residual keys stop `reduce`, so a key returned there is in
+            // the set by construction; what can fail is reaching them. A key
+            // that starts on a residual reaches it trivially and does not count.
+            if !outcome.residual_keys.contains(&key) {
+                reached.extend(reduction.residuals.keys().cloned());
+            }
+            steps += reduction.steps;
+            witnesses += reduction.witnesses;
+        }
+        assert!(steps > 0 && witnesses >= steps, "{name}: {steps} steps");
+        // Every master is reached with a nonzero coefficient from another key:
+        // it is really used by the rules (none for LP = 0).
+        let residuals: BTreeSet<Vec<i64>> = outcome.residual_keys.iter().cloned().collect();
+        assert_eq!(reached, residuals, "{name}: residual keys reached");
+    }
+}
+
+#[test]
+fn every_rule_term_descends_at_its_own_chart_points() {
+    // Each rule applied at each covered point of a box in its chart: every
+    // RHS term carries a strict-descent witness of the generation order, and
+    // the box leaves no rule unchecked.
+    let d = Rational::from((Integer::from(37), Integer::from(10)));
+    for name in ["T001c", "T013c", "T007c", "T003c", "T005c"] {
+        let outcome = generated(name);
+        let mut checked = 0usize;
+        for (chart, rules) in &outcome.program.rules {
+            let points = chart_box(chart, &outcome.forced, 3);
+            for (index, rule) in rules.iter().enumerate() {
+                let covered: Vec<_> = points.iter().filter(|p| rule.applies(p, chart)).collect();
+                assert!(
+                    !covered.is_empty(),
+                    "{name} chart {}: the box misses rule {index}",
+                    mask(chart)
+                );
+                for point in covered {
+                    for (child, _) in rule.apply(point, outcome.program.d_position, &d).unwrap() {
+                        let witness = outcome
+                            .policy
+                            .prove_strict_descent(point, &child)
+                            .unwrap_or_else(|e| panic!("{name} {point:?} -> {child:?}: {e}"));
+                        assert!(witness.verify());
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 0, "{name}");
+    }
+}
+
+/// Points of `chart` with active non-eps powers 1..=1+r, eps powers in
+/// -r..=0 or 1..=1+r by chart.
+fn chart_box(chart: &[bool], forced: &[bool], r: i64) -> Vec<Vec<i64>> {
+    let ranges: Vec<(i64, i64)> = chart
+        .iter()
+        .zip(forced)
+        .map(|(&active, &eps)| match (active, eps) {
+            (true, _) => (1, 1 + r),
+            (false, true) => (-r, 0),
+            (false, false) => (0, 0),
+        })
+        .collect();
+    let mut points = vec![vec![]];
+    for (low, high) in ranges {
+        points = points
+            .into_iter()
+            .flat_map(|p: Vec<i64>| {
+                (low..=high).map(move |v| {
+                    let mut q = p.clone();
+                    q.push(v);
+                    q
+                })
+            })
+            .collect();
+    }
+    points
+}
+
+#[test]
+fn two_sided_excess_is_injective_with_its_minimum_at_one() {
+    let values: Vec<u64> = (-6..=6).map(|n| two_sided_excess(n).unwrap()).collect();
+    let distinct: BTreeSet<u64> = values.iter().copied().collect();
+    assert_eq!(distinct.len(), values.len());
+    assert_eq!(two_sided_excess(1), Some(0));
+    assert_eq!(two_sided_excess(0), Some(1));
+    assert_eq!(two_sided_excess(2), Some(2));
+    assert_eq!(two_sided_excess(-1), Some(3));
+    // Per axis of a two-sided program: the complexity key is injective in
+    // the eps power with every other power fixed.
+    let outcome = generated("T001c");
+    for (axis, _) in outcome.forced.iter().enumerate().filter(|(_, f)| **f) {
+        let keys: BTreeSet<ComplexityKey> = (-6..=6)
+            .map(|n| {
+                let mut key = vec![1; 5];
+                key[axis] = n;
+                outcome.policy.complexity_key(&key).unwrap()
+            })
+            .collect();
+        assert_eq!(keys.len(), 13, "axis {axis}");
+    }
+}
+
+#[test]
+fn generation_order_is_the_runtime_descent_order() {
+    // The solver's comparator (symbolic and numeric) and the persisted
+    // policy's keys and concrete comparison agree on a box of two-sided keys.
+    let outcome = generated("T013c");
+    let n = 5;
+    let box_points: Vec<[i16; 5]> = (0..5u32.pow(5))
+        .map(|mut code| {
+            std::array::from_fn(|_| {
+                let v = (code % 5) as i16 - 1;
+                code /= 5;
+                v
+            })
+        })
+        .collect();
+    for chart_bits in 0..1u32 << n {
+        let chart: [bool; 5] = std::array::from_fn(|i| chart_bits >> i & 1 == 1);
+        let order = IntegralOrder::from_persisted_policy(chart, &outcome.policy).unwrap();
+        assert_eq!(order.two_sided_axes().to_vec(), outcome.two_sided);
+        for a in box_points.iter().step_by(37) {
+            for b in box_points.iter().step_by(41) {
+                let (la, lb) = (a.map(i64::from), b.map(i64::from));
+                let expected = outcome.policy.compare(&la, &lb).unwrap();
+                assert_eq!(
+                    outcome
+                        .policy
+                        .complexity_key(&la)
+                        .unwrap()
+                        .cmp(&outcome.policy.complexity_key(&lb).unwrap()),
+                    expected
+                );
+                assert_eq!(
+                    order
+                        .compare(
+                            &Integral::numeric(*a).unwrap(),
+                            &Integral::numeric(*b).unwrap()
+                        )
+                        .reverse(),
+                    expected
+                );
+            }
+        }
+        // Symbolic offsets of the chart agree with translated concrete points
+        // that stay in the chart (n -> 5 on n >= 1, n -> -5 on n <= 0).
+        for a in box_points.iter().step_by(53) {
+            for b in box_points.iter().step_by(59) {
+                let translate = |shift: &[i16; 5]| -> Vec<i64> {
+                    (0..n)
+                        .map(|i| i64::from(shift[i]) + if chart[i] { 5 } else { -5 })
+                        .collect()
+                };
+                assert_eq!(
+                    order
+                        .compare(
+                            &Integral::symbolic(*a).unwrap(),
+                            &Integral::symbolic(*b).unwrap()
+                        )
+                        .reverse(),
+                    outcome
+                        .policy
+                        .compare(&translate(a), &translate(b))
+                        .unwrap(),
+                    "chart {chart:?} {a:?} {b:?}"
+                );
+            }
+        }
+    }
+}
+
+// ----- acceptance (c): the hard guard -----
+
+#[test]
+fn hard_guard_rejects_a_zero_residual_outcome_with_lp_one() {
+    let forced = [true, false, false, false, false];
+    let support = [true; 5];
+    let charts = all_charts(&support, &forced);
+    assert!(check_eps_guard(&forced, &forced, &support, &charts, 1, 1).is_ok());
+    assert!(check_eps_guard(&forced, &forced, &support, &charts, 0, 0).is_ok());
+    let error = check_eps_guard(&forced, &forced, &support, &charts, 1, 0).unwrap_err();
+    assert!(error.contains("false knock-out guard"), "{error}");
+    // Fewer residuals than LP is a knock-out too; more are not refused here.
+    let error = check_eps_guard(&forced, &forced, &support, &charts, 2, 1).unwrap_err();
+    assert!(error.contains("false knock-out guard"), "{error}");
+    assert!(check_eps_guard(&forced, &forced, &support, &charts, 1, 2).is_ok());
+    // Two-sided data must cover every forced axis, all 2^j charts present.
+    assert!(check_eps_guard(&forced, &[false; 5], &support, &charts, 1, 1).is_err());
+    // Missing two-sided data does not pass as covering nothing.
+    assert!(check_eps_guard(&forced, &[], &support, &charts, 1, 1).is_err());
+    assert!(check_eps_guard(&forced, &forced, &support, &charts[..1], 1, 1).is_err());
+    // The one-sided S1 failure mode: solving only the top chart of T001c.
+    let top = vec![vec![true; 5]];
+    let error = generate_eps_family(eps_family_source("T001c"), EpsCharts::Only(&top))
+        .err()
+        .expect("a single chart cannot pass the guard");
+    assert!(error.contains("raw charts"), "{error}");
+}
+
+#[test]
+fn chart_by_chart_runs_keep_each_chart_and_the_union_passes_the_guard() {
+    // The M2-T10b path: one unguarded call per chart, the guard on the union.
+    let source = eps_family_source("T013c");
+    let whole = generate_eps_family(source, EpsCharts::All).unwrap();
+    let charts = eps_family_charts(source).unwrap();
+    assert_eq!(charts.len(), whole.charts.len());
+    let mut residuals = Vec::new();
+    for (index, chart) in charts.iter().enumerate() {
+        let run = generate_eps_charts(source, std::slice::from_ref(chart), 1).unwrap();
+        assert_eq!(run.lp, whole.lp);
+        assert_eq!(run.charts.len(), 1);
+        assert_eq!(&run.charts[0].chart, chart);
+        assert_eq!(run.charts[0].rules, whole.charts[index].rules);
+        assert_eq!(run.charts[0].residuals, whole.charts[index].residuals);
+        residuals.extend(run.residual_keys);
+    }
+    assert_eq!(residuals, whole.residual_keys);
+    // All charts side by side: same charts in the same order, same results.
+    let wide = generate_eps_charts(source, &charts, 2).unwrap();
+    assert_eq!(wide.residual_keys, whole.residual_keys);
+    for (a, b) in wide.charts.iter().zip(&whole.charts) {
+        assert_eq!((&a.chart, a.rules), (&b.chart, b.rules));
+    }
+    let guard = |present: &[Vec<bool>], residuals: usize| {
+        check_eps_guard(
+            &whole.forced,
+            &whole.two_sided,
+            &whole.support,
+            present,
+            whole.lp,
+            residuals,
+        )
+    };
+    guard(&charts, residuals.len()).unwrap();
+    // The guard still bites: a missing chart, or no residual with LP >= 1.
+    assert!(guard(&charts[..charts.len() - 1], residuals.len()).is_err());
+    assert!(guard(&charts, 0).is_err());
+}
+
+#[test]
+fn a_family_without_eps_axes_runs_under_the_plain_order_through_both_entry_points() {
+    // The integer 2L kite: T007c without its eps line. One chart, no flags,
+    // the same LP count and guard as an eps family.
+    let source = eps_family_source("T007c").replace("  ,power_shift(D1,2-d/2)\n", "");
+    assert!(!source.contains("power_shift"));
+    let charts = eps_family_charts(&source).unwrap();
+    assert_eq!(charts, [vec![true; 5]]);
+    let whole = generate_eps_family(&source, EpsCharts::All).unwrap();
+    assert_eq!(whole.forced, [false; 5]);
+    assert_eq!(whole.two_sided, [false; 5]);
+    assert_eq!(whole.lp, 0);
+    assert!(whole.residual_keys.is_empty());
+    assert_eq!(whole.rules, 5);
+    let plain = CompiledOrder::compile(OrderDescriptor::spired_uncut(5), Default::default());
+    let plain = OrderingPolicy::try_programmed(plain.unwrap()).unwrap();
+    assert_eq!(whole.policy.stable_id(), plain.stable_id());
+    // The order argument has nothing to act on.
+    let other = generate_eps_family_with(&source, EpsCharts::All, eps_first_two_sided).unwrap();
+    assert_eq!(other.policy.stable_id(), plain.stable_id());
+    assert_eq!(other.rules, whole.rules);
+    // Chart by chart, and the guard on the union still bites.
+    let run = generate_eps_charts(&source, &charts, 1).unwrap();
+    assert_eq!((run.lp, run.rules), (whole.lp, whole.rules));
+    assert_eq!(&run.charts[0].chart, &charts[0]);
+    let guard = |lp: u32, residuals: usize| {
+        check_eps_guard(
+            &run.forced,
+            &run.two_sided,
+            &run.support,
+            &charts,
+            lp,
+            residuals,
+        )
+    };
+    guard(run.lp, run.residual_keys.len()).unwrap();
+    assert!(guard(1, 0).is_err());
+    // The rules apply and descend: the top key leaves the owner sector.
+    let reduction = whole.reduce(&[1, 2, 1, 1, 1]).unwrap();
+    assert!(reduction.residuals.is_empty());
+    assert!(reduction.steps > 0 && !reduction.exits.is_empty());
+}
+
+#[test]
+#[ignore = "slow: arity 14, generates the 4L bubu twice (minutes in debug)"]
+fn bubu_runs_under_the_plain_order_through_both_entry_points() {
+    // T148 has no power shift (targets.tsv eps_weights []), LP 0.
+    let source = eps_family_source("bubu");
+    let charts = eps_family_charts(source).unwrap();
+    assert_eq!(charts.len(), 1);
+    let whole = generate_eps_family(source, EpsCharts::All).unwrap();
+    let run = generate_eps_charts(source, &charts, 1).unwrap();
+    for outcome in [&whole, &run] {
+        assert_eq!(outcome.lp, 0);
+        assert!(outcome.residual_keys.is_empty());
+        assert!(!outcome.two_sided.contains(&true));
+        assert_eq!(outcome.rules, 139);
+    }
+}
+
+#[test]
+fn a_two_sided_rule_at_a_pole_of_the_test_dimension_is_an_error_not_a_panic() {
+    // Coefficients are exact in `d`; `reduce` works at the fixed d = 37/10.
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let limits = Default::default();
+    let d = context.parameter("d").unwrap();
+    let pole = context
+        .try_sub(
+            &context.try_mul(&context.integer(10), &d, limits).unwrap(),
+            &context.integer(37),
+            limits,
+        )
+        .unwrap();
+    let coefficient = context.try_div(&context.one(), &pole, limits).unwrap();
+    let rule = DynRule {
+        fixed: vec![None],
+        affine: vec![],
+        exceptions: vec![],
+        rhs: vec![(vec![Coordinate::Offset(-1)], coefficient)],
+        indices: vec![],
+    };
+    let at = |numerator: i64| {
+        let value = Rational::from((Integer::from(numerator), Integer::from(10)));
+        rule.apply(&[2], 0, &value)
+    };
+    let error = at(37).unwrap_err();
+    assert!(error.contains("pole"), "{error}");
+    assert_eq!(
+        at(47).unwrap(),
+        vec![(
+            vec![1],
+            Rational::from((Integer::from(1), Integer::from(10)))
+        )]
+    );
+    // The real case: T013c's rule at this key has the factor 10d - 37 and the
+    // integral is regular, so the applier refuses instead of guessing.
+    let downset = generate_eps_family(eps_family_source("T013c"), EpsCharts::Downset).unwrap();
+    let error = downset.reduce(&[1, 0, -1, 1, 2]).err().unwrap();
+    assert!(error.contains("pole"), "{error}");
+}
+
+#[test]
+fn the_option_refuses_a_family_of_another_arity_than_the_sources() {
+    let compile = |name: &str| {
+        Compiler::new(Limits::default())
+            .unwrap()
+            .compile_compact(eps_family_source(name), None)
+            .unwrap()
+            .into_lowered(LoweringLimits::default())
+            .unwrap()
+            .into_family()
+    };
+    // A valid eps family, but not the one these sources were prepared from.
+    let mut sources =
+        SourceSystem::<14>::from_family_with_capacity(&compile("T007c"), true).unwrap();
+    let error = sources
+        .set_two_sided_eps_axes(&compile("T074c"))
+        .unwrap_err();
+    assert!(error.to_string().contains("family arity"), "{error}");
+    assert_eq!(sources.two_sided_axes(), [false; 14]);
+}
+
+#[test]
+fn the_option_refuses_shifts_that_are_not_eps_lines() {
+    // An integer power shift is not j(4-d)/2.
+    let source = eps_family_source("T007c").replace("power_shift(D1,2-d/2)", "power_shift(D1,1)");
+    let project = Compiler::new(Limits::default())
+        .unwrap()
+        .compile_compact(&source, None)
+        .unwrap();
+    let family = project
+        .into_lowered(LoweringLimits::default())
+        .unwrap()
+        .into_family();
+    let mut sources = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
+    let error = sources.set_two_sided_eps_axes(&family).unwrap_err();
+    assert!(error.to_string().contains("j(4-d)/2"), "{error}");
+    assert_eq!(sources.two_sided_axes(), [false; 5]);
+    // A half-integer number of eps units is refused too.
+    let source =
+        eps_family_source("T007c").replace("power_shift(D1,2-d/2)", "power_shift(D1,1-d/4)");
+    let family = Compiler::new(Limits::default())
+        .unwrap()
+        .compile_compact(&source, None)
+        .unwrap()
+        .into_lowered(LoweringLimits::default())
+        .unwrap()
+        .into_family();
+    let mut sources = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
+    assert!(sources.set_two_sided_eps_axes(&family).is_err());
+}
+
+#[test]
+fn the_option_refuses_a_shifted_family_without_one_external_momentum() {
+    let base = CoefficientContext::try_new(["d"]).unwrap();
+    let d = base.parameter("d").unwrap();
+    let limits = Default::default();
+    let unit = base
+        .try_div(
+            &base.try_sub(&base.integer(4), &d, limits).unwrap(),
+            &base.integer(2),
+            limits,
+        )
+        .unwrap();
+    let family = IntegralFamily::new(
+        "vacuum-eps",
+        vec!["k".into()],
+        vec![],
+        base.clone(),
+        d,
+        vec![AffineDenominator::new(base.integer(-1), vec![base.one()])],
+        vec![],
+        vec![unit],
+    )
+    .unwrap();
+    let mut sources = SourceSystem::<1>::from_family_with_capacity(&family, true).unwrap();
+    let error = sources.set_two_sided_eps_axes(&family).unwrap_err();
+    assert!(
+        error.to_string().contains("one external momentum"),
+        "{error}"
+    );
+}
+
+#[test]
+fn sources_and_order_program_must_carry_the_same_two_sided_axes() {
+    let family = Arc::new(
+        Compiler::new(Limits::default())
+            .unwrap()
+            .compile_compact(eps_family_source("T007c"), None)
+            .unwrap()
+            .into_lowered(LoweringLimits::default())
+            .unwrap()
+            .into_family(),
+    );
+    let two_sided_program = CompiledOrder::compile(
+        OrderDescriptor::spired_uncut_two_sided(vec![true, false, false, false, false]),
+        Default::default(),
+    )
+    .unwrap();
+    let mut enabled = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
+    enabled.set_two_sided_eps_axes(&family).unwrap();
+    let disabled = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
+    assert_eq!(disabled.two_sided_axes(), [false; 5]);
+    let executor = SectorExecutor::new(1).unwrap();
+    let chart = [true; 5];
+    let solve_with =
+        |sources: &SourceSystem<5>, program: Option<CompiledOrder>, options: SectorSolveOptions| {
+            executor
+                .map(
+                    sources,
+                    &[chart],
+                    &SectorConfig {
+                        integral_order: program,
+                        ..Default::default()
+                    },
+                    options,
+                    |done| Ok::<_, String>(done.solution.rules.len()),
+                )
+                .map(|rules| rules[0])
+                .map_err(|error| error.to_string())
+        };
+    let solve = |sources: &SourceSystem<5>, program: Option<CompiledOrder>| {
+        solve_with(sources, program, SectorSolveOptions::default())
+    };
+    // The option without the program, and the program without the option.
+    let error = solve(&enabled, None).unwrap_err();
+    assert!(error.contains("two-sided eps axes"), "{error}");
+    let error = solve(&disabled, Some(two_sided_program.clone())).unwrap_err();
+    assert!(error.contains("two-sided eps axes"), "{error}");
+    // Refused before any rule: a zero case budget emits none, and the matching
+    // pair then stops on that budget instead.
+    let no_case = SectorSolveOptions {
+        max_symbolic_cases: Some(0),
+        ..Default::default()
+    };
+    let error = solve_with(&enabled, None, no_case).unwrap_err();
+    assert!(error.contains("two-sided eps axes"), "{error}");
+    let error = solve_with(&enabled, Some(two_sided_program.clone()), no_case).unwrap_err();
+    assert!(!error.contains("two-sided eps axes"), "{error}");
+    assert!(solve(&enabled, Some(two_sided_program)).unwrap() > 0);
+}
+
+// ----- value check: two independently ordered generations agree -----
+
+/// The two-sided SpIRed order led by the eps excess: another rule set.
+fn eps_first_two_sided(two_sided: Vec<bool>) -> OrderDescriptor {
+    let mut descriptor = OrderDescriptor::spired_uncut(two_sided.len());
+    descriptor.degree_rows.insert(
+        0,
+        rustred::order::DegreeRow {
+            active: two_sided.iter().map(|&flag| u64::from(flag)).collect(),
+            inactive: vec![0; two_sided.len()],
+        },
+    );
+    descriptor.two_sided = two_sided;
+    descriptor
+}
+
+#[test]
+fn two_independently_ordered_downsets_reduce_to_the_same_values() {
+    // The default and the eps-first orders derive different rules (different
+    // chart crossings and branches). Over the full downset of the owner
+    // support both reduce every key onto the same residual keys, with
+    // coefficients that agree exactly (at d = 37/10).
+    for name in ["T001c", "T007c", "T003c", "T005c", "T013c"] {
+        let first = generate_eps_family(eps_family_source(name), EpsCharts::Downset)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let other = generate_eps_family_with(
+            eps_family_source(name),
+            EpsCharts::Downset,
+            eps_first_two_sided,
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let (a, b): (BTreeSet<_>, BTreeSet<_>) = (
+            first.residual_keys.iter().collect(),
+            other.residual_keys.iter().collect(),
+        );
+        assert_eq!(a, b, "{name}: residual keys of the two orders");
+        // Otherwise the comparison below would be a rule set against itself.
+        assert_ne!(first.rules, other.rules, "{name}: rule counts");
+        let mut reached = 0;
+        let mut rng = Lcg(0x7b5d_0002 ^ name.len() as u64);
+        for _ in 0..12 {
+            let key = random_key(&first, &mut rng, (-2, 3), 2);
+            let x = first.reduce(&key).unwrap();
+            let y = other.reduce(&key).unwrap();
+            assert!(
+                x.exits.is_empty() && y.exits.is_empty(),
+                "{name} {key:?}: exits {:?} {:?}",
+                x.exits.keys().collect::<Vec<_>>(),
+                y.exits.keys().collect::<Vec<_>>()
+            );
+            assert_eq!(x.residuals, y.residuals, "{name} {key:?}");
+            reached += usize::from(!x.residuals.is_empty());
+        }
+        assert!(reached > 0, "{name}: no point reached a residual key");
+    }
+}

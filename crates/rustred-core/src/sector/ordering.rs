@@ -21,9 +21,24 @@ pub use policy::{
 
 impl OrderingPolicy {
     /// Build an exact, injective complexity key from unshifted indices.
+    ///
+    /// A two-sided axis of a programmed order (plan M2 sec.3.4) is always in
+    /// the key's sector and its excess is the injective `e(n)` of
+    /// `rustred_order::two_sided_excess` (`n = 1, 0, 2, -1, ...` give
+    /// `0, 1, 2, 3, ...`), the excess the program compares; it counts as a
+    /// dot. Without two-sided axes the key is unchanged.
     pub fn complexity_key(&self, indices: &[i64]) -> Result<ComplexityKey, Error> {
         self.require_arity(indices.len())?;
-        let sector = Mask::try_from_indices(indices)?;
+        let two_sided = self.program().filter(|program| program.has_two_sided());
+        let sector = match two_sided {
+            None => Mask::try_from_indices(indices)?,
+            Some(program) => Mask::try_new(
+                indices
+                    .iter()
+                    .enumerate()
+                    .map(|(axis, &index)| index >= 1 || program.is_two_sided(axis)),
+            )?,
+        };
         let mut dots = 0_u128;
         let mut numerators = 0_u128;
         let mut index_excess = Vec::new();
@@ -32,8 +47,12 @@ impl OrderingPolicy {
             indices.len(),
             "integral complexity index excess",
         )?;
-        for (&active, &index) in sector.active.iter().zip(indices) {
-            let excess: u64 = if active {
+        for (axis, (&active, &index)) in sector.active.iter().zip(indices).enumerate() {
+            let excess: u64 = if two_sided.is_some_and(|program| program.is_two_sided(axis)) {
+                rustred_order::two_sided_excess(index).ok_or(Error::OrderProgram(
+                    rustred_order::Error::TwoSidedOutOfRange { axis },
+                ))?
+            } else if active {
                 debug_assert!(index >= 1);
                 (index - 1) as u64
             } else {

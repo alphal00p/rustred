@@ -27,6 +27,9 @@ pub struct SourceSystem<const N: usize> {
     /// Conditions inherited from the family preparation, before denominator
     /// clearing. They are not rediscovered by scanning every seeded row.
     pub(super) conditions: Vec<CoefficientPolynomial>,
+    /// Opt-in two-sided eps axes ([`Self::set_two_sided_eps_axes`]); all
+    /// false otherwise, which keeps every existing generation unchanged.
+    two_sided: [bool; N],
 }
 
 impl<const N: usize> SourceSystem<N> {
@@ -78,6 +81,7 @@ impl<const N: usize> SourceSystem<N> {
             fixed,
             coefficient_priority,
             conditions: Vec::new(),
+            two_sided: [false; N],
         })
     }
 
@@ -300,6 +304,7 @@ impl<const N: usize> SourceSystem<N> {
             fixed,
             coefficient_priority,
             conditions,
+            two_sided: std::array::from_fn(|i| self.two_sided.get(i).copied().unwrap_or(false)),
         })
     }
 
@@ -341,6 +346,41 @@ impl<const N: usize> SourceSystem<N> {
         &self.conditions
     }
 
+    /// Two-sided eps axes of this source system (plan M2 sec.3.4): all false
+    /// unless [`Self::set_two_sided_eps_axes`] enabled them.
+    ///
+    /// On a two-sided axis the power is `n + j eps` and every integer `n` lies
+    /// in one support: the sector solver treats the raw sign of `n` as a chart,
+    /// orders the axis by `e(n)` (`rustred_order::two_sided_excess`), lets
+    /// rules cross between the charts only when they descend in that order,
+    /// and requires a programmed integral order carrying exactly these axes.
+    pub fn two_sided_axes(&self) -> [bool; N] {
+        self.two_sided
+    }
+
+    /// Opt in to two-sided eps axes for `family`, the family these sources
+    /// were prepared from, and return them. An axis qualifies only when its
+    /// power shift is exactly `j (4-d)/2` (`j` a nonzero integer, `d` the
+    /// dimension) on a line slot of a massless family with exactly one
+    /// external momentum, i.e. the forced axes of
+    /// [`IntegralFamily::shifted_unit_scale_kinematics`]. Any other nonzero
+    /// shift or family shape is refused with [`SolverError::InvalidInput`]:
+    /// the option never silently ignores a shifted axis. A family without
+    /// shifts yields no two-sided axis.
+    pub fn set_two_sided_eps_axes(
+        &mut self,
+        family: &IntegralFamily,
+    ) -> Result<[bool; N], SolverError> {
+        if family.denominator_count() != self.active_arity {
+            return Err(SolverError::InvalidInput(
+                "two-sided eps axes: family arity differs from the prepared sources".into(),
+            ));
+        }
+        let axes = eps_axes(family)?;
+        self.two_sided = std::array::from_fn(|i| axes.get(i).copied().unwrap_or(false));
+        Ok(self.two_sided)
+    }
+
     pub(super) fn coefficient_order(&self) -> &[usize] {
         &self.coefficient_priority
     }
@@ -358,6 +398,29 @@ impl<const N: usize> SourceSystem<N> {
         self.fixed = fixed;
         Ok(self)
     }
+}
+
+/// Qualifying eps axes of a family (see `SourceSystem::set_two_sided_eps_axes`):
+/// the forced axes of the p-only admission, nothing without power shifts.
+fn eps_axes(family: &IntegralFamily) -> Result<Vec<bool>, SolverError> {
+    let mut axes = vec![false; family.denominator_count()];
+    if family.power_shifts().iter().all(|shift| shift.is_zero()) {
+        return Ok(axes);
+    }
+    let admitted = family
+        .shifted_unit_scale_kinematics()
+        .map_err(SolverError::invalid_input)?
+        .ok_or_else(|| {
+            SolverError::InvalidInput(format!(
+                "two-sided eps axes refused for family {}: its power shifts must be j(4-d)/2 (j a \
+                 nonzero integer) on line slots of a massless family with one external momentum",
+                family.name()
+            ))
+        })?;
+    for (slot, _) in admitted.forced {
+        axes[slot] = true;
+    }
+    Ok(axes)
 }
 
 fn validate_prepared_rows<const N: usize>(

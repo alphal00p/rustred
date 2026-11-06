@@ -58,7 +58,30 @@ impl Coordinates<'_> {
             Self::Shifts { support } => support[axis],
         }
     }
-    fn excess(&self, axis: usize, value: i64) -> i128 {
+    /// Chart of a two-sided offset: `n >= 1` (true) or `n <= 0`, or `None`
+    /// for a concrete power. Symbolic charts come from the sector bit, shift
+    /// charts from the caller's support bit (its raw chart).
+    fn two_sided_chart(&self, axis: usize) -> Option<bool> {
+        match self {
+            Self::Concrete => None,
+            Self::Mixed { symbolic, sector } => symbolic[axis].then_some(sector[axis]),
+            Self::Shifts { support } => Some(support[axis]),
+        }
+    }
+    fn excess(&self, axis: usize, value: i64, two_sided: bool) -> i128 {
+        if two_sided {
+            // Range-checked by `check_two_sided` before any comparison.
+            return match self.two_sided_chart(axis) {
+                None => i128::from(
+                    super::descriptor::two_sided_excess(value)
+                        .expect("two-sided power was range checked"),
+                ),
+                // Offsets from a common symbolic base: e is 2n-2 on n >= 1
+                // and 1-2n on n <= 0; the common part cancels.
+                Some(true) => 2 * i128::from(value),
+                Some(false) => -2 * i128::from(value),
+            };
+        }
         let active = self.active(axis, value);
         let constant = match self {
             Self::Concrete => active,
@@ -89,7 +112,11 @@ enum View<'a> {
 }
 
 impl View<'_> {
-    fn active(&self, axis: usize) -> bool {
+    fn active(&self, axis: usize, two_sided: bool) -> bool {
+        if two_sided {
+            // Every power of a two-sided axis lies in the support.
+            return true;
+        }
         match self {
             Self::Powers {
                 coordinates,
@@ -98,20 +125,39 @@ impl View<'_> {
             Self::Unsigned { support, .. } | Self::Signed { support, .. } => support[axis],
         }
     }
-    fn excess(&self, axis: usize) -> i128 {
+    fn excess(&self, axis: usize, two_sided: bool) -> i128 {
         match self {
             Self::Powers {
                 coordinates,
                 values,
-            } => coordinates.excess(axis, values[axis]),
+            } => coordinates.excess(axis, values[axis], two_sided),
+            // Retained concrete keys store e(n) itself on two-sided axes.
             Self::Unsigned { values, .. } => i128::from(values[axis]),
-            Self::Signed { values, .. } => values[axis],
+            // Caller offsets follow the raw chart's one-sided sign; the
+            // two-sided excess has twice that slope.
+            Self::Signed { values, .. } => {
+                if two_sided {
+                    2 * values[axis]
+                } else {
+                    values[axis]
+                }
+            }
         }
     }
 
     /// Physical absolute power, or its signed offset when the common
     /// fixed-sign symbolic/base contribution has already been cancelled.
-    fn absolute(&self, axis: usize) -> i128 {
+    /// A two-sided axis contributes `e(n) + 1` (its offsets: their excess).
+    fn absolute(&self, axis: usize, two_sided: bool) -> i128 {
+        if two_sided {
+            let excess = self.excess(axis, true);
+            let concrete = match self {
+                Self::Powers { coordinates, .. } => coordinates.two_sided_chart(axis).is_none(),
+                Self::Unsigned { .. } => true,
+                Self::Signed { .. } => false,
+            };
+            return excess + i128::from(concrete);
+        }
         match self {
             Self::Powers {
                 coordinates,
@@ -133,8 +179,34 @@ impl View<'_> {
 }
 
 impl CompiledOrder {
+    /// Whether `axis` is two-sided (see [`crate::OrderDescriptor::two_sided`]).
+    pub fn is_two_sided(&self, axis: usize) -> bool {
+        self.descriptor()
+            .two_sided
+            .get(axis)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Two-sided flags, one per coordinate; empty when there are none.
+    pub fn two_sided(&self) -> &[bool] {
+        &self.descriptor().two_sided
+    }
+
+    fn check_two_sided(&self, values: &[i64]) -> Result<(), Error> {
+        for (axis, &value) in values.iter().enumerate() {
+            if self.is_two_sided(axis)
+                && value.unsigned_abs() > super::descriptor::MAX_TWO_SIDED_POWER as u64
+            {
+                return Err(Error::TwoSidedOutOfRange { axis });
+            }
+        }
+        Ok(())
+    }
+
     /// Compare already retained concrete-key excess without allocating a
     /// second raw-power vector. Arity and representability are still checked.
+    /// A two-sided axis must carry an active support bit and `e(n)`.
     pub fn compare_excess(
         &self,
         left_support: &[bool],
@@ -146,6 +218,9 @@ impl CompiledOrder {
             arity(self.arity(), support.len())?;
             arity(self.arity(), values.len())?;
             for (axis, (&active, &value)) in support.iter().zip(values).enumerate() {
+                if self.is_two_sided(axis) && !active {
+                    return Err(Error::TwoSidedOutOfRange { axis });
+                }
                 let maximum = if active {
                     i64::MAX as u64 - 1
                 } else {
@@ -171,6 +246,10 @@ impl CompiledOrder {
 
     /// Compare retained signed excess offsets on one fixed support. These
     /// offsets must come from physical i64 shifts; applicability is separate.
+    /// On a two-sided axis the support bit names the raw chart (`n >= 1` or
+    /// `n <= 0`) and the offset keeps its one-sided sign; both translations
+    /// must stay in that chart (the caller's domain obligation, as for
+    /// support), and the offset must not exceed `MAX_TWO_SIDED_POWER`.
     pub fn compare_shift_excess(
         &self,
         support: &[bool],
@@ -188,6 +267,11 @@ impl CompiledOrder {
                 };
                 if physical.and_then(|n| i64::try_from(n).ok()).is_none() {
                     return Err(Error::ExcessOutOfRange { axis });
+                }
+                if self.is_two_sided(axis)
+                    && value.unsigned_abs() > super::descriptor::MAX_TWO_SIDED_POWER as u128
+                {
+                    return Err(Error::TwoSidedOutOfRange { axis });
                 }
             }
         }
@@ -207,7 +291,10 @@ impl CompiledOrder {
     /// Support-only comparison, including weights and the declared bit priority.
     /// This is NOT a complete order prefix when pre-support rows are present:
     /// it cannot establish support-changing descent without physical powers.
-    /// No degree or coordinate comparison is performed.
+    /// No degree or coordinate comparison is performed. The bits are taken
+    /// as given, also on two-sided axes, where they name raw charts: a
+    /// container order of chart-keyed entries, not the order of integrals
+    /// (whose support always contains every two-sided axis).
     pub fn compare_support(&self, left: &[bool], right: &[bool]) -> Result<Comparison, Error> {
         arity(self.arity(), left.len())?;
         arity(self.arity(), right.len())?;
@@ -238,6 +325,8 @@ impl CompiledOrder {
     /// Compare physical shifts on a fixed support. Callers must separately
     /// establish that both translations remain inside this support throughout
     /// their application domain; crossing zero is not handled by extrapolation.
+    /// On a two-sided axis the support bit names the raw chart, as in
+    /// [`Self::compare_shift_excess`].
     pub fn compare_shifts(
         &self,
         support: &[bool],
@@ -257,6 +346,8 @@ impl CompiledOrder {
         let size = self.arity();
         arity(size, left.len())?;
         arity(size, right.len())?;
+        self.check_two_sided(left)?;
+        self.check_two_sided(right)?;
         self.compare_views(
             View::Powers {
                 coordinates: &coordinates,
@@ -313,24 +404,26 @@ impl CompiledOrder {
     ) -> Result<Comparison, Error> {
         let size = self.arity();
         let descriptor = self.descriptor();
+        let two_sided = |axis| self.is_two_sided(axis);
         for (ordinal, row) in descriptor.pre_support_degree_rows.iter().enumerate() {
             let mut l = 0i128;
             let mut r = 0i128;
             for axis in 0..size {
+                let ts = two_sided(axis);
                 // Unlike the excess suffix, support has not yet tied. Each
                 // operand must use its own physical sign's weight.
-                let lw = if left.active(axis) {
+                let lw = if left.active(axis, ts) {
                     row.active[axis]
                 } else {
                     row.inactive[axis]
                 };
-                let rw = if right.active(axis) {
+                let rw = if right.active(axis, ts) {
                     row.active[axis]
                 } else {
                     row.inactive[axis]
                 };
-                l += i128::from(lw) * left.absolute(axis);
-                r += i128::from(rw) * right.absolute(axis);
+                l += i128::from(lw) * left.absolute(axis, ts);
+                r += i128::from(rw) * right.absolute(axis, ts);
             }
             let cmp = l.cmp(&r);
             if cmp != Ordering::Equal {
@@ -338,8 +431,10 @@ impl CompiledOrder {
             }
         }
         if compare_support {
-            let result =
-                self.support_comparison(&|axis| left.active(axis), &|axis| right.active(axis));
+            let result = self
+                .support_comparison(&|axis| left.active(axis, two_sided(axis)), &|axis| {
+                    right.active(axis, two_sided(axis))
+                });
             if result.ordering != Ordering::Equal {
                 return Ok(result);
             }
@@ -351,13 +446,14 @@ impl CompiledOrder {
             let mut l = 0i128;
             let mut r = 0i128;
             for axis in 0..size {
-                let weight = if left.active(axis) {
+                let ts = two_sided(axis);
+                let weight = if left.active(axis, ts) {
                     row.active[axis]
                 } else {
                     row.inactive[axis]
                 };
-                l += i128::from(weight) * left.excess(axis);
-                r += i128::from(weight) * right.excess(axis);
+                l += i128::from(weight) * left.excess(axis, ts);
+                r += i128::from(weight) * right.excess(axis, ts);
             }
             let cmp = l.cmp(&r);
             if cmp != Ordering::Equal {
@@ -371,7 +467,8 @@ impl CompiledOrder {
         };
         for pass in 0..passes {
             for &axis in &descriptor.coordinate_priority {
-                let active = left.active(axis);
+                let ts = two_sided(axis);
+                let active = left.active(axis, ts);
                 if descriptor.coordinate_groups != CoordinateGroups::Interleaved {
                     let active_pass = (descriptor.coordinate_groups
                         == CoordinateGroups::ActiveFirst)
@@ -380,7 +477,7 @@ impl CompiledOrder {
                         continue;
                     }
                 }
-                let mut cmp = left.excess(axis).cmp(&right.excess(axis));
+                let mut cmp = left.excess(axis, ts).cmp(&right.excess(axis, ts));
                 let direction = if active {
                     descriptor.active_direction
                 } else {

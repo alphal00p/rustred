@@ -255,6 +255,16 @@ pub struct FamilyCandidatesRequest {
     pub checkpoint: Option<super::CandidateCheckpointOptions>,
     /// Whether a failed sector solve fails the family or is reported.
     pub sector_failures: SectorFailurePolicy,
+    /// Opt-in two-sided eps axes for p-integral eps families (plan M2
+    /// sec.3.4): every line slot with power shift exactly `j (4-d)/2` (`j` a
+    /// nonzero integer) of a one-external family is solved with all integer
+    /// powers in one support, ordered by the injective `e(n)` with residuals at
+    /// `n = 1`; any other nonzero shift is refused. The family's two-sided
+    /// order program (`OrderDescriptor::spired_uncut_two_sided`) becomes the
+    /// request's `integral_order`, or a supplied program must
+    /// carry exactly these axes; no legacy `permutation`. False (the default)
+    /// leaves generation, bundles and checkpoint identities unchanged.
+    pub two_sided_eps_axes: bool,
 }
 
 /// What `family-candidates` does when the search of one sector fails.
@@ -302,6 +312,7 @@ impl FamilyCandidatesRequest {
             bundle_limits: CandidateBundleLimits::default(),
             checkpoint: None,
             sector_failures: SectorFailurePolicy::default(),
+            two_sided_eps_axes: false,
         }
     }
 

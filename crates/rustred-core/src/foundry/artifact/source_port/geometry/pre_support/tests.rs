@@ -16,6 +16,7 @@ fn programmed(arity: usize, rows: Vec<DegreeRow>) -> OrderingPolicy {
                 coordinate_groups: CoordinateGroups::ActiveFirst,
                 active_direction: Direction::Descending,
                 inactive_direction: Direction::Descending,
+                two_sided: Vec::new(),
             },
             Default::default(),
         )

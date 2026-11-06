@@ -21,6 +21,7 @@ fn standard(size: usize) -> OrderDescriptor {
         coordinate_groups: CoordinateGroups::ActiveFirst,
         active_direction: Direction::Descending,
         inactive_direction: Direction::Descending,
+        two_sided: Vec::new(),
     }
 }
 
@@ -992,4 +993,403 @@ fn total_excess_capability_is_an_explicit_positive_uniform_first_row() {
     assert!(compile(d.clone()).has_total_excess_primary());
     d.degree_rows[0].inactive[1] = 8;
     assert!(!compile(d).has_total_excess_primary());
+}
+
+// ----- two-sided coordinates (p-integral eps lines, plan M2 sec.3.4) -----
+
+/// Independent simpler-first key of the SpIRed-uncut order with two-sided
+/// axes (always active, excess e(n)) and an optional eps-excess row right
+/// after total excess.
+fn two_sided_reference(two_sided: &[bool], eps_tie: bool, left: &[i64], right: &[i64]) -> Ordering {
+    let e = |n: i64| -> i128 {
+        if n >= 1 {
+            2 * (i128::from(n) - 1)
+        } else {
+            1 - 2 * i128::from(n)
+        }
+    };
+    let key = |p: &[i64]| {
+        let active: Vec<bool> = p
+            .iter()
+            .zip(two_sided)
+            .map(|(&n, &ts)| ts || n > 0)
+            .collect();
+        let excess: Vec<i128> = p
+            .iter()
+            .zip(two_sided)
+            .map(|(&n, &ts)| {
+                if ts {
+                    e(n)
+                } else if n > 0 {
+                    i128::from(n) - 1
+                } else {
+                    -i128::from(n)
+                }
+            })
+            .collect();
+        (active, excess)
+    };
+    let (la, lx) = key(left);
+    let (ra, rx) = key(right);
+    let count = |a: &[bool]| a.iter().filter(|&&v| v).count();
+    let eps = |x: &[i128]| -> i128 {
+        x.iter()
+            .zip(two_sided)
+            .filter(|(_, ts)| **ts)
+            .map(|(v, _)| *v)
+            .sum()
+    };
+    let numerator = |a: &[bool], x: &[i128]| -> i128 {
+        a.iter().zip(x).filter(|(a, _)| !**a).map(|(_, v)| *v).sum()
+    };
+    let mut cmp = count(&la)
+        .cmp(&count(&ra))
+        .then_with(|| la.cmp(&ra))
+        .then_with(|| lx.iter().sum::<i128>().cmp(&rx.iter().sum()));
+    if eps_tie {
+        cmp = cmp.then_with(|| eps(&lx).cmp(&eps(&rx)));
+    }
+    cmp = cmp.then_with(|| numerator(&la, &lx).cmp(&numerator(&ra, &rx)));
+    for active in [true, false] {
+        for axis in 0..left.len() {
+            if cmp == Ordering::Equal && la[axis] == active {
+                cmp = rx[axis].cmp(&lx[axis]);
+            }
+        }
+    }
+    cmp
+}
+
+#[test]
+fn spired_uncut_descriptor_is_the_legacy_source_port_order() {
+    for size in 1..=5 {
+        assert_eq!(OrderDescriptor::spired_uncut(size), standard(size));
+    }
+    let order = compile(OrderDescriptor::spired_uncut(3));
+    for a in cube(3, -2, 3) {
+        for b in cube(3, -2, 3) {
+            assert_eq!(
+                order.compare(&a, &b).unwrap().ordering,
+                legacy_uncut(&a, &b)
+            );
+        }
+    }
+}
+
+#[test]
+fn two_sided_excess_is_injective_and_minimal_at_one() {
+    let values: Vec<u64> = (-6..=6).map(|n| two_sided_excess(n).unwrap()).collect();
+    assert_eq!(values, [13, 11, 9, 7, 5, 3, 1, 0, 2, 4, 6, 8, 10]);
+    assert_eq!(two_sided_excess(MAX_TWO_SIDED_POWER), Some((1 << 62) - 2));
+    assert_eq!(two_sided_excess(-MAX_TWO_SIDED_POWER), Some((1 << 62) + 1));
+    assert_eq!(two_sided_excess(MAX_TWO_SIDED_POWER + 1), None);
+    assert_eq!(two_sided_excess(i64::MIN), None);
+}
+
+#[test]
+fn two_sided_concrete_retained_mixed_and_shift_views_agree_with_a_reference() {
+    let flags = vec![true, false, true];
+    for eps_tie in [false, true] {
+        let descriptor = if eps_tie {
+            OrderDescriptor::spired_uncut_two_sided(flags.clone())
+        } else {
+            let mut d = OrderDescriptor::spired_uncut(3);
+            d.two_sided = flags.clone();
+            d
+        };
+        let order = compile(descriptor);
+        assert!(order.has_two_sided() && order.is_two_sided(2) && !order.is_two_sided(1));
+        assert!(!order.is_support_primary() && !order.has_total_excess_primary());
+        let points = cube(3, -3, 3);
+        let retained = |p: &[i64]| -> (Vec<bool>, Vec<u64>) {
+            p.iter()
+                .zip(&flags)
+                .map(|(&n, &ts)| {
+                    if ts {
+                        (true, two_sided_excess(n).unwrap())
+                    } else if n > 0 {
+                        (true, (n - 1) as u64)
+                    } else {
+                        (false, n.unsigned_abs())
+                    }
+                })
+                .unzip()
+        };
+        for a in &points {
+            for b in &points {
+                let expected = two_sided_reference(&flags, eps_tie, a, b);
+                assert_eq!(
+                    order.compare(a, b).unwrap().ordering,
+                    expected,
+                    "{a:?} {b:?}"
+                );
+                let ((sa, xa), (sb, xb)) = (retained(a), retained(b));
+                assert_eq!(
+                    order.compare_excess(&sa, &xa, &sb, &xb).unwrap().ordering,
+                    expected
+                );
+            }
+        }
+        // Symbolic offsets in one chart per axis agree with translated
+        // concrete points that stay in that chart; so do raw-chart shifts.
+        for chart_bits in 0..8u32 {
+            let chart: Vec<bool> = (0..3).map(|i| chart_bits >> i & 1 == 1).collect();
+            let base: Vec<i64> = chart.iter().map(|&c| if c { 6 } else { -6 }).collect();
+            let symbolic = [true, false, true];
+            // Symbolic slots hold offsets from base (staying in the chart),
+            // the numeric slot holds its actual power.
+            let at = |s: &[i64]| -> Vec<i64> {
+                s.iter()
+                    .zip(&base)
+                    .zip(&symbolic)
+                    .map(|((&v, &n0), &sym)| if sym { n0 + v } else { v })
+                    .collect()
+            };
+            for a in cube(3, -2, 2) {
+                for b in cube(3, -2, 2) {
+                    assert_eq!(
+                        order
+                            .compare_mixed(&chart, &symbolic, &a, &b)
+                            .unwrap()
+                            .ordering,
+                        order.compare(&at(&a), &at(&b)).unwrap().ordering,
+                        "chart {chart:?} {a:?} {b:?}"
+                    );
+                }
+            }
+            // Fixed-support shift comparison on the raw chart of every axis.
+            for a in cube(3, -2, 2) {
+                for b in cube(3, -2, 2) {
+                    let at = |s: &[i64]| -> Vec<i64> {
+                        s.iter().zip(&base).map(|(v, n)| v + n).collect()
+                    };
+                    let expected = order.compare(&at(&a), &at(&b)).unwrap().ordering;
+                    assert_eq!(
+                        order.compare_shifts(&chart, &a, &b).unwrap().ordering,
+                        expected
+                    );
+                    let signed = |s: &[i64]| -> Vec<i128> {
+                        s.iter()
+                            .zip(&chart)
+                            .map(|(&v, &c)| if c { i128::from(v) } else { -i128::from(v) })
+                            .collect()
+                    };
+                    assert_eq!(
+                        order
+                            .compare_shift_excess(&chart, &signed(&a), &signed(&b))
+                            .unwrap()
+                            .ordering,
+                        expected
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn two_sided_pre_support_rows_count_e_plus_one_in_every_view() {
+    // Pre-support rows take absolute powers; a two-sided axis contributes
+    // e(n) + 1 under its active weight, on both sides of zero.
+    let flags = vec![true, false, true];
+    let row = DegreeRow {
+        active: vec![2, 1, 1],
+        inactive: vec![1, 3, 1],
+    };
+    let mut descriptor = OrderDescriptor::spired_uncut_two_sided(flags.clone());
+    descriptor.pre_support_degree_rows = vec![row.clone()];
+    let order = compile(descriptor);
+    let prefix = |p: &[i64]| -> i128 {
+        (0..3)
+            .map(|axis| {
+                let n = p[axis];
+                if flags[axis] {
+                    i128::from(row.active[axis]) * i128::from(two_sided_excess(n).unwrap() + 1)
+                } else if n > 0 {
+                    i128::from(row.active[axis]) * i128::from(n)
+                } else {
+                    i128::from(row.inactive[axis]) * -i128::from(n)
+                }
+            })
+            .sum()
+    };
+    let retained = |p: &[i64]| -> (Vec<bool>, Vec<u64>) {
+        p.iter()
+            .zip(&flags)
+            .map(|(&n, &ts)| {
+                if ts {
+                    (true, two_sided_excess(n).unwrap())
+                } else if n > 0 {
+                    (true, (n - 1) as u64)
+                } else {
+                    (false, n.unsigned_abs())
+                }
+            })
+            .unzip()
+    };
+    let points = cube(3, -3, 3);
+    for a in &points {
+        for b in &points {
+            let expected = prefix(a)
+                .cmp(&prefix(b))
+                .then_with(|| two_sided_reference(&flags, true, a, b));
+            let compared = order.compare(a, b).unwrap();
+            assert_eq!(compared.ordering, expected, "{a:?} {b:?}");
+            if prefix(a) != prefix(b) {
+                assert_eq!(
+                    compared.component,
+                    Some(Component::PreSupportDegreeRow(0)),
+                    "{a:?} {b:?}"
+                );
+            }
+            let ((sa, xa), (sb, xb)) = (retained(a), retained(b));
+            assert_eq!(order.compare_excess(&sa, &xa, &sb, &xb).unwrap(), compared);
+        }
+    }
+    // Offsets on a chart of every axis: the views agree with translated points.
+    for chart_bits in 0..8u32 {
+        let chart: Vec<bool> = (0..3).map(|i| chart_bits >> i & 1 == 1).collect();
+        let base: Vec<i64> = chart.iter().map(|&c| if c { 6 } else { -6 }).collect();
+        let symbolic = [true, false, true];
+        let mixed_at = |s: &[i64]| -> Vec<i64> {
+            (0..3)
+                .map(|i| if symbolic[i] { base[i] + s[i] } else { s[i] })
+                .collect()
+        };
+        let shift_at = |s: &[i64]| -> Vec<i64> { (0..3).map(|i| base[i] + s[i]).collect() };
+        let signed = |s: &[i64]| -> Vec<i128> {
+            s.iter()
+                .zip(&chart)
+                .map(|(&v, &c)| if c { i128::from(v) } else { -i128::from(v) })
+                .collect()
+        };
+        for a in cube(3, -2, 2) {
+            for b in cube(3, -2, 2) {
+                assert_eq!(
+                    order.compare_mixed(&chart, &symbolic, &a, &b).unwrap(),
+                    order.compare(&mixed_at(&a), &mixed_at(&b)).unwrap(),
+                    "chart {chart:?} {a:?} {b:?}"
+                );
+                let expected = order.compare(&shift_at(&a), &shift_at(&b)).unwrap();
+                assert_eq!(order.compare_shifts(&chart, &a, &b).unwrap(), expected);
+                assert_eq!(
+                    order
+                        .compare_shift_excess(&chart, &signed(&a), &signed(&b))
+                        .unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn two_sided_codec_is_v3_canonical_and_refuses_hostile_bytes() {
+    let order = compile(OrderDescriptor::spired_uncut_two_sided(vec![
+        true, false, true,
+    ]));
+    let bytes = order.canonical_bytes();
+    assert_eq!(&bytes[..8], b"RRDORD03");
+    assert_eq!(&bytes[bytes.len() - 3..], &[1, 0, 1]);
+    assert_eq!(
+        CompiledOrder::from_canonical_bytes(bytes, Limits::default()).unwrap(),
+        order
+    );
+    assert_eq!(order.two_sided(), [true, false, true]);
+    for n in 0..bytes.len() {
+        assert!(CompiledOrder::from_canonical_bytes(&bytes[..n], Limits::default()).is_err());
+    }
+    let mut extra = bytes.to_vec();
+    extra.push(1);
+    assert!(CompiledOrder::from_canonical_bytes(&extra, Limits::default()).is_err());
+    let flag = bytes.len() - 1;
+    for (value, ok) in [(0u8, true), (1, true), (2, false)] {
+        let mut changed = bytes.to_vec();
+        changed[flag] = value;
+        assert_eq!(
+            CompiledOrder::from_canonical_bytes(&changed, Limits::default()).is_ok(),
+            ok
+        );
+    }
+    let mut all_false = bytes.to_vec();
+    all_false[flag] = 0;
+    all_false[flag - 2] = 0;
+    assert!(CompiledOrder::from_canonical_bytes(&all_false, Limits::default()).is_err());
+    // A two-sided order with a pre-support prefix stays v3.
+    let mut prefixed = global_f(3);
+    prefixed.two_sided = vec![false, true, false];
+    let prefixed = compile(prefixed);
+    assert_eq!(&prefixed.canonical_bytes()[..8], b"RRDORD03");
+    assert_eq!(
+        CompiledOrder::from_canonical_bytes(prefixed.canonical_bytes(), Limits::default()).unwrap(),
+        prefixed
+    );
+    // Empty flags keep the v1/v2 bytes; malformed flags are refused.
+    assert_eq!(&compile(standard(3)).canonical_bytes()[..8], b"RRDORD01");
+    assert_eq!(&compile(global_f(3)).canonical_bytes()[..8], b"RRDORD02");
+    for flags in [vec![false; 3], vec![true; 2], vec![true; 4]] {
+        let mut d = standard(3);
+        d.two_sided = flags;
+        assert_eq!(
+            CompiledOrder::compile(d, Limits::default()).unwrap_err(),
+            Error::InvalidTwoSided
+        );
+    }
+}
+
+#[test]
+fn two_sided_transport_permutes_the_flags_and_commutes_with_comparison() {
+    let order = compile(OrderDescriptor::spired_uncut_two_sided(vec![
+        true, false, false,
+    ]));
+    let permutation = [2, 0, 1];
+    let transported = order.transport(&permutation, Limits::default()).unwrap();
+    assert_eq!(transported.two_sided(), [false, true, false]);
+    let map = |p: &[i64]| permutation.map(|axis| p[axis]).to_vec();
+    for a in cube(3, -2, 2) {
+        for b in cube(3, -2, 2) {
+            assert_eq!(
+                transported.compare(&map(&a), &map(&b)).unwrap(),
+                Comparison {
+                    ordering: order.compare(&a, &b).unwrap().ordering,
+                    component: order.compare(&a, &b).unwrap().component.map(|c| match c {
+                        Component::Coordinate(axis) => Component::Coordinate(
+                            permutation.iter().position(|&s| s == axis).unwrap()
+                        ),
+                        Component::SupportAxis(axis) => Component::SupportAxis(
+                            permutation.iter().position(|&s| s == axis).unwrap()
+                        ),
+                        other => other,
+                    }),
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn two_sided_range_and_retained_support_fail_closed() {
+    let order = compile(OrderDescriptor::spired_uncut_two_sided(vec![true, false]));
+    let big = MAX_TWO_SIDED_POWER + 1;
+    assert_eq!(
+        order.compare(&[big, 1], &[1, 1]).unwrap_err(),
+        Error::TwoSidedOutOfRange { axis: 0 }
+    );
+    assert!(
+        order
+            .compare(&[MAX_TWO_SIDED_POWER, 1], &[-MAX_TWO_SIDED_POWER, 1])
+            .is_ok()
+    );
+    // Retained keys must mark a two-sided axis active and carry e(n).
+    assert_eq!(
+        order
+            .compare_excess(&[false, true], &[1, 0], &[true, true], &[0, 0])
+            .unwrap_err(),
+        Error::TwoSidedOutOfRange { axis: 0 }
+    );
+    assert!(
+        order
+            .compare_shift_excess(&[true, true], &[i128::from(big), 0], &[0, 0])
+            .is_err()
+    );
 }

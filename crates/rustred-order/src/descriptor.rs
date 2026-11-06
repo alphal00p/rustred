@@ -38,6 +38,32 @@ pub struct OrderDescriptor {
     pub coordinate_groups: CoordinateGroups,
     pub active_direction: Direction,
     pub inactive_direction: Direction,
+    /// Two-sided coordinates (eps lines of p-integrals): the power is `n + j
+    /// eps` with `n` ranging over all of Z inside one support, so the axis is
+    /// always active and its excess is the injective
+    /// `e(n) = 2(n-1)` for `n >= 1`, `2(1-n)-1` for `n <= 0` (n = 1 is the
+    /// unique minimum). Empty means none and keeps the v1/v2 encodings;
+    /// otherwise one flag per coordinate with at least one set (canonical v3).
+    pub two_sided: Vec<bool>,
+}
+
+/// Largest power magnitude admitted on a two-sided coordinate. It keeps
+/// `e(n)` and its doubled symbolic offsets below `2^63`, the per-term bound
+/// behind the overflow-free `i128` row sums of [`OrderDescriptor::validate`].
+pub const MAX_TWO_SIDED_POWER: i64 = 1 << 61;
+
+/// Excess of a two-sided coordinate at power `n` (see
+/// [`OrderDescriptor::two_sided`]): `0, 1, 2, 3, ...` at `n = 1, 0, 2, -1, ...`.
+/// `None` outside `|n| <= MAX_TWO_SIDED_POWER`.
+pub fn two_sided_excess(n: i64) -> Option<u64> {
+    if n.unsigned_abs() > MAX_TWO_SIDED_POWER as u64 {
+        return None;
+    }
+    Some(if n >= 1 {
+        2 * (n - 1) as u64
+    } else {
+        2 * (1 - n) as u64 - 1
+    })
 }
 
 /// Resource policy, not a family-specific arity or a small fixed row language.
@@ -87,6 +113,13 @@ pub enum Error {
     ExcessOutOfRange {
         axis: usize,
     },
+    /// Two-sided flags must be empty or one per coordinate with one set.
+    InvalidTwoSided,
+    /// A two-sided coordinate was presented with an inactive support bit or a
+    /// power outside `MAX_TWO_SIDED_POWER`.
+    TwoSidedOutOfRange {
+        axis: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -119,6 +152,13 @@ impl fmt::Display for Error {
             Self::ExcessOutOfRange { axis } => write!(
                 f,
                 "order excess at coordinate {axis} is not derived from an i64 power or shift"
+            ),
+            Self::InvalidTwoSided => f.write_str(
+                "two-sided order flags must be empty or one per coordinate with at least one set",
+            ),
+            Self::TwoSidedOutOfRange { axis } => write!(
+                f,
+                "two-sided order coordinate {axis} needs an active support bit and |power| <= 2^61"
             ),
         }
     }
@@ -155,10 +195,62 @@ pub(crate) fn permutation(values: &[usize], size: usize) -> Result<(), Error> {
 }
 
 impl OrderDescriptor {
+    /// The uncut SpIRed source-port order (the solver's default comparator,
+    /// persisted as `rustred.spired-uncut-sector-order.v1`) as a program:
+    /// support count, support bits in slot order, total excess, numerator
+    /// degree, then reversed excess ties with active coordinates first.
+    /// No two-sided axes; set [`Self::two_sided`] to add them.
+    pub fn spired_uncut(arity: usize) -> Self {
+        Self {
+            pre_support_degree_rows: Vec::new(),
+            support_weights: vec![0; arity],
+            support_priority: (0..arity).collect(),
+            degree_rows: vec![
+                DegreeRow {
+                    active: vec![1; arity],
+                    inactive: vec![1; arity],
+                },
+                DegreeRow {
+                    active: vec![0; arity],
+                    inactive: vec![1; arity],
+                },
+            ],
+            coordinate_priority: (0..arity).collect(),
+            coordinate_groups: CoordinateGroups::ActiveFirst,
+            active_direction: Direction::Descending,
+            inactive_direction: Direction::Descending,
+            two_sided: Vec::new(),
+        }
+    }
+
+    /// [`Self::spired_uncut`] with two-sided axes (see [`Self::two_sided`])
+    /// and a degree row on their excess alone right after total excess: at
+    /// equal total excess the key closer to `n = 1` is simpler, also against
+    /// a numerator elsewhere, so residual (master) keys sit at `n = 1`
+    /// (Forcer's `1 + j eps`). The row is a tie break on purpose: leading
+    /// with it also gives masters at `n = 1`, but generation of the 4L top
+    /// chart of T083c then exceeds 30 min against 330 s here (measured, see
+    /// the M2-T7b notes). The flags are validated at compilation (one per
+    /// axis, at least one set).
+    pub fn spired_uncut_two_sided(two_sided: Vec<bool>) -> Self {
+        let arity = two_sided.len();
+        let mut descriptor = Self::spired_uncut(arity);
+        descriptor.degree_rows.insert(
+            1,
+            DegreeRow {
+                active: two_sided.iter().map(|&flag| u64::from(flag)).collect(),
+                inactive: vec![0; arity],
+            },
+        );
+        descriptor.two_sided = two_sided;
+        descriptor
+    }
+
     pub(crate) fn dimensions(
         size: usize,
         pre_rows: usize,
         rows: usize,
+        two_sided: bool,
         limits: Limits,
     ) -> Result<usize, Error> {
         if size == 0 {
@@ -172,9 +264,18 @@ impl OrderDescriptor {
         let words = size
             .checked_mul(twice_rows.checked_add(3).ok_or(Error::DimensionOverflow)?)
             .ok_or(Error::DimensionOverflow)?;
+        // v1: magic, size, rows, 3 flag bytes; v2 adds the prefix count; v3
+        // always carries the prefix count and one two-sided byte per axis.
+        let header = if two_sided {
+            35usize.checked_add(size).ok_or(Error::DimensionOverflow)?
+        } else if pre_rows == 0 {
+            27
+        } else {
+            35
+        };
         let bytes = words
             .checked_mul(8)
-            .and_then(|n| n.checked_add(if pre_rows == 0 { 27 } else { 35 }))
+            .and_then(|n| n.checked_add(header))
             .ok_or(Error::DimensionOverflow)?;
         let comparison_terms = size
             .checked_mul(twice_rows.checked_add(8).ok_or(Error::DimensionOverflow)?)
@@ -204,8 +305,14 @@ impl OrderDescriptor {
             size,
             self.pre_support_degree_rows.len(),
             self.degree_rows.len(),
+            !self.two_sided.is_empty(),
             limits,
         )?;
+        if !self.two_sided.is_empty()
+            && (self.two_sided.len() != size || !self.two_sided.contains(&true))
+        {
+            return Err(Error::InvalidTwoSided);
+        }
         permutation(&self.support_priority, size)?;
         permutation(&self.coordinate_priority, size)?;
         checked_sum(self.support_weights.iter().copied())?;

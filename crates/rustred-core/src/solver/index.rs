@@ -237,6 +237,18 @@ impl<const N: usize> IntegralOrder<N> {
         self.program.as_ref()
     }
 
+    /// Two-sided axes of the order program (plan M2 sec.3.4), all false
+    /// without a program. On such an axis every power lies in the support
+    /// and orders by `rustred_order::two_sided_excess`; `sector` then only
+    /// names the raw chart of a symbolic power (`n >= 1` or `n <= 0`).
+    pub fn two_sided_axes(&self) -> [bool; N] {
+        std::array::from_fn(|axis| {
+            self.program
+                .as_ref()
+                .is_some_and(|program| program.is_two_sided(axis))
+        })
+    }
+
     /// Resize private solver storage without extending a physical order program.
     #[cfg(feature = "capacity-dispatch")]
     pub(super) fn resize<const K: usize>(&self) -> Result<IntegralOrder<K>, SolverError> {

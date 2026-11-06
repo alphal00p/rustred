@@ -450,7 +450,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        let mut seeds = Seeds::new(initial, *self.order.sector(), self.seed_frozen());
+        let mut seeds = Seeds::new_two_sided(
+            initial,
+            *self.order.sector(),
+            self.seed_frozen(),
+            self.order.two_sided_axes(),
+        );
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
         // rectangular zero-sector census cannot make that inference: pruning

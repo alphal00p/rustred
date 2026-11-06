@@ -90,6 +90,37 @@ pub fn family_candidates_from_family_controlled(
     )
 }
 
+/// The order program of a two-sided generation: the family's two-sided
+/// SpIRed program by default, or the caller's program when it carries exactly
+/// the family's two-sided axes. Without qualifying axes the request's order is
+/// kept unchanged (nothing is two-sided).
+fn two_sided_order(
+    axes: &[bool],
+    requested: Option<rustred::order::CompiledOrder>,
+    permutation: bool,
+) -> Result<Option<rustred::order::CompiledOrder>, AppError> {
+    if !axes.contains(&true) {
+        return Ok(requested);
+    }
+    if permutation {
+        return Err(AppError::input(
+            "two-sided eps axes need a programmed integral order, not a legacy --permutation",
+        ));
+    }
+    match requested {
+        Some(program) if program.two_sided() == axes => Ok(Some(program)),
+        Some(_) => Err(AppError::input(
+            "the integral-order program does not carry the family's two-sided eps axes",
+        )),
+        None => rustred::order::CompiledOrder::compile(
+            rustred::order::OrderDescriptor::spired_uncut_two_sided(axes.to_vec()),
+            rustred::order::Limits::default(),
+        )
+        .map(Some)
+        .map_err(|error| AppError::input(error.to_string())),
+    }
+}
+
 fn check_cancel(token: Option<&Arc<AtomicBool>>) -> Result<(), AppError> {
     if token.is_some_and(|token| token.load(Ordering::Acquire)) {
         Err(AppError::new(
@@ -165,7 +196,7 @@ fn generate_request(
 
 fn generate<const N: usize>(
     family: Arc<IntegralFamily>,
-    request: FamilyCandidatesRequest,
+    mut request: FamilyCandidatesRequest,
     root: &[bool],
     started: Instant,
     observe: Observer<'_>,
@@ -191,6 +222,17 @@ fn generate<const N: usize>(
         Some(pool) => pool.install(prepare),
         None => prepare(),
     }?;
+    if request.two_sided_eps_axes {
+        let axes = prepared
+            .sources
+            .set_two_sided_eps_axes(&prepared.family)
+            .map_err(|error| AppError::input(error.to_string()))?;
+        request.integral_order = two_sided_order(
+            &axes[..prepared.family.denominator_count()],
+            request.integral_order.take(),
+            request.permutation.is_some(),
+        )?;
+    }
     check_cancel(cancellation.as_ref())?;
     let selected_sectors = super::selection::apply(
         &mut prepared,

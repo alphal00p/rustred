@@ -22,6 +22,9 @@ pub struct Seed<const N: usize> {
 #[derive(Clone, Debug)]
 pub struct Seeds<const N: usize> {
     initial: Integral<N>,
+    /// Two-sided eps axes: a numeric power may cross between `n >= 1` and
+    /// `n <= 0` there (one support, see `SourceSystem::two_sided_axes`).
+    two_sided: [bool; N],
     active: [usize; N],
     active_count: usize,
     absolute: [i16; N],
@@ -36,7 +39,20 @@ impl<const N: usize> Seeds<N> {
     /// reference solver's `do`/`while` loop. `sector` describes symbolic signs;
     /// those signs do not constrain symbolic seeding in the reference algorithm.
     /// Numeric signs are taken from `initial`, as in C++ `makeCurrent`.
-    pub fn new(initial: Integral<N>, _sector: [bool; N], removed_deltas: [bool; N]) -> Self {
+    pub fn new(initial: Integral<N>, sector: [bool; N], removed_deltas: [bool; N]) -> Self {
+        Self::new_two_sided(initial, sector, removed_deltas, [false; N])
+    }
+
+    /// As [`Self::new`], except that a numeric power on a two-sided axis may
+    /// leave the sign of its initial value: every integer power of such an
+    /// axis lies in one support (plan M2 sec.3.4), so seeds on both sides of
+    /// zero instantiate identities of the same sector. All false is `new`.
+    pub fn new_two_sided(
+        initial: Integral<N>,
+        _sector: [bool; N],
+        removed_deltas: [bool; N],
+        two_sided: [bool; N],
+    ) -> Self {
         let mut active = [0; N];
         let mut active_count = 0;
         for (index, removed) in removed_deltas.into_iter().enumerate() {
@@ -47,6 +63,7 @@ impl<const N: usize> Seeds<N> {
         }
         Self {
             initial,
+            two_sided,
             active,
             active_count,
             absolute: [0; N],
@@ -55,6 +72,11 @@ impl<const N: usize> Seeds<N> {
             first: true,
             done: false,
         }
+    }
+
+    /// Two-sided axes of this stream (all false for [`Self::new`]).
+    pub fn two_sided(&self) -> [bool; N] {
+        self.two_sided
     }
 
     /// The L1 displacement of the most recently emitted seed.
@@ -103,7 +125,7 @@ impl<const N: usize> Seeds<N> {
         for active in 0..self.active_count {
             let index = self.active[active];
             let initial = self.initial[index];
-            if !initial.is_symbolic() {
+            if !initial.is_symbolic() && !self.two_sided[index] {
                 let delta = if self.positive[active] {
                     self.absolute[active]
                 } else {
@@ -314,6 +336,34 @@ mod tests {
             seeds.next(),
             Some(Err(PowerError::OutOfRange { value: -65 }))
         );
+    }
+
+    #[test]
+    fn two_sided_axes_cross_zero_and_all_false_is_new() {
+        let initial = Integral::numeric([1, 1]).unwrap();
+        let powers = |seeds: Seeds<2>| -> Vec<[i16; 2]> {
+            seeds
+                .take(60)
+                .map(|seed| seed.unwrap().integral.powers().map(|p| p.value()))
+                .collect()
+        };
+        let plain = powers(Seeds::new(initial, [true; 2], [false; 2]));
+        assert_eq!(
+            plain,
+            powers(Seeds::new_two_sided(
+                initial, [true; 2], [false; 2], [false; 2]
+            ))
+        );
+        // A numeric power keeps its sign unless its axis is two-sided.
+        assert!(plain.iter().all(|power| power.iter().all(|&n| n >= 1)));
+        let crossing = powers(Seeds::new_two_sided(
+            initial,
+            [true; 2],
+            [false; 2],
+            [true, false],
+        ));
+        assert!(crossing.iter().any(|power| power[0] <= 0));
+        assert!(crossing.iter().all(|power| power[1] >= 1));
     }
 
     #[test]

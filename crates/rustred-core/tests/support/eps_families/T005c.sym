@@ -1,0 +1,14 @@
+I(
+  name(T005c),
+  loops(k1,k2),
+  externals(q),
+  dimension(d),
+  prop(D1,(k1)^2,1),
+  prop(D2,(-k1-k2)^2,1),
+  prop(D3,(k2)^2,1),
+  prop(D4,(k1+k2-q)^2,1),
+  prop(D5,(-k2+q)^2,1),
+  gram(q,q,1)
+  ,power_shift(D4,2-d/2)
+  ,power_shift(D5,4-d)
+)
