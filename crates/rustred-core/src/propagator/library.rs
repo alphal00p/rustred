@@ -388,7 +388,10 @@ impl PLibrary {
     /// `{(+1,-1),(-1,-2),(-2,+1)}` times `(d-3)`. Tags are absolute on both sides
     /// of [`PBasisMap::map`]: it receives the tag of the term, scheme included,
     /// and each tag it returns is taken as it stands, so a map adds its own
-    /// factors to the tag it was given.
+    /// factors to the tag it was given. Every terminal goes through the map,
+    /// `Unit` (terminal 0) included. A row without terms is refused, because a
+    /// terminal that drops out unnoticed is a silent zero; a terminal that
+    /// really vanishes returns a term with a zero coefficient.
     fn onto_masters(
         &self,
         loops: u8,
@@ -422,10 +425,18 @@ impl PLibrary {
                 terms.add(self, Self::plain_basis(terminal), tag, coefficient, limits)?;
                 continue;
             };
-            for term in map.map(terminal, &tag)? {
+            let row = map.map(terminal, &tag)?;
+            if row.is_empty() {
+                return Err(PError::MalformedLibrary(format!(
+                    "the basis map has no row for terminal {}",
+                    terminal.0
+                )));
+            }
+            for term in row {
                 if !context.contains(&term.coefficient) {
                     return Err(PError::ContextMismatch);
                 }
+                term.tag.encode_dense(&mut Vec::new())?;
                 let value = context
                     .try_mul(&coefficient, &term.coefficient, exact)
                     .map_err(algebra)?;

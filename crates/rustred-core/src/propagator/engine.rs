@@ -165,6 +165,8 @@ pub(crate) struct PEngine {
     shapes: Vec<Shape>,
     /// Slots of every view and terminal key of this library.
     width: usize,
+    /// Terminals of this library: ids at or above it name nothing.
+    terminals: usize,
     phases: PhasePlan,
     owners: BTreeMap<OwnerClassId, OwnerSlot>,
     owner_sectors: BTreeMap<(PresentationId, u64), OwnerClassId>,
@@ -221,6 +223,7 @@ impl PEngine {
         Ok(Self {
             shapes,
             width: (max_arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS),
+            terminals: library.terminals().len(),
             phases: PhasePlan { max_lines },
             owners,
             owner_sectors,
@@ -240,7 +243,8 @@ impl PEngine {
         })
     }
 
-    /// The powers and tag slots of `view`, a key of `presentation`.
+    /// The powers and tag slots of `view`, a key of `presentation`; the slots
+    /// beyond the tag are zero in every key this library writes.
     fn split<'v>(
         &self,
         presentation: PresentationId,
@@ -257,7 +261,14 @@ impl PEngine {
             )));
         }
         let (powers, rest) = slots.split_at(arity);
-        Ok((powers, &rest[..P_GAMMA_TAG_WIDTH]))
+        let (tag, padding) = rest.split_at(P_GAMMA_TAG_WIDTH);
+        if padding.iter().any(|&slot| slot != 0) {
+            return Err(PError::MalformedLibrary(format!(
+                "a key of presentation {} has nonzero slots beyond its tag",
+                presentation.0
+            )));
+        }
+        Ok((powers, tag))
     }
 
     /// `powers ++ dense tag ++ zeros`; a tag outside the key range is
@@ -287,7 +298,9 @@ impl PEngine {
         self.padded(PTerminalCodec::encode(terminal, tag)?.into_powers())
     }
 
-    /// The terminal and tag of a terminal key of the output.
+    /// The terminal and tag of a terminal key of the output. A key can come from
+    /// a step record, so nothing of it is taken on trust: its slots beyond the
+    /// codec's are zero and its terminal exists in this library.
     pub(crate) fn decode_terminal(
         &self,
         key: &IntegralKey,
@@ -300,9 +313,22 @@ impl PEngine {
                 self.width
             )));
         }
-        let plain = IntegralKey::try_new(slots[..PTerminalCodec::KEY_SLOTS].iter().copied())
+        let (plain, padding) = slots.split_at(PTerminalCodec::KEY_SLOTS);
+        if padding.iter().any(|&slot| slot != 0) {
+            return Err(PError::MalformedLibrary(
+                "a terminal key has nonzero slots beyond its tag".to_owned(),
+            ));
+        }
+        let plain = IntegralKey::try_new(plain.iter().copied())
             .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
-        PTerminalCodec::decode(&plain)
+        let (terminal, tag) = PTerminalCodec::decode(&plain)?;
+        if terminal.0 as usize >= self.terminals {
+            return Err(PError::MalformedLibrary(format!(
+                "a terminal key names the unknown terminal {}",
+                terminal.0
+            )));
+        }
+        Ok((terminal, tag))
     }
 
     /// The Route key of `powers` on `presentation` with `tag`.
@@ -743,6 +769,11 @@ impl<'l> PStepper<'l> {
             if !context.contains(&condition) {
                 return Err(PError::ContextMismatch);
             }
+            if condition.is_zero() {
+                return Err(PError::Contract(
+                    "a step emits a nonzero condition that is identically zero".to_owned(),
+                ));
+            }
             if !step.nonzero_conditions.contains(&condition) {
                 step.nonzero_conditions.push(condition);
             }
@@ -775,7 +806,7 @@ impl<'l> PStepper<'l> {
         let arity = |presentation| {
             self.engine
                 .split(presentation, &view)
-                .map_err(|_| failure("a recorded identity has the wrong arity"))
+                .map_err(|_| failure("a recorded identity is not a key of this library"))
         };
         match stage {
             NodeStage::ClassRoute(class) => {
@@ -965,5 +996,216 @@ impl ConcurrentStepCacheKernel for PKernel<'_, '_> {
         Self: 's,
     {
         stepper.recorded_key(stage, view)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::propagator::census::{PCensus, PClassRecord};
+    use crate::propagator::class::OwnerClassKey;
+    use crate::propagator::lane::{LaneRoles, OwnerLane};
+    use crate::propagator::library::POwnerSpec;
+    use crate::propagator::presentation::{PresentationKind, Slot, SlotLine};
+
+    const BUBBLE: PresentationId = PresentationId(1);
+
+    fn presentation(
+        context: &CoefficientContext,
+        id: u32,
+        loops: u8,
+        momenta: &[&[i64]],
+    ) -> Presentation {
+        let slots = momenta
+            .iter()
+            .map(|momentum| {
+                Slot::Line(SlotLine {
+                    momentum: momentum.to_vec(),
+                    eps_units: 0,
+                })
+            })
+            .collect();
+        Presentation::from_slots(
+            PresentationId(id),
+            PresentationKind::EpsNode,
+            &format!("presentation {id}"),
+            loops,
+            slots,
+            context,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// A kite and a bubble with a missing owner on its full sector, and no
+    /// terminal but `Unit`. Keys have the 21 slots of the kite: a view of the
+    /// bubble ends in 3 slots of padding, a terminal key in 2.
+    fn library() -> (PLibrary, OwnerClassId) {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let mut census = PCensus::default();
+        let class = census
+            .insert_class(PClassRecord {
+                key: OwnerClassKey {
+                    loops: 1,
+                    lines: 2,
+                    eps_lines: 0,
+                    canonical: Arc::from(&b"bubble"[..]),
+                },
+                owner: (BUBBLE, 0b11),
+                node: None,
+                nodes: Vec::new(),
+                t: 2,
+                eps_lines: 0,
+            })
+            .unwrap();
+        let mut builder = PLibrary::builder(context.clone(), 1..=2);
+        builder
+            .add_presentation(presentation(
+                &context,
+                0,
+                2,
+                &[
+                    &[1, 0, 0],
+                    &[0, 1, 0],
+                    &[1, 0, -1],
+                    &[0, 1, -1],
+                    &[1, -1, 0],
+                ],
+            ))
+            .unwrap();
+        builder
+            .add_presentation(presentation(&context, 1, 1, &[&[1, 0], &[1, -1]]))
+            .unwrap();
+        builder.set_census(census).unwrap();
+        builder
+            .add_owner_with_program(
+                POwnerSpec {
+                    class,
+                    lane: OwnerLane::Custom,
+                    presentation: BUBBLE,
+                    node: None,
+                    roles: LaneRoles::None,
+                    edge_maps: Vec::new(),
+                    payload: None,
+                    custom: None,
+                    terminals: Vec::new(),
+                },
+                OwnerProgram::Missing { ledger: 0 },
+            )
+            .unwrap();
+        (builder.build().unwrap(), class)
+    }
+
+    /// `key` one slot short, and with a nonzero last slot.
+    fn damaged(key: &IntegralKey) -> [IntegralKey; 2] {
+        let mut padded = key.powers().to_vec();
+        *padded.last_mut().unwrap() = 1;
+        [
+            IntegralKey::try_new(key.powers()[1..].iter().copied()).unwrap(),
+            IntegralKey::try_new(padded).unwrap(),
+        ]
+    }
+
+    #[test]
+    fn a_view_outside_the_layout_of_the_library_is_refused() {
+        let (library, class) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let tag = GammaTag::from_pairs([(1, 2)]).unwrap();
+        let view = engine.view(&[1, 1], &tag).unwrap();
+        assert_eq!(view.powers().len(), 21);
+        let (powers, tag_slots) = engine.split(BUBBLE, &view).unwrap();
+        assert_eq!(powers, [1, 1]);
+        assert_eq!(GammaTag::decode_dense(tag_slots).unwrap(), tag);
+        for damaged in damaged(&view) {
+            assert!(matches!(
+                engine.split(BUBBLE, &damaged),
+                Err(PError::MalformedLibrary(_))
+            ));
+        }
+        // And so is the identity of a record, whichever stage it names.
+        let stepper = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+        };
+        assert_eq!(
+            stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
+            Ok(PKey::Route {
+                presentation: BUBBLE,
+                view: view.clone()
+            })
+        );
+        assert_eq!(
+            stepper.recorded_key(NodeStage::ClassApply(class.0), view.clone()),
+            Ok(PKey::Apply {
+                class,
+                view: view.clone()
+            })
+        );
+        let stale = |result: Result<PKey, PError>| {
+            matches!(
+                result,
+                Err(PError::Engine(ReductionError::OrderedStepCache { .. }))
+            )
+        };
+        for damaged in damaged(&view) {
+            for stage in [NodeStage::ClassRoute(1), NodeStage::ClassApply(class.0)] {
+                assert!(stale(stepper.recorded_key(stage, damaged.clone())));
+            }
+        }
+        for stage in [
+            NodeStage::ClassRoute(2),
+            NodeStage::ClassApply(class.0 ^ 1),
+            NodeStage::Integral,
+            NodeStage::Route,
+            NodeStage::Apply(0b11),
+        ] {
+            assert!(stale(stepper.recorded_key(stage, view.clone())));
+        }
+    }
+
+    #[test]
+    fn a_terminal_key_of_a_record_is_checked_like_a_new_one() {
+        let (library, _) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let tag = GammaTag::from_pairs([(-1, 3)]).unwrap();
+        let unit = engine.terminal_key(PTerminalId(0), &tag).unwrap();
+        assert_eq!(
+            engine.decode_terminal(&unit),
+            Ok((PTerminalId(0), tag.clone()))
+        );
+        let unknown = engine.terminal_key(PTerminalId(1), &tag).unwrap();
+        let [short, padded] = damaged(&unit);
+        for key in [unknown, short, padded] {
+            assert!(
+                matches!(
+                    engine.decode_terminal(&key),
+                    Err(PError::MalformedLibrary(_))
+                ),
+                "{key:?}"
+            );
+        }
+    }
+
+    /// Reachable only from a record: a step never writes such a key.
+    #[test]
+    fn an_apply_key_off_the_sector_of_its_owner_is_refused() {
+        let (library, class) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let stepper = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+        };
+        let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
+        assert!(matches!(
+            stepper.apply_step(class, &inside),
+            Err(PError::MissingOwner { .. })
+        ));
+        let pinched = engine.view(&[1, 0], &GammaTag::one()).unwrap();
+        assert!(matches!(
+            stepper.apply_step(class, &pinched),
+            Err(PError::MalformedLibrary(_))
+        ));
     }
 }

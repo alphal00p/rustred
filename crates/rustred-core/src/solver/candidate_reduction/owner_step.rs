@@ -31,6 +31,11 @@ pub(crate) enum AppliedOwnerStep {
 /// Apply the owner of `sector` to `key` (the owner is prepared once, on first
 /// use). Conditions of the step are appended to `conditions` without
 /// duplicates.
+///
+/// `sector` is the raw chart of `key`, its slots of positive power: candidate
+/// dispatch is keyed by it, and each chart of an eps owner is a sector of its
+/// own. Never pass the support with the forced axes (plan sec.3.4). A key of
+/// another chart is `InvalidInput`, as in the routed Apply arm.
 #[allow(dead_code)] // M2-T7c
 pub(crate) fn apply_prepared_owner<const N: usize>(
     programs: &DeferredCandidateOwnerPrograms<N>,
@@ -40,6 +45,13 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
     request: &mut ReductionRequest,
     work: &mut ReductionStatistics,
 ) -> Result<AppliedOwnerStep, CandidateReductionError> {
+    let chart: [bool; N] =
+        std::array::from_fn(|slot| key.powers().get(slot).copied().unwrap_or(0) > 0);
+    if chart != *sector {
+        return Err(CandidateReductionError::InvalidInput(
+            "apply node does not belong to its owner support".into(),
+        ));
+    }
     let context = programs.context();
     let shared = &context.shared;
     let limits = context.limits;
@@ -158,6 +170,20 @@ mod tests {
         }
     }
 
+    /// The chart `(0, 1)` with its one key as a terminal.
+    #[derive(Debug)]
+    struct ChartLoader;
+
+    impl DeferredCandidateOwnerLoader<2> for ChartLoader {
+        fn prepare(
+            &self,
+            sector: [bool; 2],
+            context: Arc<CandidateOwnerContext<2>>,
+        ) -> Result<CandidateOwnerPrograms<2>, CandidateReductionError> {
+            CandidateOwnerPrograms::try_new(context, [input(sector, None, vec![], &[[0, 1]])])
+        }
+    }
+
     #[test]
     fn a_prepared_owner_applies_outside_the_routed_application() {
         let family = bubble(0);
@@ -211,8 +237,76 @@ mod tests {
             step([2, 1]),
             AppliedOwnerStep::Applied(BTreeMap::from([(key([1, 1]), three)]))
         );
+        // A key of another chart is a misuse, not an uncovered key.
+        for powers in [[1, 0], [2, -1], [0, 1], [0, 0]] {
+            assert!(matches!(
+                apply_prepared_owner(
+                    &programs,
+                    &sector,
+                    &key(powers),
+                    &mut conditions,
+                    &mut request,
+                    &mut work,
+                ),
+                Err(CandidateReductionError::InvalidInput(_))
+            ));
+        }
         assert!(conditions.is_empty());
         assert_eq!(work.rule_applications(), 1);
+    }
+
+    /// The chart `n <= 0` of an eps axis is its own sector, inside the full root:
+    /// its key passes, and the full support is refused for it.
+    #[test]
+    fn a_chart_of_an_eps_owner_is_its_own_sector() {
+        let family = bubble(1);
+        let context = Arc::new(
+            CandidateOwnerContext::<2>::try_new_p(
+                Arc::clone(&family),
+                scope(),
+                vec![],
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        let chart = [false, true];
+        let programs = DeferredCandidateOwnerPrograms::try_new(
+            context,
+            [DeferredCandidateOwnerDescriptor {
+                sector: chart,
+                saved_root: [true; 2],
+                ordering: OrderingPolicy::SpiredUncutV1,
+                terminals: BTreeSet::from([key([0, 1])]),
+            }],
+            Arc::new(ChartLoader),
+        )
+        .unwrap();
+        let mut request = ReductionRequest::default();
+        let mut work = ReductionStatistics::default();
+        let mut conditions = Vec::new();
+        assert_eq!(
+            apply_prepared_owner(
+                &programs,
+                &chart,
+                &key([0, 1]),
+                &mut conditions,
+                &mut request,
+                &mut work,
+            )
+            .unwrap(),
+            AppliedOwnerStep::Terminal
+        );
+        assert!(matches!(
+            apply_prepared_owner(
+                &programs,
+                &[true, true],
+                &key([0, 1]),
+                &mut conditions,
+                &mut request,
+                &mut work,
+            ),
+            Err(CandidateReductionError::InvalidInput(_))
+        ));
     }
 
     #[test]
