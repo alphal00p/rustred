@@ -264,6 +264,14 @@ fn class_record(bytes: &[u8], owner: u32) -> PClassRecord {
     }
 }
 
+/// A 1L sector routed onto `class` by the identity.
+fn route_to(class: OwnerClassId) -> PSectorFate {
+    PSectorFate::Owner {
+        class,
+        map: unit_map(0, 1),
+    }
+}
+
 fn owner_spec(class: OwnerClassId, presentation: u32) -> POwnerSpec {
     POwnerSpec {
         class,
@@ -354,19 +362,10 @@ fn every_census_owner_needs_an_owner_record() {
     assert_malformed(with(vec![broken], census.clone()));
 
     let mut unknown = census.clone();
-    unknown.sectors.insert(
-        (PresentationId(0), 0b11),
-        PSectorFate::Owner {
-            class: OwnerClassId(id.0 ^ 1),
-            map: SignedAffineLoopMap {
-                loops_in: 1,
-                loops_out: 1,
-                loop_linear: Box::new([1]),
-                loop_external: Box::new([0]),
-                external_sign: 1,
-            },
-        },
-    );
+    let unknown_route = route_to(OwnerClassId(id.0 ^ 1));
+    unknown
+        .sectors
+        .insert((PresentationId(0), 0b01), unknown_route);
     assert_malformed(with(vec![owner_spec(id, 0)], unknown));
 
     with(vec![owner_spec(id, 0)], census).unwrap();
@@ -377,6 +376,7 @@ fn the_builder_fails_closed() {
     let wrong_id = hand_built(3, 1, vec![line(&[1, 0]), line(&[1, -1])]);
     assert_malformed(PLibrary::builder(context(), 1..=1).add_presentation(wrong_id));
     assert_malformed(PLibrary::builder(context(), 1..=1).add_presentation(kite()));
+    assert_malformed(PLibrary::builder(context(), 2..=3).add_presentation(bubble()));
 
     let two_scales = CoefficientContext::try_new(["d", "x"]).unwrap();
     let mut foreign = PLibrary::builder(two_scales.clone(), 1..=1);
@@ -733,6 +733,22 @@ fn the_carpet_contract_routes_q_only_through_r() {
     };
     check_carpet_contract(&without_third, &no_third).unwrap();
 
+    // Roles without third on a line +-p: a step would drop the power of that slot.
+    assert_contract(check_carpet_contract(&carpet(), &no_third));
+    let minus_p = hand_built(
+        0,
+        2,
+        vec![
+            line(&[1, 0, 0]),
+            line(&[1, -1, 0]),
+            line(&[0, 1, -1]),
+            line(&[0, -1, 0]),
+            isp(&[1, 0, 0], &[0, 0, 1]),
+        ],
+    );
+    check_carpet_contract(&minus_p, &CARPET_ROLES).unwrap();
+    assert_contract(check_carpet_contract(&minus_p, &no_third));
+
     // q in a blob line.
     let q_in_blob = hand_built(
         0,
@@ -776,17 +792,18 @@ fn the_carpet_contract_routes_q_only_through_r() {
     assert_contract(check_carpet_contract(&mixed, &CARPET_ROLES));
 }
 
-/// The kite d43 in a triangle-adapted routing: `k` runs through `b, a1, a2`.
-fn triangle_kite(apex_eps: u8, side_eps: u8) -> Presentation {
+/// The kite d43 in a triangle-adapted routing: `k` runs through `b, a1, a2`;
+/// `eps` units on the slots `b, a1, a2, c1, c2`.
+fn triangle_kite(eps: [u8; 5]) -> Presentation {
     hand_built(
         0,
         2,
         vec![
-            line(&[1, 0, 0]),
-            eps_line(&[1, 1, 0], apex_eps),
-            line(&[1, 1, -1]),
-            eps_line(&[0, 1, 0], side_eps),
-            line(&[0, 1, -1]),
+            eps_line(&[1, 0, 0], eps[0]),
+            eps_line(&[1, 1, 0], eps[1]),
+            eps_line(&[1, 1, -1], eps[2]),
+            eps_line(&[0, 1, 0], eps[3]),
+            eps_line(&[0, 1, -1], eps[4]),
         ],
     )
 }
@@ -799,16 +816,27 @@ fn the_triangle_contract_needs_k_in_three_lines() {
         c: [3, 4],
         k_loop: 0,
     };
-    check_triangle_contract(&triangle_kite(0, 0), &roles).unwrap();
-    check_triangle_contract(&triangle_kite(1, 0), &roles).unwrap();
+    check_triangle_contract(&triangle_kite([0; 5]), &roles).unwrap();
 
-    assert_contract(check_triangle_contract(&triangle_kite(0, 1), &roles));
+    // Only the apex lines a may carry eps.
+    let eps_on = |slot: usize| {
+        let mut eps = [0; 5];
+        eps[slot] = 1;
+        triangle_kite(eps)
+    };
+    for apex in [1, 2] {
+        check_triangle_contract(&eps_on(apex), &roles).unwrap();
+    }
+    for integer_line in [0, 3, 4] {
+        assert_contract(check_triangle_contract(&eps_on(integer_line), &roles));
+    }
+
     assert_contract(check_triangle_contract(
-        &triangle_kite(0, 0),
+        &triangle_kite([0; 5]),
         &TriangleRoles { c: [4, 3], ..roles },
     ));
     assert_contract(check_triangle_contract(
-        &triangle_kite(0, 0),
+        &triangle_kite([0; 5]),
         &TriangleRoles { c: [3, 3], ..roles },
     ));
     // The plain kite routing: mom(b) = k1 - k2 is no loop momentum.
@@ -1026,7 +1054,7 @@ fn tampered_presentations_are_typed_errors_not_panics() {
         assert_contract(check_insertion_contract(&bubble, &bubble_roles));
         let carpet = tampered(&carpet(), 1, row.clone());
         assert_contract(check_carpet_contract(&carpet, &CARPET_ROLES));
-        let triangle = tampered(&triangle_kite(0, 0), 1, row.clone());
+        let triangle = tampered(&triangle_kite([0; 5]), 1, row.clone());
         assert_contract(check_triangle_contract(&triangle, &triangle_roles));
         let parent = tampered(&nested_bubble(), 1, row.clone());
         assert_contract(verify_edge_map(
@@ -1357,16 +1385,18 @@ fn every_node_reference_needs_the_topology() {
 
     // Owners and class records name existing nodes of a set topology.
     let in_topology = |node: NodeIndex| {
-        move |builder: &mut PLibraryBuilder, _: &mut PCensus, owner: &mut POwnerSpec| {
+        move |builder: &mut PLibraryBuilder, census: &mut PCensus, owner: &mut POwnerSpec| {
             builder.set_topology(bubble_dag())?;
             owner.node = Some(node);
+            census.classes.get_mut(&owner.class).unwrap().node = owner.node;
             Ok(())
         }
     };
     built_with(bubble(), in_topology(NodeIndex(0))).unwrap();
     assert_malformed(built_with(bubble(), in_topology(NodeIndex(99))));
-    assert_malformed(built_with(bubble(), |_, _, owner| {
+    assert_malformed(built_with(bubble(), |_, census, owner| {
         owner.node = Some(NodeIndex(0));
+        census.classes.get_mut(&owner.class).unwrap().node = owner.node;
         Ok(())
     }));
     for nodes in [(Some(NodeIndex(99)), vec![]), (None, vec![NodeIndex(99)])] {
@@ -1430,10 +1460,10 @@ fn every_induced_presentation_needs_its_top() {
 fn supports_contain_the_forced_axes_and_lie_on_the_slots() {
     let eps_bubble = || hand_built(0, 1, vec![line(&[1, 0]), eps_line(&[1, -1], 1)]);
     let with_sector = |support: u64| {
-        built_with(eps_bubble(), move |_, census, _| {
-            census
-                .sectors
-                .insert((PresentationId(0), support), PSectorFate::Zero);
+        built_with(eps_bubble(), move |_, census, owner| {
+            census.classes.get_mut(&owner.class).unwrap().eps_lines = 1;
+            let fate = route_to(owner.class);
+            census.sectors.insert((PresentationId(0), support), fate);
             Ok(())
         })
     };
@@ -1482,13 +1512,132 @@ fn routes_keep_the_loop_counts_of_their_presentations() {
     with_route(route(1, 1)).unwrap();
     assert_malformed(with_route(route(2, 1)));
     assert_malformed(with_route(route(1, 2)));
+
+    // A route is a change of basis: det +-1 and q -> +-q, on complete rows.
+    let square = || route(1, 1);
+    with_route(SignedAffineLoopMap {
+        loop_linear: Box::new([-1]),
+        external_sign: -1,
+        ..square()
+    })
+    .unwrap();
+    for map in [
+        SignedAffineLoopMap {
+            loop_linear: Box::new([2]),
+            ..square()
+        },
+        SignedAffineLoopMap {
+            loop_linear: Box::new([0]),
+            ..square()
+        },
+        SignedAffineLoopMap {
+            external_sign: 5,
+            ..square()
+        },
+        SignedAffineLoopMap {
+            external_sign: 0,
+            ..square()
+        },
+        SignedAffineLoopMap {
+            loop_linear: Box::new([]),
+            ..square()
+        },
+        SignedAffineLoopMap {
+            loop_external: Box::new([]),
+            ..square()
+        },
+    ] {
+        assert_malformed(with_route(map));
+    }
+}
+
+#[test]
+fn class_records_agree_with_their_owner() {
+    // t and eps_lines count the owner sector: lines, eps lines among them.
+    let counted = |support: u64, t: u8, eps_lines: u8| {
+        let eps_bubble = hand_built(0, 1, vec![line(&[1, 0]), eps_line(&[1, -1], 1)]);
+        built_with(eps_bubble, move |_, census, owner| {
+            let class = census.classes.get_mut(&owner.class).unwrap();
+            class.owner.1 = support;
+            (class.t, class.eps_lines) = (t, eps_lines);
+            Ok(())
+        })
+    };
+    counted(0b11, 2, 1).unwrap();
+    counted(0b10, 1, 1).unwrap();
+    assert_malformed(counted(0b11, 1, 1));
+    assert_malformed(counted(0b11, 3, 1));
+    assert_malformed(counted(0b11, 2, 0));
+    assert_malformed(counted(0b11, 2, 2));
+
+    // The class and its owner record name one node.
+    let at_nodes = |class_node: Option<u32>, owner_node: Option<u32>| {
+        built_with(bubble(), move |builder, census, owner| {
+            builder.set_topology(bubble_dag())?;
+            census.classes.get_mut(&owner.class).unwrap().node = class_node.map(NodeIndex);
+            owner.node = owner_node.map(NodeIndex);
+            Ok(())
+        })
+    };
+    assert_eq!(bubble_dag().nodes.len(), 2);
+    at_nodes(None, None).unwrap();
+    at_nodes(Some(1), Some(1)).unwrap();
+    assert_malformed(at_nodes(Some(0), None));
+    assert_malformed(at_nodes(None, Some(0)));
+    assert_malformed(at_nodes(Some(0), Some(1)));
+
+    // A second known class, on the first line alone.
+    let second_class = || PClassRecord {
+        owner: (PresentationId(0), 0b01),
+        t: 1,
+        ..class_record(b"second", 0)
+    };
+
+    // The owner sector stays alive and in its class; other sectors may vanish.
+    let with_fate = |support: u64, fate: fn(OwnerClassId) -> PSectorFate| {
+        built_with(bubble(), move |_, census, owner| {
+            let fate = fate(owner.class);
+            census.sectors.insert((PresentationId(0), support), fate);
+            Ok(())
+        })
+    };
+    with_fate(0b11, route_to).unwrap();
+    with_fate(0b01, |_| PSectorFate::Zero).unwrap();
+    assert_malformed(with_fate(0b11, |_| PSectorFate::Zero));
+    assert_malformed(built_with(bubble(), |builder, census, _| {
+        let second = census.insert_class(second_class())?;
+        builder.add_owner(owner_spec(second, 0))?;
+        census
+            .sectors
+            .insert((PresentationId(0), 0b11), route_to(second));
+        Ok(())
+    }));
+
+    // An owner lists the unit terminal and its own residuals, no other class's.
+    let listing_residual_of = |other: bool| {
+        built_with(bubble(), move |builder, census, owner| {
+            let second = census.insert_class(second_class())?;
+            builder.add_owner(owner_spec(second, 0))?;
+            let residual = builder.add_terminal(PTerminal::Residual {
+                owner: if other { second } else { owner.class },
+                key: IntegralKey::try_new([1, 1]).unwrap(),
+            })?;
+            owner.terminals = vec![PTerminalId(0), residual];
+            Ok(())
+        })
+    };
+    listing_residual_of(false).unwrap();
+    assert_malformed(listing_residual_of(true));
 }
 
 #[test]
 fn owner_edge_maps_leave_the_owner_presentation() {
     let library = |owner_presentation: u32| {
         let mut census = PCensus::default();
-        let id = census.insert_class(class_record(b"node", owner_presentation))?;
+        let id = census.insert_class(PClassRecord {
+            eps_lines: u8::from(owner_presentation == 1),
+            ..class_record(b"node", owner_presentation)
+        })?;
         let mut builder = PLibrary::builder(context(), 1..=2);
         builder.add_presentation(nested_bubble())?;
         builder.add_presentation(one_loop_child(1))?;

@@ -298,7 +298,7 @@ impl Presentation {
             .count()
     }
 
-    fn lines(&self) -> impl Iterator<Item = (usize, &SlotLine)> {
+    pub(super) fn lines(&self) -> impl Iterator<Item = (usize, &SlotLine)> {
         self.slots
             .iter()
             .enumerate()
@@ -738,7 +738,8 @@ pub fn check_insertion_contract(p: &Presentation, r: &BubbleRoles) -> Result<(),
 }
 
 /// `q` is routed only through `r = (p - q)^2`, `p = k_l`, `l = outer_loop`;
-/// `third`, when present, is `p^2`. Every other line is `q`-free. Every ISP is
+/// `third`, when present, is `p^2`; when absent no line is `+-p`, since a step
+/// would drop the power of that slot. Every other line is `q`-free. Every ISP is
 /// `q`-free or `l.q` with `l` a blob loop momentum (no `p` and no `q` component);
 /// so no ISP contains `p.q`. `p` itself does occur in blob lines: the blob is a
 /// two-point function of `p`.
@@ -753,11 +754,21 @@ pub fn check_carpet_contract(p: &Presentation, r: &CarpetRoles) -> Result<(), PE
     if !up_to_sign(&line_r.momentum, &expected_r) {
         return Err(check.fail(format!("r is {:?}", line_r.momentum)));
     }
-    if let Some(third) = r.third {
-        check.distinct(&[r.r, third])?;
-        let line_third = check.line(third)?;
-        if !up_to_sign(&line_third.momentum, &outer_momentum) {
-            return Err(check.fail(format!("third is {:?}", line_third.momentum)));
+    match r.third {
+        Some(third) => {
+            check.distinct(&[r.r, third])?;
+            let line_third = check.line(third)?;
+            if !up_to_sign(&line_third.momentum, &outer_momentum) {
+                return Err(check.fail(format!("third is {:?}", line_third.momentum)));
+            }
+        }
+        None => {
+            let unclaimed = p
+                .lines()
+                .find(|(_, line)| up_to_sign(&line.momentum, &outer_momentum));
+            if let Some((index, _)) = unclaimed {
+                return Err(check.fail(format!("line {index} is p^2, the roles have no third")));
+            }
         }
     }
     check.only_lines_carry(external, &[r.r])?;

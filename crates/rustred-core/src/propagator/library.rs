@@ -335,7 +335,7 @@ impl PLibraryBuilder {
         {
             return Err(PError::ContextMismatch);
         }
-        if p.loops > *self.scope.end() {
+        if !self.scope.contains(&p.loops) {
             return Err(malformed(format!(
                 "a {}-loop presentation in scope {:?}",
                 p.loops, self.scope
@@ -429,11 +429,14 @@ impl PLibraryBuilder {
     /// its owner record, and every reference resolved:
     /// - presentations: `Induced` names a top and a mask on its slots; a
     ///   `NodeRef` names a topology node with its graph key;
-    /// - census: supports lie on the slots and contain the forced axes, routes
-    ///   go to a known class with the arities of both presentations, class
-    ///   nodes exist in the topology;
-    /// - owners: the node exists, edge maps exist and leave the owner's
-    ///   presentation, terminals exist;
+    /// - census: supports lie on the slots and contain the forced axes; a class
+    ///   records the `t` and `eps_lines` of its owner sector, whose own fate is
+    ///   not `Zero` and no other class; routes are unimodular and go to a known
+    ///   class with the loop counts of both presentations; class nodes exist in
+    ///   the topology;
+    /// - owners: the node is the one of the class record, edge maps exist and
+    ///   leave the owner's presentation, terminals exist and a residual is the
+    ///   owner's own;
     /// - residual terminals name a known class, with a key of the arity of its
     ///   owner presentation.
     ///
@@ -550,9 +553,35 @@ impl PLibraryBuilder {
                     presentation.0, owner.spec.presentation.0
                 )));
             }
-            self.sector_presentation(presentation, support)?;
+            let sector = self.sector_presentation(presentation, support)?;
+            let lines = sector
+                .lines()
+                .filter(|&(slot, _)| support >> slot & 1 == 1)
+                .count();
+            let eps_lines = sector.forced_axes().count_ones();
+            if (usize::from(record.t), u32::from(record.eps_lines)) != (lines, eps_lines) {
+                return Err(malformed(format!(
+                    "class {label} records {} lines, {} on eps axes; its owner sector has {lines}, {eps_lines}",
+                    record.t, record.eps_lines
+                )));
+            }
             for &node in record.node.iter().chain(&record.nodes) {
                 self.node(node)?;
+            }
+            if owner.spec.node != record.node {
+                return Err(malformed(format!(
+                    "class {label} is at node {:?}, its owner record says {:?}",
+                    record.node, owner.spec.node
+                )));
+            }
+            match census.sectors.get(&record.owner) {
+                None => {}
+                Some(PSectorFate::Owner { class: routed, .. }) if routed == class => {}
+                Some(fate) => {
+                    return Err(malformed(format!(
+                        "the owner sector of class {label} has the fate {fate:?}"
+                    )));
+                }
             }
         }
         Ok(())
@@ -578,10 +607,17 @@ impl PLibraryBuilder {
                     id.0, map.loops_in, map.loops_out, source.loops, target.loops
                 )));
             }
+            if !map.is_unimodular() {
+                return Err(malformed(format!(
+                    "the route of sector ({}, {support:#x}) is not unimodular: {map:?}",
+                    id.0
+                )));
+            }
         }
         Ok(())
     }
 
+    /// After [`Self::check_classes`]: an owner's node is its class's, which exists.
     fn check_owners(&self, census: &PCensus) -> Result<(), PError> {
         for (class, owner) in &self.owners {
             let spec = &owner.spec;
@@ -590,9 +626,6 @@ impl PLibraryBuilder {
                     "owner of class {:016x} outside the census",
                     class.0
                 )));
-            }
-            if let Some(node) = spec.node {
-                self.node(node)?;
             }
             for &edge in &spec.edge_maps {
                 let map = self
@@ -606,12 +639,19 @@ impl PLibraryBuilder {
                     )));
                 }
             }
-            if let Some(terminal) = spec
-                .terminals
-                .iter()
-                .find(|terminal| terminal.0 as usize >= self.terminals.len())
-            {
-                return Err(malformed(format!("owner names terminal {}", terminal.0)));
+            for terminal in &spec.terminals {
+                match self.terminals.get(terminal.0 as usize) {
+                    None => {
+                        return Err(malformed(format!("owner names terminal {}", terminal.0)));
+                    }
+                    Some(PTerminal::Residual { owner, .. }) if owner != class => {
+                        return Err(malformed(format!(
+                            "the owner of class {:016x} names terminal {}, a residual of class {:016x}",
+                            class.0, terminal.0, owner.0
+                        )));
+                    }
+                    Some(_) => {}
+                }
             }
         }
         Ok(())
