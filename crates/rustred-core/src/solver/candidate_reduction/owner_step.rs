@@ -255,6 +255,53 @@ mod tests {
         assert_eq!(work.rule_applications(), 1);
     }
 
+    /// A guard of the owner reaches the caller, once however often the step runs.
+    #[test]
+    fn the_conditions_of_a_step_reach_the_caller() {
+        let family = bubble(0);
+        let mut context = CandidateOwnerContext::<2>::try_new_p(
+            Arc::clone(&family),
+            scope(),
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let guard = family.coefficient_context().coefficient_fixture("d-4");
+        let lifted = context
+            .shared
+            .context
+            .lift_base_polynomial(&guard.numerator)
+            .unwrap();
+        context.shared.source_conditions.push(lifted);
+        let programs = DeferredCandidateOwnerPrograms::try_new(
+            Arc::new(context),
+            [DeferredCandidateOwnerDescriptor {
+                sector: [true, true],
+                saved_root: [true; 2],
+                ordering: OrderingPolicy::SpiredUncutV1,
+                terminals: BTreeSet::from([key([1, 1])]),
+            }],
+            Arc::new(Loader),
+        )
+        .unwrap();
+        let mut request = ReductionRequest::default();
+        let mut work = ReductionStatistics::default();
+        let mut conditions = Vec::new();
+        for _ in 0..2 {
+            let step = apply_prepared_owner(
+                &programs,
+                &[true, true],
+                &key([2, 1]),
+                &mut conditions,
+                &mut request,
+                &mut work,
+            )
+            .unwrap();
+            assert!(matches!(step, AppliedOwnerStep::Applied(_)));
+            assert_eq!(conditions, std::slice::from_ref(&guard));
+        }
+    }
+
     /// The chart `n <= 0` of an eps axis is its own sector, inside the full root:
     /// its key passes, and the full support is refused for it.
     #[test]
