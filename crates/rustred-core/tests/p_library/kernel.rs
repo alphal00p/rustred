@@ -1,12 +1,14 @@
 //! The Insertion, SeriesParallel and Carpet kernels (owner: M2-T4 rr-kernel):
 //! closed G-forms, Forcer's `reduceG`, the transverse oracle of the architecture
-//! doc (section 3.2), nested Euclidean G forms through convention C1, and exact
-//! agreement with reductions of the P0 lane (kite and 3L carpet sectors).
+//! doc (section 3.2), nested Euclidean G forms through convention C1, exact
+//! agreement with reductions of the P0 lane (kite and 3L carpet sectors), and
+//! every child key against the first form of C2 (the Wick oracle).
 //!
 //! Presentations are hand-built from the Forcer graphs of each node (notation of
-//! `crates/rustred-topology/tests/fixtures/forcer/forcer_dag_68a30bf.tsv`).
+//! `crates/rustred-topology/tests/fixtures/forcer/forcer_dag_68a30bf.tsv`), except
+//! in the last sections, which run the production presentations of M2-T3.
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use rand::rngs::StdRng;
@@ -17,13 +19,15 @@ use rustred::propagator::carpet::CarpetStep;
 use rustred::propagator::census::{PCensus, PClassRecord, SignedAffineLoopMap};
 use rustred::propagator::class::OwnerClassKey;
 use rustred::propagator::error::PError;
+use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile, load_p_families};
 use rustred::propagator::insertion::InsertionStep;
 use rustred::propagator::kernel::bubble::{
     BoxPairing, BubbleKernel, LinePower, box_pairings, ghat, relative_tag,
 };
 use rustred::propagator::kernel::gamma::{FactoredRational, GammaProduct};
-use rustred::propagator::lane::{BubbleRoles, CarpetRoles, LaneRoles, OwnerLane};
+use rustred::propagator::lane::{BubbleRoles, CarpetRoles, LaneDecision, LaneRoles, OwnerLane};
 use rustred::propagator::library::{OwnerProgram, PLibrary, POwnerSpec};
+use rustred::propagator::present::{edge_map, present_node, top_topology};
 use rustred::propagator::presentation::{
     EdgeKind, EdgeMap, Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
     check_carpet_contract, check_insertion_contract,
@@ -31,6 +35,7 @@ use rustred::propagator::presentation::{
 use rustred::propagator::series_parallel::SeriesParallelStep;
 use rustred::propagator::step::{PKeyView, PLaneStep, PStage, PStepContext, PStepOut};
 use rustred::propagator::tag::GammaTag;
+use rustred::propagator::topology::{ChildMode, Dag, DagEdgeKind, PTopo, reduction_graph};
 use rustred::propagator::{P_CARPET_KERNEL_VERSION, P_INSERTION_KERNEL_VERSION, PresentationId};
 use rustred::reduction::ReductionLimits;
 use rustred::solver::litered::{DynamicLiteRedSession, LiteRedOptions};
@@ -3858,4 +3863,749 @@ fn the_kernel_versions_are_pinned() {
         ),
         "the Carpet steps changed: bump P_CARPET_KERNEL_VERSION"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The production presentations of M2-T3
+// ---------------------------------------------------------------------------
+
+/// The vakint families and their top presentations.
+fn tops() -> &'static (PFamiliesFile, Vec<Arc<Presentation>>) {
+    static TOPS: OnceLock<(PFamiliesFile, Vec<Arc<Presentation>>)> = OnceLock::new();
+    TOPS.get_or_init(|| load_p_families(P_FAMILIES_V1_JSON).unwrap())
+}
+
+/// One production DAG: decisions and presentations per node, and the rule edges
+/// with their maps per parent. Ids start after the tops.
+struct Production {
+    dag: Dag,
+    decisions: Vec<LaneDecision>,
+    presentations: Vec<Option<Arc<Presentation>>>,
+    /// Per node: the rule edge maps with their child presentations.
+    edges: Vec<Vec<(EdgeMap, Arc<Presentation>)>>,
+}
+
+impl Production {
+    fn build(loops: u8) -> Self {
+        let (file, top_presentations) = tops();
+        let roots: Vec<PTopo> = file
+            .families
+            .iter()
+            .filter(|entry| entry.loops == loops)
+            .map(top_topology)
+            .collect();
+        let dag = reduction_graph(&roots, ChildMode::ForcerTree);
+        let context = top_presentations[0].family.coefficient_context();
+        let first_id = top_presentations.len() as u32;
+        let mut decisions = Vec::new();
+        let mut presentations = Vec::new();
+        for node in &dag.nodes {
+            let id = PresentationId(first_id + node.index);
+            let built = present_node(node, top_presentations, id, context).unwrap();
+            assert_eq!(built.fallback, None);
+            decisions.push(built.decision);
+            presentations.push(built.presentation.map(Arc::new));
+        }
+        let mut edges = vec![Vec::new(); dag.nodes.len()];
+        for edge in dag
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == DagEdgeKind::Rule)
+        {
+            let parent = presentations[edge.parent as usize].as_ref();
+            let child = presentations[edge.child as usize].as_ref();
+            if let (Some(parent), Some(child)) = (parent, child) {
+                let map = edge_map(parent, child, edge).unwrap();
+                edges[edge.parent as usize].push((map, child.clone()));
+            }
+        }
+        Self {
+            dag,
+            decisions,
+            presentations,
+            edges,
+        }
+    }
+
+    fn insertion(&self, index: usize) -> Option<InsertionStep> {
+        let LaneRoles::Insertion(roles) = self.decisions[index].roles else {
+            return None;
+        };
+        let parent = self.presentations[index].clone()?;
+        Some(InsertionStep::new(parent, roles, &self.edges[index]).unwrap())
+    }
+
+    /// Every SP node below and including `index`, as insertion steps.
+    fn chain(&self, index: usize) -> Vec<Arc<InsertionStep>> {
+        let mut pending = vec![index];
+        let mut seen = BTreeSet::new();
+        let mut chain = Vec::new();
+        while let Some(index) = pending.pop() {
+            if !seen.insert(index) {
+                continue;
+            }
+            chain.push(Arc::new(self.insertion(index).unwrap()));
+            for (map, _) in &self.edges[index] {
+                let first = tops().1.len() as u32;
+                pending.push((map.child.0 - first) as usize);
+            }
+        }
+        chain
+    }
+}
+
+/// `1` on the lines, `-rank` on the first ISP.
+fn top_key(p: &Presentation, rank: i64) -> Vec<i64> {
+    let lines = p
+        .slots
+        .iter()
+        .filter(|slot| matches!(slot, Slot::Line(_)))
+        .count();
+    let mut powers: Vec<i64> = (0..p.slots.len()).map(|i| i64::from(i < lines)).collect();
+    if lines < powers.len() {
+        powers[lines] = -rank;
+    }
+    powers
+}
+
+#[test]
+fn every_kernel_node_of_the_production_dag_steps() {
+    let mut counts = BTreeMap::<(u8, OwnerLane), usize>::new();
+    for loops in 1..=4 {
+        let built = Production::build(loops);
+        for node in &built.dag.nodes {
+            let index = node.index as usize;
+            let decision = &built.decisions[index];
+            let Some(parent) = &built.presentations[index] else {
+                continue;
+            };
+            let edges = &built.edges[index];
+            let tag = GammaTag::one();
+            let powers = top_key(parent, 3);
+            let view = key_view(parent, &powers, &tag);
+            let output = match (decision.lane, decision.roles) {
+                (OwnerLane::SeriesParallel | OwnerLane::Insertion, LaneRoles::Insertion(roles)) => {
+                    InsertionStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap()
+                }
+                (OwnerLane::Carpet, LaneRoles::Carpet(roles)) => {
+                    CarpetStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap()
+                }
+                _ => continue,
+            };
+            *counts.entry((loops, decision.lane)).or_default() += 1;
+            let reach = loops + 1;
+            assert!(!output.children.is_empty() || !output.terminals.is_empty());
+            for child in &output.children {
+                let (map, target) = &edges[0];
+                assert_eq!(child.presentation, target.id);
+                assert_eq!(child.presentation, map.child);
+                assert_eq!(child.powers.len(), target.slots.len());
+                assert!(
+                    child
+                        .tag
+                        .exponents()
+                        .iter()
+                        .all(|&(m, _)| m.unsigned_abs() <= reach)
+                );
+                assert_linear_denominator(&child.coefficient);
+            }
+            for (_, tag, weight) in &output.terminals {
+                assert!(
+                    tag.exponents()
+                        .iter()
+                        .all(|&(m, _)| m.unsigned_abs() <= reach)
+                );
+                assert_linear_denominator(weight);
+            }
+        }
+    }
+    println!("kernel nodes by (L, lane): {counts:?}");
+    assert_eq!(counts[&(3, OwnerLane::Carpet)], 2);
+}
+
+#[test]
+fn integer_sp_nodes_of_the_3l_dag_equal_their_reductions() {
+    let built = Production::build(3);
+    let mut rng = StdRng::seed_from_u64(0x35b1);
+    let points = dimensions(&mut rng, 3);
+    let mut checked = 0;
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let Some(parent) = &built.presentations[index] else {
+            continue;
+        };
+        if built.decisions[index].lane != OwnerLane::SeriesParallel
+            || parent.forced_axes() != 0
+            || parent.loops < 2
+        {
+            continue;
+        }
+        let chain = built.chain(index);
+        let step = SeriesParallelStep::from(built.insertion(index).unwrap()).with_fold(chain);
+        let mut lane = ReductionLane::new(parent);
+        for rank in 0..=3 {
+            let powers = top_key(parent, rank);
+            let output = step
+                .apply(&key_view(parent, &powers, &GammaTag::one()), &limits())
+                .unwrap();
+            for d in &points {
+                let values = lane.values(&[(powers.clone(), Rational::one())], d);
+                assert_values_equal(
+                    &terminal_values(&output, d),
+                    &values,
+                    &format!("node {index} {powers:?} at d = {d}"),
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 12, "{checked}");
+}
+
+#[test]
+fn production_carpets_equal_their_sector_reductions() {
+    let built = Production::build(3);
+    let mut rng = StdRng::seed_from_u64(0x3c61);
+    let points = dimensions(&mut rng, 2);
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let LaneRoles::Carpet(roles) = built.decisions[index].roles else {
+            continue;
+        };
+        let parent = built.presentations[index].as_ref().unwrap();
+        let (_, child) = &built.edges[index][0];
+        let step = CarpetStep::new(parent.clone(), roles, &built.edges[index]).unwrap();
+        let mut blob = ReductionLane::new(child);
+        let mut lane = ReductionLane::new(parent);
+        for rank in 0..=3 {
+            let powers = top_key(parent, rank);
+            let tag = GammaTag::one();
+            let output = step
+                .apply(&key_view(parent, &powers, &tag), &limits())
+                .unwrap();
+            assert!(!output.children.is_empty());
+            for d in &points {
+                let mut actual = Vec::new();
+                for child in &output.children {
+                    let factor = tag_value(&child.tag, d).scale(&at(&child.coefficient, d));
+                    let values = blob.values(&[(child.powers.clone(), Rational::one())], d);
+                    actual.extend(values.iter().map(|value| value.mul(&factor)));
+                }
+                let expected = lane.values(&[(powers.clone(), Rational::one())], d);
+                assert_values_equal(&actual, &expected, &format!("carpet {index} {powers:?}"));
+            }
+        }
+    }
+}
+
+/// The keys of a production node: tops with `rank` on each ISP, and one dot.
+fn production_keys(p: &Presentation, rank: i64) -> Vec<Vec<i64>> {
+    let lines = p
+        .slots
+        .iter()
+        .filter(|slot| matches!(slot, Slot::Line(_)))
+        .count();
+    let top: Vec<i64> = (0..p.slots.len()).map(|i| i64::from(i < lines)).collect();
+    let mut keys = Vec::new();
+    for isp in lines..p.slots.len() {
+        let mut numerators = top.clone();
+        numerators[isp] = -rank;
+        keys.push(numerators.clone());
+        for line in 0..lines {
+            let mut dotted = numerators.clone();
+            dotted[line] = 2;
+            keys.push(dotted);
+        }
+    }
+    keys
+}
+
+/// Acceptance (e) on the presentations of M2-T3: d11, d13, d14, d15, d17.
+#[test]
+fn eps_sp_nodes_of_the_3l_dag_equal_nested_euclidean_forms() {
+    let built = Production::build(3);
+    let mut rng = StdRng::seed_from_u64(0x35e5);
+    let points = dimensions(&mut rng, 3);
+    let mut checked = BTreeSet::new();
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let Some(parent) = &built.presentations[index] else {
+            continue;
+        };
+        let LaneRoles::Insertion(roles) = built.decisions[index].roles else {
+            continue;
+        };
+        if built.decisions[index].lane != OwnerLane::SeriesParallel
+            || parent.forced_axes() == 0
+            || parent.loops != 2
+        {
+            continue;
+        }
+        let step =
+            SeriesParallelStep::from(built.insertion(index).unwrap()).with_fold(built.chain(index));
+        for rank in 0..=5 {
+            for powers in production_keys(parent, rank) {
+                let output = step
+                    .apply(&key_view(parent, &powers, &GammaTag::one()), &limits())
+                    .unwrap();
+                let total: i64 = powers.iter().sum();
+                for d in &points {
+                    let expected: Vec<GValue> = nested_euclidean(parent, roles, &powers, d)
+                        .iter()
+                        .map(|value| value.scale(&sign(total)))
+                        .collect();
+                    assert_values_equal(
+                        &terminal_values(&output, d),
+                        &expected,
+                        &format!("node {index} {powers:?} at d = {d}"),
+                    );
+                }
+            }
+        }
+        checked.insert(index);
+    }
+    assert_eq!(checked.len(), 5, "{checked:?}");
+}
+
+/// The 3L Insertion nodes with an integer parent and an integer child: the
+/// absorbed bubbles. The others end in an eps node, whose reduction needs M2-T7b.
+#[test]
+fn production_insertions_with_integer_children_equal_their_sector_reductions() {
+    let built = Production::build(3);
+    let mut rng = StdRng::seed_from_u64(0x35f1);
+    let points = dimensions(&mut rng, 2);
+    let mut checked = Vec::new();
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        if built.decisions[index].lane != OwnerLane::Insertion {
+            continue;
+        }
+        let parent = built.presentations[index].as_ref().unwrap();
+        let Some((_, child)) = built.edges[index].first() else {
+            continue;
+        };
+        println!(
+            "insertion node {index}: parent eps axes {:b}, child eps axes {:b}",
+            parent.forced_axes(),
+            child.forced_axes()
+        );
+        if parent.forced_axes() != 0 || child.forced_axes() != 0 {
+            continue;
+        }
+        let step = built.insertion(index).unwrap();
+        let mut blob = ReductionLane::new(child);
+        let mut lane = ReductionLane::new(parent);
+        for rank in 0..=3 {
+            for powers in production_keys(parent, rank) {
+                let tag = GammaTag::one();
+                let output = step
+                    .apply(&key_view(parent, &powers, &tag), &limits())
+                    .unwrap();
+                for d in &points {
+                    let mut actual = Vec::new();
+                    for child in &output.children {
+                        let factor = tag_value(&child.tag, d).scale(&at(&child.coefficient, d));
+                        let values = blob.values(&[(child.powers.clone(), Rational::one())], d);
+                        actual.extend(values.iter().map(|value| value.mul(&factor)));
+                    }
+                    let expected = lane.values(&[(powers.clone(), Rational::one())], d);
+                    assert_values_equal(
+                        &actual,
+                        &expected,
+                        &format!("insertion {index} {powers:?}"),
+                    );
+                }
+            }
+        }
+        checked.push(index);
+    }
+    println!("integer insertion nodes checked: {checked:?}");
+}
+
+// ---------------------------------------------------------------------------
+// The Wick oracle on every production node (review round 2): mixed keys, every
+// box variable, 3L and 4L
+// ---------------------------------------------------------------------------
+
+/// A random key: role lines positive, other lines mostly positive, ISPs mixed
+/// with total rank at most `rank`.
+fn random_production_key(
+    p: &Presentation,
+    protected: &[usize],
+    rng: &mut StdRng,
+    rank: i64,
+) -> Vec<i64> {
+    let eps = eps_units(p);
+    let mut left = rank;
+    let isps: Vec<usize> = p
+        .slots
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(s, Slot::Isp(_)))
+        .map(|(i, _)| i)
+        .collect();
+    let mut powers: Vec<i64> = p
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| match slot {
+            Slot::Line(_) if eps[index] != 0 => rng.random_range(-2..=2),
+            Slot::Line(_) if protected.contains(&index) => rng.random_range(1..=2),
+            Slot::Line(_) if rng.random_bool(0.8) => rng.random_range(1..=2),
+            Slot::Line(_) => rng.random_range(-1..=0),
+            Slot::Isp(_) => 0,
+        })
+        .collect();
+    // In random order, so that mixed monomials occur.
+    for _ in 0..isps.len() {
+        let slot = isps[rng.random_range(0..isps.len())];
+        let numerator = rng.random_range(0..=left);
+        left -= numerator;
+        powers[slot] -= numerator;
+    }
+    powers
+}
+
+/// Keys of a production node: tops at rank `rank` on each ISP in turn, one dot,
+/// and random keys with zeros and mixed ISPs.
+fn oracle_keys(
+    p: &Presentation,
+    protected: &[usize],
+    rng: &mut StdRng,
+    rank: i64,
+    random: usize,
+) -> Vec<Vec<i64>> {
+    let lines = p
+        .slots
+        .iter()
+        .filter(|slot| matches!(slot, Slot::Line(_)))
+        .count();
+    let top: Vec<i64> = (0..p.slots.len()).map(|i| i64::from(i < lines)).collect();
+    let mut keys = vec![top.clone()];
+    for isp in lines..p.slots.len() {
+        let mut key = top.clone();
+        key[isp] = -rank;
+        keys.push(key.clone());
+        key[rng.random_range(0..lines)] = 2;
+        keys.push(key);
+    }
+    for round in 0..random {
+        let shield: &[usize] = if round % 2 == 0 { protected } else { &[] };
+        let chosen = rng.random_range(1..=rank);
+        keys.push(random_production_key(p, shield, rng, chosen));
+    }
+    keys
+}
+
+fn wick_oracle_on_production(loops: u8, rank: i64, random: usize) {
+    let built = Production::build(loops);
+    let mut rng = StdRng::seed_from_u64(0xb100 + u64::from(loops));
+    let points = dimensions(&mut rng, 2);
+    let start = Instant::now();
+    let mut counts = BTreeMap::<String, (usize, usize, usize)>::new();
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let Some(parent) = &built.presentations[index] else {
+            continue;
+        };
+        let lane = built.decisions[index].lane;
+        let edges = &built.edges[index];
+        let tag = GammaTag::one();
+        let d = &points[index % points.len()];
+        match built.decisions[index].roles {
+            LaneRoles::Insertion(roles) => {
+                let step = InsertionStep::new(parent.clone(), roles, edges).unwrap();
+                let protected: Vec<usize> = roles.lines.iter().map(|&s| usize::from(s)).collect();
+                for powers in oracle_keys(parent, &protected, &mut rng, rank, random) {
+                    let output = step
+                        .apply(&key_view(parent, &powers, &tag), &limits())
+                        .unwrap();
+                    let entry = counts.entry(format!("{lane:?}")).or_default();
+                    entry.0 += 1;
+                    if let [(map, child)] = edges.as_slice() {
+                        let expected = insertion_wick_oracle(parent, roles, map, child, &powers, d);
+                        let label = format!("L{loops} node {index} {lane:?} {powers:?} at {d}");
+                        let children = assert_children_match(&output, &expected, d, &label);
+                        entry.1 += children;
+                        entry.2 += usize::from(children > 0);
+                    } else {
+                        // 1L: the Unit terminal, I_M = (-1)^(n1 + n2) G.
+                        let eps = eps_units(parent);
+                        let [a, b] = roles.lines.map(usize::from);
+                        let total = powers[a] + powers[b];
+                        let closed = g(power(powers[a], eps[a]), power(powers[b], eps[b]), d)
+                            .scale(&sign(total));
+                        assert_values_equal(
+                            &terminal_values(&output, d),
+                            &[closed],
+                            &format!("L1 node {index} {powers:?} at {d}"),
+                        );
+                    }
+                }
+            }
+            LaneRoles::Carpet(roles) => {
+                let step = CarpetStep::new(parent.clone(), roles, edges).unwrap();
+                let [(map, child)] = edges.as_slice() else {
+                    panic!("a carpet has one edge");
+                };
+                let protected = vec![usize::from(roles.r)];
+                for powers in oracle_keys(parent, &protected, &mut rng, rank, random) {
+                    let output = step
+                        .apply(&key_view(parent, &powers, &tag), &limits())
+                        .unwrap();
+                    let expected = carpet_wick_oracle(parent, roles, map, child, &powers, d);
+                    let label = format!("L{loops} node {index} Carpet {powers:?} at {d}");
+                    let children = assert_children_match(&output, &expected, d, &label);
+                    let entry = counts.entry("Carpet".to_owned()).or_default();
+                    entry.0 += 1;
+                    entry.1 += children;
+                    entry.2 += usize::from(children > 0);
+                }
+            }
+            _ => {}
+        }
+    }
+    println!(
+        "wick oracle L{loops} rank {rank}: (keys, child keys, nonzero steps) {counts:?} in {:?}",
+        start.elapsed()
+    );
+    assert!(!counts.is_empty());
+}
+
+#[test]
+fn production_nodes_of_1l_and_2l_equal_the_wick_oracle_to_rank_8() {
+    wick_oracle_on_production(1, 8, 4);
+    wick_oracle_on_production(2, 8, 12);
+}
+
+#[test]
+fn production_nodes_of_3l_equal_the_wick_oracle_to_rank_8() {
+    wick_oracle_on_production(3, 6, 6);
+    wick_oracle_on_production(3, 8, 2);
+}
+
+#[test]
+fn production_nodes_of_4l_equal_the_wick_oracle_to_rank_4() {
+    wick_oracle_on_production(4, 4, 1);
+}
+
+/// Per child key, on all six 3L Insertion nodes. For the five with an eps non-SP
+/// child, no lane reduces that child before M2-T5/T7b: this is their value check
+/// until M2-T8a runs them end to end.
+#[test]
+fn production_insertions_of_3l_equal_the_wick_oracle_to_rank_8() {
+    let built = Production::build(3);
+    let mut covered = 0;
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        if built.decisions[index].lane != OwnerLane::Insertion {
+            continue;
+        }
+        let parent = built.presentations[index].as_ref().unwrap();
+        let LaneRoles::Insertion(roles) = built.decisions[index].roles else {
+            continue;
+        };
+        let [(map, child)] = built.edges[index].as_slice() else {
+            panic!("no edge at node {index}");
+        };
+        let mut rng = StdRng::seed_from_u64(0xb200 + index as u64);
+        let points = dimensions(&mut rng, 3);
+        let step = InsertionStep::new(parent.clone(), roles, &built.edges[index]).unwrap();
+        let protected: Vec<usize> = roles.lines.iter().map(|&s| usize::from(s)).collect();
+        let mut nonzero = 0;
+        for powers in oracle_keys(parent, &protected, &mut rng, 8, 10) {
+            let output = step
+                .apply(&key_view(parent, &powers, &GammaTag::one()), &limits())
+                .unwrap();
+            for d in &points {
+                let expected = insertion_wick_oracle(parent, roles, map, child, &powers, d);
+                let label = format!("insertion {index} {powers:?} at {d}");
+                nonzero += assert_children_match(&output, &expected, d, &label);
+            }
+        }
+        assert!(nonzero > 0, "node {index}");
+        covered += 1;
+    }
+    assert_eq!(covered, 6);
+}
+
+/// `rank` spread round-robin over the ISPs of a top key: mixed numerators with
+/// every box variable, so order 4 at rank 8 pairs across variables.
+fn spread_key(p: &Presentation, rank: i64, start: usize) -> Vec<i64> {
+    let lines = p
+        .slots
+        .iter()
+        .filter(|slot| matches!(slot, Slot::Line(_)))
+        .count();
+    let mut key: Vec<i64> = (0..p.slots.len()).map(|i| i64::from(i < lines)).collect();
+    let isps = p.slots.len() - lines;
+    if isps == 0 {
+        return key;
+    }
+    for round in 0..rank {
+        key[lines + (start + round as usize) % isps] -= 1;
+    }
+    key
+}
+
+/// Returns the most box variables a checked node has.
+fn spread_oracle_on_production(loops: u8, rank: i64) -> usize {
+    let built = Production::build(loops);
+    let mut rng = StdRng::seed_from_u64(0xb500 + u64::from(loops));
+    let points = dimensions(&mut rng, 2);
+    let start = Instant::now();
+    let mut counts = BTreeMap::<String, (usize, usize, usize)>::new();
+    let mut most = 0;
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let Some(parent) = &built.presentations[index] else {
+            continue;
+        };
+        let lane = built.decisions[index].lane;
+        let edges = &built.edges[index];
+        let [(map, child)] = edges.as_slice() else {
+            continue;
+        };
+        let tag = GammaTag::one();
+        let d = &points[index % points.len()];
+        let isps = parent
+            .slots
+            .iter()
+            .filter(|slot| matches!(slot, Slot::Isp(_)))
+            .count();
+        let isps_with = |column: usize| {
+            parent
+                .slots
+                .iter()
+                .filter(|slot| match slot {
+                    Slot::Isp(isp) => isp.left[column] != 0 || isp.right[column] != 0,
+                    Slot::Line(_) => false,
+                })
+                .count()
+        };
+        for offset in 0..isps.clamp(1, 2) {
+            let powers = spread_key(parent, rank, offset);
+            let view = key_view(parent, &powers, &tag);
+            let (box_variables, expected, output) = match built.decisions[index].roles {
+                LaneRoles::Insertion(roles) => (
+                    isps_with(usize::from(roles.loop_index)),
+                    insertion_wick_oracle(parent, roles, map, child, &powers, d),
+                    InsertionStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap(),
+                ),
+                LaneRoles::Carpet(roles) => (
+                    isps_with(usize::from(parent.loops)),
+                    carpet_wick_oracle(parent, roles, map, child, &powers, d),
+                    CarpetStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap(),
+                ),
+                _ => continue,
+            };
+            most = most.max(box_variables);
+            let label = format!("L{loops} node {index} {lane:?} {powers:?} at {d}");
+            let children = assert_children_match(&output, &expected, d, &label);
+            let entry = counts
+                .entry(format!("{lane:?} V{box_variables}"))
+                .or_default();
+            entry.0 += 1;
+            entry.1 += children;
+            entry.2 += usize::from(children > 0);
+        }
+    }
+    println!(
+        "spread oracle L{loops} rank {rank}: (keys, child keys, nonzero) {counts:?} in {:?}",
+        start.elapsed()
+    );
+    assert!(!counts.is_empty());
+    most
+}
+
+#[test]
+fn spread_numerators_of_production_nodes_equal_the_wick_oracle_at_3l() {
+    spread_oracle_on_production(2, 8);
+    assert_eq!(spread_oracle_on_production(3, 7), 3);
+    assert_eq!(spread_oracle_on_production(3, 8), 3);
+}
+
+#[test]
+#[ignore = "slow: 1.6 M child keys at rank 8, about 400 s on 4 threads"]
+fn spread_numerators_of_production_nodes_equal_the_wick_oracle_at_4l() {
+    assert_eq!(spread_oracle_on_production(4, 7), 4);
+    assert_eq!(spread_oracle_on_production(4, 8), 4);
+}
+
+/// Extreme powers: dots to 6, eps lines down to -5, kept lines down to -3, and a
+/// parent tag.
+#[test]
+fn wide_powers_of_3l_production_nodes_equal_the_wick_oracle() {
+    let built = Production::build(3);
+    let mut rng = StdRng::seed_from_u64(0xb600);
+    let points = dimensions(&mut rng, 2);
+    let mut steps = 0;
+    for node in &built.dag.nodes {
+        let index = node.index as usize;
+        let Some(parent) = &built.presentations[index] else {
+            continue;
+        };
+        let edges = &built.edges[index];
+        let [(map, child)] = edges.as_slice() else {
+            continue;
+        };
+        let eps = eps_units(parent);
+        for round in 0..6 {
+            let powers: Vec<i64> = parent
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(i, slot)| match slot {
+                    Slot::Line(_) if eps[i] != 0 => rng.random_range(-5..=6),
+                    Slot::Line(_) => rng.random_range(-3..=6),
+                    Slot::Isp(_) => -rng.random_range(0..=2),
+                })
+                .collect();
+            let d = &points[round % points.len()];
+            let tag = GammaTag::from_pairs([(1, 3), (-2, 2)]).unwrap();
+            let view = key_view(parent, &powers, &tag);
+            let (expected, output) = match built.decisions[index].roles {
+                LaneRoles::Insertion(roles) => (
+                    insertion_wick_oracle(parent, roles, map, child, &powers, d),
+                    InsertionStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap(),
+                ),
+                LaneRoles::Carpet(roles) => (
+                    carpet_wick_oracle(parent, roles, map, child, &powers, d),
+                    CarpetStep::new(parent.clone(), roles, edges)
+                        .unwrap()
+                        .apply(&view, &limits())
+                        .unwrap(),
+                ),
+                _ => continue,
+            };
+            // The key's tag factors out of every expected value.
+            let parent_tag = tag_value(&tag, d);
+            let expected: BTreeMap<Vec<i64>, Vec<GValue>> = expected
+                .into_iter()
+                .map(|(key, values)| {
+                    let scaled = values.iter().map(|value| value.mul(&parent_tag)).collect();
+                    (key, scaled)
+                })
+                .collect();
+            let label = format!("node {index} {powers:?} at {d}");
+            assert_children_match(&output, &expected, d, &label);
+            steps += 1;
+        }
+    }
+    assert!(steps > 100, "{steps}");
 }
