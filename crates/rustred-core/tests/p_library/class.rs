@@ -3,7 +3,8 @@
 //! Vacuum-style census checks on the shipped top families: class counts per
 //! loop order, golden class ids, keys that do not see the routing, verified
 //! routes between all class members, Whitney twists, the agreement with the
-//! graph-side marked-matroid key, and the eps colours with their shift checks.
+//! graph-side marked-matroid key, the eps colours with their shift checks, and
+//! the transport of the routes on the p-only eps path of M2-T7a.
 //!
 //! The four-loop partition is slow:
 //!
@@ -26,9 +27,12 @@ use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamilyEntry, load_p_fam
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use rustred::reduction::terminal_normalization::TerminalSectorSymmetryEquations;
 use rustred::sector::Mask;
+use rustred::sector::symmetry::integral_transport::{
+    Error as TransportError, Prepared, compile as compile_transport,
+};
 use rustred::sector::symmetry::{
-    DiscoveryError, SectorSymmetryCensus, SectorSymmetryCensusControl, SectorSymmetryCensusError,
-    SectorSymmetryCensusOptions,
+    CoefficientMatrix, DiscoveryError, MomentumMap, SectorSymmetryCensus,
+    SectorSymmetryCensusControl, SectorSymmetryCensusError, SectorSymmetryCensusOptions, verify,
 };
 use rustred::sector::zero::{Analyzer, Decision};
 use symbolica::graph::Graph;
@@ -229,6 +233,21 @@ fn sector_count(classes: &BTreeMap<OwnerClassKey, Vec<ClassedSector>>) -> usize 
     classes.values().map(Vec::len).sum()
 }
 
+/// The slot of `owner`'s support that `map` takes `line` onto, up to sign.
+fn line_image<'a>(
+    map: &SignedAffineLoopMap,
+    line: &SlotLine,
+    owner_p: &'a Presentation,
+    owner: &ClassedSector,
+) -> Option<(usize, &'a SlotLine)> {
+    let image = map.map_momentum(&line.momentum).unwrap();
+    let negated: Vec<i64> = image.iter().map(|c| -c).collect();
+    line_slots(owner_p).into_iter().find(|(target, candidate)| {
+        owner.support >> target & 1 == 1
+            && (candidate.momentum == image || candidate.momentum == negated)
+    })
+}
+
 /// `map` takes the support of `source` line by line onto the support of
 /// `owner`, up to sign, and keeps every eps unit.
 fn assert_maps_lines(
@@ -239,23 +258,15 @@ fn assert_maps_lines(
     map: &SignedAffineLoopMap,
 ) {
     assert!(map.is_unimodular());
-    let owner_lines = line_slots(owner_p);
     let mut images = BTreeSet::new();
     for (slot, line) in line_slots(source_p) {
         if source.support >> slot & 1 == 0 {
             continue;
         }
-        let image = map.map_momentum(&line.momentum).unwrap();
-        let negated: Vec<i64> = image.iter().map(|c| -c).collect();
-        let (target, target_line) = owner_lines
-            .iter()
-            .find(|(target, candidate)| {
-                owner.support >> target & 1 == 1
-                    && (candidate.momentum == image || candidate.momentum == negated)
-            })
+        let (target, target_line) = line_image(map, line, owner_p, owner)
             .unwrap_or_else(|| panic!("line {slot} of {source:?} has no image"));
         assert_eq!(target_line.eps_units, line.eps_units, "line {slot}");
-        assert!(images.insert(*target));
+        assert!(images.insert(target));
     }
     assert_eq!(images.len() as u32, owner.support.count_ones());
 }
@@ -850,6 +861,168 @@ fn a_shift_mismatching_candidate_is_rejected() {
         verify_route(&top, &doubled, &identity_map(2), &limits()).unwrap(),
         None
     );
+}
+
+/// `p` with `units` eps units on its line slots.
+fn coloured(id: u32, p: &Presentation, units: &[u8]) -> Presentation {
+    let slots = p
+        .slots
+        .iter()
+        .zip(units)
+        .map(|(slot, &units)| match slot {
+            Slot::Line(l) => line(&l.momentum, units),
+            Slot::Isp(isp) => Slot::Isp(isp.clone()),
+        })
+        .collect();
+    presentation(id, p.loops, slots)
+}
+
+/// What a library does with a map between two roots: verify it again and
+/// compile the transport.
+fn route_transport(
+    source: (&Presentation, u64),
+    owner: (&Presentation, u64),
+    map: &SignedAffineLoopMap,
+) -> Result<Prepared, TransportError> {
+    let (source_p, source_root) = source;
+    let (owner_p, owner_root) = owner;
+    let context = source_p.family.coefficient_context();
+    let matrix = |rows: usize, columns: usize, values: &[i64]| {
+        let values = values.iter().map(|&value| context.integer(value));
+        CoefficientMatrix::try_new(rows, columns, values).unwrap()
+    };
+    let loops = usize::from(map.loops_in);
+    let momentum = MomentumMap::new(
+        matrix(loops, loops, &map.loop_linear),
+        matrix(loops, 1, &map.loop_external),
+        matrix(1, 1, &[i64::from(map.external_sign)]),
+    );
+    let verified = verify(
+        &source_p.family,
+        &owner_p.family,
+        momentum,
+        Default::default(),
+    )
+    .unwrap();
+    compile_transport(
+        &source_p.family,
+        Arc::clone(&owner_p.family),
+        Arc::new(verified),
+        mask(source_p, source_root),
+        mask(owner_p, owner_root),
+        Default::default(),
+    )
+}
+
+/// Route `source_p` onto a random routing of itself over `raws` and transport
+/// each sector with the forced axes at powers 1, 0 and -1: one term, weight
+/// one, every power on the line image. Returns the number of keys transported.
+fn check_eps_routes(source_p: &Presentation, raws: &[u64], rng: &mut StdRng) -> usize {
+    // The p-only admission and the class agree on the forced axes.
+    let forced: Vec<_> = line_slots(source_p)
+        .into_iter()
+        .filter(|(_, line)| line.eps_units != 0)
+        .map(|(slot, line)| (slot, i64::from(line.eps_units)))
+        .collect();
+    let admitted = source_p.family.shifted_unit_scale_kinematics().unwrap();
+    assert_eq!(admitted.unwrap().forced, forced);
+
+    let owner_p = rerouted(1, source_p, &random_map(rng, source_p.loops));
+    let one = source_p.family.coefficient_context().one();
+    let mut transported = 0;
+    for &raw in raws {
+        let Some(source) = classify(source_p, raw, &limits()).unwrap() else {
+            continue;
+        };
+        let owner = classed(&owner_p, raw);
+        assert_eq!(source.key, owner.key);
+        let map = route(&source, &owner, &limits()).unwrap().unwrap();
+        assert_maps_lines(source_p, &source, &owner_p, &owner, &map);
+        let prepared = route_transport((source_p, source.support), (&owner_p, owner.support), &map)
+            .unwrap_or_else(|error| panic!("{raw:#x}: {error:?}"));
+        for power in [1, 0, -1] {
+            let mut key = vec![0; source_p.slots.len()];
+            let mut expected = key.clone();
+            for (slot, line) in line_slots(source_p) {
+                if source.support >> slot & 1 == 1 {
+                    key[slot] = if line.eps_units != 0 { power } else { 1 };
+                    let (target, _) = line_image(&map, line, &owner_p, &owner).unwrap();
+                    expected[target] = key[slot];
+                }
+            }
+            let integral = rustred::family::IntegralKey::try_new(key).unwrap();
+            let image = prepared
+                .transport(&integral, Default::default())
+                .unwrap_or_else(|error| panic!("{raw:#x}: {error:?}"));
+            let [term] = image.terms() else {
+                panic!("{raw:#x}: {} terms", image.terms().len());
+            };
+            assert_eq!(term.key().powers(), expected.as_slice(), "{raw:#x}");
+            assert_eq!(term.coefficient(), &one, "{raw:#x}");
+            transported += 1;
+        }
+    }
+    transported
+}
+
+/// Discovery on `ShiftAdmission::Forced` meets the eps path of M2-T7a: both see
+/// the same forced axes, and the support of a class is a root the transport
+/// takes, with forced axes carried as lines at every power.
+#[test]
+fn eps_routes_compile_to_transports_on_the_shifted_path() {
+    let mut rng = StdRng::seed_from_u64(0x7a7a);
+    let mut transported = 0;
+    let sectors: Vec<u64> = (1..=TOP).collect();
+    for eps in [
+        [1, 0, 0, 0, 1],
+        [1, 0, 1, 1, 0],
+        [2, 0, 0, 0, 1],
+        [0, 1, 0, 1, 0],
+    ] {
+        transported += check_eps_routes(&eps_kite(0, eps), &sectors, &mut rng);
+    }
+    for top in top_presentations(3) {
+        let lines = line_slots(&top).len();
+        let sectors = nonzero_sectors(&top);
+        for _ in 0..4 {
+            // Forced axes both inside and outside the raw masks.
+            let mut units = vec![0; top.slots.len()];
+            for _ in 0..3 {
+                units[rng.random_range(0..lines)] = rng.random_range(1..=2);
+            }
+            let raws: Vec<_> = (0..4)
+                .map(|_| sectors[rng.random_range(0..sectors.len())])
+                .collect();
+            let p = coloured(0, &top, &units);
+            transported += check_eps_routes(&p, &raws, &mut rng);
+        }
+    }
+    eprintln!("transported {transported} keys on eps routes");
+    assert!(transported >= 300, "{transported}");
+}
+
+/// What `route` leaves out, the transport refuses on its own.
+#[test]
+fn the_shifted_transport_refuses_raw_roots_and_changed_shifts() {
+    let t001c = eps_kite(0, [1, 0, 0, 0, 1]);
+    // D5 is forced but not in the raw mask: the root of a transport is the
+    // support of the class, never the raw mask.
+    let raw = 0b01111;
+    assert_eq!(classed(&t001c, raw).support, TOP);
+    assert!(matches!(
+        route_transport((&t001c, raw), (&t001c, raw), &identity_map(2)),
+        Err(TransportError::AnalyticPowerShift { axis: 4, .. })
+    ));
+    // The mirror takes the forced D5 onto the integer D3.
+    let top = classed(&t001c, TOP);
+    assert_eq!(
+        verify_route(&top, &top, &kite_mirror(), &limits()).unwrap(),
+        None
+    );
+    assert!(matches!(
+        route_transport((&t001c, TOP), (&t001c, TOP), &kite_mirror()),
+        Err(TransportError::AnalyticPowerShift { .. })
+    ));
 }
 
 #[test]
