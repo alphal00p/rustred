@@ -7,7 +7,9 @@ use crate::sector::zero;
 use crate::solver::FiniteCasePolicy;
 
 use super::super::CandidateReductionError;
-use super::super::preparation::shared::{prepare_family, prepare_records};
+use super::super::preparation::shared::{
+    prepare_family, prepare_records, prepare_shifted_p_family,
+};
 use super::model::*;
 
 impl<const N: usize> CandidateOwnerContext<N> {
@@ -25,6 +27,33 @@ impl<const N: usize> CandidateOwnerContext<N> {
             ));
         }
         let shared = prepare_family(&family, zero_certificates, limits)?;
+        Ok(Self {
+            family,
+            shared,
+            scope,
+            limits,
+        })
+    }
+
+    /// [`Self::try_new`] of the p library's Custom owners: an unshifted family
+    /// passes the existing unit-scale propagator predicate, a family with eps
+    /// lines the p-only admission. Every other consumer keeps refusing shifted
+    /// families.
+    #[allow(dead_code)] // M2-T7c
+    pub(crate) fn try_new_p(
+        family: Arc<IntegralFamily>,
+        scope: CandidateOwnerScope,
+        zero_certificates: Vec<zero::Certificate>,
+        limits: ReductionLimits,
+    ) -> Result<Self, CandidateReductionError> {
+        if scope.finite_case_policy == FiniteCasePolicy::RetainRankFinite
+            && scope.max_numerator_rank.is_none()
+        {
+            return Err(CandidateReductionError::InvalidInput(
+                "retain-rank-finite owner scope requires an explicit numerator rank".into(),
+            ));
+        }
+        let shared = prepare_shifted_p_family(&family, zero_certificates, limits)?;
         Ok(Self {
             family,
             shared,
