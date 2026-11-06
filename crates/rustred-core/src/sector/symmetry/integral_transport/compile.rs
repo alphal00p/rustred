@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::family::IntegralFamily;
+use crate::family::{IntegralFamily, IntegralFamilyError};
 use crate::sector::Mask;
 use crate::sector::symmetry::{DenominatorAction, Jacobian, VerifiedMap};
 
@@ -26,7 +26,11 @@ pub enum AffineConstants {
 /// Bind an exact verified map to its families and a unit active-row bijection.
 ///
 /// Affine inactive rows with rational-constant coefficients, zero analytic
-/// shifts and an unconditional unit Jacobian are the supported lane.
+/// shifts and an unconditional unit Jacobian are the supported lane. The one
+/// exception to zero shifts is a pair of eps families of the p path: their
+/// forced axes must lie in both roots and map onto each other with equal
+/// shifts, and [`Prepared::transport`] then carries them as lines at every
+/// integer power.
 /// Unsupported maps fail explicitly; no kinematic conditions are silently
 /// discarded. A parameter-dependent affine constant fails with
 /// [`Error::NonconstantCoefficient`] (`column: None`); callers that need such
@@ -101,13 +105,7 @@ pub fn compile_with_affine_constants(
                 actual: root.arity(),
             });
         }
-        if let Some(axis) = family
-            .power_shifts()
-            .iter()
-            .position(|shift| !shift.is_zero())
-        {
-            return Err(Error::AnalyticPowerShift { side, axis });
-        }
+        admit_forced_axes(side, root, family)?;
     }
     if !matches!(map.jacobian(), Jacobian::Unit { .. }) {
         return Err(Error::NonUnitJacobian);
@@ -209,6 +207,23 @@ pub fn compile_with_affine_constants(
     if seen.as_slice() != target_root.active_bits() {
         return Err(Error::ActiveBijection);
     }
+    // Every root axis keeps its exact power shift. Forced (eps) axes lie in
+    // both roots (admit_forced_axes), so the unit active bijection maps the
+    // forced axes of the source onto those of the target, each onto one with
+    // the same shift, and unshifted root axes onto unshifted ones.
+    let shifted = |family: &IntegralFamily| family.power_shifts().iter().any(|s| !s.is_zero());
+    let check_shifts = shifted(source) || shifted(&target);
+    for (row, image) in active_target.iter().enumerate() {
+        if let Some(column) = *image
+            && check_shifts
+            && source.power_shifts()[row] != target.power_shifts()[column]
+        {
+            return Err(Error::AnalyticPowerShift {
+                side: "source",
+                axis: row,
+            });
+        }
+    }
     // Both allocations are bounded by the already admitted map dimensions;
     // support storage contains indices only, never cloned CAS expressions.
     let mut numerator_support_offsets = reserved(
@@ -246,6 +261,44 @@ pub fn compile_with_affine_constants(
         numerator_support_sources: numerator_support_sources.into_boxed_slice(),
         parametric_constants,
     })
+}
+
+/// Power shifts are admitted only on the p path: both families must be
+/// massless propagator-type families whose nonzero shifts are `j (4-d)/2` on
+/// line slots ([`IntegralFamily::shifted_unit_scale_kinematics`]), and every
+/// such forced (eps) axis must lie in the declared root, where the unit
+/// active bijection carries it at every integer power. Any other nonzero
+/// shift keeps [`Error::AnalyticPowerShift`].
+fn admit_forced_axes(
+    side: &'static str,
+    root: &Mask,
+    family: &IntegralFamily,
+) -> Result<(), Error> {
+    let Some(first) = family
+        .power_shifts()
+        .iter()
+        .position(|shift| !shift.is_zero())
+    else {
+        return Ok(());
+    };
+    let admitted = match family.shifted_unit_scale_kinematics() {
+        Ok(admitted) => admitted,
+        Err(IntegralFamilyError::ExactAlgebra(error)) => {
+            return Err(ExpansionError::ExactAlgebra(error).into());
+        }
+        Err(_) => None,
+    };
+    let Some(admitted) = admitted else {
+        return Err(Error::AnalyticPowerShift { side, axis: first });
+    };
+    match admitted
+        .forced
+        .iter()
+        .find(|(axis, _)| !root.active_bits()[*axis])
+    {
+        Some(&(axis, _)) => Err(Error::AnalyticPowerShift { side, axis }),
+        None => Ok(()),
+    }
 }
 
 pub(super) fn admit(

@@ -29,4 +29,4 @@ pub use model::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
     ScalarProductCoordinate,
 };
-pub use unit_scale::UnitScaleKinematics;
+pub use unit_scale::{ShiftedUnitScale, UnitScaleKinematics};

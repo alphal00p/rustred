@@ -16,6 +16,10 @@ impl Prepared {
     /// positive source support; total numerator rank and dot excess cannot
     /// increase. Pinches and exact cancellations are retained.
     /// These facts do not establish a well-founded recursive owner schedule.
+    ///
+    /// A forced (eps) axis, power `n + j eps`, is a line at every integer
+    /// power `n`: it maps through the active bijection onto the target axis
+    /// with the same shift, also at `n <= 0`, never into a numerator factor.
     pub fn transport(
         &self,
         source: &IntegralKey,
@@ -91,6 +95,8 @@ impl Prepared {
     /// times the product of the factors of its negative axes
     /// ([`Prepared::factor_expansion`]); the product may be expanded one
     /// factor at a time, in any order, with exactly the same coalesced result.
+    /// A forced (eps) axis sits in the base at every power and has no factor:
+    /// [`Prepared::factor_expansion`] refuses it.
     pub(crate) fn layered_base(
         &self,
         source: &IntegralKey,
@@ -121,6 +127,14 @@ impl Prepared {
         let mut base = reserved(target_arity, "transport base powers")?;
         base.resize(target_arity, 0);
         let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
+        // A forced (eps) axis is never a numerator factor; the layered base
+        // already carries it at every power.
+        if self.is_forced(axis) {
+            return Err(Error::AnalyticPowerShift {
+                side: "source",
+                axis,
+            });
+        }
         let factor = self.factor(axis, power)?;
         Ok(try_expand_multi_affine_numerator_with_usage(
             &self.target,
@@ -129,6 +143,17 @@ impl Prepared {
             limits,
             |_| Ok(()),
         )?)
+    }
+
+    /// Whether source axis `axis` is a forced (eps) axis: compile admits a
+    /// shifted axis only inside the root and onto a target axis with the same
+    /// shift, so the target shift of its image decides.
+    fn is_forced(&self, axis: usize) -> bool {
+        self.active_target
+            .get(axis)
+            .copied()
+            .flatten()
+            .is_some_and(|column| !self.target.power_shifts()[column].is_zero())
     }
 
     fn factor(&self, axis: usize, power: u64) -> Result<MultiAffineNumeratorFactor, Error> {
@@ -178,7 +203,7 @@ impl Prepared {
             if power > 0 && !self.source_root.active_bits()[axis] {
                 return Err(Error::PositiveOutsideRoot { axis, power });
             }
-            if power < 0 {
+            if power < 0 && !self.is_forced(axis) {
                 count = count
                     .checked_add(1)
                     .ok_or_else(|| overflow("transport factors"))?;
@@ -215,7 +240,7 @@ impl Prepared {
                 .powers()
                 .iter()
                 .enumerate()
-                .filter(|(_, power)| **power < 0)
+                .filter(|(axis, power)| **power < 0 && !self.is_forced(*axis))
                 .flat_map(|(axis, _)| {
                     std::iter::once(&self.map.denominators().constant()[axis]).chain(
                         (0..target_arity).map(move |column| {
@@ -233,7 +258,7 @@ impl Prepared {
         base.resize(target_arity, 0);
         let mut factors = reserved(count, "transport factors")?;
         for (axis, &power) in source.powers().iter().enumerate() {
-            if power > 0 {
+            if power > 0 || self.is_forced(axis) {
                 base[self.active_target[axis].expect("compiled active bijection")] = power;
             } else if power < 0 {
                 factors.push(self.factor(axis, power.unsigned_abs())?);
@@ -241,5 +266,83 @@ impl Prepared {
         }
         let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
         Ok((base, factors))
+    }
+}
+
+#[cfg(test)]
+mod forced_axis_tests {
+    use std::sync::Arc;
+
+    use crate::family::{IntegralFamily, IntegralKey};
+    use crate::input::{Compiler, Limits, LoweringLimits};
+    use crate::sector::Mask;
+    use crate::sector::symmetry::{CoefficientMatrix, MomentumMap, verify};
+
+    use super::super::{Error, compile};
+
+    /// The 2L kite with eps lines D1 and D5 (rules-study T001c).
+    fn t001c() -> Arc<IntegralFamily> {
+        let source = "I(name(T001c),loops(k1,k2),externals(q),dimension(d),\
+            prop(D1,(k1)^2,1),prop(D2,(-k1-k2)^2,1),prop(D3,(k2)^2,1),\
+            prop(D4,(k1+k2-q)^2,1),prop(D5,(-k2+q)^2,1),gram(q,q,-1),\
+            power_shift(D1,2-d/2),power_shift(D5,2-d/2))";
+        Arc::new(
+            Compiler::new(Limits::default())
+                .unwrap()
+                .compile_compact(source, None)
+                .unwrap()
+                .into_lowered(LoweringLimits::default())
+                .unwrap()
+                .into_family(),
+        )
+    }
+
+    /// The layered lane keeps a forced axis in the base at every power and
+    /// refuses to expand it as a numerator factor.
+    #[test]
+    fn layered_transport_keeps_forced_axes_in_the_base() {
+        let family = t001c();
+        let context = family.coefficient_context();
+        let integers = |values: &[i64], rows, columns| {
+            CoefficientMatrix::try_new(rows, columns, values.iter().map(|v| context.integer(*v)))
+                .unwrap()
+        };
+        // q -> -q with k -> -k: every line onto itself.
+        let map = MomentumMap::new(
+            integers(&[-1, 0, 0, -1], 2, 2),
+            integers(&[0, 0], 2, 1),
+            integers(&[-1], 1, 1),
+        );
+        let verified = verify(&family, &family, map, Default::default()).unwrap();
+        let root = Mask::try_new([true; 5]).unwrap();
+        let prepared = compile(
+            &family,
+            Arc::clone(&family),
+            Arc::new(verified),
+            root.clone(),
+            root,
+            Default::default(),
+        )
+        .unwrap();
+        let key = IntegralKey::try_new([-2, 1, 1, -1, 0]).unwrap();
+        // D1 (forced) stays at -2 in the base, D4 (integer) becomes a factor.
+        assert_eq!(
+            prepared
+                .layered_base(&key, Default::default())
+                .unwrap()
+                .powers(),
+            [-2, 1, 1, 0, 0]
+        );
+        assert!(matches!(
+            prepared.factor_expansion(0, 2, Default::default()),
+            Err(Error::AnalyticPowerShift {
+                side: "source",
+                axis: 0
+            })
+        ));
+        assert!(prepared.factor_expansion(3, 1, Default::default()).is_ok());
+        let transported = prepared.transport(&key, Default::default()).unwrap();
+        assert_eq!(transported.terms().len(), 1);
+        assert_eq!(transported.terms()[0].key().powers(), key.powers());
     }
 }

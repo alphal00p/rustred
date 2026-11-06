@@ -683,6 +683,22 @@ pub(crate) fn validate_unit_scale_propagator_family(
     }
 }
 
+/// The p-only admission of a massless propagator-type family that may carry
+/// eps lines (power shifts `j (4-d)/2` on line slots,
+/// [`crate::family::IntegralFamily::shifted_unit_scale_kinematics`]).
+///
+/// Only the p-integral library path calls this. It grants no closure or
+/// publication authority: [`validate_unit_scale_family`] and every consumer
+/// built on it keep refusing shifted families, and closing artifacts stay
+/// unshifted.
+pub fn validate_shifted_p_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<crate::family::ShiftedUnitScale, ArtifactError> {
+    family
+        .shifted_unit_scale_kinematics()?
+        .ok_or(ArtifactError::UnsupportedClosureShape)
+}
+
 /// Admission for the explicitly uncertified candidate applier only.
 ///
 /// This is [`validate_unit_scale_family`] for vacuum families without its

@@ -36,7 +36,12 @@
 //! Quotient dimensions are read from grevlex Groebner bases over 32-bit
 //! prime fields (Symbolica's specialized `F4` path). Complete-family
 //! auxiliary denominators need no special treatment: they are never active
-//! in physical sectors. Nonzero power shifts are rejected.
+//! in physical sectors. Nonzero power shifts are rejected by
+//! [`MasterCounter::try_new`]; the opt-in [`MasterCounter::try_new_p_shifted`]
+//! counts massless propagator-type families with eps lines (power shifts
+//! `j (4-d)/2`), whose forced axes are never pinched: the Moebius sum then runs
+//! only over faces containing them and the Morse count uses the mixed
+//! critical-point ideal.
 
 mod counter;
 mod error;
