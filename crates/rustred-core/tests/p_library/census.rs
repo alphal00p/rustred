@@ -34,8 +34,8 @@ use rustred::propagator::topology::{
     reduction_graph,
 };
 use rustred::propagator::{
-    NodeIndex, OwnerClassId, P_CENSUS_VERSION, P_CLASS_KEY_VERSION, P_PRESENTATION_VERSION,
-    P_TOPOLOGY_VERSION,
+    NodeIndex, OwnerClassId, P_CENSUS_VERSION, P_CLASS_KEY_VERSION, P_FAMILIES_VERSION,
+    P_PRESENTATION_VERSION, P_TOPOLOGY_VERSION, p_versions,
 };
 use rustred::sector::Mask;
 use rustred::sector::zero::{Analyzer, Decision};
@@ -668,27 +668,37 @@ fn assert_dag_link(library: &Library, census: &PCensus) {
 
 #[test]
 fn the_one_loop_dag_links_to_its_class() {
-    let library = library(1);
-    assert_eq!(library.dag.nodes.len(), 2);
-    let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
-    assert_dag_link(&library, &census);
-    assert_eq!(census.classes.len(), 1);
-    // The top routes onto the bubble node, and the bubble node owns the class.
-    let record = census.classes.values().next().unwrap();
-    assert_eq!(record.owner, (library.presentations[1].id, 0b11));
-    assert_eq!(
-        count_rows(&census.counts(&library.presentations).unwrap()),
-        [(1, 2, 8, 6, 2, 1)]
-    );
+    for library in [library(1), production_library(1)] {
+        assert_eq!(library.dag.nodes.len(), 2);
+        let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
+        assert_dag_link(&library, &census);
+        assert_eq!(census.classes.len(), 1);
+        // The top routes onto the bubble node, and the bubble node owns the class.
+        let record = census.classes.values().next().unwrap();
+        assert_eq!(record.owner, (library.presentations[1].id, 0b11));
+        assert_eq!(
+            count_rows(&census.counts(&library.presentations).unwrap()),
+            [(1, 2, 8, 6, 2, 1)]
+        );
+    }
 }
 
+/// Scope 1-2 is what M2-T8a ships first, so it runs on the production presentations
+/// as well as on the plain trees.
 #[test]
 fn the_two_loop_dag_links_to_its_classes() {
-    let library = library(2);
-    assert_eq!(library.dag.nodes.len(), 7);
-    let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
-    assert_dag_link(&library, &census);
-    assert_eq!(census.classes.len(), 1 + 1 + 4);
+    for library in [library(2), production_library(2)] {
+        assert_eq!(library.dag.nodes.len(), 7);
+        let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
+        assert_dag_link(&library, &census);
+        assert_eq!(census.classes.len(), 1 + 1 + 4);
+        assert_eq!(
+            count_rows(&census.counts(&library.presentations).unwrap()),
+            [(1, 3, 10, 7, 3, 2), (2, 5, 104, 84, 20, 4)]
+        );
+        let text = census.to_json(&library.presentations).unwrap();
+        assert_eq!(PCensus::from_json(&text).unwrap(), census);
+    }
 }
 
 const COUNTS_OF_THE_THREE_LOOP_DAG: [CountRow; 3] = [
@@ -733,30 +743,82 @@ fn the_three_loop_owners_do_not_depend_on_the_routing_of_a_node() {
     }
 }
 
-/// The owner is a function of the graphs: renumbering the presentations leaves the
-/// classes and nodes alone, and moves the owner only by the new number.
-#[test]
-fn owners_do_not_depend_on_the_presentation_list() {
-    let library = library(2);
-    let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
-    let count = library.presentations.len() as u32;
-    let renumbered: Vec<_> = (library.presentations.iter().rev())
+/// `library` with its presentation ids reversed: the list now reaches the nodes of a
+/// class in the opposite order.
+fn with_reversed_ids(library: &Library) -> Library {
+    let last = library.presentations.iter().map(|p| p.id.0).max().unwrap();
+    let reversed = |id: PresentationId| PresentationId(last - id.0);
+    let presentations = (library.presentations.iter().rev())
         .map(|p| {
             let mut copy = (**p).clone();
-            copy.id = PresentationId(count - 1 - p.id.0);
+            copy.id = reversed(p.id);
+            if let PresentationKind::Induced { top, .. } = &mut copy.kind {
+                *top = reversed(*top);
+            }
             Arc::new(copy)
         })
         .collect();
-    let other = p_census(&renumbered, Some(&library.dag), &options()).unwrap();
+    Library {
+        dag: library.dag.clone(),
+        presentations,
+        graphs: (library.graphs.iter())
+            .map(|(id, graph)| (reversed(*id), graph.clone()))
+            .collect(),
+    }
+}
+
+/// The owner of a class is a function of the graphs: it stays at the min-GraphKey node
+/// when the presentation ids run backwards, and moves only by the new number. This
+/// takes the 3L library because a choice needs a class with two nodes: its five twin
+/// classes, where the first presentation by id was the min-GraphKey node before the
+/// reversal and is not any more.
+#[test]
+fn owners_do_not_depend_on_the_presentation_list() {
+    let (library, census) = three_loop_library();
+    let reversed = with_reversed_ids(library);
+    let other = p_census(&reversed.presentations, Some(&reversed.dag), &options()).unwrap();
+    assert_dag_link(&reversed, &other);
+
+    let last = library.presentations.iter().map(|p| p.id.0).max().unwrap();
+    let first_by_id = |ps: &[Arc<Presentation>], nodes: &[NodeIndex]| {
+        (ps.iter())
+            .filter_map(|p| Some((p.id, p.node.as_ref()?.index)))
+            .filter(|(_, node)| nodes.contains(node))
+            .min()
+            .map(|(_, node)| node)
+    };
     assert_eq!(other.classes.len(), census.classes.len());
+    let mut decided = 0;
     for (id, record) in &census.classes {
         let moved = &other.classes[id];
         assert_eq!((moved.node, &moved.nodes), (record.node, &record.nodes));
-        assert_eq!(moved.owner.0.0, count - 1 - record.owner.0.0);
+        assert_eq!(moved.owner.0.0, last - record.owner.0.0);
         assert_eq!(moved.owner.1, record.owner.1);
+        if record.nodes.len() > 1 {
+            assert_eq!(
+                first_by_id(&library.presentations, &record.nodes),
+                record.node
+            );
+            assert_ne!(
+                first_by_id(&reversed.presentations, &record.nodes),
+                record.node
+            );
+            decided += 1;
+        }
     }
+    assert_eq!(decided, 5, "the classes in which the list could decide");
+}
+
+/// The order of the slice is no input at all: the ids alone number the presentations.
+#[test]
+fn the_census_does_not_depend_on_the_order_of_its_slice() {
+    let library = production_library(2);
+    let census = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
+    let backwards: Vec<_> = library.presentations.iter().rev().cloned().collect();
+    let other = p_census(&backwards, Some(&library.dag), &options()).unwrap();
+    assert_eq!(other, census);
     other
-        .check_complete(&renumbered, Some(&library.dag))
+        .check_complete(&backwards, Some(&library.dag))
         .unwrap();
 }
 
@@ -872,6 +934,108 @@ fn a_sector_of_a_node_presentation_outside_its_lines_is_refused() {
     };
     *last = Arc::new(copy);
     assert_dag_refusal(dag, &edited, &census, "outside its lines");
+}
+
+/// The pairs of presentations, none Induced, whose nodes have one shape: loops, lines
+/// and eps lines cannot tell them apart.
+fn same_shape_pairs(library: &Library) -> Vec<(usize, usize)> {
+    let dag = &library.dag;
+    let shape = |p: &Presentation| {
+        let reference = p.node.as_ref()?;
+        let node = &dag.nodes[reference.index.0 as usize];
+        let induced = matches!(p.kind, PresentationKind::Induced { .. });
+        (!induced).then_some((node.loops, node.t, node.eps_lines))
+    };
+    let ps = &library.presentations;
+    let mut pairs = Vec::new();
+    for (a, first) in ps.iter().enumerate() {
+        for (b, second) in ps.iter().enumerate().skip(a + 1) {
+            if shape(first).is_some() && shape(first) == shape(second) {
+                pairs.push((a, b));
+            }
+        }
+    }
+    pairs
+}
+
+/// `presentations` with the node references at `a` and `b` traded.
+fn with_traded_nodes(ps: &[Arc<Presentation>], a: usize, b: usize) -> Vec<Arc<Presentation>> {
+    let mut edited = ps.to_vec();
+    let (mut first, mut second) = ((*ps[a]).clone(), (*ps[b]).clone());
+    std::mem::swap(&mut first.node, &mut second.node);
+    edited[a] = Arc::new(first);
+    edited[b] = Arc::new(second);
+    edited
+}
+
+/// Trades the references of every `stride`-th pair and of every pair of nodes in one
+/// class: `check_complete` refuses each. Returns the pairs and those in one class.
+fn assert_traded_nodes_are_refused(
+    library: &Library,
+    census: &PCensus,
+    stride: usize,
+) -> (usize, usize) {
+    let (dag, ps) = (&library.dag, &library.presentations);
+    let classes = node_classes(library, census);
+    let class_at = |position: usize| classes[&ps[position].node.as_ref().unwrap().index.0];
+    let pairs = same_shape_pairs(library);
+    let mut twins = 0;
+    for (at, &(a, b)) in pairs.iter().enumerate() {
+        let twin = class_at(a) == class_at(b);
+        twins += usize::from(twin);
+        if twin || at % stride == 0 {
+            assert_malformed(
+                census.check_complete(&with_traded_nodes(ps, a, b), Some(dag)),
+                "is not node",
+            );
+        }
+    }
+    (pairs.len(), twins)
+}
+
+/// A node reference is checked against the graph: nodes of one shape cannot trade their
+/// presentations, not even Whitney twins, which share a class and differ as graphs.
+#[test]
+fn a_presentation_of_another_node_is_refused() {
+    let (library, census) = three_loop_library();
+    assert_eq!(
+        assert_traded_nodes_are_refused(library, census, 1),
+        (103, 5)
+    );
+    let (a, b) = same_shape_pairs(library)[0];
+    assert_malformed(
+        p_census(
+            &with_traded_nodes(&library.presentations, a, b),
+            Some(&library.dag),
+            &options(),
+        ),
+        "is not node",
+    );
+}
+
+/// The graph of a node also says where its eps units sit: a bubble with them on the
+/// other line routes alike, conserves momentum, and has the same shape.
+#[test]
+fn a_presentation_with_eps_units_on_other_lines_is_refused() {
+    let library = library(2);
+    let (dag, ps) = (&library.dag, &library.presentations);
+    let census = p_census(ps, Some(dag), &options()).unwrap();
+    let position = (ps.iter())
+        .position(|p| {
+            p.node.as_ref().is_some_and(|reference| {
+                let node = &dag.nodes[reference.index.0 as usize];
+                (node.loops, node.t, node.eps_lines) == (1, 2, 1)
+            })
+        })
+        .unwrap();
+    let mut node = dag.nodes[ps[position].node.as_ref().unwrap().index.0 as usize].clone();
+    let (first, second) = (node.topo.lines[0].2, node.topo.lines[1].2);
+    assert_ne!(first, second);
+    node.topo.lines[0].2 = second;
+    node.topo.lines[1].2 = first;
+    let mut edited = ps.clone();
+    edited[position] = Arc::new(routed_node(&node, ps[position].id.0));
+    assert_dag_refusal(dag, &edited, &census, "eps units");
 }
 
 /// A sector of the right shape that is proved zero cannot stand for a node.
@@ -1479,18 +1643,26 @@ fn the_census_does_not_depend_on_its_threads() {
 /// digest only together with the versions next to it.
 #[test]
 fn the_census_content_is_pinned_to_its_versions() {
-    const TOPS: ((u32, u32), &str) = (
-        (1, 1),
-        "8b7b5e98a5386391136b95c3a8eea237fbbb336daa06be7226be6b5d3942efdd",
+    const TOPS: ((u32, u32, u32), &str) = (
+        (1, 1, 1),
+        "be76ddd3d0a8cceb9f612fbbb18a9dfd8d47eb4eca2eaa9d9b9433ddd49d7d17",
     );
-    const LIBRARY: ((u32, u32, u32, u32), &str) = (
-        (1, 1, 1, 1),
-        "fa144b41a89169ae5e0bf99401414205b274015b738290489150461dbc5a2b98",
+    const LIBRARY: ((u32, u32, u32, u32, u32), &str) = (
+        (1, 1, 1, 1, 1),
+        "7c265ca9f34a87b5be2de729167a74eb0ceb26d2dbcc6648ad733b2bce33e69c",
     );
-    let digest = |text: String| blake3::hash(text.as_bytes()).to_hex().to_string();
+    // The versions recorded in the text are not content: a bump of a kernel version
+    // moves nothing here.
+    let digest = |text: String| {
+        let (head, rest) = text.split_once("  \"versions\": {\n").unwrap();
+        let (_, tail) = rest.split_once("  },\n").unwrap();
+        blake3::hash(format!("{head}{tail}").as_bytes())
+            .to_hex()
+            .to_string()
+    };
 
     let (tops, census) = three_loop_tops();
-    let versions = (P_CENSUS_VERSION, P_CLASS_KEY_VERSION);
+    let versions = (P_CENSUS_VERSION, P_CLASS_KEY_VERSION, P_FAMILIES_VERSION);
     let found = digest(census.to_json(tops).unwrap());
     assert_eq!((versions, found.as_str()), TOPS);
 
@@ -1498,6 +1670,7 @@ fn the_census_content_is_pinned_to_its_versions() {
     let versions = (
         P_CENSUS_VERSION,
         P_CLASS_KEY_VERSION,
+        P_FAMILIES_VERSION,
         P_PRESENTATION_VERSION,
         P_TOPOLOGY_VERSION,
     );
@@ -1530,38 +1703,109 @@ fn the_json_form_round_trips() {
 
 type JsonEdit<'a> = &'a dyn Fn(&mut serde_json::Value);
 
+/// `text` with `change` applied.
+fn json_edited(text: &str, change: JsonEdit) -> String {
+    let mut value: serde_json::Value = serde_json::from_str(text).unwrap();
+    change(&mut value);
+    value.to_string()
+}
+
+/// The first sector row with a class.
+fn routed_row(value: &serde_json::Value) -> usize {
+    (value["sectors"].as_array().unwrap().iter())
+        .position(|row| row.get("class").is_some())
+        .unwrap()
+}
+
+/// The first sector row of a zero sector.
+fn zero_row(value: &serde_json::Value) -> usize {
+    (value["sectors"].as_array().unwrap().iter())
+        .position(|row| row.get("class").is_none())
+        .unwrap()
+}
+
+/// The row of the owner of `classes[class]`.
+fn owner_row(value: &serde_json::Value, class: usize) -> usize {
+    let owner = &value["classes"][class]["owner"];
+    (value["sectors"].as_array().unwrap().iter())
+        .position(|row| {
+            row["presentation"] == owner["presentation"] && row["support"] == owner["support"]
+        })
+        .unwrap()
+}
+
+/// Moves a count of the `sectors[at]` row's loop order, so that only the cross-row
+/// checks can tell.
+fn shift_counts(value: &mut serde_json::Value, at: usize, sectors: i64, zero: i64, nonzero: i64) {
+    let presentation = value["sectors"][at]["presentation"].clone();
+    let loops = (value["presentations"].as_array().unwrap().iter())
+        .find(|row| row["id"] == presentation)
+        .unwrap()["loops"]
+        .clone();
+    let row = (value["counts"].as_array_mut().unwrap().iter_mut())
+        .find(|row| row["loops"] == loops)
+        .unwrap();
+    let mut shift = |name: &str, by: i64| row[name] = (row[name].as_i64().unwrap() + by).into();
+    shift("sectors", sectors);
+    shift("zero_sectors", zero);
+    shift("nonzero_sectors", nonzero);
+}
+
+#[test]
+fn the_json_form_refuses_any_other_version() {
+    let (tops, census) = three_loop_tops();
+    let text = census.to_json(tops).unwrap();
+    let refused_as = |change: JsonEdit, name: &str, found: &str| match PCensus::from_json(
+        &json_edited(&text, change),
+    ) {
+        Err(PError::VersionMismatch {
+            name: refused,
+            found: held,
+            ..
+        }) => assert_eq!((refused.as_str(), held.as_str()), (name, found)),
+        other => panic!("{other:?} instead of the mismatch of {name}"),
+    };
+    let versions = p_versions();
+    assert!(versions.iter().any(|(name, _)| *name == "P_CENSUS_VERSION"));
+    for (name, _) in &versions {
+        refused_as(&|v| v["versions"][*name] = "999".into(), name, "999");
+        refused_as(
+            &|v| {
+                v["versions"].as_object_mut().unwrap().remove(*name);
+            },
+            name,
+            "absent",
+        );
+    }
+    refused_as(&|v| v["versions"]["P_NEW"] = "1".into(), "P_NEW", "1");
+    refused_as(
+        &|v| v["schema"] = "other".into(),
+        "P_CENSUS_SCHEMA",
+        "other",
+    );
+}
+
+/// Each edit is one a reader could make, or a truncated write, and leaves a well-formed
+/// file: the counts are edited with it wherever they would give it away.
 #[test]
 fn the_json_form_refuses_what_disagrees_with_itself() {
     let (tops, census) = three_loop_tops();
     let text = census.to_json(tops).unwrap();
-    let edited = |change: &dyn Fn(&mut serde_json::Value)| -> String {
-        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        change(&mut value);
-        value.to_string()
-    };
-    let version = |name: &str| match PCensus::from_json(&edited(&|v| {
-        v[name] = serde_json::json!(999);
-    })) {
-        Err(PError::VersionMismatch { found, .. }) => assert_eq!(found, "999"),
-        other => panic!("{other:?}"),
-    };
-    version("census_version");
-    version("class_key_version");
-    assert!(matches!(
-        PCensus::from_json(&edited(&|v| v["schema"] = "other".into())),
-        Err(PError::VersionMismatch { .. })
-    ));
+    assert!(PCensus::from_json(&text).is_ok());
 
-    let routed = |value: &mut serde_json::Value| -> usize {
-        (value["sectors"].as_array().unwrap().iter())
-            .position(|row| row.get("class").is_some())
-            .unwrap()
+    let routed_map = |v: &mut serde_json::Value, field: &str, value: serde_json::Value| {
+        let at = routed_row(v);
+        v["sectors"][at]["map"][field] = value;
     };
     let refusals: &[(JsonEdit, &str)] = &[
         (&|v| v["counts"][0]["classes"] = 99.into(), "counts"),
         (&|v| v["unknown"] = 1.into(), "unknown field"),
         (
             &|v| v["classes"][0]["id"] = "0000000000000000".into(),
+            "holds the key",
+        ),
+        (
+            &|v| v["classes"][0]["label"] = "L9T99-0000000000000000".into(),
             "holds the key",
         ),
         (
@@ -1588,23 +1832,361 @@ fn the_json_form_refuses_what_disagrees_with_itself() {
         ),
         (
             &|v| {
-                let at = routed(v);
+                let row = v["presentations"][0].clone();
+                v["presentations"].as_array_mut().unwrap().push(row);
+            },
+            "appears twice",
+        ),
+        (
+            &|v| {
+                let at = routed_row(v);
                 v["sectors"][at].as_object_mut().unwrap().remove("map");
             },
             "a class needs a map",
         ),
         (
             &|v| {
-                let at = routed(v);
+                let at = routed_row(v);
                 v["sectors"][at]["class"] = "not hex".into();
             },
             "class id",
         ),
+        // A sector and its class.
+        (
+            &|v| {
+                let at = routed_row(v);
+                v["sectors"][at]["class"] = "00000000deadbeef".into();
+            },
+            "without a record",
+        ),
+        (
+            &|v| {
+                let at = routed_row(v);
+                v["sectors"][at]["presentation"] = 77.into();
+            },
+            "no presentation row",
+        ),
+        (
+            &|v| {
+                // Any class of other lines than the sector's: classes run by id.
+                let at = routed_row(v);
+                let t = v["sectors"][at]["support"].as_u64().unwrap().count_ones();
+                let other = (v["classes"].as_array().unwrap().iter())
+                    .find(|class| class["t"].as_u64().unwrap() != u64::from(t))
+                    .unwrap()["id"]
+                    .clone();
+                v["sectors"][at]["class"] = other;
+            },
+            "unlike its class",
+        ),
+        // A map.
+        (
+            &|v| {
+                let at = routed_row(v);
+                let rows = v["sectors"][at]["map"]["loop_linear"]
+                    .as_array()
+                    .unwrap()
+                    .len();
+                routed_map(v, "loop_linear", vec![0; rows].into());
+            },
+            "no unimodular map",
+        ),
+        (
+            &|v| routed_map(v, "loop_linear", vec![1, 1].into()),
+            "no unimodular map",
+        ),
+        (
+            &|v| routed_map(v, "external_sign", 7.into()),
+            "no unimodular map",
+        ),
+        (
+            &|v| routed_map(v, "loops_in", 9.into()),
+            "no unimodular map",
+        ),
+        (
+            &|v| routed_map(v, "loops_out", 9.into()),
+            "no unimodular map",
+        ),
+        // Unimodular, on the loops of another class: the first routed sector has one.
+        (
+            &|v| {
+                let at = routed_row(v);
+                v["sectors"][at]["map"] = serde_json::json!({
+                    "loops_in": 2, "loops_out": 2, "loop_linear": [1, 0, 0, 1],
+                    "loop_external": [0, 0], "external_sign": 1,
+                });
+            },
+            "no unimodular map",
+        ),
+        // A sector and its presentation row.
+        (
+            &|v| {
+                let at = zero_row(v);
+                v["sectors"][at]["support"] = (1_u64 << 40).into();
+            },
+            "leaves its row",
+        ),
+        (
+            &|v| {
+                let at = zero_row(v);
+                let presentation = v["sectors"][at]["presentation"].clone();
+                let rows = v["presentations"].as_array_mut().unwrap();
+                let row = rows
+                    .iter_mut()
+                    .find(|row| row["id"] == presentation)
+                    .unwrap();
+                row["forced"] = 1.into();
+            },
+            "leaves its row",
+        ),
+        (
+            &|v| {
+                let lines = v["presentations"][0]["lines"].as_u64().unwrap();
+                v["presentations"][0]["forced"] = (1_u64 << lines).into();
+            },
+            "outside its lines",
+        ),
+        (
+            &|v| v["presentations"][0]["lines"] = 99.into(),
+            "has 99 lines",
+        ),
+        (
+            &|v| v["presentations"][0]["lines"] = 1.into(),
+            "leaves its row",
+        ),
+        (
+            &|v| v["presentations"][0]["node_support"] = 1.into(),
+            "a node and its support",
+        ),
+        (
+            &|v| {
+                let at = zero_row(v);
+                shift_counts(v, at, -1, -1, 0);
+                v["sectors"].as_array_mut().unwrap().remove(at);
+            },
+            "sectors for",
+        ),
+        (
+            &|v| {
+                v["presentations"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "id": 77, "name": "x", "loops": 1, "lines": 2, "forced": 0,
+                        "node": null, "node_support": null,
+                    }));
+                let row = (v["counts"].as_array_mut().unwrap().iter_mut())
+                    .find(|row| row["loops"] == 1)
+                    .unwrap();
+                row["presentations"] = (row["presentations"].as_i64().unwrap() + 1).into();
+            },
+            "presentation 77 holds 0 sectors",
+        ),
+        // A class record.
+        (
+            &|v| {
+                let t = v["classes"][0]["t"].as_u64().unwrap();
+                v["classes"][0]["t"] = (t + 1).into();
+            },
+            "records",
+        ),
+        (&|v| v["classes"][0]["eps_lines"] = 3.into(), "records"),
+        (
+            &|v| v["classes"][0]["owner"]["support"] = (1_u64 << 40).into(),
+            "no identity route",
+        ),
+        (
+            &|v| v["classes"][0]["owner"]["presentation"] = 77.into(),
+            "no identity route",
+        ),
+        (
+            &|v| {
+                let at = owner_row(v, 0);
+                let row = v["sectors"][at].as_object_mut().unwrap();
+                row.remove("class");
+                row.remove("map");
+                shift_counts(v, at, 0, 1, -1);
+            },
+            "no identity route",
+        ),
+        (
+            &|v| {
+                let at = owner_row(v, 0);
+                v["sectors"][at]["map"]["external_sign"] = (-1).into();
+            },
+            "no identity route",
+        ),
+        (
+            &|v| {
+                // The owner routed into a later class of its own shape.
+                let classes = v["classes"].as_array().unwrap();
+                let shape =
+                    |class: &serde_json::Value| class["label"].as_str().unwrap()[..6].to_owned();
+                let (first, second) = (0..classes.len())
+                    .find_map(|first| {
+                        let second = (first + 1..classes.len())
+                            .find(|&second| shape(&classes[first]) == shape(&classes[second]))?;
+                        Some((first, second))
+                    })
+                    .unwrap();
+                let other = classes[second]["id"].clone();
+                let at = owner_row(v, first);
+                v["sectors"][at]["class"] = other;
+            },
+            "no identity route",
+        ),
+        (&|v| v["classes"][0]["node"] = 0.into(), "have a node"),
+        (
+            &|v| v["classes"][0]["nodes"] = serde_json::json!([0]),
+            "the rows give",
+        ),
     ];
     for (change, needle) in refusals {
-        assert_malformed(PCensus::from_json(&edited(change)), needle);
+        assert_malformed(PCensus::from_json(&json_edited(&text, change)), needle);
     }
     assert_malformed(PCensus::from_json("{"), "census JSON");
+
+    // Another member of the class as owner, with the identity route: the first
+    // member is the rule without a DAG.
+    let (sector, class) = last_member(census);
+    let label = census.classes[&class].key.label();
+    let moved = json_edited(&text, &|v| {
+        let class_row = (v["classes"].as_array_mut().unwrap().iter_mut())
+            .find(|row| row["label"] == label.as_str())
+            .unwrap();
+        class_row["owner"] = serde_json::json!({
+            "presentation": sector.0.0, "support": sector.1,
+        });
+        let loops = usize::from(census.classes[&class].key.loops);
+        let unit: Vec<_> = (0..loops * loops)
+            .map(|entry| i64::from(entry % (loops + 1) == 0))
+            .collect();
+        let row = (v["sectors"].as_array_mut().unwrap().iter_mut())
+            .find(|row| row["presentation"] == sector.0.0 && row["support"] == sector.1)
+            .unwrap();
+        row["map"]["loop_linear"] = unit.into();
+        row["map"]["loop_external"] = vec![0; loops].into();
+        row["map"]["external_sign"] = 1.into();
+    });
+    assert_malformed(PCensus::from_json(&moved), "the rows give");
+}
+
+/// The nodes in a file are rows of the presentations and of the classes, which have
+/// to agree: the sector of a node is in the class that lists it.
+#[test]
+fn the_json_form_refuses_nodes_that_disagree_with_their_classes() {
+    let (library, census) = three_loop_library();
+    let text = census.to_json(&library.presentations).unwrap();
+    assert!(PCensus::from_json(&text).is_ok());
+    let twin = |v: &serde_json::Value| {
+        (v["classes"].as_array().unwrap().iter())
+            .position(|class| class["nodes"].as_array().unwrap().len() > 1)
+            .unwrap()
+    };
+    let node_row = |v: &serde_json::Value, node: &serde_json::Value| {
+        (v["presentations"].as_array().unwrap().iter())
+            .position(|row| row["node"] == *node)
+            .unwrap()
+    };
+    let refusals: &[(JsonEdit, &str)] = &[
+        (&|v| v["classes"][0]["node"] = 9_999.into(), "the rows give"),
+        (
+            &|v| v["classes"][0]["node"] = serde_json::Value::Null,
+            "have a node",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                let other = v["classes"][at]["nodes"][1].clone();
+                v["classes"][at]["node"] = other;
+            },
+            "the rows give",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                v["classes"][at]["nodes"].as_array_mut().unwrap().reverse();
+            },
+            "the rows give",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                v["classes"][at]["nodes"].as_array_mut().unwrap().pop();
+            },
+            "the rows give",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                let node = v["classes"][at]["nodes"][1].clone();
+                let row = node_row(v, &node);
+                v["presentations"][row]["node"] = 9_999.into();
+            },
+            "the rows give",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                let node = v["classes"][at]["nodes"][0].clone();
+                let row = node_row(v, &node);
+                v["presentations"][row]["node"] = serde_json::Value::Null;
+            },
+            "a node and its support",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                let (first, second) = (
+                    v["classes"][at]["nodes"][0].clone(),
+                    v["classes"][at]["nodes"][1].clone(),
+                );
+                let row = node_row(v, &first);
+                v["presentations"][row]["node"] = second;
+            },
+            "second presentation of node",
+        ),
+        (
+            &|v| {
+                let at = twin(v);
+                let node = v["classes"][at]["nodes"][1].clone();
+                let row = node_row(v, &node);
+                v["presentations"][row]["node_support"] = 0.into();
+            },
+            "has no class",
+        ),
+        (
+            &|v| {
+                // A proper sector of the node's presentation: another class.
+                let at = twin(v);
+                let node = v["classes"][at]["nodes"][1].clone();
+                let row = node_row(v, &node);
+                let id = v["presentations"][row]["id"].clone();
+                let support = v["presentations"][row]["node_support"].as_u64().unwrap();
+                let proper = (v["sectors"].as_array().unwrap().iter())
+                    .find(|sector| {
+                        sector["presentation"] == id
+                            && sector.get("class").is_some()
+                            && sector["support"].as_u64() != Some(support)
+                    })
+                    .unwrap()["support"]
+                    .clone();
+                v["presentations"][row]["node_support"] = proper;
+            },
+            "the rows give",
+        ),
+    ];
+    for (change, needle) in refusals {
+        assert_malformed(PCensus::from_json(&json_edited(&text, change)), needle);
+    }
+}
+
+/// A census written with the presentations of another census would not read back.
+#[test]
+fn the_json_form_is_not_written_for_other_presentations() {
+    let (library, _) = three_loop_library();
+    let (_, tops_census) = three_loop_tops();
+    assert_malformed(tops_census.to_json(&library.presentations), "sectors for");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1649,6 +2231,13 @@ fn the_four_loop_dag_is_complete() {
         start.elapsed().as_secs_f64(),
         census.counts(&library.presentations).unwrap()
     );
+
+    // All 10,654 pairs take five minutes: the twins and a sample stay.
+    assert_eq!(
+        assert_traded_nodes_are_refused(&library, &census, 64),
+        (10_654, 172)
+    );
+
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
     // are the 183 of the tops.
     assert_eq!(

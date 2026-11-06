@@ -16,16 +16,27 @@
 //! Without a DAG, as in unit tests, the owner is the first member by
 //! `(presentation, support)`; all members of a class have the same `t`.
 //!
-//! [`PCensus::check_complete`] trusts nothing it is given: it repeats the zero
-//! proofs and verifies every stored route again, so it costs about what the census
-//! does. A loader that wants to skip it has to say so.
+//! [`PCensus::check_complete`] repeats the zero proofs and verifies every stored
+//! route again, so it costs about what the census does. A loader that wants to skip
+//! it has to say so.
+//!
+//! # What a census takes from its input
+//!
+//! The owner rule needs each node presentation to stand for the node it names, so
+//! both entry points compare the two. A presentation that is not Induced must carry
+//! the graph of its node: line slot `i` is canonical line `i` with its eps units, and
+//! momentum is conserved on that graph. An Induced presentation has the lines of its
+//! top, in the top's order, and a [`Presentation`] has momenta only, so only its
+//! loops, lines, eps lines and key bytes are compared. That its sector is the graph
+//! of its node remains the word of `present`, which chooses the mask on the graph of
+//! the top, and of `edge_map`, which checks it for a child.
 //!
 //! # Versioning
 //!
 //! Bump [`P_CENSUS_VERSION`] when a fate, an owner or a stored route can change
 //! for the same input: it is part of the identity of every library program. The
-//! JSON form ([`PCensus::to_json`], [`P_CENSUS_SCHEMA`]) records it and the class
-//! key version, and [`PCensus::from_json`] refuses any other value.
+//! JSON form ([`PCensus::to_json`], [`P_CENSUS_SCHEMA`]) records all of
+//! [`p_versions`], and [`PCensus::from_json`] refuses any other value.
 //!
 //! [`P_CENSUS_VERSION`]: super::P_CENSUS_VERSION
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,8 +53,8 @@ use crate::sector::zero::{Analyzer, Decision};
 use super::class::{ClassLimits, ClassedSector, OwnerClassKey, classify, route, verify_route};
 use super::error::PError;
 use super::presentation::{Presentation, PresentationKind, determinant};
-use super::topology::{Dag, GraphKey};
-use super::{NodeIndex, OwnerClassId, P_CENSUS_VERSION, P_CLASS_KEY_VERSION, PresentationId};
+use super::topology::{Dag, GraphKey, PTopo};
+use super::{NodeIndex, OwnerClassId, PresentationId, p_versions};
 
 /// Schema name of [`PCensus::to_json`].
 pub const P_CENSUS_SCHEMA: &str = "rustred.p-census.v1";
@@ -370,6 +381,35 @@ fn node_support(p: &Presentation, axes: Axes) -> Result<u64, PError> {
     }
 }
 
+/// `p`, which is not Induced, on the graph of its node: line slot `i` is canonical
+/// line `i` from `u` to `v` with its eps units, and `q` enters at `s` and leaves at
+/// `t` (the form of `PFamilyEntry::check`). The rows of a valid presentation are
+/// small, so the balance cannot overflow.
+fn check_on_graph(p: &Presentation, graph: &PTopo) -> Result<(), String> {
+    let width = usize::from(p.loops) + 1;
+    let mut balance = vec![vec![0_i64; width]; usize::from(graph.n)];
+    for ((slot, line), &(tail, head, eps_units)) in p.lines().zip(&graph.lines) {
+        if line.eps_units != eps_units {
+            return Err(format!(
+                "line {slot} has {} eps units, the graph {eps_units}",
+                line.eps_units
+            ));
+        }
+        for (column, &value) in line.momentum.iter().enumerate() {
+            balance[usize::from(tail)][column] -= value;
+            balance[usize::from(head)][column] += value;
+        }
+    }
+    balance[usize::from(graph.s)][width - 1] += 1;
+    balance[usize::from(graph.t)][width - 1] -= 1;
+    match balance.iter().position(|row| row.iter().any(|&c| c != 0)) {
+        Some(vertex) => Err(format!(
+            "momentum is not conserved at vertex {vertex} of the graph"
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The DAG nodes by class. `class_of` gives the class of a sector, `None` for a
 /// proved zero. Every node with loops needs exactly one presentation, which has
 /// to fit the node: the owner rule depends on seeing all of them.
@@ -419,6 +459,14 @@ fn node_links<'a>(
                 "presentation {} presents (loops, lines, eps lines) = {shape:?} for node {}",
                 p.id.0, node.index
             )));
+        }
+        if !matches!(p.kind, PresentationKind::Induced { .. }) {
+            check_on_graph(p, &node.topo).map_err(|detail| {
+                malformed(format!(
+                    "presentation {} is not node {}: {detail}",
+                    p.id.0, node.index
+                ))
+            })?;
         }
         let class = class_of(p.id, support)?.ok_or_else(|| {
             malformed(format!(
@@ -713,8 +761,9 @@ impl PCensus {
     /// Strong completeness: `routes + zeros == 2^t` per presentation (`t`
     /// without the forced axes, each support is one sector) and nothing else;
     /// every class has its canonical owner; every class has a DAG node and the
-    /// class of every DAG node has an owner. The zero proofs are repeated and
-    /// every route is verified again. What an owner runs is checked by M2-T8a.
+    /// class of every DAG node has an owner; a node presentation fits its node as
+    /// far as the module docs say. The zero proofs are repeated and every route is
+    /// verified again. What an owner runs is checked by M2-T8a.
     pub fn check_complete_with(
         &self,
         presentations: &[Arc<Presentation>],
@@ -935,13 +984,13 @@ impl PCensus {
         Ok(counts.into_values().collect())
     }
 
-    /// The census as pretty JSON, schema [`P_CENSUS_SCHEMA`].
+    /// The census as pretty JSON, schema [`P_CENSUS_SCHEMA`]. Refuses presentations
+    /// that are not those of the census, by [`Self::from_json`]'s check of the rows.
     pub fn to_json(&self, presentations: &[Arc<Presentation>]) -> Result<String, PError> {
         let ordered = by_id(presentations)?;
         let file = CensusFile {
             schema: P_CENSUS_SCHEMA.to_owned(),
-            census_version: P_CENSUS_VERSION,
-            class_key_version: P_CLASS_KEY_VERSION,
+            versions: versions_of_this_build(),
             counts: self.counts(presentations)?,
             presentations: ordered
                 .iter()
@@ -954,6 +1003,7 @@ impl PCensus {
                         lines: axes.lines.count_ones(),
                         forced: axes.forced,
                         node: p.node.as_ref().map(|node| node.index.0),
+                        node_support: p.node.as_ref().map(|_| node_support(p, axes)).transpose()?,
                     })
                 })
                 .collect::<Result<_, PError>>()?,
@@ -1000,19 +1050,31 @@ impl PCensus {
                 })
                 .collect(),
         };
+        self.check_rows(&file.presentations)?;
         let mut text = serde_json::to_string_pretty(&file)
             .map_err(|error| PError::Generation(format!("census JSON: {error}")))?;
         text.push('\n');
         Ok(text)
     }
 
-    /// The census of [`Self::to_json`]. Refuses another schema or version and
-    /// everything that disagrees with itself; [`Self::check_complete`] remains
-    /// the check against the presentations.
+    /// The census of [`Self::to_json`]. Refuses another schema, another value of any
+    /// of [`p_versions`], and rows that disagree with each other:
+    /// - a class is stored under the id and label of its canonical bytes, with their
+    ///   lines and eps lines;
+    /// - a presentation row holds one sector per support and no other sector;
+    /// - a routed sector names a class that has a record and the same loops, lines and
+    ///   eps lines, and holds a unimodular map on those loops;
+    /// - the owner of a class holds the identity, on the sector of the node the record
+    ///   names, or on the first member of the class if the census has no nodes;
+    /// - the nodes of a class are those whose sector is in it, ascending;
+    /// - the counts are those of the rows.
+    ///
+    /// The file holds neither graphs nor families, so nothing here repeats a zero
+    /// proof, verifies a route, compares a key or applies the min-GraphKey rule:
+    /// [`Self::check_complete`] remains the check against the presentations.
     pub fn from_json(json: &str) -> Result<Self, PError> {
-        let malformed = |detail: String| PError::MalformedLibrary(format!("census JSON: {detail}"));
         let file: CensusFile =
-            serde_json::from_str(json).map_err(|error| malformed(error.to_string()))?;
+            serde_json::from_str(json).map_err(|error| malformed_file(error.to_string()))?;
         if file.schema != P_CENSUS_SCHEMA {
             return Err(PError::VersionMismatch {
                 name: "P_CENSUS_SCHEMA".to_owned(),
@@ -1020,28 +1082,13 @@ impl PCensus {
                 expected: P_CENSUS_SCHEMA.to_owned(),
             });
         }
-        for (name, found, expected) in [
-            ("P_CENSUS_VERSION", file.census_version, P_CENSUS_VERSION),
-            (
-                "P_CLASS_KEY_VERSION",
-                file.class_key_version,
-                P_CLASS_KEY_VERSION,
-            ),
-        ] {
-            if found != expected {
-                return Err(PError::VersionMismatch {
-                    name: name.to_owned(),
-                    found: found.to_string(),
-                    expected: expected.to_string(),
-                });
-            }
-        }
+        check_versions(&file.versions)?;
         let mut census = Self::default();
         for row in file.classes {
             let bytes = hex_bytes(&row.canonical)
-                .ok_or_else(|| malformed(format!("class {}: canonical bytes", row.id)))?;
+                .ok_or_else(|| malformed_file(format!("class {}: canonical bytes", row.id)))?;
             let &[loops, lines, eps_lines, ..] = bytes.as_slice() else {
-                return Err(malformed(format!("class {}: canonical bytes", row.id)));
+                return Err(malformed_file(format!("class {}: canonical bytes", row.id)));
             };
             let key = OwnerClassKey {
                 loops,
@@ -1050,7 +1097,7 @@ impl PCensus {
                 canonical: bytes.into(),
             };
             if id_text(key.id()) != row.id || key.label() != row.label {
-                return Err(malformed(format!(
+                return Err(malformed_file(format!(
                     "class {} ({}) holds the key {}",
                     row.id,
                     row.label,
@@ -1067,7 +1114,7 @@ impl PCensus {
                 eps_lines: row.eps_lines,
             };
             if census.classes.insert(id, record).is_some() {
-                return Err(malformed(format!("class {} appears twice", row.id)));
+                return Err(malformed_file(format!("class {} appears twice", row.id)));
             }
         }
         for row in file.sectors {
@@ -1075,7 +1122,7 @@ impl PCensus {
                 (None, None) => PSectorFate::Zero,
                 (Some(class), Some(map)) => PSectorFate::Owner {
                     class: id_value(&class)
-                        .ok_or_else(|| malformed(format!("class id {class}")))?,
+                        .ok_or_else(|| malformed_file(format!("class id {class}")))?,
                     map: SignedAffineLoopMap {
                         loops_in: map.loops_in,
                         loops_out: map.loops_out,
@@ -1085,7 +1132,7 @@ impl PCensus {
                     },
                 },
                 _ => {
-                    return Err(malformed(format!(
+                    return Err(malformed_file(format!(
                         "sector ({}, {:#x}): a class needs a map and a map a class",
                         row.presentation, row.support
                     )));
@@ -1093,22 +1140,226 @@ impl PCensus {
             };
             let sector = (PresentationId(row.presentation), row.support);
             if census.sectors.insert(sector, fate).is_some() {
-                return Err(malformed(format!(
+                return Err(malformed_file(format!(
                     "sector ({}, {:#x}) appears twice",
                     row.presentation, row.support
                 )));
             }
         }
+        census.check_rows(&file.presentations)?;
         let rows: Vec<_> = file
             .presentations
             .iter()
             .map(|row| (PresentationId(row.id), row.loops))
             .collect();
         if census.counts_over(&rows)? != file.counts {
-            return Err(malformed("the counts disagree with the rows".to_owned()));
+            return Err(malformed_file(
+                "the counts disagree with the rows".to_owned(),
+            ));
         }
         Ok(census)
     }
+
+    /// The rows of a census file against each other: see [`Self::from_json`].
+    fn check_rows(&self, rows: &[PresentationRow]) -> Result<(), PError> {
+        let axes = row_axes(rows)?;
+        let first_members = self.check_sector_rows(rows, &axes)?;
+        self.check_class_rows(rows, &first_members)
+    }
+
+    /// Every sector lies on its presentation row and fits its class, and every row
+    /// holds one sector per support. Returns the first member of each class.
+    fn check_sector_rows(
+        &self,
+        rows: &[PresentationRow],
+        axes: &BTreeMap<u32, Axes>,
+    ) -> Result<BTreeMap<OwnerClassId, (PresentationId, u64)>, PError> {
+        let loops_of: BTreeMap<_, _> = rows.iter().map(|row| (row.id, row.loops)).collect();
+        let mut held: BTreeMap<u32, usize> = BTreeMap::new();
+        let mut first_members = BTreeMap::new();
+        for (&(id, support), fate) in &self.sectors {
+            let sector = |detail: String| {
+                malformed_file(format!("sector ({}, {support:#x}) {detail}", id.0))
+            };
+            let row = axes
+                .get(&id.0)
+                .ok_or_else(|| sector("has no presentation row".to_owned()))?;
+            if !row.holds(support) {
+                return Err(sector(format!(
+                    "leaves its row: lines {:#x}, forced {:#x}",
+                    row.lines, row.forced
+                )));
+            }
+            *held.entry(id.0).or_default() += 1;
+            let PSectorFate::Owner { class, map } = fate else {
+                continue;
+            };
+            let record = self.classes.get(class).ok_or_else(|| {
+                sector(format!(
+                    "names the class {} without a record",
+                    id_text(*class)
+                ))
+            })?;
+            let key = &record.key;
+            let shape = (
+                loops_of[&id.0],
+                support.count_ones(),
+                (support & row.forced).count_ones(),
+            );
+            if shape != (key.loops, u32::from(key.lines), u32::from(key.eps_lines)) {
+                return Err(sector(format!(
+                    "has (loops, lines, eps lines) = {shape:?}, unlike its class {}",
+                    key.label()
+                )));
+            }
+            if (map.loops_in, map.loops_out) != (key.loops, key.loops) || !map.is_unimodular() {
+                return Err(sector(format!(
+                    "holds no unimodular map on {} loops: {map:?}",
+                    key.loops
+                )));
+            }
+            first_members.entry(*class).or_insert((id, support));
+        }
+        for (id, row) in axes {
+            let count = held.get(id).copied().unwrap_or(0);
+            if count != row.support_count() {
+                return Err(malformed_file(format!(
+                    "presentation {id} holds {count} sectors for {} supports",
+                    row.support_count()
+                )));
+            }
+        }
+        Ok(first_members)
+    }
+
+    /// Every record fits its canonical bytes, holds the identity at its owner, and
+    /// names the owner and the nodes that the rows give.
+    fn check_class_rows(
+        &self,
+        rows: &[PresentationRow],
+        first_members: &BTreeMap<OwnerClassId, (PresentationId, u64)>,
+    ) -> Result<(), PError> {
+        let with_node = self.classes.values().filter(|r| r.node.is_some()).count();
+        if with_node != 0 && with_node != self.classes.len() {
+            return Err(malformed_file(format!(
+                "{with_node} of {} classes have a node",
+                self.classes.len()
+            )));
+        }
+        let mut node_sectors: BTreeMap<OwnerClassId, BTreeMap<NodeIndex, _>> = BTreeMap::new();
+        if with_node != 0 {
+            for row in rows {
+                let (Some(node), Some(support)) = (row.node, row.node_support) else {
+                    continue;
+                };
+                let sector = (PresentationId(row.id), support);
+                let Some(PSectorFate::Owner { class, .. }) = self.sectors.get(&sector) else {
+                    return Err(malformed_file(format!(
+                        "node {node} stands on ({}, {support:#x}), which has no class",
+                        row.id
+                    )));
+                };
+                let nodes = node_sectors.entry(*class).or_default();
+                nodes.insert(NodeIndex(node), sector);
+            }
+        }
+        let none = BTreeMap::new();
+        for (id, record) in &self.classes {
+            let class =
+                |detail: String| malformed_file(format!("class {} {detail}", record.key.label()));
+            if (record.t, record.eps_lines) != (record.key.lines, record.key.eps_lines) {
+                return Err(class(format!(
+                    "records {} lines, {} eps lines",
+                    record.t, record.eps_lines
+                )));
+            }
+            match self.sectors.get(&record.owner) {
+                Some(PSectorFate::Owner { class: routed, map })
+                    if routed == id && *map == identity_map(record.key.loops) => {}
+                _ => {
+                    return Err(class(format!(
+                        "has no identity route at its owner ({}, {:#x})",
+                        record.owner.0.0, record.owner.1
+                    )));
+                }
+            }
+            let nodes = node_sectors.get(id).unwrap_or(&none);
+            let owner = match record.node {
+                Some(node) => nodes.get(&node),
+                None => first_members.get(id),
+            };
+            if owner != Some(&record.owner) || !record.nodes.iter().eq(nodes.keys()) {
+                return Err(class(format!(
+                    "has the owner {:?} at node {:?} with the nodes {:?}; the rows give {nodes:?}",
+                    record.owner, record.node, record.nodes
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn malformed_file(detail: String) -> PError {
+    PError::MalformedLibrary(format!("census JSON: {detail}"))
+}
+
+fn versions_of_this_build() -> BTreeMap<String, String> {
+    (p_versions().into_iter())
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect()
+}
+
+/// A file holds [`p_versions`] exactly: every constant, with the value of this build.
+fn check_versions(file: &BTreeMap<String, String>) -> Result<(), PError> {
+    let build = versions_of_this_build();
+    let absent = || "absent".to_owned();
+    for name in file.keys().chain(build.keys()) {
+        let (found, expected) = (file.get(name), build.get(name));
+        if found != expected {
+            return Err(PError::VersionMismatch {
+                name: name.clone(),
+                found: found.cloned().unwrap_or_else(absent),
+                expected: expected.cloned().unwrap_or_else(absent),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The axes of the presentation rows by id: lines are the first slots of a valid
+/// presentation. Two rows of one presentation or of one node fail.
+fn row_axes(rows: &[PresentationRow]) -> Result<BTreeMap<u32, Axes>, PError> {
+    let mut axes = BTreeMap::new();
+    let mut nodes = BTreeSet::new();
+    for row in rows {
+        let refusal = |detail: String| malformed_file(format!("presentation {} {detail}", row.id));
+        if row.lines > MAX_CENSUS_LINES {
+            return Err(refusal(format!("has {} lines", row.lines)));
+        }
+        let lines = (1_u64 << row.lines) - 1;
+        if row.forced & !lines != 0 {
+            return Err(refusal(format!(
+                "forces {:#x} outside its lines {lines:#x}",
+                row.forced
+            )));
+        }
+        if row.node.is_some() != row.node_support.is_some() {
+            return Err(refusal("needs a node and its support together".to_owned()));
+        }
+        if let Some(node) = row.node
+            && !nodes.insert(node)
+        {
+            return Err(refusal(format!("is a second presentation of node {node}")));
+        }
+        let held = Axes {
+            lines,
+            forced: row.forced,
+        };
+        if axes.insert(row.id, held).is_some() {
+            return Err(refusal("appears twice".to_owned()));
+        }
+    }
+    Ok(axes)
 }
 
 fn missing_owner(class: OwnerClassId) -> PError {
@@ -1150,8 +1401,8 @@ fn hex_bytes(text: &str) -> Option<Vec<u8>> {
 #[serde(deny_unknown_fields)]
 struct CensusFile {
     schema: String,
-    census_version: u32,
-    class_key_version: u32,
+    /// [`p_versions`] by name.
+    versions: BTreeMap<String, String>,
     counts: Vec<PCensusCounts>,
     presentations: Vec<PresentationRow>,
     classes: Vec<ClassRow>,
@@ -1167,6 +1418,9 @@ struct PresentationRow {
     lines: u32,
     forced: u64,
     node: Option<u32>,
+    /// The sector that stands for `node`: all lines, on an Induced presentation its
+    /// mask.
+    node_support: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
