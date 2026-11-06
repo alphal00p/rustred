@@ -1,7 +1,7 @@
 //! The p library on the Ordered engine: closed forms, routes, eps supports, step
 //! cache, typed errors, keys of mixed length (owner: M2-T6 rr-plib).
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,10 +12,10 @@ use rustred::family::IntegralKey;
 use rustred::propagator::census::{PCensus, PClassRecord, PSectorFate, SignedAffineLoopMap};
 use rustred::propagator::class::OwnerClassKey;
 use rustred::propagator::error::PError;
-use rustred::propagator::lane::{LaneRoles, OwnerLane};
+use rustred::propagator::lane::{LaneRoles, OwnerLane, TriangleRoles};
 use rustred::propagator::library::{
-    OwnerProgram, PBasis, PBasisMap, PLibrary, POwnerSpec, PReduction, PReductionRequest, PTerm,
-    PTerminal, PUncoveredPolicy,
+    OwnerProgram, PBasis, PBasisMap, PLibrary, PLibraryBuilder, POwnerSpec, PReduction,
+    PReductionRequest, PTerm, PTerminal, PUncoveredPolicy,
 };
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use rustred::propagator::step::{PChild, PKeyView, PLaneStep, PStage, PStepContext, PStepOut};
@@ -466,6 +466,72 @@ fn one_cache_is_refused_by_another_program() {
     ));
 }
 
+/// A library regenerated without a version bump keeps the identity of the old
+/// one, so it can open the old cache: a record that names a terminal the new
+/// library does not have fails closed instead of reaching the output.
+#[test]
+fn a_stale_record_of_an_unknown_terminal_is_refused() {
+    let context = context();
+    let mut builder = PLibrary::builder(context.clone(), 1..=1);
+    builder
+        .add_presentation(presentation(
+            &context,
+            0,
+            1,
+            vec![line(&[1, 0]), line(&[1, -1])],
+        ))
+        .unwrap();
+    let mut census = PCensus::default();
+    let class = census
+        .insert_class(class_record("bubble", 1, 0, 0b11, 2, 0))
+        .unwrap();
+    let residual = builder
+        .add_terminal(PTerminal::Residual {
+            owner: class,
+            key: key(&[1, 1]),
+        })
+        .unwrap();
+    for support in 0b00..0b11 {
+        census
+            .sectors
+            .insert((PresentationId(0), support), PSectorFate::Zero);
+    }
+    builder.set_census(census).unwrap();
+    builder
+        .add_owner_with_program(
+            owner_spec(class, 0, OwnerLane::Custom),
+            OwnerProgram::Lane(Arc::new(ResidualLane(BTreeMap::from([(
+                vec![1, 1],
+                residual,
+            )])))),
+        )
+        .unwrap();
+    let old = builder.build().unwrap();
+    let (new, _) = one_owner_library(Arc::new(EchoLane));
+    assert_eq!(new.identity(), old.identity());
+    assert_eq!(new.terminals().len(), 1);
+
+    for scheduler in [no_tail(), OrderedSchedulerOptions::default()] {
+        let cache =
+            OrderedStepCache::in_memory(old.step_cache_binding().unwrap(), Default::default());
+        let run = |library: &PLibrary| {
+            let mut run = request(bubble_input(library));
+            run.scheduler = scheduler;
+            run.step_cache = Some(Arc::clone(&cache));
+            library.reduce(run)
+        };
+        assert_eq!(
+            run(&old).unwrap().terms,
+            [PTerm {
+                basis: PBasis::Residual(residual),
+                tag: GammaTag::one(),
+                coefficient: context.one(),
+            }]
+        );
+        assert!(matches!(run(&new), Err(PError::MalformedLibrary(_))));
+    }
+}
+
 /// The record bytes and the identity of the reference program: a changed record
 /// needs a changed `P_*` version, and with it a new identity here.
 #[test]
@@ -742,6 +808,138 @@ fn a_route_transports_numerators_exactly_and_pinches_to_the_census() {
     }
 }
 
+/// A top on presentation 0 whose lane emits a tagged Route child on presentation
+/// 1, where sector 0b01111 routes by [`flip_first_loop`] onto its owner on
+/// presentation 2. Sector 0b00111 of presentation 2 has an owner of its own, so a
+/// numerator of the route pinches from one nonzero owner onto the other.
+fn route_tag_library(context: &CoefficientContext) -> (PLibrary, BTreeMap<Vec<i64>, PTerminalId>) {
+    let mut builder = PLibrary::builder(context.clone(), 2..=2);
+    for id in 0..3 {
+        builder
+            .add_presentation(presentation(context, id, 2, kite_slots()))
+            .unwrap();
+    }
+    let mut census = PCensus::default();
+    let top = census
+        .insert_class(class_record("top", 2, 0, 0b11111, 5, 0))
+        .unwrap();
+    let upper = census
+        .insert_class(class_record("upper", 2, 2, 0b01111, 4, 0))
+        .unwrap();
+    let lower = census
+        .insert_class(class_record("lower", 2, 2, 0b00111, 3, 0))
+        .unwrap();
+    for id in 0..3 {
+        for support in 0..1_u64 << 5 {
+            census
+                .sectors
+                .insert((PresentationId(id), support), PSectorFate::Zero);
+        }
+    }
+    census.sectors.remove(&(PresentationId(0), 0b11111));
+    census.sectors.remove(&(PresentationId(2), 0b01111));
+    census.sectors.remove(&(PresentationId(2), 0b00111));
+    census.sectors.insert(
+        (PresentationId(1), 0b01111),
+        PSectorFate::Owner {
+            class: upper,
+            map: flip_first_loop(),
+        },
+    );
+    let mut terminals = BTreeMap::new();
+    let mut residuals =
+        |builder: &mut PLibraryBuilder, owner, ranges: &[std::ops::RangeInclusive<i64>]| {
+            let mut own = BTreeMap::new();
+            for powers in keys_in(ranges) {
+                let id = builder
+                    .add_terminal(PTerminal::Residual {
+                        owner,
+                        key: key(&powers),
+                    })
+                    .unwrap();
+                own.insert(powers.clone(), id);
+                terminals.insert(powers, id);
+            }
+            own
+        };
+    let upper_terminals = residuals(&mut builder, upper, &[1..=4, 1..=4, 1..=4, 1..=4, -3..=0]);
+    let lower_terminals = residuals(&mut builder, lower, &[1..=4, 1..=4, 1..=4, -3..=0, -3..=0]);
+    builder.set_census(census).unwrap();
+    for (class, own) in [(upper, upper_terminals), (lower, lower_terminals)] {
+        builder
+            .add_owner_with_program(
+                owner_spec(class, 2, OwnerLane::Custom),
+                OwnerProgram::Lane(Arc::new(ResidualLane(own))),
+            )
+            .unwrap();
+    }
+    builder
+        .add_owner_with_program(
+            owner_spec(top, 0, OwnerLane::Custom),
+            OwnerProgram::Lane(Arc::new(FnLane(
+                |cx: &PStepContext<'_>, key: &PKeyView<'_>| {
+                    Ok(PStepOut {
+                        children: vec![PChild {
+                            stage: PStage::Route,
+                            presentation: PresentationId(1),
+                            powers: vec![2, 1, 3, 1, -1],
+                            tag: key.tag.add(&chain_tag()),
+                            coefficient: cx.library.coefficient_context().integer(5),
+                        }],
+                        ..PStepOut::default()
+                    })
+                },
+            ))),
+        )
+        .unwrap();
+    (builder.build().unwrap(), terminals)
+}
+
+#[test]
+fn a_route_keeps_its_tag_and_pinches_onto_another_owner() {
+    let context = context();
+    let (library, terminals) = route_tag_library(&context);
+    let inputs = vec![(PresentationId(0), key(&[1, 1, 1, 1, 1]), context.one())];
+    // (1 + D1 + D2 + D3 + D4 - D5) over the image [3, 1, 2, 1, 0] of the
+    // denominators: the D2 term lands on a zero, the D4 term on the second owner.
+    let mut expected: BTreeMap<PTerminalId, i64> = BTreeMap::new();
+    for (powers, value) in [
+        ([3, 1, 2, 1, 0], 5),
+        ([2, 1, 2, 1, 0], 5),
+        ([3, 1, 1, 1, 0], 5),
+        ([3, 1, 2, 0, 0], 5),
+        ([3, 1, 2, 1, -1], -5),
+    ] {
+        expected.insert(terminals[powers.as_slice()], value);
+    }
+    let expected: Vec<PTerm> = expected
+        .into_iter()
+        .map(|(id, value)| PTerm {
+            basis: PBasis::Residual(id),
+            tag: chain_tag(),
+            coefficient: context.integer(value),
+        })
+        .collect();
+    assert_eq!(
+        library.reduce(request(inputs.clone())).unwrap().terms,
+        expected
+    );
+    for (arithmetic, threads) in [
+        (modular_polynomial(1), 1),
+        (modular_polynomial(16), 16),
+        (OrderedWeightArithmetic::Exact, 16),
+    ] {
+        let mut run = request(inputs.clone());
+        run.arithmetic = arithmetic;
+        run.scheduler = OrderedSchedulerOptions {
+            threads,
+            window_keys: 8,
+            adjoint_tail: true,
+        };
+        assert_eq!(library.reduce(run).unwrap().terms, expected);
+    }
+}
+
 #[test]
 fn phases_descend_through_route_and_apply_with_their_stages() {
     let context = context();
@@ -906,6 +1104,22 @@ impl PLaneStep for FixedLane {
     }
 }
 
+/// A lane given by a closure.
+struct FnLane<F>(F);
+
+impl<F> PLaneStep for FnLane<F>
+where
+    F: Fn(&PStepContext<'_>, &PKeyView<'_>) -> Result<PStepOut, PError> + Send + Sync,
+{
+    fn lane(&self) -> OwnerLane {
+        OwnerLane::Custom
+    }
+
+    fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+        (self.0)(cx, key)
+    }
+}
+
 #[test]
 fn a_tag_outside_the_key_range_is_a_typed_error() {
     let context = context();
@@ -969,6 +1183,16 @@ fn one_coefficient_context_is_required_everywhere() {
     // A foreign step coefficient: child, terminal or condition.
     let x = foreign.parameter("x").unwrap();
     for output in [
+        PStepOut {
+            children: vec![PChild {
+                stage: PStage::Route,
+                presentation: PresentationId(0),
+                powers: vec![0, 1],
+                tag: GammaTag::one(),
+                coefficient: x.clone(),
+            }],
+            ..PStepOut::default()
+        },
         PStepOut {
             terminals: vec![(PTerminalId(0), GammaTag::one(), x.clone())],
             ..PStepOut::default()
@@ -1087,10 +1311,17 @@ fn gaps_of_the_inputs_and_of_the_census_fail_closed() {
         Err(PError::MalformedLibrary(_))
     ));
 
-    // Lane output that names nothing of the library.
+    // Lane output that names nothing of the library, even if it cancels.
     for output in [
         PStepOut {
             terminals: vec![(PTerminalId(9), GammaTag::one(), context.one())],
+            ..PStepOut::default()
+        },
+        PStepOut {
+            terminals: vec![
+                (PTerminalId(9), GammaTag::one(), context.one()),
+                (PTerminalId(9), GammaTag::one(), context.integer(-1)),
+            ],
             ..PStepOut::default()
         },
         PStepOut {
@@ -1148,6 +1379,287 @@ fn a_step_without_descent_is_refused() {
             "{refused:?}"
         );
     }
+}
+
+/// The Apply child `(a - 1, b)` down to `a = 1`, then a Unit terminal; each step
+/// emits the condition `d - a - 10`.
+fn conditional_lane(cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+    let context = cx.library.coefficient_context();
+    let &[a, b] = key.powers else {
+        panic!("a key of the bubble")
+    };
+    let conditions = vec![d_plus(context, -(a + 10))];
+    if a == 1 {
+        return Ok(PStepOut {
+            terminals: vec![(PTerminalId(0), key.tag.clone(), context.one())],
+            conditions,
+            ..PStepOut::default()
+        });
+    }
+    Ok(PStepOut {
+        children: vec![PChild {
+            stage: PStage::Apply,
+            presentation: key.presentation,
+            powers: vec![a - 1, b],
+            tag: key.tag.clone(),
+            coefficient: div(context, &context.one(), &d_plus(context, -a)),
+        }],
+        conditions,
+        ..PStepOut::default()
+    })
+}
+
+#[test]
+fn conditions_reach_the_output_on_every_path() {
+    let (library, _) = one_owner_library(Arc::new(FnLane(conditional_lane)));
+    let context = library.coefficient_context();
+    let inputs = vec![(PresentationId(0), key(&[4, 1]), context.one())];
+    let base = library.reduce(request(inputs.clone())).unwrap();
+    let expected: Vec<_> = [-14, -13, -12, -11]
+        .into_iter()
+        .map(|constant| d_plus(context, constant))
+        .collect();
+    assert_eq!(base.nonzero_conditions, expected);
+    for arithmetic in [
+        OrderedWeightArithmetic::Exact,
+        modular_polynomial(1),
+        modular_polynomial(16),
+        modular_sampled(4),
+    ] {
+        for threads in [1, 16] {
+            for adjoint_tail in [true, false] {
+                let mut run = request(inputs.clone());
+                run.arithmetic = arithmetic;
+                run.scheduler = OrderedSchedulerOptions {
+                    threads,
+                    window_keys: 8,
+                    adjoint_tail,
+                };
+                same_result(&library.reduce(run).unwrap(), &base);
+            }
+        }
+    }
+    // Cold, then warm from disk.
+    let binding = library.step_cache_binding().unwrap();
+    for (index, arithmetic) in [OrderedWeightArithmetic::Exact, modular_polynomial(4)]
+        .into_iter()
+        .enumerate()
+    {
+        for adjoint_tail in [true, false] {
+            let directory = scratch(&format!("conditions-{index}-{adjoint_tail}"));
+            let scheduler = OrderedSchedulerOptions {
+                threads: 4,
+                adjoint_tail,
+                ..Default::default()
+            };
+            let cached = |cache: &Arc<OrderedStepCache>| {
+                let mut run = request(inputs.clone());
+                run.arithmetic = arithmetic;
+                run.scheduler = scheduler;
+                run.step_cache = Some(Arc::clone(cache));
+                library.reduce(run).unwrap()
+            };
+            let cold =
+                OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+            same_result(&cached(&cold), &base);
+            cold.save().unwrap();
+            let warm =
+                OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+            let replayed = cached(&warm);
+            same_result(&replayed, &base);
+            assert_eq!(replayed.statistics.progress.step_cache_misses, 0);
+            std::fs::remove_dir_all(&directory).unwrap();
+        }
+    }
+}
+
+/// A key below the tail entry of an earlier run needs the guards of its own
+/// descendants, and only those.
+#[test]
+fn a_warm_tail_keeps_the_guards_of_a_new_input() {
+    let (library, _) = one_owner_library(Arc::new(FnLane(conditional_lane)));
+    let context = library.coefficient_context();
+    let binding = library.step_cache_binding().unwrap();
+    let directory = scratch("tail-guards");
+    let cached = |cache: &Arc<OrderedStepCache>, powers: &[i64]| {
+        let mut run = request(vec![(PresentationId(0), key(powers), context.one())]);
+        run.arithmetic = modular_polynomial(4);
+        run.scheduler = OrderedSchedulerOptions::with_threads(4);
+        run.step_cache = Some(Arc::clone(cache));
+        library.reduce(run).unwrap()
+    };
+    let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+    cached(&cold, &[5, 1]);
+    cold.save().unwrap();
+
+    let lower = [3, 1];
+    let plain = library
+        .reduce(request(vec![(
+            PresentationId(0),
+            key(&lower),
+            context.one(),
+        )]))
+        .unwrap();
+    assert_eq!(
+        plain.nonzero_conditions,
+        [-13, -12, -11].map(|constant| d_plus(context, constant))
+    );
+    let warm = OrderedStepCache::open(&directory, binding, Default::default()).unwrap();
+    same_result(&cached(&warm, &lower), &plain);
+    std::fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_condition_that_is_identically_zero_is_refused() {
+    let context = context();
+    let (library, _) = one_owner_library(Arc::new(FixedLane(PStepOut {
+        terminals: vec![(PTerminalId(0), GammaTag::one(), context.one())],
+        conditions: vec![context.zero()],
+        ..PStepOut::default()
+    })));
+    assert!(matches!(
+        library.reduce(request(bubble_input(&library))),
+        Err(PError::Contract(_))
+    ));
+}
+
+/// Without nodes the rank follows the class id, the smaller id reduced first: an
+/// Apply child on another owner of the same `t` needs a lower rank.
+#[test]
+fn the_rank_orders_owners_of_one_t() {
+    let context = context();
+    let corner =
+        |support: u64| -> Vec<i64> { (0..5).map(|slot| (support >> slot & 1) as i64).collect() };
+    let build = |parent_is_first: bool| {
+        let mut builder = PLibrary::builder(context.clone(), 2..=2);
+        builder
+            .add_presentation(presentation(&context, 0, 2, kite_slots()))
+            .unwrap();
+        let mut census = PCensus::default();
+        let one = census
+            .insert_class(class_record("one", 2, 0, 0b01111, 4, 0))
+            .unwrap();
+        let two = census
+            .insert_class(class_record("two", 2, 0, 0b10111, 4, 0))
+            .unwrap();
+        let (mut first, mut second) = ((one, 0b01111_u64), (two, 0b10111_u64));
+        if second.0 < first.0 {
+            std::mem::swap(&mut first, &mut second);
+        }
+        let (parent, child) = if parent_is_first {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        let powers = corner(child.1);
+        builder.set_census(census).unwrap();
+        builder
+            .add_owner_with_program(
+                owner_spec(parent.0, 0, OwnerLane::Custom),
+                OwnerProgram::Lane(Arc::new(FnLane(
+                    move |cx: &PStepContext<'_>, key: &PKeyView<'_>| {
+                        Ok(PStepOut {
+                            children: vec![PChild {
+                                stage: PStage::Apply,
+                                presentation: key.presentation,
+                                powers: powers.clone(),
+                                tag: key.tag.clone(),
+                                coefficient: cx.library.coefficient_context().integer(3),
+                            }],
+                            ..PStepOut::default()
+                        })
+                    },
+                ))),
+            )
+            .unwrap();
+        builder
+            .add_owner_with_program(
+                owner_spec(child.0, 0, OwnerLane::Custom),
+                OwnerProgram::Lane(Arc::new(EchoLane)),
+            )
+            .unwrap();
+        (builder.build().unwrap(), corner(parent.1))
+    };
+    let (library, input) = build(true);
+    let reduced = library
+        .reduce(request(vec![(
+            PresentationId(0),
+            key(&input),
+            context.one(),
+        )]))
+        .unwrap();
+    assert_eq!(reduced.terms.len(), 1);
+    let (library, input) = build(false);
+    assert!(matches!(
+        library.reduce(request(vec![(
+            PresentationId(0),
+            key(&input),
+            context.one()
+        )])),
+        Err(PError::Engine(ReductionError::ReducerInvariant { .. }))
+    ));
+}
+
+/// A Triangle step can keep the corner distance and lower only
+/// `n_b + n_c1 + n_c2`: the default order key of a Triangle owner reads it first.
+#[test]
+fn the_default_order_key_lets_a_triangle_step_descend() {
+    let context = context();
+    let mut builder = PLibrary::builder(context.clone(), 2..=2);
+    builder
+        .add_presentation(presentation(&context, 0, 2, kite_slots()))
+        .unwrap();
+    let mut census = PCensus::default();
+    let class = census
+        .insert_class(class_record("triangle", 2, 0, 0b11111, 5, 0))
+        .unwrap();
+    builder.set_census(census).unwrap();
+    let mut spec = owner_spec(class, 0, OwnerLane::Triangle);
+    spec.roles = LaneRoles::Triangle(TriangleRoles {
+        b: 0,
+        a: [1, 2],
+        c: [3, 4],
+        k_loop: 0,
+    });
+    builder
+        .add_owner_with_program(
+            spec,
+            OwnerProgram::Lane(Arc::new(FnLane(
+                |cx: &PStepContext<'_>, key: &PKeyView<'_>| {
+                    let context = cx.library.coefficient_context();
+                    if key.powers[0] == 1 {
+                        return Ok(PStepOut {
+                            terminals: vec![(PTerminalId(0), key.tag.clone(), context.one())],
+                            ..PStepOut::default()
+                        });
+                    }
+                    // A dot moves from `b` to `a`: same distance from the corner.
+                    let mut powers = key.powers.to_vec();
+                    powers[0] -= 1;
+                    powers[1] += 1;
+                    Ok(PStepOut {
+                        children: vec![PChild {
+                            stage: PStage::Apply,
+                            presentation: key.presentation,
+                            powers,
+                            tag: key.tag.clone(),
+                            coefficient: context.integer(2),
+                        }],
+                        ..PStepOut::default()
+                    })
+                },
+            ))),
+        )
+        .unwrap();
+    let library = builder.build().unwrap();
+    let reduced = library
+        .reduce(request(vec![(
+            PresentationId(0),
+            key(&[3, 1, 1, 1, 1]),
+            context.one(),
+        )]))
+        .unwrap();
+    assert_eq!(reduced.terms[0].coefficient, context.integer(4));
 }
 
 /// Emits one Unit terminal whose coefficient records the key.
@@ -1640,6 +2152,11 @@ fn keys_of_mixed_length_pass_every_path() {
     assert!(saved.records > 0);
     assert!(cold.tail_statistics().is_some_and(|tail| tail.entries > 0));
     assert_eq!(cold.statistics().skipped_inserts, 0, "every identity fits");
+    assert_eq!(
+        identity_widths(&directory),
+        BTreeSet::from([IDENTITY_HEADER + 20 + P_GAMMA_TAG_WIDTH]),
+        "one width across presentations and terminals"
+    );
 
     for adjoint_tail in [true, false] {
         let warm = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
@@ -1713,8 +2230,8 @@ impl PBasisMap for DoublingMap {
     }
 }
 
-#[test]
-fn onto_masters_goes_through_the_basis_map_and_sorts_its_terms() {
+/// A bubble whose one owner is [`EchoLane`], with `map` as its basis map.
+fn mapped_bubble(map: Arc<dyn PBasisMap>) -> PLibrary {
     let context = context();
     let mut builder = PLibrary::builder(context.clone(), 1..=1);
     builder
@@ -1741,15 +2258,23 @@ fn onto_masters_goes_through_the_basis_map_and_sorts_its_terms() {
             OwnerProgram::Lane(Arc::new(EchoLane)),
         )
         .unwrap();
-    builder.set_basis_map(Arc::new(DoublingMap)).unwrap();
-    let library = builder.build().unwrap();
+    builder.set_basis_map(map).unwrap();
+    builder.build().unwrap()
+}
 
-    let mut run = request(vec![(PresentationId(0), key(&[1, 1]), context.one())]);
+fn onto_masters(library: &PLibrary) -> Result<PReduction, PError> {
+    let mut run = request(bubble_input(library));
     run.onto_masters = true;
-    let reduced = library.reduce(run).unwrap();
+    library.reduce(run)
+}
+
+#[test]
+fn onto_masters_goes_through_the_basis_map_and_sorts_its_terms() {
+    let context = context();
+    let library = mapped_bubble(Arc::new(DoublingMap));
     // 11 * (d - 3) * 2, tag of (eps G(1,1))^-1; the two Unit rows cancel.
     assert_eq!(
-        reduced.terms,
+        onto_masters(&library).unwrap().terms,
         [PTerm {
             basis: PBasis::Master("no".to_owned()),
             tag: GammaTag::from_pairs([(1, -1), (-1, -2), (-2, 1)]).unwrap(),
@@ -1758,8 +2283,147 @@ fn onto_masters_goes_through_the_basis_map_and_sorts_its_terms() {
     );
 }
 
+/// A map whose tag leaves the key range: `|e| <= 127` holds at every step of the
+/// engine, and at its exit too.
+struct SaturatingMap;
+
+impl PBasisMap for SaturatingMap {
+    fn map(&self, _: PTerminalId, tag: &GammaTag) -> Result<Vec<PTerm>, PError> {
+        let wide = GammaTag::from_pairs([(1, 127)]).unwrap();
+        Ok(vec![PTerm {
+            basis: PBasis::Unit,
+            tag: tag.add(&wide).add(&wide).add(&wide),
+            coefficient: context().one(),
+        }])
+    }
+}
+
+struct EmptyMap;
+
+impl PBasisMap for EmptyMap {
+    fn map(&self, _: PTerminalId, _: &GammaTag) -> Result<Vec<PTerm>, PError> {
+        Ok(Vec::new())
+    }
+}
+
+/// A terminal that really vanishes says so with a zero coefficient.
+struct ZeroMap;
+
+impl PBasisMap for ZeroMap {
+    fn map(&self, _: PTerminalId, tag: &GammaTag) -> Result<Vec<PTerm>, PError> {
+        Ok(vec![PTerm {
+            basis: PBasis::Unit,
+            tag: tag.clone(),
+            coefficient: context().zero(),
+        }])
+    }
+}
+
+#[test]
+fn a_basis_map_answers_with_a_row_in_the_key_range() {
+    assert_eq!(
+        onto_masters(&mapped_bubble(Arc::new(SaturatingMap))).map(|reduced| reduced.terms),
+        Err(PError::TagOutOfRange)
+    );
+    assert!(matches!(
+        onto_masters(&mapped_bubble(Arc::new(EmptyMap))),
+        Err(PError::MalformedLibrary(_))
+    ));
+    assert_eq!(
+        onto_masters(&mapped_bubble(Arc::new(ZeroMap)))
+            .unwrap()
+            .terms,
+        []
+    );
+}
+
+/// One Unit terminal on the full sector of `L (L + 3) / 2` lines.
+fn unit_owner_library(context: &CoefficientContext, loops: u8) -> PLibrary {
+    let slots = all_lines(usize::from(loops));
+    let arity = slots.len();
+    let mut builder = PLibrary::builder(context.clone(), loops..=loops);
+    builder
+        .add_presentation(presentation(context, 0, loops, slots))
+        .unwrap();
+    let mut census = PCensus::default();
+    let class = census
+        .insert_class(class_record(
+            "unit",
+            loops,
+            0,
+            (1_u64 << arity) - 1,
+            arity as u8,
+            0,
+        ))
+        .unwrap();
+    builder.set_census(census).unwrap();
+    builder
+        .add_owner_with_program(
+            owner_spec(class, 0, OwnerLane::Custom),
+            OwnerProgram::Lane(Arc::new(FnLane(
+                |cx: &PStepContext<'_>, key: &PKeyView<'_>| {
+                    Ok(PStepOut {
+                        terminals: vec![(
+                            PTerminalId(0),
+                            key.tag.clone(),
+                            cx.library.coefficient_context().one(),
+                        )],
+                        ..PStepOut::default()
+                    })
+                },
+            ))),
+        )
+        .unwrap();
+    builder.build().unwrap()
+}
+
+/// Convention C3: `(eps G(1,1))^-L`, in the tag and in `(d - 3)^L`.
+#[test]
+fn onto_masters_scales_with_the_loop_count() {
+    let context = context();
+    for loops in [2_u8, 3] {
+        let library = unit_owner_library(&context, loops);
+        let arity = library.presentation(PresentationId(0)).slots.len();
+        let mut run = request(vec![(
+            PresentationId(0),
+            key(&vec![1; arity]),
+            context.one(),
+        )]);
+        run.onto_masters = true;
+        let reduced = library.reduce(run).unwrap();
+        let l = i16::from(loops);
+        let factor = (0..loops).fold(context.one(), |factor, _| {
+            mul(&context, &factor, &d_plus(&context, -3))
+        });
+        assert_eq!(
+            reduced.terms,
+            [PTerm {
+                basis: PBasis::Unit,
+                tag: GammaTag::from_pairs([(1, -l), (-1, -2 * l), (-2, l)]).unwrap(),
+                coefficient: factor,
+            }]
+        );
+        assert_eq!(reduced.dimension, i64::from(loops));
+    }
+}
+
+/// Bytes before the slots of a recorded identity (`NODE_HEADER`, `step_cache/codec.rs`).
+const IDENTITY_HEADER: usize = 9;
+
+/// The identity widths the shards of a saved cache declare: the first varint of
+/// each payload, after the 99 header bytes of the shard file (`SHARD_HEADER`,
+/// `step_cache/mod.rs`). Every width here fits one byte of that varint.
+fn identity_widths(directory: &Path) -> BTreeSet<usize> {
+    std::fs::read_dir(directory.join("shards"))
+        .unwrap()
+        .map(|entry| usize::from(std::fs::read(entry.unwrap().path()).unwrap()[99]))
+        .collect()
+}
+
 /// Bytes of the recorded identities of a run (plan sec.3.5, critique-eng S4):
 /// one width per program, `header + max(max arity + tag slots, terminal slots)`.
+/// The width of this program is read from its files; the printed widths of the
+/// other arities are that formula, a projection.
 #[test]
 fn key_bytes_per_recorded_identity() {
     let library = one_loop_reference_library().unwrap();
@@ -1781,9 +2445,8 @@ fn key_bytes_per_recorded_identity() {
     run.scheduler = no_tail();
     library.reduce(run).unwrap();
     let saved = cache.save().unwrap();
-    const HEADER: usize = 9;
     let identity =
-        |arity: usize| HEADER + (arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS);
+        |arity: usize| IDENTITY_HEADER + (arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS);
     let shard = std::fs::read_dir(directory.join("shards"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -1802,9 +2465,7 @@ fn key_bytes_per_recorded_identity() {
         identity(14),
         identity(20),
     );
-    assert_eq!(identity(2), 28);
-    assert_eq!(identity(9), 34);
-    assert_eq!(identity(14), 39);
+    assert_eq!(identity_widths(&directory), BTreeSet::from([28]));
     assert!(saved.records > 0);
     std::fs::remove_dir_all(&directory).unwrap();
 }
