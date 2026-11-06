@@ -975,26 +975,40 @@ fn sources_and_order_program_must_carry_the_same_two_sided_axes() {
     assert_eq!(disabled.two_sided_axes(), [false; 5]);
     let executor = SectorExecutor::new(1).unwrap();
     let chart = [true; 5];
+    let solve_with =
+        |sources: &SourceSystem<5>, program: Option<CompiledOrder>, options: SectorSolveOptions| {
+            executor
+                .map(
+                    sources,
+                    &[chart],
+                    &SectorConfig {
+                        integral_order: program,
+                        ..Default::default()
+                    },
+                    options,
+                    |done| Ok::<_, String>(done.solution.rules.len()),
+                )
+                .map(|rules| rules[0])
+                .map_err(|error| error.to_string())
+        };
     let solve = |sources: &SourceSystem<5>, program: Option<CompiledOrder>| {
-        executor
-            .map(
-                sources,
-                &[chart],
-                &SectorConfig {
-                    integral_order: program,
-                    ..Default::default()
-                },
-                SectorSolveOptions::default(),
-                |done| Ok::<_, String>(done.solution.rules.len()),
-            )
-            .map(|rules| rules[0])
-            .map_err(|error| error.to_string())
+        solve_with(sources, program, SectorSolveOptions::default())
     };
     // The option without the program, and the program without the option.
     let error = solve(&enabled, None).unwrap_err();
     assert!(error.contains("two-sided eps axes"), "{error}");
     let error = solve(&disabled, Some(two_sided_program.clone())).unwrap_err();
     assert!(error.contains("two-sided eps axes"), "{error}");
+    // Refused before any rule: a zero case budget emits none, and the matching
+    // pair then stops on that budget instead.
+    let no_case = SectorSolveOptions {
+        max_symbolic_cases: Some(0),
+        ..Default::default()
+    };
+    let error = solve_with(&enabled, None, no_case).unwrap_err();
+    assert!(error.contains("two-sided eps axes"), "{error}");
+    let error = solve_with(&enabled, Some(two_sided_program.clone()), no_case).unwrap_err();
+    assert!(!error.contains("two-sided eps axes"), "{error}");
     assert!(solve(&enabled, Some(two_sided_program)).unwrap() > 0);
 }
 

@@ -356,6 +356,19 @@ impl<const N: usize> SectorSolver<'_, N> {
         options: SectorSolveOptions,
         mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        // Two-sided eps axes are an opt-in of the sources and must be carried
+        // by the order program exactly (plan M2 sec.3.4): generation order and
+        // the persisted runtime order are then one and the same. Refused up
+        // front, so a solve that emits no rule cannot slip through.
+        if self.order.two_sided_axes() != self.system.two_sided_axes() {
+            return Err(SectorSolveError::Search {
+                case: Case::generic(),
+                source: SolverError::InvalidInput(
+                    "two-sided eps axes of the sources and of the integral-order program differ"
+                        .into(),
+                ),
+            });
+        }
         if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite
             && options.max_numerator_rank.is_none()
         {
@@ -602,25 +615,12 @@ impl<const N: usize> SectorSolver<'_, N> {
                 source: SolverError::ExactReplay("winning rule is not strictly descending".into()),
             });
         }
-        // Two-sided eps axes are an opt-in of the sources and must be carried
-        // by the order program exactly (plan M2 sec.3.4): generation order and
-        // the persisted runtime order are then one and the same.
-        let two_sided = self.order.two_sided_axes();
-        if two_sided != self.system.two_sided_axes() {
-            return Err(SectorSolveError::Search {
-                case: candidate.case,
-                source: SolverError::InvalidInput(
-                    "two-sided eps axes of the sources and of the integral-order program differ"
-                        .into(),
-                ),
-            });
-        }
         let start = Instant::now();
         let exceptions = super::exception::extract_exceptions_two_sided(
             &candidate,
             &self.system.indices,
             self.order.sector(),
-            &two_sided,
+            &self.order.two_sided_axes(),
         )
         .map_err(|source| SectorSolveError::Exceptions {
             case: candidate.case.clone(),
