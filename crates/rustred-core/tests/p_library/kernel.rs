@@ -942,6 +942,80 @@ fn random_line_power(rng: &mut StdRng) -> LinePower {
     }
 }
 
+/// `rank` factors spread over `variables` outer scalars at random.
+fn random_numerator(rng: &mut StdRng, variables: usize, rank: u32) -> Vec<u32> {
+    let mut powers = vec![0; variables];
+    for _ in 0..rank {
+        powers[rng.random_range(0..variables)] += 1;
+    }
+    powers
+}
+
+/// The kernel against the oracle on one numerator, monomial by monomial.
+/// Returns the highest `sigma` the kernel emitted.
+fn check_box_kernel_against_oracle(
+    kernel: &BubbleKernel,
+    alpha: LinePower,
+    beta: LinePower,
+    powers: &[u32],
+    d: &Rational,
+) -> u32 {
+    let (outer, oracle) = transverse_oracle(powers.len(), &factor_list(powers), d);
+
+    // Oracle: (P^2 exponent, outer monomial) -> G values.
+    let (a, b): (Power, Power) = (
+        power(alpha.integer, alpha.eps_units),
+        power(beta.integer, beta.eps_units),
+    );
+    let mut expected: BTreeMap<(i32, Vec<u32>), Vec<GValue>> = BTreeMap::new();
+    for (monomial, value) in &oracle {
+        let g = g(
+            (a.0 - i64::from(monomial.a), a.1),
+            (b.0 - i64::from(monomial.b), b.1),
+            d,
+        );
+        expected
+            .entry((
+                monomial.a + monomial.b + monomial.p2,
+                monomial.outer.clone(),
+            ))
+            .or_default()
+            .push(g.scale(value));
+    }
+
+    // Kernel: the same polynomial from the pairings.
+    let tag = tag_value(&relative_tag(alpha.eps_units, beta.eps_units).unwrap(), d);
+    let mut actual: BTreeMap<(i32, Vec<u32>), Vec<GValue>> = BTreeMap::new();
+    let mut top_sigma = 0;
+    for term in kernel
+        .numerator_terms(alpha, beta, powers, algebra())
+        .unwrap()
+    {
+        top_sigma = top_sigma.max(term.sigma);
+        let mut monomial = outer.unit().outer;
+        for &(s, t, count) in &term.pairing.pairs {
+            monomial[outer.pair(usize::from(s), usize::from(t))] += count;
+        }
+        for (s, &rest) in term.pairing.rest.iter().enumerate() {
+            monomial[outer.residual(s)] += rest;
+        }
+        actual
+            .entry((term.sigma as i32, monomial))
+            .or_default()
+            .push(tag.scale(&at(&term.weight, d)));
+    }
+
+    let keys: BTreeSet<_> = expected.keys().chain(actual.keys()).cloned().collect();
+    for key in keys {
+        assert_values_equal(
+            actual.get(&key).map_or(&[], Vec::as_slice),
+            expected.get(&key).map_or(&[], Vec::as_slice),
+            &format!("{alpha:?}, {beta:?}, {powers:?}, d = {d}, monomial {key:?}"),
+        );
+    }
+    top_sigma
+}
+
 #[test]
 fn the_box_kernel_equals_the_transverse_oracle_to_rank_8() {
     let c = context();
@@ -949,65 +1023,44 @@ fn the_box_kernel_equals_the_transverse_oracle_to_rank_8() {
     let mut rng = StdRng::seed_from_u64(0x1b0c);
     let mut d_values = dimensions(&mut rng, 4);
     d_values.push(rational(37, 10));
-    for round in 0..40 {
+
+    // Random numerators and lines, every rank in turn: the rank is not left to the seed.
+    let mut ranks = BTreeSet::new();
+    for round in 0..45 {
         let d = &d_values[round % d_values.len()];
         let variables = rng.random_range(1..=3_usize);
-        let powers: Vec<u32> = (0..variables).map(|_| rng.random_range(0..=4)).collect();
-        let rank: u32 = powers.iter().sum();
-        if rank > 8 {
-            continue;
-        }
+        let powers = random_numerator(&mut rng, variables, (round % 9) as u32);
         let (alpha, beta) = (random_line_power(&mut rng), random_line_power(&mut rng));
-        let (outer, oracle) = transverse_oracle(variables, &factor_list(&powers), d);
+        check_box_kernel_against_oracle(&kernel, alpha, beta, &powers, d);
+        ranks.insert(powers.iter().sum::<u32>());
+    }
+    assert_eq!(ranks, (0..=8).collect::<BTreeSet<u32>>());
 
-        // Oracle: (P^2 exponent, outer monomial) -> G values.
-        let (a, b): (Power, Power) = (
-            power(alpha.integer, alpha.eps_units),
-            power(beta.integer, beta.eps_units),
-        );
-        let mut expected: BTreeMap<(i32, Vec<u32>), Vec<GValue>> = BTreeMap::new();
-        for (monomial, value) in &oracle {
-            let g = g(
-                (a.0 - i64::from(monomial.a), a.1),
-                (b.0 - i64::from(monomial.b), b.1),
-                d,
-            );
-            expected
-                .entry((
-                    monomial.a + monomial.b + monomial.p2,
-                    monomial.outer.clone(),
-                ))
-                .or_default()
-                .push(g.scale(value));
-        }
-
-        // Kernel: the same polynomial from the pairings.
-        let tag = tag_value(&relative_tag(alpha.eps_units, beta.eps_units).unwrap(), d);
-        let mut actual: BTreeMap<(i32, Vec<u32>), Vec<GValue>> = BTreeMap::new();
-        for term in kernel
-            .numerator_terms(alpha, beta, &powers, algebra())
-            .unwrap()
-        {
-            let mut monomial = outer.unit().outer;
-            for &(s, t, count) in &term.pairing.pairs {
-                monomial[outer.pair(usize::from(s), usize::from(t))] += count;
+    // Rank 8 is the only rank with pairings of order sigma = 4: every partition
+    // of 8 into at most three scalars, on integer, eps and non-positive lines.
+    for powers in [
+        &[8][..],
+        &[7, 1],
+        &[6, 2],
+        &[5, 3],
+        &[4, 4],
+        &[6, 1, 1],
+        &[5, 2, 1],
+        &[4, 3, 1],
+        &[4, 2, 2],
+        &[3, 3, 2],
+    ] {
+        for (alpha, beta) in [
+            (LinePower::new(1, 0), LinePower::new(1, 0)),
+            (LinePower::new(2, 0), LinePower::new(3, 0)),
+            (LinePower::new(-1, 1), LinePower::new(2, 0)),
+            (LinePower::new(3, 0), LinePower::new(0, 2)),
+            (LinePower::new(2, 1), LinePower::new(-2, 3)),
+        ] {
+            for d in &d_values[..2] {
+                let top_sigma = check_box_kernel_against_oracle(&kernel, alpha, beta, powers, d);
+                assert_eq!(top_sigma, 4, "{alpha:?}, {beta:?}, {powers:?}");
             }
-            for (s, &rest) in term.pairing.rest.iter().enumerate() {
-                monomial[outer.residual(s)] += rest;
-            }
-            actual
-                .entry((term.sigma as i32, monomial))
-                .or_default()
-                .push(tag.scale(&at(&term.weight, d)));
-        }
-
-        let keys: BTreeSet<_> = expected.keys().chain(actual.keys()).cloned().collect();
-        for key in keys {
-            assert_values_equal(
-                actual.get(&key).map_or(&[], Vec::as_slice),
-                expected.get(&key).map_or(&[], Vec::as_slice),
-                &format!("round {round}: {alpha:?}, {beta:?}, {powers:?}, monomial {key:?}"),
-            );
         }
     }
 }
@@ -1024,6 +1077,10 @@ fn box_pairings_count_the_matchings() {
         (vec![2, 2], 1, 6),
         (vec![2, 2], 2, 3),
         (vec![3, 2, 1], 3, 15),
+        (vec![8], 3, 420),
+        (vec![8], 4, 105),
+        (vec![4, 4], 4, 105),
+        (vec![3, 3, 2], 4, 105),
     ] {
         let total = box_pairings(&powers, sigma)
             .iter()
