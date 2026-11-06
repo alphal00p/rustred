@@ -55,9 +55,10 @@ pub(crate) fn eps_family_source(name: &str) -> &'static str {
 }
 
 /// Which raw charts to solve: all `2^j` charts of the owner support, or an
-/// explicit subset (the guard then refuses the outcome unless it is all), or
-/// every nonzero sector of the support's downset (a diagnostic: no guard,
-/// exits of the owner become keys of the program).
+/// explicit subset (the guard of [`generate_eps_family`] then refuses the
+/// outcome unless it is all; see [`generate_eps_charts`] for chart-by-chart
+/// runs), or every nonzero sector of the support's downset (a diagnostic: no
+/// guard, exits of the owner become keys of the program).
 pub(crate) enum EpsCharts<'a> {
     All,
     Only(&'a [Vec<bool>]),
@@ -96,7 +97,11 @@ pub(crate) struct EpsOutcome {
 
 /// Generate the two-sided rules of an eps family (compact `I(...)` input)
 /// and enforce the hard guard: two-sided axes cover every forced axis, all
-/// `2^j` raw charts are present, and `LP >= 1` implies a residual.
+/// `2^j` raw charts are present, and `LP >= 1` implies a residual. One worker.
+///
+/// A test helper: the guard's refusal is the `Err(String)` of
+/// [`check_eps_guard`]; `PError::Generation` (plan M2 sec.3.4) belongs to the
+/// production path, `generate_custom_owner`.
 pub(crate) fn generate_eps_family(sym: &str, charts: EpsCharts<'_>) -> Result<EpsOutcome, String> {
     generate_eps_family_with(sym, charts, OrderDescriptor::spired_uncut_two_sided)
 }
@@ -108,32 +113,8 @@ pub(crate) fn generate_eps_family_with(
     charts: EpsCharts<'_>,
     order: fn(Vec<bool>) -> OrderDescriptor,
 ) -> Result<EpsOutcome, String> {
-    let project = Compiler::new(Limits::default())
-        .map_err(|e| e.to_string())?
-        .compile_compact(sym, None)
-        .map_err(|e| e.to_string())?;
-    let name = project.name().to_owned();
-    let target: Vec<i64> = project
-        .propagators()
-        .iter()
-        .map(|p| p.target_power())
-        .collect();
-    let family = Arc::new(
-        project
-            .into_lowered(LoweringLimits::default())
-            .map_err(|e| e.to_string())?
-            .into_family(),
-    );
-    macro_rules! dispatch {
-        ($($n:literal),*) => {
-            match family.denominator_count() {
-                $($n => generate::<$n>(name, family, &target, charts, order),)*
-                other => Err(format!("eps family arity {other} is not instantiated in the tests")),
-            }
-        };
-    }
     let downset = matches!(charts, EpsCharts::Downset);
-    let outcome = dispatch!(5, 9, 14)?;
+    let outcome = generate_unguarded(sym, charts, order, 1)?;
     if downset {
         return Ok(outcome);
     }
@@ -150,6 +131,80 @@ pub(crate) fn generate_eps_family_with(
         outcome.residual_keys.len(),
     )?;
     Ok(outcome)
+}
+
+/// Solve exactly `charts` under the default two-sided order and report them
+/// chart by chart, WITHOUT the hard guard. `workers` solve charts side by
+/// side; they do not speed up one chart (measured, notes/rr-twosided.md). One
+/// failed chart fails the call, so a long run (M2-T10b) solves one chart per
+/// call or process to keep what it got. The caller owns the guard: run
+/// [`check_eps_guard`] on the union of the charts of [`eps_family_charts`],
+/// with the `lp` of any of the outcomes.
+pub(crate) fn generate_eps_charts(
+    sym: &str,
+    charts: &[Vec<bool>],
+    workers: usize,
+) -> Result<EpsOutcome, String> {
+    generate_unguarded(
+        sym,
+        EpsCharts::Only(charts),
+        OrderDescriptor::spired_uncut_two_sided,
+        workers,
+    )
+}
+
+/// All raw charts of the eps family's owner support; nothing is solved.
+pub(crate) fn eps_family_charts(sym: &str) -> Result<Vec<Vec<bool>>, String> {
+    let (_, family, target) = compile_eps_family(sym)?;
+    let (forced, support) = owner_axes(&family, &target);
+    Ok(all_charts(&support, &forced))
+}
+
+fn compile_eps_family(sym: &str) -> Result<(String, Arc<IntegralFamily>, Vec<i64>), String> {
+    let project = Compiler::new(Limits::default())
+        .map_err(|e| e.to_string())?
+        .compile_compact(sym, None)
+        .map_err(|e| e.to_string())?;
+    let name = project.name().to_owned();
+    let target: Vec<i64> = project
+        .propagators()
+        .iter()
+        .map(|p| p.target_power())
+        .collect();
+    let family = Arc::new(
+        project
+            .into_lowered(LoweringLimits::default())
+            .map_err(|e| e.to_string())?
+            .into_family(),
+    );
+    Ok((name, family, target))
+}
+
+/// The forced (eps) axes and the owner support (target power > 0 or forced).
+fn owner_axes(family: &IntegralFamily, target: &[i64]) -> (Vec<bool>, Vec<bool>) {
+    let forced: Vec<bool> = family.power_shifts().iter().map(|s| !s.is_zero()).collect();
+    let support = (0..forced.len())
+        .map(|i| target[i] > 0 || forced[i])
+        .collect();
+    (forced, support)
+}
+
+fn generate_unguarded(
+    sym: &str,
+    charts: EpsCharts<'_>,
+    order: fn(Vec<bool>) -> OrderDescriptor,
+    workers: usize,
+) -> Result<EpsOutcome, String> {
+    let (name, family, target) = compile_eps_family(sym)?;
+    macro_rules! dispatch {
+        ($($n:literal),*) => {
+            match family.denominator_count() {
+                $($n => generate::<$n>(name, family, &target, charts, order, workers),)*
+                other => Err(format!("eps family arity {other} is not instantiated in the tests")),
+            }
+        };
+    }
+    dispatch!(5, 9, 14)
 }
 
 /// The hard false-knock-out guard of plan M2 sec.3.4 on a generation outcome.
@@ -214,11 +269,11 @@ fn generate<const N: usize>(
     target: &[i64],
     charts: EpsCharts<'_>,
     order: fn(Vec<bool>) -> OrderDescriptor,
+    workers: usize,
 ) -> Result<EpsOutcome, String> {
     let start = Instant::now();
     let n = family.denominator_count();
-    let forced: Vec<bool> = family.power_shifts().iter().map(|s| !s.is_zero()).collect();
-    let support: Vec<bool> = (0..n).map(|i| target[i] > 0 || forced[i]).collect();
+    let (forced, support) = owner_axes(&family, target);
     let mut sources =
         SourceSystem::<N>::from_family_with_capacity(&family, true).map_err(|e| e.to_string())?;
     let axes = sources
@@ -259,43 +314,52 @@ fn generate<const N: usize>(
                 .collect()
         }
     };
-    let executor = SectorExecutor::new(1).map_err(|e| e.to_string())?;
-    let mut solved = Vec::new();
-    let mut program_rules = BTreeMap::new();
-    for chart in charts {
+    // Before the solve, so that a refused count cannot lose a long run.
+    let lp = lp_with_shifts(&family, &support)?;
+    let executor = SectorExecutor::new(workers).map_err(|e| e.to_string())?;
+    let mut sectors = Vec::with_capacity(charts.len());
+    for chart in &charts {
         let sector: [bool; N] = std::array::from_fn(|i| i < n && chart[i]);
         if zeros.contains(&sector) {
-            return Err(format!("{name}: chart {} is a zero sector", mask(&chart)));
+            return Err(format!("{name}: chart {} is a zero sector", mask(chart)));
         }
-        let t0 = Instant::now();
-        let mut solutions = executor
-            .map(
-                &sources,
-                &[sector],
-                &config,
-                SectorSolveOptions::default(),
-                |done| Ok::<_, String>(done.solution),
-            )
-            .map_err(|e| format!("{name} chart {}: {e}", mask(&chart)))?;
-        let solution: SectorSolution<N> = solutions.pop().expect("one sector");
-        let residuals: Vec<Vec<i64>> = solution
-            .finite_residuals
-            .iter()
-            .map(|key| powers(key, n))
-            .collect();
-        solved.push(EpsChart {
-            chart: chart.clone(),
-            rules: solution.rules.len(),
-            residuals,
-            seconds: t0.elapsed().as_secs_f64(),
-        });
-        program_rules.insert(chart, dyn_rules(&sources, &solution, n));
+        sectors.push(sector);
+    }
+    // Completed charts come back in manifest order for any worker count.
+    let completed = executor
+        .map(
+            &sources,
+            &sectors,
+            &config,
+            SectorSolveOptions::default(),
+            |done| {
+                let solution = &done.solution;
+                Ok::<_, String>((
+                    EpsChart {
+                        chart: done.sector[..n].to_vec(),
+                        rules: solution.rules.len(),
+                        residuals: solution
+                            .finite_residuals
+                            .iter()
+                            .map(|key| powers(key, n))
+                            .collect(),
+                        seconds: (done.preconditioning + solution.stats.elapsed).as_secs_f64(),
+                    },
+                    dyn_rules(&sources, solution, n),
+                ))
+            },
+        )
+        .map_err(|e| format!("{name} chart {}: {e}", mask(&e.sector()[..n])))?;
+    let mut solved = Vec::with_capacity(completed.len());
+    let mut program_rules = BTreeMap::new();
+    for (chart, rules) in completed {
+        program_rules.insert(chart.chart.clone(), rules);
+        solved.push(chart);
     }
     let residual_keys: Vec<Vec<i64>> = solved
         .iter()
         .flat_map(|c| c.residuals.iter().cloned())
         .collect();
-    let lp = lp_with_shifts(&family, &support)?;
     Ok(EpsOutcome {
         name,
         support,
@@ -708,18 +772,26 @@ fn random_points_reduce_onto_the_residual_keys_with_strict_descent_witnesses() {
         let outcome = generated(name);
         let mut rng = Lcg(0x7b5d_0001 ^ name.len() as u64);
         let (mut steps, mut witnesses) = (0, 0);
+        let mut reached = BTreeSet::new();
         for _ in 0..50 {
             let key = random_key(&outcome, &mut rng, (-3, 4), 3);
             let reduction = outcome
                 .reduce(&key)
                 .unwrap_or_else(|error| panic!("{name} {key:?}: {error}"));
-            for residual in reduction.residuals.keys() {
-                assert!(outcome.residual_keys.contains(residual), "{name}");
+            // The residual keys stop `reduce`, so a key returned there is in
+            // the set by construction; what can fail is reaching them. A key
+            // that starts on a residual reaches it trivially and does not count.
+            if !outcome.residual_keys.contains(&key) {
+                reached.extend(reduction.residuals.keys().cloned());
             }
             steps += reduction.steps;
             witnesses += reduction.witnesses;
         }
         assert!(steps > 0 && witnesses >= steps, "{name}: {steps} steps");
+        // Every master is reached with a nonzero coefficient from another key:
+        // it is really used by the rules (none for LP = 0).
+        let residuals: BTreeSet<Vec<i64>> = outcome.residual_keys.iter().cloned().collect();
+        assert_eq!(reached, residuals, "{name}: residual keys reached");
     }
 }
 
@@ -893,6 +965,46 @@ fn hard_guard_rejects_a_zero_residual_outcome_with_lp_one() {
 }
 
 #[test]
+fn chart_by_chart_runs_keep_each_chart_and_the_union_passes_the_guard() {
+    // The M2-T10b path: one unguarded call per chart, the guard on the union.
+    let source = eps_family_source("T013c");
+    let whole = generate_eps_family(source, EpsCharts::All).unwrap();
+    let charts = eps_family_charts(source).unwrap();
+    assert_eq!(charts.len(), whole.charts.len());
+    let mut residuals = Vec::new();
+    for (index, chart) in charts.iter().enumerate() {
+        let run = generate_eps_charts(source, std::slice::from_ref(chart), 1).unwrap();
+        assert_eq!(run.lp, whole.lp);
+        assert_eq!(run.charts.len(), 1);
+        assert_eq!(&run.charts[0].chart, chart);
+        assert_eq!(run.charts[0].rules, whole.charts[index].rules);
+        assert_eq!(run.charts[0].residuals, whole.charts[index].residuals);
+        residuals.extend(run.residual_keys);
+    }
+    assert_eq!(residuals, whole.residual_keys);
+    // All charts side by side: same charts in the same order, same results.
+    let wide = generate_eps_charts(source, &charts, 2).unwrap();
+    assert_eq!(wide.residual_keys, whole.residual_keys);
+    for (a, b) in wide.charts.iter().zip(&whole.charts) {
+        assert_eq!((&a.chart, a.rules), (&b.chart, b.rules));
+    }
+    let guard = |present: &[Vec<bool>], residuals: usize| {
+        check_eps_guard(
+            &whole.forced,
+            &whole.two_sided,
+            &whole.support,
+            present,
+            whole.lp,
+            residuals,
+        )
+    };
+    guard(&charts, residuals.len()).unwrap();
+    // The guard still bites: a missing chart, or no residual with LP >= 1.
+    assert!(guard(&charts[..charts.len() - 1], residuals.len()).is_err());
+    assert!(guard(&charts, 0).is_err());
+}
+
+#[test]
 fn the_option_refuses_shifts_that_are_not_eps_lines() {
     // An integer power shift is not j(4-d)/2.
     let source = eps_family_source("T007c").replace("power_shift(D1,2-d/2)", "power_shift(D1,1)");
@@ -1032,9 +1144,8 @@ fn eps_first_two_sided(two_sided: Vec<bool>) -> OrderDescriptor {
 fn two_independently_ordered_downsets_reduce_to_the_same_values() {
     // The default and the eps-first orders derive different rules (different
     // chart crossings and branches). Over the full downset of the owner
-    // support both reduce every key onto residual keys; where the residual
-    // sets coincide the coefficients must agree exactly (at d = 37/10).
-    let mut compared = Vec::new();
+    // support both reduce every key onto the same residual keys, with
+    // coefficients that agree exactly (at d = 37/10).
     for name in ["T001c", "T007c", "T003c", "T005c", "T013c"] {
         let first = generate_eps_family(eps_family_source(name), EpsCharts::Downset)
             .unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -1048,9 +1159,10 @@ fn two_independently_ordered_downsets_reduce_to_the_same_values() {
             first.residual_keys.iter().collect(),
             other.residual_keys.iter().collect(),
         );
-        if a != b {
-            continue;
-        }
+        assert_eq!(a, b, "{name}: residual keys of the two orders");
+        // Otherwise the comparison below would be a rule set against itself.
+        assert_ne!(first.rules, other.rules, "{name}: rule counts");
+        let mut reached = 0;
         let mut rng = Lcg(0x7b5d_0002 ^ name.len() as u64);
         for _ in 0..12 {
             let key = random_key(&first, &mut rng, (-2, 3), 2);
@@ -1063,11 +1175,8 @@ fn two_independently_ordered_downsets_reduce_to_the_same_values() {
                 y.exits.keys().collect::<Vec<_>>()
             );
             assert_eq!(x.residuals, y.residuals, "{name} {key:?}");
+            reached += usize::from(!x.residuals.is_empty());
         }
-        compared.push(name);
+        assert!(reached > 0, "{name}: no point reached a residual key");
     }
-    assert!(
-        compared.len() >= 4,
-        "residual sets coincide only in {compared:?}"
-    );
 }
