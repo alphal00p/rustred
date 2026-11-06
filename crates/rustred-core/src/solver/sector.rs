@@ -359,10 +359,12 @@ impl<const N: usize> SectorSolver<'_, N> {
         // Two-sided eps axes are an opt-in of the sources and must be carried
         // by the order program exactly (plan M2 sec.3.4): generation order and
         // the persisted runtime order are then one and the same. Refused up
-        // front, so a solve that emits no rule cannot slip through.
+        // front, so a solve that emits no rule cannot slip through. The error
+        // names a queued case: with capacity dispatch `Case::generic()` has
+        // open padding coordinates and cannot be mapped back to the caller.
         if self.order.two_sided_axes() != self.system.two_sided_axes() {
             return Err(SectorSolveError::Search {
-                case: Case::generic(),
+                case: initial.first().cloned().unwrap_or_else(Case::generic),
                 source: SolverError::InvalidInput(
                     "two-sided eps axes of the sources and of the integral-order program differ"
                         .into(),
