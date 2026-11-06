@@ -11,7 +11,8 @@
 //! A center color is the line's exact complete denominator constant, a
 //! [`Coefficient`] of the family context, together with its projector
 //! diagonal. Parameter-dependent constants such as a deformed `-1 - eta` line
-//! are therefore colored apart from unit lines without sampling.
+//! are therefore colored apart from unit lines without sampling. A shifted
+//! line carries its exact analytic power shift in the same way.
 //!
 //! External momenta enter as additional rows: the line momenta are taken
 //! over the loop momenta followed by the external momenta, and every external
@@ -31,8 +32,14 @@
 //! unconditional unit-Jacobian check.
 //!
 //! This sector-owned service is shared by the public
-//! [`SectorSymmetryCensus`](super::SectorSymmetryCensus) and by the terminal
-//! refinement equations in `reduction`; neither owns a second graph encoding.
+//! [`SectorSymmetryCensus`](super::SectorSymmetryCensus), by the terminal
+//! refinement equations in `reduction` and by the owner classes of
+//! [`crate::propagator::class`]; none owns a second graph encoding.
+//!
+//! Analytic power shifts are admitted on one path only: the census and the
+//! terminal lanes keep refusing them ([`eligible`]), the p path asks for
+//! [`ShiftAdmission::Forced`]. There a shifted slot is in every support, and
+//! the support of a raw mask is `raw ∪ forced`.
 
 mod error;
 mod line;
@@ -72,7 +79,18 @@ pub(crate) fn checkpoint(cancel: Cancel<'_>) -> Result<(), DiscoveryError> {
     }
 }
 
-/// Discovery admits families without analytic power shifts only. External
+/// How a discovery entry point treats analytic power shifts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShiftAdmission {
+    /// The generic consumers: a shifted family fails [`eligible`].
+    Refused,
+    /// The p path: every shifted slot is forced into each support and
+    /// coloured by its exact shift. A shifted slot without a line momentum
+    /// leaves the support without geometry (`Ok(None)`).
+    Forced,
+}
+
+/// The generic gate: families without analytic power shifts only. External
 /// momenta are admitted; their maps fix each external momentum up to sign.
 pub(crate) fn eligible(family: &IntegralFamily) -> Result<(), DiscoveryError> {
     if family.power_shifts().iter().any(|shift| !shift.is_zero()) {
@@ -83,8 +101,9 @@ pub(crate) fn eligible(family: &IntegralFamily) -> Result<(), DiscoveryError> {
     Ok(())
 }
 
+/// An exact coefficient used as a vertex color: a line mass or power shift.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct MassColor(Coefficient);
+pub(crate) struct MassColor(pub(crate) Coefficient);
 
 impl Ord for MassColor {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -99,10 +118,13 @@ impl PartialOrd for MassColor {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum VertexColor {
+pub(crate) enum VertexColor {
+    /// `shift` is set on a line with a power shift. It is the last field, so
+    /// unshifted graphs keep their order: it is `None` on all of their lines.
     Center {
         mass: MassColor,
         diagonal: Rational,
+        shift: Option<Box<MassColor>>,
     },
     /// The pseudo-line of one external momentum, by index.
     External {
@@ -114,17 +136,20 @@ enum VertexColor {
 
 /// Center color of one row before its projector diagonal is known.
 enum RowColor {
-    Line(Coefficient),
+    Line {
+        mass: Coefficient,
+        shift: Option<Box<MassColor>>,
+    },
     External(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum EdgeColor {
+pub(crate) enum EdgeColor {
     Incidence,
     Projector(Rational),
 }
 
-type ProposalGraph = Graph<VertexColor, EdgeColor>;
+pub(crate) type ProposalGraph = Graph<VertexColor, EdgeColor>;
 
 /// Exact native canonical graph identity of one mass-colored support.
 ///
@@ -145,15 +170,22 @@ enum Momentum {
 /// This cache never enumerates additional target supports.
 pub(crate) struct DiscoveryCache {
     family: Arc<IntegralFamily>,
+    admission: ShiftAdmission,
     momenta: Vec<Momentum>,
+    /// By raw mask: a prepared support holds its own `root = raw ∪ forced`.
     supports: BTreeMap<Mask, Option<Arc<PreparedSupport>>>,
 }
 
 impl DiscoveryCache {
     pub(crate) fn new(family: Arc<IntegralFamily>) -> Self {
+        Self::with_admission(family, ShiftAdmission::Refused)
+    }
+
+    pub(crate) fn with_admission(family: Arc<IntegralFamily>, admission: ShiftAdmission) -> Self {
         let momenta = vec![Momentum::Unprepared; family.denominator_count()];
         Self {
             family,
+            admission,
             momenta,
             supports: BTreeMap::new(),
         }
@@ -161,25 +193,32 @@ impl DiscoveryCache {
 
     pub(crate) fn prepare_support(
         &mut self,
-        root: &Mask,
+        raw: &Mask,
         limits: Limits,
         cancel: Cancel<'_>,
     ) -> Result<Option<Arc<PreparedSupport>>, DiscoveryError> {
         checkpoint(cancel)?;
-        if !self.supports.contains_key(root) {
-            let prepared =
-                prepare_support_cached(&self.family, root, &mut self.momenta, limits, cancel)?;
-            self.supports.insert(root.clone(), prepared);
+        if !self.supports.contains_key(raw) {
+            let prepared = prepare_support_cached(
+                &self.family,
+                raw,
+                self.admission,
+                &mut self.momenta,
+                limits,
+                cancel,
+            )?;
+            self.supports.insert(raw.clone(), prepared);
         }
-        Ok(self.supports[root].clone())
+        Ok(self.supports[raw].clone())
     }
 
     /// Diagnostic for an already prepared unsupported support. Successful or
     /// unprepared supports have no skip reason.
-    pub(crate) fn skip_reason(&self, root: &Mask) -> Option<SupportSkipReason> {
-        if !matches!(self.supports.get(root), Some(None)) {
+    pub(crate) fn skip_reason(&self, raw: &Mask) -> Option<SupportSkipReason> {
+        if !matches!(self.supports.get(raw), Some(None)) {
             return None;
         }
+        let root = forced_root(&self.family, raw).ok()?;
         if self.family.loop_count() != 0 && root.active_count() >= self.family.loop_count() {
             for (slot, &active) in root.active_bits().iter().enumerate() {
                 if active && let Momentum::Unsupported(reason) = &self.momenta[slot] {
@@ -195,6 +234,9 @@ impl DiscoveryCache {
 /// The canonical graph and its generators are computed exactly once.
 pub(crate) struct PreparedSupport {
     family: Arc<IntegralFamily>,
+    /// The mask asked for.
+    raw_root: Mask,
+    /// `raw_root` plus the forced slots; equal to it without power shifts.
     root: Mask,
     slots: Vec<usize>,
     /// The active line rows (in `slots` order) followed by one unit row per
@@ -216,6 +258,39 @@ impl PreparedSupport {
     pub(crate) fn root(&self) -> &Mask {
         &self.root
     }
+
+    pub(crate) fn family(&self) -> &Arc<IntegralFamily> {
+        &self.family
+    }
+
+    /// The canonical graph behind [`Self::canonical_key`].
+    pub(crate) fn canonical_graph(&self) -> &ProposalGraph {
+        &self.graph
+    }
+}
+
+impl std::fmt::Debug for PreparedSupport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedSupport")
+            .field("raw_root", &self.raw_root)
+            .field("root", &self.root)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `raw` plus every slot with a nonzero power shift.
+fn forced_root(family: &IntegralFamily, raw: &Mask) -> Result<Mask, DiscoveryError> {
+    if family.power_shifts().iter().all(|shift| shift.is_zero()) {
+        return Ok(raw.clone());
+    }
+    Mask::try_new(
+        raw.active_bits()
+            .iter()
+            .zip(family.power_shifts())
+            .map(|(&active, shift)| active || !shift.is_zero()),
+    )
+    .map_err(exact)
 }
 
 /// Prove that an active signed-line stabilizer acts through a finite loop
@@ -312,23 +387,34 @@ pub(crate) fn prepare_support(
     cancel: Cancel<'_>,
 ) -> Result<Option<Arc<PreparedSupport>>, DiscoveryError> {
     let mut momenta = vec![Momentum::Unprepared; family.denominator_count()];
-    prepare_support_cached(family, root, &mut momenta, limits, cancel)
+    prepare_support_cached(
+        family,
+        root,
+        ShiftAdmission::Refused,
+        &mut momenta,
+        limits,
+        cancel,
+    )
 }
 
 fn prepare_support_cached(
     family: &Arc<IntegralFamily>,
-    root: &Mask,
+    raw_root: &Mask,
+    admission: ShiftAdmission,
     momenta: &mut [Momentum],
     limits: Limits,
     cancel: Cancel<'_>,
 ) -> Result<Option<Arc<PreparedSupport>>, DiscoveryError> {
-    eligible(family)?;
+    if admission == ShiftAdmission::Refused {
+        eligible(family)?;
+    }
     checkpoint(cancel)?;
-    if root.arity() != family.denominator_count() {
+    if raw_root.arity() != family.denominator_count() {
         return Err(DiscoveryError::Invalid(
             "sector symmetry support arity mismatch",
         ));
     }
+    let root = forced_root(family, raw_root)?;
     let slots: Vec<_> = root
         .active_bits()
         .iter()
@@ -355,7 +441,11 @@ fn prepare_support_cached(
         let Momentum::Row(row) = &momenta[slot] else {
             return Ok(None);
         };
-        colors.push(RowColor::Line(line_mass(family, slot, row, limits)?));
+        let shift = &family.power_shifts()[slot];
+        colors.push(RowColor::Line {
+            mass: line_mass(family, slot, row, limits)?,
+            shift: (!shift.is_zero()).then(|| Box::new(MassColor(shift.clone()))),
+        });
         rows.push(row.clone());
     }
     rows.extend(external_rows(family));
@@ -390,7 +480,8 @@ fn prepare_support_cached(
     let inverse_vertex_map = invert_vertex_map(&canonical.vertex_map)?;
     Ok(Some(Arc::new(PreparedSupport {
         family: Arc::clone(family),
-        root: root.clone(),
+        raw_root: raw_root.clone(),
+        root,
         slots,
         rows: all,
         basis_slots,
@@ -585,9 +676,10 @@ fn signed_graph(
         let index = u32::try_from(line).map_err(exact)?;
         let diagonal = projector[(index, index)].clone();
         graph.add_node(match color {
-            RowColor::Line(mass) => VertexColor::Center {
+            RowColor::Line { mass, shift } => VertexColor::Center {
                 mass: MassColor(mass),
                 diagonal,
+                shift,
             },
             RowColor::External(index) => VertexColor::External { index, diagonal },
         });
@@ -745,7 +837,11 @@ fn recover(
         else {
             return Ok(None);
         };
-        if !scale.is_one() || target.slots.binary_search(image).is_err() || images.contains(image) {
+        if !scale.is_one()
+            || target.slots.binary_search(image).is_err()
+            || images.contains(image)
+            || source.family.power_shifts()[slot] != target.family.power_shifts()[*image]
+        {
             return Ok(None);
         }
         images.push(*image);

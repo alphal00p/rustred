@@ -19,10 +19,14 @@
 //! ```
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use rustred::algebra::CoefficientContext;
 use rustred::family::{IntegralKey, UnitScaleKinematics};
+use rustred::propagator::PresentationId;
+use rustred::propagator::class::{ClassLimits, classify};
+use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotLine};
 use rustred::reduction::terminal_normalization::TerminalSectorSymmetryEquations;
 use rustred::sector::masters::{MasterCount, MasterCountOptions, MasterCounter};
 use rustred::sector::symmetry::integral_transport::compile;
@@ -209,6 +213,40 @@ fn census_colours_the_external_vertices_of_the_kite() {
             .any(|c| !c.is_zero())
     );
     assert_eq!(momentum.external_linear().rows(), 1);
+    // The owner classes of the p library partition the same sectors.
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let lines = KITE.lines.iter().map(|row| {
+        Slot::Line(SlotLine {
+            momentum: row.to_vec(),
+            eps_units: 0,
+        })
+    });
+    let presentation = Presentation::from_slots(
+        PresentationId(0),
+        PresentationKind::EpsNode,
+        KITE.name,
+        2,
+        lines.collect(),
+        &context,
+        None,
+    )
+    .unwrap();
+    let mut owner_classes = BTreeMap::new();
+    for class in census.classes() {
+        for member in class.members() {
+            let raw = member.active_bits().iter().enumerate();
+            let raw = raw.fold(0, |raw, (slot, &active)| raw | u64::from(active) << slot);
+            let key = classify(&presentation, raw, &ClassLimits::default())
+                .unwrap()
+                .unwrap()
+                .key;
+            let representative = owner_classes
+                .entry(key)
+                .or_insert_with(|| class.representative().clone());
+            assert_eq!(representative, class.representative());
+        }
+    }
+    assert_eq!(owner_classes.len(), 4);
 }
 
 #[test]
