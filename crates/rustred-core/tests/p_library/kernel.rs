@@ -19,7 +19,7 @@ use rustred::propagator::class::OwnerClassKey;
 use rustred::propagator::error::PError;
 use rustred::propagator::insertion::InsertionStep;
 use rustred::propagator::kernel::bubble::{
-    BubbleKernel, LinePower, box_pairings, ghat, relative_tag,
+    BoxPairing, BubbleKernel, LinePower, box_pairings, ghat, relative_tag,
 };
 use rustred::propagator::kernel::gamma::{FactoredRational, GammaProduct};
 use rustred::propagator::lane::{BubbleRoles, CarpetRoles, LaneRoles, OwnerLane};
@@ -427,13 +427,54 @@ fn coefficient_of(c: &CoefficientContext, value: &Rational) -> Coefficient {
         .unwrap()
 }
 
+/// One term of the bubble with numerator `Prod_s (k.Y_s)^{powers[s]}`, to be
+/// multiplied by `(P^2)^(D/2 - alpha - beta + sigma)` and the tag `T_ins`.
+struct BubbleTerm {
+    sigma: u32,
+    pairing: BoxPairing,
+    /// `R_ins(sigma)` times the pairing weight.
+    weight: Coefficient,
+}
+
+/// The kernel's sum over `sigma` and the pairings, term by term, from the two
+/// pieces of `src` that every step uses: [`BubbleKernel::ratio`] and [`box_pairings`].
+/// The steps assemble this sum themselves (`NumeratorRewrite`), so tests of this
+/// helper say nothing about that assembly: the tests through a step do.
+fn numerator_terms(
+    kernel: &BubbleKernel,
+    alpha: LinePower,
+    beta: LinePower,
+    powers: &[u32],
+) -> Vec<BubbleTerm> {
+    let c = kernel.context();
+    let rank: u32 = powers.iter().sum();
+    let mut terms = Vec::new();
+    for sigma in 0..=rank / 2 {
+        let ratio = kernel
+            .ratio(alpha, beta, i64::from(rank), i64::from(sigma), algebra())
+            .unwrap();
+        if ratio.is_zero() {
+            continue;
+        }
+        for pairing in box_pairings(powers, sigma) {
+            let weight = c
+                .try_mul(&ratio, &coefficient_of(c, &pairing.weight), algebra())
+                .unwrap();
+            terms.push(BubbleTerm {
+                sigma,
+                pairing,
+                weight,
+            });
+        }
+    }
+    terms
+}
+
 /// `I_M` of the same integral through the Box kernel, Minkowski native:
 /// `P^2 = q.q = -1`, `P.q = -s`, and the merged line absorbed with `(-1)^{a + b}`.
 fn kernel_value(kernel: &BubbleKernel, a: i64, b: i64, m: u32, s: i64) -> Coefficient {
     let c = kernel.context();
-    let terms = kernel
-        .numerator_terms(LinePower::new(a, 0), LinePower::new(b, 0), &[m], algebra())
-        .unwrap();
+    let terms = numerator_terms(kernel, LinePower::new(a, 0), LinePower::new(b, 0), &[m]);
     let mut total = c.zero();
     for term in &terms {
         let contracted = term.pairing.pairs.iter().map(|&(_, _, n)| n).sum::<u32>();
@@ -987,10 +1028,7 @@ fn check_box_kernel_against_oracle(
     let tag = tag_value(&relative_tag(alpha.eps_units, beta.eps_units).unwrap(), d);
     let mut actual: BTreeMap<(i32, Vec<u32>), Vec<GValue>> = BTreeMap::new();
     let mut top_sigma = 0;
-    for term in kernel
-        .numerator_terms(alpha, beta, powers, algebra())
-        .unwrap()
-    {
+    for term in numerator_terms(kernel, alpha, beta, powers) {
         top_sigma = top_sigma.max(term.sigma);
         let mut monomial = outer.unit().outer;
         for &(s, t, count) in &term.pairing.pairs {
@@ -1025,16 +1063,13 @@ fn the_box_kernel_equals_the_transverse_oracle_to_rank_8() {
     d_values.push(rational(37, 10));
 
     // Random numerators and lines, every rank in turn: the rank is not left to the seed.
-    let mut ranks = BTreeSet::new();
     for round in 0..45 {
         let d = &d_values[round % d_values.len()];
         let variables = rng.random_range(1..=3_usize);
         let powers = random_numerator(&mut rng, variables, (round % 9) as u32);
         let (alpha, beta) = (random_line_power(&mut rng), random_line_power(&mut rng));
         check_box_kernel_against_oracle(&kernel, alpha, beta, &powers, d);
-        ranks.insert(powers.iter().sum::<u32>());
     }
-    assert_eq!(ranks, (0..=8).collect::<BTreeSet<u32>>());
 
     // Rank 8 is the only rank with pairings of order sigma = 4: every partition
     // of 8 into at most three scalars, on integer, eps and non-positive lines.
@@ -1842,6 +1877,8 @@ fn the_five_two_loop_sp_nodes_equal_kite_sector_reductions() {
 /// reachable both as a carpet of `p` and as an insertion of `l`.
 struct TwoLoopCarpet {
     parent: Arc<Presentation>,
+    roles: CarpetRoles,
+    edge: (EdgeMap, Arc<Presentation>),
     carpet: CarpetStep,
     insertion: SeriesParallelStep,
     blob: Arc<InsertionStep>,
@@ -1916,8 +1953,8 @@ impl TwoLoopCarpet {
     ) -> Self {
         let blob = one_loop(1, blob_eps);
         let outer = one_loop(2, outer_eps);
-        let carpet_edge = carpet_edge(&parent, &blob, 1, loop_map(&[1], &[0], 1), blob_slots);
-        let carpet = CarpetStep::new(parent.clone(), roles, &[carpet_edge]).unwrap();
+        let edge = carpet_edge(&parent, &blob, 1, loop_map(&[1], &[0], 1), blob_slots);
+        let carpet = CarpetStep::new(parent.clone(), roles, std::slice::from_ref(&edge)).unwrap();
         let insertion_edge = insertion_edge(
             &parent,
             &outer,
@@ -1932,6 +1969,8 @@ impl TwoLoopCarpet {
         Self {
             blob: one_loop_step(&blob),
             parent,
+            roles,
+            edge,
             carpet,
             insertion,
         }
@@ -2048,6 +2087,8 @@ fn the_carpet_equals_two_insertions_on_a_two_loop_carpet() {
 struct ThreeLoopCarpet {
     name: &'static str,
     parent: Arc<Presentation>,
+    roles: CarpetRoles,
+    edge: (EdgeMap, Arc<Presentation>),
     step: CarpetStep,
 }
 
@@ -2143,8 +2184,14 @@ impl ThreeLoopCarpet {
             loop_map(&[1, 0, 0, 1], &[0, 0], 1),
             line_slots,
         );
-        let step = CarpetStep::new(parent.clone(), roles, &[edge]).unwrap();
-        Self { name, parent, step }
+        let step = CarpetStep::new(parent.clone(), roles, std::slice::from_ref(&edge)).unwrap();
+        Self {
+            name,
+            parent,
+            roles,
+            edge,
+            step,
+        }
     }
 }
 
@@ -2224,6 +2271,35 @@ fn carpet_steps_on_d121_and_d60_equal_sector_reductions() {
 // A 3L chain, and acceptance (g): linear denominators, tags within L + 1
 // ---------------------------------------------------------------------------
 
+/// The 2L rest of a 3L chain and its 1L child: `k^2` with `merged` eps units,
+/// `k - p`, `p`, `p - q`, ISP `k.q`.
+fn rest_of_a_chain(merged: u8) -> (Arc<InsertionStep>, Arc<InsertionStep>) {
+    let middle = presentation(
+        1,
+        2,
+        vec![
+            eps_line(&[1, 0, 0], merged),
+            line(&[1, -1, 0]),
+            line(&[0, 1, 0]),
+            line(&[0, 1, -1]),
+            isp(&[1, 0, 0], &[0, 0, 1]),
+        ],
+    );
+    let bottom = one_loop(2, [merged + 1, 0]);
+    let edge = insertion_edge(
+        &middle,
+        &bottom,
+        0,
+        loop_map(&[1], &[0], 1),
+        &KEPT_AFTER_BUBBLE,
+        Some(0),
+    );
+    (
+        Arc::new(InsertionStep::new(middle, FIRST_BUBBLE, &[edge]).unwrap()),
+        one_loop_step(&bottom),
+    )
+}
+
 /// Three nested bubbles: `l, l - k` on `k`, `k - p` on `p`, `p - q`; integrating `l`
 /// and then `k` merges into `k^2` and `p^2`.
 struct ThreeLoopChain {
@@ -2249,21 +2325,10 @@ fn three_loop_chain() -> ThreeLoopChain {
             isp(&[0, 1, 0, 0], &[0, 0, 0, 1]),
         ],
     );
-    let middle = presentation(
-        1,
-        2,
-        vec![
-            eps_line(&[1, 0, 0], 1),
-            line(&[1, -1, 0]),
-            line(&[0, 1, 0]),
-            line(&[0, 1, -1]),
-            isp(&[1, 0, 0], &[0, 0, 1]),
-        ],
-    );
-    let bottom = one_loop(2, [2, 0]);
+    let (middle, bottom) = rest_of_a_chain(1);
     let top_edge = insertion_edge(
         &parent,
-        &middle,
+        middle.presentation(),
         0,
         loop_map(&[1, 0, 0, 1], &[0, 0], 1),
         &[
@@ -2279,18 +2344,10 @@ fn three_loop_chain() -> ThreeLoopChain {
         ],
         Some(0),
     );
-    let middle_edge = insertion_edge(
-        &middle,
-        &bottom,
-        0,
-        loop_map(&[1], &[0], 1),
-        &KEPT_AFTER_BUBBLE,
-        Some(0),
-    );
     ThreeLoopChain {
         top: InsertionStep::new(parent.clone(), FIRST_BUBBLE, &[top_edge]).unwrap(),
-        middle: Arc::new(InsertionStep::new(middle, FIRST_BUBBLE, &[middle_edge]).unwrap()),
-        bottom: one_loop_step(&bottom),
+        middle,
+        bottom,
         parent,
     }
 }
@@ -2400,19 +2457,627 @@ fn weights_have_linear_denominators_and_tags_stay_within_l_plus_one() {
 }
 
 // ---------------------------------------------------------------------------
+// Every child key against the first form of C2, with an oracle free of kernel
+// code (the reviewer's, round 2): only `express_scalar_product` and `map_momentum`
+// of M2-I0 are shared with the steps.
+// ---------------------------------------------------------------------------
+
+type EuclideanPoly = BTreeMap<Vec<u32>, Rational>;
+
+fn ep_one(arity: usize) -> EuclideanPoly {
+    BTreeMap::from([(vec![0; arity], Rational::one())])
+}
+
+fn ep_mul(x: &EuclideanPoly, y: &EuclideanPoly) -> EuclideanPoly {
+    let mut product = EuclideanPoly::new();
+    for (left, u) in x {
+        for (right, v) in y {
+            let key: Vec<u32> = left.iter().zip(right).map(|(a, b)| a + b).collect();
+            let entry = product.entry(key).or_insert_with(Rational::zero);
+            *entry = &*entry + &(u * v);
+        }
+    }
+    product.retain(|_, value| !value.is_zero());
+    product
+}
+
+fn ep_pow(x: &EuclideanPoly, exponent: u32, arity: usize) -> EuclideanPoly {
+    (0..exponent).fold(ep_one(arity), |product, _| ep_mul(&product, x))
+}
+
+/// `(a.b)_E` in the Euclidean slots `D^E = -D^M` of `child`:
+/// `(a.b)_M = c + Sum r_i D_i^M`, so `(a.b)_E = -c + Sum r_i D_i^E`.
+fn euclidean_form(child: &Presentation, a: &[i64], b: &[i64]) -> EuclideanPoly {
+    let arity = child.slots.len();
+    let form = child.express_scalar_product(a, b).unwrap();
+    let mut poly = EuclideanPoly::new();
+    if !form.constant.is_zero() {
+        poly.insert(vec![0; arity], -form.constant.clone());
+    }
+    for (slot, value) in &form.terms {
+        let mut exponents = vec![0; arity];
+        exponents[usize::from(*slot)] = 1;
+        poly.insert(exponents, value.clone());
+    }
+    poly
+}
+
+fn scaled_row(row: &[i64], factor: i64) -> Vec<i64> {
+    row.iter().map(|c| factor * c).collect()
+}
+
+/// The outer factors of an oracle monomial over the child's Euclidean slots,
+/// `Prod (Y_s.Y_t)_E^e Prod (P.Y_s)_E^e`, memoised by its exponents.
+struct OuterForms<'a> {
+    child: &'a Presentation,
+    vectors: Vec<Vec<i64>>,
+    residual: Vec<i64>,
+    prefactor: EuclideanPoly,
+    memo: BTreeMap<Vec<u32>, EuclideanPoly>,
+    forms: BTreeMap<usize, EuclideanPoly>,
+}
+
+impl OuterForms<'_> {
+    fn form(&mut self, names: &OuterVariables, index: usize) -> EuclideanPoly {
+        if let Some(form) = self.forms.get(&index) {
+            return form.clone();
+        }
+        let variables = self.vectors.len();
+        let mut found = None;
+        for s in 0..variables {
+            for t in s..variables {
+                if names.pair(s, t) == index {
+                    found = Some(euclidean_form(
+                        self.child,
+                        &self.vectors[s],
+                        &self.vectors[t],
+                    ));
+                }
+            }
+            if names.residual(s) == index {
+                found = Some(euclidean_form(self.child, &self.residual, &self.vectors[s]));
+            }
+        }
+        let form = found.expect("an outer variable");
+        self.forms.insert(index, form.clone());
+        form
+    }
+
+    fn poly(&mut self, names: &OuterVariables, outer: &[u32]) -> EuclideanPoly {
+        if let Some(poly) = self.memo.get(outer) {
+            return poly.clone();
+        }
+        let arity = self.child.slots.len();
+        let mut poly = self.prefactor.clone();
+        for (index, &exponent) in outer.iter().enumerate() {
+            if exponent > 0 {
+                let form = self.form(names, index);
+                poly = ep_mul(&poly, &ep_pow(&form, exponent, arity));
+            }
+        }
+        self.memo.insert(outer.to_vec(), poly.clone());
+        poly
+    }
+}
+
+/// `value * poly`, each child monomial with the Wick ratio of C2.
+fn push_child_keys(
+    out: &mut BTreeMap<Vec<i64>, Vec<GValue>>,
+    parent_total: i64,
+    base: &[i64],
+    poly: &EuclideanPoly,
+    value: &GValue,
+) {
+    for (exponents, coefficient) in poly {
+        let key: Vec<i64> = base
+            .iter()
+            .zip(exponents)
+            .map(|(power, &e)| power - i64::from(e))
+            .collect();
+        let child_total: i64 = key.iter().sum();
+        let scale = coefficient * &sign(parent_total - child_total);
+        out.entry(key).or_default().push(value.scale(&scale));
+    }
+}
+
+/// Every child key of an Insertion step by the transverse oracle and C2.
+fn insertion_wick_oracle(
+    parent: &Presentation,
+    roles: BubbleRoles,
+    edge: &EdgeMap,
+    child: &Presentation,
+    powers: &[i64],
+    d: &Rational,
+) -> BTreeMap<Vec<i64>, Vec<GValue>> {
+    let l = usize::from(roles.loop_index);
+    let arity = child.slots.len();
+    let eps = eps_units(parent);
+    let image = |row: &[i64]| -> Vec<i64> {
+        assert_eq!(row[l], 0, "{row:?}");
+        let kept: Vec<i64> = row
+            .iter()
+            .enumerate()
+            .filter(|(column, _)| *column != l)
+            .map(|(_, value)| *value)
+            .collect();
+        edge.outer_map.map_momentum(&kept).unwrap()
+    };
+    let [first, second] = roles.lines.map(usize::from);
+    let Slot::Line(second_line) = &parent.slots[second] else {
+        panic!("the bubble lines are lines");
+    };
+    let s = second_line.momentum[l];
+    let p_row: Vec<i64> = second_line
+        .momentum
+        .iter()
+        .enumerate()
+        .map(|(column, c)| i64::from(column == l) - s * c)
+        .collect();
+    let p = image(&p_row);
+
+    let mut vectors = Vec::new();
+    let mut box_powers = Vec::new();
+    let mut prefactor = ep_one(arity);
+    for (index, slot) in parent.slots.iter().enumerate() {
+        let Slot::Isp(isp) = slot else { continue };
+        let m = u32::try_from(-powers[index]).unwrap();
+        match (isp.left[l], isp.right[l]) {
+            (0, 0) => {
+                let form = euclidean_form(child, &image(&isp.left), &image(&isp.right));
+                prefactor = ep_mul(&prefactor, &ep_pow(&form, m, arity));
+            }
+            (sign, 0) => {
+                vectors.push(image(&scaled_row(&isp.right, sign)));
+                box_powers.push(m);
+            }
+            (0, sign) => {
+                vectors.push(image(&scaled_row(&isp.left, sign)));
+                box_powers.push(m);
+            }
+            _ => panic!("ISP slot {index}"),
+        }
+    }
+    if vectors.is_empty() {
+        vectors.push(vec![0; usize::from(child.loops) + 1]);
+        box_powers.push(0);
+    }
+    let (names, oracle) = transverse_oracle(vectors.len(), &factor_list(&box_powers), d);
+
+    let mut base = vec![0_i64; arity];
+    for (slot, target) in edge.line_slots.iter().enumerate() {
+        if let Some(target) = target {
+            base[usize::from(*target)] += powers[slot];
+        }
+    }
+    let alpha = power(powers[first], eps[first]);
+    let beta = power(powers[second], eps[second]);
+    let total: i64 = powers.iter().sum();
+    let mut forms = OuterForms {
+        child,
+        vectors,
+        residual: p,
+        prefactor,
+        memo: BTreeMap::new(),
+        forms: BTreeMap::new(),
+    };
+    let mut out = BTreeMap::new();
+    for (monomial, c) in &oracle {
+        let inner = g(
+            (alpha.0 - i64::from(monomial.a), alpha.1),
+            (beta.0 - i64::from(monomial.b), beta.1),
+            d,
+        )
+        .scale(c);
+        if inner.is_zero() {
+            continue;
+        }
+        let shift = i64::from(monomial.a + monomial.b + monomial.p2);
+        let mut key_base = base.clone();
+        if let Some(slot) = edge.merged_slot {
+            key_base[usize::from(slot)] += powers[first] + powers[second] - 2 - shift;
+        }
+        let poly = forms.poly(&names, &monomial.outer);
+        push_child_keys(&mut out, total, &key_base, &poly, &inner);
+    }
+    out
+}
+
+/// Every child key of a Carpet step: the oracle with `k -> q`, `P -> p` averages
+/// `q_perp` around `p`; `D_a = q^2 = 1`, `D_b = D_r`, the blob scales as
+/// `(p^2)^(L_sub d/2 - A + Delta)` with `Delta` the count of outer scalars.
+fn carpet_wick_oracle(
+    parent: &Presentation,
+    roles: CarpetRoles,
+    edge: &EdgeMap,
+    child: &Presentation,
+    powers: &[i64],
+    d: &Rational,
+) -> BTreeMap<Vec<i64>, Vec<GValue>> {
+    let outer = usize::from(roles.outer_loop);
+    let width = usize::from(parent.loops) + 1;
+    let external = width - 1;
+    let arity = child.slots.len();
+    let eps = eps_units(parent);
+    let image = |row: &[i64]| -> Vec<i64> {
+        assert_eq!(row[external], 0, "{row:?}");
+        let mut kept: Vec<i64> = (0..external)
+            .filter(|&column| column != outer)
+            .map(|column| row[column])
+            .collect();
+        kept.push(row[outer]);
+        edge.outer_map.map_momentum(&kept).unwrap()
+    };
+    let mut p_row = vec![0_i64; width];
+    p_row[outer] = 1;
+    let p = image(&p_row);
+
+    let r_slot = usize::from(roles.r);
+    let third_slot = roles.third.map(usize::from);
+    let mut alpha: Power = (0, -i64::from(child.loops));
+    let mut vectors = Vec::new();
+    let mut box_powers = Vec::new();
+    let mut prefactor = ep_one(arity);
+    for (index, slot) in parent.slots.iter().enumerate() {
+        match slot {
+            Slot::Line(_) if index == r_slot => {}
+            Slot::Line(_) => {
+                let line_power = power(powers[index], eps[index]);
+                alpha = add_power(alpha, line_power);
+            }
+            Slot::Isp(isp) => {
+                let m = u32::try_from(-powers[index]).unwrap();
+                match (isp.left[external], isp.right[external]) {
+                    (0, 0) => {
+                        let form = euclidean_form(child, &image(&isp.left), &image(&isp.right));
+                        prefactor = ep_mul(&prefactor, &ep_pow(&form, m, arity));
+                        alpha.0 += powers[index];
+                    }
+                    (sign, 0) => {
+                        vectors.push(image(&scaled_row(&isp.right, sign)));
+                        box_powers.push(m);
+                    }
+                    (0, sign) => {
+                        vectors.push(image(&scaled_row(&isp.left, sign)));
+                        box_powers.push(m);
+                    }
+                    _ => panic!("ISP slot {index}"),
+                }
+            }
+        }
+    }
+    if vectors.is_empty() {
+        vectors.push(vec![0; usize::from(child.loops) + 1]);
+        box_powers.push(0);
+    }
+    let (names, oracle) = transverse_oracle(vectors.len(), &factor_list(&box_powers), d);
+
+    let mut base = vec![0_i64; arity];
+    for (slot, target) in edge.line_slots.iter().enumerate() {
+        if let Some(target) = target {
+            base[usize::from(*target)] += powers[slot];
+        }
+    }
+    assert!(third_slot.is_none_or(|third| edge.line_slots[third].is_none()));
+    let beta = power(powers[r_slot], eps[r_slot]);
+    let total: i64 = powers.iter().sum();
+    let mut forms = OuterForms {
+        child,
+        vectors,
+        residual: p,
+        prefactor,
+        memo: BTreeMap::new(),
+        forms: BTreeMap::new(),
+    };
+    let mut out = BTreeMap::new();
+    for (monomial, c) in &oracle {
+        let delta: i64 = monomial.outer.iter().map(|&e| i64::from(e)).sum();
+        let value = g(
+            (alpha.0 - i64::from(monomial.p2) - delta, alpha.1),
+            (beta.0 - i64::from(monomial.b), beta.1),
+            d,
+        )
+        .scale(c);
+        if value.is_zero() {
+            continue;
+        }
+        let poly = forms.poly(&names, &monomial.outer);
+        push_child_keys(&mut out, total, &base, &poly, &value);
+    }
+    out
+}
+
+/// The children of `output` against `expected`, key by key. Returns the number of
+/// child keys, so that a caller can assert that something was compared.
+fn assert_children_match(
+    output: &PStepOut,
+    expected: &BTreeMap<Vec<i64>, Vec<GValue>>,
+    d: &Rational,
+    label: &str,
+) -> usize {
+    assert!(output.terminals.is_empty());
+    let mut actual: BTreeMap<Vec<i64>, Vec<GValue>> = BTreeMap::new();
+    for child in &output.children {
+        actual
+            .entry(child.powers.clone())
+            .or_default()
+            .push(tag_value(&child.tag, d).scale(&at(&child.coefficient, d)));
+    }
+    let keys: BTreeSet<_> = actual.keys().chain(expected.keys()).cloned().collect();
+    for key in &keys {
+        assert_values_equal(
+            actual.get(key).map_or(&[], Vec::as_slice),
+            expected.get(key).map_or(&[], Vec::as_slice),
+            &format!("{label}, child {key:?}"),
+        );
+    }
+    actual.len()
+}
+
+/// A 3L chain with three box variables: the bubble `l, l - k` carries `l.k`, `l.p`
+/// and `l.q`, `k.q` is free of `l`. `k^2` is no slot of the parent: it comes out of
+/// the merged bubble. The rest is the chain of [`rest_of_a_chain`].
+struct ThreeBoxChain {
+    parent: Arc<Presentation>,
+    edge: (EdgeMap, Arc<Presentation>),
+    middle: Arc<InsertionStep>,
+    bottom: Arc<InsertionStep>,
+}
+
+impl ThreeBoxChain {
+    /// `eps` = units of `l^2`, `(l - k)^2`.
+    fn new(eps: [u8; 2]) -> Self {
+        let parent = presentation(
+            0,
+            3,
+            vec![
+                eps_line(&[1, 0, 0, 0], eps[0]),
+                eps_line(&[1, -1, 0, 0], eps[1]),
+                line(&[0, 1, -1, 0]),
+                line(&[0, 0, 1, 0]),
+                line(&[0, 0, 1, -1]),
+                isp(&[1, 0, 0, 0], &[0, 1, 0, 0]),
+                isp(&[1, 0, 0, 0], &[0, 0, 1, 0]),
+                isp(&[1, 0, 0, 0], &[0, 0, 0, 1]),
+                isp(&[0, 1, 0, 0], &[0, 0, 0, 1]),
+            ],
+        );
+        let (middle, bottom) = rest_of_a_chain(eps[0] + eps[1] + 1);
+        let edge = insertion_edge(
+            &parent,
+            middle.presentation(),
+            0,
+            loop_map(&[1, 0, 0, 1], &[0, 0], 1),
+            &[
+                None,
+                None,
+                Some(1),
+                Some(2),
+                Some(3),
+                None,
+                None,
+                None,
+                None,
+            ],
+            Some(0),
+        );
+        Self {
+            parent,
+            edge,
+            middle,
+            bottom,
+        }
+    }
+
+    fn step(&self) -> InsertionStep {
+        InsertionStep::new(
+            self.parent.clone(),
+            FIRST_BUBBLE,
+            std::slice::from_ref(&self.edge),
+        )
+        .unwrap()
+    }
+}
+
+#[test]
+fn three_box_variables_equal_the_wick_oracle_to_rank_8() {
+    let mut rng = StdRng::seed_from_u64(0x3b0c);
+    let points = dimensions(&mut rng, 2);
+    // Every pair of variables, then every kind of shape of ranks 7 and 8.
+    let numerators = [
+        [1, 1, 0],
+        [1, 0, 1],
+        [0, 1, 1],
+        [1, 1, 1],
+        [2, 1, 1],
+        [1, 2, 1],
+        [1, 1, 2],
+        [2, 2, 2],
+        [3, 2, 1],
+        [1, 3, 2],
+        [3, 2, 2],
+        [2, 3, 2],
+        [2, 2, 3],
+        [8, 0, 0],
+        [0, 8, 0],
+        [0, 0, 8],
+        [4, 4, 0],
+        [4, 0, 4],
+        [0, 4, 4],
+        [3, 3, 2],
+        [3, 2, 3],
+        [2, 3, 3],
+        [5, 2, 1],
+        [1, 5, 2],
+        [2, 1, 5],
+    ];
+    for eps in [[0, 0], [1, 0], [0, 2]] {
+        let chain = ThreeBoxChain::new(eps);
+        let (map, child) = &chain.edge;
+        let step = chain.step();
+        let tag = GammaTag::one();
+        let mut children = 0;
+        for (round, m) in numerators.iter().enumerate() {
+            let d = &points[round % points.len()];
+            for (lines, free) in [
+                ([1, 1, 1, 1, 1], 0),
+                ([2, 1, 2, 1, 1], 1),
+                ([1, 3, 1, 0, 2], 2),
+            ] {
+                let powers = [
+                    lines[0], lines[1], lines[2], lines[3], lines[4], -m[0], -m[1], -m[2], -free,
+                ];
+                let output = step
+                    .apply(&key_view(&chain.parent, &powers, &tag), &limits())
+                    .unwrap();
+                let expected =
+                    insertion_wick_oracle(&chain.parent, FIRST_BUBBLE, map, child, &powers, d);
+                let label = format!("{eps:?} {powers:?} at d = {d}");
+                children += assert_children_match(&output, &expected, d, &label);
+            }
+        }
+        assert!(children > 0, "{eps:?}");
+    }
+}
+
+#[test]
+fn a_chain_with_three_box_variables_equals_its_reduction() {
+    let chain = ThreeBoxChain::new([0, 0]);
+    let mut lane = ReductionLane::new(&chain.parent);
+    let step =
+        SeriesParallelStep::from(chain.step()).with_fold([chain.middle.clone(), chain.bottom]);
+    let mut rng = StdRng::seed_from_u64(0x3b0d);
+    let points = dimensions(&mut rng, 2);
+    let keys: [[i64; 9]; 6] = [
+        [1, 1, 1, 1, 1, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, -1, -1, 0, 0],
+        [1, 1, 1, 1, 1, 0, -1, -1, 0],
+        [2, 1, 1, 1, 1, -1, -1, -1, 0],
+        [1, 1, 2, 1, 1, -2, -1, -1, -1],
+        [1, 2, 1, 1, 2, 0, -2, -2, 0],
+    ];
+    for powers in &keys {
+        let output = step
+            .apply(
+                &key_view(&chain.parent, powers, &GammaTag::one()),
+                &limits(),
+            )
+            .unwrap();
+        assert!(!output.terminals.is_empty(), "{powers:?}");
+        for d in &points {
+            let values = lane.values(&[(powers.to_vec(), Rational::one())], d);
+            assert_values_equal(
+                &terminal_values(&output, d),
+                &values,
+                &format!("three box variables {powers:?} at d = {d}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn carpets_equal_the_wick_oracle_to_rank_8() {
+    let mut rng = StdRng::seed_from_u64(0x3ca8);
+    let points = dimensions(&mut rng, 2);
+    let tag = GammaTag::one();
+    let check = |parent: &Arc<Presentation>,
+                 roles: CarpetRoles,
+                 edge: &(EdgeMap, Arc<Presentation>),
+                 step: &CarpetStep,
+                 powers: &[i64]| {
+        points
+            .iter()
+            .map(|d| {
+                let output = step
+                    .apply(&key_view(parent, powers, &tag), &limits())
+                    .unwrap();
+                let expected = carpet_wick_oracle(parent, roles, &edge.0, &edge.1, powers, d);
+                let label = format!("{powers:?} at d = {d}");
+                assert_children_match(&output, &expected, d, &label)
+            })
+            .sum::<usize>()
+    };
+
+    // L_sub = 1, eps lines with and without third.
+    for carpet in [
+        TwoLoopCarpet::with_third([0, 0, 0, 0]),
+        TwoLoopCarpet::with_third([1, 0, 1, 1]),
+    ] {
+        let mut children = 0;
+        for powers in [
+            [1, 1, 1, 1, -6],
+            [1, 1, 1, 1, -7],
+            [1, 1, 1, 1, -8],
+            [2, 3, -1, 1, -8],
+        ] {
+            children += check(
+                &carpet.parent,
+                carpet.roles,
+                &carpet.edge,
+                &carpet.carpet,
+                &powers,
+            );
+        }
+        assert!(children > 0);
+    }
+    for carpet in [
+        TwoLoopCarpet::without_third([0, 0, 0]),
+        TwoLoopCarpet::without_third([1, 0, 1]),
+    ] {
+        let mut children = 0;
+        for powers in [[1, 1, 1, -8, 0], [2, 1, 1, -8, -2], [1, 2, 2, -7, -3]] {
+            children += check(
+                &carpet.parent,
+                carpet.roles,
+                &carpet.edge,
+                &carpet.carpet,
+                &powers,
+            );
+        }
+        assert!(children > 0);
+    }
+
+    // L_sub = 2: two box variables, mixed.
+    for carpet in [ThreeLoopCarpet::d121(), ThreeLoopCarpet::d60()] {
+        let lines = carpet
+            .parent
+            .slots
+            .iter()
+            .filter(|slot| matches!(slot, Slot::Line(_)))
+            .count();
+        let top: Vec<i64> = (0..carpet.parent.slots.len())
+            .map(|i| i64::from(i < lines))
+            .collect();
+        let mut children = 0;
+        for (first, second) in [(8, 0), (0, 8), (4, 4), (5, 3), (7, 0), (4, 3)] {
+            let mut powers = top.clone();
+            powers[lines] = -first;
+            powers[lines + 1] = -second;
+            children += check(
+                &carpet.parent,
+                carpet.roles,
+                &carpet.edge,
+                &carpet.step,
+                &powers,
+            );
+        }
+        assert!(children > 0, "{}", carpet.name);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Acceptance (h): memoisation
 // ---------------------------------------------------------------------------
 
-/// Two applications of each rank-8 key: the second one only hits the memos.
-fn memoised_rank_8_step(node: &TwoLoopNode, powers: &[i64]) -> std::time::Duration {
-    let step = InsertionStep::new(
-        node.parent.clone(),
-        node.roles,
-        std::slice::from_ref(&node.edge),
-    )
-    .unwrap();
+/// Two applications of a rank-8 key: the second one only hits the memos.
+fn memoised_rank_8_step(
+    parent: &Arc<Presentation>,
+    roles: BubbleRoles,
+    edge: &(EdgeMap, Arc<Presentation>),
+    powers: &[i64],
+) -> std::time::Duration {
+    let step = InsertionStep::new(parent.clone(), roles, std::slice::from_ref(edge)).unwrap();
     let tag = GammaTag::one();
-    let view = key_view(&node.parent, powers, &tag);
+    let view = key_view(parent, powers, &tag);
     let cold = step.apply(&view, &limits()).unwrap();
     let (weights, tables) = step.memo_counters();
     assert_eq!((weights.hits, tables.hits), (0, 0));
@@ -2430,9 +3095,8 @@ fn memoised_rank_8_step(node: &TwoLoopNode, powers: &[i64]) -> std::time::Durati
 
 #[test]
 fn rank_8_steps_hit_the_memos() {
-    let mut powers = [1, 1, 1, 1, 0];
-    powers[4] = -8;
-    memoised_rank_8_step(&d22(), &powers);
+    let node = d22();
+    memoised_rank_8_step(&node.parent, node.roles, &node.edge, &[1, 1, 1, 1, -8]);
 }
 
 #[test]
@@ -2468,33 +3132,57 @@ fn steps_are_pure_across_threads() {
     });
 }
 
+/// Acceptance (h) on `InsertionStep::apply`, the production path. The budget of
+/// the numerator step depends on the build: the tests of a gate are unoptimised.
 #[test]
 #[ignore = "slow: timing of the memoised rank-8 steps, depends on the load of the host"]
-fn a_memoised_rank_8_step_takes_less_than_a_millisecond() {
-    let c = context();
-    let kernel = BubbleKernel::new(&c);
-    let (alpha, beta) = (LinePower::new(1, 0), LinePower::new(1, 0));
-    kernel
-        .numerator_terms(alpha, beta, &[8], algebra())
-        .unwrap();
-    let mut best = std::time::Duration::MAX;
+fn memoised_insertion_steps_at_rank_8_stay_within_their_budgets() {
+    // 1L: no ISP slot exists, rank 8 is `(k^2)^8` on an eps line: one memo lookup.
+    let p = one_loop(0, [1, 0]);
+    let step = one_loop_step(&p);
+    let tag = GammaTag::one();
+    let powers = [-8, 1];
+    let view = key_view(&p, &powers, &tag);
+    let cold = step.apply(&view, &limits()).unwrap();
+    assert_eq!(cold.terminals.len(), 1);
+    let mut one_loop_best = std::time::Duration::MAX;
     for _ in 0..20 {
         let start = Instant::now();
-        kernel
-            .numerator_terms(alpha, beta, &[8], algebra())
-            .unwrap();
-        best = best.min(start.elapsed());
+        let warm = step.apply(&view, &limits()).unwrap();
+        one_loop_best = one_loop_best.min(start.elapsed());
+        assert_eq!(cold, warm);
     }
-    println!("rank-8 1L bubble kernel, memoised: {best:?}");
-    assert!(best < std::time::Duration::from_millis(1));
+    let (weights, _) = step.memo_counters();
+    assert_eq!((weights.hits, weights.misses), (20, 1));
+    println!("rank-8 1L InsertionStep::apply, memoised: {one_loop_best:?}");
+    assert!(one_loop_best < std::time::Duration::from_millis(1));
 
-    let mut powers = [1, 1, 1, 1, 0];
-    powers[4] = -8;
-    let step = (0..20)
-        .map(|_| memoised_rank_8_step(&d22(), &powers))
-        .min()
-        .unwrap();
-    println!("rank-8 2L insertion step (d22 -> d4), memoised: {step:?}");
+    // 2L, numerators through the table: the weights and the table are memoised,
+    // the child keys are not. The 3L key with three box variables is the largest
+    // table of this file: printed, as a reference for M2-T10b.
+    let best = |parent: &Arc<Presentation>,
+                roles: BubbleRoles,
+                edge: &(EdgeMap, Arc<Presentation>),
+                powers: &[i64]| {
+        (0..20)
+            .map(|_| memoised_rank_8_step(parent, roles, edge, powers))
+            .min()
+            .unwrap()
+    };
+    let node = d22();
+    let two_loop = best(&node.parent, node.roles, &node.edge, &[1, 1, 1, 1, -8]);
+    println!("rank-8 2L InsertionStep::apply (d22 -> d4), memoised: {two_loop:?}");
+    let budget = std::time::Duration::from_millis(if cfg!(debug_assertions) { 20 } else { 1 });
+    assert!(two_loop < budget, "{two_loop:?} against {budget:?}");
+
+    let chain = ThreeBoxChain::new([0, 0]);
+    let three_loop = best(
+        &chain.parent,
+        FIRST_BUBBLE,
+        &chain.edge,
+        &[1, 1, 1, 1, 1, -3, -3, -2, 0],
+    );
+    println!("rank-8 3L InsertionStep::apply (three box variables), memoised: {three_loop:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -2916,13 +3604,6 @@ fn lanes_run_through_the_owner_and_the_trait() {
     );
 }
 
-#[test]
-fn the_kernel_versions_are_pinned() {
-    // Bump these with the semantics of the kernels, see the module docs.
-    assert_eq!(P_INSERTION_KERNEL_VERSION, 1);
-    assert_eq!(P_CARPET_KERNEL_VERSION, 1);
-}
-
 // Value tests through the steps at rank 7 and 8 (review, must-fix): order sigma = 4 of NumeratorRewrite.
 #[test]
 fn steps_at_rank_7_and_8_equal_nested_euclidean_forms() {
@@ -2989,4 +3670,192 @@ fn carpets_at_rank_7_and_8_equal_two_insertions() {
             assert_eq!(left, right, "{powers:?}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 7: the kernel versions name what a step says on fixed keys
+// ---------------------------------------------------------------------------
+
+/// What a step says on one key, one line per output term, with exact values at
+/// fixed rationals: free of symbol tables and of the order of the terms.
+fn step_lines(name: &str, powers: &[i64], output: &PStepOut) -> Vec<String> {
+    let values = |weight: &Coefficient| {
+        [rational(407, 101), rational(1009, 251)]
+            .map(|d| at(weight, &d).to_string())
+            .join(" ")
+    };
+    let mut lines = Vec::new();
+    for child in &output.children {
+        lines.push(format!(
+            "{name} {powers:?} -> {:?} {} {:?} {:?}: {}",
+            child.stage,
+            child.presentation.0,
+            child.powers,
+            child.tag.exponents(),
+            values(&child.coefficient)
+        ));
+    }
+    for (terminal, tag, weight) in &output.terminals {
+        lines.push(format!(
+            "{name} {powers:?} -> terminal {} {:?}: {}",
+            terminal.0,
+            tag.exponents(),
+            values(weight)
+        ));
+    }
+    for condition in &output.conditions {
+        lines.push(format!(
+            "{name} {powers:?} -> condition: {}",
+            values(condition)
+        ));
+    }
+    if lines.is_empty() {
+        lines.push(format!("{name} {powers:?} -> zero"));
+    }
+    lines
+}
+
+fn digest(mut lines: Vec<String>) -> String {
+    lines.sort();
+    blake3::hash(lines.join("\n").as_bytes())
+        .to_hex()
+        .to_string()
+}
+
+/// A parent tag of the pinned keys: the absolute tags are part of a step.
+fn pinned_tag() -> GammaTag {
+    GammaTag::from_pairs([(1, 3), (-2, 2)]).unwrap()
+}
+
+/// The Insertion steps on fixed keys: 1L, every hand-built 2L node, and three box
+/// variables.
+fn insertion_digest() -> String {
+    let tag = pinned_tag();
+    let mut lines = Vec::new();
+    let one_loop_keys: [([u8; 2], &[[i64; 2]]); 3] = [
+        ([0, 0], &[[1, 1], [2, 3], [3, 1], [0, 2]]),
+        ([1, 0], &[[-8, 1], [2, 2]]),
+        ([1, 2], &[[-1, -2], [3, -3]]),
+    ];
+    for (eps, keys) in one_loop_keys {
+        let p = one_loop(0, eps);
+        let step = one_loop_step(&p);
+        for powers in keys {
+            let output = step.apply(&key_view(&p, powers, &tag), &limits()).unwrap();
+            lines.extend(step_lines(&format!("1L {eps:?}"), powers, &output));
+        }
+    }
+    for node in [
+        d22(),
+        d22_flipped(),
+        d26(),
+        d9(),
+        d11(),
+        d13_integer_bubble(),
+        d13_eps_bubble(),
+        d14(),
+        d15(),
+        d17(),
+    ] {
+        let step = InsertionStep::new(
+            node.parent.clone(),
+            node.roles,
+            std::slice::from_ref(&node.edge),
+        )
+        .unwrap();
+        for rank in [0, 1, 4, 7, 8] {
+            for powers in dotted_keys(&node, rank) {
+                let output = step
+                    .apply(&key_view(&node.parent, &powers, &tag), &limits())
+                    .unwrap();
+                lines.extend(step_lines(node.name, &powers, &output));
+            }
+        }
+    }
+    let chain = ThreeBoxChain::new([1, 0]);
+    let step = chain.step();
+    for powers in [
+        [1, 1, 1, 1, 1, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, -1, -1, -1, -1],
+        [2, 1, 1, 0, 1, -3, -3, -2, 0],
+        [1, 2, 1, 1, 3, -1, -5, -2, -2],
+    ] {
+        let output = step
+            .apply(&key_view(&chain.parent, &powers, &tag), &limits())
+            .unwrap();
+        lines.extend(step_lines("three box variables", &powers, &output));
+    }
+    digest(lines)
+}
+
+/// The Carpet steps on fixed keys: `L_sub` = 1 and 2, with and without third.
+fn carpet_digest() -> String {
+    let tag = pinned_tag();
+    let mut lines = Vec::new();
+    for (name, carpet) in [
+        ("integer", TwoLoopCarpet::with_third([0, 0, 0, 0])),
+        ("eps", TwoLoopCarpet::with_third([1, 0, 1, 1])),
+    ] {
+        for powers in [[1, 1, 1, 1, 0], [2, 3, -1, 1, -5], [1, 1, 1, 1, -8]] {
+            let output = carpet
+                .carpet
+                .apply(&key_view(&carpet.parent, &powers, &tag), &limits())
+                .unwrap();
+            lines.extend(step_lines(name, &powers, &output));
+        }
+    }
+    for (name, carpet) in [
+        ("no third", TwoLoopCarpet::without_third([0, 0, 0])),
+        ("no third, eps", TwoLoopCarpet::without_third([1, 0, 1])),
+    ] {
+        for powers in [[1, 1, 1, 0, 0], [2, 1, 1, -8, -2], [1, 2, 2, -7, -3]] {
+            let output = carpet
+                .carpet
+                .apply(&key_view(&carpet.parent, &powers, &tag), &limits())
+                .unwrap();
+            lines.extend(step_lines(name, &powers, &output));
+        }
+    }
+    for carpet in [ThreeLoopCarpet::d121(), ThreeLoopCarpet::d60()] {
+        for powers in [
+            [1, 1, 1, 1, 1, 1, 1, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, -3, -3],
+            [2, 1, 1, 1, 1, 1, 1, -4, -4],
+        ] {
+            let mut powers = powers.to_vec();
+            if carpet.name == "d60" {
+                // Six lines and three ISPs: the extra ISP p.p stays at power 0.
+                powers.remove(1);
+                powers.push(0);
+            }
+            let output = carpet
+                .step
+                .apply(&key_view(&carpet.parent, &powers, &tag), &limits())
+                .unwrap();
+            lines.extend(step_lines(carpet.name, &powers, &output));
+        }
+    }
+    digest(lines)
+}
+
+/// A semantic change without a version bump fails here. When it fails on purpose,
+/// bump the constant and put the new digest next to the new version.
+#[test]
+fn the_kernel_versions_are_pinned() {
+    assert_eq!(
+        (P_INSERTION_KERNEL_VERSION, insertion_digest().as_str()),
+        (
+            1,
+            "9cfd2c1d2c6a8f11746ff0736ec0f7211734c29baeb44c705f67200276e6083f"
+        ),
+        "the Insertion steps changed: bump P_INSERTION_KERNEL_VERSION"
+    );
+    assert_eq!(
+        (P_CARPET_KERNEL_VERSION, carpet_digest().as_str()),
+        (
+            1,
+            "bc473eecb5ad23bf53073688c242e558aae699ff70f52010f13eb168203c7889"
+        ),
+        "the Carpet steps changed: bump P_CARPET_KERNEL_VERSION"
+    );
 }

@@ -28,7 +28,7 @@ use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::propagator::error::PError;
 use crate::propagator::tag::GammaTag;
 
-use super::gamma::{FactoredRational, GammaProduct, factorial};
+use super::gamma::{GammaProduct, factorial};
 use super::{MEMO_CAPACITY, MemoCounters, read_memo, write_memo};
 
 /// A power `integer + eps_units eps`.
@@ -158,15 +158,6 @@ fn collect_pairings(
     }
 }
 
-/// One term of [`BubbleKernel::numerator_terms`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BubbleTerm {
-    pub sigma: u32,
-    pub pairing: BoxPairing,
-    /// `R_ins(sigma)` times the pairing weight.
-    pub weight: Coefficient,
-}
-
 type RatioKey = (i64, i64, i64, i64, i64, i64);
 
 /// `R_ins` in `Q(d)`, memoised per `(j1, j2, n1, n2, n, sigma)`.
@@ -225,40 +216,6 @@ impl BubbleKernel {
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
         }
-    }
-
-    /// The bubble with numerator `Prod_s (k.Y_s)^{powers[s]}`: every term of the
-    /// sum over `sigma` and the pairings, each to be multiplied by
-    /// `(P^2)^(D/2 - alpha - beta + sigma)` and the tag `T_ins`.
-    pub fn numerator_terms(
-        &self,
-        alpha: LinePower,
-        beta: LinePower,
-        powers: &[u32],
-        limits: ExactAlgebraLimits,
-    ) -> Result<Vec<BubbleTerm>, PError> {
-        let rank: u32 = powers.iter().sum();
-        let mut terms = Vec::new();
-        for sigma in 0..=rank / 2 {
-            let ratio = self.ratio(alpha, beta, i64::from(rank), i64::from(sigma), limits)?;
-            if ratio.is_zero() {
-                continue;
-            }
-            for pairing in box_pairings(powers, sigma) {
-                let weight = FactoredRational::from_rational(pairing.weight.clone())
-                    .to_coefficient(&self.context, limits)?;
-                let weight = self
-                    .context
-                    .try_mul(&ratio, &weight, limits)
-                    .map_err(super::gamma::algebra)?;
-                terms.push(BubbleTerm {
-                    sigma,
-                    pairing,
-                    weight,
-                });
-            }
-        }
-        Ok(terms)
     }
 }
 

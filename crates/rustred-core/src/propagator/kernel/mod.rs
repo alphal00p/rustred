@@ -43,6 +43,13 @@
 //! products of linear factors in `d`, never the zero polynomial, and they stay
 //! inside the `Q(d)` weight, so a sample on a pole fails as a division there.
 //!
+//! # Versions
+//!
+//! `P_INSERTION_KERNEL_VERSION` and `P_CARPET_KERNEL_VERSION` name what a step says
+//! on a key. The test `the_kernel_versions_are_pinned` of `tests/p_library/kernel.rs`
+//! holds a digest of the steps on fixed keys next to each version, so a semantic
+//! change without a bump fails there.
+//!
 //! [`Presentation::express_scalar_product`]: crate::propagator::presentation::Presentation::express_scalar_product
 //! [`PStepOut`]: crate::propagator::step::PStepOut
 pub mod bubble;
@@ -70,6 +77,11 @@ use super::tag::GammaTag;
 use gamma::{algebra, rational_coefficient};
 
 /// Most entries of one kernel memo: beyond it, values are computed and not kept.
+///
+/// It counts entries, not bytes, per step: a step has one memo of weights and one
+/// of numerator tables, a table per ISP exponent vector, whose size grows with the
+/// rank and the arity of the child. No limit is hit at 3L; at 4L and 5L the
+/// resident size is what to watch, not this constant.
 pub(crate) const MEMO_CAPACITY: usize = 1 << 16;
 
 /// Hits and misses of a kernel memo.
