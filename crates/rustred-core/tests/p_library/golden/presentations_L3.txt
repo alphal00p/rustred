@@ -1,0 +1,385 @@
+# Node presentations and rule edge maps of the 3L DAG, P_PRESENTATION_VERSION 1.
+# Momenta over (k_1, .., k_L, q).
+node d192 01060000000001010001010000030100000501000102010001050100020301000204010003040100 L=3 t=8 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0 -1  1  0] eps 0
+   2 line [-1  1 -1  0] eps 0
+   3 line [ 0  1 -1 -1] eps 0
+   4 line [ 1 -1  1  1] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0 -1 -1] eps 0
+   7 line [ 0  0  1  0] eps 0
+   8 isp  [ 1  0  0  0] . [ 0  1  0  0]
+node nostar0 01060000000001010002010000030100000501000102010001030100010501000204010003040100 L=3 t=8 lane=Custom kind=Induced(P3L_NO, 0xff) roles=None
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0  1  0  0] eps 0
+   2 line [ 0  0  1  0] eps 0
+   3 line [ 1  0  1  0] eps 0
+   4 line [ 1  0  0  1] eps 0
+   5 line [ 0  1  1  0] eps 0
+   6 line [ 1 -1  0  1] eps 0
+   7 line [ 0  1  1 -1] eps 0
+   8 isp  [ 1 -1  0  0] . [ 1 -1  0  0]
+node d197 01060000000001010003010000040100000501000102010001030100010501000203010002040100 L=3 t=8 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 3, a: [4, 6], c: [5, 7], k_loop: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1 -1  0  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 1  0 -1  0] eps 0
+   7 line [ 0  0  1  0] eps 0
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d137 0105000000010100010100000201000004010001020100010301000203010002040100 L=3 t=7 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 1  1  0  1] eps 0
+   4 line [ 0 -1  0 -1] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d121 0105000000010100010100000201000004010001020100010401000203010003040100 L=3 t=7 lane=Carpet kind=CarpetAdapted roles=Carpet(CarpetRoles { r: 6, third: Some(5), outer_loop: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [-1 -1  0  0] eps 0
+   2 line [ 1  0 -1  0] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [-1  0  0  0] eps 0
+   6 line [-1  0  0  1] eps 0
+   7 isp  [ 0  1  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+node d149 0105000000010100010100000201000004010001020100010401000203020000 L=3 t=7 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [5, 6], loop_index: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [ 1  0  0  0] eps 0
+   6 line [-1  0  0 -1] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  1  0]
+node d191 0105000000010100010100000301000004010001020200000104010002030100 L=3 t=7 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1  0  1  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d190 0105000000010100010100000301000004010001020200000203010002040100 L=3 t=7 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1  1  1  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d118 0105000000010100020100000301000004010001020100010301000104010002040100 L=3 t=7 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [2, 6], c: [1, 3], k_loop: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [-1  1  0  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 line [ 1 -1 -1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+node d148 0105000000010100020100000301000004010001020100010402000002030100 L=3 t=7 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 })
+   0 line [ 0 -1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0  1  0  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 1  0  0  0] eps 0
+   5 line [-1 -1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d60 010400000101000101000002010000030100010201000103010002030100 L=3 t=6 lane=Carpet kind=CarpetAdapted roles=Carpet(CarpetRoles { r: 5, third: None, outer_loop: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [-1 -1  0  0] eps 0
+   2 line [ 1  0 -1  0] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [-1  0  0  1] eps 0
+   6 isp  [ 1  0  0  0] . [ 1  0  0  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+node d81 010400000101000101000002010000030100010201000103020000 L=3 t=6 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 })
+   0 line [ 0 -1  1  1] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 0  0  1  0] eps 0
+   4 line [ 1  0  0  0] eps 0
+   5 line [-1 -1  0  1] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d77 010400000101000101000002010000030100010302000002030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 })
+   0 line [ 0 -1 -1  1] eps 0
+   1 line [ 0  0  1 -1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1 -1 -1  1] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d55 010400000101000101000002010000030200000102020000 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [2, 3], loop_index: 0 })
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1 -1 -1] eps 0
+   2 line [ 1  0  0  0] eps 0
+   3 line [-1  0  0  1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d106 010400000101000101000003020000010202000002030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1  0 -1  1] eps 0
+   3 line [ 0 -1  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d92 010400000101000102000000020100000301000102010001030100 L=3 t=6 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  1  1  0] eps 0
+   2 line [ 0 -1  0 -1] eps 0
+   3 line [ 0  0 -1  1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d78 010400000101000102000000030100010201000103010002030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  1  1 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  0  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d79 010400000101000102000000030100010202000001030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0 -1  0 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d80 010400000101000102000000030100010202000002030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0 -1  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d54 010400000101000102000000030200000102020000 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  0 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0 -1 -1] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+node d87 010400000101000201000003020000010201000103020000 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d107 010400000101000201000003020000010202000001030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1  0 -1  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d50 01030001010001010000020200000102020000 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d33 01030001010001010000020300000001020100 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d37 01030001010001020000000202000001020100 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+node d32 01030001010001020000000203000000 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  0 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d43 0104000001010001010000020100000301000102010001030100 L=2 t=5 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1  1 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1 -1  0] eps 0
+   4 line [ 0  1  0] eps 0
+node d30 0104000001010001010000020100000301000102010001030101 L=2 t=5 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [ 0 -1 -1] eps 0
+   2 line [-1  1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 line [ 1 -1  0] eps 1
+node t1star05 0104000001010001010100020100000301000102010001030100 L=2 t=5 lane=Custom kind=EpsNode roles=None
+   0 line [ 1  1  0] eps 1
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1  0  0] eps 0
+   4 line [ 0  1  0] eps 0
+node d28 0102010100010400000000 L=3 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1 -1 -1  1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 0  0  1  0] eps 0
+   4 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   5 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   6 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+node d22 010300010100010100000202000001020100 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d14 010300010100010100000202000001020101 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 1
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d15 010300010100010100000202000101020100 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 1
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d17 010300010100010101000202000001020100 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1 -1] eps 1
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d26 010300010100010200000002020000 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d13 010300010100010200000002020001 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 1
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d9 01020101000103000000 L=2 t=3 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 0
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+node d11 01020101000103000001 L=2 t=3 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 1
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+node d3 010201010001020000 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 0
+node d4 010201010001020001 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 1
+node d6 010201010001020002 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 2
+node d7 010201010001020101 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 1
+   1 line [-1  1] eps 1
+node d1 01020101 trivial
+edge d121 -> d43 kind=Carpet integrated_loop=0 outer_map=linear[1, -1, 0, 1] external[0, 0] sign+1 line_slots=[0 1 2 3 4 - - - -] merged_slot=-
+edge d149 -> d43 kind=Insertion integrated_loop=0 outer_map=linear[1, -1, 0, 1] external[0, 0] sign+1 line_slots=[0 1 2 3 4 - - - -] merged_slot=-
+edge d191 -> d30 kind=Insertion integrated_loop=0 outer_map=linear[0, -1, -1, 1] external[0, 0] sign+1 line_slots=[0 2 1 - - 3 4 - -] merged_slot=4
+edge d190 -> t1star05 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, 0, 1] external[0, 0] sign+1 line_slots=[0 1 2 - - 3 4 - -] merged_slot=0
+edge d148 -> d30 kind=Insertion integrated_loop=0 outer_map=linear[-1, 1, 0, 1] external[0, 0] sign+1 line_slots=[0 1 2 4 - - 3 - -] merged_slot=4
+edge d60 -> d43 kind=Carpet integrated_loop=0 outer_map=linear[1, -1, 0, 1] external[0, 0] sign+1 line_slots=[0 1 2 3 4 - - - -] merged_slot=-
+edge d81 -> d30 kind=Insertion integrated_loop=0 outer_map=linear[-1, 1, 0, 1] external[1, 0] sign+1 line_slots=[0 1 2 3 - - - - -] merged_slot=4
+edge d77 -> d15 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, 0, 1] external[0, 0] sign+1 line_slots=[2 0 1 - - 3 - - -] merged_slot=2
+edge d55 -> d22 kind=Insertion integrated_loop=0 outer_map=linear[-1, 0, 1, 1] external[0, -1] sign+1 line_slots=[0 3 - - 1 2 - - -] merged_slot=-
+edge d106 -> d17 kind=Insertion integrated_loop=0 outer_map=linear[1, 1, 0, 1] external[-1, 0] sign+1 line_slots=[0 - - 1 2 3 - - -] merged_slot=0
+edge d92 -> t1star05 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, 0, 1] external[0, 0] sign+1 line_slots=[- - 1 2 3 4 - - -] merged_slot=0
+edge d78 -> d15 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, 0, 1] external[0, 0] sign+1 line_slots=[- - 2 0 1 3 - - -] merged_slot=2
+edge d79 -> d13 kind=Insertion integrated_loop=0 outer_map=linear[-1, 0, 0, -1] external[-1, 1] sign+1 line_slots=[- - 3 0 1 2 - - -] merged_slot=3
+edge d80 -> d17 kind=Insertion integrated_loop=0 outer_map=linear[1, 1, 0, 1] external[-1, 0] sign+1 line_slots=[- - 0 1 2 3 - - -] merged_slot=0
+edge d54 -> d26 kind=Insertion integrated_loop=0 outer_map=linear[0, 1, -1, 0] external[0, -1] sign+1 line_slots=[- - 2 3 0 1 - - -] merged_slot=-
+edge d87 -> d14 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, -1, -1] external[0, 1] sign+1 line_slots=[3 - - 0 1 2 - - -] merged_slot=3
+edge d107 -> d14 kind=Insertion integrated_loop=0 outer_map=linear[1, 1, 0, -1] external[-1, 1] sign+1 line_slots=[3 - - 1 2 0 - - -] merged_slot=3
+edge d50 -> d11 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, -1, -1] external[0, 1] sign+1 line_slots=[2 - - 0 1 - - - -] merged_slot=2
+edge d33 -> d15 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, 0, 1] external[0, 0] sign+1 line_slots=[0 - - 1 3 - - - -] merged_slot=2
+edge d37 -> d17 kind=Insertion integrated_loop=0 outer_map=linear[-1, -1, 0, 1] external[1, 0] sign+1 line_slots=[- - 1 2 3 - - - -] merged_slot=0
+edge d32 -> d9 kind=Insertion integrated_loop=0 outer_map=linear[-1, -1, 0, 1] external[1, 0] sign+1 line_slots=[- - 0 1 2 - - - -] merged_slot=-
+edge d28 -> d11 kind=Insertion integrated_loop=0 outer_map=linear[1, 0, -1, -1] external[0, 1] sign+1 line_slots=[- - 0 1 - - - - -] merged_slot=2
+edge d22 -> d4 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[1 - - 0 -] merged_slot=1
+edge d14 -> d7 kind=Insertion integrated_loop=0 outer_map=linear[-1] external[1] sign+1 line_slots=[0 - - 1 -] merged_slot=0
+edge d15 -> d6 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[1 - - 0 -] merged_slot=1
+edge d17 -> d6 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[1 - - 0 -] merged_slot=1
+edge d26 -> d3 kind=Insertion integrated_loop=0 outer_map=linear[-1] external[1] sign+1 line_slots=[- - 0 1 -] merged_slot=-
+edge d13 -> d4 kind=Insertion integrated_loop=0 outer_map=linear[-1] external[1] sign+1 line_slots=[- - 0 1 -] merged_slot=-
+edge d9 -> d4 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[- - 0 - -] merged_slot=1
+edge d11 -> d7 kind=Insertion integrated_loop=0 outer_map=linear[-1] external[1] sign+1 line_slots=[- - 1 - -] merged_slot=0
+edge d3 -> d1 no map
+edge d4 -> d1 no map
+edge d6 -> d1 no map
+edge d7 -> d1 no map
