@@ -43,5 +43,81 @@ pub mod descent;
 // Basis layer onto the Forcer masters (M2-T9).
 pub mod basis;
 
-// Version of the topology keys and the reduction DAG (integrator topology commit).
+// The topology crate: signatures below name its types, and the app crate
+// reaches them through this path. Its version enters `p_versions()`.
+pub use rustred_topology as topology;
 pub use rustred_topology::P_TOPOLOGY_VERSION;
+
+/// Generated content and the meaning of a recorded step.
+pub const P_OWNER_LIBRARY_SEMANTICS: &str = "rustred-p-owner-library-2026-11-05";
+pub const P_CLASS_KEY_VERSION: u32 = 1;
+pub const P_CENSUS_VERSION: u32 = 1;
+/// The `present` and `edge_map` algorithms.
+pub const P_PRESENTATION_VERSION: u32 = 1;
+/// The content of `data/p/p-families.v1.json`.
+pub const P_FAMILIES_VERSION: u32 = 1;
+pub const P_GAMMA_TAG_VERSION: u32 = 1;
+pub const P_GAMMA_TAG_MAX_M: i8 = 8;
+pub const P_GAMMA_TAG_WIDTH: usize = 16;
+pub const P_INSERTION_KERNEL_VERSION: u32 = 1;
+pub const P_CARPET_KERNEL_VERSION: u32 = 1;
+pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
+/// Custom-owner generation options and the false-knock-out guard.
+pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
+pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
+pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
+pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
+
+const _: () = assert!(P_GAMMA_TAG_WIDTH == 2 * P_GAMMA_TAG_MAX_M as usize);
+
+/// Every version constant, in a fixed order. With the scope it is the cache
+/// identity of a library program ([`library::PLibrary::identity`]): bump the
+/// constant whose semantics change, there is no digest behind it.
+pub fn p_versions() -> Vec<(&'static str, String)> {
+    vec![
+        (
+            "P_OWNER_LIBRARY_SEMANTICS",
+            P_OWNER_LIBRARY_SEMANTICS.to_owned(),
+        ),
+        ("P_CLASS_KEY_VERSION", P_CLASS_KEY_VERSION.to_string()),
+        ("P_CENSUS_VERSION", P_CENSUS_VERSION.to_string()),
+        ("P_PRESENTATION_VERSION", P_PRESENTATION_VERSION.to_string()),
+        ("P_FAMILIES_VERSION", P_FAMILIES_VERSION.to_string()),
+        ("P_GAMMA_TAG_VERSION", P_GAMMA_TAG_VERSION.to_string()),
+        ("P_GAMMA_TAG_MAX_M", P_GAMMA_TAG_MAX_M.to_string()),
+        ("P_GAMMA_TAG_WIDTH", P_GAMMA_TAG_WIDTH.to_string()),
+        (
+            "P_INSERTION_KERNEL_VERSION",
+            P_INSERTION_KERNEL_VERSION.to_string(),
+        ),
+        (
+            "P_CARPET_KERNEL_VERSION",
+            P_CARPET_KERNEL_VERSION.to_string(),
+        ),
+        (
+            "P_TRIANGLE_TEMPLATE_VERSION",
+            P_TRIANGLE_TEMPLATE_VERSION.to_string(),
+        ),
+        ("P_CUSTOM_OWNER_VERSION", P_CUSTOM_OWNER_VERSION.to_string()),
+        ("P_LIBRARY_SCHEMA", P_LIBRARY_SCHEMA.to_owned()),
+        ("P_FAMILIES_SCHEMA", P_FAMILIES_SCHEMA.to_owned()),
+        ("P_BASIS_LAYER_SCHEMA", P_BASIS_LAYER_SCHEMA.to_owned()),
+        ("P_TOPOLOGY_VERSION", P_TOPOLOGY_VERSION.to_string()),
+    ]
+}
+
+/// Library-local index of a presentation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PresentationId(pub u32);
+
+/// Name of an owner class: see [`class::OwnerClassKey::id`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct OwnerClassId(pub u64);
+
+/// Library-local index of a terminal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PTerminalId(pub u32);
+
+/// Index of a node of the reduction DAG.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeIndex(pub u32);
