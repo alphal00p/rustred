@@ -120,6 +120,7 @@ struct Options {
     step_cache_read_only: bool,
     ignore_recorded_counters: bool,
     route_layers: Option<rustred::solver::OrderedRouteLayering>,
+    terminal_composition: Option<rustred_app::SavedApplicationTerminalComposition>,
 }
 
 impl Options {
@@ -139,6 +140,7 @@ impl Options {
             step_cache_read_only: false,
             ignore_recorded_counters: false,
             route_layers: None,
+            terminal_composition: None,
         };
         while let Some(arg) = args.next() {
             let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -172,6 +174,16 @@ impl Options {
                 "--step-cache-read-only" => options.step_cache_read_only = true,
                 "--ignore-recorded-counters" => options.ignore_recorded_counters = true,
                 "--route-layers" => options.route_layers = Some(value("--route-layers")?.parse()?),
+                "--terminal-composition" => {
+                    options.terminal_composition =
+                        Some(match value("--terminal-composition")?.as_str() {
+                            "exact" => rustred_app::SavedApplicationTerminalComposition::Exact,
+                            "modular" => rustred_app::SavedApplicationTerminalComposition::Modular,
+                            other => {
+                                return Err(format!("unknown terminal composition {other}").into());
+                            }
+                        })
+                }
                 _ if request.is_none() && !arg.starts_with("--") => request = Some(arg.into()),
                 _ => return Err(format!("unexpected argument {arg}").into()),
             }
@@ -255,7 +267,11 @@ fn inputs(
         hasher.update(b"\n");
         inputs.push((key, coefficient(context, text)?));
     }
-    if request["input_digest"].as_str() != Some(hasher.finalize().to_hex().as_str()) {
+    // Requests synthesized from a recorded template (other entry
+    // keys of the same program) carry `"synthetic_inputs": true` and no digest.
+    if request["synthetic_inputs"] != true
+        && request["input_digest"].as_str() != Some(hasher.finalize().to_hex().as_str())
+    {
         return Err("parsed inputs do not reproduce the recorded input digest".into());
     }
     Ok(inputs)
@@ -964,6 +980,11 @@ mod saved {
         if let Some(layering) = options.route_layers {
             prepared.set_ordered_route_layering(layering);
         }
+        if let Some(composition) = options.terminal_composition {
+            prepared.set_terminal_composition(composition);
+        }
+        emit(json!({"event": "terminal_composition",
+            "mode": format!("{:?}", prepared.terminal_composition())}));
         emit(
             json!({"event": "route_layers", "layering": prepared.ordered_route_layering().as_str(),
             "adjoint_tail": prepared.ordered_scheduler_options().adjoint_tail}),
@@ -1000,6 +1021,23 @@ mod saved {
             "seconds": (owners.preparation_time - owners_before).as_secs_f64(),
             "prepared_owners": owners.prepared_owners, "declared_owners": owners.declared_owners}));
         report_step_cache(options, cache.as_deref())?;
+        // ORDERED_REPLAY_OUTPUT_TERMS=<file>: write the exact output terms and guards there.
+        if let Some(path) = std::env::var_os("ORDERED_REPLAY_OUTPUT_TERMS") {
+            let terms: Vec<Value> = reduced
+                .terms()
+                .iter()
+                .map(|(terminal, coefficient)| {
+                    json!({"powers": powers(terminal.integral()), "coefficient": canonical(coefficient)})
+                })
+                .collect();
+            let guards: Vec<String> = reduced.nonzero_conditions().iter().map(canonical).collect();
+            std::fs::write(
+                path,
+                serde_json::to_string_pretty(
+                    &json!({"terms": terms, "nonzero_conditions": guards}),
+                )?,
+            )?;
+        }
         let output = output_digest(
             reduced.terms().iter().map(|(terminal, coefficient)| {
                 (

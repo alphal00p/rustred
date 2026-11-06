@@ -158,6 +158,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         Ok(CandidateRoutedReduction {
             family_fingerprint: context.family.fingerprint_owner(),
             terms,
+            composed: None,
             unresolved: Default::default(),
             nonzero_conditions: conditions,
             statistics: *statistics,

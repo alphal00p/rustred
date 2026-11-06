@@ -142,6 +142,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         backing: Option<&'a mut dyn GuardedCacheBacking>,
         capture: Option<&'a mut dyn GuardedIntermediateCapture>,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_linear_combination_with_cache(
@@ -164,6 +165,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         backing: Option<&'a mut dyn GuardedCacheBacking>,
         capture: Option<&'a mut dyn GuardedIntermediateCapture>,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_routed_linear_combination_with_cache(
@@ -190,6 +192,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         cancel: Option<&AtomicBool>,
     ) -> Result<SavedApplicationReduction, AppError> {
         progress::begin_observation(observer, self.family().fingerprint());
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_linear_combination_with_cache_and_observation(
@@ -217,6 +220,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         cancel: Option<&AtomicBool>,
     ) -> Result<SavedApplicationReduction, AppError> {
         progress::begin_observation(observer, self.family().fingerprint());
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_routed_linear_combination_with_cache_and_observation(

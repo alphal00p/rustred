@@ -393,10 +393,10 @@ pub(super) fn load_with_addon<const N: usize>(
         }
         let base_remaining = std::mem::take(&mut terminals.remaining);
         terminals.remaining = layer.remaining;
-        terminals.layer = Some(super::TerminalLayer {
-            rows: layer.rows,
+        terminals.layer = Some(std::sync::Arc::new(super::TerminalLayer {
+            rows: std::sync::Arc::unwrap_or_clone(layer.rows),
             base_remaining,
-        });
+        }));
         terminals.validate(options)?;
     }
     if report["metadata"]["raw_terminals"].as_u64() != Some(terminals.rows.len() as u64)

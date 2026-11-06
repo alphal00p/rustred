@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
 use std::hash::Hash;
 
 pub(crate) mod arithmetic;
+pub mod composition;
 mod modular;
 mod parallel;
 pub(crate) mod step_cache;
@@ -17,6 +18,10 @@ pub(crate) mod tail;
 pub use arithmetic::{
     ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
     PolynomialDenominators, PolynomialOptions, SampledOptions,
+};
+pub use composition::{
+    ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
+    OrderedTerminalComposerSlot,
 };
 use modular::{Lifter, ModularRecorder};
 pub use parallel::OrderedSchedulerOptions;
@@ -120,10 +125,19 @@ pub(crate) trait OrderedKernel {
         Self::key_view(key)
             .is_some_and(|(stage, integral)| step_cache::codec::encode_node(stage, integral, out))
     }
+    /// The caller's terminal composition for modular requests (compose
+    /// before lift, `composition.rs`); `None` lifts the terminals.
+    fn terminal_composer(&self) -> Option<std::sync::Arc<dyn OrderedTerminalComposer>> {
+        None
+    }
 }
 
 pub(crate) struct OrderedOutput {
+    /// Exact terminal coefficients; empty when `composed` is set.
     pub terms: BTreeMap<IntegralKey, Coefficient>,
+    /// Lifted outputs of the caller's terminal composition (modular
+    /// requests with a composer that planned them).
+    pub composed: Option<ComposedTerminals>,
     pub nonzero_conditions: Vec<Coefficient>,
     pub work: ReductionStatistics,
     pub progress: CandidateOrderedReductionProgress,
@@ -887,6 +901,11 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
 ) -> Result<OrderedOutput, K::Error> {
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
     let recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
+    // A cross-checked request compares the exact terminal map itself, so it
+    // never composes.
+    let composer = (!common.cross_check_exact)
+        .then(|| kernel.terminal_composer())
+        .flatten();
     if common.cross_check_exact {
         let mut weights = CrossChecked {
             exact: ExactWeights::new(kernel.context(), kernel.limits()),
@@ -915,13 +934,14 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
             source,
             tail,
         )
-        .and_then(|output| modular_output(weights, output).map_err(Into::into))
+        .and_then(|output| modular_output(weights, output, composer.as_deref()).map_err(Into::into))
     }
 }
 
 fn exact_output(output: RawOutput<Coefficient>) -> OrderedOutput {
     OrderedOutput {
         terms: output.terms,
+        composed: None,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
@@ -938,8 +958,13 @@ fn cross_checked_output(
         .into_iter()
         .map(|(key, (e, m))| ((key.clone(), e), (key, m)))
         .unzip();
-    let (reconstructed, statistics) = weights.modular.finish(modular)?;
+    let (reconstructed, statistics) = weights.modular.finish(modular, None)?;
     modular::report_statistics(&statistics);
+    let modular::Finished::Terminals(reconstructed) = reconstructed else {
+        return Err(modular::error(
+            "a cross-checked request composed its terminals",
+        ));
+    };
     if reconstructed != exact {
         return Err(modular::error(
             "modular reconstruction differs from the exact terminal map",
@@ -947,21 +972,29 @@ fn cross_checked_output(
     }
     Ok(OrderedOutput {
         terms: exact,
+        composed: None,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
     })
 }
 
-/// Replay the recorded trace and reconstruct the exact terminals.
+/// Replay the recorded trace and reconstruct the exact terminals, or only
+/// their composition when `composer` plans one.
 fn modular_output(
     weights: ModularRecorder,
     output: RawOutput<modular::ModularWeight>,
+    composer: Option<&dyn OrderedTerminalComposer>,
 ) -> Result<OrderedOutput, ReductionError> {
-    let (terms, statistics) = weights.finish(output.terms)?;
+    let (finished, statistics) = weights.finish(output.terms, composer)?;
     modular::report_statistics(&statistics);
+    let (terms, composed) = match finished {
+        modular::Finished::Terminals(terms) => (terms, None),
+        modular::Finished::Composed(composed) => (BTreeMap::new(), Some(composed)),
+    };
     Ok(OrderedOutput {
         terms,
+        composed,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
@@ -1981,6 +2014,457 @@ mod tests {
                 ),
                 Err(ReductionError::ModularWeights { .. })
             ));
+        }
+    }
+
+    /// A kernel with an installed terminal composer (compose before lift).
+    struct Composing<K> {
+        inner: K,
+        composer: Option<std::sync::Arc<dyn OrderedTerminalComposer>>,
+    }
+
+    impl<K: OrderedKernel> OrderedKernel for Composing<K> {
+        type Key = K::Key;
+        type Priority = K::Priority;
+        type Error = K::Error;
+
+        fn context(&self) -> &CoefficientContext {
+            self.inner.context()
+        }
+        fn limits(&self) -> ReductionLimits {
+            self.inner.limits()
+        }
+        fn phase_count(&self) -> usize {
+            self.inner.phase_count()
+        }
+        fn position(
+            &mut self,
+            key: &Self::Key,
+        ) -> Result<OrderedPosition<Self::Priority>, Self::Error> {
+            self.inner.position(key)
+        }
+        fn step(
+            &mut self,
+            key: &Self::Key,
+            request: &mut ReductionRequest,
+            work: &mut ReductionStatistics,
+        ) -> Result<OrderedStep<Self::Key>, Self::Error> {
+            self.inner.step(key, request, work)
+        }
+        fn terminal_composer(&self) -> Option<std::sync::Arc<dyn OrderedTerminalComposer>> {
+            self.composer.clone()
+        }
+    }
+
+    /// Two-stage rows over the ladder's terminals [0], [1], [2], [7], [9]:
+    /// stage 1 maps every terminal onto "middle" outputs, stage 2 maps the
+    /// middles onto final outputs; output 2 receives T7 - T7 (exactly zero).
+    /// `missing` drops the row of one terminal (the plan is then refused).
+    struct LadderRows {
+        context: CoefficientContext,
+        first: BTreeMap<i64, Vec<(u32, Coefficient)>>,
+        second: Vec<Vec<(u32, Coefficient)>>,
+        outputs: usize,
+        missing: Option<i64>,
+    }
+
+    impl LadderRows {
+        fn new(missing: Option<i64>) -> Self {
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            let c = |text: &str| context.coefficient_fixture(text);
+            let first = BTreeMap::from([
+                (0, vec![(0, c("(d+1)/(d-3)")), (1, c("2"))]),
+                (1, vec![(0, c("-(5*d+7)/(d^2+1)")), (3, c("1"))]),
+                (
+                    2,
+                    vec![
+                        (4, c("123456789012345678901234567890/(d+5)")),
+                        (1, c("-1/3")),
+                    ],
+                ),
+                (7, vec![(2, c("1")), (5, c("-1"))]),
+                (9, vec![(1, c("d^2/(5*d-7)")), (3, c("(d-2)^3/11"))]),
+            ]);
+            let second = vec![
+                vec![(0, c("1"))],
+                vec![(1, c("(2*d-1)/(d+9)")), (0, c("7"))],
+                vec![(2, c("1"))],
+                vec![(3, c("1"))],
+                vec![(3, c("d/(d-1)"))],
+                vec![(2, c("1"))],
+            ];
+            Self {
+                context,
+                first,
+                second,
+                outputs: 4,
+                missing,
+            }
+        }
+
+        /// Add `(terminal, middle, coefficient)` entries to the first stage.
+        fn with_entries(mut self, entries: &[(i64, u32, String)]) -> Self {
+            for (terminal, middle, coefficient) in entries {
+                let coefficient = self.context.coefficient_fixture(coefficient);
+                self.first
+                    .get_mut(terminal)
+                    .expect("a ladder terminal")
+                    .push((*middle, coefficient));
+            }
+            self
+        }
+
+        /// The exact composition of exact terminal coefficients.
+        fn compose(&self, terms: &BTreeMap<IntegralKey, Coefficient>) -> Vec<Coefficient> {
+            let mut middle = vec![self.context.zero(); self.second.len()];
+            for (key, value) in terms {
+                for (m, a) in &self.first[&key.powers()[0]] {
+                    middle[*m as usize] = &middle[*m as usize] + &(value * a);
+                }
+            }
+            let mut outputs = vec![self.context.zero(); self.outputs];
+            for (m, row) in self.second.iter().enumerate() {
+                for (o, b) in row.iter().map(|(o, b)| (*o as usize, b)) {
+                    outputs[o] = &outputs[o] + &(&middle[m] * b);
+                }
+            }
+            outputs
+        }
+    }
+
+    impl OrderedTerminalComposer for LadderRows {
+        fn plan<'a>(
+            &'a self,
+            terminals: &[IntegralKey],
+        ) -> Result<Option<OrderedCompositionPlan<'a>>, ReductionError> {
+            let mut first = vec![];
+            for key in terminals {
+                let label = key.powers()[0];
+                if Some(label) == self.missing {
+                    return Ok(None);
+                }
+                first.push(self.first[&label].iter().map(|(m, c)| (*m, c)).collect());
+            }
+            Ok(Some(OrderedCompositionPlan {
+                stages: vec![
+                    OrderedCompositionStage {
+                        rows: first,
+                        width: self.second.len(),
+                    },
+                    OrderedCompositionStage {
+                        rows: self
+                            .second
+                            .iter()
+                            .map(|row| row.iter().map(|(o, c)| (*o, c)).collect())
+                            .collect(),
+                        width: self.outputs,
+                    },
+                ],
+                labels: std::sync::Arc::new(terminals.to_vec()),
+            }))
+        }
+    }
+
+    fn run_composed(
+        arithmetic: OrderedWeightArithmetic,
+        rows: std::sync::Arc<LadderRows>,
+    ) -> (OrderedOutput, modular::ModularStatistics) {
+        let (inner, initial, conditions) = ladder();
+        modular::take_reported_statistics();
+        let result = run_with_arithmetic(
+            &mut Composing {
+                inner,
+                composer: Some(rows),
+            },
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+            arithmetic,
+        )
+        .unwrap();
+        let mut reported = modular::take_reported_statistics();
+        assert_eq!(reported.len(), 1);
+        (result, reported.pop().unwrap())
+    }
+
+    #[test]
+    fn composed_modular_requests_lift_exactly_the_composition_of_the_exact_terminals() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let rows = std::sync::Arc::new(LadderRows::new(None));
+        let expected = rows.compose(&exact.terms);
+        assert!(expected[2].is_zero());
+        assert!(expected.iter().filter(|c| !c.is_zero()).count() == 3);
+        let mut arithmetics = vec![];
+        for threads in [1, 3] {
+            arithmetics.push(sampled(threads, 8));
+        }
+        for (threads, lanes) in [(1, 1), (1, 4), (2, 2), (4, 3)] {
+            for denominators in [
+                PolynomialDenominators::Factorized,
+                PolynomialDenominators::Dense,
+            ] {
+                arithmetics.push(polynomial(threads, lanes, denominators, false));
+            }
+        }
+        for arithmetic in arithmetics {
+            let (result, statistics) = run_composed(arithmetic, rows.clone());
+            let composed = result.composed.as_ref().expect("composed request");
+            assert!(result.terms.is_empty());
+            assert_eq!(
+                composed.terminals,
+                exact.terms.keys().cloned().collect::<Vec<_>>()
+            );
+            assert_eq!(composed.coefficients, expected, "{arithmetic}");
+            assert_eq!(
+                composed.labels.downcast_ref::<Vec<IntegralKey>>(),
+                Some(&composed.terminals)
+            );
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert_eq!(
+                result.progress.processed_keys,
+                exact.progress.processed_keys
+            );
+            assert!(statistics.composed);
+            assert_eq!(statistics.composed_outputs, 4);
+            assert_eq!(statistics.composition_coefficients, 12);
+            assert_eq!(statistics.output_terminals, exact.terms.len());
+        }
+        // Exact and cross-checked requests never compose.
+        for arithmetic in [OrderedWeightArithmetic::Exact, modular(true)] {
+            let (inner, initial, conditions) = ladder();
+            let result = run_with_arithmetic(
+                &mut Composing {
+                    inner,
+                    composer: Some(rows.clone()),
+                },
+                &mut ReductionRequest::default(),
+                initial,
+                conditions,
+                arithmetic,
+            )
+            .unwrap();
+            assert!(result.composed.is_none());
+            assert_eq!(result.terms, exact.terms);
+        }
+    }
+
+    #[test]
+    fn a_refused_plan_lifts_the_raw_terminals() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let rows = std::sync::Arc::new(LadderRows::new(Some(7)));
+        for arithmetic in [
+            sampled(2, 8),
+            polynomial(2, 2, PolynomialDenominators::Factorized, false),
+        ] {
+            let (result, statistics) = run_composed(arithmetic, rows.clone());
+            assert!(result.composed.is_none());
+            assert_eq!(result.terms, exact.terms);
+            assert!(!statistics.composed);
+        }
+    }
+
+    /// A composition whose output is much simpler than the terminals (here
+    /// T7 - T7, exactly zero) needs fewer sample points and primes than
+    /// lifting the terminals.
+    #[test]
+    fn composing_to_a_simple_output_samples_fewer_points_and_primes() {
+        let (_, raw) = run_reported(sampled(1, 16));
+        struct Collapse(Coefficient, Coefficient);
+        impl OrderedTerminalComposer for Collapse {
+            fn plan<'a>(
+                &'a self,
+                terminals: &[IntegralKey],
+            ) -> Result<Option<OrderedCompositionPlan<'a>>, ReductionError> {
+                // Only terminal [7] reaches the output, with 1 - 1.
+                Ok(Some(OrderedCompositionPlan {
+                    stages: vec![OrderedCompositionStage {
+                        rows: terminals
+                            .iter()
+                            .map(|key| {
+                                if key.powers()[0] == 7 {
+                                    vec![(0, &self.0), (0, &self.1)]
+                                } else {
+                                    vec![]
+                                }
+                            })
+                            .collect(),
+                        width: 1,
+                    }],
+                    labels: std::sync::Arc::new(()),
+                }))
+            }
+        }
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let (one, minus_one) = (context.one(), context.integer(-1));
+        let (inner, initial, conditions) = ladder();
+        modular::take_reported_statistics();
+        let result = run_with_arithmetic(
+            &mut Composing {
+                inner,
+                composer: Some(std::sync::Arc::new(Collapse(one, minus_one))),
+            },
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+            sampled(1, 16),
+        )
+        .unwrap();
+        let composed = modular::take_reported_statistics().pop().unwrap();
+        assert_eq!(result.composed.unwrap().coefficients, vec![context.zero()]);
+        assert!(composed.points_per_prime < raw.points_per_prime);
+        assert!(composed.points_replayed < raw.points_replayed);
+        assert!(composed.primes <= raw.primes);
+    }
+
+    /// Unusable primes and bad points inside a full composed lift. A plan
+    /// coefficient whose denominator content is the first and the third
+    /// reconstruction prime and the first verification prime makes those
+    /// primes unusable (`ModularSampled`: discovery, a later round and, with
+    /// two verification primes, the owner-indexed verification;
+    /// `ModularPolynomial`: the rounds and the verification images);
+    /// coefficients with a pole at the first sample point (`ModularSampled`)
+    /// and at the first composition point (`ModularPolynomial`) of the second
+    /// reconstruction prime give bad points there. The lifted outputs are
+    /// still exactly the composition of the exact terminals.
+    #[test]
+    fn composed_lifts_skip_unusable_primes_and_bad_points() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let common = ModularCommon {
+            verification_primes: 2,
+            ..Default::default()
+        };
+        let lift = modular::test_hooks::lift_primes(common.seed, 3);
+        let verification = modular::test_hooks::verification_primes(common.seed, 1);
+        let sample_pole = modular::test_hooks::sample_points(common.seed, lift[1], 1)[0];
+        let compose_pole = modular::test_hooks::composition_points(common.seed, lift[1], 1)[0];
+        let rows = std::sync::Arc::new(LadderRows::new(None).with_entries(&[
+            (
+                0,
+                3,
+                format!("(d+2)/({}*{}*{})", lift[0], lift[2], verification[0]),
+            ),
+            (1, 4, format!("1/(d-{sample_pole})")),
+            (9, 0, format!("(3*d-1)/(d-{compose_pole})")),
+        ]));
+        let expected = rows.compose(&exact.terms);
+        let mut arithmetics = vec![];
+        for threads in [1, 3] {
+            arithmetics.push(OrderedWeightArithmetic::ModularSampled(
+                ModularCommon { threads, ..common },
+                SampledOptions {
+                    batch_points: 8,
+                    ..Default::default()
+                },
+            ));
+        }
+        for (threads, lanes) in [(1, 1), (2, 2), (4, 3)] {
+            arithmetics.push(OrderedWeightArithmetic::ModularPolynomial(
+                ModularCommon { threads, ..common },
+                PolynomialOptions {
+                    lanes,
+                    ..Default::default()
+                },
+            ));
+        }
+        for arithmetic in arithmetics {
+            let (result, statistics) = run_composed(arithmetic, rows.clone());
+            let composed = result.composed.as_ref().expect("composed request");
+            assert_eq!(composed.coefficients, expected, "{arithmetic}");
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert!(statistics.composed && !statistics.composition_fallback);
+            assert!(
+                statistics.unusable_primes >= 3,
+                "{arithmetic}: {} unusable primes",
+                statistics.unusable_primes
+            );
+            assert!(
+                statistics.bad_points >= 1,
+                "{arithmetic}: {} bad points",
+                statistics.bad_points
+            );
+        }
+    }
+
+    /// A composed lift that fails closed falls back to the raw lift once.
+    /// Here the outputs need far more primes than the budget (a plan
+    /// coefficient of about 2,000 bits) while the raw terminals fit in it:
+    /// the request returns the exact terminal map (which the caller then
+    /// substitutes exactly), with the fallback reported.
+    #[test]
+    fn a_composed_lift_that_fails_closed_falls_back_to_the_raw_lift() {
+        let (mut kernel, initial, conditions) = ladder();
+        let exact = run(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial,
+            conditions,
+        )
+        .unwrap();
+        let rows = std::sync::Arc::new(LadderRows::new(None).with_entries(&[(
+            2,
+            4,
+            "(d+1)/(7^700*(d+5))".to_owned(),
+        )]));
+        let with_budget = |arithmetic: OrderedWeightArithmetic, max_primes: usize| match arithmetic
+        {
+            OrderedWeightArithmetic::ModularSampled(common, options) => {
+                OrderedWeightArithmetic::ModularSampled(
+                    ModularCommon {
+                        max_primes,
+                        ..common
+                    },
+                    options,
+                )
+            }
+            OrderedWeightArithmetic::ModularPolynomial(common, options) => {
+                OrderedWeightArithmetic::ModularPolynomial(
+                    ModularCommon {
+                        max_primes,
+                        ..common
+                    },
+                    options,
+                )
+            }
+            OrderedWeightArithmetic::Exact => unreachable!("modular arithmetics only"),
+        };
+        for arithmetic in [
+            sampled(2, 8),
+            polynomial(2, 2, PolynomialDenominators::Factorized, false),
+        ] {
+            let (raw, raw_statistics) = run_reported(arithmetic);
+            assert_eq!(raw.terms, exact.terms);
+            let budget = raw_statistics.primes
+                + raw_statistics.unusable_primes
+                + raw_statistics.verification_primes
+                + 2;
+            let (result, statistics) = run_composed(with_budget(arithmetic, budget), rows.clone());
+            assert!(result.composed.is_none(), "{arithmetic}");
+            assert_eq!(result.terms, exact.terms, "{arithmetic}");
+            assert_eq!(result.nonzero_conditions, exact.nonzero_conditions);
+            assert!(statistics.composition_fallback && !statistics.composed);
+            assert!(statistics.composition_fallback_seconds > 0.0);
+            assert_eq!(statistics.primes, raw_statistics.primes);
         }
     }
 }

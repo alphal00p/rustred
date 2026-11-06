@@ -65,7 +65,7 @@ fn maps_fixture() -> TerminalMaps {
         .unwrap();
     TerminalMaps {
         families: BTreeMap::from([(family.fingerprint().to_owned(), family.clone())]),
-        rows: BTreeMap::from([
+        rows: (BTreeMap::from([
             (
                 qualified(&family, 1),
                 TerminalRow {
@@ -80,7 +80,8 @@ fn maps_fixture() -> TerminalMaps {
                     conditions: Arc::new(vec![guard]),
                 },
             ),
-        ]),
+        ]))
+        .into(),
         remaining: BTreeSet::from([qualified(&family, 1)]),
         layer: None,
     }
@@ -935,7 +936,7 @@ pub fn application_progress_reports_admission_and_terminal_substitution_failures
     assert_eq!(events[1]["status"], "failed");
     assert!(events[1]["core"].is_null());
     events.clear();
-    application.terminals.rows.clear();
+    Arc::make_mut(&mut application.terminals.rows).clear();
     assert!(
         application
             .reduce_linear_combination_with_progress(
@@ -1020,7 +1021,14 @@ pub fn compact_boundary_rejects_unknown_terminals_and_impossible_guards() {
         .unwrap()
         .coefficient_context()
         .clone();
-    Arc::make_mut(&mut maps.rows.values_mut().next().unwrap().conditions).push(context.zero());
+    Arc::make_mut(
+        &mut Arc::make_mut(&mut maps.rows)
+            .values_mut()
+            .next()
+            .unwrap()
+            .conditions,
+    )
+    .push(context.zero());
     assert!(codec::encode(&maps, options).is_err());
 }
 
@@ -1038,9 +1046,7 @@ pub fn thousands_of_overlapping_guards_keep_first_seen_order_on_warm_application
         .map(|n| c.try_sub(&d, &c.integer(n), Default::default()).unwrap())
         .collect::<Vec<_>>();
     let conditions = Arc::make_mut(
-        &mut application
-            .terminals
-            .rows
+        &mut Arc::make_mut(&mut application.terminals.rows)
             .values_mut()
             .next()
             .unwrap()
@@ -1114,13 +1120,14 @@ powers=[1]
         .unwrap();
     let terminals = TerminalMaps {
         families: BTreeMap::from([(family.fingerprint().to_owned(), family.clone())]),
-        rows: BTreeMap::from([(
+        rows: (BTreeMap::from([(
             qualified(&family, 1),
             TerminalRow {
                 terms: BTreeMap::from([(qualified(&family, 1), context.one())]),
                 conditions: Arc::new(vec![guard]),
             },
-        )]),
+        )]))
+        .into(),
         remaining: BTreeSet::from([qualified(&family, 1)]),
         layer: None,
     };
@@ -1574,7 +1581,7 @@ powers=[0,1,1]
         },
         TerminalMaps {
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
-            rows,
+            rows: rows.into(),
             remaining,
             layer: None,
         },

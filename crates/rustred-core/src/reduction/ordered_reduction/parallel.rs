@@ -2304,11 +2304,13 @@ mod tests {
         fn eq(&self, other: &Self) -> bool {
             (
                 &self.terms,
+                &self.composed,
                 &self.nonzero_conditions,
                 &self.work,
                 &self.progress,
             ) == (
                 &other.terms,
+                &other.composed,
                 &other.nonzero_conditions,
                 &other.work,
                 &other.progress,

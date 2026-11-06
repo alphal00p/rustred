@@ -629,7 +629,7 @@ pub fn compose_saved_application_layer<const N: usize>(
         (
             TerminalMaps {
                 families: prepared.terminals.families.clone(),
-                rows: BTreeMap::new(),
+                rows: Default::default(),
                 remaining: BTreeSet::new(),
                 layer: None,
             },
@@ -831,12 +831,12 @@ fn layered_maps(base: &TerminalMaps, bound: &BoundLayer<'_>) -> TerminalMaps {
     }
     TerminalMaps {
         families: base.families.clone(),
-        rows: BTreeMap::new(),
+        rows: Default::default(),
         remaining: bound.composed_remaining(&base.remaining),
-        layer: Some(TerminalLayer {
+        layer: Some(std::sync::Arc::new(TerminalLayer {
             rows,
             base_remaining: base.remaining.clone(),
-        }),
+        })),
     }
 }
 

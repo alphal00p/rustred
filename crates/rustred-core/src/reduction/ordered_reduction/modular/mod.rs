@@ -26,6 +26,7 @@
 //!
 //! All parallel work runs on the request's executor (`executor.rs`): inline
 //! for one thread, else a private pool.
+mod compose;
 mod executor;
 #[cfg(test)]
 pub(crate) use executor::pools_built_on_this_thread;
@@ -53,6 +54,7 @@ use super::OrderedWeights;
 use super::arithmetic::{
     ModularCommon, OrderedWeightArithmetic, PolynomialOptions, SampledOptions,
 };
+use super::composition::{ComposedTerminals, OrderedTerminalComposer};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionLimits};
@@ -326,6 +328,9 @@ pub(crate) struct ModularStatistics {
     pub max_coefficient_bits: usize,
     /// Consumed images outside the winning signature group.
     pub unlucky_images: usize,
+    /// Points dropped as poles: of a step coefficient (`ModularSampled`), of a
+    /// composition coefficient, or of a terminal image at a composition point
+    /// (`ModularPolynomial`).
     pub bad_points: usize,
     pub verification_failures: usize,
     pub cancel_checks: usize,
@@ -351,6 +356,24 @@ pub(crate) struct ModularStatistics {
     /// only when statistics are reported. Equal digests mean identical
     /// replays.
     pub trace_digest: Option<u64>,
+    /// Terminal composition (compose before lift): whether it ran, its
+    /// outputs (the lifted coefficients), plan entries and distinct
+    /// coefficients, the CPU seconds of the per-prime composition (summed
+    /// over jobs), the seconds to build the plan, and the points of the
+    /// `ModularPolynomial` compositions.
+    pub composed: bool,
+    pub composed_outputs: usize,
+    pub composition_entries: usize,
+    pub composition_coefficients: usize,
+    pub composition_cpu_seconds: f64,
+    pub composition_plan_seconds: f64,
+    pub composition_points: usize,
+    /// The composed lift failed closed (a `ModularWeights` error: prime or
+    /// point budget, ...) and the raw terminals were lifted instead (the
+    /// caller then substitutes exactly); the wall seconds of the failed
+    /// composed attempt. The other counters are those of the raw lift.
+    pub composition_fallback: bool,
+    pub composition_fallback_seconds: f64,
 }
 
 impl ModularStatistics {
@@ -371,6 +394,10 @@ impl ModularStatistics {
                 "\"verification_failures\":{},\"cancel_checks\":{},",
                 "\"basis_factors\":{},\"basis_linear_factors\":{},\"factor_seconds\":{:.6},",
                 "\"passes\":{},\"lanes_replayed\":{},\"peak_weight_words\":{},\"trace_digest\":{},",
+                "\"composed\":{},\"composed_outputs\":{},\"composition_entries\":{},",
+                "\"composition_coefficients\":{},\"composition_cpu_seconds\":{:.6},",
+                "\"composition_plan_seconds\":{:.6},\"composition_points\":{},",
+                "\"composition_fallback\":{},\"composition_fallback_seconds\":{:.6},",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -415,6 +442,15 @@ impl ModularStatistics {
             self.peak_weight_words,
             self.trace_digest
                 .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.composed,
+            self.composed_outputs,
+            self.composition_entries,
+            self.composition_coefficients,
+            self.composition_cpu_seconds,
+            self.composition_plan_seconds,
+            self.composition_points,
+            self.composition_fallback,
+            self.composition_fallback_seconds,
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
@@ -615,11 +651,13 @@ impl ModularRecorder {
     }
 
     /// Evaluate the trace modulo primes and lift the live terminal
-    /// accumulators over Q.
+    /// accumulators over Q, or, when `composer` supplies a plan for them,
+    /// only their composition (compose before lift, `composition.rs`).
     pub(crate) fn finish(
         self,
         terms: BTreeMap<IntegralKey, ModularWeight>,
-    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, ModularStatistics), ReductionError> {
+        composer: Option<&dyn OrderedTerminalComposer>,
+    ) -> Result<(Finished, ModularStatistics), ReductionError> {
         let record_seconds = self.started.elapsed().as_secs_f64();
         let prepare = Instant::now();
         let constant_total = self.constant_count as usize;
@@ -700,63 +738,172 @@ impl ModularRecorder {
         }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
+        // The caller's plan for the live terminals, if it composes them.
+        let planning = Instant::now();
+        let plan = match composer {
+            Some(composer) => composer.plan(&keys)?,
+            None => None,
+        };
+        let program = match &plan {
+            Some(plan) => {
+                plan.validate(keys.len())?;
+                Some(compose::Program::new(plan, keys.len()))
+            }
+            None => None,
+        };
+        let labels = plan.map(|plan| plan.labels);
+        if let Some(program) = &program {
+            statistics.composed = true;
+            statistics.composed_outputs = program.outputs();
+            statistics.composition_entries = program.entries;
+            statistics.composition_coefficients = program.distinct_coefficients();
+            statistics.composition_plan_seconds = planning.elapsed().as_secs_f64();
+        }
+        // The composed outputs (with the plan's labels) or the nonzero
+        // terminals (no plan, or the composed lift fell back).
+        let finished = |coefficients: Vec<Coefficient>, labels| match labels {
+            Some(labels) => Finished::Composed(ComposedTerminals {
+                terminals: keys.clone(),
+                labels,
+                coefficients,
+            }),
+            None => Finished::Terminals(
+                keys.iter()
+                    .cloned()
+                    .zip(coefficients)
+                    .filter(|(_, coefficient)| !coefficient.is_zero())
+                    .collect(),
+            ),
+        };
         let has_cancellations = trace
             .ops
             .iter()
             .any(|op| matches!(op.tag(), OpTag::Cancel | OpTag::TermCancel));
         if slots.is_empty() && !has_cancellations {
             // Nothing to reconstruct and no erasure to certify.
-            return Ok((BTreeMap::new(), statistics));
+            let outputs = program.as_ref().map_or(0, compose::Program::outputs);
+            return Ok((
+                finished(vec![self.context.zero(); outputs], labels),
+                statistics,
+            ));
         }
         let executor = Executor::new(self.common.threads)?;
-        let lifted = match self.lifter {
-            Lifter::Sampled(options) => {
-                let mut source = SampledSource::new(&trace, &slots, options, self.common.seed);
-                let lifted = lift::lift(
-                    &mut source,
-                    &self.context,
-                    &self.common,
-                    &executor,
-                    &mut statistics,
-                );
-                // The structure is fixed by this recording.
-                if let Ok(lifted) = &lifted {
-                    debug_assert!(std::sync::Arc::ptr_eq(
-                        &lifted.structure,
-                        source.structure()
-                    ));
+        let lift_with =
+            |program: Option<&compose::Program>, statistics: &mut ModularStatistics| match self
+                .lifter
+            {
+                Lifter::Sampled(options) => {
+                    let mut source =
+                        SampledSource::new(&trace, &slots, options, self.common.seed, program);
+                    let lifted = lift::lift(
+                        &mut source,
+                        &self.context,
+                        &self.common,
+                        &executor,
+                        statistics,
+                    );
+                    // The structure is fixed by this recording.
+                    if let Ok(lifted) = &lifted {
+                        debug_assert!(std::sync::Arc::ptr_eq(
+                            &lifted.structure,
+                            source.structure()
+                        ));
+                    }
+                    lifted
                 }
-                lifted
-            }
-            Lifter::Polynomial(options) => {
-                let mut source = PolynomialSource::new(&trace, &slots, &basis, options);
-                let lifted = lift::lift(
-                    &mut source,
-                    &self.context,
-                    &self.common,
-                    &executor,
-                    &mut statistics,
-                );
-                if let Ok(lifted) = &lifted {
-                    debug_assert!(std::sync::Arc::ptr_eq(
-                        &lifted.structure,
-                        source.structure()
-                    ));
+                Lifter::Polynomial(options) => {
+                    let mut source = PolynomialSource::new(
+                        &trace,
+                        &slots,
+                        &basis,
+                        options,
+                        program,
+                        self.common.seed,
+                    );
+                    let lifted = lift::lift(
+                        &mut source,
+                        &self.context,
+                        &self.common,
+                        &executor,
+                        statistics,
+                    );
+                    if let Ok(lifted) = &lifted {
+                        debug_assert!(std::sync::Arc::ptr_eq(
+                            &lifted.structure,
+                            source.structure()
+                        ));
+                    }
+                    lifted
                 }
-                lifted
-            }
+            };
+        let attempt = Instant::now();
+        let before = program.is_some().then(|| statistics.clone());
+        let mut lifted = lift_with(program.as_ref(), &mut statistics);
+        let mut labels = labels;
+        // A composed lift that fails closed (its prime or point budget, or
+        // any other `ModularWeights` failure) lifts the raw terminals once
+        // instead: the outputs can be more complex than the terminals, and the
+        // caller then substitutes the terminals exactly (the historical path).
+        // Other errors (limits, cancellation, ...) are returned as they are.
+        let failed = match (&lifted, &before) {
+            (Err(ReductionError::ModularWeights { detail }), Some(_)) => Some(detail.clone()),
+            _ => None,
         };
+        if let (Some(detail), Some(before)) = (failed, before) {
+            let seconds = attempt.elapsed().as_secs_f64();
+            if statistics_requested() {
+                report_line(&format!(
+                    "{{\"stage\":\"composition_fallback\",\"seconds\":{seconds:.6},\"error\":\"{}\"}}",
+                    json_escape(&detail)
+                ));
+            }
+            statistics = before;
+            statistics.composed = false;
+            statistics.composition_fallback = true;
+            statistics.composition_fallback_seconds = seconds;
+            labels = None;
+            lifted = lift_with(None, &mut statistics);
+        }
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
         let coefficients = lifted?.coefficients;
-        let mut output = BTreeMap::new();
-        for (key, coefficient) in keys.into_iter().zip(coefficients) {
-            if !coefficient.is_zero() {
-                output.insert(key, coefficient);
-            }
-        }
-        Ok((output, statistics))
+        Ok((finished(coefficients, labels), statistics))
     }
+}
+
+/// Deterministic primes and points of the modular arithmetics, so that tests
+/// can place unusable primes and bad points inside a full lift.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    /// The first `count` reconstruction primes of a lift with `seed`.
+    pub(crate) fn lift_primes(seed: u64, count: usize) -> Vec<u64> {
+        super::lift::first_primes(seed, false, count)
+    }
+
+    /// The first `count` verification primes of a lift with `seed`.
+    pub(crate) fn verification_primes(seed: u64, count: usize) -> Vec<u64> {
+        super::lift::first_primes(seed, true, count)
+    }
+
+    /// The first `count` reconstruction sample points `ModularSampled` draws
+    /// at `prime`.
+    pub(crate) fn sample_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+        super::sampled::first_points(seed, prime, count)
+    }
+
+    /// The first `count` points a `ModularPolynomial` composition draws at
+    /// `prime`.
+    pub(crate) fn composition_points(seed: u64, prime: u64, count: usize) -> Vec<u64> {
+        super::compose::first_compose_points(seed, prime, count)
+    }
+}
+
+/// Result of [`ModularRecorder::finish`].
+pub(crate) enum Finished {
+    /// The nonzero terminal coefficients.
+    Terminals(BTreeMap<IntegralKey, Coefficient>),
+    /// The composed outputs of the caller's plan.
+    Composed(ComposedTerminals),
 }
 
 impl OrderedWeights for ModularRecorder {
@@ -1082,6 +1229,20 @@ pub(crate) fn report_statistics(statistics: &ModularStatistics) {
     #[cfg(test)]
     REPORTED.with(|reported| reported.borrow_mut().push(statistics.clone()));
     report_line(&statistics.to_json());
+}
+
+/// `text` as the body of a JSON string (statistics lines only).
+fn json_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 pub(super) fn report_line(line: &str) {

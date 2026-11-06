@@ -94,13 +94,14 @@ powers=[1]
     };
     let terminals = TerminalMaps {
         families: BTreeMap::from([(family.fingerprint().to_owned(), family.clone())]),
-        rows: BTreeMap::from([(
+        rows: (BTreeMap::from([(
             qualified.clone(),
             TerminalRow {
                 terms: BTreeMap::from([(qualified.clone(), context.one())]),
                 conditions: Arc::new(vec![guard]),
             },
-        )]),
+        )]))
+        .into(),
         remaining: BTreeSet::from([qualified]),
         layer: None,
     };
@@ -191,7 +192,7 @@ fn base(family: &Arc<IntegralFamily>) -> TerminalMaps {
     );
     TerminalMaps {
         families: BTreeMap::from([(family.fingerprint().to_owned(), family.clone())]),
-        rows,
+        rows: rows.into(),
         remaining: (1..=4).map(|p| key(family, p)).collect(),
         layer: None,
     }
@@ -316,8 +317,7 @@ pub fn composition_is_exact_and_equals_sequential_application_mod_p() {
         remaining: composed.remaining.clone(),
         layer: None,
     };
-    broken
-        .rows
+    Arc::make_mut(&mut broken.rows)
         .get_mut(&key(&family, 5))
         .unwrap()
         .terms
@@ -344,7 +344,7 @@ pub fn identity_layer_reproduces_maps_and_bytes() {
     assert_eq!(composed.rows, base.rows);
     assert_eq!(composed.remaining, base.remaining);
     assert_eq!(statistics.new_master_keys, 0);
-    for (k, row) in &base.rows {
+    for (k, row) in base.rows.iter() {
         assert!(Arc::ptr_eq(&row.conditions, &composed.rows[k].conditions));
     }
     assert_eq!(
@@ -890,6 +890,66 @@ fn modular_inverse(value: u128, prime: u128) -> u128 {
 /// Package-level: export a base runtime, compose a text layer through the
 /// public entry point, reload, and compare reductions; then the layered
 /// fallback, its loader, and the refusal by a layer-unaware loader.
+/// Ordered requests with both modular arithmetics, direct and routed: the
+/// compose-before-lift result (terms, guards in order, unresolved) equals the
+/// exact substitution of the lifted raw terminals, and `expected`.
+fn terminal_composition_matches_exact(
+    package: &std::path::Path,
+    input: &[(IntegralKey, Coefficient)],
+    expected: &BTreeMap<SavedApplicationIntegral, Coefficient>,
+) {
+    use rustred::reduction::{
+        ModularCommon, OrderedWeightArithmetic, PolynomialOptions, ReductionStrategy,
+        SampledOptions,
+    };
+    let common = ModularCommon {
+        threads: 2,
+        ..Default::default()
+    };
+    for arithmetic in [
+        OrderedWeightArithmetic::ModularSampled(
+            common,
+            SampledOptions {
+                batch_points: 4,
+                ..Default::default()
+            },
+        ),
+        OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default()),
+    ] {
+        let run = |composition: SavedApplicationTerminalComposition, routed: bool| {
+            let mut application = load_saved_application::<1>(
+                package,
+                SavedApplicationOptions {
+                    reduction_strategy: ReductionStrategy::Ordered,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            application.set_ordered_weight_arithmetic(arithmetic);
+            application.set_terminal_composition(composition);
+            assert_eq!(application.terminal_composition(), composition);
+            let reduced = if routed {
+                application.reduce_routed_linear_combination(input.to_vec())
+            } else {
+                application.reduce_linear_combination(input.to_vec())
+            }
+            .unwrap();
+            (
+                reduced.terms().clone(),
+                reduced.nonzero_conditions().to_vec(),
+                reduced.unresolved().clone(),
+            )
+        };
+        for routed in [false, true] {
+            let exact = run(SavedApplicationTerminalComposition::Exact, routed);
+            let modular = run(SavedApplicationTerminalComposition::Modular, routed);
+            assert_eq!(modular, exact, "{arithmetic} routed {routed}");
+            assert_eq!(&modular.0, expected, "{arithmetic} routed {routed}");
+            assert!(modular.2.is_empty());
+        }
+    }
+}
+
 #[cfg_attr(test, test)]
 pub fn compose_layer_package_roundtrip_composed_and_layered() {
     let scratch = Scratch::new();
@@ -1175,9 +1235,14 @@ pub fn compose_layer_package_roundtrip_composed_and_layered() {
         runtime.remaining_terminals(),
         &BTreeSet::from([key(&family, 2)])
     );
-    let actual = runtime.reduce_linear_combination(input).unwrap();
+    let actual = runtime.reduce_linear_combination(input.clone()).unwrap();
     assert_eq!(actual.terms(), &expected_terms);
     assert!(actual.nonzero_conditions().contains(&c(&family, "d-2")));
+    // Modular Ordered requests compose the raw terminals before the
+    // lift; composed and layered packages return the exact substitution.
+    for package in [&out, &layered] {
+        terminal_composition_matches_exact(package, &input, &expected_terms);
+    }
     // A loader unaware of the layer sees only the base maps; the composed
     // count in the metadata makes it refuse instead of loading a wrong basis.
     let mut legacy = report.clone();

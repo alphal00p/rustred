@@ -207,7 +207,8 @@ mod tests {
                         },
                     )
                 })
-                .collect(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
             remaining,
             layer: None,
@@ -245,7 +246,7 @@ mod tests {
         let one = TerminalProductCharts::prepare(&first, Default::default()).unwrap();
         first.families.extend(second.families);
         first.remaining.extend(second.remaining);
-        first.rows.extend(second.rows);
+        Arc::make_mut(&mut first.rows).extend(Arc::unwrap_or_clone(second.rows));
         let all = TerminalProductCharts::prepare(&first, Default::default()).unwrap();
         assert!(
             all.statistics.work.canonical_candidates > one.statistics.work.canonical_candidates
