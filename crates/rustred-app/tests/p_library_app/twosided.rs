@@ -88,7 +88,10 @@ fn the_order_of_a_two_sided_generation_must_carry_the_family_axes() {
     for program in [OrderDescriptor::spired_uncut(5), other_axes] {
         supplied.integral_order = Some(compile(program));
         let error = refusal(supplied.clone());
-        assert!(error.contains("two-sided eps axes"), "{error}");
+        assert!(
+            error.contains("does not carry the family's two-sided eps axes"),
+            "{error}"
+        );
     }
 
     let mut legacy = two_sided_request();

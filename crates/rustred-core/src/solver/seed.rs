@@ -339,6 +339,34 @@ mod tests {
     }
 
     #[test]
+    fn two_sided_axes_cross_zero_and_all_false_is_new() {
+        let initial = Integral::numeric([1, 1]).unwrap();
+        let powers = |seeds: Seeds<2>| -> Vec<[i16; 2]> {
+            seeds
+                .take(60)
+                .map(|seed| seed.unwrap().integral.powers().map(|p| p.value()))
+                .collect()
+        };
+        let plain = powers(Seeds::new(initial, [true; 2], [false; 2]));
+        assert_eq!(
+            plain,
+            powers(Seeds::new_two_sided(
+                initial, [true; 2], [false; 2], [false; 2]
+            ))
+        );
+        // A numeric power keeps its sign unless its axis is two-sided.
+        assert!(plain.iter().all(|power| power.iter().all(|&n| n >= 1)));
+        let crossing = powers(Seeds::new_two_sided(
+            initial,
+            [true; 2],
+            [false; 2],
+            [true, false],
+        ));
+        assert!(crossing.iter().any(|power| power[0] <= 0));
+        assert!(crossing.iter().all(|power| power[1] >= 1));
+    }
+
+    #[test]
     fn seed_storage_does_not_grow_with_shell_size() {
         assert!(std::mem::size_of::<Seeds<100>>() < 1500);
         let seeds = Seeds::new(

@@ -45,11 +45,7 @@ enum Coordinates<'a> {
 }
 
 impl Coordinates<'_> {
-    fn active(&self, axis: usize, value: i64, two_sided: bool) -> bool {
-        if two_sided {
-            // Every power of a two-sided axis lies in the support.
-            return true;
-        }
+    fn active(&self, axis: usize, value: i64) -> bool {
         match self {
             Self::Concrete => value > 0,
             Self::Mixed { symbolic, sector } => {
@@ -86,7 +82,7 @@ impl Coordinates<'_> {
                 Some(false) => -2 * i128::from(value),
             };
         }
-        let active = self.active(axis, value, false);
+        let active = self.active(axis, value);
         let constant = match self {
             Self::Concrete => active,
             Self::Mixed { symbolic, .. } => active && !symbolic[axis],
@@ -118,13 +114,14 @@ enum View<'a> {
 impl View<'_> {
     fn active(&self, axis: usize, two_sided: bool) -> bool {
         if two_sided {
+            // Every power of a two-sided axis lies in the support.
             return true;
         }
         match self {
             Self::Powers {
                 coordinates,
                 values,
-            } => coordinates.active(axis, values[axis], false),
+            } => coordinates.active(axis, values[axis]),
             Self::Unsigned { support, .. } | Self::Signed { support, .. } => support[axis],
         }
     }
@@ -167,7 +164,7 @@ impl View<'_> {
                 values,
             } => {
                 let value = i128::from(values[axis]);
-                if coordinates.active(axis, values[axis], false) {
+                if coordinates.active(axis, values[axis]) {
                     value
                 } else {
                     -value

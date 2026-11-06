@@ -725,17 +725,20 @@ fn generated(name: &str) -> EpsOutcome {
 
 #[test]
 fn two_loop_eps_families_close_with_their_lp_residuals_at_n_equal_one() {
-    // (family, residual keys) at the default two-sided order; targets.tsv
-    // masters_lp_nosym: T001 1, T013 2, T007 1, T003 0, T005 0.
-    let expected: [(&str, u32, &[[i64; 5]]); 5] = [
-        ("T001c", 1, &[[1, 1, 1, 1, 1]]),
-        ("T013c", 2, &[[1, 1, 1, 1, 1], [1, 2, 1, 1, 1]]),
-        ("T007c", 1, &[[1, 1, 1, 1, 1]]),
-        ("T003c", 0, &[]),
-        ("T005c", 0, &[]),
+    // (family, LP, rules, residual keys) at the default two-sided order;
+    // targets.tsv masters_lp_nosym: T001 1, T013 2, T007 1, T003 0, T005 0.
+    // The rule totals pin the derivation (the cost table in
+    // notes/rr-twosided.md): a deliberate generation change updates them.
+    let expected: [(&str, u32, usize, &[[i64; 5]]); 5] = [
+        ("T001c", 1, 58, &[[1, 1, 1, 1, 1]]),
+        ("T013c", 2, 234, &[[1, 1, 1, 1, 1], [1, 2, 1, 1, 1]]),
+        ("T007c", 1, 18, &[[1, 1, 1, 1, 1]]),
+        ("T003c", 0, 42, &[]),
+        ("T005c", 0, 42, &[]),
     ];
-    for (name, lp, keys) in expected {
+    for (name, lp, rules, keys) in expected {
         let outcome = generated(name);
+        assert_eq!(outcome.rules, rules, "{name} rules");
         let found: BTreeSet<Vec<i64>> = outcome.residual_keys.iter().cloned().collect();
         let keys: BTreeSet<Vec<i64>> = keys.iter().map(|k| k.to_vec()).collect();
         assert_eq!(found, keys, "{name} residual keys");
