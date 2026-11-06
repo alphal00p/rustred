@@ -5,6 +5,7 @@ mod cli;
 mod custom;
 mod eps;
 mod package;
+mod twosided;
 
 /// The app side of the frozen interfaces (plan M2 section 4), public path
 /// `rustred_app::propagator`.
