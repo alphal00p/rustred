@@ -113,6 +113,7 @@ mod tests {
     use crate::family::IntegralFamily;
     use crate::propagator::PresentationId;
     use crate::propagator::presentation::{Presentation, PresentationKind, Slot, SlotLine};
+    use crate::sector::{Mask, zero};
     use crate::solver::candidate_reduction::owner_test_support::{input, key, rule};
     use crate::solver::candidate_reduction::{
         CandidateOwnerContext, CandidateOwnerPrograms, CandidateOwnerScope,
@@ -374,6 +375,110 @@ mod tests {
             CandidateOwnerContext::<2>::try_new(bubble(1), scope(), vec![], Default::default())
                 .is_err()
         );
+    }
+
+    /// A shift the p admission refuses, on a family of p shape.
+    #[test]
+    fn the_p_constructor_refuses_a_shift_off_the_p_path() {
+        let plain = bubble(0);
+        let context = plain.coefficient_context().clone();
+        let bad = IntegralFamily::new(
+            "shifted by one",
+            vec!["k1".to_owned()],
+            vec!["q".to_owned()],
+            context.clone(),
+            context.parameter("d").unwrap(),
+            plain.denominators().to_vec(),
+            vec![vec![context.integer(-1)]],
+            vec![context.integer(1), context.zero()],
+        )
+        .unwrap();
+        assert!(matches!(
+            CandidateOwnerContext::<2>::try_new_p(
+                Arc::new(bad),
+                scope(),
+                vec![],
+                Default::default()
+            ),
+            Err(CandidateReductionError::UnsupportedFamily(_))
+        ));
+    }
+
+    /// Rank-finite retention needs a rank, on both branches.
+    #[test]
+    fn the_p_constructor_requires_a_rank_for_rank_finite_owners() {
+        for units in [0, 1] {
+            let refused = CandidateOwnerContext::<2>::try_new_p(
+                bubble(units),
+                CandidateOwnerScope {
+                    max_numerator_rank: None,
+                    finite_case_policy: crate::solver::FiniteCasePolicy::RetainRankFinite,
+                },
+                vec![],
+                Default::default(),
+            );
+            assert!(matches!(
+                refused,
+                Err(CandidateReductionError::InvalidInput(_))
+            ));
+        }
+    }
+
+    fn proved_zero(family: &IntegralFamily, sector: [bool; 2]) -> zero::Certificate {
+        let decision = zero::Analyzer::try_unrestricted(family)
+            .unwrap()
+            .analyze(&Mask::try_new(sector).unwrap())
+            .unwrap();
+        let zero::Decision::ProvedZero(certificate) = decision else {
+            panic!("sector {sector:?} is scaleless, got {decision:?}");
+        };
+        certificate
+    }
+
+    /// The eps branch has its own copy of the certificate binding, and a sector
+    /// in `zero_sectors` evaluates to zero: a foreign certificate there would be
+    /// a silent zero. Every family here has the arity of the owner, so only the
+    /// family decides.
+    #[test]
+    fn the_p_constructor_binds_zero_certificates_to_their_family() {
+        let owner = bubble(1);
+        for other in [bubble(0), bubble(2)] {
+            assert!(matches!(
+                CandidateOwnerContext::<2>::try_new_p(
+                    Arc::clone(&owner),
+                    scope(),
+                    vec![proved_zero(&other, [false, false])],
+                    Default::default(),
+                ),
+                Err(CandidateReductionError::InvalidInput(_))
+            ));
+        }
+    }
+
+    /// A certificate of the family marks its raw chart. The eps line stays in the
+    /// support of every chart, so the chart of the other line has no proof.
+    #[test]
+    fn the_p_constructor_marks_the_certified_charts_of_an_eps_family() {
+        let owner = bubble(1);
+        let charts = [[false, false], [true, false]];
+        let context = CandidateOwnerContext::<2>::try_new_p(
+            Arc::clone(&owner),
+            scope(),
+            charts
+                .iter()
+                .map(|&chart| proved_zero(&owner, chart))
+                .collect(),
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(context.shared.zero_sectors, BTreeSet::from(charts));
+        assert!(matches!(
+            zero::Analyzer::try_unrestricted(&owner)
+                .unwrap()
+                .analyze(&Mask::try_new([false, true]).unwrap())
+                .unwrap(),
+            zero::Decision::Inconclusive(_)
+        ));
     }
 
     #[test]

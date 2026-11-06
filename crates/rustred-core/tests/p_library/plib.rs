@@ -1223,14 +1223,21 @@ fn gaps_of_the_inputs_and_of_the_census_fail_closed() {
         )])),
         Err(PError::Unsupported(_))
     ));
-    assert!(matches!(
-        library.reduce(request(vec![(
-            PresentationId(0),
-            key(&[1, 1, 1]),
-            context.one()
-        )])),
-        Err(PError::Unsupported(_))
-    ));
+    // An extra slot with an ISP sign would read as a tag exponent, a short key
+    // as a sector of the census: neither reaches the engine.
+    for powers in [&[1, 1, 1][..], &[1, 1, -1], &[1]] {
+        assert!(
+            matches!(
+                library.reduce(request(vec![(
+                    PresentationId(0),
+                    key(powers),
+                    context.one()
+                )])),
+                Err(PError::Unsupported(_))
+            ),
+            "{powers:?}"
+        );
+    }
 
     // No fate for a sector: never a silent zero, even with zero weight.
     let mut builder = PLibrary::builder(context.clone(), 1..=1);
@@ -2334,6 +2341,48 @@ fn a_basis_map_answers_with_a_row_in_the_key_range() {
             .unwrap()
             .terms,
         []
+    );
+}
+
+/// `|e| = 127` holds on the key; the scheme of `onto_masters` crosses it.
+#[test]
+fn the_scheme_of_onto_masters_can_leave_the_key_range() {
+    let context = context();
+    let (library, _) = one_owner_library(Arc::new(FixedLane(PStepOut {
+        terminals: vec![(
+            PTerminalId(0),
+            GammaTag::from_pairs([(-2, 127)]).unwrap(),
+            context.one(),
+        )],
+        ..PStepOut::default()
+    })));
+    let mut run = request(bubble_input(&library));
+    run.onto_masters = true;
+    assert_eq!(
+        library.reduce(run).map(|reduced| reduced.terms),
+        Err(PError::TagOutOfRange)
+    );
+}
+
+/// A row of the basis map with a coefficient of another context.
+struct ForeignMap;
+
+impl PBasisMap for ForeignMap {
+    fn map(&self, _: PTerminalId, tag: &GammaTag) -> Result<Vec<PTerm>, PError> {
+        let foreign = CoefficientContext::try_new(["d", "x"]).unwrap();
+        Ok(vec![PTerm {
+            basis: PBasis::Unit,
+            tag: tag.clone(),
+            coefficient: foreign.parameter("x").unwrap(),
+        }])
+    }
+}
+
+#[test]
+fn a_foreign_coefficient_in_a_row_is_refused() {
+    assert_eq!(
+        onto_masters(&mapped_bubble(Arc::new(ForeignMap))).map(|reduced| reduced.terms),
+        Err(PError::ContextMismatch)
     );
 }
 
