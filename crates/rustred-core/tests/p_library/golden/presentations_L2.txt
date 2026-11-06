@@ -1,0 +1,38 @@
+# Node presentations and rule edge maps of the 2L DAG, P_PRESENTATION_VERSION 1.
+# Momenta over (k_1, .., k_L, q).
+node d43 0104000001010001010000020100000301000102010001030100 L=2 t=5 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1  1 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1 -1  0] eps 0
+   4 line [ 0  1  0] eps 0
+node d22 010300010100010100000202000001020100 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d26 010300010100010200000002020000 L=2 t=4 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+node d9 01020101000103000000 L=2 t=3 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 0
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+node d3 010201010001020000 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 0
+node d4 010201010001020001 L=1 t=2 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 1
+node d1 01020101 trivial
+edge d22 -> d4 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[1 - - 0 -] merged_slot=1
+edge d26 -> d3 kind=Insertion integrated_loop=0 outer_map=linear[-1] external[1] sign+1 line_slots=[- - 0 1 -] merged_slot=-
+edge d9 -> d4 kind=Insertion integrated_loop=0 outer_map=linear[1] external[0] sign+1 line_slots=[- - 0 - -] merged_slot=1
+edge d3 -> d1 no map
+edge d4 -> d1 no map
