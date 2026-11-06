@@ -2922,3 +2922,71 @@ fn the_kernel_versions_are_pinned() {
     assert_eq!(P_INSERTION_KERNEL_VERSION, 1);
     assert_eq!(P_CARPET_KERNEL_VERSION, 1);
 }
+
+// Value tests through the steps at rank 7 and 8 (review, must-fix): order sigma = 4 of NumeratorRewrite.
+#[test]
+fn steps_at_rank_7_and_8_equal_nested_euclidean_forms() {
+    let mut rng = StdRng::seed_from_u64(0xb300);
+    let points = dimensions(&mut rng, 2);
+    for node in [
+        d22(),
+        d22_flipped(),
+        d26(),
+        d9(),
+        d11(),
+        d13_integer_bubble(),
+        d13_eps_bubble(),
+        d14(),
+        d15(),
+        d17(),
+    ] {
+        let isps: Vec<usize> = node
+            .parent
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| matches!(slot, Slot::Isp(_)))
+            .map(|(index, _)| index)
+            .collect();
+        for rank in [7, 8] {
+            for split in 0..=2 {
+                let mut powers = dotted_keys(&node, 0)[0].clone();
+                let first = rank * split / 2;
+                powers[*isps.last().unwrap()] = -first;
+                powers[isps[0]] -= rank - first;
+                for d in &points {
+                    check_node_against_nested_forms(&node, &powers, d);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn carpets_at_rank_7_and_8_equal_two_insertions() {
+    for carpet in [
+        TwoLoopCarpet::with_third([0, 0, 0, 0]),
+        TwoLoopCarpet::with_third([1, 0, 1, 1]),
+    ] {
+        for powers in [
+            [1, 1, 1, 1, -7],
+            [1, 1, 1, 1, -8],
+            [2, 3, -1, 1, -8],
+            [3, 1, 2, 2, -8],
+        ] {
+            let [left, right] = carpet.both_paths(&powers);
+            assert!(!left.is_empty());
+            assert_eq!(left, right, "{powers:?}");
+        }
+    }
+    for carpet in [
+        TwoLoopCarpet::without_third([0, 0, 0]),
+        TwoLoopCarpet::without_third([1, 0, 1]),
+    ] {
+        for powers in [[1, 1, 1, -8, 0], [2, 1, 1, -8, -2], [1, 2, 2, -7, -3]] {
+            let [left, right] = carpet.both_paths(&powers);
+            assert!(!left.is_empty());
+            assert_eq!(left, right, "{powers:?}");
+        }
+    }
+}
