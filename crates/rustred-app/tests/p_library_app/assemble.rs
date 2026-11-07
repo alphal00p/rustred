@@ -48,7 +48,7 @@ use rustred::propagator::triangle::{TemplateError, TemplateMismatch};
 use rustred::propagator::{OwnerClassId, PTerminalId, PresentationId};
 use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedStepCache, OrderedWeightArithmetic,
-    PolynomialOptions, ReductionLimits,
+    PolynomialOptions, ReductionLimits, SampledOptions,
 };
 use rustred::sector::OrderingPolicy;
 use rustred::solver::litered::{DynamicLiteRedSession, LiteRedOptions};
@@ -1129,6 +1129,76 @@ fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
     )
 }
 
+fn modular_sampled(threads: usize) -> OrderedWeightArithmetic {
+    OrderedWeightArithmetic::ModularSampled(
+        ModularCommon {
+            threads,
+            ..Default::default()
+        },
+        SampledOptions::default(),
+    )
+}
+
+/// The arithmetic configurations every reduction must agree on (M2 exit
+/// criterion 2): name, weights, scheduler threads. Exact first: the others are
+/// compared with it. The `(4) x 16` rows are vakint's shape (modular with
+/// several threads under a threaded scheduler).
+fn arithmetic_configurations() -> [(&'static str, OrderedWeightArithmetic, usize); 6] {
+    [
+        ("Exact", OrderedWeightArithmetic::Exact, 1),
+        ("ModularPolynomial", modular_polynomial(1), 1),
+        ("ModularSampled", modular_sampled(1), 1),
+        ("Exact x 16", OrderedWeightArithmetic::Exact, 16),
+        ("ModularPolynomial(4) x 16", modular_polynomial(4), 16),
+        ("ModularSampled(4) x 16", modular_sampled(4), 16),
+    ]
+}
+
+/// Reduce every input in each of [`arithmetic_configurations`] and assert the
+/// terms and nonzero conditions of Exact; the wall seconds per configuration,
+/// printed for the loop count, are returned.
+fn arithmetics_agree(library: &PLibrary, loops: u8, inputs: &[Input]) -> Vec<f64> {
+    let context = library.coefficient_context();
+    let configurations = arithmetic_configurations();
+    let mut seconds = vec![0.0_f64; configurations.len()];
+    for input in inputs {
+        let mut exact: Option<PReduction> = None;
+        for (index, &(name, arithmetic, threads)) in configurations.iter().enumerate() {
+            let mut run = request(input.request_inputs(context));
+            run.arithmetic = arithmetic;
+            if threads > 1 {
+                run.scheduler = OrderedSchedulerOptions {
+                    threads,
+                    window_keys: 8,
+                    ..Default::default()
+                };
+            }
+            let start = Instant::now();
+            let reduction = library.reduce(run).unwrap();
+            seconds[index] += start.elapsed().as_secs_f64();
+            match &exact {
+                None => exact = Some(reduction),
+                Some(exact) => {
+                    assert_eq!(exact.terms, reduction.terms, "{name}: {input:?}");
+                    assert_eq!(
+                        exact.nonzero_conditions, reduction.nonzero_conditions,
+                        "{name}: {input:?}"
+                    );
+                }
+            }
+        }
+    }
+    let times: Vec<String> = (configurations.iter().zip(&seconds))
+        .map(|((name, _, _), seconds)| format!("{name} {seconds:.3} s"))
+        .collect();
+    println!(
+        "L{loops}: {} inputs, every configuration = Exact; wall {}",
+        inputs.len(),
+        times.join(", ")
+    );
+    seconds
+}
+
 fn key(powers: &[i64]) -> IntegralKey {
     IntegralKey::try_new(powers.iter().copied()).unwrap()
 }
@@ -1891,57 +1961,18 @@ fn series_parallel_inputs_equal_their_closed_forms() {
 // Arithmetic, threads, step cache
 // ---------------------------------------------------------------------------
 
-/// Exact and ModularPolynomial weights give the same terms, and 1 and 16
-/// scheduler threads the same bits, on 60 random inputs per loop count, also
-/// modular with 4 threads under 16 scheduler threads (vakint's default shape);
-/// the wall time of both arithmetics is printed.
+/// Exact, ModularPolynomial and ModularSampled weights give the same terms
+/// and nonzero conditions, and 1 and 16 scheduler threads the same bits, on 60
+/// random inputs per loop count, also both modular arithmetics with 4 threads
+/// under 16 scheduler threads (vakint's shape); wall times printed per
+/// configuration.
 #[test]
 fn exact_equals_modular_polynomial_and_threads_are_bit_identical() {
     let assembled = scope_two();
-    let library = &assembled.library;
-    let context = library.coefficient_context();
     for loops in 1..=2_u8 {
         let inputs = random_inputs(assembled, loops, 60, 0x2000 + u64::from(loops));
-        let mut seconds = [0.0_f64; 2];
-        for input in &inputs {
-            let start = Instant::now();
-            let exact = reduce(library, input.request_inputs(context));
-            seconds[0] += start.elapsed().as_secs_f64();
-            let start = Instant::now();
-            let mut modular = request(input.request_inputs(context));
-            modular.arithmetic = modular_polynomial(1);
-            let modular = library.reduce(modular).unwrap();
-            seconds[1] += start.elapsed().as_secs_f64();
-            assert_eq!(exact.terms, modular.terms, "{input:?}");
-            assert_eq!(exact.nonzero_conditions, modular.nonzero_conditions);
-            let mut threaded = request(input.request_inputs(context));
-            threaded.scheduler = OrderedSchedulerOptions {
-                threads: 16,
-                window_keys: 8,
-                ..Default::default()
-            };
-            let threaded = library.reduce(threaded).unwrap();
-            assert_eq!(exact.terms, threaded.terms);
-            assert_eq!(exact.nonzero_conditions, threaded.nonzero_conditions);
-            // vakint's shape: modular with several threads under a threaded
-            // scheduler.
-            let mut both = request(input.request_inputs(context));
-            both.arithmetic = modular_polynomial(4);
-            both.scheduler = OrderedSchedulerOptions {
-                threads: 16,
-                window_keys: 8,
-                ..Default::default()
-            };
-            let both = library.reduce(both).unwrap();
-            assert_eq!(exact.terms, both.terms, "{input:?}");
-            assert_eq!(exact.nonzero_conditions, both.nonzero_conditions);
-        }
-        println!(
-            "L{loops}: {} inputs, Exact {:.3} s, ModularPolynomial {:.3} s",
-            inputs.len(),
-            seconds[0],
-            seconds[1]
-        );
+        assert_eq!(inputs.len(), 60);
+        arithmetics_agree(&assembled.library, loops, &inputs);
     }
 }
 
@@ -2080,8 +2111,9 @@ fn identity_bytes(library: &PLibrary) -> usize {
 
 /// The 1L-3L benchmark cells in the scope 1-3 library (the program vakint
 /// ships): distinct tags per Apply site (plan risk 12); cold and warm wall
-/// times under Exact (step cache on disk, warm = reopened) and
-/// ModularPolynomial weights (in memory); the bytes of the saved records and
+/// times and step-cache hits and misses under Exact (step cache on disk, warm =
+/// reopened), ModularPolynomial and ModularSampled weights (each its own cache
+/// in memory), every warm run without a miss; the bytes of the saved records and
 /// the share of identities in them (a shard file stores each identity once:
 /// the tagged trace counts the distinct identities per shard), the rest being
 /// coefficients. Numerators over each family's own `k` columns. An untimed
@@ -2124,8 +2156,11 @@ fn benchmark_cells_tags_and_timings() {
         );
         let mut all_keys = Vec::new();
         let (mut record_bytes, mut identities) = (0_u64, 0_usize);
-        // Cold wall seconds of the cells: Exact, ModularPolynomial.
-        let mut cold = [0.0_f64; 2];
+        // Per arithmetic (Exact, ModularPolynomial, ModularSampled) and state
+        // (cold, warm), summed over the cells: wall seconds, step-cache hits
+        // and misses.
+        let mut wall = [[0.0_f64; 2]; 3];
+        let mut counts = [[(0_usize, 0_usize); 2]; 3];
         for dots in 0..=2 {
             for rank in [0, 2, 4, 6, 8] {
                 let inputs = cell(dots, rank);
@@ -2148,7 +2183,7 @@ fn benchmark_cells_tags_and_timings() {
                     std::process::id()
                 ));
                 let mut results = Vec::new();
-                for state in ["cold", "warm"] {
+                for (index, state) in ["cold", "warm"].into_iter().enumerate() {
                     let cache =
                         OrderedStepCache::open(&directory, binding.clone(), Default::default())
                             .unwrap();
@@ -2157,32 +2192,53 @@ fn benchmark_cells_tags_and_timings() {
                     let start = Instant::now();
                     let reduction = library.reduce(run).unwrap();
                     let seconds = start.elapsed().as_secs_f64();
-                    line += &format!(", exact {state} {seconds:.4} s");
+                    let progress = reduction.statistics.progress;
+                    line += &format!(
+                        ", exact {state} {seconds:.4} s ({} hits, {} misses)",
+                        progress.step_cache_hits, progress.step_cache_misses
+                    );
+                    wall[0][index] += seconds;
+                    counts[0][index].0 += progress.step_cache_hits;
+                    counts[0][index].1 += progress.step_cache_misses;
                     if state == "cold" {
-                        cold[0] += seconds;
                         let saved = cache.save().unwrap();
                         line += &format!(" ({} records, {} bytes)", saved.records, saved.bytes);
                         record_bytes += saved.bytes;
                         identities += cell_identities;
                     } else {
-                        assert_eq!(reduction.statistics.progress.step_cache_misses, 0);
+                        assert_eq!(progress.step_cache_misses, 0);
                     }
                     results.push(reduction.terms);
                 }
                 std::fs::remove_dir_all(&directory).unwrap();
-                let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
-                for state in ["cold", "warm"] {
-                    let mut run = request(inputs.clone());
-                    run.arithmetic = modular_polynomial(1);
-                    run.step_cache = Some(Arc::clone(&cache));
-                    let start = Instant::now();
-                    let reduction = library.reduce(run).unwrap();
-                    let seconds = start.elapsed().as_secs_f64();
-                    line += &format!(", modular {state} {seconds:.4} s");
-                    if state == "cold" {
-                        cold[1] += seconds;
+                for (arithmetic, (name, weights)) in [
+                    ("modular", modular_polynomial(1)),
+                    ("sampled", modular_sampled(1)),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
+                    for (index, state) in ["cold", "warm"].into_iter().enumerate() {
+                        let mut run = request(inputs.clone());
+                        run.arithmetic = weights;
+                        run.step_cache = Some(Arc::clone(&cache));
+                        let start = Instant::now();
+                        let reduction = library.reduce(run).unwrap();
+                        let seconds = start.elapsed().as_secs_f64();
+                        let progress = reduction.statistics.progress;
+                        line += &format!(
+                            ", {name} {state} {seconds:.4} s ({} hits, {} misses)",
+                            progress.step_cache_hits, progress.step_cache_misses
+                        );
+                        wall[1 + arithmetic][index] += seconds;
+                        counts[1 + arithmetic][index].0 += progress.step_cache_hits;
+                        counts[1 + arithmetic][index].1 += progress.step_cache_misses;
+                        if state == "warm" {
+                            assert_eq!(progress.step_cache_misses, 0);
+                        }
+                        results.push(reduction.terms);
                     }
-                    results.push(reduction.terms);
                 }
                 assert!(results.windows(2).all(|pair| pair[0] == pair[1]));
                 println!("{line}");
@@ -2193,17 +2249,32 @@ fn benchmark_cells_tags_and_timings() {
             (identities * identity_bytes(library)) as f64 / record_bytes.max(1) as f64;
         println!(
             "L{loops} all cells: {} apply keys / {} sites = {:.3} tags per site; records {record_bytes} bytes, \
-             identities about {:.0}% of them ({identities} identities of {} bytes), coefficients about {:.0}%; \
-             cold Exact {:.3} s, cold ModularPolynomial {:.3} s",
+             identities about {:.0}% of them ({identities} identities of {} bytes), coefficients about {:.0}%",
             tags.apply_keys,
             tags.apply_sites,
             tags.apply_keys as f64 / tags.apply_sites.max(1) as f64,
             100.0 * identity_share,
             identity_bytes(library),
             100.0 * (1.0 - identity_share),
-            cold[0],
-            cold[1]
         );
+        for (arithmetic, name) in [
+            "Exact (disk cache)",
+            "ModularPolynomial (memory cache)",
+            "ModularSampled (memory cache)",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            println!(
+                "L{loops} all cells, {name}: cold {:.3} s ({} hits, {} misses), warm {:.3} s ({} hits, {} misses)",
+                wall[arithmetic][0],
+                counts[arithmetic][0].0,
+                counts[arithmetic][0].1,
+                wall[arithmetic][1],
+                counts[arithmetic][1].0,
+                counts[arithmetic][1].1
+            );
+        }
     }
 }
 
@@ -2854,33 +2925,92 @@ fn every_dag_node_presentation_reduces_through_its_class() {
     assert_eq!(trace.applied.len(), library.owners().len());
 }
 
-/// One cache serves the 3L program: a dotted LA top after the plain one meets
-/// its subkeys at the same absolute tag and replays them, with the result of
-/// an uncached run.
+/// One step cache ON DISK serves the 3L program under every arithmetic (M2
+/// exit criterion 4). Cold, Exact, one cache: LA `[1^8,0]`, then dotted LA
+/// `[2,1^7,0]`, which meets LA's subkeys at the same absolute tag and replays
+/// them, then dotted NO `[2,1^7,0]` on `P3L_NO`, which reaches the Custom owner
+/// NO; each equals an uncached run. Saved and reopened: every input replayed
+/// from the Exact-written records under Exact, ModularPolynomial and
+/// ModularSampled misses nothing and gives the terms of the uncached Exact run.
 #[test]
-fn the_step_cache_replays_three_loop_records_where_the_absolute_tag_matches() {
+fn the_step_cache_on_disk_replays_three_loop_records_under_every_arithmetic() {
     let library = &scope_three().library;
     let context = library.coefficient_context();
-    let cache =
-        OrderedStepCache::in_memory(library.step_cache_binding().unwrap(), Default::default());
-    let la = PresentationId(2);
-    let cached = |powers: &[i64]| {
-        let mut run = request(vec![(la, key(powers), context.one())]);
-        run.step_cache = Some(Arc::clone(&cache));
-        library.reduce(run).unwrap()
-    };
-    let first = cached(&[1, 1, 1, 1, 1, 1, 1, 1, 0]);
-    assert_eq!(first.statistics.progress.step_cache_hits, 0);
-    let dotted = [2, 1, 1, 1, 1, 1, 1, 1, 0];
-    let second = cached(&dotted);
-    let uncached = reduce(library, vec![(la, key(&dotted), context.one())]);
-    assert_eq!(second.terms, uncached.terms);
-    let progress = second.statistics.progress;
-    assert!(progress.step_cache_hits > 0, "{progress:?}");
-    println!(
-        "dotted LA after LA: {} hits, {} misses",
-        progress.step_cache_hits, progress.step_cache_misses
+    let binding = library.step_cache_binding().unwrap();
+    let directory =
+        std::env::temp_dir().join(format!("rr-assemble-cache-3l-{}", std::process::id()));
+    let (la, no) = (PresentationId(2), PresentationId(4));
+    let inputs = [
+        ("LA", la, [1, 1, 1, 1, 1, 1, 1, 1, 0]),
+        ("dotted LA", la, [2, 1, 1, 1, 1, 1, 1, 1, 0]),
+        ("dotted NO", no, [2, 1, 1, 1, 1, 1, 1, 1, 0]),
+    ];
+    let reached = descent::trace(
+        library,
+        &[(no, inputs[2].2.to_vec())],
+        ReductionLimits::default(),
+    )
+    .unwrap();
+    assert!(
+        reached
+            .applied
+            .contains_key(&owner_labelled(library, NO_LABEL).class)
     );
+
+    let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+    let mut uncached = Vec::new();
+    for (name, presentation, powers) in &inputs {
+        let input = vec![(*presentation, key(powers), context.one())];
+        let mut run = request(input.clone());
+        run.step_cache = Some(Arc::clone(&cold));
+        let cached = library.reduce(run).unwrap();
+        let reference = reduce(library, input);
+        assert_eq!(cached.terms, reference.terms, "{name}");
+        assert!(!reference.terms.is_empty(), "{name}");
+        let progress = cached.statistics.progress;
+        println!(
+            "cold Exact {name}: {} hits, {} misses",
+            progress.step_cache_hits, progress.step_cache_misses
+        );
+        if *name == "dotted LA" {
+            assert!(progress.step_cache_hits > 0, "{progress:?}");
+        }
+        uncached.push(reference);
+    }
+    let saved = cold.save().unwrap();
+    println!("saved {} records, {} bytes", saved.records, saved.bytes);
+    drop(cold);
+
+    let warm = OrderedStepCache::open(&directory, binding, Default::default()).unwrap();
+    for ((name, presentation, powers), reference) in inputs.iter().zip(&uncached) {
+        for (arithmetic_name, arithmetic) in [
+            ("Exact", OrderedWeightArithmetic::Exact),
+            ("ModularPolynomial", modular_polynomial(1)),
+            ("ModularSampled", modular_sampled(1)),
+        ] {
+            let mut run = request(vec![(*presentation, key(powers), context.one())]);
+            run.arithmetic = arithmetic;
+            run.step_cache = Some(Arc::clone(&warm));
+            let replay = library.reduce(run).unwrap();
+            let progress = replay.statistics.progress;
+            println!(
+                "reopened, {arithmetic_name} {name}: {} hits, {} misses",
+                progress.step_cache_hits, progress.step_cache_misses
+            );
+            assert_eq!(
+                (progress.step_cache_misses, progress.step_cache_hits > 0),
+                (0, true),
+                "{arithmetic_name} {name}: {progress:?}"
+            );
+            assert_eq!(replay.terms, reference.terms, "{arithmetic_name} {name}");
+            assert_eq!(
+                replay.nonzero_conditions, reference.nonzero_conditions,
+                "{arithmetic_name} {name}"
+            );
+        }
+    }
+    drop(warm);
+    std::fs::remove_dir_all(&directory).unwrap();
 }
 
 /// The scope 1-2 program with the kite's Triangle row refused as not Forcer's
@@ -3231,60 +3361,19 @@ fn scope_one_to_three_reductions_equal_p0_sector_reductions() {
     assert_eq!(node_classes_applied(assembled, &applied).len(), 5);
 }
 
-/// Exact and ModularPolynomial weights, 1 and 16 scheduler threads, and
-/// modular with 4 threads under 16 scheduler threads give the same terms on 60
-/// random inputs per loop count of the scope 1-3 program; wall times of both
-/// arithmetics printed per loop count.
+/// [`exact_equals_modular_polynomial_and_threads_are_bit_identical`] on the
+/// scope 1-3 program: Exact, ModularPolynomial and ModularSampled weights, 1
+/// and 16 scheduler threads, and both modular arithmetics with 4 threads under
+/// 16 scheduler threads give the same terms on 60 random inputs per loop
+/// count; wall times printed per configuration and loop count.
 #[test]
-#[ignore = "slow: 3L reductions in four configurations; run optimised"]
+#[ignore = "slow: 3L reductions in six configurations; run optimised"]
 fn scope_one_to_three_exact_equals_modular_polynomial_and_threads() {
     let assembled = scope_three();
-    let library = &assembled.library;
-    let context = library.coefficient_context();
     for loops in 1..=3_u8 {
         let inputs = random_inputs(assembled, loops, 60, 0x2100 + u64::from(loops));
-        let mut seconds = [0.0_f64; 3];
-        for input in &inputs {
-            let start = Instant::now();
-            let exact = reduce(library, input.request_inputs(context));
-            seconds[0] += start.elapsed().as_secs_f64();
-            let start = Instant::now();
-            let mut modular = request(input.request_inputs(context));
-            modular.arithmetic = modular_polynomial(1);
-            let modular = library.reduce(modular).unwrap();
-            seconds[1] += start.elapsed().as_secs_f64();
-            assert_eq!(exact.terms, modular.terms, "{input:?}");
-            assert_eq!(exact.nonzero_conditions, modular.nonzero_conditions);
-            let mut threaded = request(input.request_inputs(context));
-            threaded.scheduler = OrderedSchedulerOptions {
-                threads: 16,
-                window_keys: 8,
-                ..Default::default()
-            };
-            let threaded = library.reduce(threaded).unwrap();
-            assert_eq!(exact.terms, threaded.terms);
-            assert_eq!(exact.nonzero_conditions, threaded.nonzero_conditions);
-            let start = Instant::now();
-            let mut both = request(input.request_inputs(context));
-            both.arithmetic = modular_polynomial(4);
-            both.scheduler = OrderedSchedulerOptions {
-                threads: 16,
-                window_keys: 8,
-                ..Default::default()
-            };
-            let both = library.reduce(both).unwrap();
-            seconds[2] += start.elapsed().as_secs_f64();
-            assert_eq!(exact.terms, both.terms, "{input:?}");
-            assert_eq!(exact.nonzero_conditions, both.nonzero_conditions);
-        }
-        println!(
-            "scope 1-3 L{loops}: {} inputs, Exact {:.3} s, ModularPolynomial {:.3} s, \
-             ModularPolynomial(4) x 16 scheduler threads {:.3} s",
-            inputs.len(),
-            seconds[0],
-            seconds[1],
-            seconds[2]
-        );
+        assert_eq!(inputs.len(), 60);
+        arithmetics_agree(&assembled.library, loops, &inputs);
     }
 }
 
