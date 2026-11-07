@@ -327,7 +327,7 @@ mod tests {
     /// message (coordinator note 2026-11-06, change 2).
     #[test]
     fn failed_charts_keep_the_mask_and_the_whole_message() {
-        let long = "exact case intersection: ".to_owned() + &"x".repeat(2000);
+        let long = format!("exact case intersection: {}", "x".repeat(2000));
         let report = format!(
             "schema = \"rustred.family-candidates-output.toml.v1\"\n\n[[failed_sectors]]\n\
              ordinal = 1\nsector = [true, false, true]\nkind = \"unsupported-nonlinear-equalities\"\n\

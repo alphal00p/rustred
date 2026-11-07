@@ -793,7 +793,7 @@ fn raised_corners_walk_the_owner_tables() {
                 })
                 .collect();
             let started = Instant::now();
-            let walk = walk(hand, &[corner.clone()]);
+            let walk = walk(hand, std::slice::from_ref(&corner));
             println!(
                 "{name} +{raise} {corner:?}: {} steps, {} route leaves, {:.3} s",
                 walk.steps,

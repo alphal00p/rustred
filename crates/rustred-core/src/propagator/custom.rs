@@ -495,7 +495,7 @@ pub fn inspect_custom_payload(payload: &[u8]) -> Result<CustomPayloadSummary, PE
     let two_sided_axes = structure
         .ordering
         .program()
-        .map_or(0, |order| mask(&order.two_sided()));
+        .map_or(0, |order| mask(order.two_sided()));
     Ok(CustomPayloadSummary {
         schema: program.schema.clone(),
         family_fingerprint: program.family_fingerprint.clone(),
@@ -1129,7 +1129,7 @@ fn build<const N: usize>(
     let two_sided_axes = decoded
         .ordering
         .program()
-        .map_or(0, |order| mask(&order.two_sided()));
+        .map_or(0, |order| mask(order.two_sided()));
     if forced != 0 && two_sided_axes == 0 {
         return Err(PError::Unsupported(
             "eps custom owner requires two-sided axes".to_owned(),
