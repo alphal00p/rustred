@@ -67,6 +67,9 @@ pub struct CandidateRoutedApplicationStatistics {
 pub struct CandidateRoutedReduction {
     family_fingerprint: Arc<String>,
     terms: BTreeMap<IntegralKey, Coefficient>,
+    /// Modular Ordered requests with an installed terminal composer: the
+    /// lifted outputs of the composer's plan (`terms` is then empty).
+    composed: Option<crate::reduction::ComposedTerminals>,
     unresolved: BTreeSet<IntegralKey>,
     nonzero_conditions: Vec<Coefficient>,
     statistics: CandidateRoutedApplicationStatistics,
@@ -76,8 +79,20 @@ impl CandidateRoutedReduction {
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint
     }
+    /// Exact terminal coefficients; empty when [`Self::composed`] is set.
     pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
         &self.terms
+    }
+    /// The installed terminal composer's lifted outputs (compose before
+    /// lift), when the request composed its terminals.
+    pub fn composed(&self) -> Option<&crate::reduction::ComposedTerminals> {
+        self.composed.as_ref()
+    }
+    /// Number of nonzero terminals of the request (composed or not).
+    pub fn terminal_count(&self) -> usize {
+        self.composed
+            .as_ref()
+            .map_or(self.terms.len(), |composed| composed.terminals.len())
     }
     /// Uncovered output keys remaining after exact back-substitution and cancellation.
     /// They are integrals, not declared master terminals.
@@ -92,6 +107,10 @@ impl CandidateRoutedReduction {
     }
     pub fn is_zero(&self) -> bool {
         self.terms.is_empty()
+            && self
+                .composed
+                .as_ref()
+                .is_none_or(|composed| composed.coefficients.iter().all(Coefficient::is_zero))
     }
 }
 
@@ -149,6 +168,8 @@ pub struct RoutedCandidateApplication<const N: usize> {
     ordered_scheduler: crate::reduction::OrderedSchedulerOptions,
     ordered_route_layering: super::OrderedRouteLayering,
     ordered_step_cache: Option<Arc<crate::reduction::OrderedStepCache>>,
+    /// Terminal composition of modular Ordered requests (compose before lift).
+    ordered_terminal_composer: crate::reduction::OrderedTerminalComposerSlot,
 }
 
 impl<const N: usize> RoutedCandidateReducer<N> {
@@ -172,6 +193,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             ordered_scheduler: Default::default(),
             ordered_route_layering: Default::default(),
             ordered_step_cache: None,
+            ordered_terminal_composer: Default::default(),
         }
     }
 }
@@ -210,6 +232,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
             ordered_scheduler: Default::default(),
             ordered_route_layering: Default::default(),
             ordered_step_cache: None,
+            ordered_terminal_composer: Default::default(),
         })
     }
     /// The verified routes, keyed by their source sector in ascending order.
@@ -252,6 +275,18 @@ impl<const N: usize> RoutedCandidateApplication<N> {
 
     pub fn ordered_weight_arithmetic(&self) -> crate::reduction::OrderedWeightArithmetic {
         self.ordered_weight_arithmetic
+    }
+
+    /// Install (or remove) the terminal composer of modular Ordered requests
+    /// and return the previous one. A modular request whose live terminals the
+    /// composer plans returns only the lifted composed outputs
+    /// ([`CandidateRoutedReduction::composed`]); exact and cross-checked
+    /// requests and the depth-first strategies never compose.
+    pub fn replace_ordered_terminal_composer(
+        &mut self,
+        composer: Option<Arc<dyn crate::reduction::OrderedTerminalComposer>>,
+    ) -> Option<Arc<dyn crate::reduction::OrderedTerminalComposer>> {
+        std::mem::replace(&mut self.ordered_terminal_composer.0, composer)
     }
 
     /// Worker threads and window size of the Ordered scheduler (ignored by

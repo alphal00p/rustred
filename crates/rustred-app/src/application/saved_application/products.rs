@@ -259,7 +259,7 @@ mod tests {
         let connected = key([1, 1, 1]);
         let numerator = key([1, 1, -1]);
         let remaining = BTreeSet::from([product.clone(), connected.clone(), numerator.clone()]);
-        let rows = remaining
+        let rows: BTreeMap<_, _> = remaining
             .iter()
             .map(|key| {
                 (
@@ -273,7 +273,7 @@ mod tests {
             .collect();
         let maps = TerminalMaps {
             families: BTreeMap::from([(family.fingerprint().to_owned(), family)]),
-            rows,
+            rows: rows.into(),
             remaining,
             layer: None,
         };

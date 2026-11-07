@@ -298,7 +298,7 @@ pub(super) fn decode(
     }
     let maps = TerminalMaps {
         families,
-        rows,
+        rows: rows.into(),
         remaining,
         layer: None,
     };

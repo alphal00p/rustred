@@ -43,9 +43,11 @@ pub use ordered_reduction::step_cache::{
     OrderedStepShardState, OrderedStepStage,
 };
 pub use ordered_reduction::{
-    ModularCommon, ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedSchedulerOptions,
-    OrderedTailTable, OrderedTailTableStatistics, OrderedWeightArithmetic,
-    ParseOrderedWeightArithmeticError, PolynomialDenominators, PolynomialOptions, SampledOptions,
+    ComposedTerminals, ModularCommon, ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS,
+    OrderedCompositionPlan, OrderedCompositionStage, OrderedSchedulerOptions, OrderedTailTable,
+    OrderedTailTableStatistics, OrderedTerminalComposer, OrderedTerminalComposerSlot,
+    OrderedWeightArithmetic, ParseOrderedWeightArithmeticError, PolynomialDenominators,
+    PolynomialOptions, SampledOptions,
 };
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,

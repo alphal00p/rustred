@@ -36,6 +36,7 @@ use self::basis::LaneTables;
 pub(super) use self::basis::{Basis, BasisBuilder};
 use self::dense::Dense;
 use self::fraction::Factorized;
+use super::compose::{Program, compose_images};
 use super::executor::Executor;
 use super::lift::{Image, ImageSource, PrimeImages};
 use super::{CoefRef, ModularStatistics, OpTag, Trace, error, statistics_requested};
@@ -211,6 +212,10 @@ pub(super) struct PolynomialSource<'a> {
     basis: &'a Basis,
     options: PolynomialOptions,
     structure: Arc<()>,
+    /// Terminal composition applied to every prime's terminal images in
+    /// `Z_p(d)` (inside the replay job) before the lift.
+    compose: Option<&'a Program>,
+    seed: u64,
 }
 
 impl<'a> PolynomialSource<'a> {
@@ -219,6 +224,8 @@ impl<'a> PolynomialSource<'a> {
         outputs: &'a [usize],
         basis: &'a Basis,
         options: PolynomialOptions,
+        compose: Option<&'a Program>,
+        seed: u64,
     ) -> Self {
         Self {
             trace,
@@ -226,6 +233,8 @@ impl<'a> PolynomialSource<'a> {
             basis,
             options,
             structure: Arc::new(()),
+            compose,
+            seed,
         }
     }
 
@@ -265,6 +274,7 @@ impl ImageSource for PolynomialSource<'_> {
         }
         jobs.reverse();
         let started = Instant::now();
+        let (compose, seed) = (self.compose, self.seed);
         let results = executor.map(jobs, |job| {
             let begun = Instant::now();
             let (indices, tables): (Vec<usize>, Vec<LaneTables>) = job.into_iter().unzip();
@@ -282,13 +292,30 @@ impl ImageSource for PolynomialSource<'_> {
                     &mut Dense::new(&tables, basis, options.max_degree),
                 ),
             };
-            (indices, replayed, begun.elapsed().as_secs_f64())
+            let replay_seconds = begun.elapsed().as_secs_f64();
+            // Compose every lane's terminal images (None: unusable prime).
+            let composed = match (compose, &replayed) {
+                (Some(program), Ok(replayed)) => Some(
+                    indices
+                        .iter()
+                        .zip(&replayed.images)
+                        .map(|(&index, images)| {
+                            compose_images(program, primes[index], images, seed)
+                        })
+                        .collect::<Result<Vec<_>, _>>(),
+                ),
+                _ => None,
+            };
+            let compose_seconds = begun.elapsed().as_secs_f64() - replay_seconds;
+            (indices, replayed, composed, replay_seconds, compose_seconds)
         });
         statistics.replay_seconds += started.elapsed().as_secs_f64();
         let mut images: Vec<Option<PrimeImages<()>>> = primes.iter().map(|_| None).collect();
-        for (indices, replayed, seconds) in results {
+        for (indices, replayed, composed, seconds, compose_seconds) in results {
             let replayed = replayed?;
             statistics.replay_cpu_seconds += seconds;
+            statistics.composition_cpu_seconds += compose_seconds;
+            let composed = composed.transpose()?;
             statistics.passes += 1;
             statistics.lanes_replayed += indices.len();
             statistics.cancel_checks += replayed.cancel_checks * indices.len();
@@ -316,11 +343,25 @@ impl ImageSource for PolynomialSource<'_> {
                     statistics.replay_phase_volume.push((label, *volume));
                 }
             }
-            for (index, terminals) in indices.into_iter().zip(replayed.images) {
-                images[index] = Some(PrimeImages {
-                    structure: self.structure.clone(),
-                    terminals,
-                });
+            match composed {
+                None => {
+                    for (index, terminals) in indices.into_iter().zip(replayed.images) {
+                        images[index] = Some(PrimeImages {
+                            structure: self.structure.clone(),
+                            terminals,
+                        });
+                    }
+                }
+                Some(composed) => {
+                    for (index, (terminals, points)) in indices.into_iter().zip(composed) {
+                        statistics.composition_points += points.drawn;
+                        statistics.bad_points += points.bad;
+                        images[index] = terminals.map(|terminals| PrimeImages {
+                            structure: self.structure.clone(),
+                            terminals,
+                        });
+                    }
+                }
             }
         }
         Ok(images)

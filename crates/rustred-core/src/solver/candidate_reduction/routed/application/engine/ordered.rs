@@ -386,6 +386,12 @@ impl<const N: usize> OrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
         self.request.ordered_live_work = Some(live);
     }
 
+    fn terminal_composer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reduction::OrderedTerminalComposer>> {
+        self.application.ordered_terminal_composer.0.clone()
+    }
+
     /// Partial keys have no public view: they never remain on the frontier
     /// at a phase boundary and are never recorded in a step cache.
     fn key_view(node: &OrderedNode<N>) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
@@ -904,7 +910,11 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         request.stats.work.merge_work(output.work);
         request.ordered_live_work = Some(request.stats.work);
         let mut unresolved = BTreeSet::new();
-        for key in output.terms.keys() {
+        let live = match &output.composed {
+            Some(composed) => composed.terminals.iter().collect::<Vec<_>>(),
+            None => output.terms.keys().collect(),
+        };
+        for key in live {
             if !self.terminal_is_declared(key)? {
                 unresolved.insert(key.clone());
             }
@@ -912,6 +922,7 @@ impl<const N: usize> RoutedCandidateApplication<N> {
         Ok(CandidateRoutedReduction {
             family_fingerprint: context.family.fingerprint_owner(),
             terms: output.terms,
+            composed: output.composed,
             unresolved,
             nonzero_conditions: output.nonzero_conditions,
             statistics: request.stats,

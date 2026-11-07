@@ -198,12 +198,13 @@ struct TerminalRow {
 
 struct TerminalMaps {
     families: BTreeMap<String, Arc<IntegralFamily>>,
-    rows: BTreeMap<SavedApplicationIntegral, TerminalRow>,
+    /// Shared with the terminal composer of modular Ordered requests.
+    rows: Arc<BTreeMap<SavedApplicationIntegral, TerminalRow>>,
     /// Output terminals. For a layered package this is the composed set.
     remaining: BTreeSet<SavedApplicationIntegral>,
     /// RR-11 `--layered` packages: a final exact substitution of base
     /// terminals by layer masters, applied after `rows`.
-    layer: Option<TerminalLayer>,
+    layer: Option<Arc<TerminalLayer>>,
 }
 
 /// Layer rows of a layered package (RR-11 design §4). Base `rows` map onto
@@ -244,7 +245,7 @@ impl TerminalMaps {
         }
         Ok(Self {
             families,
-            rows,
+            rows: rows.into(),
             remaining: collection.remaining_terminals().iter().map(key).collect(),
             layer: None,
         })
@@ -329,7 +330,7 @@ impl TerminalMaps {
                 ));
             }
         }
-        for (key, row) in &self.rows {
+        for (key, row) in self.rows.iter() {
             check_key(key)?;
             for (output, coefficient) in &row.terms {
                 check_key(output)?;
@@ -376,6 +377,8 @@ pub struct PreparedSavedApplication<const N: usize> {
     options: SavedApplicationOptions,
     metadata: Value,
     inputs: package::ApplicationInputs,
+    /// `None`: [`SavedApplicationTerminalComposition::from_environment`].
+    terminal_composition: Option<SavedApplicationTerminalComposition>,
 }
 
 impl<const N: usize> PreparedSavedApplication<N> {
@@ -636,6 +639,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         &mut self,
         terms: impl IntoIterator<Item = (IntegralKey, Coefficient)>,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_routed_linear_combination_with_entry_admission(
@@ -658,6 +662,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
             rustred::solver::CandidateRoutedError,
         >,
     ) -> Result<SavedApplicationReduction, AppError> {
+        self.install_terminal_composer();
         let reduced = self
             .application
             .reduce_routed_linear_combination_with_ordered_inspector(
@@ -682,6 +687,7 @@ impl<const N: usize> PreparedSavedApplication<N> {
         mut progress: Option<&mut progress::SavedProgress<'_>>,
     ) -> Result<SavedApplicationReduction, AppError> {
         let inputs = self.collect_reduction_inputs(terms)?;
+        self.install_terminal_composer();
         let reduced = if let Some(progress) = progress.as_deref_mut() {
             self.application
                 .reduce_linear_combination_with_entry_admission_and_observer(
@@ -747,13 +753,29 @@ impl<const N: usize> PreparedSavedApplication<N> {
         cancel: Option<&AtomicBool>,
     ) -> Result<SavedApplicationReduction, AppError> {
         if let Some(progress) = progress.as_deref_mut() {
-            progress.terminal_start(reduced.terms().len());
+            progress.terminal_start(reduced.terminal_count());
         }
         let family = self.family();
         let mut observation = observer.and_then(|observer| {
-            progress::SavedObservation::new(observer, family.fingerprint(), reduced.terms().len())
+            progress::SavedObservation::new(
+                observer,
+                family.fingerprint(),
+                reduced.terminal_count(),
+            )
         });
+        let stage_started = Instant::now();
+        let raw_terminals = reduced.terminal_count();
+        let composed_mode = reduced.composed().is_some();
         let result = (|| {
+            if let Some(composed) = reduced.composed() {
+                return self.assemble_composed(
+                    &reduced,
+                    composed,
+                    progress.as_deref_mut(),
+                    observation.as_mut(),
+                    cancel,
+                );
+            }
             let mut output = BTreeMap::new();
             // Keep deterministic encounter order in the output, but use native
             // Symbolica Hash/Eq for membership. Borrowing avoids a second owned
@@ -894,7 +916,161 @@ impl<const N: usize> PreparedSavedApplication<N> {
         if let Some(observation) = observation.as_mut() {
             observation.finish(family.fingerprint(), &result);
         }
+        report_stage(&serde_json::json!({
+            "stage": "terminal_substitution",
+            "mode": if composed_mode { "modular" } else { "exact" },
+            "seconds": stage_started.elapsed().as_secs_f64(),
+            "raw_terminals": raw_terminals,
+            "outputs": result.as_ref().map_or(0, |r| r.terms.len()),
+            "additions": result.as_ref().map_or(0, |r| r.terminal_substitution_additions),
+            "ok": result.is_ok(),
+        }));
         result
+    }
+
+    /// The saved terminal substitutions of a request whose raw terminals were
+    /// composed modulo every prime before reconstruction (compose before
+    /// lift): the lifted outputs are already the coefficients on the
+    /// substitutions' outputs. The guards are collected exactly as the exact
+    /// substitution collects them (the composed terminals are the request's
+    /// nonzero raw terminals, in the same order); the addition count is
+    /// structural (a partial sum that cancels is still counted).
+    fn assemble_composed(
+        &self,
+        reduced: &CandidateRoutedReduction,
+        composed: &rustred::reduction::ComposedTerminals,
+        mut progress: Option<&mut progress::SavedProgress<'_>>,
+        mut observation: Option<&mut progress::SavedObservation<'_, '_>>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<SavedApplicationReduction, AppError> {
+        let family = self.family();
+        let labels = composed
+            .labels
+            .downcast_ref::<ComposedLabels>()
+            .ok_or_else(|| AppError::execution("composed terminals carry foreign labels"))?;
+        if labels.outputs.len() != composed.coefficients.len() {
+            return Err(AppError::execution(
+                "composed terminals differ from their labels",
+            ));
+        }
+        let mut conditions = Vec::new();
+        let mut seen_conditions = HashSet::new();
+        let mut seen_guard_vectors = HashSet::new();
+        append_conditions(
+            &mut conditions,
+            &mut seen_conditions,
+            reduced.nonzero_conditions(),
+        );
+        let routed_additions = reduced.statistics().work.coalescing_additions();
+        let mut additions = routed_additions;
+        let mut touched = BTreeSet::new();
+        for integral in &composed.terminals {
+            progress::check_cancellation(cancel)?;
+            let key = SavedApplicationIntegral {
+                family_fingerprint: family.fingerprint().to_owned(),
+                integral: integral.clone(),
+            };
+            let row = self.terminals.rows.get(&key).ok_or_else(|| {
+                AppError::execution(
+                    "saved owner returned a terminal absent from the published substitutions",
+                )
+            })?;
+            if seen_guard_vectors.insert(Arc::as_ptr(&row.conditions)) {
+                append_conditions(&mut conditions, &mut seen_conditions, &row.conditions);
+            }
+            for output in row.terms.keys() {
+                let layer_row = self
+                    .terminals
+                    .layer
+                    .as_ref()
+                    .and_then(|layer| layer.rows.get(output));
+                let targets: Vec<&SavedApplicationIntegral> = match layer_row {
+                    None => vec![output],
+                    Some(layer_row) => {
+                        if seen_guard_vectors.insert(Arc::as_ptr(&layer_row.conditions)) {
+                            append_conditions(
+                                &mut conditions,
+                                &mut seen_conditions,
+                                &layer_row.conditions,
+                            );
+                        }
+                        layer_row.terms.keys().collect()
+                    }
+                };
+                for target in targets {
+                    if !touched.insert(target) {
+                        additions = additions
+                            .checked_add(1)
+                            .filter(|&n| {
+                                !self.options.reduction_limits.diagnostics_enabled
+                                    || n <= self.options.reduction_limits.max_coalescing_additions
+                            })
+                            .ok_or_else(|| {
+                                AppError::limit("terminal substitution addition limit exceeded")
+                            })?;
+                    }
+                }
+            }
+            if let Some(progress) = progress.as_deref_mut() {
+                progress.terminal_row(additions - routed_additions);
+            }
+            if let Some(observation) = observation.as_deref_mut() {
+                observation.terminal_row(
+                    family.fingerprint(),
+                    additions - routed_additions,
+                    touched.len(),
+                );
+            }
+        }
+        progress::check_cancellation(cancel)?;
+        let output: BTreeMap<_, _> = labels
+            .outputs
+            .iter()
+            .zip(&composed.coefficients)
+            .filter(|(_, coefficient)| !coefficient.is_zero())
+            .map(|(key, coefficient)| (key.clone(), coefficient.clone()))
+            .collect();
+        let unresolved = output
+            .keys()
+            .filter(|key| !self.terminals.remaining.contains(*key))
+            .cloned()
+            .collect();
+        Ok(SavedApplicationReduction {
+            terms: output,
+            unresolved,
+            conditions,
+            statistics: *reduced.statistics(),
+            terminal_substitution_additions: additions - routed_additions,
+        })
+    }
+
+    /// How modular Ordered requests compose their raw terminals with the
+    /// saved substitutions (default: `RUSTRED_SAVED_APPLICATION_TERMINAL_COMPOSITION`
+    /// = `exact` | `modular`, else [`SavedApplicationTerminalComposition::Modular`]).
+    pub fn set_terminal_composition(&mut self, composition: SavedApplicationTerminalComposition) {
+        self.terminal_composition = Some(composition);
+    }
+
+    pub fn terminal_composition(&self) -> SavedApplicationTerminalComposition {
+        self.terminal_composition
+            .unwrap_or_else(SavedApplicationTerminalComposition::from_environment)
+    }
+
+    /// Install the terminal composer for one native request (modular
+    /// Ordered requests only; others never consult it).
+    fn install_terminal_composer(&mut self) {
+        let composer: Option<Arc<dyn rustred::reduction::OrderedTerminalComposer>> = match self
+            .terminal_composition()
+        {
+            SavedApplicationTerminalComposition::Exact => None,
+            SavedApplicationTerminalComposition::Modular => Some(Arc::new(SavedTerminalComposer {
+                family_fingerprint: self.family().fingerprint().to_owned(),
+                rows: Arc::clone(&self.terminals.rows),
+                layer: self.terminals.layer.clone(),
+                one: self.family().coefficient_context().one(),
+            })),
+        };
+        self.application.replace_ordered_terminal_composer(composer);
     }
 
     /// Write a self-contained directory, refusing to replace an existing path.
@@ -1117,7 +1293,146 @@ impl<const N: usize> PreparedSavedApplication<N> {
             options,
             metadata,
             inputs,
+            terminal_composition: None,
         })
+    }
+}
+
+/// Append one JSON line per saved-application stage to the file named by
+/// `RUSTRED_SAVED_APPLICATION_STAGES` (instrumentation only; no effect on
+/// results).
+pub(crate) fn report_stage(line: &Value) {
+    if let Some(path) = std::env::var_os("RUSTRED_SAVED_APPLICATION_STAGES") {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+}
+
+/// How a prepared saved application composes the raw terminals of modular
+/// Ordered requests (`ModularSampled`, `ModularPolynomial`) with its published
+/// terminal substitutions. Both return the same exact result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SavedApplicationTerminalComposition {
+    /// Compose modulo every prime before the rational reconstruction ("compose
+    /// before lift"): only the coefficients on the substitutions' outputs are
+    /// reconstructed, never the raw terminal coefficients.
+    #[default]
+    Modular,
+    /// Reconstruct every raw terminal coefficient, then substitute exactly
+    /// (the historical path).
+    Exact,
+}
+
+impl SavedApplicationTerminalComposition {
+    /// `RUSTRED_SAVED_APPLICATION_TERMINAL_COMPOSITION` (`exact` or
+    /// `modular`), else the default.
+    pub fn from_environment() -> Self {
+        match std::env::var("RUSTRED_SAVED_APPLICATION_TERMINAL_COMPOSITION").as_deref() {
+            Ok("exact") => Self::Exact,
+            _ => Self::default(),
+        }
+    }
+}
+
+/// Output keys of a composed request, in plan order.
+struct ComposedLabels {
+    outputs: Vec<SavedApplicationIntegral>,
+}
+
+/// The saved substitutions as a modular terminal composition: the base rows,
+/// then (layered packages) the layer rows or the identity.
+struct SavedTerminalComposer {
+    family_fingerprint: String,
+    rows: Arc<BTreeMap<SavedApplicationIntegral, TerminalRow>>,
+    layer: Option<Arc<TerminalLayer>>,
+    one: Coefficient,
+}
+
+impl rustred::reduction::OrderedTerminalComposer for SavedTerminalComposer {
+    fn plan<'a>(
+        &'a self,
+        terminals: &[IntegralKey],
+    ) -> Result<
+        Option<rustred::reduction::OrderedCompositionPlan<'a>>,
+        rustred::reduction::ReductionError,
+    > {
+        use rustred::reduction::{OrderedCompositionPlan, OrderedCompositionStage};
+        fn index<'a>(
+            keys: &mut Vec<&'a SavedApplicationIntegral>,
+            positions: &mut BTreeMap<&'a SavedApplicationIntegral, u32>,
+            key: &'a SavedApplicationIntegral,
+        ) -> u32 {
+            *positions.entry(key).or_insert_with(|| {
+                keys.push(key);
+                (keys.len() - 1) as u32
+            })
+        }
+        let mut middle = vec![];
+        let mut middle_positions = BTreeMap::new();
+        let mut first = Vec::with_capacity(terminals.len());
+        for integral in terminals {
+            let key = SavedApplicationIntegral {
+                family_fingerprint: self.family_fingerprint.clone(),
+                integral: integral.clone(),
+            };
+            // A terminal without a published row (an unresolved integral kept
+            // by the Preserve policy, or an error) keeps the exact path.
+            let Some(row) = self.rows.get(&key) else {
+                return Ok(None);
+            };
+            first.push(
+                row.terms
+                    .iter()
+                    .map(|(output, coefficient)| {
+                        (
+                            index(&mut middle, &mut middle_positions, output),
+                            coefficient,
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        let mut stages = vec![OrderedCompositionStage {
+            rows: first,
+            width: middle.len(),
+        }];
+        let outputs = match &self.layer {
+            None => middle,
+            Some(layer) => {
+                let mut outputs = vec![];
+                let mut positions = BTreeMap::new();
+                let second = middle
+                    .iter()
+                    .map(|key| match layer.rows.get(*key) {
+                        Some(row) => row
+                            .terms
+                            .iter()
+                            .map(|(output, coefficient)| {
+                                (index(&mut outputs, &mut positions, output), coefficient)
+                            })
+                            .collect(),
+                        None => vec![(index(&mut outputs, &mut positions, key), &self.one)],
+                    })
+                    .collect();
+                stages.push(OrderedCompositionStage {
+                    rows: second,
+                    width: outputs.len(),
+                });
+                outputs
+            }
+        };
+        Ok(Some(OrderedCompositionPlan {
+            stages,
+            labels: Arc::new(ComposedLabels {
+                outputs: outputs.into_iter().cloned().collect(),
+            }),
+        }))
     }
 }
 
