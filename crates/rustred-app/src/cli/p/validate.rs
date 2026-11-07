@@ -14,7 +14,9 @@
 //! descend are counted (`PUncoveredPolicy::Reject`); any of them is the verdict
 //! FAIL, exit status 1. A library that cannot be assembled or certified (for
 //! example a loop count of the scope without a family) and a loop count without
-//! keys are errors of the run, exit status 5 (derivation).
+//! keys are errors of the run, exit status 5 (derivation). When the generator
+//! meets fewer distinct keys than requested (it gives up after `50 n` draws), the
+//! row says `SHORTFALL`; that is reported, not refused.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;

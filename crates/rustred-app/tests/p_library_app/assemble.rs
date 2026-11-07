@@ -21,8 +21,13 @@ use std::time::Instant;
 
 use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
+use rustred::order::{
+    CompiledOrder, CoordinateGroups, DegreeRow, Direction, Limits as OrderLimits, OrderDescriptor,
+};
 use rustred::propagator::census::{PCensus, PSectorFate};
-use rustred::propagator::custom::{custom_payload_dump, inspect_custom_payload};
+use rustred::propagator::custom::{
+    CustomPower, custom_payload_dump, custom_payload_rules, inspect_custom_payload,
+};
 use rustred::propagator::descent::{self, DescentWitness, TraceFailureKind};
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
@@ -45,9 +50,11 @@ use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedStepCache, OrderedWeightArithmetic,
     PolynomialOptions, ReductionLimits,
 };
+use rustred::sector::OrderingPolicy;
 use rustred::solver::litered::{DynamicLiteRedSession, LiteRedOptions};
 use rustred_app::propagator::assemble::{
-    SplitMix, ValidateOptions, assemble_library_with, unapplied_owners, validate_library,
+    SplitMix, ValidateOptions, assemble_library_with, random_key, unapplied_owners,
+    validate_library,
 };
 use rustred_app::propagator::{
     AssembleOptions, AssembledLibrary, CustomOwnerOptions, CustomOwnerPayload, CustomPayloads,
@@ -613,11 +620,19 @@ fn the_guard_needs_both_raw_charts_of_an_eps_owner() {
     };
     let (minus, plus) = (support & !forced, support);
     for charts in [vec![minus, plus], vec![plus, minus]] {
-        let (built, spec) = custom(forced, charts);
+        let (built, spec) = custom(forced, charts.clone());
         descent::check_custom_guard(&built, &spec).unwrap();
-        // Past the library's guard, the step's own reading: the record lists
-        // the charts ascending, and the bytes are no payload.
-        assert!(lane_program(&built, &spec).is_err());
+        // Past the library's guard, the step's own reading (review PSF4):
+        // the record must list the charts ascending, and the bytes are no
+        // payload.
+        let error = lane_program(&built, &spec).unwrap_err();
+        let expected = if charts == [minus, plus] {
+            matches!(&error, PError::MalformedLibrary(m) if m.starts_with("custom payload: "))
+        } else {
+            matches!(&error, PError::Generation(m)
+                if m.starts_with("custom owner charts [3, 1], every raw chart of support 0x3 is [1, 3]"))
+        };
+        assert!(expected, "{charts:#x?}: {error:?}");
     }
     for (two_sided, charts, reason) in [
         (forced, vec![plus], "charts"),
@@ -829,6 +844,50 @@ fn the_p_validate_command_validates_scope_one_to_two() {
         .output()
         .unwrap();
     assert!(!usage.status.success());
+}
+
+/// Review PSF5: a request the random generator cannot meet is reported, not
+/// hidden. The 1L box (dots <= 3, rank <= 8) holds 127 keys: 127 points take
+/// the whole box, 126 draw at random and meet 121 distinct keys in 50 * 126
+/// draws (the rare ones, e.g. all 8 numerator units on one line, are missed),
+/// so the row is 5 short and `rustred p-validate` says so (exit 0: a shortfall
+/// is no refusal). 0 points are refused.
+#[test]
+fn p_validate_reports_a_shortfall_and_refuses_zero_points() {
+    let assembled = assemble(1);
+    let validate = |points| {
+        validate_library(
+            &assembled,
+            &ValidateOptions {
+                points,
+                ..ValidateOptions::default()
+            },
+        )
+    };
+    let whole = validate(127).unwrap();
+    assert_eq!((whole[0].keys, whole[0].box_exhausted), (127, true));
+    assert_eq!(whole[0].shortfall(127), 0);
+    let short = validate(126).unwrap();
+    let row = &short[0];
+    assert!(!row.box_exhausted && row.report.is_clean());
+    assert_eq!((row.keys, row.shortfall(126)), (121, 5));
+    assert_eq!(
+        validate(0).unwrap_err(),
+        PError::Unsupported("p-validate: 0 keys per loop count requested".to_owned())
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .args(["p-validate", "--max-loops", "1", "--points", "126"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    let marker = format!(
+        "L1: {} distinct keys (SHORTFALL: {} fewer than requested, the generator gave up)",
+        row.keys,
+        row.shortfall(126)
+    );
+    assert!(stdout.contains(&marker), "{stdout}");
 }
 
 // ---------------------------------------------------------------------------
@@ -2025,8 +2084,9 @@ fn identity_bytes(library: &PLibrary) -> usize {
 /// ModularPolynomial weights (in memory); the bytes of the saved records and
 /// the share of identities in them (a shard file stores each identity once:
 /// the tagged trace counts the distinct identities per shard), the rest being
-/// coefficients. Numerators over each family's own `k` columns.
-/// Measurements, printed; run optimised.
+/// coefficients. Numerators over each family's own `k` columns. An untimed
+/// run of every cell prepares the owners first. Measurements, printed; run
+/// optimised.
 #[test]
 #[ignore = "slow: benchmark cells at rank 8, measured optimised"]
 fn benchmark_cells_tags_and_timings() {
@@ -2039,22 +2099,41 @@ fn benchmark_cells_tags_and_timings() {
         tags: true,
     };
     for loops in 1..=3_u8 {
+        let cell = |dots: u32, rank: u32| {
+            let mut inputs = Vec::new();
+            for top in assembled.tops_of(loops) {
+                let terms = benchmark_input(library.presentation(top), dots, rank);
+                inputs.extend(Input { top, terms, rank }.request_inputs(context));
+            }
+            inputs
+        };
+        // Every owner the cells reach is prepared before any timing (the
+        // Custom charts at their first step), so that neither arithmetic is
+        // charged with it (review PSF7).
+        let start = Instant::now();
+        for dots in 0..=2 {
+            for rank in [0, 2, 4, 6, 8] {
+                let mut run = request(cell(dots, rank));
+                run.arithmetic = modular_polynomial(1);
+                library.reduce(run).unwrap();
+            }
+        }
+        println!(
+            "L{loops}: owners prepared by an untimed run of the cells, {:.3} s",
+            start.elapsed().as_secs_f64()
+        );
         let mut all_keys = Vec::new();
         let (mut record_bytes, mut identities) = (0_u64, 0_usize);
         // Cold wall seconds of the cells: Exact, ModularPolynomial.
         let mut cold = [0.0_f64; 2];
         for dots in 0..=2 {
             for rank in [0, 2, 4, 6, 8] {
-                let mut inputs = Vec::new();
-                for top in assembled.tops_of(loops) {
-                    let terms = benchmark_input(library.presentation(top), dots, rank);
-                    all_keys.extend(terms.iter().map(|(powers, _)| (top, powers.clone())));
-                    inputs.extend(Input { top, terms, rank }.request_inputs(context));
-                }
+                let inputs = cell(dots, rank);
                 let keys: Vec<_> = inputs
                     .iter()
                     .map(|(top, key, _)| (*top, key.powers().to_vec()))
                     .collect();
+                all_keys.extend(keys.iter().cloned());
                 let tags = descent::trace_with(library, &keys, tagged).unwrap();
                 let cell_identities = tags.shard_identities;
                 let mut line = format!(
@@ -2535,10 +2614,92 @@ fn the_descent_certificate_checks_custom_orders_and_witnesses() {
     }
 }
 
+/// The class of every non-trivial DAG node is applied: each node lies in
+/// exactly one class record, and that class is in `applied`. An owner node is
+/// applied directly; a non-owner node (a Whitney twin of its class's owner
+/// node) only through its class: no edge map leads into it and the keys of
+/// these tests start on the tops, so no key is ever placed on its presentation
+/// (that it would reduce: [`every_dag_node_presentation_reduces_through_its_class`]).
+/// Returns the non-owner nodes `(node, class label)`.
+fn node_classes_applied(
+    assembled: &AssembledLibrary,
+    applied: &BTreeSet<OwnerClassId>,
+) -> Vec<(u32, String)> {
+    let census = assembled.library.census();
+    let mut twins = Vec::new();
+    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
+        let classes: Vec<_> = (census.classes.iter())
+            .filter(|(_, record)| record.nodes.contains(&node.index))
+            .collect();
+        let [(class, record)] = classes[..] else {
+            panic!("node {} lies in {} classes", node.index.0, classes.len());
+        };
+        assert!(
+            applied.contains(class),
+            "node {}: its class {} was never applied",
+            node.index.0,
+            record.key.label()
+        );
+        if record.node != Some(node.index) {
+            twins.push((node.index.0, record.key.label()));
+        }
+    }
+    twins
+}
+
+/// Review PSF2: the certificate steps each Custom owner's witness box through
+/// the real step (D-T8a-15), not the payload rules one by one. Per rule, the
+/// box keys on the rule's face are counted: the key's chart is the rule's, and
+/// the key has the rule's fixed powers (case and target); a necessary
+/// condition for the rule to fire on the key (affine equations, exclusions and
+/// the application order are not evaluated here).
+#[test]
+fn the_custom_witness_boxes_meet_the_rule_faces() {
+    let library = &scope_three().library;
+    let mut met = Vec::new();
+    for label in [NO_LABEL, T1STAR05_LABEL] {
+        let spec = owner_labelled(library, label);
+        let rules = custom_payload_rules(&spec.payload.as_ref().unwrap().bytes().unwrap()).unwrap();
+        let p = library.presentation(spec.presentation);
+        let support = library.census().classes[&spec.class].owner.1;
+        let keys = descent::custom_witness_keys(p.slots.len(), support, p.forced_axes());
+        let chart_of = |key: &[i64]| {
+            (key.iter().enumerate())
+                .filter(|&(_, &power)| power > 0)
+                .fold(0_u64, |mask, (slot, _)| mask | 1 << slot)
+        };
+        let mut unmet = Vec::new();
+        let mut hits = Vec::new();
+        for rule in &rules {
+            let on_face = (keys.iter())
+                .filter(|key| {
+                    chart_of(key) == rule.chart
+                        && rule.fixed.iter().all(|&(axis, value)| key[axis] == value)
+                        && (rule.target.iter().enumerate()).all(|(slot, power)| match power {
+                            CustomPower::Fixed(value) => key[slot] == *value,
+                            CustomPower::Symbolic(_) => true,
+                        })
+                })
+                .count();
+            hits.push(on_face);
+            if on_face == 0 {
+                unmet.push((rule.chart, rule.ordinal, rule.affine, rule.fixed.clone()));
+            }
+        }
+        println!(
+            "{label}: {} box keys, {} rules, box keys per rule face {hits:?}; rules with none: {unmet:?}",
+            keys.len(),
+            rules.len()
+        );
+        met.push((rules.len(), rules.len() - unmet.len()));
+    }
+    assert_eq!(met, [(25, 25), (18, 18)]);
+}
+
 /// `points` distinct random keys per loop count at scope 1-3 (the whole box at
 /// one loop), dots <= 3 and rank <= 8 in total: nothing refused, no shortfall,
-/// every owner applied, every DAG node reached (its class applied, or keys
-/// routed on its presentation). Returns (loops, keys, Route keys, Apply keys,
+/// every owner applied, so the class of every DAG node (see
+/// [`node_classes_applied`]). Returns (loops, keys, Route keys, Apply keys,
 /// zero Route keys) per row.
 fn validate_scope_three(points: usize) -> Vec<(u8, usize, usize, usize, usize)> {
     let assembled = scope_three();
@@ -2574,21 +2735,13 @@ fn validate_scope_three(points: usize) -> Vec<(u8, usize, usize, usize, usize)> 
     let applied: BTreeSet<OwnerClassId> = (rows.iter())
         .flat_map(|row| row.report.applied.keys().copied())
         .collect();
-    let routed: BTreeSet<PresentationId> = (rows.iter())
-        .flat_map(|row| row.report.routed.keys().copied())
-        .collect();
-    let census = library.census();
-    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
-        let class_applied = (census.classes.iter())
-            .any(|(class, record)| record.nodes.contains(&node.index) && applied.contains(class));
-        let presentation = node.presentation.unwrap();
-        assert!(
-            class_applied || routed.contains(&presentation),
-            "node {} (presentation {}) never reached",
-            node.index.0,
-            presentation.0
-        );
-    }
+    let twins = node_classes_applied(assembled, &applied);
+    assert_eq!(twins.len(), 5);
+    println!(
+        "p-validate scope 1-3: the class of every DAG node applied ({} owners); non-owner nodes, \
+         reached through their class only: {twins:?}",
+        library.owners().len()
+    );
     let reached: Vec<_> = rows
         .iter()
         .map(|row| {
@@ -2637,6 +2790,70 @@ fn p_validate_traces_ten_thousand_keys_per_loop_count_at_scope_one_to_three() {
     );
 }
 
+/// Review PSF1: keys placed on the presentation of every non-trivial DAG node,
+/// non-owner (twin) nodes included, reduce. The corner of each node (lines at
+/// 1, ISPs at 0) is a sector of the node's own class in the census; the
+/// corners and 4 random keys per node (dots <= 1, rank <= 2 in total) trace
+/// through the scope 1-3 program without refusal, every node presentation
+/// routed, every owner applied.
+#[test]
+fn every_dag_node_presentation_reduces_through_its_class() {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    let census = library.census();
+    let mut rng = SplitMix::new(0x0de5_7a1e);
+    let mut keys = Vec::new();
+    let mut twins = Vec::new();
+    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
+        let id = node.presentation.unwrap();
+        let p = library.presentation(id);
+        let corner: Vec<i64> = (p.slots.iter())
+            .map(|slot| i64::from(matches!(slot, Slot::Line(_))))
+            .collect();
+        let support = (corner.iter().enumerate())
+            .filter(|&(_, &power)| power > 0)
+            .fold(p.forced_axes(), |mask, (slot, _)| mask | 1 << slot);
+        let (class, record) = (census.classes.iter())
+            .find(|(_, record)| record.nodes.contains(&node.index))
+            .unwrap();
+        assert!(
+            matches!(&census.sectors[&(id, support)], PSectorFate::Owner { class: owner, .. }
+                if owner == class),
+            "node {}: corner sector {support:#x} of presentation {}",
+            node.index.0,
+            id.0
+        );
+        if record.node != Some(node.index) {
+            twins.push(node.index.0);
+        }
+        keys.push((id, corner));
+        for _ in 0..4 {
+            let (dots, rank) = (rng.below(2) as u32, rng.below(3) as u32);
+            keys.push((id, random_key(p, dots, rank, &mut rng)));
+        }
+    }
+    assert_eq!(twins, [9, 16, 17, 18, 21]);
+    let start = Instant::now();
+    let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
+    println!(
+        "every node presentation: {} keys ({} distinct) on {} node presentations, twins {twins:?}: {} route + {} \
+         apply keys, {} owners applied, {:.1} s",
+        keys.len(),
+        trace.distinct_inputs,
+        assembled.nodes.len() - 1,
+        trace.route_keys,
+        trace.apply_keys,
+        trace.applied.len(),
+        start.elapsed().as_secs_f64()
+    );
+    assert!(trace.is_clean(), "{:?}", trace.samples);
+    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
+        let id = node.presentation.unwrap();
+        assert!(trace.routed.contains_key(&id), "presentation {}", id.0);
+    }
+    assert_eq!(trace.applied.len(), library.owners().len());
+}
+
 /// One cache serves the 3L program: a dotted LA top after the plain one meets
 /// its subkeys at the same absolute tag and replays them, with the result of
 /// an uncached run.
@@ -2666,6 +2883,32 @@ fn the_step_cache_replays_three_loop_records_where_the_absolute_tag_matches() {
     );
 }
 
+/// The scope 1-2 program with the kite's Triangle row refused as not Forcer's
+/// shape: the kite presented as Custom and its owner generated (assembled once
+/// per test process).
+fn kite_fallback() -> &'static AssembledLibrary {
+    static LIBRARY: OnceLock<AssembledLibrary> = OnceLock::new();
+    LIBRARY.get_or_init(|| {
+        let mismatch = |p: &Presentation, _: &TriangleRoles| {
+            Err(TemplateError::Mismatch(TemplateMismatch {
+                presentation: p.id,
+                reason: "test: not Forcer's row".to_owned(),
+            }))
+        };
+        assemble_library_with(
+            &families(),
+            2,
+            CustomPayloads::Generate(CustomOwnerOptions::default()),
+            &AssembleOptions {
+                threads: workers(),
+                verify_descent: true,
+            },
+            &mismatch,
+        )
+        .unwrap()
+    })
+}
+
 /// Review SF9a: a Triangle node whose IBP row does not have Forcer's shape is
 /// presented as Custom (on its Induced presentation, D7) with the reason kept,
 /// its owner generated, and the library certified; the kite then reduces to
@@ -2677,20 +2920,7 @@ fn a_triangle_mismatch_falls_back_to_custom_and_a_failure_stops() {
         threads: workers(),
         verify_descent: true,
     };
-    let mismatch = |p: &Presentation, _: &TriangleRoles| {
-        Err(TemplateError::Mismatch(TemplateMismatch {
-            presentation: p.id,
-            reason: "test: not Forcer's row".to_owned(),
-        }))
-    };
-    let fallback = assemble_library_with(
-        &families(),
-        2,
-        CustomPayloads::Generate(CustomOwnerOptions::default()),
-        &options,
-        &mismatch,
-    )
-    .unwrap();
+    let fallback = kite_fallback();
     let node = fallback
         .nodes
         .iter()
@@ -2712,7 +2942,7 @@ fn a_triangle_mismatch_falls_back_to_custom_and_a_failure_stops() {
         }
     );
     assert_eq!(
-        lanes_of(&fallback),
+        lanes_of(fallback),
         BTreeMap::from([(OwnerLane::SeriesParallel, 5), (OwnerLane::Custom, 1)])
     );
     assert_eq!(fallback.custom.len(), 1);
@@ -2754,6 +2984,87 @@ fn a_triangle_mismatch_falls_back_to_custom_and_a_failure_stops() {
         )
         .unwrap_err(),
         PError::Generation("test: the row failed".to_owned())
+    );
+}
+
+/// Certificate item 1 on an INTEGER Custom owner (review PSF3, open issue
+/// (a)): the kite of [`kite_fallback`] (an integer Custom owner, no forced
+/// axes) with a payload generated under an order that is not support-primary
+/// (a total-degree row before the support) is refused by `descent::check`; the
+/// generated payload (support-primary) is certified.
+#[test]
+fn an_integer_custom_owner_needs_a_support_primary_order() {
+    let assembled = kite_fallback();
+    let library = &assembled.library;
+    let spec = (library.owners())
+        .find(|owner| owner.spec.lane == OwnerLane::Custom)
+        .unwrap()
+        .spec
+        .clone();
+    let p = library.presentation(spec.presentation);
+    assert_eq!(p.forced_axes(), 0);
+    let summary = inspect_custom_payload(&spec.payload.as_ref().unwrap().bytes().unwrap()).unwrap();
+    assert!(
+        OrderingPolicy::try_from_stable_id(&summary.ordering)
+            .unwrap()
+            .is_support_primary()
+    );
+    assert!(assembled.descent.is_some());
+
+    let size = p.slots.len();
+    let total_degree = DegreeRow {
+        active: vec![1; size],
+        inactive: vec![1; size],
+    };
+    let order = CompiledOrder::compile(
+        OrderDescriptor {
+            pre_support_degree_rows: vec![total_degree.clone()],
+            support_weights: vec![0; size],
+            support_priority: (0..size).collect(),
+            degree_rows: vec![
+                total_degree,
+                DegreeRow {
+                    active: vec![0; size],
+                    inactive: vec![1; size],
+                },
+            ],
+            coordinate_priority: (0..size).collect(),
+            coordinate_groups: CoordinateGroups::ActiveFirst,
+            active_direction: Direction::Descending,
+            inactive_direction: Direction::Descending,
+            two_sided: Vec::new(),
+        },
+        OrderLimits::default(),
+    )
+    .unwrap();
+    assert!(!order.is_support_primary());
+    let support = library.census().classes[&spec.class].owner.1;
+    let mut request = FamilyCandidatesRequest::new("kite under a global total-degree order");
+    request.selected_sectors = Some(vec![
+        (0..size).map(|slot| support >> slot & 1 == 1).collect(),
+    ]);
+    request.integral_order = Some(order);
+    let (session, job) =
+        CandidateGenerationSession::from_family(Arc::clone(&p.family), request, 64).unwrap();
+    job.run();
+    let bytes: Arc<[u8]> = Arc::from(session.result().unwrap().bundle());
+    let summary = inspect_custom_payload(&bytes).unwrap();
+    println!(
+        "kite under a global order: order {}, support {:#x}, {} rules, residuals {:?}",
+        summary.ordering,
+        summary.support,
+        summary.rules(),
+        summary.residual_keys()
+    );
+    let mut parts = Parts::of(library);
+    let owner = (parts.owners.iter_mut())
+        .find(|owner| owner.class == spec.class)
+        .unwrap();
+    owner.payload = Some(CustomPayloadRef::Bytes(bytes));
+    let error = descent::check(&parts.build().unwrap()).unwrap_err();
+    assert!(
+        matches!(&error, PError::MalformedLibrary(m) if m.contains("is not support-primary")),
+        "{error}"
     );
 }
 
@@ -2845,7 +3156,8 @@ fn three_loop_series_parallel_inputs_equal_their_closed_forms() {
 /// bounded space, L2 640 and L3 960 random inputs over all tops (dots <= 2,
 /// negative powers -3..-1, random subsector masks, rank 0-6 incl. odd), plus
 /// 64 rank 7-8 numerator inputs at L3 through the kernel owners. Every owner
-/// and every DAG node is reached; per-L counts are bounded below.
+/// is applied, so the class of every DAG node ([`node_classes_applied`]);
+/// per-L counts are bounded below.
 #[test]
 #[ignore = "slow: P0 SpIRed on the three 8-line 3L tops and about 2,000 reductions; run optimised"]
 fn scope_one_to_three_reductions_equal_p0_sector_reductions() {
@@ -2916,19 +3228,7 @@ fn scope_one_to_three_reductions_equal_p0_sector_reductions() {
         library.owners().len(),
         "an owner never applied"
     );
-    let routed: BTreeSet<PresentationId> = (rows.iter().chain([&high]))
-        .flat_map(|row| row.trace.routed.keys().copied())
-        .collect();
-    let census = library.census();
-    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
-        let class_applied = (census.classes.iter())
-            .any(|(class, record)| record.nodes.contains(&node.index) && applied.contains(class));
-        assert!(
-            class_applied || routed.contains(&node.presentation.unwrap()),
-            "node {} never reached",
-            node.index.0
-        );
-    }
+    assert_eq!(node_classes_applied(assembled, &applied).len(), 5);
 }
 
 /// Exact and ModularPolynomial weights, 1 and 16 scheduler threads, and
@@ -2988,9 +3288,21 @@ fn scope_one_to_three_exact_equals_modular_polynomial_and_threads() {
     }
 }
 
-/// The scope 1-3 golden inventory with the Custom payload descriptors.
+/// The scope 1-3 golden inventory with the Custom payload descriptors; an
+/// assembly on one thread (census and generation) has the same inventory.
 #[test]
-#[ignore = "slow: generates NO and t1star05 and dumps both payloads"]
+#[ignore = "slow: generates NO and t1star05 twice and dumps both payloads"]
 fn the_scope_one_to_three_inventory_is_pinned_to_the_identity() {
     check_inventory("1-3", scope_three());
+    let single = assemble_library(
+        &families(),
+        3,
+        CustomPayloads::Generate(CustomOwnerOptions::default()),
+        &AssembleOptions {
+            threads: 1,
+            verify_descent: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(inventory(&single), inventory(scope_three()));
 }
