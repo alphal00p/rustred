@@ -22,21 +22,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use rustred::algebra::Coefficient;
+use rustred::algebra::{Coefficient, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::propagator::census::{PCensusOptions, PSectorFate, p_census};
 use rustred::propagator::custom::{
-    CUSTOM_PAYLOAD_SCHEMAS, build_custom_step, check_custom_owner, custom_owner_charts,
-    custom_owner_support, inspect_custom_payload,
+    CUSTOM_PAYLOAD_DUMP_VERSION, CUSTOM_PAYLOAD_SCHEMAS, CustomPower, build_custom_step,
+    build_custom_step_prepared, check_custom_owner, custom_owner_charts, custom_owner_support,
+    custom_payload_dump, custom_payload_rules, inspect_custom_payload,
 };
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, load_p_families};
 use rustred::propagator::lane::{LaneRoles, OwnerLane};
 use rustred::propagator::library::{
     CustomOwnerMeta, OwnerProgram, PBasis, PLibrary, POwnerSpec, PReduction, PReductionRequest,
-    PTerminal, PUncoveredPolicy,
+    PTerm, PTerminal, PUncoveredPolicy,
 };
-use rustred::propagator::presentation::{Presentation, PresentationKind};
+use rustred::propagator::presentation::{Presentation, PresentationKind, Slot};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::step::{PKeyView, POrderKey, PStage, PStepContext};
 use rustred::propagator::tag::GammaTag;
@@ -211,8 +212,10 @@ fn the_guard_refuses_false_knock_outs_and_eps_owners_without_two_sided_data() {
                 ))
             );
         }
-        // LP 0 with a residual passes the M2 guard form; the payload then
-        // disagrees with this record and is refused at build.
+        // LP 0 with a residual passes the M2 guard form (`lp_count >= 1 =>
+        // residuals >= 1`), at generation and at build: the payload does not
+        // record the LP count. A residual count the payload does not hold is
+        // refused at build.
         let lp_zero = CustomOwnerMeta {
             lp_count: 0,
             ..owner.payload.meta.clone()
@@ -694,7 +697,8 @@ fn reduce(
 /// Coordinator note 2026-11-07 09:40Z: the owners' inputs reduce to identical
 /// results under exact and `Z_p(d)` (modular polynomial) weight arithmetic;
 /// the times go into the cost table. Every key also reduces on its own onto
-/// residual terminals only.
+/// residual terminals only (of the owner and of its subsector owners), with
+/// tag one.
 #[test]
 fn no_and_t1star05_reduce_identically_in_exact_and_modular_arithmetic() {
     for (name, hand, keys) in [
@@ -764,7 +768,12 @@ fn no_and_t1star05_reduce_identically_in_exact_and_modular_arithmetic() {
                     OrderedWeightArithmetic::Exact,
                 ))
                 .unwrap_or_else(|error| panic!("{name} {powers:?}: {error}"));
+            assert!(!one.terms.is_empty(), "{name} {powers:?}");
             for term in one.terms {
+                assert!(
+                    matches!(term.basis, PBasis::Residual(_)) && term.tag.is_one(),
+                    "{name} {powers:?}: {term:?}"
+                );
                 *reached.entry(format!("{:?}", term.basis)).or_insert(0) += 1;
             }
         }
@@ -803,6 +812,521 @@ fn raised_corners_walk_the_owner_tables() {
             assert_eq!(walk.terminals.len(), 1);
         }
     }
+}
+
+// ----- independent checks of the values -----
+//
+// Neither oracle goes through the SpIRed generation: the triangle rule is an
+// IBP identity of its own, and a line automorphism maps one key onto another
+// whose SpIRed reduction takes another path (the order is not symmetric).
+
+/// The line momenta by slot (`None` on an ISP) with their eps units.
+fn lines_of(presentation: &Presentation) -> Vec<Option<(Vec<i64>, u8)>> {
+    (presentation.slots.iter())
+        .map(|slot| match slot {
+            Slot::Line(line) => Some((line.momentum.clone(), line.eps_units)),
+            Slot::Isp(_) => None,
+        })
+        .collect()
+}
+
+fn rank(rows: &[Vec<f64>]) -> usize {
+    let mut rows = rows.to_vec();
+    let columns = rows.first().map_or(0, Vec::len);
+    let mut rank = 0;
+    for column in 0..columns {
+        let Some(pivot) = (rank..rows.len()).find(|&row| rows[row][column].abs() > 1e-9) else {
+            continue;
+        };
+        rows.swap(rank, pivot);
+        let pivot_row = rows[rank].clone();
+        for (index, row) in rows.iter_mut().enumerate() {
+            if index != rank {
+                let factor = row[column] / pivot_row[column];
+                for (entry, pivot_entry) in row.iter_mut().zip(&pivot_row) {
+                    *entry -= factor * pivot_entry;
+                }
+            }
+        }
+        rank += 1;
+    }
+    rank
+}
+
+/// The linear map `M` with `M basis[j] = images[j]` (vectors of equal width,
+/// `basis` invertible), by Gauss-Jordan; `None` if `basis` is singular.
+fn solve(basis: &[Vec<f64>], images: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+    let n = basis.len();
+    // V has the basis vectors as columns; M = W V^{-1}.
+    let mut v: Vec<Vec<f64>> = (0..n)
+        .map(|row| (0..n).map(|column| basis[column][row]).collect())
+        .collect();
+    let mut inverse: Vec<Vec<f64>> = (0..n)
+        .map(|row| {
+            (0..n)
+                .map(|column| f64::from(u8::from(row == column)))
+                .collect()
+        })
+        .collect();
+    for column in 0..n {
+        let pivot =
+            (column..n).max_by(|&a, &b| v[a][column].abs().total_cmp(&v[b][column].abs()))?;
+        if v[pivot][column].abs() < 1e-9 {
+            return None;
+        }
+        v.swap(column, pivot);
+        inverse.swap(column, pivot);
+        let scale = v[column][column];
+        for entry in 0..n {
+            v[column][entry] /= scale;
+            inverse[column][entry] /= scale;
+        }
+        for row in 0..n {
+            if row != column {
+                let factor = v[row][column];
+                for entry in 0..n {
+                    v[row][entry] -= factor * v[column][entry];
+                    inverse[row][entry] -= factor * inverse[column][entry];
+                }
+            }
+        }
+    }
+    Some(
+        (0..n)
+            .map(|row| {
+                (0..n)
+                    .map(|column| (0..n).map(|k| images[k][row] * inverse[k][column]).sum())
+                    .collect()
+            })
+            .collect(),
+    )
+}
+
+/// `m v` if it is an integer vector.
+fn apply(m: &[Vec<f64>], v: &[i64]) -> Option<Vec<i64>> {
+    (m.iter())
+        .map(|row| {
+            let x: f64 = row.iter().zip(v).map(|(a, &b)| a * b as f64).sum();
+            ((x - x.round()).abs() < 1e-9).then_some(x.round() as i64)
+        })
+        .collect()
+}
+
+/// The line permutations (slot to slot, ISPs fixed) induced by integer linear
+/// maps of the loop momenta and `q` with `q -> +-q` that map every line onto
+/// a line of the same eps units, up to sign: the graph automorphisms that fix
+/// the external vertices up to their exchange.
+fn line_automorphisms(presentation: &Presentation) -> Vec<Vec<usize>> {
+    let lines = lines_of(presentation);
+    let width = usize::from(presentation.loops) + 1;
+    let line_slots: Vec<usize> = (0..lines.len()).filter(|&s| lines[s].is_some()).collect();
+    let momentum = |slot: usize| lines[slot].as_ref().unwrap().0.clone();
+    let units = |slot: usize| lines[slot].as_ref().unwrap().1;
+    let row = |slot: usize| -> Vec<f64> { momentum(slot).iter().map(|&x| x as f64).collect() };
+    // A basis among the lines.
+    let mut basis: Vec<usize> = Vec::new();
+    for &slot in &line_slots {
+        let rows: Vec<Vec<f64>> = basis.iter().chain([&slot]).map(|&s| row(s)).collect();
+        if basis.len() < width && rank(&rows) == rows.len() {
+            basis.push(slot);
+        }
+    }
+    assert_eq!(basis.len(), width, "the lines span the momenta");
+    let basis_rows: Vec<Vec<f64>> = basis.iter().map(|&s| row(s)).collect();
+    // Every ordered choice of distinct target lines for the basis, with signs.
+    let mut targets: Vec<Vec<usize>> = vec![Vec::new()];
+    for _ in 0..width {
+        targets = (targets.into_iter())
+            .flat_map(|target| {
+                (line_slots.iter())
+                    .filter(|slot| !target.contains(slot))
+                    .map(|&slot| [target.as_slice(), &[slot]].concat())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+    }
+    let mut q = vec![0_i64; width];
+    q[width - 1] = 1;
+    let minus_q: Vec<i64> = q.iter().map(|x| -x).collect();
+    let mut found = BTreeSet::new();
+    for target in &targets {
+        for signs in 0..1_u32 << width {
+            let images: Vec<Vec<f64>> = (target.iter().enumerate())
+                .map(|(j, &slot)| {
+                    let sign = if signs >> j & 1 == 1 { -1.0 } else { 1.0 };
+                    row(slot).iter().map(|x| sign * x).collect()
+                })
+                .collect();
+            let Some(m) = solve(&basis_rows, &images) else {
+                continue;
+            };
+            if m.iter().flatten().any(|x| (x - x.round()).abs() > 1e-9)
+                || apply(&m, &q).is_none_or(|image| image != q && image != minus_q)
+            {
+                continue;
+            }
+            let mut sigma: Vec<usize> = (0..lines.len()).collect();
+            let mut used = BTreeSet::new();
+            let complete = line_slots.iter().all(|&slot| {
+                let Some(image) = apply(&m, &momentum(slot)) else {
+                    return false;
+                };
+                let negative: Vec<i64> = image.iter().map(|x| -x).collect();
+                let hit = line_slots.iter().copied().find(|&other| {
+                    (momentum(other) == image || momentum(other) == negative)
+                        && units(other) == units(slot)
+                });
+                match hit {
+                    Some(other) if used.insert(other) => {
+                        sigma[slot] = other;
+                        true
+                    }
+                    _ => false,
+                }
+            });
+            if complete {
+                found.insert(sigma);
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+/// The exact reduction of `Sum c_i I(powers_i)` on presentation 0.
+fn exact_terms(hand: &HandLibrary, inputs: Vec<(Vec<i64>, Coefficient)>) -> Vec<PTerm> {
+    let inputs = (inputs.into_iter())
+        .map(|(powers, coefficient)| (PresentationId(0), key(&powers), coefficient))
+        .collect();
+    hand.library
+        .reduce(request(inputs, OrderedWeightArithmetic::Exact))
+        .unwrap()
+        .terms
+}
+
+/// Every key and each of its images under the line automorphisms of
+/// presentation 0 reduce to identical terms; returns (automorphisms, pairs).
+fn assert_symmetric_reductions(
+    name: &str,
+    hand: &HandLibrary,
+    keys: &[Vec<i64>],
+) -> (usize, usize) {
+    let presentation = hand.library.presentation(PresentationId(0));
+    let automorphisms = line_automorphisms(presentation);
+    let one = hand.library.coefficient_context().one();
+    let mut pairs = 0;
+    for powers in keys {
+        let reduced = exact_terms(hand, vec![(powers.clone(), one.clone())]);
+        for sigma in &automorphisms {
+            let mut image = powers.clone();
+            for (slot, &target) in sigma.iter().enumerate() {
+                image[target] = powers[slot];
+            }
+            if &image != powers {
+                let other = exact_terms(hand, vec![(image.clone(), one.clone())]);
+                assert_eq!(reduced, other, "{name}: {powers:?} and its image {image:?}");
+                pairs += 1;
+            }
+        }
+    }
+    println!(
+        "{name}: {} line automorphisms {automorphisms:?}, {pairs} key pairs agree exactly",
+        automorphisms.len()
+    );
+    (automorphisms.len(), pairs)
+}
+
+/// t1star05: the kite's four automorphisms (left-right, up-down) give identical
+/// exact reductions on the 90 keys of its domain and their images.
+#[test]
+fn t1star05_reductions_are_invariant_under_the_kite_automorphisms() {
+    let keys = kite_keys(&t1star05().node.presentation);
+    assert_eq!(
+        assert_symmetric_reductions("t1star05", kite_library(), &keys),
+        (4, 216)
+    );
+}
+
+/// NO: its eight line automorphisms on the keys without ISP (the ISP is no
+/// invariant of a line permutation): the corner, one dot and two dots.
+#[test]
+#[ignore = "slow: about 270 exact NO reductions, about 2 min in debug"]
+fn no_reductions_are_invariant_under_its_line_automorphisms() {
+    let presentation = &no().node.presentation;
+    let support = line_mask(presentation);
+    let lines: Vec<usize> = (0..presentation.slots.len())
+        .filter(|&slot| support >> slot & 1 == 1)
+        .collect();
+    let corner: Vec<i64> = (0..presentation.slots.len())
+        .map(|slot| i64::from(support >> slot & 1 == 1))
+        .collect();
+    let mut keys = BTreeSet::from([corner.clone()]);
+    for (index, &first) in lines.iter().enumerate() {
+        for &second in &lines[index..] {
+            let mut one_dot = corner.clone();
+            one_dot[first] += 1;
+            keys.insert(one_dot.clone());
+            one_dot[second] += 1;
+            keys.insert(one_dot);
+        }
+    }
+    let keys: Vec<_> = keys.into_iter().collect();
+    assert_eq!(keys.len(), 45);
+    assert_eq!(
+        assert_symmetric_reductions("NO", no_library(), &keys),
+        (8, 272)
+    );
+}
+
+/// The triangles of t1star05 with the eps line `b` as the line of momentum
+/// `k`: `(b, a1, c1, a2, c2)` with `a_i = +-(k + p_i)`, `c_i = +-p_i`, where
+/// only `b`, `a1`, `a2` carry `k` (`c1`, `c2` and `q` span a complement of it).
+fn eps_triangles(presentation: &Presentation) -> Vec<(usize, usize, usize, usize, usize)> {
+    let lines = lines_of(presentation);
+    let eps = presentation.forced_axes().trailing_zeros() as usize;
+    let momentum = |slot: usize| lines[slot].as_ref().unwrap().0.clone();
+    let row = |slot: usize| -> Vec<f64> { momentum(slot).iter().map(|&x| x as f64).collect() };
+    let others: Vec<usize> = (0..lines.len())
+        .filter(|&slot| slot != eps && lines[slot].is_some())
+        .collect();
+    let width = usize::from(presentation.loops) + 1;
+    let mut q = vec![0.0; width];
+    q[width - 1] = 1.0;
+    let mut found = BTreeSet::new();
+    for sign_b in [1, -1] {
+        // (a, c): sign_a a - sign_b b = +-c
+        let mut pairs = Vec::new();
+        for &a in &others {
+            for &c in &others {
+                for sign_a in [1, -1] {
+                    let p: Vec<i64> = (momentum(a).iter().zip(&momentum(eps)))
+                        .map(|(x, y)| sign_a * x - sign_b * y)
+                        .collect();
+                    let minus_p: Vec<i64> = p.iter().map(|x| -x).collect();
+                    if a != c && (momentum(c) == p || momentum(c) == minus_p) {
+                        pairs.push((a, c));
+                    }
+                }
+            }
+        }
+        for &(a1, c1) in &pairs {
+            for &(a2, c2) in &pairs {
+                let distinct = BTreeSet::from([a1, c1, a2, c2]).len() == 4;
+                let complement = rank(&[row(c1), row(c2), q.clone()])
+                    == usize::from(presentation.loops)
+                    && rank(&[row(c1), row(c2), q.clone(), row(eps)]) == width;
+                if a1 < a2 && distinct && complement {
+                    found.insert((eps, a1, c1, a2, c2));
+                }
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+/// The triangle rule (Chetyrkin-Tkachov) with the eps line as apex, an IBP
+/// identity independent of the SpIRed generation: with `n_b = n + eps` and
+/// `d - 2 eps = 2 d - 4`,
+/// `(2 d - 4 - 2 n - n_a1 - n_a2) I = n_a1 [I(a1+, b-) - I(a1+, c1-)] + n_a2 [I(a2+, b-) - I(a2+, c2-)]`.
+/// Every term has the same integer power sum, so the C1 sign is common.
+fn triangle_rule_residue(
+    hand: &HandLibrary,
+    (b, a1, c1, a2, c2): (usize, usize, usize, usize, usize),
+    powers: &[i64],
+    lhs: Coefficient,
+) -> Vec<PTerm> {
+    let context = hand.library.coefficient_context();
+    let shifted = |changes: &[(usize, i64)]| {
+        let mut shifted = powers.to_vec();
+        for &(slot, delta) in changes {
+            shifted[slot] += delta;
+        }
+        shifted
+    };
+    let (na1, na2) = (powers[a1], powers[a2]);
+    exact_terms(
+        hand,
+        vec![
+            (powers.to_vec(), lhs),
+            (shifted(&[(a1, 1), (b, -1)]), context.integer(-na1)),
+            (shifted(&[(a1, 1), (c1, -1)]), context.integer(na1)),
+            (shifted(&[(a2, 1), (b, -1)]), context.integer(-na2)),
+            (shifted(&[(a2, 1), (c2, -1)]), context.integer(na2)),
+        ],
+    )
+}
+
+/// Review round 1, MF1: the triangle rule holds exactly on t1star05's
+/// reductions for both triangles at all 90 keys (`n` in `-2..=3`, the `n <= 0`
+/// chart included).
+#[test]
+fn t1star05_obeys_the_triangle_rule_with_the_eps_line_as_apex() {
+    let hand = kite_library();
+    let presentation = hand.library.presentation(PresentationId(0));
+    let context = hand.library.coefficient_context();
+    let limits = ExactAlgebraLimits::default();
+    let triangles = eps_triangles(presentation);
+    println!("t1star05 triangles (b, a1, c1, a2, c2) with the eps apex: {triangles:?}");
+    assert_eq!(triangles.len(), 2);
+    let two_d = context
+        .try_mul(
+            &context.integer(2),
+            &context.parameter("d").unwrap(),
+            limits,
+        )
+        .unwrap();
+    let mut points = 0;
+    for &triangle in &triangles {
+        let (b, a1, _, a2, _) = triangle;
+        for powers in kite_keys(presentation) {
+            let lhs = context
+                .try_sub(
+                    &two_d,
+                    &context.integer(4 + 2 * powers[b] + powers[a1] + powers[a2]),
+                    limits,
+                )
+                .unwrap();
+            let residue = triangle_rule_residue(hand, triangle, &powers, lhs);
+            assert!(
+                residue.is_empty(),
+                "{triangle:?} at {powers:?}: {residue:?}"
+            );
+            points += 1;
+        }
+    }
+    assert_eq!(points, 180);
+}
+
+/// The triangle-rule check can fail: with the eps part of `n_b` dropped
+/// (`d - 4` for `2 d - 6` at the corner) the residue is not zero.
+#[test]
+fn the_triangle_rule_check_fails_with_a_wrong_coefficient() {
+    let hand = kite_library();
+    let presentation = hand.library.presentation(PresentationId(0));
+    let context = hand.library.coefficient_context();
+    let lhs = context
+        .try_sub(
+            &context.parameter("d").unwrap(),
+            &context.integer(4),
+            ExactAlgebraLimits::default(),
+        )
+        .unwrap();
+    let corner = vec![1_i64; presentation.slots.len()];
+    let triangle = eps_triangles(presentation)[0];
+    assert!(!triangle_rule_residue(hand, triangle, &corner, lhs).is_empty());
+}
+
+/// Review round 1, MF2: in the library t1star05 is reached below tagged
+/// insertion steps. A key with a tag keeps it on every child and on the
+/// terminal, and the residual's weight is one.
+#[test]
+fn tagged_keys_keep_their_tag_and_a_unit_residual_weight() {
+    let tag = GammaTag::from_pairs([(1, 2), (-2, -1)]).unwrap();
+    for (name, hand, keys) in [
+        (
+            "t1star05",
+            kite_library(),
+            kite_keys(&t1star05().node.presentation),
+        ),
+        ("NO", no_library(), no_keys(&no().node.presentation)),
+    ] {
+        let library = &hand.library;
+        let owner = library.owner(hand.owner).unwrap();
+        let OwnerProgram::Lane(lane) = owner.program(library).unwrap() else {
+            panic!("the owner has a program");
+        };
+        let limits = ReductionLimits::default();
+        let cx = PStepContext {
+            library,
+            owner,
+            limits: &limits,
+        };
+        let presentation = library.presentation(PresentationId(0));
+        let support = custom_owner_support(presentation);
+        let corner: Vec<i64> = (0..presentation.slots.len())
+            .map(|slot| i64::from(support >> slot & 1 == 1))
+            .collect();
+        let (mut children, mut terminals) = (0, 0);
+        for powers in keys.iter().chain([&corner]) {
+            let view = PKeyView {
+                presentation: PresentationId(0),
+                powers,
+                tag: &tag,
+            };
+            let out = lane.step(&cx, &view).unwrap();
+            for child in &out.children {
+                assert_eq!(child.tag, tag, "{name} {powers:?}");
+                children += 1;
+            }
+            for (_, terminal_tag, weight) in &out.terminals {
+                assert_eq!(*terminal_tag, tag, "{name} {powers:?}");
+                assert_eq!(*weight, library.coefficient_context().one(), "{name}");
+                terminals += 1;
+            }
+        }
+        println!("{name}: {children} tagged children, {terminals} tagged terminals");
+        assert!(children > 0 && terminals >= 1, "{name}");
+    }
+}
+
+// ----- the payload's rules as data -----
+
+/// The rules of a payload as data, one per rule of its summary, and its
+/// canonical dump; the eager build prepares every chart.
+#[test]
+fn the_payload_rules_and_dump_list_every_generated_rule() {
+    for (name, owner) in [("NO", no()), ("t1star05", t1star05())] {
+        let bytes = &owner.payload.bytes;
+        let summary = inspect_custom_payload(bytes).unwrap();
+        let rules = custom_payload_rules(bytes).unwrap();
+        assert_eq!(rules.len(), summary.rules(), "{name}");
+        for chart in &summary.charts {
+            let ordinals: Vec<usize> = (rules.iter())
+                .filter(|rule| rule.chart == chart.chart)
+                .map(|rule| rule.ordinal)
+                .collect();
+            assert_eq!(ordinals, (0..chart.rules).collect::<Vec<_>>(), "{name}");
+        }
+        for rule in &rules {
+            let arity = owner.node.presentation.slots.len();
+            assert_eq!(rule.target.len(), arity, "{name}");
+            assert!(
+                rule.rhs.iter().all(|(powers, coefficient)| {
+                    powers.len() == arity && !coefficient.is_empty()
+                })
+            );
+            // The target's fixed slots are the face's.
+            for (slot, power) in rule.target.iter().enumerate() {
+                let fixed = rule.fixed.iter().find(|&&(axis, _)| axis == slot);
+                match (power, fixed) {
+                    (CustomPower::Fixed(value), Some(&(_, face))) => assert_eq!(*value, face),
+                    (CustomPower::Symbolic(_), None) => {}
+                    other => panic!("{name} rule {:#x}/{}: {other:?}", rule.chart, rule.ordinal),
+                }
+            }
+        }
+        let dump = custom_payload_dump(bytes).unwrap();
+        assert_eq!(dump.lines().next(), Some(CUSTOM_PAYLOAD_DUMP_VERSION));
+        assert_eq!(dump, custom_payload_dump(bytes).unwrap());
+        assert_eq!(
+            dump.lines()
+                .filter(|line| line.starts_with("rule "))
+                .count(),
+            rules.len()
+        );
+        println!(
+            "{name}: {} rules, {} right-hand terms, dump {} lines, first rule:\n{}",
+            rules.len(),
+            rules.iter().map(|rule| rule.rhs.len()).sum::<usize>(),
+            dump.lines().count(),
+            dump.lines()
+                .skip_while(|line| !line.starts_with("rule "))
+                .take(4)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        build_custom_step_prepared(&owner.node.presentation, bytes, &owner.payload.meta).unwrap();
+    }
+    assert!(custom_payload_rules(b"not a payload").is_err());
 }
 
 /// NO through the hand-assembled library agrees with the independent P0 path:
@@ -867,7 +1391,8 @@ fn request_of<'a>(
 }
 
 /// `rustred p-generate` writes the payload and the record of a selected owner,
-/// refuses an unknown owner and keeps existing output without `--force`.
+/// refuses an unknown owner and keeps existing output without `--force`; its
+/// payload dumps as this process's does.
 #[test]
 fn p_generate_writes_the_payload_and_record_of_an_owner() {
     use std::process::Command;
@@ -920,6 +1445,17 @@ fn p_generate_writes_the_payload_and_record_of_an_owner() {
     let meta = summary.meta(1).unwrap();
     assert_eq!(meta, t1star05().payload.meta);
     build_custom_step(kite, &payload, &meta).unwrap();
+    // The bytes embed the process symbol table (a fresh process generated
+    // t1star05 alone, this one after NO); the canonical dumps are equal.
+    println!(
+        "t1star05 payload: {} bytes from a fresh process, {} bytes here",
+        payload.len(),
+        t1star05().payload.bytes.len()
+    );
+    assert_eq!(
+        custom_payload_dump(&payload).unwrap(),
+        custom_payload_dump(&t1star05().payload.bytes).unwrap()
+    );
 
     // Existing output is kept without --force, replaced with it.
     assert!(!run(&label, false).status.success());
