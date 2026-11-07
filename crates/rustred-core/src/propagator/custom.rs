@@ -20,7 +20,8 @@
 //! (`rustred_app::application::propagator::generate_custom_owner`) and again on
 //! every build: `lp_count >= 1` with no residual is refused, an eps owner needs
 //! two-sided axes exactly on its eps axes and every raw chart, and the meta must
-//! describe the payload.
+//! describe the payload. The residuals of an eps owner sit at `n = 1` on every
+//! eps axis (plan M2 sec.3.4, Forcer's master position).
 //!
 //! [`CustomStep`] runs one rule of its owner per step through the candidate
 //! owner step (`solver::owner_step::apply_prepared_owner`): children of the
@@ -28,9 +29,15 @@
 //! key of the presentation (a subsector, resolved by the census), and a
 //! residual is the owner's terminal. Coefficients are exact elements of
 //! `Q(d)`, the library's context; the Ordered engine carries them under any
-//! weight arithmetic (exact or `Z_p(d)`), there is no other path.
+//! weight arithmetic (exact or `Z_p(d)`), there is no other path. Charts are
+//! prepared on first use ([`build_custom_step`]) or all at build
+//! ([`build_custom_step_prepared`], used at generation).
+//!
+//! [`custom_payload_rules`] lists a payload's rules with their coefficients as
+//! text, and [`custom_payload_dump`] writes them as one canonical text that
+//! does not depend on the process symbol table (unlike the payload bytes).
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
 use symbolica::poly::PolyVariable;
@@ -68,6 +75,8 @@ pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 2] = [
     "rustred.generated-candidates.binary.v3",
 ];
 const DISPATCH_SCHEMA: &str = CUSTOM_PAYLOAD_SCHEMAS[1];
+/// First line of [`custom_payload_dump`]; bump it when the dump's text changes.
+pub const CUSTOM_PAYLOAD_DUMP_VERSION: &str = "rustred.p-custom-payload-dump.v1";
 const STATUS: &str = "uncertified-candidates";
 /// Unrestricted solver policies: the default numerical depth, or an explicit
 /// one, without a numerator cap or finite retention.
@@ -621,7 +630,9 @@ impl fmt::Debug for Decoded {
     }
 }
 
-fn decode(presentation: &Presentation, payload: &[u8]) -> Result<Decoded, PError> {
+/// Decode a payload with its coefficients, bound to `presentation`'s family
+/// and arity; without a presentation, to the family the payload records.
+fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded, PError> {
     let Structure {
         state,
         atoms,
@@ -629,13 +640,15 @@ fn decode(presentation: &Presentation, payload: &[u8]) -> Result<Decoded, PError
         program,
         ordering,
     } = read_structure(payload)?;
-    let arity = presentation.slots.len();
-    if program.root_sector.len() != arity {
-        return Err(payload_error(format!(
-            "arity {}, presentation {} has {arity} slots",
-            program.root_sector.len(),
-            presentation.id.0
-        )));
+    if let Some(presentation) = presentation {
+        let arity = presentation.slots.len();
+        if program.root_sector.len() != arity {
+            return Err(payload_error(format!(
+                "arity {}, presentation {} has {arity} slots",
+                program.root_sector.len(),
+                presentation.id.0
+            )));
+        }
     }
     let table = DecodedCoefficientTable::import_generated(state, atoms, BinaryIoLimits::default())
         .map_err(payload_error)?;
@@ -646,11 +659,18 @@ fn decode(presentation: &Presentation, payload: &[u8]) -> Result<Decoded, PError
             BinaryIoLimits::default(),
         )
         .map_err(payload_error)?;
-    let fingerprint = presentation.family.fingerprint();
+    let fingerprint = presentation.map_or_else(
+        || program.family_fingerprint.clone(),
+        |presentation| presentation.family.fingerprint().to_owned(),
+    );
     if rebuilt.fingerprint() != fingerprint || program.family_fingerprint != fingerprint {
         return Err(payload_error(format!(
-            "generated for family {}, presentation {} has family {fingerprint}",
-            program.family_fingerprint, presentation.id.0
+            "generated for family {}, the family is {fingerprint}{}",
+            program.family_fingerprint,
+            presentation.map_or_else(String::new, |presentation| format!(
+                " (presentation {})",
+                presentation.id.0
+            ))
         )));
     }
     let count = table.len();
@@ -883,6 +903,186 @@ fn integral<const N: usize>(record: &WireIntegral) -> Result<Integral<N>, Candid
     Ok(Integral::new(powers))
 }
 
+// ----- the rules as data and the canonical dump -----
+
+/// One slot of a payload rule's integral.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CustomPower {
+    /// The rule's free index of this slot plus the offset.
+    Symbolic(i64),
+    /// A fixed power.
+    Fixed(i64),
+}
+
+/// One generated rule of a payload, as stored: `target = Sum rhs` on the
+/// rule's case, coefficients as text (rational functions of `d` and the free
+/// indices `n<slot>`, Symbolica's canonical printing).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomRule {
+    /// The raw chart of the rule (slots of positive power).
+    pub chart: u64,
+    /// Position of the rule in its chart: the application order.
+    pub ordinal: usize,
+    /// An affine case (its face plus polynomial equations) or a coordinate face.
+    pub affine: bool,
+    /// The face: fixed axes and their values, ascending by axis.
+    pub fixed: Vec<(usize, i64)>,
+    /// The equations of an affine case.
+    pub equations: Vec<String>,
+    pub target: Vec<CustomPower>,
+    pub rhs: Vec<(Vec<CustomPower>, String)>,
+    /// Exceptional branches, each a list of polynomial conditions.
+    pub exclusions: Vec<Vec<String>>,
+    /// Dispatched after the baseline partition (a schema v3 dispatch entry).
+    pub dispatched: bool,
+}
+
+fn custom_powers(record: &WireIntegral) -> Vec<CustomPower> {
+    (record.symbolic.iter().zip(&record.values))
+        .map(|(&symbolic, &value)| {
+            if symbolic {
+                CustomPower::Symbolic(i64::from(value))
+            } else {
+                CustomPower::Fixed(i64::from(value))
+            }
+        })
+        .collect()
+}
+
+/// `(n0+1, 1, n2, 0)`: `n<slot>` is the free index of that slot, the name of
+/// its variable in the coefficients (`n0` is slot 0).
+fn powers_text(powers: &[CustomPower]) -> String {
+    let slots: Vec<String> = (powers.iter().enumerate())
+        .map(|(slot, power)| match *power {
+            CustomPower::Symbolic(0) => format!("n{slot}"),
+            CustomPower::Symbolic(offset) => format!("n{slot}{offset:+}"),
+            CustomPower::Fixed(value) => value.to_string(),
+        })
+        .collect();
+    format!("({})", slots.join(", "))
+}
+
+impl Decoded {
+    fn text(&self, id: u32) -> Result<String, PError> {
+        let id = CoefficientId::try_from_index(id as usize).map_err(payload_error)?;
+        Ok(self
+            .table
+            .coefficient(id)
+            .map_err(payload_error)?
+            .to_string())
+    }
+}
+
+/// Every rule of a payload, chart by chart in the payload's order, with its
+/// coefficients. The payload is bound to the family it records.
+pub fn custom_payload_rules(payload: &[u8]) -> Result<Vec<CustomRule>, PError> {
+    let decoded = decode(None, payload)?;
+    let program = &decoded.program;
+    let texts = |ids: &[u32]| -> Result<Vec<String>, PError> {
+        ids.iter().map(|&id| decoded.text(id)).collect()
+    };
+    let mut rules = Vec::new();
+    for (sector_ordinal, sector) in program.sectors.iter().enumerate() {
+        for (ordinal, rule) in sector.rules.iter().enumerate() {
+            let case = &rule.case;
+            let rhs = (rule.rhs.iter())
+                .map(|term| {
+                    Ok((
+                        custom_powers(&term.integral),
+                        decoded.text(term.coefficient)?,
+                    ))
+                })
+                .collect::<Result<_, PError>>()?;
+            rules.push(CustomRule {
+                chart: mask(&sector.sector),
+                ordinal,
+                affine: case.kind == "affine",
+                fixed: (case.fixed_axes.iter().zip(&case.fixed_values))
+                    .map(|(&axis, &value)| (axis, i64::from(value)))
+                    .collect(),
+                equations: texts(&case.equations)?,
+                target: custom_powers(&rule.target),
+                rhs,
+                exclusions: (rule.exclusions.iter())
+                    .map(|branch| texts(branch))
+                    .collect::<Result<_, _>>()?,
+                dispatched: program
+                    .rule_dispatch
+                    .binary_search_by_key(&(sector_ordinal, ordinal), |entry| {
+                        (entry.sector, entry.rule)
+                    })
+                    .is_ok(),
+            });
+        }
+    }
+    Ok(rules)
+}
+
+/// A payload as one canonical text ([`CUSTOM_PAYLOAD_DUMP_VERSION`] first):
+/// its structure, every chart with its residuals and every rule with its
+/// coefficients. Equal payloads give equal dumps whatever the process symbol
+/// table was at generation (the payload bytes embed it), so the dump serves
+/// test guards and library comparisons.
+pub fn custom_payload_dump(payload: &[u8]) -> Result<String, PError> {
+    let summary = inspect_custom_payload(payload)?;
+    let rules = custom_payload_rules(payload)?;
+    let mut dump = String::new();
+    let write = |dump: &mut String, line: fmt::Arguments<'_>| {
+        dump.write_fmt(line).expect("writing to a String");
+        dump.push('\n');
+    };
+    write(&mut dump, format_args!("{CUSTOM_PAYLOAD_DUMP_VERSION}"));
+    write(&mut dump, format_args!("schema {}", summary.schema));
+    write(
+        &mut dump,
+        format_args!("family {}", summary.family_fingerprint),
+    );
+    write(
+        &mut dump,
+        format_args!(
+            "arity {}, support {:#x}, two-sided {:#x}",
+            summary.arity, summary.support, summary.two_sided_axes
+        ),
+    );
+    write(&mut dump, format_args!("order {}", summary.ordering));
+    for chart in &summary.charts {
+        write(
+            &mut dump,
+            format_args!(
+                "chart {:#x}: {} rules, residuals {:?}",
+                chart.chart, chart.rules, chart.residuals
+            ),
+        );
+    }
+    for rule in &rules {
+        write(
+            &mut dump,
+            format_args!(
+                "rule {:#x}/{}: {} {:?}{}, target {}",
+                rule.chart,
+                rule.ordinal,
+                if rule.affine { "affine" } else { "coordinate" },
+                rule.fixed,
+                if rule.dispatched { ", dispatched" } else { "" },
+                powers_text(&rule.target)
+            ),
+        );
+        for equation in &rule.equations {
+            write(&mut dump, format_args!("  equation {equation}"));
+        }
+        for (powers, coefficient) in &rule.rhs {
+            write(
+                &mut dump,
+                format_args!("  + ({coefficient}) {}", powers_text(powers)),
+            );
+        }
+        for branch in &rule.exclusions {
+            write(&mut dump, format_args!("  exclusion {}", branch.join(", ")));
+        }
+    }
+    Ok(dump)
+}
+
 /// Prepares one chart of a payload on first use.
 #[derive(Debug)]
 struct PayloadLoader {
@@ -991,6 +1191,61 @@ impl<const N: usize> CustomStep<N> {
                 ))
             })
     }
+
+    /// Prepare every chart now (otherwise each is prepared on its first step),
+    /// through the step itself at the chart's corner (every slot of the chart
+    /// at power 1, the others at 0): the rules restore through the solver's
+    /// admission, the prepared residuals equal the payload's, and the corner is
+    /// a residual or covered by a rule.
+    fn prepare_charts(&self) -> Result<(), PError> {
+        for &chart in &self.charts {
+            let corner: Vec<i64> = (0..self.arity)
+                .map(|slot| i64::from(chart >> slot & 1 == 1))
+                .collect();
+            let failed = |detail: String| {
+                PError::MalformedLibrary(format!(
+                    "custom owner on presentation {}: chart {chart:#x} at {corner:?}: {detail}",
+                    self.presentation.0
+                ))
+            };
+            let integral = IntegralKey::try_new(corner.iter().copied())
+                .map_err(|error| failed(error.to_string()))?;
+            let applied = apply_prepared_owner(
+                &self.programs,
+                &self.chart(&corner),
+                &integral,
+                &mut Vec::new(),
+                &mut ReductionRequest::default(),
+                &mut ReductionStatistics::default(),
+            );
+            match applied {
+                Ok(AppliedOwnerStep::Terminal | AppliedOwnerStep::Applied(_)) => {}
+                Ok(AppliedOwnerStep::Uncovered) => return Err(failed("uncovered".to_owned())),
+                Err(CandidateReductionError::Application(error)) => {
+                    return Err(PError::Engine(error));
+                }
+                Err(error) => return Err(failed(error.to_string())),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Plan M2 sec.3.4: the residuals of an eps owner sit at `n = 1` on every eps
+/// axis (`forced`), Forcer's master position `1 + j eps` and the least excess
+/// of the two-sided order.
+fn check_residual_positions(forced: u64, residuals: &[IntegralKey]) -> Result<(), PError> {
+    for residual in residuals {
+        let off = (residual.powers().iter().enumerate())
+            .any(|(slot, &power)| forced >> slot & 1 == 1 && power != 1);
+        if off {
+            return Err(PError::Generation(format!(
+                "eps custom owner residual {:?} is off n = 1 on the eps axes {forced:#x}",
+                residual.powers()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn step_error(class: OwnerClassId, error: CandidateReductionError) -> PError {
@@ -1006,6 +1261,11 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         OwnerLane::Custom
     }
 
+    /// One rule application. Limits: the rule evaluator runs under the
+    /// candidate owner context's `ReductionLimits::default()`, fixed at build
+    /// (as the application's candidate loader does), not under `cx.limits`;
+    /// `apply_prepared_owner` takes no limits of its own. The engine applies
+    /// the request's limits to everything after the step.
     fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
         self.check_key(key.presentation, key.powers)?;
         let class = cx.owner.spec.class;
@@ -1120,8 +1380,9 @@ fn build<const N: usize>(
     presentation: &Presentation,
     payload: &[u8],
     meta: &CustomOwnerMeta,
+    prepare: bool,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
-    let decoded = decode(presentation, payload)?;
+    let decoded = decode(Some(presentation), payload)?;
     let program = &decoded.program;
     let arity = presentation.slots.len();
     let support = mask(&program.root_sector);
@@ -1161,6 +1422,7 @@ fn build<const N: usize>(
             residuals.len()
         )));
     }
+    check_residual_positions(forced, &residuals)?;
     let proofs = zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
@@ -1214,7 +1476,7 @@ fn build<const N: usize>(
         }),
     )
     .map_err(candidate)?;
-    Ok(Arc::new(CustomStep::<N> {
+    let step = CustomStep::<N> {
         presentation: presentation.id,
         arity,
         forced,
@@ -1222,18 +1484,43 @@ fn build<const N: usize>(
         charts,
         residuals: residuals.into_iter().collect(),
         programs,
-    }))
+    };
+    if prepare {
+        step.prepare_charts()?;
+    }
+    Ok(Arc::new(step))
 }
 
 /// The lane step of a Custom owner of `presentation` from its payload and
-/// record. Fails closed: an arity outside the compiled runtime registry is
-/// [`PError::Unsupported`] (build with `RUSTRED_RUNTIME_ARITIES`); the guard of
-/// [`check_custom_owner`]; a payload of another family, schema or order, or
-/// one that the record does not describe, is refused.
+/// record; each chart is prepared on its first step. Fails closed: an arity
+/// outside the compiled runtime registry is [`PError::Unsupported`] (build with
+/// `RUSTRED_RUNTIME_ARITIES`); the guard of [`check_custom_owner`]; residuals
+/// of an eps owner off `n = 1`; a payload of another family, schema or order,
+/// or one that the record does not describe, is refused.
 pub fn build_custom_step(
     presentation: &Presentation,
     payload: &[u8],
     meta: &CustomOwnerMeta,
+) -> Result<Arc<dyn PLaneStep>, PError> {
+    build_custom_step_with(presentation, payload, meta, false)
+}
+
+/// [`build_custom_step`] with every chart prepared now: a rule that does not
+/// restore through the solver's admission fails here, not at its first step
+/// ([`PError::MalformedLibrary`]). Generation builds this way.
+pub fn build_custom_step_prepared(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<Arc<dyn PLaneStep>, PError> {
+    build_custom_step_with(presentation, payload, meta, true)
+}
+
+fn build_custom_step_with(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    prepare: bool,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
     let arity = presentation.slots.len();
     if !crate::compiled_runtime_arities().contains(&arity) {
@@ -1247,7 +1534,7 @@ pub fn build_custom_step(
     macro_rules! dispatch {
         ($($n:literal),*) => {
             match crate::campaign_storage_arity(arity) {
-                $($n => build::<$n>(presentation, payload, meta),)*
+                $($n => build::<$n>(presentation, payload, meta, prepare),)*
                 storage => Err(PError::Unsupported(format!(
                     "custom owner arity {arity} has no compiled storage (width {storage}); \
                      rebuild with RUSTRED_RUNTIME_ARITIES including {arity}"
@@ -1256,4 +1543,36 @@ pub fn build_custom_step(
         };
     }
     with_candidate_runtime_arities!(dispatch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(powers: &[&[i64]]) -> Vec<IntegralKey> {
+        (powers.iter())
+            .map(|powers| IntegralKey::try_new(powers.iter().copied()).unwrap())
+            .collect()
+    }
+
+    /// Plan M2 sec.3.4: an eps owner's residuals sit at `n = 1` on every eps
+    /// axis; an integer owner (no forced axis) is not constrained.
+    #[test]
+    fn eps_residuals_sit_at_n_equal_one() {
+        check_residual_positions(0b1, &keys(&[&[1, 1, 1, 1, 1]])).unwrap();
+        check_residual_positions(0b101, &keys(&[&[1, 2, 1, 0]])).unwrap();
+        check_residual_positions(0, &keys(&[&[2, 1, 0], &[1, 1, -1]])).unwrap();
+        for (forced, powers) in [
+            (0b1, [0_i64, 1, 1, 1, 1]),
+            (0b1, [2, 1, 1, 1, 1]),
+            (0b100, [1, 1, -1, 1, 1]),
+        ] {
+            assert_eq!(
+                check_residual_positions(forced, &keys(&[&powers])),
+                Err(PError::Generation(format!(
+                    "eps custom owner residual {powers:?} is off n = 1 on the eps axes {forced:#x}"
+                )))
+            );
+        }
+    }
 }
