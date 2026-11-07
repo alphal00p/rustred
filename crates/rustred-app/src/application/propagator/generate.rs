@@ -14,7 +14,7 @@
 //! never a count of 0). After it the hard guard of
 //! [`rustred::propagator::custom::check_custom_owner`] refuses `LP >= 1` with no
 //! residual, missing two-sided data and missing charts, and the payload must
-//! build as a lane step. A chart whose search fails (for example on an
+//! build as a lane step with every chart prepared. A chart whose search fails (for example on an
 //! exceptional conjunction SpIRed cannot intersect) fails the owner with the
 //! chart mask and the solver's complete message; the owner is not retried
 //! another way (plan M2 sec.10, contingency C3 is the coordinator's).
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rustred::propagator::custom::{
-    CustomChartSummary, build_custom_step, check_custom_owner, custom_owner_charts,
+    CustomChartSummary, build_custom_step_prepared, check_custom_owner, custom_owner_charts,
     custom_owner_support, inspect_custom_payload,
 };
 use rustred::propagator::error::PError;
@@ -254,7 +254,9 @@ pub fn generate_custom_owner_with_report(
     }
     let meta = summary.meta(lp_count)?;
     check_custom_owner(presentation, &meta)?;
-    build_custom_step(presentation, &bytes, &meta)?;
+    // Every chart prepared once: a rule that does not restore through the
+    // core's reader fails generation, not the owner's first step.
+    build_custom_step_prepared(presentation, &bytes, &meta)?;
     let report = CustomOwnerReport {
         support,
         lp_count,
