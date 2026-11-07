@@ -195,7 +195,6 @@ pub(in crate::solver::candidate_reduction) fn prepare_family_with_admission<cons
 /// preparation and zero-certificate binding are those of
 /// [`prepare_family_with_admission`], which every other consumer goes through
 /// and which keeps refusing shifted families.
-#[allow(dead_code)] // M2-T7c
 pub(in crate::solver::candidate_reduction) fn prepare_shifted_p_family<const N: usize>(
     family: &IntegralFamily,
     zero_certificates: Vec<zero::Certificate>,
