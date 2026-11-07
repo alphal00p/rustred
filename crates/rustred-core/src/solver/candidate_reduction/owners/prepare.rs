@@ -39,7 +39,6 @@ impl<const N: usize> CandidateOwnerContext<N> {
     /// passes the existing unit-scale propagator predicate, a family with eps
     /// lines the p-only admission. Every other consumer keeps refusing shifted
     /// families.
-    #[allow(dead_code)] // M2-T7c
     pub(crate) fn try_new_p(
         family: Arc<IntegralFamily>,
         scope: CandidateOwnerScope,

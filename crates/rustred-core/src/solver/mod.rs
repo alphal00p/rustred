@@ -38,7 +38,6 @@ pub(crate) use instantiate::{
     translate as translate_source_port,
 };
 
-#[allow(unused_imports)] // M2-T7c
 pub(crate) use candidate_reduction::owner_step;
 pub use candidate_reduction::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,

@@ -17,7 +17,6 @@ use crate::reduction::{ReductionRequest, ReductionStatistics};
 use crate::sector::OrderingPolicy;
 
 /// The outcome of one owner step.
-#[allow(dead_code)] // M2-T7c
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AppliedOwnerStep {
     /// `key` is a terminal of the owner.
@@ -36,7 +35,6 @@ pub(crate) enum AppliedOwnerStep {
 /// dispatch is keyed by it, and each chart of an eps owner is a sector of its
 /// own. Never pass the support with the forced axes (plan sec.3.4). A key of
 /// another chart is `InvalidInput`, as in the routed Apply arm.
-#[allow(dead_code)] // M2-T7c
 pub(crate) fn apply_prepared_owner<const N: usize>(
     programs: &DeferredCandidateOwnerPrograms<N>,
     sector: &[bool; N],
@@ -95,7 +93,6 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
 }
 
 /// The order `sector`'s rules were generated in, without preparing the owner.
-#[allow(dead_code)] // M2-T7c
 pub(crate) fn owner_ordering<'p, const N: usize>(
     programs: &'p DeferredCandidateOwnerPrograms<N>,
     sector: &[bool; N],
