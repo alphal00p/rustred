@@ -570,7 +570,8 @@ fn the_union_takes_only_the_charts_of_its_family_once_each() {
     let refused = union_row(&lp2, &off_the_list).unwrap_err();
     assert!(refused.contains("not a chart"), "{refused}");
 
-    let changes: [(&str, fn(&mut ChartRow)); 7] = [
+    type Change = fn(&mut ChartRow);
+    let changes: [(&str, Change); 7] = [
         ("family", |row| row.family = "T001c".to_owned()),
         ("file", |row| row.file = "another.sym".to_owned()),
         ("forced", |row| row.forced = "01000".to_owned()),
