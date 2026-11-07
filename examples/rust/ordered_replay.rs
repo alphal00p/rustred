@@ -335,6 +335,8 @@ fn state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
             OrderedKeyStage::Integral => ("integral", String::new()),
             OrderedKeyStage::Route => ("route", String::new()),
             OrderedKeyStage::Apply { owner_sector } => ("apply", mask(owner_sector)),
+            OrderedKeyStage::ClassRoute { class } => ("class-route", class.to_string()),
+            OrderedKeyStage::ClassApply { class } => ("class-apply", class.to_string()),
         };
         let line = format!(
             "{}|{stage}|{owner}|{}|",
@@ -446,6 +448,8 @@ fn cache_state_digest(event: &OrderedPhaseEvent<'_>) -> Value {
             OrderedKeyStage::Integral => "integral".to_owned(),
             OrderedKeyStage::Route => "route".to_owned(),
             OrderedKeyStage::Apply { owner_sector } => format!("apply {}", mask(owner_sector)),
+            OrderedKeyStage::ClassRoute { class } => format!("class-route {class}"),
+            OrderedKeyStage::ClassApply { class } => format!("class-apply {class}"),
         };
         hasher.update(format!("f {} {stage} {}\n", entry.phase, powers(entry.integral)).as_bytes());
         if let Some(weight) = entry.weight {
@@ -749,6 +753,8 @@ impl<'a> PhaseRecorder<'a> {
                 OrderedKeyStage::Integral => ("integral", None),
                 OrderedKeyStage::Route => ("route", None),
                 OrderedKeyStage::Apply { owner_sector } => ("apply", Some(mask(owner_sector))),
+                OrderedKeyStage::ClassRoute { class } => ("class-route", Some(class.to_string())),
+                OrderedKeyStage::ClassApply { class } => ("class-apply", Some(class.to_string())),
             };
             writeln!(
                 writer,
