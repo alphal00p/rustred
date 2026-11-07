@@ -62,6 +62,10 @@ use crate::reduction::{ReductionError, ReductionLimits};
 /// Probe values per weight used only for zero decisions in the recording pass.
 pub(super) const PROBES: usize = 2;
 
+/// Interned coefficients converted to dense form between two resource
+/// checkpoints when a recording finishes.
+const FINISH_CHECKPOINT_ENTRIES: usize = 1024;
+
 pub(super) fn error(detail: impl Into<String>) -> ReductionError {
     ReductionError::ModularWeights {
         detail: detail.into(),
@@ -676,7 +680,12 @@ impl ModularRecorder {
         if matches!(self.lifter, Lifter::Polynomial(_)) {
             factored = vec![None; polynomial_total];
         }
-        for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
+        for (index, (coefficient, reference)) in
+            self.entries.iter().zip(&self.entry_refs).enumerate()
+        {
+            if index % FINISH_CHECKPOINT_ENTRIES == 0 {
+                symbolica::utils::resources::checkpoint()?;
+            }
             if reference.is_constant() {
                 constants[reference.index()] = (
                     coefficient.numerator.get_constant(),
@@ -692,6 +701,8 @@ impl ModularRecorder {
         let factoring = Instant::now();
         let mut builder = BasisBuilder::default();
         for coefficient in factored.into_iter().flatten() {
+            // Factoring a denominator is a CAS call: one checkpoint each.
+            symbolica::utils::resources::checkpoint()?;
             builder.push(coefficient)?;
         }
         let basis = builder.finish();

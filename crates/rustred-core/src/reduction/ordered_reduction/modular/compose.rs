@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::{Ring, RingOps};
+use symbolica::utils::resources;
 
 use super::error;
 use super::field::{self, DenseRational, Fe, Poly, batch_invert, horner, reduce};
@@ -246,6 +247,7 @@ pub(super) fn compose_images(
     let mut count = COMPOSE_FIRST_POINTS;
     let mut open: Vec<usize> = (0..outputs).collect();
     while !open.is_empty() {
+        resources::checkpoint()?;
         if drawn + count > COMPOSE_MAX_POINTS {
             return Err(error(format!(
                 "terminal composition needs more than {COMPOSE_MAX_POINTS} points per prime"
@@ -265,6 +267,9 @@ pub(super) fn compose_images(
         let mut values = vec![f.zero(); terminals.len() * width];
         let mut inverses = vec![f.zero(); terminals.len() * width];
         for (t, (numerator, denominator)) in terminals.iter().enumerate() {
+            // Raw terminal images can have high degrees: one checkpoint per
+            // terminal evaluated at the batch.
+            resources::checkpoint()?;
             for (j, x) in points.iter().enumerate() {
                 values[t * width + j] = horner(&f, numerator, *x);
                 inverses[t * width + j] = horner(&f, denominator, *x);
@@ -374,6 +379,32 @@ mod tests {
         let out1 = mul(&mid1, &a);
         let program = Program::new(&plan, 2);
         assert_eq!(program.distinct_coefficients(), 4);
+        // A refused checkpoint (per round and per terminal) stops the
+        // composition with the refusal.
+        {
+            use crate::reduction::stopping::{Stopping, is_stop};
+            let prime = 1_000_000_007u64;
+            let inputs: Vec<Image> = terminals
+                .iter()
+                .map(|t| image(prime, &DenseRational::from_coefficient(t)))
+                .collect();
+            let clean = Stopping::armed(None);
+            assert!(
+                clean
+                    .run(|| compose_images(&program, prime, &inputs, 7))
+                    .is_ok()
+            );
+            let checkpoints = clean.seen();
+            assert!(checkpoints >= 3, "{checkpoints}");
+            for stop_at in 1..=checkpoints {
+                let stopping = Stopping::armed(Some(stop_at));
+                let Err(error) = stopping.run(|| compose_images(&program, prime, &inputs, 7))
+                else {
+                    panic!("checkpoint {stop_at} did not stop the composition");
+                };
+                assert!(is_stop(&error), "{stop_at}: {error}");
+            }
+        }
         for prime in [1_000_000_007u64, 4_611_686_018_427_388_039] {
             let inputs: Vec<Image> = terminals
                 .iter()
