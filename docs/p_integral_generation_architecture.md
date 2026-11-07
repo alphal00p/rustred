@@ -1000,6 +1000,11 @@ reproduce RustRed's canonical presentations.
 Load-time checks:
 
 1. every owner order is support-primary (`CompiledOrder::is_support_primary`);
+   M2 amendment (2026-11-06, DECISIONS 17:35Z): only for owners without forced axes. Every
+   two-sided order answers `is_support_primary() == false`, so the literal check would refuse
+   t1star05. For an eps owner the persisted program's two-sided flags must equal the forced
+   axes of its sector, and descent is checked per RHS term through the owner's `order_key`
+   (`PLaneStep::order_key`, D-T6-1);
 2. every rule is checked per RHS term by the existing strict-descent comparison, and stores a
    `DescentWitness { SameSectorStrict | Subsector }`;
 3. every route and every DAG edge map is verified; a route maps `t` lines to an owner with the

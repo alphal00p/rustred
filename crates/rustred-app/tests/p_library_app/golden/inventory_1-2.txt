@@ -1,0 +1,58 @@
+identity p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1
+presentation 0 L=1 Top(P1L) node -
+   0 line [ 1  0] eps 0
+   1 line [ 1 -1] eps 0
+presentation 1 L=2 Top(P2L) node -
+   0 line [ 1  0  0] eps 0
+   1 line [ 0  1  0] eps 0
+   2 line [ 1  1  0] eps 0
+   3 line [ 1  0  1] eps 0
+   4 line [ 1  1  1] eps 0
+presentation 2 L=2 TriangleAdapted node 0104000001010001010000020100000301000102010001030100
+   0 line [ 1  0  0] eps 0
+   1 line [-1  1 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1 -1  0] eps 0
+   4 line [ 0  1  0] eps 0
+presentation 3 L=2 InsertionAdapted node 010300010100010100000202000001020100
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 4 L=2 InsertionAdapted node 010300010100010200000002020000
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 5 L=2 InsertionAdapted node 01020101000103000000
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 0
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+presentation 6 L=1 InsertionAdapted node 010201010001020000
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 0
+presentation 7 L=1 InsertionAdapted node 010201010001020001
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 1
+node 0 Triangle Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) presentation Some(2) fallback None
+node 1 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(3) fallback None
+node 2 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(4) fallback None
+node 3 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(5) fallback None
+node 4 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(6) fallback None
+node 5 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(7) fallback None
+node 6 Zero None presentation None fallback None
+census 114 sectors, 91 zero, 23 on classes, 6 classes
+class L2T05-001e279c3d892daf owner (2, 0x1f) node Some(0) t 5 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) edges [] terminals []
+class L1T02-0f54c10f75ed1e71 owner (7, 0x3) node Some(5) t 2 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L2T03-61b48e1159bdb6a2 owner (5, 0x7) node Some(3) t 3 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [0] terminals []
+class L2T04-61db0237c59ba9ce owner (3, 0xf) node Some(1) t 4 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [1] terminals []
+class L1T02-64f4fabd2064500f owner (6, 0x3) node Some(4) t 2 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L2T04-ce0d35105dae83c5 owner (4, 0xf) node Some(2) t 4 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [2] terminals []
+edge 0 5 -> 7 Insertion loop 0 outer [1] [0] 1 slots [None, None, Some(0), None, None] merged Some(1)
+edge 1 3 -> 7 Insertion loop 0 outer [1] [0] 1 slots [Some(1), None, None, Some(0), None] merged Some(1)
+edge 2 4 -> 6 Insertion loop 0 outer [-1] [1] 1 slots [None, None, Some(0), Some(1), None] merged None
+terminal 0 Unit
