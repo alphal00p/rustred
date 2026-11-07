@@ -11,8 +11,10 @@
 //! when it is smaller) through it without coefficients: dots 0-3 in total over
 //! the lines, numerator rank 0-8 in total over the other lines and the ISPs,
 //! random subsectors. Uncovered keys, missing owners and steps that do not
-//! descend are counted (`PUncoveredPolicy::Reject`); any of them fails the run
-//! with exit status 1.
+//! descend are counted (`PUncoveredPolicy::Reject`); any of them is the verdict
+//! FAIL, exit status 1. A library that cannot be assembled or certified (for
+//! example a loop count of the scope without a family) and a loop count without
+//! keys are errors of the run, exit status 5 (derivation).
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -102,6 +104,17 @@ fn failed(error: PError) -> CliError {
     CliError::Application(AppError::derivation(format!("p validate: {error}")))
 }
 
+/// The verdict of a run that traced `failures` refused keys: FAIL (exit 1) on any.
+fn verdict(failures: usize) -> Result<(), CliError> {
+    if failures == 0 {
+        return Ok(());
+    }
+    Err(CliError::Verdict {
+        incomplete: false,
+        message: format!("p validate: FAIL, {failures} traced keys refused"),
+    })
+}
+
 pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let arguments = parse(arguments).map_err(CliError::Usage)?;
     let text = match &arguments.families {
@@ -184,12 +197,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         assembled.library.owners().len()
     )
     .map_err(report)?;
-    if failures > 0 {
-        return Err(failed(PError::Generation(format!(
-            "{failures} traced keys refused"
-        ))));
-    }
-    Ok(())
+    verdict(failures)
 }
 
 #[cfg(test)]
@@ -242,5 +250,14 @@ mod tests {
             parsed(&["--max-loops", "2", "--seed", "x"]),
             Err(ArgError::InvalidValue { .. })
         ));
+    }
+
+    #[test]
+    fn p_validate_refusals_are_the_verdict_fail() {
+        assert!(verdict(0).is_ok());
+        let refused = verdict(3).unwrap_err();
+        assert_eq!(refused.exit_code(), 1);
+        assert_eq!(refused.category(), "verdict");
+        assert_eq!(failed(PError::Unsupported("x".to_owned())).exit_code(), 5);
     }
 }

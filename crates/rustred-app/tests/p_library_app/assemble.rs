@@ -9,7 +9,7 @@
 //!
 //! Bounds are TOTAL over the slots of a key: dots over the lines, rank over the
 //! numerator slots (lines at negative powers and ISPs). Counts are of distinct
-//! keys after deduplication.
+//! keys after deduplication; exactness inputs are distinct up to a scalar.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
@@ -300,7 +300,8 @@ fn refused(parts: Parts) -> PError {
 }
 
 /// The certificate accepts the library rebuilt from its parts and refuses each
-/// damage: an edge map named twice or by nobody, a rule owner without its edge,
+/// damage: an edge map named twice or by nobody, a rule owner without its edge
+/// (with and without the orphaned edge map),
 /// a Triangle owner lowering one line twice or with broken roles, a route onto a
 /// class of another `t`, a route that is not a symmetry, and a Custom owner
 /// without payload (the guard itself: the next test).
@@ -353,7 +354,32 @@ fn the_descent_certificate_refuses_damaged_libraries() {
         .find(|o| !o.edge_maps.is_empty())
         .unwrap();
     owner.edge_maps.clear();
-    assert!(matches!(refused(damaged), PError::MalformedLibrary(_)));
+    assert!(matches!(refused(damaged), PError::MalformedLibrary(m) if m.contains("named by 0")));
+    // ... and one whose edge map is gone with it: the rule-owner check refuses.
+    let mut damaged = parts.clone();
+    let owner = damaged
+        .owners
+        .iter_mut()
+        .find(|o| o.lane == OwnerLane::SeriesParallel && !o.edge_maps.is_empty())
+        .unwrap();
+    let edge = owner.edge_maps[0];
+    owner.edge_maps.clear();
+    damaged.edge_maps.remove(edge);
+    for owner in &mut damaged.owners {
+        for named in &mut owner.edge_maps {
+            if *named > edge {
+                *named -= 1;
+            }
+        }
+    }
+    // The certificate's own refusal (MalformedLibrary), not the lane program's
+    // (the insertion step refuses the same owner with a Contract error).
+    let error = refused(damaged);
+    assert!(
+        matches!(&error, PError::MalformedLibrary(m)
+            if m.contains("SeriesParallel owner") && m.contains("0 edge maps at 2 loops")),
+        "{error:?}"
+    );
 
     // A Triangle owner that lowers c1 twice, and one whose b is an apex line
     // (the step refuses the roles: its row no longer has the shape).
@@ -533,6 +559,78 @@ fn the_false_knock_out_guard_holds_at_the_certificate_and_the_factory() {
     }
 }
 
+/// The guard's charts on an eps owner sector: the eps bubble class of scope 1-2
+/// (support `0x3`, forced axis `0x2`: two raw charts) made a Custom owner. Both
+/// charts pass in either order; one chart only, a chart twice, an extra chart
+/// and one-sided axes are refused by the guard, the certificate and the factory.
+#[test]
+fn the_guard_needs_both_raw_charts_of_an_eps_owner() {
+    let library = &scope_two().library;
+    let parts = Parts::of(library);
+    let (&class, record) = (library.census().classes.iter())
+        .find(|(_, record)| record.eps_lines == 1)
+        .unwrap();
+    let (presentation, support) = record.owner;
+    let forced = library.presentation(presentation).forced_axes();
+    assert_eq!((support, forced), (0x3, 0x2), "{}", record.key.label());
+    let custom = |two_sided_axes: u64, charts: Vec<u64>| {
+        let mut damaged = parts.clone();
+        let arity = library.presentation(presentation).slots.len();
+        damaged.terminals.push(PTerminal::Residual {
+            owner: class,
+            key: IntegralKey::try_new(vec![1_i64; arity]).unwrap(),
+        });
+        let residual = PTerminalId(damaged.terminals.len() as u32 - 1);
+        let owner = damaged
+            .owners
+            .iter_mut()
+            .find(|o| o.class == class)
+            .unwrap();
+        owner.lane = OwnerLane::Custom;
+        owner.roles = LaneRoles::None;
+        owner.edge_maps.clear();
+        owner.payload = Some(CustomPayloadRef::Bytes(Arc::from(&b"payload"[..])));
+        owner.custom = Some(CustomOwnerMeta {
+            lp_count: 1,
+            residuals: 1,
+            two_sided_axes,
+            charts,
+        });
+        owner.terminals = vec![residual];
+        let built = damaged.build().unwrap();
+        let spec = built.owner(class).unwrap().spec.clone();
+        (built, spec)
+    };
+    let (minus, plus) = (support & !forced, support);
+    for charts in [vec![minus, plus], vec![plus, minus]] {
+        let (built, spec) = custom(forced, charts);
+        descent::check_custom_guard(&built, &spec).unwrap();
+        assert_eq!(
+            lane_program(&built, &spec).unwrap_err(),
+            PError::NotImplemented("M2-T7c")
+        );
+    }
+    for (two_sided, charts, reason) in [
+        (forced, vec![plus], "charts"),
+        (forced, vec![minus], "charts"),
+        (forced, vec![minus, minus], "charts"),
+        (forced, vec![minus, plus, plus | 1 << 7], "charts"),
+        (0, vec![minus, plus], "two-sided"),
+    ] {
+        let (built, spec) = custom(two_sided, charts.clone());
+        for error in [
+            descent::check_custom_guard(&built, &spec).unwrap_err(),
+            descent::check(&built).unwrap_err(),
+            lane_program(&built, &spec).unwrap_err(),
+        ] {
+            assert!(
+                error.to_string().contains(reason),
+                "{two_sided:#x} {charts:#x?}: {error}"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // p-validate: the support-only trace
 // ---------------------------------------------------------------------------
@@ -571,9 +669,28 @@ fn p_validate_traces_ten_thousand_distinct_keys_per_loop_count() {
         }
     }
     assert!(rows[0].box_exhausted);
-    assert_eq!(rows[1].keys, 10_000);
     assert!(!rows[1].box_exhausted);
     assert_eq!(unapplied_owners(assembled, &rows), []);
+    // What the trace reaches is deterministic: (loops, distinct inputs, Route
+    // keys, Apply keys, Route keys on zero sectors). A trace that skips keys
+    // (e.g. a route's endpoints off the owner support) changes it.
+    let reached: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let trace = &row.report;
+            (
+                row.loops,
+                row.keys,
+                trace.route_keys,
+                trace.apply_keys,
+                trace.zero_keys,
+            )
+        })
+        .collect();
+    assert_eq!(
+        reached,
+        [(1, 127, 127, 10, 117), (2, 10_000, 22_803, 1_686, 19_364)]
+    );
 }
 
 /// The trace counts what a reduction would refuse: a library whose Triangle
@@ -619,6 +736,67 @@ fn the_trace_counts_missing_owners() {
     let report = descent::trace(&missing, &[kite, bubble], ReductionLimits::default()).unwrap();
     assert_eq!(report.failures_of(TraceFailureKind::MissingOwner), 1);
     assert_eq!(report.samples[0].input, 0);
+}
+
+/// A scope needs a family at every loop count: scope 1-3 of a file of 1L-2L
+/// families is refused at assembly, a loop count without keys at validation,
+/// and `rustred p-validate` on such a file exits 5 (derivation), never 0.
+#[test]
+fn a_scope_needs_a_family_at_every_loop_count() {
+    let mut file = families();
+    file.families.retain(|entry| entry.loops <= 2);
+    let options = AssembleOptions {
+        threads: 1,
+        verify_descent: true,
+    };
+    let assemble = |loops| {
+        assemble_library(
+            &file,
+            loops,
+            CustomPayloads::Provided(BTreeMap::new()),
+            &options,
+        )
+    };
+    let error = assemble(3).unwrap_err();
+    assert!(
+        matches!(&error, PError::Unsupported(m) if m.contains("no family with 3 loops")),
+        "{error}"
+    );
+    let mut assembled = assemble(2).unwrap();
+    assembled.max_loops = 3;
+    let error = validate_library(
+        &assembled,
+        &ValidateOptions {
+            points: 50,
+            ..ValidateOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, PError::Unsupported(m) if m.contains("no key of 3 loops")),
+        "{error}"
+    );
+
+    let mut value: serde_json::Value = serde_json::from_str(P_FAMILIES_V1_JSON).unwrap();
+    value["families"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|entry| entry["loops"].as_u64().unwrap() <= 2);
+    let directory = std::env::temp_dir().join(format!("rr-assemble-scope-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("families.json");
+    std::fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .arg("p-validate")
+        .arg("--families")
+        .arg(&path)
+        .args(["--max-loops", "3", "--points", "50"])
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(&directory).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(5), "{stderr}");
+    assert!(stderr.contains("no family with 3 loops"), "{stderr}");
 }
 
 /// `rustred p-validate` runs the same trace and prints one line per loop count.
@@ -923,8 +1101,6 @@ struct Input {
     top: PresentationId,
     terms: Vec<(Vec<i64>, Rational)>,
     rank: u32,
-    /// The sign of `q` in its scalar products, `0` for a plain key.
-    q_sign: i64,
 }
 
 impl Input {
@@ -936,6 +1112,19 @@ impl Input {
             .iter()
             .map(|(powers, weight)| (self.top, key(powers), coefficient_of(context, weight)))
             .collect()
+    }
+
+    /// The input up to a scalar: its terms in key order, divided by the weight
+    /// of the first. Inputs with one normal form have proportional reductions.
+    fn normal_form(&self) -> String {
+        let mut terms = self.terms.clone();
+        terms.sort_by(|a, b| a.0.cmp(&b.0));
+        let first = terms[0].1.clone();
+        let terms: Vec<_> = terms
+            .iter()
+            .map(|(powers, weight)| (powers, weight / &first))
+            .collect();
+        format!("{} {terms:?}", self.top.0)
     }
 }
 
@@ -949,12 +1138,16 @@ fn small_rational(rng: &mut SplitMix) -> Rational {
     rational(numerator, 1 + rng.below(4) as i64)
 }
 
+fn line_slots(p: &Presentation) -> Vec<usize> {
+    (0..p.slots.len())
+        .filter(|&s| matches!(p.slots[s], Slot::Line(_)))
+        .collect()
+}
+
 /// Denominators of a random input: a random subsector of the lines with `dots`
 /// extra units; the other slots are numerator slots.
 fn denominators(p: &Presentation, dots: u32, rng: &mut SplitMix) -> Vec<i64> {
-    let lines: Vec<usize> = (0..p.slots.len())
-        .filter(|&s| matches!(p.slots[s], Slot::Line(_)))
-        .collect();
+    let lines = line_slots(p);
     let mut powers = vec![0_i64; p.slots.len()];
     let mut kept = Vec::new();
     for &slot in &lines {
@@ -996,34 +1189,38 @@ fn plain_input(p: &Presentation, rng: &mut SplitMix) -> Input {
         top: p.id,
         terms: vec![(powers, small_rational(rng))],
         rank,
-        q_sign: 0,
     }
 }
 
-/// Denominators times `rank` random scalar products `k_i.k_j` and
-/// `k_i.(s q)`, `s = q_sign`, lowered onto the slots by
-/// `express_scalar_product` and expanded.
-fn numerator_input(p: &Presentation, rank: u32, q_sign: i64, rng: &mut SplitMix) -> Input {
-    let dots = rng.below(3) as u32;
-    let base = denominators(p, dots, rng);
+/// The scalar products of a numerator input: `k_i.k_j` (`i <= j < L`) and
+/// `k_i.q` (`j = L`). `k_i.(-q)` is minus `k_i.q`: an input with it is minus
+/// one without, up to a scalar the same input, so `q` keeps its sign.
+fn scalar_products(p: &Presentation) -> Vec<(usize, usize)> {
+    let loops = usize::from(p.loops);
+    (0..loops)
+        .flat_map(|i| (i..=loops).map(move |j| (i, j)))
+        .collect()
+}
+
+/// `weight` times the denominators `base` times the scalar products `products`,
+/// lowered onto the slots by `express_scalar_product` and expanded.
+fn lowered(
+    p: &Presentation,
+    base: &[i64],
+    products: &[(usize, usize)],
+    weight: Rational,
+) -> Vec<(Vec<i64>, Rational)> {
     let width = usize::from(p.loops) + 1;
-    let unit = |column: usize, sign: i64| {
+    let unit = |column: usize| {
         let mut row = vec![0_i64; width];
-        row[column] = sign;
+        row[column] = 1;
         row
     };
     // Polynomial in the slots: exponents -> coefficient.
     let mut polynomial: BTreeMap<Vec<i64>, Rational> =
-        BTreeMap::from([(vec![0_i64; p.slots.len()], small_rational(rng))]);
-    for _ in 0..rank {
-        let i = rng.below(u64::from(p.loops)) as usize;
-        let other = rng.below(u64::from(p.loops) + 1) as usize;
-        let right = if other == usize::from(p.loops) {
-            unit(other, q_sign)
-        } else {
-            unit(other, 1)
-        };
-        let form = p.express_scalar_product(&unit(i, 1), &right).unwrap();
+        BTreeMap::from([(vec![0_i64; p.slots.len()], weight)]);
+    for &(i, j) in products {
+        let form = p.express_scalar_product(&unit(i), &unit(j)).unwrap();
         let mut next: BTreeMap<Vec<i64>, Rational> = BTreeMap::new();
         for (exponents, weight) in &polynomial {
             let mut add = |exponents: Vec<i64>, value: Rational| {
@@ -1042,24 +1239,34 @@ fn numerator_input(p: &Presentation, rank: u32, q_sign: i64, rng: &mut SplitMix)
         next.retain(|_, value| !value.is_zero());
         polynomial = next;
     }
-    let terms = polynomial
+    polynomial
         .into_iter()
         .map(|(exponents, weight)| {
             let powers = base.iter().zip(&exponents).map(|(b, e)| b - e).collect();
             (powers, weight)
         })
+        .collect()
+}
+
+/// Denominators times `rank` random scalar products.
+fn numerator_input(p: &Presentation, rank: u32, rng: &mut SplitMix) -> Input {
+    let dots = rng.below(3) as u32;
+    let base = denominators(p, dots, rng);
+    let types = scalar_products(p);
+    let weight = small_rational(rng);
+    let products: Vec<(usize, usize)> = (0..rank)
+        .map(|_| types[rng.below(types.len() as u64) as usize])
         .collect();
     Input {
         top: p.id,
-        terms,
+        terms: lowered(p, &base, &products, weight),
         rank,
-        q_sign,
     }
 }
 
 /// `count` random inputs over the tops of `loops` loops: plain keys (dots <= 2,
 /// rank <= 6 as negative powers -3..-1) and numerator inputs (dots <= 2, rank
-/// 0..=6 in scalar products, both signs of `q`), alternately.
+/// 0..=6 in scalar products), alternately.
 fn random_inputs(assembled: &AssembledLibrary, loops: u8, count: usize, seed: u64) -> Vec<Input> {
     let mut rng = SplitMix::new(seed);
     let tops = assembled.tops_of(loops);
@@ -1072,11 +1279,96 @@ fn random_inputs(assembled: &AssembledLibrary, loops: u8, count: usize, seed: u6
                 plain_input(top, &mut rng)
             } else {
                 let rank = rng.below(7) as u32;
-                let sign = if rng.below(2) == 0 { 1 } else { -1 };
-                numerator_input(top, rank, sign, &mut rng)
+                numerator_input(top, rank, &mut rng)
             }
         })
         .collect()
+}
+
+/// Every nondecreasing sequence of `size` indices below `n`: the multisets.
+fn multisets(n: usize, size: usize) -> Vec<Vec<usize>> {
+    if size == 0 {
+        return vec![Vec::new()];
+    }
+    let mut out = Vec::new();
+    for shorter in multisets(n, size - 1) {
+        for index in shorter.last().copied().unwrap_or(0)..n {
+            let mut longer = shorter.clone();
+            longer.push(index);
+            out.push(longer);
+        }
+    }
+    out
+}
+
+/// The bounded input space of `p`: every input [`random_inputs`] can draw on
+/// it, one per normal form (weights random), if there are at most `limit`
+/// candidates before deduplication, else `None` (it is enumerated at one loop).
+fn input_space(p: &Presentation, limit: usize, rng: &mut SplitMix) -> Option<Vec<Input>> {
+    let lines = line_slots(p);
+    let types = scalar_products(p);
+    let numerator_products: Vec<Vec<usize>> = (0..=6)
+        .flat_map(|rank| multisets(types.len(), rank))
+        .collect();
+    let mut bases = Vec::new();
+    for mask in 1..1_u64 << lines.len() {
+        let kept: Vec<usize> = (0..lines.len())
+            .filter(|&i| mask >> i & 1 == 1)
+            .map(|i| lines[i])
+            .collect();
+        for dots in (0..=2).flat_map(|dots| multisets(kept.len(), dots)) {
+            let mut base = vec![0_i64; p.slots.len()];
+            for &slot in &kept {
+                base[slot] = 1;
+            }
+            for index in dots {
+                base[kept[index]] += 1;
+            }
+            bases.push(base);
+        }
+    }
+    let plain = |base: &[i64]| -> Vec<Vec<i64>> {
+        let free: Vec<usize> = (0..base.len()).filter(|&s| base[s] == 0).collect();
+        (0..4_u64.pow(free.len() as u32))
+            .map(|code| {
+                let mut powers = base.to_vec();
+                for (position, &slot) in free.iter().enumerate() {
+                    powers[slot] = -(((code >> (2 * position)) & 3) as i64);
+                }
+                powers
+            })
+            .filter(|powers| free.iter().map(|&s| -powers[s]).sum::<i64>() <= 6)
+            .collect()
+    };
+    let candidates: usize = bases
+        .iter()
+        .map(|base| plain(base).len() + numerator_products.len())
+        .sum();
+    if candidates > limit {
+        return None;
+    }
+    let mut space = BTreeMap::new();
+    for base in &bases {
+        for powers in plain(base) {
+            let rank = powers.iter().filter(|&&x| x < 0).map(|x| -x).sum::<i64>() as u32;
+            let input = Input {
+                top: p.id,
+                terms: vec![(powers, small_rational(rng))],
+                rank,
+            };
+            space.entry(input.normal_form()).or_insert(input);
+        }
+        for product in &numerator_products {
+            let products: Vec<(usize, usize)> = product.iter().map(|&t| types[t]).collect();
+            let input = Input {
+                top: p.id,
+                terms: lowered(p, base, &products, small_rational(rng)),
+                rank: products.len() as u32,
+            };
+            space.entry(input.normal_form()).or_insert(input);
+        }
+    }
+    Some(space.into_values().collect())
 }
 
 /// A top family under the P0 lane: all-rank SpIRed rules on its lines.
@@ -1129,13 +1421,67 @@ fn reduce(
 // Exactness against P0 SpIRed reductions in the top family
 // ---------------------------------------------------------------------------
 
-/// Distinct inputs per loop count of the exactness test.
-const EXACT_INPUTS: usize = 320;
+/// Random inputs per loop count of the exactness test, distinct up to a scalar:
+/// about half of them reduce to zero (zero sectors), so 640 for at least 300
+/// nonzero ones.
+const EXACT_INPUTS: usize = 640;
+
+/// Candidates up to which the bounded input space of a loop count is
+/// enumerated instead of sampled.
+const SPACE_LIMIT: usize = 4_096;
+
+/// The exactness inputs of `loops` loops, distinct up to a scalar: the whole
+/// bounded input space when it holds at most [`EXACT_INPUTS`] (one loop: the
+/// second return value is `true`), else [`EXACT_INPUTS`] random ones.
+fn exactness_inputs(assembled: &AssembledLibrary, loops: u8, seed: u64) -> (Vec<Input>, bool) {
+    let mut rng = SplitMix::new(seed);
+    let library = &assembled.library;
+    let mut space = Vec::new();
+    for &top in &assembled.tops_of(loops) {
+        match input_space(library.presentation(top), SPACE_LIMIT, &mut rng) {
+            Some(inputs) => space.extend(inputs),
+            None => {
+                space.clear();
+                break;
+            }
+        }
+    }
+    if !space.is_empty() && space.len() <= EXACT_INPUTS {
+        // The random generator draws inside the enumerated space.
+        let forms: BTreeSet<String> = space.iter().map(Input::normal_form).collect();
+        for input in random_inputs(assembled, loops, 4 * EXACT_INPUTS, seed) {
+            assert!(forms.contains(&input.normal_form()), "{input:?}");
+        }
+        return (space, true);
+    }
+    let mut seen = BTreeSet::new();
+    let mut inputs = Vec::new();
+    for round in 0..64 {
+        let draws = random_inputs(assembled, loops, EXACT_INPUTS, seed ^ (round << 32));
+        for input in draws {
+            if inputs.len() < EXACT_INPUTS && seen.insert(input.normal_form()) {
+                inputs.push(input);
+            }
+        }
+        if inputs.len() == EXACT_INPUTS {
+            break;
+        }
+    }
+    assert_eq!(
+        inputs.len(),
+        EXACT_INPUTS,
+        "L{loops}: too few inputs distinct up to a scalar"
+    );
+    (inputs, false)
+}
 
 /// `PLib(x) == Sum_j e_j(d) PLib(T_j)` in the tag basis, where `x = Sum_j e_j T_j`
-/// is the P0 SpIRed reduction of `x` in its top family, at two random `d` each:
-/// 320 distinct inputs per loop count (L = 1, 2), and every owner applied by
-/// them (counted by the trace of their keys).
+/// is the P0 SpIRed reduction of `x` in its top family, at two random `d` each,
+/// on inputs distinct up to a scalar: the whole bounded input space at one loop
+/// (177 inputs, 42 of them nonzero), 640 random inputs at two (at least 300 of
+/// them nonzero). Per loop count the distinct keys, nonzero comparisons and
+/// odd-rank nonzero inputs are counted and bounded below; every owner is applied
+/// (counted by the trace of the keys).
 #[test]
 fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
     let assembled = scope_two();
@@ -1143,29 +1489,20 @@ fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
     let context = library.coefficient_context();
     let mut rng = SplitMix::new(0x5ec7_0f2a);
     let points = dimensions(&mut rng, 2);
-    let mut all_keys = BTreeSet::new();
+    // No route of scope 1-2 flips q: `q -> -q` is not traversed here.
+    let census = library.census();
+    let flipped = (census.sectors.values())
+        .filter(|fate| matches!(fate, PSectorFate::Owner { map, .. } if map.external_sign < 0))
+        .count();
+    println!("routes with external_sign -1: {flipped}");
+    let mut applied = BTreeSet::new();
+    // (loop count, exhausted space, inputs, keys, nonzero comparisons,
+    // nonzero inputs, odd-rank nonzero inputs, max nonzero rank).
+    let mut summary = Vec::new();
     for loops in 1..=2_u8 {
-        let mut inputs = random_inputs(
-            assembled,
-            loops,
-            4 * EXACT_INPUTS,
-            0x1000 + u64::from(loops),
-        );
-        // Distinct inputs only.
-        let mut seen = BTreeSet::new();
-        inputs.retain(|input| seen.insert(format!("{:?} {:?}", input.top, input.terms)));
-        inputs.truncate(EXACT_INPUTS);
-        assert_eq!(
-            inputs.len(),
-            EXACT_INPUTS,
-            "L{loops}: too few distinct inputs"
-        );
-        let (mut odd, mut negative_q, mut max_rank) = (0, 0, 0);
-        for input in &inputs {
-            odd += usize::from(input.rank % 2 == 1);
-            negative_q += usize::from(input.q_sign < 0);
-            max_rank = max_rank.max(input.rank);
-        }
+        let (inputs, exhausted) = exactness_inputs(assembled, loops, 0x1000 + u64::from(loops));
+        let (mut nonzero, mut nonzero_inputs, mut odd, mut max_rank) = (0, 0, 0, 0);
+        let mut all_keys = BTreeSet::new();
         let start = Instant::now();
         for &top in &assembled.tops_of(loops) {
             let mut p0 = P0::new(library.presentation(top));
@@ -1185,10 +1522,11 @@ fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
                 .into_iter()
                 .map(|master| reduce(library, vec![(top, master, context.one())]))
                 .collect();
+            let mut nonzero_of = vec![false; ours.len()];
             for d in &points {
                 let rows = p0.rows(&keys, d);
                 let master_values: Vec<_> = masters.iter().map(|m| tag_values(m, d)).collect();
-                for input in &ours {
+                for (position, input) in ours.iter().enumerate() {
                     let ours_value = tag_values(&reduce(library, input.request_inputs(context)), d);
                     let mut expected = BTreeMap::new();
                     for (powers, weight) in &input.terms {
@@ -1201,32 +1539,74 @@ fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
                         }
                     }
                     assert_eq!(ours_value, expected, "L{loops} {input:?} at d = {d}");
+                    if !ours_value.is_empty() {
+                        nonzero += 1;
+                        nonzero_of[position] = true;
+                    }
                 }
             }
+            for (input, _) in ours.iter().zip(&nonzero_of).filter(|(_, n)| **n) {
+                nonzero_inputs += 1;
+                odd += usize::from(input.rank % 2 == 1);
+                max_rank = max_rank.max(input.rank);
+            }
         }
+        let keys: Vec<_> = all_keys.into_iter().collect();
+        let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
+        assert!(trace.is_clean());
         println!(
-            "exactness L{loops}: {} distinct inputs ({odd} odd rank, {negative_q} with -q, rank <= {max_rank}), \
-             2 d each, {:.1} s",
+            "exactness L{loops}: {} inputs distinct up to a scalar{}, {} distinct keys, \
+             {nonzero}/{} nonzero comparisons (2 d each), {nonzero_inputs} nonzero inputs \
+             ({odd} of odd rank, rank <= {max_rank}); {} apply sites over {} owners: {:?}; {:.1} s",
             inputs.len(),
+            if exhausted {
+                " (the whole bounded input space)"
+            } else {
+                ""
+            },
+            keys.len(),
+            2 * inputs.len(),
+            trace.apply_sites,
+            trace.applied.len(),
+            trace
+                .applied
+                .iter()
+                .map(|(class, sites)| (library.census().classes[class].key.label(), *sites))
+                .collect::<Vec<_>>(),
             start.elapsed().as_secs_f64()
         );
+        applied.extend(trace.applied.keys().copied());
+        summary.push((
+            loops,
+            exhausted,
+            inputs.len(),
+            keys.len(),
+            nonzero,
+            nonzero_inputs,
+            odd,
+            max_rank,
+        ));
     }
-    let keys: Vec<_> = all_keys.into_iter().collect();
-    let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
-    assert!(trace.is_clean());
-    println!(
-        "coverage: {} distinct keys, {} apply sites over {} owners: {:?}",
-        keys.len(),
-        trace.apply_sites,
-        trace.applied.len(),
-        trace
-            .applied
-            .iter()
-            .map(|(class, sites)| (library.census().classes[class].key.label(), *sites))
-            .collect::<Vec<_>>()
+    println!("exactness rows: {summary:?}");
+    let [one, two] = summary.as_slice() else {
+        unreachable!()
+    };
+    // One loop: the bounded input space, exhausted (deterministic up to the
+    // weights): (loops, exhausted, inputs, keys, nonzero comparisons, nonzero
+    // inputs, odd-rank nonzero inputs, max nonzero rank).
+    assert_eq!(*one, (1, true, 177, 69, 84, 42, 18, 6));
+    // Two loops: random inputs; lower bounds on what they reach.
+    let &(_, exhausted, inputs, keys, nonzero, nonzero_inputs, odd, max_rank) = two;
+    assert!(!exhausted && inputs == EXACT_INPUTS);
+    assert!(keys >= 2_000, "L2: {keys} keys");
+    assert!(nonzero >= 600, "L2: {nonzero} nonzero comparisons");
+    assert!(nonzero_inputs >= 300, "L2: {nonzero_inputs} nonzero inputs");
+    assert!(
+        odd >= 100 && max_rank == 6,
+        "L2: {odd} odd, rank {max_rank}"
     );
     assert_eq!(
-        trace.applied.len(),
+        applied.len(),
         library.owners().len(),
         "an owner never applied"
     );
@@ -1321,7 +1701,8 @@ fn series_parallel_inputs_equal_their_closed_forms() {
             }
         }
         let mut sampled = Vec::new();
-        while sampled.len() < budget.min(keys.len()) {
+        let target = budget.min(keys.len());
+        while sampled.len() < target {
             let index = rng.below(keys.len() as u64) as usize;
             sampled.push(keys.swap_remove(index));
         }
@@ -1368,8 +1749,9 @@ fn series_parallel_inputs_equal_their_closed_forms() {
 // ---------------------------------------------------------------------------
 
 /// Exact and ModularPolynomial weights give the same terms, and 1 and 16
-/// scheduler threads the same bits, on 60 random inputs per loop count; the wall
-/// time of both arithmetics is printed.
+/// scheduler threads the same bits, on 60 random inputs per loop count, also
+/// modular with 4 threads under 16 scheduler threads (vakint's default shape);
+/// the wall time of both arithmetics is printed.
 #[test]
 fn exact_equals_modular_polynomial_and_threads_are_bit_identical() {
     let assembled = scope_two();
@@ -1398,6 +1780,18 @@ fn exact_equals_modular_polynomial_and_threads_are_bit_identical() {
             let threaded = library.reduce(threaded).unwrap();
             assert_eq!(exact.terms, threaded.terms);
             assert_eq!(exact.nonzero_conditions, threaded.nonzero_conditions);
+            // vakint's shape: modular with several threads under a threaded
+            // scheduler.
+            let mut both = request(input.request_inputs(context));
+            both.arithmetic = modular_polynomial(4);
+            both.scheduler = OrderedSchedulerOptions {
+                threads: 16,
+                window_keys: 8,
+                ..Default::default()
+            };
+            let both = library.reduce(both).unwrap();
+            assert_eq!(exact.terms, both.terms, "{input:?}");
+            assert_eq!(exact.nonzero_conditions, both.nonzero_conditions);
         }
         println!(
             "L{loops}: {} inputs, Exact {:.3} s, ModularPolynomial {:.3} s",
@@ -1566,15 +1960,7 @@ fn benchmark_cells_tags_and_timings() {
                 for top in assembled.tops_of(loops) {
                     let terms = benchmark_input(library.presentation(top), dots, rank);
                     all_keys.extend(terms.iter().map(|(powers, _)| (top, powers.clone())));
-                    inputs.extend(
-                        Input {
-                            top,
-                            terms,
-                            rank,
-                            q_sign: 1,
-                        }
-                        .request_inputs(context),
-                    );
+                    inputs.extend(Input { top, terms, rank }.request_inputs(context));
                 }
                 let keys: Vec<_> = inputs
                     .iter()

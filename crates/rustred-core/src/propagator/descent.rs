@@ -803,6 +803,9 @@ impl<'l> Tracer<'l> {
         let (children, terminals) = self.children(key)?;
         for child in &children {
             let position = self.position(child)?;
+            // A Route parent sits at (even phase, 0, None): a child in its own
+            // phase is a Route key at the same position, never lower, so the
+            // Apply clause below is implied there (kept for clarity).
             let descends = position.phase > parent.phase
                 || (position.phase == parent.phase
                     && (position.rank, &position.order) < (parent.rank, &parent.order)

@@ -3,7 +3,8 @@
 //! [`assemble_library`] builds the complete in-memory library program of plan
 //! M2 section 3.2 from a families file:
 //!
-//! 1. tops: every family with `1 <= L <= max_loops`, ids in file order;
+//! 1. tops: every family with `1 <= L <= max_loops`, ids in file order; a
+//!    loop count of the scope without a family is refused;
 //! 2. the reduction DAG of their graphs, `ChildMode::ForcerTree`, through one
 //!    [`TopologyService`];
 //! 3. per node `present_node` (lane, roles, lane-adapted presentation, or the
@@ -136,6 +137,13 @@ pub fn assemble_library(
     if max_loops == 0 || entries.is_empty() {
         return Err(PError::Unsupported(format!(
             "no family with 1 to {max_loops} loops to assemble"
+        )));
+    }
+    // Scope 1..=max_loops means every loop count of it: a scope with a gap
+    // would be labelled and validated for loop counts it has no top of.
+    if let Some(missing) = (1..=max_loops).find(|&loops| entries.iter().all(|e| e.loops != loops)) {
+        return Err(PError::Unsupported(format!(
+            "scope 1-{max_loops}: the families file has no family with {missing} loops"
         )));
     }
     let scope = PFamiliesFile {
@@ -511,7 +519,8 @@ pub fn validation_keys(
 
 /// `rustred p-validate`: per loop count of the scope, distinct random keys of the
 /// tops traced through the library without coefficients, with
-/// `PUncoveredPolicy::Reject` semantics.
+/// `PUncoveredPolicy::Reject` semantics. A loop count without any key is
+/// refused (`PError::Unsupported`), never reported as clean.
 pub fn validate_library(
     assembled: &AssembledLibrary,
     options: &ValidateOptions,
@@ -520,6 +529,11 @@ pub fn validate_library(
     for loops in 1..=assembled.max_loops {
         let start = Instant::now();
         let (keys, box_exhausted) = validation_keys(assembled, loops, options);
+        if keys.is_empty() {
+            return Err(PError::Unsupported(format!(
+                "p-validate: no key of {loops} loops to trace (the scope has no top of {loops} loops)"
+            )));
+        }
         let report = trace(&assembled.library, &keys, options.limits)?;
         rows.push(ValidateRow {
             loops,
