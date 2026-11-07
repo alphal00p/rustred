@@ -402,6 +402,42 @@ fn cold_partial_restore_rebinds_only_after_exact_replay_and_descent() {
     );
 }
 
+/// A deferred owner restores its overlays by an exact cold replay. A
+/// cancellation (a refused resource budget) at any checkpoint of it returns a
+/// typed resource error, which the owner cell retries instead of keeping the
+/// failure; the owner is unchanged, and the next restore succeeds.
+#[test]
+fn cold_partial_restore_stops_with_a_typed_resource_error_at_every_checkpoint() {
+    use crate::reduction::stopping::{Stopping, is_stop};
+    let old = tadpole(vec![], &[[1]], Default::default());
+    let new = tadpole(vec![], &[[1]], Default::default());
+    let restore = |stopping: &Stopping| {
+        let original = fixed_overlay(&old);
+        let search = new.bind_owner_search([true], original.policy).unwrap();
+        stopping.run(|| {
+            search.restore_replayed_residual_free_overlay(
+                original.solution,
+                original.attempt_limits,
+                Default::default(),
+                Default::default(),
+            )
+        })
+    };
+    let clean = Stopping::armed(None);
+    let (restored, report) = restore(&clean).unwrap();
+    let checkpoints = clean.seen();
+    // At least one per replayed rule, source row and descent proof.
+    assert!(checkpoints >= 2 * report.rules.len(), "{checkpoints}");
+    for stop_at in 1..=checkpoints {
+        let error = restore(&Stopping::armed(Some(stop_at))).unwrap_err();
+        assert!(is_stop(&error), "{stop_at}: {error}");
+        assert_eq!(new.overlays(&[true]).count(), 0);
+    }
+    let (again, _) = restore(&Stopping::armed(None)).unwrap();
+    assert_eq!(again.rule_count(), restored.rule_count());
+    assert!(new.owns_domain_overlay(&again));
+}
+
 #[test]
 fn cold_partial_restore_rejects_residual_order_equation_and_resource_mutations() {
     let base = tadpole(vec![], &[], Default::default());

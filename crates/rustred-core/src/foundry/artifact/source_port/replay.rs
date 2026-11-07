@@ -20,7 +20,7 @@ use crate::solver::{
     instantiate_source_port,
 };
 
-use super::{SourcePortAuditError, error, geometry, ordinary};
+use super::{SourcePortAuditError, checkpoint, error, geometry, ordinary};
 
 #[cfg(test)]
 #[path = "replay/exception_tests.rs"]
@@ -124,6 +124,7 @@ pub(super) fn replay_rule_retaining<const N: usize>(
     let replay_zero_sectors: &[[bool; N]] = if affine.is_some() { &[] } else { zero_sectors };
     let mut rows = Vec::with_capacity(candidate.sources.len());
     for source in &candidate.sources {
+        checkpoint()?;
         // Seed fields are public search transport, not certificate authority.
         // For a canonical target, the symbolic base is exactly n;
         // coefficient and physical-index translations must therefore agree.
@@ -181,6 +182,9 @@ pub(super) fn replay_rule_retaining<const N: usize>(
     let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::None);
     let one: Coefficient = template.one().into();
     for (source_ordinal, row) in rows.iter().enumerate() {
+        // One exact row elimination over Q(d) can take a while: stop between
+        // rows (the reducer is local to this replay).
+        checkpoint()?;
         let mut values: Vec<_> = row.iter().map(|term| term.coefficient.clone()).collect();
         let mut indices: Vec<_> = row
             .iter()
@@ -230,6 +234,7 @@ pub(super) fn replay_rule_retaining<const N: usize>(
         let zero: Coefficient = template.zero().into();
         let mut check = vec![zero; columns.len()];
         for (row_ordinal, weight) in &weights {
+            checkpoint()?;
             let source = rows
                 .get(*row_ordinal)
                 .ok_or_else(|| error("native source identity column is out of range"))?;
