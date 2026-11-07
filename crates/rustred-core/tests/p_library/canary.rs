@@ -7,10 +7,12 @@
 //! charts' numbers. `run::family_info` lists the charts and counts LP,
 //! `run::chart` solves one chart, `run::union_guard` puts the hard guard on the
 //! union, `run::closure` takes random points through a family's rules. They
-//! read `CANARY_*` variables (see `run::required`). `family_info` and `chart`
-//! refuse a family whose forced axes are not the expected stars: an uncrossed or
-//! partly crossed file gives valid IBPs of the wrong integral. The driver that
-//! sets the variables and holds the caps is `$WS/SCRATCHPAD/m2-canary/drive.py`.
+//! read `CANARY_*` variables (see `run::required`) and return at once when none
+//! is set, which is how the batch-end `--ignored` step meets them. `family_info`
+//! and `chart` refuse a family whose forced axes are not the expected stars: an
+//! uncrossed or partly crossed file gives valid IBPs of the wrong integral. The
+//! driver that sets the variables and holds the caps is
+//! `$WS/SCRATCHPAD/m2-canary/drive.py`.
 //! The LP count of a 10- or 11-line 4L family outlasts the caps of the report
 //! rows, so those rows take LP from `rules_study/targets.tsv` (`lp_source`) and
 //! solve through [`solve_uncounted`]; part A always counts it.
@@ -58,8 +60,14 @@ struct FamilyAxes {
     /// Lee-Pomeransky master count of the owner support, with shifts.
     lp: u32,
     /// `counted` here, or `given`: the targets table's, not counted in this run.
+    /// The info files of parts A1 and C were written before this field.
+    #[serde(default = "lp_counted")]
     lp_source: String,
     charts: Vec<String>,
+}
+
+fn lp_counted() -> String {
+    "counted".to_owned()
 }
 
 /// One chart of one family: a refused chart has `error`, a capped one has no
@@ -331,13 +339,53 @@ fn chart_row(axes: &FamilyAxes, sym: &str, chart: &str, workers: usize) -> Chart
     row
 }
 
-/// The hard guard on the union of the charts of one family: a completed union
-/// with fewer residuals than LP is a gate failure, the `Err` here. A refused or
-/// missing chart leaves the union without a verdict, which is a recorded miss.
-fn union_row(axes: &FamilyAxes, rows: &[ChartRow]) -> Result<UnionRow, String> {
-    if rows.iter().any(|row| row.family != axes.family) {
-        return Err(format!("rows of another family than {}", axes.family));
+/// Refuses rows the driver never writes: each row must be one chart of the
+/// family's list, once, with the family's own axes. Anything else could lend the
+/// guard a residual count that belongs to no chart of this family.
+fn check_union_rows(axes: &FamilyAxes, rows: &[ChartRow]) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for row in rows {
+        let name = format!("{} chart {}", axes.family, row.chart);
+        for (field, theirs, ours) in [
+            ("family", &row.family, &axes.family),
+            ("file", &row.file, &axes.file),
+            ("forced", &row.forced, &axes.forced),
+            ("support", &row.support, &axes.support),
+        ] {
+            if theirs != ours {
+                return Err(format!("{name}: {field} {theirs} is not {ours}"));
+            }
+        }
+        if row.lp != axes.lp {
+            return Err(format!("{name}: LP {} is not {}", row.lp, axes.lp));
+        }
+        if !axes.charts.contains(&row.chart) {
+            return Err(format!("{name}: not a chart of the family's list"));
+        }
+        if !seen.insert(row.chart.as_str()) {
+            return Err(format!("{name}: the chart has two rows"));
+        }
+        if row.rules.is_some() {
+            if row.residuals.is_none() {
+                return Err(format!("{name}: a closed row with no residual list"));
+            }
+            if row.two_sided.as_ref() != Some(&axes.forced) {
+                return Err(format!(
+                    "{name}: two-sided axes {:?} are not the forced axes {}",
+                    row.two_sided, axes.forced
+                ));
+            }
+        }
     }
+    Ok(())
+}
+
+/// The hard guard on the union of the charts of one family: a completed union
+/// with fewer residuals than LP is a gate failure, the `Err` here, and so are
+/// rows that are not the family's charts. A refused or missing chart leaves the
+/// union without a verdict, which is a recorded miss.
+fn union_row(axes: &FamilyAxes, rows: &[ChartRow]) -> Result<UnionRow, String> {
+    check_union_rows(axes, rows)?;
     let closed: Vec<&ChartRow> = rows.iter().filter(|row| row.rules.is_some()).collect();
     let residuals: Vec<Vec<i64>> = closed
         .iter()
@@ -387,6 +435,14 @@ fn union_row(axes: &FamilyAxes, rows: &[ChartRow]) -> Result<UnionRow, String> {
     Ok(union)
 }
 
+/// `closure`'s reading of a refused reduction: a coefficient exact in `d` with a
+/// pole at the test's `d` is no verdict on the rule. The same message without
+/// `, d = ` (`DynRule::apply`) is a denominator vanishing at the key for every
+/// `d`, a hole in the rule, so it counts as a failure.
+fn is_pole_at_test_dimension(error: &str) -> bool {
+    error.contains("has a pole") && error.contains(", d = ")
+}
+
 fn status_field(field: &str) -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find(|line| line.starts_with(field))?;
@@ -419,8 +475,117 @@ fn a_file_whose_forced_axes_are_not_the_stars_is_refused() {
     assert!(uncrossed.contains("are not the stars"), "{uncrossed}");
     let bubu = eps_family_source("bubu");
     let stars = vec![false; 14];
-    let axes = family_axes("bubu", bubu, &stars, Some(0)).unwrap();
-    assert_eq!((axes.charts.len(), axes.lp_source.as_str()), (1, "given"));
+    let axes = family_axes("bubu", bubu, &stars, Some(7)).unwrap();
+    assert_eq!(
+        (axes.charts.len(), axes.lp, axes.lp_source.as_str()),
+        (1, 7, "given")
+    );
+}
+
+/// The support is the target's lines and every forced axis, also one whose
+/// target power is not positive: the charts of that axis are what two-sidedness
+/// is for.
+#[test]
+fn a_forced_axis_at_target_power_zero_stays_in_the_support() {
+    let t007c = eps_family_source("T007c");
+    let sym = t007c.replace("prop(D1,(k1)^2,1)", "prop(D1,(k1)^2,0)");
+    assert_ne!(sym, t007c);
+    let stars = parse_mask("10000").unwrap();
+    let axes = family_axes("T007c", &sym, &stars, Some(1)).unwrap();
+    assert_eq!(axes.support, "11111");
+    assert_eq!(axes.charts, ["11111", "01111"]);
+}
+
+/// The info files of parts A1 and C have no `lp_source`: they were counted.
+#[test]
+fn an_info_file_without_lp_source_is_counted() {
+    let info = json!({
+        "family": "T074c",
+        "file": "embedded:T074c",
+        "forced": "00000000100000",
+        "support": "11111111100000",
+        "lp": 0,
+        "charts": ["11111111100000", "11111111000000"],
+    });
+    let axes: FamilyAxes = serde_json::from_value(info).unwrap();
+    assert_eq!(axes.lp_source, "counted");
+}
+
+fn t007c_rows() -> (FamilyAxes, Vec<ChartRow>) {
+    let sym = eps_family_source("T007c");
+    let axes = family_axes("T007c", sym, &parse_mask("10000").unwrap(), None).unwrap();
+    let rows = axes
+        .charts
+        .iter()
+        .map(|chart| chart_row(&axes, sym, chart, 1))
+        .collect();
+    (axes, rows)
+}
+
+/// `axes` and `rows` under another LP, as a family with that count would have.
+fn with_lp(axes: &FamilyAxes, rows: &[ChartRow], lp: u32) -> (FamilyAxes, Vec<ChartRow>) {
+    let axes = FamilyAxes { lp, ..axes.clone() };
+    let rows = rows
+        .iter()
+        .map(|row| ChartRow { lp, ..row.clone() })
+        .collect();
+    (axes, rows)
+}
+
+/// More residuals than LP pass the guard and are named: the guard only bounds
+/// them from below.
+#[test]
+fn residuals_above_lp_pass_the_guard_and_are_named() {
+    let (axes, rows) = t007c_rows();
+    let (axes, rows) = with_lp(&axes, &rows, 0);
+    let union = union_row(&axes, &rows).unwrap();
+    assert_eq!(union.residuals.len(), 1);
+    assert_eq!(
+        (union.outcome.as_str(), union.guard.as_str()),
+        ("residuals>LP", "pass")
+    );
+}
+
+/// With LP 2 on T007c, one lost residual, the guard must fail. A second row of
+/// the top chart or a closed row of a chart off the list would make up the
+/// missing residual, and a row of another presentation does not belong in the
+/// count at all: all are refused before the guard.
+#[test]
+fn the_union_takes_only_the_charts_of_its_family_once_each() {
+    let (axes, rows) = t007c_rows();
+    let (lp2, rows2) = with_lp(&axes, &rows, 2);
+    let lost = union_row(&lp2, &rows2).unwrap_err();
+    assert!(lost.contains("false knock-out"), "{lost}");
+
+    let mut twice = rows2.clone();
+    twice.push(rows2[0].clone());
+    let refused = union_row(&lp2, &twice).unwrap_err();
+    assert!(refused.contains("two rows"), "{refused}");
+
+    let mut off_the_list = rows2.clone();
+    off_the_list.push(ChartRow {
+        chart: "00111".to_owned(),
+        ..rows2[0].clone()
+    });
+    let refused = union_row(&lp2, &off_the_list).unwrap_err();
+    assert!(refused.contains("not a chart"), "{refused}");
+
+    let changes: [(&str, fn(&mut ChartRow)); 7] = [
+        ("family", |row| row.family = "T001c".to_owned()),
+        ("file", |row| row.file = "another.sym".to_owned()),
+        ("forced", |row| row.forced = "01000".to_owned()),
+        ("support", |row| row.support = "11110".to_owned()),
+        ("LP", |row| row.lp = 7),
+        ("two-sided", |row| row.two_sided = Some("00000".to_owned())),
+        ("residual list", |row| row.residuals = None),
+    ];
+    for (field, change) in changes {
+        // The second row: the guard itself only reads the first row's axes.
+        let mut other = rows.clone();
+        change(&mut other[1]);
+        let refused = union_row(&axes, &other).unwrap_err();
+        assert!(refused.contains(field), "{field}: {refused}");
+    }
 }
 
 /// Chart by chart equals the whole family: same rules, same residual, and the
@@ -428,15 +593,9 @@ fn a_file_whose_forced_axes_are_not_the_stars_is_refused() {
 /// a union with an open chart has no verdict.
 #[test]
 fn the_union_of_single_chart_processes_passes_the_guard() {
-    let sym = eps_family_source("T007c");
-    let axes = family_axes("T007c", sym, &parse_mask("10000").unwrap(), None).unwrap();
-    let rows: Vec<ChartRow> = axes
-        .charts
-        .iter()
-        .map(|chart| chart_row(&axes, sym, chart, 1))
-        .collect();
+    let (axes, rows) = t007c_rows();
     let union = union_row(&axes, &rows).unwrap();
-    let whole = generate_eps_family(sym, EpsCharts::All).unwrap();
+    let whole = generate_eps_family(eps_family_source("T007c"), EpsCharts::All).unwrap();
     assert_eq!(union.rules, whole.rules);
     assert_eq!(union.residuals, whole.residual_keys);
     assert_eq!((union.lp, union.outcome.as_str()), (1, "residuals=LP"));
@@ -453,38 +612,141 @@ fn the_union_of_single_chart_processes_passes_the_guard() {
     assert_eq!(open.guard, "not run");
 }
 
-/// A refused chart is a row with the message and no rule count.
+/// A refused chart is a row with the message and no rule count: a bad mask, or
+/// a chart that is a zero sector on either path. A refused row of a listed chart
+/// leaves the union without a verdict. The solver's own refusal is in
+/// [`a_solver_refusal_is_a_row_on_both_paths`].
 #[test]
 fn a_refused_chart_is_a_row_not_a_failure() {
+    let (counted, rows) = t007c_rows();
     let sym = eps_family_source("T007c");
-    let axes = family_axes("T007c", sym, &parse_mask("10000").unwrap(), None).unwrap();
-    let row = chart_row(&axes, sym, "1x111", 1);
+    let given = family_axes("T007c", sym, &parse_mask("10000").unwrap(), Some(1)).unwrap();
+    let row = chart_row(&counted, sym, "1x111", 1);
     assert_eq!(row.rules, None);
     assert!(row.error.as_deref().unwrap().contains("not 0 or 1"));
-    let union = union_row(&axes, &[row]).unwrap();
+    for axes in [&counted, &given] {
+        let zero = chart_row(axes, sym, "10000", 1);
+        assert_eq!(zero.rules, None, "{}", axes.lp_source);
+        let error = zero.error.as_deref().unwrap();
+        assert!(error.contains("is a zero sector"), "{error}");
+    }
+    let refused = ChartRow {
+        rules: None,
+        residuals: None,
+        two_sided: None,
+        error: Some("refused".to_owned()),
+        ..rows[0].clone()
+    };
+    let union = union_row(&counted, &[refused]).unwrap();
     assert_eq!(union.outcome, "no verdict: 2 of 2 charts open");
+    assert_eq!(union.guard, "not run");
 }
 
-/// The path without the LP count gives the rows of the helper, chart by chart.
+/// T075c's top chart fails closed in the solver (plan sec.11, M2-T10b): the same
+/// refusal on both paths (the first line; the rest of the message carries timings),
+/// and no verdict on the union. If this chart ever closes, that M3 gate item is
+/// done and this pin needs another refused chart.
+#[test]
+#[ignore = "slow: T075c's top chart refused on both paths, 10 s each"]
+fn a_solver_refusal_is_a_row_on_both_paths() {
+    let sym = eps_family_source("T075c");
+    let stars = parse_mask("00000100000000").unwrap();
+    let given = family_axes("T075c", sym, &stars, Some(0)).unwrap();
+    let counted = FamilyAxes {
+        lp_source: lp_counted(),
+        ..given.clone()
+    };
+    let top = &given.charts[0];
+    assert_eq!(top, "11111111100000");
+    let helper = chart_row(&counted, sym, top, 1);
+    let uncounted = chart_row(&given, sym, top, 1);
+    assert_eq!((helper.rules, uncounted.rules), (None, None));
+    let error = helper.error.as_deref().unwrap();
+    assert!(
+        error.contains("unsupported nonlinear equalities"),
+        "{error}"
+    );
+    assert_eq!(
+        error.lines().next(),
+        uncounted.error.as_deref().and_then(|e| e.lines().next()),
+    );
+    let union = union_row(&given, &[uncounted]).unwrap();
+    assert_eq!(union.outcome, "no verdict: 2 of 2 charts open");
+    assert_eq!(union.guard, "not run");
+}
+
+/// The path without the LP count against the helper, chart by chart.
+fn assert_uncounted_is_helper(name: &str, sym: &str, stars: &str) {
+    let stars = parse_mask(stars).unwrap();
+    let counted = family_axes(name, sym, &stars, None).unwrap();
+    let given = family_axes(name, sym, &stars, Some(counted.lp)).unwrap();
+    assert_eq!(given.charts, counted.charts);
+    for chart in &counted.charts {
+        let helper = chart_row(&counted, sym, chart, 1);
+        let uncounted = chart_row(&given, sym, chart, 1);
+        assert!(helper.rules.is_some(), "{name} {chart}: {:?}", helper.error);
+        assert_eq!(
+            (helper.rules, helper.residuals, helper.two_sided),
+            (uncounted.rules, uncounted.residuals, uncounted.two_sided),
+            "{name} {chart}",
+        );
+    }
+}
+
 #[test]
 fn the_uncounted_solve_is_the_helper_solve() {
     for (name, stars) in [("T007c", "10000"), ("T001c", "10001"), ("T003c", "00011")] {
-        let sym = eps_family_source(name);
-        let stars = parse_mask(stars).unwrap();
-        let counted = family_axes(name, sym, &stars, None).unwrap();
-        let given = family_axes(name, sym, &stars, Some(counted.lp)).unwrap();
-        assert_eq!(given.charts, counted.charts);
-        for chart in &counted.charts {
-            let helper = chart_row(&counted, sym, chart, 1);
-            let uncounted = chart_row(&given, sym, chart, 1);
-            assert!(helper.rules.is_some(), "{name} {chart}: {:?}", helper.error);
-            assert_eq!(
-                (helper.rules, helper.residuals, helper.two_sided),
-                (uncounted.rules, uncounted.residuals, uncounted.two_sided),
-                "{name} {chart}",
-            );
-        }
+        assert_uncounted_is_helper(name, eps_family_source(name), stars);
     }
+}
+
+/// `rules_study/s4-ideas/machine-tables/families/T020e.sym`: a 3L eps family with
+/// LP 1, for the 9-slot path. The embedded families have 5 or 14 slots.
+const T020E: &str = "I(
+  name(T020e),
+  loops(k1,k2,k3),
+  externals(q),
+  dimension(d),
+  prop(D1,(k1)^2,1),
+  prop(D2,(k2)^2,1),
+  prop(D3,(-k1-k2)^2,1),
+  prop(D4,(-k2+k3)^2,1),
+  prop(D5,(k1+k2-q)^2,1),
+  prop(D6,(-k3+q)^2,1),
+  prop(D7,(k3)^2,1),
+  prop(D8,(k1+q)^2,0),
+  prop(D9,(k1-k3)^2,0),
+  gram(q,q,1)
+  ,power_shift(D2,2-d/2)
+  ,power_shift(D4,2-d/2)
+)
+";
+
+/// The same at the arities of the report rows, which all have 9 or 14 slots.
+#[test]
+#[ignore = "slow: both paths on the charts of T020e, T074c, T090c and bubu"]
+fn the_uncounted_solve_is_the_helper_solve_at_9_and_14_slots() {
+    assert_uncounted_is_helper("T020e", T020E, "010100000");
+    for (name, stars) in [
+        ("T074c", "00000000100000"),
+        ("T090c", "00000001000000"),
+        ("bubu", "00000000000000"),
+    ] {
+        assert_uncounted_is_helper(name, eps_family_source(name), stars);
+    }
+}
+
+/// A pole at the test's `d` is no verdict; a pole at every `d` is a failure.
+/// The first message is the real one, T013c's rule with the factor 10d - 37.
+#[test]
+fn only_a_pole_at_the_test_dimension_is_a_refusal_of_closure() {
+    let downset = generate_eps_family(eps_family_source("T013c"), EpsCharts::Downset).unwrap();
+    let at_test_d = downset.reduce(&[1, 0, -1, 1, 2]).err().unwrap();
+    assert!(is_pole_at_test_dimension(&at_test_d), "{at_test_d}");
+    assert!(!is_pole_at_test_dimension(
+        "rule coefficient has a pole at [1, 0, -1, 1, 2]"
+    ));
+    assert!(!is_pole_at_test_dimension("no rule at [1, 0, -1, 1, 2]"));
 }
 
 // ----- part B: lanes only -----
@@ -683,6 +945,9 @@ fn a_contracted_line_gives_the_sector_of_the_graph() {
         key_of(normalise(&chain))
     );
     assert_eq!(key_of(sector_topo(&kite, (0, 1), "00000")), None);
+    // The triangle 0-2-3 contracted: a cycle with no scale, though the two lines
+    // left would look like a bubble between S and T.
+    assert_eq!(key_of(sector_topo(&kite, (0, 1), "00110")), None);
 }
 
 /// For every node: does a custom node lie below it (itself excluded)?
@@ -831,9 +1096,24 @@ fn e1_status(row: &Value) -> &'static str {
     }
 }
 
-/// Env-driven entries of the driver. Each refuses to run without its variables.
+/// Env-driven entries of the driver. With no `CANARY_*` variable an entry has
+/// nothing to do and returns; with any of them a driver is at work, and an entry
+/// reads all it needs first and panics on a missing one, before any work.
 mod run {
     use super::*;
+
+    /// Is a driver at work? The batch-end `--ignored` step runs these entries
+    /// with no `CANARY_*` variable, and they must pass there.
+    fn driven(entry: &str) -> bool {
+        let driven =
+            std::env::vars_os().any(|(name, _)| name.to_string_lossy().starts_with("CANARY_"));
+        if !driven {
+            eprintln!(
+                "canary::run::{entry}: no CANARY_* variable set, nothing to run (drive.py sets them)"
+            );
+        }
+        driven
+    }
 
     /// A required `CANARY_*` variable:
     /// `CANARY_SYM` family file, or `embedded:<name>` for a repo family;
@@ -850,13 +1130,11 @@ mod run {
         std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set (run through drive.py)"))
     }
 
-    pub(super) fn family_source() -> (String, String) {
-        let file = required("CANARY_SYM");
-        let source = match file.strip_prefix("embedded:") {
+    pub(super) fn family_source(file: &str) -> String {
+        match file.strip_prefix("embedded:") {
             Some(name) => eps_family_source(name).to_owned(),
-            None => fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file}: {e}")),
-        };
-        (file, source)
+            None => fs::read_to_string(file).unwrap_or_else(|e| panic!("{file}: {e}")),
+        }
     }
 
     fn write(path: &str, text: String) {
@@ -866,24 +1144,31 @@ mod run {
     #[test]
     #[ignore = "run harness: axes, charts and LP of one family file (drive.py)"]
     fn family_info() {
-        let (file, source) = family_source();
-        let stars = parse_mask(&required("CANARY_STARS")).unwrap();
+        if !driven("family_info") {
+            return;
+        }
+        let (file, stars) = (required("CANARY_SYM"), required("CANARY_STARS"));
+        let out = required("CANARY_OUT");
+        let source = family_source(&file);
+        let stars = parse_mask(&stars).unwrap();
         let given = std::env::var("CANARY_LP_GIVEN").ok();
         let given = given.map(|lp| lp.parse().expect("CANARY_LP_GIVEN"));
         let axes = family_axes(&file, &source, &stars, given).unwrap();
-        write(
-            &required("CANARY_OUT"),
-            serde_json::to_string(&axes).unwrap(),
-        );
+        write(&out, serde_json::to_string(&axes).unwrap());
     }
 
     #[test]
     #[ignore = "run harness: one chart of one family file, one process (drive.py)"]
     fn chart() {
-        let (file, source) = family_source();
-        let axes: FamilyAxes =
-            serde_json::from_value(read_json(required("CANARY_INFO").as_ref())).unwrap();
-        let stars = parse_mask(&required("CANARY_STARS")).unwrap();
+        if !driven("chart") {
+            return;
+        }
+        let (file, stars) = (required("CANARY_SYM"), required("CANARY_STARS"));
+        let (info, chart) = (required("CANARY_INFO"), required("CANARY_CHART"));
+        let out = required("CANARY_OUT");
+        let source = family_source(&file);
+        let axes: FamilyAxes = serde_json::from_value(read_json(info.as_ref())).unwrap();
+        let stars = parse_mask(&stars).unwrap();
         let checked = family_axes(&file, &source, &stars, Some(axes.lp)).unwrap();
         assert_eq!(
             (&checked.forced, &checked.support, &checked.charts),
@@ -891,29 +1176,27 @@ mod run {
             "{file} is not the family of its info file",
         );
         let workers = std::env::var("CANARY_WORKERS").map_or(1, |w| w.parse().expect("workers"));
-        let row = chart_row(&axes, &source, &required("CANARY_CHART"), workers);
-        write(
-            &required("CANARY_OUT"),
-            serde_json::to_string(&row).unwrap(),
-        );
+        let row = chart_row(&axes, &source, &chart, workers);
+        write(&out, serde_json::to_string(&row).unwrap());
     }
 
     #[test]
     #[ignore = "run harness: the hard guard on the union of a family's chart rows (drive.py)"]
     fn union_guard() {
-        let axes: FamilyAxes =
-            serde_json::from_value(read_json(required("CANARY_INFO").as_ref())).unwrap();
-        let rows: Vec<ChartRow> = fs::read_to_string(required("CANARY_ROWS"))
+        if !driven("union_guard") {
+            return;
+        }
+        let (info, rows) = (required("CANARY_INFO"), required("CANARY_ROWS"));
+        let out = required("CANARY_OUT");
+        let axes: FamilyAxes = serde_json::from_value(read_json(info.as_ref())).unwrap();
+        let rows: Vec<ChartRow> = fs::read_to_string(rows)
             .unwrap()
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
         let verdict = union_row(&axes, &rows);
         match verdict {
-            Ok(union) => write(
-                &required("CANARY_OUT"),
-                serde_json::to_string(&union).unwrap(),
-            ),
+            Ok(union) => write(&out, serde_json::to_string(&union).unwrap()),
             Err(failure) => panic!("GATE FAILURE {}: {failure}", axes.family),
         }
     }
@@ -922,12 +1205,18 @@ mod run {
     /// dots, rank at most 2 on the ISPs) through every chart's rules at
     /// `d = 37/10`, each step with its strict descent witness. A check of a
     /// generated program on points, count of steps and exits reported; a pole of
-    /// a rule coefficient at this `d` is a refusal of the applier, not a verdict.
+    /// a rule coefficient at this `d` is a refusal of the applier, not a verdict
+    /// ([`is_pole_at_test_dimension`]).
     #[test]
     #[ignore = "run harness: random points through the rules of a family file (drive.py)"]
     fn closure() {
-        let (file, source) = family_source();
-        let points: u64 = required("CANARY_POINTS").parse().expect("CANARY_POINTS");
+        if !driven("closure") {
+            return;
+        }
+        let (file, points) = (required("CANARY_SYM"), required("CANARY_POINTS"));
+        let out = required("CANARY_OUT");
+        let source = family_source(&file);
+        let points: u64 = points.parse().expect("CANARY_POINTS");
         let outcome = generate_eps_family(&source, EpsCharts::All).unwrap();
         let (mut closed, mut poles, mut steps, mut witnesses) = (0u64, 0u64, 0usize, 0usize);
         let mut with_residual = 0u64;
@@ -971,7 +1260,7 @@ mod run {
                     with_residual += u64::from(!reduction.residuals.is_empty());
                     exits.extend(reduction.exits.into_keys());
                 }
-                Err(error) if error.contains("has a pole") => poles += 1,
+                Err(error) if is_pole_at_test_dimension(&error) => poles += 1,
                 Err(error) => failures.push(format!("{key:?}: {error}")),
             }
         }
@@ -991,7 +1280,7 @@ mod run {
             "failures": failures,
             "seconds": outcome.seconds,
         });
-        write(&required("CANARY_OUT"), row.to_string());
+        write(&out, row.to_string());
         assert!(failures_empty(&row), "{row}");
     }
 
@@ -1016,10 +1305,14 @@ mod run {
     #[test]
     #[ignore = "run harness: 5L lanes against the census tables and the E1 batches (drive.py)"]
     fn lanes_5l_report() {
+        if !driven("lanes_5l_report") {
+            return;
+        }
         let out = PathBuf::from(required("CANARY_OUT"));
-        fs::create_dir_all(&out).unwrap();
         let census_dir = PathBuf::from(required("CANARY_CENSUS_DIR"));
         let e1_dir = PathBuf::from(required("CANARY_E1_DIR"));
+        let np4_dir = PathBuf::from(required("CANARY_NP4_DIR"));
+        fs::create_dir_all(&out).unwrap();
 
         let service = TopologyService::new();
         let start = std::time::Instant::now();
@@ -1066,7 +1359,6 @@ mod run {
 
         // The sectors of E1, batch A (tops), batch B (lower sectors), E4, and
         // the 4L non-planar refusals of the AD's table.
-        let np4_dir = PathBuf::from(required("CANARY_NP4_DIR"));
         let mut families: BTreeMap<String, Value> = BTreeMap::new();
         for path in [
             e1_dir.join("families/index.json"),
@@ -1148,5 +1440,78 @@ mod run {
             out.join("lanes_5l.json").to_str().unwrap(),
             serde_json::to_string_pretty(&summary).unwrap(),
         );
+    }
+
+    /// One entry of this test binary in a process of its own, with exactly
+    /// `vars` as its `CANARY_*` variables.
+    fn entry_process(entry: &str, vars: &[(&str, &str)]) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args([
+            format!("canary::run::{entry}").as_str(),
+            "--ignored",
+            "--exact",
+            "--nocapture",
+        ]);
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("CANARY_") {
+                command.env_remove(name);
+            }
+        }
+        command.envs(vars.iter().copied());
+        command.output().unwrap()
+    }
+
+    /// With no `CANARY_*` variable every entry passes with a message, so the
+    /// batch-end `--ignored` step of this binary stays green. With a partial set
+    /// it panics, naming the variable, before it touches the other inputs: these
+    /// point nowhere, so anything read or written first would panic differently.
+    #[test]
+    fn an_entry_passes_with_no_variable_and_panics_on_a_partial_set() {
+        let entries: [(&str, &[&str]); 5] = [
+            ("family_info", &["CANARY_SYM", "CANARY_STARS", "CANARY_OUT"]),
+            (
+                "chart",
+                &[
+                    "CANARY_SYM",
+                    "CANARY_STARS",
+                    "CANARY_INFO",
+                    "CANARY_CHART",
+                    "CANARY_OUT",
+                ],
+            ),
+            ("union_guard", &["CANARY_INFO", "CANARY_ROWS", "CANARY_OUT"]),
+            ("closure", &["CANARY_SYM", "CANARY_POINTS", "CANARY_OUT"]),
+            (
+                "lanes_5l_report",
+                &[
+                    "CANARY_OUT",
+                    "CANARY_CENSUS_DIR",
+                    "CANARY_E1_DIR",
+                    "CANARY_NP4_DIR",
+                ],
+            ),
+        ];
+        let nowhere = "/nonexistent/canary-entry-test";
+        for (entry, needed) in entries {
+            let bare = entry_process(entry, &[]);
+            let stderr = String::from_utf8_lossy(&bare.stderr);
+            assert!(bare.status.success(), "{entry}: {stderr}");
+            assert!(stderr.contains("no CANARY_* variable set"), "{stderr}");
+
+            for missing in needed {
+                let vars: Vec<(&str, &str)> = needed
+                    .iter()
+                    .filter(|name| *name != missing)
+                    .map(|&name| (name, nowhere))
+                    .collect();
+                let partial = entry_process(entry, &vars);
+                let stderr = String::from_utf8_lossy(&partial.stderr);
+                assert!(!partial.status.success(), "{entry} without {missing}");
+                assert!(
+                    stderr.contains(&format!("{missing} is not set")),
+                    "{entry} without {missing}: {stderr}"
+                );
+            }
+        }
     }
 }
