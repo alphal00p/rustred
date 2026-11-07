@@ -540,6 +540,40 @@ fn adjoint_tail_rewrites_recorded_programs_and_changes_no_result() {
     }
 }
 
+/// A request of `program` from `initial` (conditions `SAFE`) under a test
+/// budget armed when its last phase finished: its result and the
+/// checkpoints the budget saw (it refuses from the `stop_at`-th on).
+fn stopped_after_the_last_phase(
+    program: &Program,
+    initial: &BTreeMap<IntegralKey, Coefficient>,
+    arithmetic: OrderedWeightArithmetic,
+    scheduler: OrderedSchedulerOptions,
+    stop_at: Option<usize>,
+    cache: Option<&OrderedStepCache>,
+) -> (Result<OrderedOutput, ReductionError>, usize) {
+    use crate::reduction::stopping::Stopping;
+    let stopping = Stopping::disarmed(stop_at);
+    let mut kernel = TailKernel {
+        program,
+        steps: Vec::new(),
+        finished: Some(stopping.trigger()),
+    };
+    let result = stopping.run(|| {
+        run_with_step_cache_and_options(
+            &mut kernel,
+            &mut ReductionRequest::default(),
+            initial.clone(),
+            SAFE.iter().map(|text| program.c(text)).collect(),
+            arithmetic,
+            scheduler,
+            cache,
+        )
+    });
+    take_reported();
+    modular::take_reported_statistics();
+    (result, stopping.seen())
+}
+
 /// A cancellation (a refused resource budget) at any checkpoint after the
 /// last phase - the adjoint tail's exact values, the end of the recording,
 /// the modular replays and the lift - stops the request with that typed
@@ -547,30 +581,11 @@ fn adjoint_tail_rewrites_recorded_programs_and_changes_no_result() {
 /// same program returns the same result as before.
 #[test]
 fn a_request_stopped_after_its_last_phase_returns_the_refusal_and_keeps_no_state() {
-    use crate::reduction::stopping::{Stopping, is_stop};
+    use crate::reduction::stopping::is_stop;
     let program = Program::new();
     let initial = program.request_a();
     let stopped = |arithmetic, scheduler, stop_at| {
-        let stopping = Stopping::disarmed(stop_at);
-        let mut kernel = TailKernel {
-            program: &program,
-            steps: Vec::new(),
-            finished: Some(stopping.trigger()),
-        };
-        let result = stopping.run(|| {
-            run_with_step_cache_and_options(
-                &mut kernel,
-                &mut ReductionRequest::default(),
-                initial.clone(),
-                SAFE.iter().map(|text| program.c(text)).collect(),
-                arithmetic,
-                scheduler,
-                None,
-            )
-        });
-        take_reported();
-        modular::take_reported_statistics();
-        (result, stopping.seen())
+        stopped_after_the_last_phase(&program, &initial, arithmetic, scheduler, stop_at, None)
     };
     for arithmetic in every_arithmetic().into_iter().filter(|a| recorded(*a)) {
         for scheduler in [
@@ -596,6 +611,96 @@ fn a_request_stopped_after_its_last_phase_returns_the_refusal_and_keeps_no_state
             }
             let again = run(&program, &initial, &SAFE, arithmetic, scheduler, None);
             same_result(&again.output, &reference.output);
+        }
+    }
+}
+
+/// The same stops with a populating table (a fresh one per request): the
+/// request returns the refusal and leaves either an empty table (stopped in
+/// the tail's exact values) or exactly the table of a complete request
+/// (stopped later): entries are tabulated in one update once every value is
+/// known, so they depend on the program alone. The next request on either
+/// kind of table returns the same result.
+#[test]
+fn a_request_stopped_after_its_last_phase_leaves_only_complete_tail_entries() {
+    use crate::reduction::stopping::is_stop;
+    /// Entries, edges, values, coefficients, guards, guard sets, terminals.
+    fn shape(cache: &OrderedStepCache) -> [usize; 7] {
+        cache.tail_statistics().map_or([0; 7], |s| {
+            [
+                s.entries,
+                s.edges,
+                s.values,
+                s.coefficients,
+                s.guards,
+                s.guard_sets,
+                s.terminals,
+            ]
+        })
+    }
+    let program = Program::new();
+    let initial = program.request_a();
+    let stopped = |arithmetic, scheduler, stop_at| {
+        let cache = OrderedStepCache::in_memory(binding(&program), Default::default());
+        let (result, seen) = stopped_after_the_last_phase(
+            &program,
+            &initial,
+            arithmetic,
+            scheduler,
+            stop_at,
+            Some(&cache),
+        );
+        (result, seen, cache)
+    };
+    for arithmetic in every_arithmetic().into_iter().filter(|a| recorded(*a)) {
+        for scheduler in [schedulers(true)[0], schedulers(true)[3]] {
+            let reference = run(&program, &initial, &SAFE, arithmetic, scheduler, None);
+            let (clean, checkpoints, cache) = stopped(arithmetic, scheduler, None);
+            same_result(&clean.unwrap(), &reference.output);
+            let complete = shape(&cache);
+            assert!(
+                complete[0] >= 20,
+                "{arithmetic} {scheduler:?}: {complete:?}"
+            );
+            let (mut empty, mut full) = (0, 0);
+            for stop_at in 1..=checkpoints {
+                let (result, _, cache) = stopped(arithmetic, scheduler, Some(stop_at));
+                let Err(error) = result else {
+                    panic!(
+                        "{arithmetic} {scheduler:?}: checkpoint {stop_at} did not stop the request"
+                    );
+                };
+                assert!(
+                    is_stop(&error),
+                    "{arithmetic} {scheduler:?} {stop_at}: {error}"
+                );
+                let left = shape(&cache);
+                let first = if left == [0; 7] {
+                    empty += 1;
+                    empty == 1
+                } else {
+                    assert_eq!(left, complete, "{arithmetic} {scheduler:?} {stop_at}");
+                    full += 1;
+                    full == 1
+                };
+                // Tables of one kind are alike: one next request each.
+                if first {
+                    let again = run(
+                        &program,
+                        &initial,
+                        &SAFE,
+                        arithmetic,
+                        scheduler,
+                        Some(&cache),
+                    );
+                    same_result(&again.output, &reference.output);
+                }
+            }
+            // Stops on both sides of the tabulation.
+            assert!(
+                empty > 0 && full > 0,
+                "{arithmetic} {scheduler:?}: {empty} {full}"
+            );
         }
     }
 }
