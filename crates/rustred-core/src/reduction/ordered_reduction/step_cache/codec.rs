@@ -199,6 +199,10 @@ pub(crate) enum NodeStage {
     Route,
     /// Owner sector as a bit mask (bit `i` is position `i`).
     Apply(u64),
+    /// Propagator library: the presentation index.
+    ClassRoute(u64),
+    /// Propagator library: the owner class id.
+    ClassApply(u64),
 }
 
 /// Bytes of one encoded identity: stage, owner mask (`u64`, little endian)
@@ -229,6 +233,8 @@ pub(crate) fn encode_node(
             }
             (2, mask)
         }
+        OrderedKeyStage::ClassRoute { class } => (CLASS_ROUTE_TAG, class),
+        OrderedKeyStage::ClassApply { class } => (CLASS_APPLY_TAG, class),
     };
     out.push(tag);
     out.extend_from_slice(&class.to_le_bytes());
@@ -245,6 +251,13 @@ pub(crate) fn encode_node(
 /// Stage byte of a partially transported Route key in a tail table (never a
 /// step-cache identity: such keys are never recorded there).
 pub(crate) const PARTIAL_ROUTE_TAG: u8 = 3;
+
+/// Stage byte of a propagator-library Route identity; the class field holds
+/// the presentation index.
+const CLASS_ROUTE_TAG: u8 = 4;
+/// Stage byte of a propagator-library Apply identity; the class field holds
+/// the owner class id.
+const CLASS_APPLY_TAG: u8 = 5;
 
 /// Append a partially transported Route key of source sector `source` with
 /// `powers` (owner powers so far, then the source numerator powers not yet
@@ -296,6 +309,8 @@ pub(crate) fn decode_node(bytes: &[u8]) -> CodecResult<(NodeStage, IntegralKey)>
         (0, 0) => NodeStage::Integral,
         (1, 0) => NodeStage::Route,
         (2, mask) => NodeStage::Apply(mask),
+        (CLASS_ROUTE_TAG, class) => NodeStage::ClassRoute(class),
+        (CLASS_APPLY_TAG, class) => NodeStage::ClassApply(class),
         _ => return Err("invalid step-cache identity stage".into()),
     };
     let powers: Vec<i64> = bytes[NODE_HEADER..]

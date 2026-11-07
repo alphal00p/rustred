@@ -105,6 +105,8 @@ pub enum OrderedStepCacheAdapter {
     CandidateProgram,
     /// Saved Route/Apply applications (`RoutedCandidateApplication`).
     SavedApplication,
+    /// Propagator libraries (`PLibrary`).
+    PropagatorLibrary,
 }
 
 impl OrderedStepCacheAdapter {
@@ -113,6 +115,7 @@ impl OrderedStepCacheAdapter {
             Self::ClosedArtifact => "closed-artifact",
             Self::CandidateProgram => "candidate-program",
             Self::SavedApplication => "saved-application",
+            Self::PropagatorLibrary => "propagator-library",
         }
     }
 }

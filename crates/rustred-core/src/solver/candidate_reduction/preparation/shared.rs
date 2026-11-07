@@ -189,6 +189,87 @@ pub(in crate::solver::candidate_reduction) fn prepare_family_with_admission<cons
     })
 }
 
+/// As [`prepare_family`] for the p library only: unshifted families through the
+/// existing [`CandidateFamilyAdmission::UnitScalePropagator`] predicate, families
+/// with eps lines through the p-only `validate_shifted_p_family`. Source
+/// preparation and zero-certificate binding are those of
+/// [`prepare_family_with_admission`], which every other consumer goes through
+/// and which keeps refusing shifted families.
+#[allow(dead_code)] // M2-T7c
+pub(in crate::solver::candidate_reduction) fn prepare_shifted_p_family<const N: usize>(
+    family: &IntegralFamily,
+    zero_certificates: Vec<zero::Certificate>,
+    limits: ReductionLimits,
+) -> Result<PreparedFamily<N>, CandidateReductionError> {
+    if family.power_shifts().iter().all(|shift| shift.is_zero()) {
+        return prepare_family_with_admission(
+            family,
+            zero_certificates,
+            limits,
+            CandidateFamilyAdmission::UnitScalePropagator,
+        );
+    }
+    if N == 0 || !crate::fits_storage(family.denominator_count(), N) {
+        return Err(CandidateReductionError::InvalidInput(format!(
+            "candidate arity {N} does not match family arity {}",
+            family.denominator_count()
+        )));
+    }
+    crate::foundry::artifact::validate_shifted_p_family(family).map_err(|error| {
+        match crate::reduction::resource_limit_error(&error) {
+            Some(resource) => crate::reduction::ReductionError::Resources(resource.clone()).into(),
+            None => CandidateReductionError::UnsupportedFamily(error.to_string()),
+        }
+    })?;
+    let generator = ParametricIbpGenerator::try_new(family).map_err(invalid_input)?;
+    let context = generator.context().clone();
+    let sources =
+        SourceSystem::<N>::from_family_with_capacity(family, true).map_err(invalid_input)?;
+    let source_conditions = sources
+        .conditions()
+        .iter()
+        .cloned()
+        .map(|p| context.admit_storage_polynomial_result_with_limits(p, limits.exact_algebra))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut zero_sectors = BTreeSet::new();
+    for certificate in &zero_certificates {
+        if certificate.family_fingerprint() != family.fingerprint()
+            || certificate.raw_sector().arity() != family.denominator_count()
+        {
+            return Err(CandidateReductionError::InvalidInput(
+                "zero certificate does not belong to the supplied family".into(),
+            ));
+        }
+        for condition in certificate.domain().conditions() {
+            let value = condition.polynomial().clone().into();
+            family
+                .coefficient_context()
+                .validate_with_limits(&value, limits.exact_algebra)?;
+            if condition.polynomial().is_zero() {
+                return Err(CandidateReductionError::InvalidInput(
+                    "zero certificate has an identically zero generic-domain condition".into(),
+                ));
+            }
+        }
+        zero_sectors.insert(std::array::from_fn(|i| {
+            certificate
+                .raw_sector()
+                .active_bits()
+                .get(i)
+                .copied()
+                .unwrap_or(false)
+        }));
+    }
+    Ok(PreparedFamily {
+        context,
+        index_variables: *sources.index_variables(),
+        source_conditions,
+        zero_sectors,
+        zero_certificates,
+        sources: Arc::new(sources),
+    })
+}
+
 pub(in crate::solver::candidate_reduction) struct PreparedRecords<const N: usize> {
     pub rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
     pub terminals: BTreeSet<IntegralKey>,

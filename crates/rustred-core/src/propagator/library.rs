@@ -9,12 +9,14 @@ use std::sync::{Arc, OnceLock};
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
 use crate::reduction::{
-    OrderedPhaseEvent, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheBinding,
-    OrderedWeightArithmetic, ReductionLimits, ReductionStatistics,
+    OrderedPhaseEvent, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
+    OrderedStepCacheBinding, OrderedWeightArithmetic, ReductionError, ReductionLimits,
+    ReductionStatistics,
 };
-use crate::solver::CandidateOrderedReductionProgress;
+use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 
 use super::census::{PCensus, PSectorFate};
+use super::engine::{PEngine, merge};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
@@ -189,6 +191,7 @@ pub struct PLibrary {
     edge_maps: Vec<EdgeMap>,
     terminals: Vec<PTerminal>,
     basis_map: Option<Arc<dyn PBasisMap>>,
+    engine: OnceLock<Result<PEngine, PError>>,
 }
 
 impl fmt::Debug for PLibrary {
@@ -283,12 +286,226 @@ impl PLibrary {
         self.basis_map.as_ref()
     }
 
-    pub fn reduce(&self, _request: PReductionRequest<'_>) -> Result<PReduction, PError> {
-        Err(PError::NotImplemented("M2-T6"))
+    /// Reduce one weighted sum of inputs of one loop count onto the terminals
+    /// (`onto_masters = false`), or onto the masters in Forcer's G-scheme: the
+    /// sum times `(eps G(1,1))^-L` with each terminal mapped through the
+    /// library's [`PBasisMap`] (without one, `Unit` stays and a residual stays
+    /// [`PBasis::Residual`]). Terms are sorted by basis and tag;
+    /// [`PReduction::dimension`] is the loop count of the request. Every thread
+    /// count and arithmetic returns the same terms and conditions.
+    pub fn reduce(&self, request: PReductionRequest<'_>) -> Result<PReduction, PError> {
+        let PReductionRequest {
+            inputs,
+            arithmetic,
+            scheduler,
+            step_cache,
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters,
+            limits,
+            inspector,
+        } = request;
+        let loops = self.request_loops(&inputs)?;
+        if let Some(cache) = &step_cache {
+            let binding = self.step_cache_binding()?;
+            cache.check_binding(
+                binding.adapter,
+                &binding.family_fingerprint,
+                &self.context,
+                binding.unresolved_policy,
+            )?;
+        }
+        let engine = self
+            .engine
+            .get_or_init(|| PEngine::new(self))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let initial = engine.initial(self, inputs, &limits)?;
+        let output = engine.run(
+            self,
+            initial,
+            arithmetic,
+            scheduler,
+            step_cache.as_deref(),
+            limits,
+            inspector,
+        )?;
+        let mut terms = PTermSum::default();
+        let raw = output
+            .terms
+            .iter()
+            .map(|(key, coefficient)| {
+                let (terminal, tag) = engine.decode_terminal(key)?;
+                Ok((terminal, tag, coefficient.clone()))
+            })
+            .collect::<Result<Vec<_>, PError>>()?;
+        if onto_masters {
+            self.onto_masters(loops, raw, &limits, &mut terms)?;
+        } else {
+            for (terminal, tag, coefficient) in raw {
+                terms.add(self, Self::plain_basis(terminal), tag, coefficient, &limits)?;
+            }
+        }
+        Ok(PReduction {
+            dimension: i64::from(loops),
+            terms: terms.into_terms(),
+            nonzero_conditions: output.nonzero_conditions,
+            statistics: PStatistics {
+                work: output.work,
+                progress: output.progress,
+            },
+        })
     }
 
+    /// The one loop count of a request; `0` for no input.
+    fn request_loops(
+        &self,
+        inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    ) -> Result<u8, PError> {
+        let mut loops = None;
+        for (id, ..) in inputs {
+            let presentation = self.presentations.get(id.0 as usize).ok_or_else(|| {
+                PError::Unsupported(format!(
+                    "input on presentation {}, which this library does not have",
+                    id.0
+                ))
+            })?;
+            if *loops.get_or_insert(presentation.loops) != presentation.loops {
+                return Err(PError::MixedDimension);
+            }
+        }
+        Ok(loops.unwrap_or(0))
+    }
+
+    fn plain_basis(terminal: PTerminalId) -> PBasis {
+        if terminal == PTerminalId(0) {
+            PBasis::Unit
+        } else {
+            PBasis::Residual(terminal)
+        }
+    }
+
+    /// Plan convention C3: `(eps G(1,1))^-1` is the tag
+    /// `{(+1,-1),(-1,-2),(-2,+1)}` times `(d-3)`. Tags are absolute on both sides
+    /// of [`PBasisMap::map`]: it receives the tag of the term, scheme included,
+    /// and each tag it returns is taken as it stands, so a map adds its own
+    /// factors to the tag it was given. Every terminal goes through the map,
+    /// `Unit` (terminal 0) included. A row without terms is refused, because a
+    /// terminal that drops out unnoticed is a silent zero; a terminal that
+    /// really vanishes returns a term with a zero coefficient.
+    fn onto_masters(
+        &self,
+        loops: u8,
+        raw: Vec<(PTerminalId, GammaTag, Coefficient)>,
+        limits: &ReductionLimits,
+        terms: &mut PTermSum,
+    ) -> Result<(), PError> {
+        let context = &self.context;
+        let exact = limits.exact_algebra;
+        let algebra = |error| PError::Engine(ReductionError::ExactAlgebra(error));
+        let l = i16::from(loops);
+        let scheme = GammaTag::from_pairs([(1, -l), (-1, -2 * l), (-2, l)])?;
+        let d = context.parameter("d").ok_or(PError::ContextMismatch)?;
+        let d_minus_3 = context
+            .try_sub(&d, &context.integer(3), exact)
+            .map_err(algebra)?;
+        let mut factor = context.one();
+        for _ in 0..loops {
+            factor = context
+                .try_mul(&factor, &d_minus_3, exact)
+                .map_err(algebra)?;
+        }
+        for (terminal, tag, coefficient) in raw {
+            let tag = tag.add(&scheme);
+            // A saturated exponent never leaves the engine.
+            tag.encode_dense(&mut Vec::new())?;
+            let coefficient = context
+                .try_mul(&coefficient, &factor, exact)
+                .map_err(algebra)?;
+            let Some(map) = &self.basis_map else {
+                terms.add(self, Self::plain_basis(terminal), tag, coefficient, limits)?;
+                continue;
+            };
+            let row = map.map(terminal, &tag)?;
+            if row.is_empty() {
+                return Err(PError::MalformedLibrary(format!(
+                    "the basis map has no row for terminal {}",
+                    terminal.0
+                )));
+            }
+            for term in row {
+                if !context.contains(&term.coefficient) {
+                    return Err(PError::ContextMismatch);
+                }
+                term.tag.encode_dense(&mut Vec::new())?;
+                let value = context
+                    .try_mul(&coefficient, &term.coefficient, exact)
+                    .map_err(algebra)?;
+                terms.add(self, term.basis, term.tag, value, limits)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The binding of this program's step cache: one cache serves every loop
+    /// count of the program.
     pub fn step_cache_binding(&self) -> Result<OrderedStepCacheBinding, PError> {
-        Err(PError::NotImplemented("M2-T6"))
+        Ok(OrderedStepCacheBinding::new(
+            OrderedStepCacheAdapter::PropagatorLibrary,
+            self.identity(),
+            &self.context,
+            Some(UnresolvedPolicy::Reject),
+        ))
+    }
+}
+
+/// Output terms collected by basis and tag.
+#[derive(Default)]
+struct PTermSum(BTreeMap<(PBasisOrder, GammaTag), Coefficient>);
+
+/// `PBasis` in output order: `Unit`, masters by name, residuals by id.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum PBasisOrder {
+    Unit,
+    Master(PMasterName),
+    Residual(PTerminalId),
+}
+
+impl PTermSum {
+    fn add(
+        &mut self,
+        library: &PLibrary,
+        basis: PBasis,
+        tag: GammaTag,
+        coefficient: Coefficient,
+        limits: &ReductionLimits,
+    ) -> Result<(), PError> {
+        let basis = match basis {
+            PBasis::Unit => PBasisOrder::Unit,
+            PBasis::Master(name) => PBasisOrder::Master(name),
+            PBasis::Residual(id) => PBasisOrder::Residual(id),
+        };
+        merge(
+            library.coefficient_context(),
+            limits,
+            &mut self.0,
+            (basis, tag),
+            coefficient,
+        )
+    }
+
+    fn into_terms(self) -> Vec<PTerm> {
+        self.0
+            .into_iter()
+            .map(|((basis, tag), coefficient)| PTerm {
+                basis: match basis {
+                    PBasisOrder::Unit => PBasis::Unit,
+                    PBasisOrder::Master(name) => PBasis::Master(name),
+                    PBasisOrder::Residual(id) => PBasis::Residual(id),
+                },
+                tag,
+                coefficient,
+            })
+            .collect()
     }
 }
 
@@ -477,6 +694,7 @@ impl PLibraryBuilder {
             edge_maps: self.edge_maps,
             terminals: self.terminals,
             basis_map: self.basis_map,
+            engine: OnceLock::new(),
         })
     }
 
