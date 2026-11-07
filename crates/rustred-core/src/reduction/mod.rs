@@ -57,4 +57,7 @@ pub use reducer::{DepthFirstArtifactReduction, OrderedArtifactReduction, Reducer
 pub use strategy::ReductionStrategy;
 
 #[cfg(test)]
+pub(crate) mod stopping;
+
+#[cfg(test)]
 mod tests;

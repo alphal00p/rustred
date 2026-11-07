@@ -1692,6 +1692,10 @@ impl Graph<'_> {
         context: &CoefficientContext,
         limits: ExactAlgebraLimits,
     ) -> Result<Coefficient, ReductionError> {
+        // Values are exact rational-function sums; the caller's resource
+        // budgets (and so its cancellation) are checked between two of them,
+        // also on the workers, which run inside the captured budgets.
+        symbolica::utils::resources::checkpoint()?;
         let step = &self.steps[self.step[id as usize] as usize];
         let mut sum: Option<Coefficient> = None;
         let mut add = |term: Coefficient| -> Result<(), ReductionError> {

@@ -202,6 +202,7 @@ impl<const N: usize> SourcePortAudit<N> {
             .try_reserve_exact(ordinals.len())
             .map_err(|_| error("rule-replay report allocation failed"))?;
         for ordinal in ordinals {
+            super::checkpoint()?;
             let rule = &source_rules[ordinal];
             let stored =
                 geometry::application_partition(rule, self.sources.index_variables(), &sector, &[])

@@ -25,6 +25,11 @@
 //!   stream order);
 //! - fails closed after `max_primes` consumed primes (reconstruction,
 //!   verification and unusable ones).
+//!
+//! The driver checks the caller's resource budgets before every round and
+//! every consumed prime, and the executor before every job (see
+//! `executor.rs`): a refused budget (e.g. a cancelled request) returns its
+//! error, and the lift's state, which is local to [`lift`], is dropped.
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
@@ -34,6 +39,7 @@ use symbolica::domains::finite_field::{FiniteFieldCore, PrimeIteratorU64, Zp64};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::domains::{Field, Ring, RingOps};
 use symbolica::prelude::{Integer, Rational, Z};
+use symbolica::utils::resources;
 
 use super::executor::Executor;
 use super::field::{self, Fe, Poly};
@@ -422,7 +428,7 @@ impl<S: PartialEq + Send + Sync> Driver<'_, S> {
         prime: u64,
         image: PrimeImages<S>,
         statistics: &mut ModularStatistics,
-    ) -> usize {
+    ) -> Result<usize, ReductionError> {
         let degrees: Vec<_> = image.terminals.iter().map(Image::degrees).collect();
         let index = match self.groups.iter().position(|group| {
             (Arc::ptr_eq(&group.structure, &image.structure)
@@ -447,10 +453,10 @@ impl<S: PartialEq + Send + Sync> Driver<'_, S> {
         let terminals = &image.terminals;
         self.executor.map_mut(&mut group.lifts, |t, lift| {
             lift.add(prime, &terminals[t], context)
-        });
+        })?;
         statistics.lift_seconds += started.elapsed().as_secs_f64();
         self.usable += 1;
-        index
+        Ok(index)
     }
 
     /// Check the leader on fresh primes; false re-opens the lift.
@@ -464,6 +470,7 @@ impl<S: PartialEq + Send + Sync> Driver<'_, S> {
     ) -> Result<bool, I::Error> {
         let mut agreed = 0;
         while agreed < self.common.verification_primes {
+            resources::checkpoint().map_err(ReductionError::from)?;
             let missing = self.common.verification_primes - agreed;
             self.consume(missing)?;
             statistics.verification_primes += missing;
@@ -535,7 +542,7 @@ impl<S: PartialEq + Send + Sync> Driver<'_, S> {
                         if !same || !disagreeing.is_empty() {
                             // A usable fresh image that refutes the leader is
                             // also a further reconstruction image (or vote).
-                            let index = self.absorb(prime, image, statistics);
+                            let index = self.absorb(prime, image, statistics)?;
                             for &t in &disagreeing {
                                 self.groups[index].lifts[t].stable = false;
                             }
@@ -588,6 +595,7 @@ pub(super) fn lift<I: ImageSource>(
     let mut pending: VecDeque<(u64, Option<PrimeImages<I::Structure>>)> = VecDeque::new();
     let mut prefetched: VecDeque<(u64, Option<PrimeImages<I::Structure>>)> = VecDeque::new();
     let leader = loop {
+        resources::checkpoint().map_err(ReductionError::from)?;
         if let Some(leader) = driver.leader() {
             if driver.verify(
                 leader,
@@ -638,7 +646,7 @@ pub(super) fn lift<I: ImageSource>(
         match image {
             None => statistics.unusable_primes += 1,
             Some(image) => {
-                driver.absorb(prime, image, statistics);
+                driver.absorb(prime, image, statistics)?;
                 statistics.primes += 1;
             }
         }
@@ -844,6 +852,44 @@ mod tests {
         assert_eq!(statistics.unusable_primes, 1);
         assert_eq!(statistics.verification_primes, 1);
         assert_eq!(statistics.max_coefficient_bits, 67);
+    }
+
+    /// The driver checks the caller's budgets in every round, for every
+    /// consumed prime and verification, and per lifted coefficient: a
+    /// refused checkpoint anywhere returns the refusal (one or several
+    /// threads), and the lift is unchanged otherwise.
+    #[test]
+    fn a_lift_stops_at_every_refused_checkpoint() {
+        use crate::reduction::stopping::{Stopping, is_stop};
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        for threads in [1, 3] {
+            let common = ModularCommon {
+                threads,
+                ..Default::default()
+            };
+            let clean = Stopping::armed(None);
+            let mut source = Scripted::new(&context, &FUNCTIONS);
+            let (lifted, statistics) = clean.run(|| run(&mut source, common)).unwrap();
+            assert_eq!(lifted.coefficients, expected());
+            let checkpoints = clean.seen();
+            // A round, a prime and a job per coefficient for every image.
+            assert!(
+                checkpoints >= statistics.primes * (FUNCTIONS.len() + 1),
+                "{threads}: {checkpoints}"
+            );
+            for stop_at in 1..=checkpoints {
+                let stopping = Stopping::armed(Some(stop_at));
+                let mut source = Scripted::new(&context, &FUNCTIONS);
+                let Err(error) = stopping.run(|| run(&mut source, common)) else {
+                    panic!("{threads}: checkpoint {stop_at} did not stop the lift");
+                };
+                assert!(is_stop(&error), "{threads} {stop_at}: {error}");
+                if threads == 1 {
+                    // Nothing runs past the refused checkpoint.
+                    assert_eq!(stopping.seen(), stop_at);
+                }
+            }
+        }
     }
 
     #[test]

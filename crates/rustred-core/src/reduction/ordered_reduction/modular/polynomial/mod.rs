@@ -32,6 +32,8 @@ mod lane;
 use std::sync::Arc;
 use std::time::Instant;
 
+use symbolica::utils::resources;
+
 use self::basis::LaneTables;
 pub(super) use self::basis::{Basis, BasisBuilder};
 use self::dense::Dense;
@@ -84,6 +86,11 @@ struct Replayed {
     segment_volume: Vec<f64>,
 }
 
+/// Trace operations between two resource checkpoints of a replay: every
+/// operation combines polynomial weights of all lanes (microseconds or more
+/// each), so the checkpoint's cost is negligible.
+const CHECKPOINT_OPS: usize = 64;
+
 /// Evaluate the trace with `representation` and return the images of the
 /// terminal accumulators `outputs` for each of its `lanes`.
 fn replay<R: Representation>(
@@ -112,6 +119,9 @@ fn replay<R: Representation>(
         .map_or(usize::MAX, |start| start.1);
     let mut clock = Instant::now();
     for (index, op) in trace.ops.iter().enumerate() {
+        if index % CHECKPOINT_OPS == 0 {
+            resources::checkpoint()?;
+        }
         while index == next_boundary {
             let now = Instant::now();
             segment_seconds[segment] += now.duration_since(clock).as_secs_f64();
@@ -258,7 +268,7 @@ impl ImageSource for PolynomialSource<'_> {
         let prepared = Instant::now();
         let tables = executor.map(primes.to_vec(), |prime| {
             LaneTables::new(prime, trace, basis)
-        });
+        })?;
         statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
         let mut usable: Vec<(usize, LaneTables)> = tables
             .into_iter()
@@ -308,7 +318,7 @@ impl ImageSource for PolynomialSource<'_> {
             };
             let compose_seconds = begun.elapsed().as_secs_f64() - replay_seconds;
             (indices, replayed, composed, replay_seconds, compose_seconds)
-        });
+        })?;
         statistics.replay_seconds += started.elapsed().as_secs_f64();
         let mut images: Vec<Option<PrimeImages<()>>> = primes.iter().map(|_| None).collect();
         for (indices, replayed, composed, seconds, compose_seconds) in results {

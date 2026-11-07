@@ -355,7 +355,7 @@ impl<'a> SampledSource<'a> {
             }
             let composed = begun.elapsed().as_secs_f64() - replayed;
             (job.owner, job.points, result, replayed, composed)
-        });
+        })?;
         statistics.replay_seconds += started.elapsed().as_secs_f64();
         let mut output = Vec::with_capacity(results.len());
         for (owner, points, result, cpu, composed) in results {
@@ -374,6 +374,7 @@ impl<'a> SampledSource<'a> {
                         "a key erased as exactly zero in the recording pass is nonzero in a replay",
                     ));
                 }
+                Err(ReplayError::Stopped(stopped)) => return Err(stopped.into()),
             }
         }
         Ok(output)
@@ -433,7 +434,7 @@ impl<'a> SampledSource<'a> {
             }
             let sample = &samples[owner];
             state.feed(&sample.field, &sample.xs, &sample.ys[t], checks)
-        });
+        })?;
         statistics.interpolation_seconds += interpolation.elapsed().as_secs_f64();
         Ok((0..samples.len())
             .filter(|&owner| {
@@ -674,7 +675,7 @@ impl<'a> ImageSource for SampledSource<'a> {
                             && field.mul(&batch.values[slots[t] * width + j], &den)
                                 == field::horner(&field, &numerator, x)
                     }))
-                });
+                })?;
             if good.len() < count || checked.iter().any(Option::is_none) {
                 outcomes[owner] = Some(Verification::Unusable);
                 continue;
