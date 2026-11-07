@@ -1,11 +1,14 @@
 //! Library assembly and golden inventories (owner: M2-T8a rr-assemble).
 //!
-//! The scope 1-2 library program assembled from the built-in families: its
-//! census, owners, lane programs and descent certificate; `p-validate`'s trace
-//! on distinct random keys; the reductions of random inputs against P0 SpIRed
-//! reductions in their top family, in the tag basis; closed forms of
-//! series-parallel inputs; arithmetic, thread and step-cache invariance; the
-//! golden inventory pinned to the library identity.
+//! The scope 1-2 and scope 1-3 library programs assembled from the built-in
+//! families (scope 1-3 with the generated Custom owners NO and t1star05):
+//! census, owners, lane programs and descent certificate; `p-validate`'s
+//! trace on distinct random keys; the reductions of random inputs against P0
+//! SpIRed reductions in their top family, in the tag basis (terminal and Gamma
+//! tag); closed forms of series-parallel inputs; arithmetic, thread and
+//! step-cache invariance; the Triangle fallback; the golden inventories pinned
+//! to the library identity. Tests that need 3L reductions in bulk are
+//! `#[ignore]` and run optimised (notes/rr-assemble.md).
 //!
 //! Bounds are TOTAL over the slots of a key: dots over the lines, rank over the
 //! numerator slots (lines at negative powers and ISPs). Counts are of distinct
@@ -19,19 +22,24 @@ use std::time::Instant;
 use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::propagator::census::{PCensus, PSectorFate};
-use rustred::propagator::descent::{self, TraceFailureKind};
+use rustred::propagator::custom::{custom_payload_dump, inspect_custom_payload};
+use rustred::propagator::descent::{self, DescentWitness, TraceFailureKind};
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
 use rustred::propagator::kernel::gamma::FactoredRational;
-use rustred::propagator::lane::{LaneRoles, OwnerLane};
+use rustred::propagator::lane::{LaneRoles, OwnerLane, TriangleRoles};
 use rustred::propagator::library::{
     CustomOwnerMeta, OwnerProgram, PBasis, PLibrary, POwnerSpec, PReduction, PReductionRequest,
     PTerminal, PUncoveredPolicy,
 };
 use rustred::propagator::presentation::{EdgeMap, Presentation, PresentationKind, Slot};
 use rustred::propagator::programs::{CustomPayloadRef, lane_program};
+use rustred::propagator::step::{
+    PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut,
+};
 use rustred::propagator::tag::GammaTag;
 use rustred::propagator::topology::Dag;
+use rustred::propagator::triangle::{TemplateError, TemplateMismatch};
 use rustred::propagator::{OwnerClassId, PTerminalId, PresentationId};
 use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedStepCache, OrderedWeightArithmetic,
@@ -39,12 +47,13 @@ use rustred::reduction::{
 };
 use rustred::solver::litered::{DynamicLiteRedSession, LiteRedOptions};
 use rustred_app::propagator::assemble::{
-    SplitMix, ValidateOptions, unapplied_owners, validate_library,
+    SplitMix, ValidateOptions, assemble_library_with, unapplied_owners, validate_library,
 };
 use rustred_app::propagator::{
     AssembleOptions, AssembledLibrary, CustomOwnerOptions, CustomOwnerPayload, CustomPayloads,
     assemble_library,
 };
+use rustred_app::{CandidateGenerationSession, FamilyCandidatesRequest};
 use symbolica::domains::rational::{Q, Rational};
 
 #[path = "../../../rustred-core/tests/support/p_integrals.rs"]
@@ -489,7 +498,8 @@ fn the_false_knock_out_guard_holds_at_the_certificate_and_the_factory() {
         two_sided_axes: 0,
         charts: vec![support],
     };
-    // The guard passes; the payload itself is M2-T7c's.
+    // The guard passes; the bytes are no payload, which the Custom step
+    // refuses after the guard (real payloads: the scope 1-3 tests).
     let passing = custom(good.clone(), 1).build().unwrap();
     let spec = passing
         .owners()
@@ -498,10 +508,10 @@ fn the_false_knock_out_guard_holds_at_the_certificate_and_the_factory() {
         .spec
         .clone();
     descent::check_custom_guard(&passing, &spec).unwrap();
-    assert_eq!(
-        lane_program(&passing, &spec).unwrap_err(),
-        PError::NotImplemented("M2-T7c")
-    );
+    assert!(matches!(
+        lane_program(&passing, &spec),
+        Err(PError::MalformedLibrary(_))
+    ));
 
     let failing = [
         (
@@ -605,10 +615,9 @@ fn the_guard_needs_both_raw_charts_of_an_eps_owner() {
     for charts in [vec![minus, plus], vec![plus, minus]] {
         let (built, spec) = custom(forced, charts);
         descent::check_custom_guard(&built, &spec).unwrap();
-        assert_eq!(
-            lane_program(&built, &spec).unwrap_err(),
-            PError::NotImplemented("M2-T7c")
-        );
+        // Past the library's guard, the step's own reading: the record lists
+        // the charts ascending, and the bytes are no payload.
+        assert!(lane_program(&built, &spec).is_err());
     }
     for (two_sided, charts, reason) in [
         (forced, vec![plus], "charts"),
@@ -933,6 +942,22 @@ fn inventory(assembled: &AssembledLibrary) -> String {
                 meta.lp_count, meta.residuals, meta.two_sided_axes, meta.charts
             )
             .unwrap();
+            // The payload by its content: the canonical dump does not depend
+            // on the process symbol table the bytes embed (M2-T7c).
+            let bytes = owner.spec.payload.as_ref().unwrap().bytes().unwrap();
+            let summary = inspect_custom_payload(&bytes).unwrap();
+            let dump = custom_payload_dump(&bytes).unwrap();
+            writeln!(
+                out,
+                "  payload {} rules, residual keys {:?}, support {:#x}, order {}, dump {} lines blake3 {}",
+                summary.rules(),
+                summary.residual_keys(),
+                summary.support,
+                summary.ordering,
+                dump.lines().count(),
+                blake3::hash(dump.as_bytes()).to_hex()
+            )
+            .unwrap();
         }
     }
     for (index, map) in library.edge_maps().iter().enumerate() {
@@ -960,11 +985,18 @@ fn inventory(assembled: &AssembledLibrary) -> String {
 /// `(identity, blake3 of the inventory)` per scope, append-only: a new inventory
 /// needs a new identity, i.e. a bumped version constant. Two pins never share an
 /// identity.
-const INVENTORY_PINS: &[(&str, &str, &str)] = &[(
-    "1-2",
-    "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
-    "c6f122ee6176383cb2acb1883e6ff89b915a4911771dcc400430fece3b294bf2",
-)];
+const INVENTORY_PINS: &[(&str, &str, &str)] = &[
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "c6f122ee6176383cb2acb1883e6ff89b915a4911771dcc400430fece3b294bf2",
+    ),
+    (
+        "1-3",
+        "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "9dbf8df84155465c41d7a0855703c46690c36f2c2a8f36d6a1276d8e697fc23e",
+    ),
+];
 
 fn check_inventory(scope: &str, assembled: &AssembledLibrary) {
     let text = inventory(assembled);
@@ -1068,14 +1100,17 @@ fn dimensions(rng: &mut SplitMix, count: usize) -> Vec<Rational> {
     points
 }
 
-/// A reduction onto the terminals in the tag basis at `d`: every term is on the
-/// trivial node at scope 1-2.
-fn tag_values(reduction: &PReduction, d: &Rational) -> BTreeMap<GammaTag, Rational> {
+/// A basis element of a reduction onto the terminals: the terminal (`Unit`, or
+/// a Custom owner's residual) and the Gamma tag.
+type TagBasis = (String, GammaTag);
+
+/// A reduction onto the terminals in the tag basis at `d`: per terminal and
+/// tag (the trivial node `Unit`; a residual of NO or t1star05 at scope 1-3).
+fn tag_values(reduction: &PReduction, d: &Rational) -> BTreeMap<TagBasis, Rational> {
     let mut values = BTreeMap::new();
     for term in &reduction.terms {
-        assert_eq!(term.basis, PBasis::Unit, "a residual at scope 1-2");
         let entry = values
-            .entry(term.tag.clone())
+            .entry((format!("{:?}", term.basis), term.tag.clone()))
             .or_insert_with(Rational::zero);
         *entry = &*entry + &at(&term.coefficient, d);
     }
@@ -1084,12 +1119,12 @@ fn tag_values(reduction: &PReduction, d: &Rational) -> BTreeMap<GammaTag, Ration
 }
 
 fn add_scaled(
-    sum: &mut BTreeMap<GammaTag, Rational>,
-    values: &BTreeMap<GammaTag, Rational>,
+    sum: &mut BTreeMap<TagBasis, Rational>,
+    values: &BTreeMap<TagBasis, Rational>,
     factor: &Rational,
 ) {
-    for (tag, value) in values {
-        let entry = sum.entry(tag.clone()).or_insert_with(Rational::zero);
+    for (basis, value) in values {
+        let entry = sum.entry(basis.clone()).or_insert_with(Rational::zero);
         *entry = &*entry + &(value * factor);
     }
     sum.retain(|_, value| !value.is_zero());
@@ -1434,6 +1469,16 @@ const SPACE_LIMIT: usize = 4_096;
 /// bounded input space when it holds at most [`EXACT_INPUTS`] (one loop: the
 /// second return value is `true`), else [`EXACT_INPUTS`] random ones.
 fn exactness_inputs(assembled: &AssembledLibrary, loops: u8, seed: u64) -> (Vec<Input>, bool) {
+    exactness_inputs_of(assembled, loops, seed, EXACT_INPUTS)
+}
+
+/// [`exactness_inputs`] with `count` random inputs when the space is sampled.
+fn exactness_inputs_of(
+    assembled: &AssembledLibrary,
+    loops: u8,
+    seed: u64,
+    count: usize,
+) -> (Vec<Input>, bool) {
     let mut rng = SplitMix::new(seed);
     let library = &assembled.library;
     let mut space = Vec::new();
@@ -1446,10 +1491,10 @@ fn exactness_inputs(assembled: &AssembledLibrary, loops: u8, seed: u64) -> (Vec<
             }
         }
     }
-    if !space.is_empty() && space.len() <= EXACT_INPUTS {
+    if !space.is_empty() && space.len() <= count {
         // The random generator draws inside the enumerated space.
         let forms: BTreeSet<String> = space.iter().map(Input::normal_form).collect();
-        for input in random_inputs(assembled, loops, 4 * EXACT_INPUTS, seed) {
+        for input in random_inputs(assembled, loops, 4 * count, seed) {
             assert!(forms.contains(&input.normal_form()), "{input:?}");
         }
         return (space, true);
@@ -1457,19 +1502,19 @@ fn exactness_inputs(assembled: &AssembledLibrary, loops: u8, seed: u64) -> (Vec<
     let mut seen = BTreeSet::new();
     let mut inputs = Vec::new();
     for round in 0..64 {
-        let draws = random_inputs(assembled, loops, EXACT_INPUTS, seed ^ (round << 32));
+        let draws = random_inputs(assembled, loops, count, seed ^ (round << 32));
         for input in draws {
-            if inputs.len() < EXACT_INPUTS && seen.insert(input.normal_form()) {
+            if inputs.len() < count && seen.insert(input.normal_form()) {
                 inputs.push(input);
             }
         }
-        if inputs.len() == EXACT_INPUTS {
+        if inputs.len() == count {
             break;
         }
     }
     assert_eq!(
         inputs.len(),
-        EXACT_INPUTS,
+        count,
         "L{loops}: too few inputs distinct up to a scalar"
     );
     (inputs, false)
@@ -1482,101 +1527,112 @@ fn exactness_inputs(assembled: &AssembledLibrary, loops: u8, seed: u64) -> (Vec<
 /// them nonzero). Per loop count the distinct keys, nonzero comparisons and
 /// odd-rank nonzero inputs are counted and bounded below; every owner is applied
 /// (counted by the trace of the keys).
-#[test]
-fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
-    let assembled = scope_two();
+/// What one batch of exactness inputs reached.
+struct ExactRow {
+    /// (loop count, exhausted space, inputs, keys, nonzero comparisons,
+    /// nonzero inputs, odd-rank nonzero inputs, max nonzero rank).
+    summary: (u8, bool, usize, usize, usize, usize, usize, u32),
+    trace: descent::TraceReport,
+}
+
+/// `PLib(x) == Sum_j e_j(d) PLib(T_j)` in the tag basis for every input of
+/// `inputs` (keys of tops of `loops` loops), `x = Sum_j e_j T_j` the P0
+/// reduction in the input's top family, at each of `points`; the keys traced.
+fn compare_with_p0(
+    assembled: &AssembledLibrary,
+    loops: u8,
+    inputs: &[Input],
+    exhausted: bool,
+    points: &[Rational],
+) -> ExactRow {
     let library = &assembled.library;
     let context = library.coefficient_context();
-    let mut rng = SplitMix::new(0x5ec7_0f2a);
-    let points = dimensions(&mut rng, 2);
-    // No route of scope 1-2 flips q: `q -> -q` is not traversed here.
-    let census = library.census();
-    let flipped = (census.sectors.values())
-        .filter(|fate| matches!(fate, PSectorFate::Owner { map, .. } if map.external_sign < 0))
-        .count();
-    println!("routes with external_sign -1: {flipped}");
-    let mut applied = BTreeSet::new();
-    // (loop count, exhausted space, inputs, keys, nonzero comparisons,
-    // nonzero inputs, odd-rank nonzero inputs, max nonzero rank).
-    let mut summary = Vec::new();
-    for loops in 1..=2_u8 {
-        let (inputs, exhausted) = exactness_inputs(assembled, loops, 0x1000 + u64::from(loops));
-        let (mut nonzero, mut nonzero_inputs, mut odd, mut max_rank) = (0, 0, 0, 0);
-        let mut all_keys = BTreeSet::new();
-        let start = Instant::now();
-        for &top in &assembled.tops_of(loops) {
-            let mut p0 = P0::new(library.presentation(top));
-            let ours: Vec<&Input> = inputs.iter().filter(|input| input.top == top).collect();
-            let keys: Vec<Vec<i64>> = ours
-                .iter()
-                .flat_map(|input| input.terms.iter().map(|(powers, _)| powers.clone()))
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            all_keys.extend(keys.iter().map(|powers| (top, powers.clone())));
-            let index: BTreeMap<&Vec<i64>, usize> =
-                keys.iter().enumerate().map(|(i, k)| (k, i)).collect();
-            let masters: Vec<PReduction> = p0
-                .masters
-                .clone()
-                .into_iter()
-                .map(|master| reduce(library, vec![(top, master, context.one())]))
-                .collect();
-            let mut nonzero_of = vec![false; ours.len()];
-            for d in &points {
-                let rows = p0.rows(&keys, d);
-                let master_values: Vec<_> = masters.iter().map(|m| tag_values(m, d)).collect();
-                for (position, input) in ours.iter().enumerate() {
-                    let ours_value = tag_values(&reduce(library, input.request_inputs(context)), d);
-                    let mut expected = BTreeMap::new();
-                    for (powers, weight) in &input.terms {
-                        for (master, coefficient) in rows[index[powers]].iter().enumerate() {
-                            add_scaled(
-                                &mut expected,
-                                &master_values[master],
-                                &(coefficient * weight),
-                            );
-                        }
-                    }
-                    assert_eq!(ours_value, expected, "L{loops} {input:?} at d = {d}");
-                    if !ours_value.is_empty() {
-                        nonzero += 1;
-                        nonzero_of[position] = true;
+    let (mut nonzero, mut nonzero_inputs, mut odd, mut max_rank) = (0, 0, 0, 0);
+    let mut all_keys = BTreeSet::new();
+    let start = Instant::now();
+    for &top in &assembled.tops_of(loops) {
+        let ours: Vec<&Input> = inputs.iter().filter(|input| input.top == top).collect();
+        if ours.is_empty() {
+            continue;
+        }
+        let mut p0 = P0::new(library.presentation(top));
+        let keys: Vec<Vec<i64>> = ours
+            .iter()
+            .flat_map(|input| input.terms.iter().map(|(powers, _)| powers.clone()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        all_keys.extend(keys.iter().map(|powers| (top, powers.clone())));
+        let index: BTreeMap<&Vec<i64>, usize> =
+            keys.iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let masters: Vec<PReduction> = p0
+            .masters
+            .clone()
+            .into_iter()
+            .map(|master| reduce(library, vec![(top, master, context.one())]))
+            .collect();
+        let reductions: Vec<PReduction> = ours
+            .iter()
+            .map(|input| reduce(library, input.request_inputs(context)))
+            .collect();
+        let mut nonzero_of = vec![false; ours.len()];
+        for d in points {
+            let rows = p0.rows(&keys, d);
+            let master_values: Vec<_> = masters.iter().map(|m| tag_values(m, d)).collect();
+            for (position, input) in ours.iter().enumerate() {
+                let ours_value = tag_values(&reductions[position], d);
+                let mut expected = BTreeMap::new();
+                for (powers, weight) in &input.terms {
+                    for (master, coefficient) in rows[index[powers]].iter().enumerate() {
+                        add_scaled(
+                            &mut expected,
+                            &master_values[master],
+                            &(coefficient * weight),
+                        );
                     }
                 }
-            }
-            for (input, _) in ours.iter().zip(&nonzero_of).filter(|(_, n)| **n) {
-                nonzero_inputs += 1;
-                odd += usize::from(input.rank % 2 == 1);
-                max_rank = max_rank.max(input.rank);
+                assert_eq!(ours_value, expected, "L{loops} {input:?} at d = {d}");
+                if !ours_value.is_empty() {
+                    nonzero += 1;
+                    nonzero_of[position] = true;
+                }
             }
         }
-        let keys: Vec<_> = all_keys.into_iter().collect();
-        let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
-        assert!(trace.is_clean());
-        println!(
-            "exactness L{loops}: {} inputs distinct up to a scalar{}, {} distinct keys, \
-             {nonzero}/{} nonzero comparisons (2 d each), {nonzero_inputs} nonzero inputs \
-             ({odd} of odd rank, rank <= {max_rank}); {} apply sites over {} owners: {:?}; {:.1} s",
-            inputs.len(),
-            if exhausted {
-                " (the whole bounded input space)"
-            } else {
-                ""
-            },
-            keys.len(),
-            2 * inputs.len(),
-            trace.apply_sites,
-            trace.applied.len(),
-            trace
-                .applied
-                .iter()
-                .map(|(class, sites)| (library.census().classes[class].key.label(), *sites))
-                .collect::<Vec<_>>(),
-            start.elapsed().as_secs_f64()
-        );
-        applied.extend(trace.applied.keys().copied());
-        summary.push((
+        for (input, _) in ours.iter().zip(&nonzero_of).filter(|(_, n)| **n) {
+            nonzero_inputs += 1;
+            odd += usize::from(input.rank % 2 == 1);
+            max_rank = max_rank.max(input.rank);
+        }
+    }
+    let keys: Vec<_> = all_keys.into_iter().collect();
+    let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
+    assert!(trace.is_clean(), "{:?}", trace.samples);
+    println!(
+        "exactness L{loops}: {} inputs distinct up to a scalar{}, {} distinct keys, \
+         {nonzero}/{} nonzero comparisons ({} d each), {nonzero_inputs} nonzero inputs \
+         ({odd} of odd rank, rank <= {max_rank}); {} apply sites over {} owners: {:?}; \
+         {} route keys through q -> -q routes; {:.1} s",
+        inputs.len(),
+        if exhausted {
+            " (the whole bounded input space)"
+        } else {
+            ""
+        },
+        keys.len(),
+        points.len() * inputs.len(),
+        points.len(),
+        trace.apply_sites,
+        trace.applied.len(),
+        trace
+            .applied
+            .iter()
+            .map(|(class, sites)| (library.census().classes[class].key.label(), *sites))
+            .collect::<Vec<_>>(),
+        trace.flipped_route_keys,
+        start.elapsed().as_secs_f64()
+    );
+    ExactRow {
+        summary: (
             loops,
             exhausted,
             inputs.len(),
@@ -1585,7 +1641,37 @@ fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
             nonzero_inputs,
             odd,
             max_rank,
-        ));
+        ),
+        trace,
+    }
+}
+
+/// Routes of `library` that flip `q` (`external_sign = -1`).
+fn flipped_routes(library: &PLibrary) -> usize {
+    let census = library.census();
+    (census.sectors.iter())
+        .filter(|(sector, fate)| {
+            matches!(fate, PSectorFate::Owner { class, map }
+                if map.external_sign < 0 && census.classes[class].owner != **sector)
+        })
+        .count()
+}
+
+#[test]
+fn reductions_equal_p0_sector_reductions_in_the_tag_basis() {
+    let assembled = scope_two();
+    let library = &assembled.library;
+    let mut rng = SplitMix::new(0x5ec7_0f2a);
+    let points = dimensions(&mut rng, 2);
+    // No route of scope 1-2 flips q: `q -> -q` is not traversed here.
+    println!("routes with external_sign -1: {}", flipped_routes(library));
+    let mut applied = BTreeSet::new();
+    let mut summary = Vec::new();
+    for loops in 1..=2_u8 {
+        let (inputs, exhausted) = exactness_inputs(assembled, loops, 0x1000 + u64::from(loops));
+        let row = compare_with_p0(assembled, loops, &inputs, exhausted, &points);
+        applied.extend(row.trace.applied.keys().copied());
+        summary.push(row.summary);
     }
     println!("exactness rows: {summary:?}");
     let [one, two] = summary.as_slice() else {
@@ -1653,23 +1739,21 @@ fn tag_value(tag: &GammaTag, d: &Rational) -> GValue {
     value
 }
 
-/// The test family of a top presentation: its line momenta.
+/// The test family of a top presentation: its line momenta (keys of it have
+/// their ISPs at power 0 and are given by their line powers).
 fn closed_form_family(p: &Presentation) -> PFamily {
-    let lines: Vec<&'static [i64]> = p
-        .slots
-        .iter()
-        .map(|slot| -> &'static [i64] {
-            match slot {
-                Slot::Line(line) => Box::leak(line.momentum.clone().into_boxed_slice()),
-                Slot::Isp(_) => unreachable!("the 1L and 2L tops have no ISP"),
-            }
+    let lines: Vec<&'static [i64]> = (p.slots.iter())
+        .filter_map(|slot| match slot {
+            Slot::Line(line) => Some(&*Box::leak(line.momentum.clone().into_boxed_slice())),
+            Slot::Isp(_) => None,
         })
         .collect();
+    let count = lines.len();
     PFamily {
         name: "top",
         loops: usize::from(p.loops),
         lines: Box::leak(lines.into_boxed_slice()),
-        root: Box::leak(vec![true; p.slots.len()].into_boxed_slice()),
+        root: Box::leak(vec![true; count].into_boxed_slice()),
     }
 }
 
@@ -1852,7 +1936,8 @@ fn the_step_cache_replays_records_where_the_absolute_tag_matches() {
 fn benchmark_factors(loops: u8) -> &'static [(usize, usize)] {
     match loops {
         1 => &[(1, 0); 8],
-        _ => &[(1, 0), (2, 0), (1, 2), (1, 0), (2, 0), (1, 2)],
+        2 => &[(1, 0), (2, 0), (1, 2), (1, 0), (2, 0), (1, 2)],
+        _ => &[(1, 0), (2, 0), (1, 3), (2, 0), (3, 0), (1, 2)],
     }
 }
 
@@ -1934,16 +2019,18 @@ fn identity_bytes(library: &PLibrary) -> usize {
     9 + (arity + 16).max(19)
 }
 
-/// The 1L and 2L benchmark cells: distinct tags per Apply site (plan risk 12);
-/// cold and warm wall times under Exact (step cache on disk, warm = reopened)
-/// and ModularPolynomial weights (in memory); the bytes of the saved records and
-/// the share of identities in them (a shard file stores each identity once: the
-/// tagged trace counts the distinct identities per shard).
+/// The 1L-3L benchmark cells in the scope 1-3 library (the program vakint
+/// ships): distinct tags per Apply site (plan risk 12); cold and warm wall
+/// times under Exact (step cache on disk, warm = reopened) and
+/// ModularPolynomial weights (in memory); the bytes of the saved records and
+/// the share of identities in them (a shard file stores each identity once:
+/// the tagged trace counts the distinct identities per shard), the rest being
+/// coefficients. Numerators over each family's own `k` columns.
 /// Measurements, printed; run optimised.
 #[test]
 #[ignore = "slow: benchmark cells at rank 8, measured optimised"]
 fn benchmark_cells_tags_and_timings() {
-    let assembled = scope_two();
+    let assembled = scope_three();
     let library = &assembled.library;
     let context = library.coefficient_context();
     let binding = library.step_cache_binding().unwrap();
@@ -1951,9 +2038,11 @@ fn benchmark_cells_tags_and_timings() {
         limits: ReductionLimits::default(),
         tags: true,
     };
-    for loops in 1..=2_u8 {
+    for loops in 1..=3_u8 {
         let mut all_keys = Vec::new();
         let (mut record_bytes, mut identities) = (0_u64, 0_usize);
+        // Cold wall seconds of the cells: Exact, ModularPolynomial.
+        let mut cold = [0.0_f64; 2];
         for dots in 0..=2 {
             for rank in [0, 2, 4, 6, 8] {
                 let mut inputs = Vec::new();
@@ -1988,8 +2077,10 @@ fn benchmark_cells_tags_and_timings() {
                     run.step_cache = Some(Arc::clone(&cache));
                     let start = Instant::now();
                     let reduction = library.reduce(run).unwrap();
-                    line += &format!(", exact {state} {:.4} s", start.elapsed().as_secs_f64());
+                    let seconds = start.elapsed().as_secs_f64();
+                    line += &format!(", exact {state} {seconds:.4} s");
                     if state == "cold" {
+                        cold[0] += seconds;
                         let saved = cache.save().unwrap();
                         line += &format!(" ({} records, {} bytes)", saved.records, saved.bytes);
                         record_bytes += saved.bytes;
@@ -2007,7 +2098,11 @@ fn benchmark_cells_tags_and_timings() {
                     run.step_cache = Some(Arc::clone(&cache));
                     let start = Instant::now();
                     let reduction = library.reduce(run).unwrap();
-                    line += &format!(", modular {state} {:.4} s", start.elapsed().as_secs_f64());
+                    let seconds = start.elapsed().as_secs_f64();
+                    line += &format!(", modular {state} {seconds:.4} s");
+                    if state == "cold" {
+                        cold[1] += seconds;
+                    }
                     results.push(reduction.terms);
                 }
                 assert!(results.windows(2).all(|pair| pair[0] == pair[1]));
@@ -2019,12 +2114,16 @@ fn benchmark_cells_tags_and_timings() {
             (identities * identity_bytes(library)) as f64 / record_bytes.max(1) as f64;
         println!(
             "L{loops} all cells: {} apply keys / {} sites = {:.3} tags per site; records {record_bytes} bytes, \
-             identities about {:.0}% of them ({identities} identities of {} bytes)",
+             identities about {:.0}% of them ({identities} identities of {} bytes), coefficients about {:.0}%; \
+             cold Exact {:.3} s, cold ModularPolynomial {:.3} s",
             tags.apply_keys,
             tags.apply_sites,
             tags.apply_keys as f64 / tags.apply_sites.max(1) as f64,
             100.0 * identity_share,
-            identity_bytes(library)
+            identity_bytes(library),
+            100.0 * (1.0 - identity_share),
+            cold[0],
+            cold[1]
         );
     }
 }
@@ -2078,4 +2177,820 @@ fn the_p_census_command_writes_the_census_of_the_assembly() {
     let expected = library.census().to_json(library.presentations()).unwrap();
     assert_eq!(std::fs::read_to_string(&out).unwrap(), expected);
     std::fs::remove_dir_all(&directory).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Scope 1-3: the Custom owners NO and t1star05 (stage 2)
+// ---------------------------------------------------------------------------
+
+/// The scope 1-3 library program (the built-in release scope) with its two
+/// Custom owners generated, assembled once per test process.
+fn scope_three() -> &'static AssembledLibrary {
+    static LIBRARY: OnceLock<AssembledLibrary> = OnceLock::new();
+    LIBRARY.get_or_init(|| assemble(3))
+}
+
+/// Class labels of the Custom owners (M2-T7c; `P_CLASS_KEY_VERSION` 1): NO
+/// (`nostar0`) and the eps kite t1star05.
+const NO_LABEL: &str = "L3T08-61cd69124cf81eb3";
+const T1STAR05_LABEL: &str = "L2T05-810c5f0ff11c4c40";
+
+fn label_of(library: &PLibrary, class: OwnerClassId) -> String {
+    library.census().classes[&class].key.label()
+}
+
+fn owner_labelled(library: &PLibrary, label: &str) -> POwnerSpec {
+    library
+        .owners()
+        .find(|owner| label_of(library, owner.spec.class) == label)
+        .unwrap()
+        .spec
+        .clone()
+}
+
+/// The lanes of the DAG nodes (the trivial node as `Trivial`).
+fn node_lanes(assembled: &AssembledLibrary) -> BTreeMap<String, usize> {
+    let mut lanes = BTreeMap::new();
+    for node in &assembled.nodes {
+        let lane = if node.decision.trivial {
+            "Trivial".to_owned()
+        } else {
+            format!("{:?}", node.decision.lane)
+        };
+        *lanes.entry(lane).or_default() += 1;
+    }
+    lanes
+}
+
+/// Gate G2 lanes over the 43 nodes of the 3L DAG, the two Custom owners on
+/// their presentations (D7: NO on the Induced presentation of `P3L_NO`, the
+/// eps kite on its EpsNode presentation), one residual terminal each at the
+/// owner's corner, a strong census and a descent certificate whose Custom
+/// part (items 1, 2, 7) reads both payloads and steps both witness boxes.
+#[test]
+fn scope_one_to_three_assembles_with_custom_owners_and_a_descent_certificate() {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    assert_eq!(library.scope(), 1..=3);
+    let names: Vec<String> = (0..5)
+        .map(|id| match &library.presentation(PresentationId(id)).kind {
+            PresentationKind::Top { name } => name.clone(),
+            other => panic!("presentation {id} is {other:?}"),
+        })
+        .collect();
+    assert_eq!(names, ["P1L", "P2L", "P3L_LA", "P3L_BE", "P3L_NO"]);
+    assert_eq!(
+        assembled.tops_of(3),
+        [PresentationId(2), PresentationId(3), PresentationId(4)]
+    );
+    assert_eq!(assembled.dag.nodes.len(), 43);
+    assert!(assembled.nodes.iter().all(|node| node.fallback.is_none()));
+    assert_eq!(
+        node_lanes(assembled),
+        BTreeMap::from(
+            [
+                ("SeriesParallel", 26),
+                ("Insertion", 6),
+                ("Carpet", 2),
+                ("Triangle", 6),
+                ("Custom", 2),
+                ("Trivial", 1)
+            ]
+            .map(|(lane, count)| (lane.to_owned(), count))
+        )
+    );
+
+    // The Custom owners and their payloads.
+    let labels: Vec<&str> = assembled.custom.keys().map(String::as_str).collect();
+    assert_eq!(labels, [T1STAR05_LABEL, NO_LABEL]);
+    for payload in assembled.custom.values() {
+        assert_eq!((payload.meta.lp_count, payload.meta.residuals), (1, 1));
+    }
+    let no = owner_labelled(library, NO_LABEL);
+    let kite = owner_labelled(library, T1STAR05_LABEL);
+    assert_eq!(
+        library.presentation(no.presentation).kind,
+        PresentationKind::Induced {
+            top: PresentationId(4),
+            mask: 0xff
+        }
+    );
+    assert_eq!(
+        library.presentation(kite.presentation).kind,
+        PresentationKind::EpsNode
+    );
+    // Every owner is on the presentation of its node (review SF9b): the
+    // lane-adapted presentation, the Induced one for an integer Custom node.
+    for owner in library.owners() {
+        let node = &assembled.nodes[owner.spec.node.unwrap().0 as usize];
+        assert_eq!(node.presentation, Some(owner.spec.presentation));
+    }
+    // One residual each, at the corner of the owner (n = 1 on the eps axis).
+    assert_eq!(library.terminals().len(), 3);
+    for (spec, corner) in [
+        (&no, vec![1, 1, 1, 1, 1, 1, 1, 1, 0]),
+        (&kite, vec![1, 1, 1, 1, 1]),
+    ] {
+        let residuals: Vec<&PTerminal> = (spec.terminals.iter())
+            .map(|terminal| &library.terminals()[terminal.0 as usize])
+            .collect();
+        assert_eq!(
+            residuals,
+            [&PTerminal::Residual {
+                owner: spec.class,
+                key: key(&corner)
+            }]
+        );
+    }
+
+    // The certificate.
+    let descent = assembled.descent.as_ref().unwrap();
+    assert_eq!(descent.owners, lanes_of(assembled));
+    assert_eq!(descent.owners[&OwnerLane::Custom], 2);
+    assert_eq!((descent.guarded_owners, descent.custom_rules), (2, 25 + 18));
+    let boxes: Vec<usize> = [&no, &kite]
+        .iter()
+        .map(|spec| {
+            let p = library.presentation(spec.presentation);
+            let support = library.census().classes[&spec.class].owner.1;
+            descent::custom_witness_keys(p.slots.len(), support, p.forced_axes()).len()
+        })
+        .collect();
+    assert_eq!(boxes, [135, 66]);
+    assert_eq!(descent.witness_keys, 135 + 66);
+    for witness in [DescentWitness::SameSectorStrict, DescentWitness::Subsector] {
+        assert!(descent.witnesses[&witness] > 0, "{:?}", descent.witnesses);
+    }
+    assert_eq!(
+        descent.zero_sectors + descent.owner_sectors + descent.routes,
+        library.census().sectors.len()
+    );
+    let presentations = library.presentations();
+    library
+        .census()
+        .check_complete(presentations, library.topology().map(Arc::as_ref))
+        .unwrap();
+    println!(
+        "scope 1-3: {} presentations, {} classes, {} sectors ({} zero, {} owner, {} routed, {} flip q), \
+         {} edge maps, owners {:?}, custom rules {}, witness keys {}, witnesses {:?}, timings {:?}",
+        presentations.len(),
+        library.census().classes.len(),
+        library.census().sectors.len(),
+        descent.zero_sectors,
+        descent.owner_sectors,
+        descent.routes,
+        flipped_routes(library),
+        descent.edge_maps,
+        descent.owners,
+        descent.custom_rules,
+        descent.witness_keys,
+        descent.witnesses,
+        assembled.timings
+    );
+}
+
+/// Provided payloads are used verbatim by class label: the same program and
+/// payloads as a generating assembly; a missing label is refused, and so are
+/// payloads under each other's label (the record does not fit the sector).
+#[test]
+fn provided_payloads_are_reused_verbatim_by_class_label() {
+    let assembled = scope_three();
+    let assemble_provided = |payloads: BTreeMap<String, CustomOwnerPayload>| {
+        assemble_library(
+            &families(),
+            3,
+            CustomPayloads::Provided(payloads),
+            &AssembleOptions {
+                threads: workers(),
+                verify_descent: false,
+            },
+        )
+    };
+    let provided = assemble_provided(assembled.custom.clone()).unwrap();
+    assert_eq!(provided.custom, assembled.custom);
+    assert_eq!(inventory(&provided), inventory(assembled));
+
+    let mut missing = assembled.custom.clone();
+    missing.remove(NO_LABEL);
+    let error = assemble_provided(missing).unwrap_err();
+    assert!(
+        matches!(&error, PError::MalformedLibrary(m) if m.contains(NO_LABEL)),
+        "{error}"
+    );
+    let mut swapped = assembled.custom.clone();
+    let no = swapped.remove(NO_LABEL).unwrap();
+    let kite = swapped.remove(T1STAR05_LABEL).unwrap();
+    swapped.insert(NO_LABEL.to_owned(), kite);
+    swapped.insert(T1STAR05_LABEL.to_owned(), no);
+    assert!(assemble_provided(swapped).is_err());
+}
+
+/// A one-sided generation of the eps kite: the chart `n >= 1` only, no
+/// two-sided data (the rules study's false knock-out mode).
+fn one_sided_payload(presentation: &Presentation) -> Arc<[u8]> {
+    let mut request = FamilyCandidatesRequest::new("one-sided t1star05");
+    request.selected_sectors = Some(vec![vec![true; presentation.slots.len()]]);
+    let (session, job) =
+        CandidateGenerationSession::from_family(Arc::clone(&presentation.family), request, 64)
+            .unwrap();
+    job.run();
+    Arc::from(session.result().unwrap().bundle())
+}
+
+/// How [`Damaged`] breaks the step of a Custom owner.
+#[derive(Clone, Copy, Debug)]
+enum Damage {
+    /// An extra Apply child one dot above the key.
+    Climbs,
+    /// An extra Route child outside the owner support (its ISP raised).
+    Escapes,
+    /// An extra terminal that is no residual of the owner (`Unit`).
+    UnitTerminal,
+}
+
+/// A real Custom step with one damage on every key.
+struct Damaged {
+    inner: Arc<dyn PLaneStep>,
+    damage: Damage,
+}
+
+impl PLaneStep for Damaged {
+    fn lane(&self) -> OwnerLane {
+        OwnerLane::Custom
+    }
+
+    fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+        let mut out = self.inner.step(cx, key)?;
+        let one = cx.library.coefficient_context().one();
+        let mut powers = key.powers.to_vec();
+        match self.damage {
+            Damage::Climbs => {
+                powers[0] += 1;
+                out.children.push(PChild {
+                    stage: PStage::Apply,
+                    presentation: key.presentation,
+                    powers,
+                    tag: key.tag.clone(),
+                    coefficient: one,
+                });
+            }
+            Damage::Escapes => {
+                *powers.last_mut().unwrap() = 1;
+                out.children.push(PChild {
+                    stage: PStage::Route,
+                    presentation: key.presentation,
+                    powers,
+                    tag: key.tag.clone(),
+                    coefficient: one,
+                });
+            }
+            Damage::UnitTerminal => out.terminals.push((PTerminalId(0), key.tag.clone(), one)),
+        }
+        Ok(out)
+    }
+
+    fn order_key(&self, cx: &PStepContext<'_>, powers: &[i64]) -> Result<POrderKey, PError> {
+        self.inner.order_key(cx, powers)
+    }
+}
+
+impl Parts {
+    /// The library with `program` for the owner of `class`.
+    fn build_with(self, class: OwnerClassId, program: OwnerProgram) -> Result<PLibrary, PError> {
+        let context = self.presentations[0].family.coefficient_context().clone();
+        let mut builder = PLibrary::builder(context, self.scope);
+        for presentation in self.presentations {
+            builder.add_presentation(presentation)?;
+        }
+        builder.set_topology(self.dag)?;
+        builder.set_census(self.census)?;
+        for map in self.edge_maps {
+            builder.add_edge_map(map)?;
+        }
+        for terminal in self.terminals {
+            builder.add_terminal(terminal)?;
+        }
+        let mut program = Some(program);
+        for owner in self.owners {
+            if owner.class == class {
+                builder.add_owner_with_program(owner, program.take().unwrap())?;
+            } else {
+                builder.add_owner(owner)?;
+            }
+        }
+        builder.build()
+    }
+}
+
+/// Items 1 and 2 of the certificate on Custom owners (amendment 2026-11-06
+/// 17:35Z): t1star05 passes (the assembled certificate), the eps kite with a
+/// one-sided order under its own record fails; a step whose Apply child does
+/// not descend in the order key, whose Route child leaves the owner support,
+/// or that emits a terminal that is no residual of the owner fails.
+#[test]
+fn the_descent_certificate_checks_custom_orders_and_witnesses() {
+    let library = &scope_three().library;
+    let parts = Parts::of(library);
+
+    let kite = owner_labelled(library, T1STAR05_LABEL);
+    let mut damaged = parts.clone();
+    let owner = (damaged.owners.iter_mut())
+        .find(|owner| owner.class == kite.class)
+        .unwrap();
+    owner.payload = Some(CustomPayloadRef::Bytes(one_sided_payload(
+        library.presentation(kite.presentation),
+    )));
+    let built = damaged.build().unwrap();
+    let error = descent::check(&built).unwrap_err();
+    assert!(
+        matches!(&error, PError::MalformedLibrary(m)
+            if m.contains("two-sided on 0x0 (program 0x0), the forced axes are 0x1")),
+        "{error}"
+    );
+    let spec = built.owner(kite.class).unwrap().spec.clone();
+    assert_eq!(
+        lane_program(&built, &spec).unwrap_err(),
+        PError::Unsupported("eps custom owner requires two-sided axes".to_owned())
+    );
+
+    let no = owner_labelled(library, NO_LABEL);
+    let OwnerProgram::Lane(inner) = lane_program(library, &no).unwrap() else {
+        unreachable!()
+    };
+    for (damage, reason) in [
+        (Damage::Climbs, "Apply child"),
+        (Damage::Escapes, "Route child"),
+        (Damage::UnitTerminal, "the terminal 0"),
+    ] {
+        let program = OwnerProgram::Lane(Arc::new(Damaged {
+            inner: Arc::clone(&inner),
+            damage,
+        }));
+        let built = parts.clone().build_with(no.class, program).unwrap();
+        let error = descent::check(&built).unwrap_err();
+        assert!(
+            matches!(&error, PError::MalformedLibrary(m) if m.contains(reason)),
+            "{damage:?}: {error}"
+        );
+    }
+}
+
+/// `points` distinct random keys per loop count at scope 1-3 (the whole box at
+/// one loop), dots <= 3 and rank <= 8 in total: nothing refused, no shortfall,
+/// every owner applied, every DAG node reached (its class applied, or keys
+/// routed on its presentation). Returns (loops, keys, Route keys, Apply keys,
+/// zero Route keys) per row.
+fn validate_scope_three(points: usize) -> Vec<(u8, usize, usize, usize, usize)> {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    let options = ValidateOptions {
+        points,
+        ..ValidateOptions::default()
+    };
+    let rows = validate_library(assembled, &options).unwrap();
+    for row in &rows {
+        let trace = &row.report;
+        println!(
+            "p-validate scope 1-3 L{}: {} distinct keys{}, {} route + {} apply keys ({} zero, {} through \
+             q -> -q routes), {} owners applied, {:.2} s",
+            row.loops,
+            row.keys,
+            if row.box_exhausted {
+                " (whole box)"
+            } else {
+                ""
+            },
+            trace.route_keys,
+            trace.apply_keys,
+            trace.zero_keys,
+            trace.flipped_route_keys,
+            trace.applied.len(),
+            row.seconds
+        );
+        assert!(trace.is_clean(), "L{}: {:?}", row.loops, trace.samples);
+        assert_eq!(row.shortfall(options.points), 0);
+    }
+    assert_eq!(unapplied_owners(assembled, &rows), []);
+    let applied: BTreeSet<OwnerClassId> = (rows.iter())
+        .flat_map(|row| row.report.applied.keys().copied())
+        .collect();
+    let routed: BTreeSet<PresentationId> = (rows.iter())
+        .flat_map(|row| row.report.routed.keys().copied())
+        .collect();
+    let census = library.census();
+    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
+        let class_applied = (census.classes.iter())
+            .any(|(class, record)| record.nodes.contains(&node.index) && applied.contains(class));
+        let presentation = node.presentation.unwrap();
+        assert!(
+            class_applied || routed.contains(&presentation),
+            "node {} (presentation {}) never reached",
+            node.index.0,
+            presentation.0
+        );
+    }
+    let reached: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let trace = &row.report;
+            (
+                row.loops,
+                row.keys,
+                trace.route_keys,
+                trace.apply_keys,
+                trace.zero_keys,
+            )
+        })
+        .collect();
+    println!("p-validate scope 1-3 rows: {reached:?}");
+    reached
+}
+
+/// p-validate at scope 1-3 with 100 keys per loop count, unoptimised in the
+/// branch gate (the full 10^4: the slow test below, about 11 min optimised).
+#[test]
+fn p_validate_traces_a_hundred_keys_per_loop_count_at_scope_one_to_three() {
+    let reached = validate_scope_three(100);
+    assert_eq!(
+        reached,
+        [
+            (1, 100, 100, 10, 90),
+            (2, 100, 1_812, 406, 1_490),
+            (3, 100, 409_663, 58_440, 335_988)
+        ]
+    );
+}
+
+/// The acceptance run: 10^4 distinct keys per loop count at scope 1-3; the 1L
+/// and 2L rows are those of scope 1-2.
+#[test]
+#[ignore = "slow: 10^4 3L keys at rank <= 8 through the kernels; run optimised"]
+fn p_validate_traces_ten_thousand_keys_per_loop_count_at_scope_one_to_three() {
+    let reached = validate_scope_three(10_000);
+    assert_eq!(
+        reached,
+        [
+            (1, 127, 127, 10, 117),
+            (2, 10_000, 22_803, 1_686, 19_364),
+            (3, 10_000, 4_344_905, 374_703, 3_677_774)
+        ]
+    );
+}
+
+/// One cache serves the 3L program: a dotted LA top after the plain one meets
+/// its subkeys at the same absolute tag and replays them, with the result of
+/// an uncached run.
+#[test]
+fn the_step_cache_replays_three_loop_records_where_the_absolute_tag_matches() {
+    let library = &scope_three().library;
+    let context = library.coefficient_context();
+    let cache =
+        OrderedStepCache::in_memory(library.step_cache_binding().unwrap(), Default::default());
+    let la = PresentationId(2);
+    let cached = |powers: &[i64]| {
+        let mut run = request(vec![(la, key(powers), context.one())]);
+        run.step_cache = Some(Arc::clone(&cache));
+        library.reduce(run).unwrap()
+    };
+    let first = cached(&[1, 1, 1, 1, 1, 1, 1, 1, 0]);
+    assert_eq!(first.statistics.progress.step_cache_hits, 0);
+    let dotted = [2, 1, 1, 1, 1, 1, 1, 1, 0];
+    let second = cached(&dotted);
+    let uncached = reduce(library, vec![(la, key(&dotted), context.one())]);
+    assert_eq!(second.terms, uncached.terms);
+    let progress = second.statistics.progress;
+    assert!(progress.step_cache_hits > 0, "{progress:?}");
+    println!(
+        "dotted LA after LA: {} hits, {} misses",
+        progress.step_cache_hits, progress.step_cache_misses
+    );
+}
+
+/// Review SF9a: a Triangle node whose IBP row does not have Forcer's shape is
+/// presented as Custom (on its Induced presentation, D7) with the reason kept,
+/// its owner generated, and the library certified; the kite then reduces to
+/// the values of the Triangle library. A failure of the run stops assembly
+/// with its error and changes no lane.
+#[test]
+fn a_triangle_mismatch_falls_back_to_custom_and_a_failure_stops() {
+    let options = AssembleOptions {
+        threads: workers(),
+        verify_descent: true,
+    };
+    let mismatch = |p: &Presentation, _: &TriangleRoles| {
+        Err(TemplateError::Mismatch(TemplateMismatch {
+            presentation: p.id,
+            reason: "test: not Forcer's row".to_owned(),
+        }))
+    };
+    let fallback = assemble_library_with(
+        &families(),
+        2,
+        CustomPayloads::Generate(CustomOwnerOptions::default()),
+        &options,
+        &mismatch,
+    )
+    .unwrap();
+    let node = fallback
+        .nodes
+        .iter()
+        .find(|node| node.fallback.is_some())
+        .unwrap();
+    assert_eq!(node.decision.lane, OwnerLane::Custom);
+    assert!(
+        node.fallback
+            .as_ref()
+            .unwrap()
+            .contains("test: not Forcer's row")
+    );
+    let library = &fallback.library;
+    assert_eq!(
+        library.presentation(node.presentation.unwrap()).kind,
+        PresentationKind::Induced {
+            top: PresentationId(1),
+            mask: 0x1f
+        }
+    );
+    assert_eq!(
+        lanes_of(&fallback),
+        BTreeMap::from([(OwnerLane::SeriesParallel, 5), (OwnerLane::Custom, 1)])
+    );
+    assert_eq!(fallback.custom.len(), 1);
+    let descent = fallback.descent.as_ref().unwrap();
+    assert_eq!(descent.guarded_owners, 1);
+    assert!(descent.witness_keys > 0);
+
+    let reference = &scope_two().library;
+    let context = library.coefficient_context();
+    let mut rng = SplitMix::new(0x0fa1_1bac);
+    let points = dimensions(&mut rng, 1);
+    for powers in [
+        [1, 1, 1, 1, 1],
+        [2, 1, 1, 1, 1],
+        [1, 1, 2, 1, 1],
+        [1, 1, 1, 1, -1],
+        [2, 1, 1, 0, 1],
+    ] {
+        let input = vec![(PresentationId(1), key(&powers), context.one())];
+        assert_eq!(
+            tag_values(&reduce(library, input.clone()), &points[0]),
+            tag_values(&reduce(reference, input), &points[0]),
+            "{powers:?}"
+        );
+    }
+
+    let failure = |_: &Presentation, _: &TriangleRoles| {
+        Err(TemplateError::Failure(PError::Generation(
+            "test: the row failed".to_owned(),
+        )))
+    };
+    assert_eq!(
+        assemble_library_with(
+            &families(),
+            2,
+            CustomPayloads::Provided(BTreeMap::new()),
+            &options,
+            &failure,
+        )
+        .unwrap_err(),
+        PError::Generation("test: the row failed".to_owned())
+    );
+}
+
+/// Keys of the three 3L tops with line powers in -1..=2 (ISP at 0, at most 8
+/// in absolute sum) that are chains of one-loop insertions equal their
+/// G-function values, `I_M = (-1)^{Sum n} I_E`, at two random `d`: per top 32
+/// sampled chain keys of nonzero value and 8 scaleless ones.
+#[test]
+fn three_loop_series_parallel_inputs_equal_their_closed_forms() {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    let context = library.coefficient_context();
+    let mut rng = SplitMix::new(0x3c10_5ed0);
+    let points = dimensions(&mut rng, 2);
+    for top in assembled.tops_of(3) {
+        let p = library.presentation(top);
+        let family = closed_form_family(p);
+        let lines = family.lines.len() as u32;
+        // Chain keys with a nonzero value, and scaleless ones.
+        let (mut nonzero_keys, mut zero_keys) = (Vec::new(), Vec::new());
+        for code in 0..4_u64.pow(lines) {
+            let line_powers: Vec<i64> = (0..lines)
+                .map(|slot| (code / 4_u64.pow(slot) % 4) as i64 - 1)
+                .collect();
+            if line_powers.iter().map(|power| power.abs()).sum::<i64>() > 8 {
+                continue;
+            }
+            match family.value(&key(&line_powers), &points[0]) {
+                Some(value) if value.is_zero() => zero_keys.push(line_powers),
+                Some(_) => nonzero_keys.push(line_powers),
+                None => {}
+            }
+        }
+        let total = (nonzero_keys.len(), zero_keys.len());
+        let mut sampled = Vec::new();
+        for (keys, budget) in [(&mut nonzero_keys, 32), (&mut zero_keys, 8)] {
+            let target = sampled.len() + budget.min(keys.len());
+            while sampled.len() < target {
+                let index = rng.below(keys.len() as u64) as usize;
+                sampled.push(keys.swap_remove(index));
+            }
+        }
+        let mut nonzero = 0;
+        for line_powers in &sampled {
+            let mut powers = line_powers.clone();
+            powers.resize(p.slots.len(), 0);
+            let reduction = reduce(library, vec![(top, key(&powers), context.one())]);
+            let sign = if powers.iter().sum::<i64>() % 2 == 0 {
+                1
+            } else {
+                -1
+            };
+            for d in &points {
+                let ours: Vec<GValue> = reduction
+                    .terms
+                    .iter()
+                    .map(|term| {
+                        assert_eq!(term.basis, PBasis::Unit);
+                        tag_value(&term.tag, d)
+                            .scale(&(&at(&term.coefficient, d) * &rational(sign, 1)))
+                    })
+                    .collect();
+                let expected = family.value(&key(line_powers), d).unwrap();
+                let difference = ours
+                    .iter()
+                    .cloned()
+                    .chain([expected.scale(&rational(-1, 1))]);
+                assert!(
+                    collect(difference).is_empty(),
+                    "{top:?} {powers:?} at d = {d}"
+                );
+                nonzero += usize::from(!expected.is_zero());
+            }
+        }
+        println!(
+            "closed forms on presentation {}: {} of {} nonzero and {} scaleless chain keys, \
+             {nonzero} nonzero values",
+            top.0,
+            sampled.len(),
+            total.0,
+            total.1
+        );
+        assert!(nonzero >= 2 * 32.min(total.0));
+    }
+}
+
+/// Exactness at scope 1-3 against P0 SpIRed reductions in the top families, in
+/// the tag basis at two random `d`, on inputs distinct up to a scalar: L1 the
+/// bounded space, L2 640 and L3 960 random inputs over all tops (dots <= 2,
+/// negative powers -3..-1, random subsector masks, rank 0-6 incl. odd), plus
+/// 64 rank 7-8 numerator inputs at L3 through the kernel owners. Every owner
+/// and every DAG node is reached; per-L counts are bounded below.
+#[test]
+#[ignore = "slow: P0 SpIRed on the three 8-line 3L tops and about 2,000 reductions; run optimised"]
+fn scope_one_to_three_reductions_equal_p0_sector_reductions() {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    let mut rng = SplitMix::new(0x5ec7_0f3b);
+    let points = dimensions(&mut rng, 2);
+    println!(
+        "scope 1-3 routes with external_sign -1: {}",
+        flipped_routes(library)
+    );
+    let mut rows = Vec::new();
+    for loops in 1..=3_u8 {
+        let count = if loops == 3 { 960 } else { EXACT_INPUTS };
+        let (inputs, exhausted) =
+            exactness_inputs_of(assembled, loops, 0x1000 + u64::from(loops), count);
+        rows.push(compare_with_p0(
+            assembled, loops, &inputs, exhausted, &points,
+        ));
+    }
+    // Rank 7 and 8 through the kernel owners (rr-kernel: order sigma = 4 of
+    // the numerator rewrite needs rank 8).
+    let mut rng = SplitMix::new(0x8a4c_0003);
+    let tops = assembled.tops_of(3);
+    let mut seen = BTreeSet::new();
+    let mut high = Vec::new();
+    while high.len() < 64 {
+        let top = library.presentation(tops[rng.below(tops.len() as u64) as usize]);
+        let input = numerator_input(top, 7 + rng.below(2) as u32, &mut rng);
+        if seen.insert(input.normal_form()) {
+            high.push(input);
+        }
+    }
+    let high = compare_with_p0(assembled, 3, &high, false, &points);
+    let summaries: Vec<_> = rows.iter().map(|row| row.summary).collect();
+    println!(
+        "exactness rows: {summaries:?}; rank 7-8: {:?}",
+        high.summary
+    );
+
+    let (_, _, inputs, keys, nonzero, nonzero_inputs, odd, max_rank) = summaries[2];
+    assert_eq!(inputs, 960);
+    assert!(keys >= 5_000, "L3: {keys} keys");
+    assert!(nonzero >= 600, "L3: {nonzero} nonzero comparisons");
+    assert!(nonzero_inputs >= 300, "L3: {nonzero_inputs} nonzero inputs");
+    assert!(
+        odd >= 100 && max_rank == 6,
+        "L3: {odd} odd, rank {max_rank}"
+    );
+    let (_, _, _, _, _, high_nonzero, _, high_rank) = high.summary;
+    assert!(high_nonzero >= 16 && high_rank == 8, "{:?}", high.summary);
+    let kernel_sites: usize = (high.trace.applied.iter())
+        .filter(|(class, _)| {
+            matches!(
+                library.owner(**class).unwrap().spec.lane,
+                OwnerLane::SeriesParallel | OwnerLane::Insertion | OwnerLane::Carpet
+            )
+        })
+        .map(|(_, sites)| sites)
+        .sum();
+    assert!(kernel_sites > 0);
+
+    let applied: BTreeSet<OwnerClassId> = (rows.iter().chain([&high]))
+        .flat_map(|row| row.trace.applied.keys().copied())
+        .collect();
+    assert_eq!(
+        applied.len(),
+        library.owners().len(),
+        "an owner never applied"
+    );
+    let routed: BTreeSet<PresentationId> = (rows.iter().chain([&high]))
+        .flat_map(|row| row.trace.routed.keys().copied())
+        .collect();
+    let census = library.census();
+    for node in assembled.nodes.iter().filter(|node| !node.decision.trivial) {
+        let class_applied = (census.classes.iter())
+            .any(|(class, record)| record.nodes.contains(&node.index) && applied.contains(class));
+        assert!(
+            class_applied || routed.contains(&node.presentation.unwrap()),
+            "node {} never reached",
+            node.index.0
+        );
+    }
+}
+
+/// Exact and ModularPolynomial weights, 1 and 16 scheduler threads, and
+/// modular with 4 threads under 16 scheduler threads give the same terms on 60
+/// random inputs per loop count of the scope 1-3 program; wall times of both
+/// arithmetics printed per loop count.
+#[test]
+#[ignore = "slow: 3L reductions in four configurations; run optimised"]
+fn scope_one_to_three_exact_equals_modular_polynomial_and_threads() {
+    let assembled = scope_three();
+    let library = &assembled.library;
+    let context = library.coefficient_context();
+    for loops in 1..=3_u8 {
+        let inputs = random_inputs(assembled, loops, 60, 0x2100 + u64::from(loops));
+        let mut seconds = [0.0_f64; 3];
+        for input in &inputs {
+            let start = Instant::now();
+            let exact = reduce(library, input.request_inputs(context));
+            seconds[0] += start.elapsed().as_secs_f64();
+            let start = Instant::now();
+            let mut modular = request(input.request_inputs(context));
+            modular.arithmetic = modular_polynomial(1);
+            let modular = library.reduce(modular).unwrap();
+            seconds[1] += start.elapsed().as_secs_f64();
+            assert_eq!(exact.terms, modular.terms, "{input:?}");
+            assert_eq!(exact.nonzero_conditions, modular.nonzero_conditions);
+            let mut threaded = request(input.request_inputs(context));
+            threaded.scheduler = OrderedSchedulerOptions {
+                threads: 16,
+                window_keys: 8,
+                ..Default::default()
+            };
+            let threaded = library.reduce(threaded).unwrap();
+            assert_eq!(exact.terms, threaded.terms);
+            assert_eq!(exact.nonzero_conditions, threaded.nonzero_conditions);
+            let start = Instant::now();
+            let mut both = request(input.request_inputs(context));
+            both.arithmetic = modular_polynomial(4);
+            both.scheduler = OrderedSchedulerOptions {
+                threads: 16,
+                window_keys: 8,
+                ..Default::default()
+            };
+            let both = library.reduce(both).unwrap();
+            seconds[2] += start.elapsed().as_secs_f64();
+            assert_eq!(exact.terms, both.terms, "{input:?}");
+            assert_eq!(exact.nonzero_conditions, both.nonzero_conditions);
+        }
+        println!(
+            "scope 1-3 L{loops}: {} inputs, Exact {:.3} s, ModularPolynomial {:.3} s, \
+             ModularPolynomial(4) x 16 scheduler threads {:.3} s",
+            inputs.len(),
+            seconds[0],
+            seconds[1],
+            seconds[2]
+        );
+    }
+}
+
+/// The scope 1-3 golden inventory with the Custom payload descriptors.
+#[test]
+#[ignore = "slow: generates NO and t1star05 and dumps both payloads"]
+fn the_scope_one_to_three_inventory_is_pinned_to_the_identity() {
+    check_inventory("1-3", scope_three());
 }

@@ -147,13 +147,17 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     if let Some(descent) = &assembled.descent {
         writeln!(
             stdout,
-            "descent certificate: owners {:?}, {} routes, {} owner sectors, {} zero sectors, {} edge maps, {} guarded",
+            "descent certificate: owners {:?}, {} routes, {} owner sectors, {} zero sectors, {} edge maps, \
+             {} guarded; custom: {} rules, {} witness keys, witnesses {:?}",
             descent.owners,
             descent.routes,
             descent.owner_sectors,
             descent.zero_sectors,
             descent.edge_maps,
-            descent.guarded_owners
+            descent.guarded_owners,
+            descent.custom_rules,
+            descent.witness_keys,
+            descent.witnesses
         )
         .map_err(report)?;
     }
@@ -161,13 +165,20 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     for row in &rows {
         let trace = &row.report;
         let count = |kind| trace.failures_of(kind);
+        let shortfall = row.shortfall(options.points);
         writeln!(
             stdout,
             "L{}: {} distinct keys{} (dots <= {} total, rank <= {} total), {} route + {} apply keys, \
              {} owners applied; uncovered {}, missing owner {}, descent {}, other {}; {:.2} s",
             row.loops,
             row.keys,
-            if row.box_exhausted { " (whole box)" } else { "" },
+            if row.box_exhausted {
+                " (whole box)".to_owned()
+            } else if shortfall > 0 {
+                format!(" (SHORTFALL: {shortfall} fewer than requested, the generator gave up)")
+            } else {
+                String::new()
+            },
             options.max_dots,
             options.max_rank,
             trace.route_keys,

@@ -1,0 +1,501 @@
+identity p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1
+presentation 0 L=1 Top(P1L) node -
+   0 line [ 1  0] eps 0
+   1 line [ 1 -1] eps 0
+presentation 1 L=2 Top(P2L) node -
+   0 line [ 1  0  0] eps 0
+   1 line [ 0  1  0] eps 0
+   2 line [ 1  1  0] eps 0
+   3 line [ 1  0  1] eps 0
+   4 line [ 1  1  1] eps 0
+presentation 2 L=3 Top(P3L_LA) node -
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0  1  0  0] eps 0
+   2 line [ 0  0  1  0] eps 0
+   3 line [ 0  1  1  0] eps 0
+   4 line [ 0  1  0  1] eps 0
+   5 line [ 1  1  1  0] eps 0
+   6 line [ 0  1  1  1] eps 0
+   7 line [ 1  1  1  1] eps 0
+   8 isp  [ 1 -1  0  0] . [ 1 -1  0  0]
+presentation 3 L=3 Top(P3L_BE) node -
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0  1  0  0] eps 0
+   2 line [ 0  0  1  0] eps 0
+   3 line [ 1  0  0  1] eps 0
+   4 line [ 1  0 -1  0] eps 0
+   5 line [ 0  1  1  0] eps 0
+   6 line [ 1 -1 -1  0] eps 0
+   7 line [ 1 -1 -1  1] eps 0
+   8 isp  [ 0  1  0 -1] . [ 0  1  0 -1]
+presentation 4 L=3 Top(P3L_NO) node -
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0  1  0  0] eps 0
+   2 line [ 0  0  1  0] eps 0
+   3 line [ 1  0  1  0] eps 0
+   4 line [ 1  0  0  1] eps 0
+   5 line [ 0  1  1  0] eps 0
+   6 line [ 1 -1  0  1] eps 0
+   7 line [ 0  1  1 -1] eps 0
+   8 isp  [ 1 -1  0  0] . [ 1 -1  0  0]
+presentation 5 L=3 TriangleAdapted node 01060000000001010001010000030100000501000102010001050100020301000204010003040100
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0 -1  1  0] eps 0
+   2 line [-1  1 -1  0] eps 0
+   3 line [ 0  1 -1 -1] eps 0
+   4 line [ 1 -1  1  1] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0 -1 -1] eps 0
+   7 line [ 0  0  1  0] eps 0
+   8 isp  [ 1  0  0  0] . [ 0  1  0  0]
+presentation 6 L=3 Induced(4, 0xff) node 01060000000001010002010000030100000501000102010001030100010501000204010003040100
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0  1  0  0] eps 0
+   2 line [ 0  0  1  0] eps 0
+   3 line [ 1  0  1  0] eps 0
+   4 line [ 1  0  0  1] eps 0
+   5 line [ 0  1  1  0] eps 0
+   6 line [ 1 -1  0  1] eps 0
+   7 line [ 0  1  1 -1] eps 0
+   8 isp  [ 1 -1  0  0] . [ 1 -1  0  0]
+presentation 7 L=3 TriangleAdapted node 01060000000001010003010000040100000501000102010001030100010501000203010002040100
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1 -1  0  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 1  0 -1  0] eps 0
+   7 line [ 0  0  1  0] eps 0
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 8 L=3 TriangleAdapted node 0105000000010100010100000201000004010001020100010301000203010002040100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 1  1  0  1] eps 0
+   4 line [ 0 -1  0 -1] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 9 L=3 CarpetAdapted node 0105000000010100010100000201000004010001020100010401000203010003040100
+   0 line [ 0  1  1  0] eps 0
+   1 line [-1 -1  0  0] eps 0
+   2 line [ 1  0 -1  0] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [-1  0  0  0] eps 0
+   6 line [-1  0  0  1] eps 0
+   7 isp  [ 0  1  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+presentation 10 L=3 InsertionAdapted node 0105000000010100010100000201000004010001020100010401000203020000
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [ 1  0  0  0] eps 0
+   6 line [-1  0  0 -1] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  1  0]
+presentation 11 L=3 InsertionAdapted node 0105000000010100010100000301000004010001020200000104010002030100
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1  0  1  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 12 L=3 InsertionAdapted node 0105000000010100010100000301000004010001020200000203010002040100
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1  1  1  0] eps 0
+   5 line [ 0  1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 13 L=3 TriangleAdapted node 0105000000010100020100000301000004010001020100010301000104010002040100
+   0 line [ 1  0  0  0] eps 0
+   1 line [ 0 -1  0 -1] eps 0
+   2 line [-1  1  0  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 line [ 1 -1 -1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+presentation 14 L=3 InsertionAdapted node 0105000000010100020100000301000004010001020100010402000002030100
+   0 line [ 0 -1  1  0] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0  1  0  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 1  0  0  0] eps 0
+   5 line [-1 -1  0  0] eps 0
+   6 line [ 0  0  1  0] eps 0
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 15 L=3 CarpetAdapted node 010400000101000101000002010000030100010201000103010002030100
+   0 line [ 0  1  1  0] eps 0
+   1 line [-1 -1  0  0] eps 0
+   2 line [ 1  0 -1  0] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 line [-1  0  0  1] eps 0
+   6 isp  [ 1  0  0  0] . [ 1  0  0  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  0  1  0] . [ 0  0  0  1]
+presentation 16 L=3 InsertionAdapted node 010400000101000101000002010000030100010201000103020000
+   0 line [ 0 -1  1  1] eps 0
+   1 line [ 0  0 -1 -1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 0  0  1  0] eps 0
+   4 line [ 1  0  0  0] eps 0
+   5 line [-1 -1  0  1] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 17 L=3 InsertionAdapted node 010400000101000101000002010000030100010302000002030100
+   0 line [ 0 -1 -1  1] eps 0
+   1 line [ 0  0  1 -1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 1  0  0  0] eps 0
+   4 line [-1 -1 -1  1] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 18 L=3 InsertionAdapted node 010400000101000101000002010000030200000102020000
+   0 line [ 0  1  1  0] eps 0
+   1 line [ 0 -1 -1 -1] eps 0
+   2 line [ 1  0  0  0] eps 0
+   3 line [-1  0  0  1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 19 L=3 InsertionAdapted node 010400000101000101000003020000010202000002030100
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1  0 -1  1] eps 0
+   3 line [ 0 -1  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 20 L=3 InsertionAdapted node 010400000101000102000000020100000301000102010001030100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  1  1  0] eps 0
+   2 line [ 0 -1  0 -1] eps 0
+   3 line [ 0  0 -1  1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 21 L=3 InsertionAdapted node 010400000101000102000000030100010201000103010002030100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  1  1 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  0  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 22 L=3 InsertionAdapted node 010400000101000102000000030100010202000001030100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0 -1  0 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 23 L=3 InsertionAdapted node 010400000101000102000000030100010202000002030100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0  0 -1  1] eps 0
+   3 line [ 0 -1  1 -1] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 24 L=3 InsertionAdapted node 010400000101000102000000030200000102020000
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  0 -1] eps 0
+   2 line [ 0 -1  0  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0 -1 -1] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  1  0]
+presentation 25 L=3 InsertionAdapted node 010400000101000201000003020000010201000103020000
+   0 line [ 0  1  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 26 L=3 InsertionAdapted node 010400000101000201000003020000010202000001030100
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1  0 -1  1] eps 0
+   3 line [ 0 -1 -1  0] eps 0
+   4 line [ 0  1  0  0] eps 0
+   5 line [ 0  0  1  0] eps 0
+   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 27 L=3 InsertionAdapted node 01030001010001010000020200000102020000
+   0 line [ 0  1  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 28 L=3 InsertionAdapted node 01030001010001010000020300000001020100
+   0 line [ 0  0  1 -1] eps 0
+   1 line [ 1  0  0  0] eps 0
+   2 line [-1 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 29 L=3 InsertionAdapted node 01030001010001020000000202000001020100
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  1 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+presentation 30 L=3 InsertionAdapted node 01030001010001020000000203000000
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1  0  0 -1] eps 0
+   2 line [ 0 -1 -1  1] eps 0
+   3 line [ 0  1  0  0] eps 0
+   4 line [ 0  0  1  0] eps 0
+   5 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 31 L=2 TriangleAdapted node 0104000001010001010000020100000301000102010001030100
+   0 line [ 1  0  0] eps 0
+   1 line [-1  1 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1 -1  0] eps 0
+   4 line [ 0  1  0] eps 0
+presentation 32 L=2 TriangleAdapted node 0104000001010001010000020100000301000102010001030101
+   0 line [ 1  0  0] eps 0
+   1 line [ 0 -1 -1] eps 0
+   2 line [-1  1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 line [ 1 -1  0] eps 1
+presentation 33 L=2 EpsNode node 0104000001010001010100020100000301000102010001030100
+   0 line [ 1  1  0] eps 1
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 1  0  0] eps 0
+   4 line [ 0  1  0] eps 0
+presentation 34 L=3 InsertionAdapted node 0102010100010400000000
+   0 line [ 1  0  0  0] eps 0
+   1 line [-1 -1 -1  1] eps 0
+   2 line [ 0  1  0  0] eps 0
+   3 line [ 0  0  1  0] eps 0
+   4 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   5 isp  [ 1  0  0  0] . [ 0  0  1  0]
+   6 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  1  0  0] . [ 0  0  0  1]
+presentation 35 L=2 InsertionAdapted node 010300010100010100000202000001020100
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 36 L=2 InsertionAdapted node 010300010100010100000202000001020101
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 1
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 37 L=2 InsertionAdapted node 010300010100010100000202000101020100
+   0 line [ 0  1 -1] eps 0
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 1
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 38 L=2 InsertionAdapted node 010300010100010101000202000001020100
+   0 line [ 0  1 -1] eps 1
+   1 line [ 1  0  0] eps 0
+   2 line [-1 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 39 L=2 InsertionAdapted node 010300010100010200000002020000
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 0
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 40 L=2 InsertionAdapted node 010300010100010200000002020001
+   0 line [ 1  0  0] eps 0
+   1 line [-1  0 -1] eps 0
+   2 line [ 0 -1  1] eps 0
+   3 line [ 0  1  0] eps 1
+   4 isp  [ 1  0  0] . [ 0  1  0]
+presentation 41 L=2 InsertionAdapted node 01020101000103000000
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 0
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+presentation 42 L=2 InsertionAdapted node 01020101000103000001
+   0 line [ 1  0  0] eps 0
+   1 line [-1 -1  1] eps 0
+   2 line [ 0  1  0] eps 1
+   3 isp  [ 1  0  0] . [ 0  1  0]
+   4 isp  [ 1  0  0] . [ 0  0  1]
+presentation 43 L=1 InsertionAdapted node 010201010001020000
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 0
+presentation 44 L=1 InsertionAdapted node 010201010001020001
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 1
+presentation 45 L=1 InsertionAdapted node 010201010001020002
+   0 line [ 1  0] eps 0
+   1 line [-1  1] eps 2
+presentation 46 L=1 InsertionAdapted node 010201010001020101
+   0 line [ 1  0] eps 1
+   1 line [-1  1] eps 1
+node 0 Triangle Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 }) presentation Some(5) fallback None
+node 1 Custom None presentation Some(6) fallback None
+node 2 Triangle Triangle(TriangleRoles { b: 3, a: [4, 6], c: [5, 7], k_loop: 0 }) presentation Some(7) fallback None
+node 3 Triangle Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) presentation Some(8) fallback None
+node 4 Carpet Carpet(CarpetRoles { r: 6, third: Some(5), outer_loop: 0 }) presentation Some(9) fallback None
+node 5 Insertion Insertion(BubbleRoles { lines: [5, 6], loop_index: 0 }) presentation Some(10) fallback None
+node 6 Insertion Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) presentation Some(11) fallback None
+node 7 Insertion Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) presentation Some(12) fallback None
+node 8 Triangle Triangle(TriangleRoles { b: 0, a: [2, 6], c: [1, 3], k_loop: 0 }) presentation Some(13) fallback None
+node 9 Insertion Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 }) presentation Some(14) fallback None
+node 10 Carpet Carpet(CarpetRoles { r: 5, third: None, outer_loop: 0 }) presentation Some(15) fallback None
+node 11 Insertion Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 }) presentation Some(16) fallback None
+node 12 SeriesParallel Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) presentation Some(17) fallback None
+node 13 SeriesParallel Insertion(BubbleRoles { lines: [2, 3], loop_index: 0 }) presentation Some(18) fallback None
+node 14 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(19) fallback None
+node 15 Insertion Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(20) fallback None
+node 16 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(21) fallback None
+node 17 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(22) fallback None
+node 18 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(23) fallback None
+node 19 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(24) fallback None
+node 20 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(25) fallback None
+node 21 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(26) fallback None
+node 22 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(27) fallback None
+node 23 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(28) fallback None
+node 24 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(29) fallback None
+node 25 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(30) fallback None
+node 26 Triangle Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) presentation Some(31) fallback None
+node 27 Triangle Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 }) presentation Some(32) fallback None
+node 28 Custom None presentation Some(33) fallback None
+node 29 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(34) fallback None
+node 30 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(35) fallback None
+node 31 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(36) fallback None
+node 32 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(37) fallback None
+node 33 SeriesParallel Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) presentation Some(38) fallback None
+node 34 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(39) fallback None
+node 35 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(40) fallback None
+node 36 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(41) fallback None
+node 37 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(42) fallback None
+node 38 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(43) fallback None
+node 39 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(44) fallback None
+node 40 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(45) fallback None
+node 41 SeriesParallel Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) presentation Some(46) fallback None
+node 42 Zero None presentation None fallback None
+census 3529 sectors, 2977 zero, 552 on classes, 37 classes
+class L2T05-001e279c3d892daf owner (31, 0x1f) node Some(26) t 5 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) edges [] terminals []
+class L3T06-00c99db10f58faf6 owner (25, 0x3f) node Some(20) t 6 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [0] terminals []
+class L1T02-0f54c10f75ed1e71 owner (44, 0x3) node Some(39) t 2 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L3T05-15bcfc1aa5546a43 owner (28, 0x1f) node Some(23) t 5 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [1] terminals []
+class L3T07-1881c6d1a44ffe19 owner (10, 0x7f) node Some(5) t 7 eps 0 lane Insertion roles Insertion(BubbleRoles { lines: [5, 6], loop_index: 0 }) edges [2] terminals []
+class L3T05-2664f4a583ec888b owner (30, 0x1f) node Some(25) t 5 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [3] terminals []
+class L3T07-28806d3e18a52b2c owner (12, 0x7f) node Some(7) t 7 eps 0 lane Insertion roles Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) edges [4] terminals []
+class L3T07-4f3f489a027f1572 owner (13, 0x7f) node Some(8) t 7 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [2, 6], c: [1, 3], k_loop: 0 }) edges [] terminals []
+class L3T06-5f7155fa1502296f owner (16, 0x3f) node Some(11) t 6 eps 0 lane Insertion roles Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 }) edges [5] terminals []
+class L2T04-60363b6119d83c3a owner (37, 0xf) node Some(32) t 4 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [6] terminals []
+class L2T03-61b48e1159bdb6a2 owner (41, 0x7) node Some(36) t 3 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [7] terminals []
+class L3T08-61cd69124cf81eb3 owner (6, 0xff) node Some(1) t 8 eps 0 lane Custom roles None edges [] terminals [1]
+  custom lp 1 residuals 1 two-sided 0x0 charts [ff]
+  payload 25 rules, residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 0]], support 0xff, order rustred.spired-uncut-sector-order.v1, dump 400 lines blake3 19287cc85568099b44b5ebc34a618f59127ac4e7408691735b3eccb44e895284
+class L2T04-61db0237c59ba9ce owner (35, 0xf) node Some(30) t 4 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [8] terminals []
+class L1T02-64f4fabd2064500f owner (43, 0x3) node Some(38) t 2 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L2T04-6fbb1c1aab298ade owner (38, 0xf) node Some(33) t 4 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [9] terminals []
+class L3T07-72a95edcbcc7d714 owner (11, 0x7f) node Some(6) t 7 eps 0 lane Insertion roles Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) edges [10] terminals []
+class L2T05-810c5f0ff11c4c40 owner (33, 0x1f) node Some(28) t 5 eps 1 lane Custom roles None edges [] terminals [2]
+  custom lp 1 residuals 1 two-sided 0x1 charts [1e, 1f]
+  payload 18 rules, residual keys [[1, 1, 1, 1, 1]], support 0x1f, order rustred.programmed-uncut-sector-order.v1;data=5252444f524430330500000000000000030000000000000000000000000000000001010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000020000000000000003000000000000000400000000000000000000000000000001000000000000000200000000000000030000000000000004000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000, dump 144 lines blake3 b89d0e623dc8c4320246b235ea6bac7ce7f3cf36daf15a775e14713c11e14a73
+class L3T06-8372ef319969bb99 owner (15, 0x3f) node Some(10) t 6 eps 0 lane Carpet roles Carpet(CarpetRoles { r: 5, third: None, outer_loop: 0 }) edges [11] terminals []
+class L2T03-843ce779a63918b9 owner (42, 0x7) node Some(37) t 3 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [12] terminals []
+class L3T06-949012bf62f9cbd0 owner (18, 0x3f) node Some(13) t 6 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [2, 3], loop_index: 0 }) edges [13] terminals []
+class L1T02-9676efc4b20ea9ac owner (46, 0x3) node Some(41) t 2 eps 2 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L3T08-96f2cf2d8f71f4fe owner (5, 0xff) node Some(0) t 8 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 }) edges [] terminals []
+class L3T08-999162f8af475162 owner (7, 0xff) node Some(2) t 8 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 3, a: [4, 6], c: [5, 7], k_loop: 0 }) edges [] terminals []
+class L3T06-9dc5bd7ab7fc182c owner (24, 0x3f) node Some(19) t 6 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [14] terminals []
+class L3T06-9ec13b2813d25d62 owner (17, 0x3f) node Some(12) t 6 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [3, 4], loop_index: 0 }) edges [15] terminals []
+class L3T06-a547ee63a298f5d7 owner (20, 0x3f) node Some(15) t 6 eps 0 lane Insertion roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [16] terminals []
+class L2T05-bc4967a43b9afd81 owner (32, 0x1f) node Some(27) t 5 eps 1 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 }) edges [] terminals []
+class L3T07-bedbf189db8fabfc owner (8, 0x7f) node Some(3) t 7 eps 0 lane Triangle roles Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 }) edges [] terminals []
+class L3T07-c0a9514dc89b5320 owner (9, 0x7f) node Some(4) t 7 eps 0 lane Carpet roles Carpet(CarpetRoles { r: 6, third: Some(5), outer_loop: 0 }) edges [17] terminals []
+class L3T06-c7316f3d1aaa67ba owner (19, 0x3f) node Some(14) t 6 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [18] terminals []
+class L2T04-ce0d35105dae83c5 owner (39, 0xf) node Some(34) t 4 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [19] terminals []
+class L3T04-df5f8c40d260746b owner (34, 0xf) node Some(29) t 4 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [20] terminals []
+class L3T05-e3f6c3ad46ce9235 owner (27, 0x1f) node Some(22) t 5 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [21] terminals []
+class L1T02-e9fb25c1b391b21b owner (45, 0x3) node Some(40) t 2 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [] terminals [0]
+class L2T04-eebc626223eb0cb1 owner (36, 0xf) node Some(31) t 4 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 }) edges [22] terminals []
+class L3T05-fe625a5ba26905ae owner (29, 0x1f) node Some(24) t 5 eps 0 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [23] terminals []
+class L2T04-ff18b0aed3c3e3bb owner (40, 0xf) node Some(35) t 4 eps 1 lane SeriesParallel roles Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 }) edges [24] terminals []
+edge 0 25 -> 36 Insertion loop 0 outer [1, 0, -1, -1] [0, 1] 1 slots [Some(3), None, None, Some(0), Some(1), Some(2), None, None, None] merged Some(3)
+edge 1 28 -> 37 Insertion loop 0 outer [1, 0, 0, 1] [0, 0] 1 slots [Some(0), None, None, Some(1), Some(3), None, None, None, None] merged Some(2)
+edge 2 10 -> 31 Insertion loop 0 outer [1, -1, 0, 1] [0, 0] 1 slots [Some(0), Some(1), Some(2), Some(3), Some(4), None, None, None, None] merged None
+edge 3 30 -> 41 Insertion loop 0 outer [-1, -1, 0, 1] [1, 0] 1 slots [None, None, Some(0), Some(1), Some(2), None, None, None, None] merged None
+edge 4 12 -> 33 Insertion loop 0 outer [1, 0, 0, 1] [0, 0] 1 slots [Some(0), Some(1), Some(2), None, None, Some(3), Some(4), None, None] merged Some(0)
+edge 5 16 -> 32 Insertion loop 0 outer [-1, 1, 0, 1] [1, 0] 1 slots [Some(0), Some(1), Some(2), Some(3), None, None, None, None, None] merged Some(4)
+edge 6 37 -> 45 Insertion loop 0 outer [1] [0] 1 slots [Some(1), None, None, Some(0), None] merged Some(1)
+edge 7 41 -> 44 Insertion loop 0 outer [1] [0] 1 slots [None, None, Some(0), None, None] merged Some(1)
+edge 8 35 -> 44 Insertion loop 0 outer [1] [0] 1 slots [Some(1), None, None, Some(0), None] merged Some(1)
+edge 9 38 -> 45 Insertion loop 0 outer [1] [0] 1 slots [Some(1), None, None, Some(0), None] merged Some(1)
+edge 10 11 -> 32 Insertion loop 0 outer [0, -1, -1, 1] [0, 0] 1 slots [Some(0), Some(2), Some(1), None, None, Some(3), Some(4), None, None] merged Some(4)
+edge 11 15 -> 31 Carpet loop 0 outer [1, -1, 0, 1] [0, 0] 1 slots [Some(0), Some(1), Some(2), Some(3), Some(4), None, None, None, None] merged None
+edge 12 42 -> 46 Insertion loop 0 outer [-1] [1] 1 slots [None, None, Some(1), None, None] merged Some(0)
+edge 13 18 -> 35 Insertion loop 0 outer [-1, 0, 1, 1] [0, -1] 1 slots [Some(0), Some(3), None, None, Some(1), Some(2), None, None, None] merged None
+edge 14 24 -> 39 Insertion loop 0 outer [0, 1, -1, 0] [0, -1] 1 slots [None, None, Some(2), Some(3), Some(0), Some(1), None, None, None] merged None
+edge 15 17 -> 37 Insertion loop 0 outer [1, 0, 0, 1] [0, 0] 1 slots [Some(2), Some(0), Some(1), None, None, Some(3), None, None, None] merged Some(2)
+edge 16 20 -> 33 Insertion loop 0 outer [1, 0, 0, 1] [0, 0] 1 slots [None, None, Some(1), Some(2), Some(3), Some(4), None, None, None] merged Some(0)
+edge 17 9 -> 31 Carpet loop 0 outer [1, -1, 0, 1] [0, 0] 1 slots [Some(0), Some(1), Some(2), Some(3), Some(4), None, None, None, None] merged None
+edge 18 19 -> 38 Insertion loop 0 outer [1, 1, 0, 1] [-1, 0] 1 slots [Some(0), None, None, Some(1), Some(2), Some(3), None, None, None] merged Some(0)
+edge 19 39 -> 43 Insertion loop 0 outer [-1] [1] 1 slots [None, None, Some(0), Some(1), None] merged None
+edge 20 34 -> 42 Insertion loop 0 outer [1, 0, -1, -1] [0, 1] 1 slots [None, None, Some(0), Some(1), None, None, None, None, None] merged Some(2)
+edge 21 27 -> 42 Insertion loop 0 outer [1, 0, -1, -1] [0, 1] 1 slots [Some(2), None, None, Some(0), Some(1), None, None, None, None] merged Some(2)
+edge 22 36 -> 46 Insertion loop 0 outer [-1] [1] 1 slots [Some(0), None, None, Some(1), None] merged Some(0)
+edge 23 29 -> 38 Insertion loop 0 outer [-1, -1, 0, 1] [1, 0] 1 slots [None, None, Some(1), Some(2), Some(3), None, None, None, None] merged Some(0)
+edge 24 40 -> 44 Insertion loop 0 outer [-1] [1] 1 slots [None, None, Some(0), Some(1), None] merged None
+terminal 0 Unit
+terminal 1 Residual { owner: OwnerClassId(7047404519226351283), key: IntegralKey([1, 1, 1, 1, 1, 1, 1, 1, 0]) }
+terminal 2 Residual { owner: OwnerClassId(9298911852687543360), key: IntegralKey([1, 1, 1, 1, 1]) }
