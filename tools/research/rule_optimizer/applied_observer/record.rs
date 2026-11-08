@@ -544,6 +544,7 @@ fn problem_kind(value: &OwnerAppliedProblemKind, cap: usize) -> Value {
 fn failure_kind(value: &OwnerAppliedFailure) -> &'static str {
     match value {
         OwnerAppliedFailure::Matching(_) => "matching",
+        OwnerAppliedFailure::Resources(_) => "resources",
         OwnerAppliedFailure::Cancelled => "cancelled",
         OwnerAppliedFailure::StoppedByConsumer => "stopped_by_consumer",
         OwnerAppliedFailure::ResourceLimit { .. } => "resource_limit",

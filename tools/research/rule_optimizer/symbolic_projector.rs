@@ -153,11 +153,15 @@ fn owner_limits(r: &Value) -> Result<CandidateOwnerLoadLimits> {
 }
 fn policy(r: &Value) -> Result<OriginalSourceCombinationLimits> {
     let exact = ExactAlgebraLimits {
+        // The request's explicit limits apply: count/work limits are opt-in
+        // diagnostics since 42bae6e0.
+        diagnostics_enabled: true,
         max_exponent: checked(u16::try_from(limit(r, "max_exponent")?))?,
         max_polynomial_terms: limit(r, "max_polynomial_terms")?,
         max_term_operations: limit(r, "max_term_operations")?,
     };
     let arithmetic = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: exact,
         max_specialization_power_operations: limit(r, "max_term_operations")?,
         max_specialization_integer_bits: limit(r, "max_term_operations")?,
@@ -339,6 +343,9 @@ fn error_json(error: &SourcePortAuditError) -> Value {
         }
         SourcePortAuditError::ResourceBudgetExhausted { resource } => {
             json!({"kind":"PROOF_BUDGET_EXHAUSTED","resource":resource})
+        }
+        SourcePortAuditError::Resources(error) => {
+            json!({"kind":"RESOURCES","detail":error.to_string()})
         }
         SourcePortAuditError::UnsupportedResourcePolicy { .. } => {
             json!({"kind":"UNSUPPORTED_RESOURCE_POLICY","detail":error.to_string()})
