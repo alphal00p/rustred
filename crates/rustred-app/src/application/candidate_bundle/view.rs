@@ -47,7 +47,9 @@ impl CandidateArtifact {
             .map_err(|e| AppError::input(format!("cannot open candidate artifact: {e}")))?;
         let cap = limits.bundle_byte_limit();
         let mut bytes = Vec::new();
-        file.take(cap as u64 + 1)
+        // Read one byte past the cap to detect an oversized file. The default
+        // cap is `usize::MAX`, where an unchecked `cap + 1` wraps to `take(0)`.
+        file.take(u64::try_from(cap).unwrap_or(u64::MAX).saturating_add(1))
             .read_to_end(&mut bytes)
             .map_err(|e| AppError::input(format!("cannot read candidate artifact: {e}")))?;
         if bytes.len() > cap {

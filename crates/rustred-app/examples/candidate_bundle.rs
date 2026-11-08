@@ -136,7 +136,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             if bytes.len() > MAX_CANDIDATE_BUNDLE_BYTES { return Err("bundle exceeds byte cap".into()); }
             let mut catalog = Vec::new();
             let cap = BinaryIoLimits::default().max_program_bytes;
-            fs::File::open(&args[4])?.take(cap as u64 + 1).read_to_end(&mut catalog)?;
+            fs::File::open(&args[4])?.take(u64::try_from(cap).unwrap_or(u64::MAX).saturating_add(1)).read_to_end(&mut catalog)?;
             if catalog.len() > cap { return Err("catalog exceeds byte cap".into()); }
             macro_rules! dispatch {
                 ($($n:literal),+) => { match args[2].parse::<usize>()? {

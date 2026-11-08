@@ -128,6 +128,7 @@ fn failure(error: &CandidateRoutedCampaignFailure) -> Value {
             json!({"kind":"generated-work-backing-error","message":bounded_message(&error.to_string())})
         }
         CandidateRoutedCampaignFailure::Trace(error) => match error {
+            CandidateRoutedError::Cancelled => json!({"kind":"cancelled"}),
             CandidateRoutedError::ResourceLimit {
                 resource,
                 requested,

@@ -109,6 +109,11 @@ impl LoadLimits {
     fn resolve(&self) -> Result<CandidateOwnerLoadLimits> {
         let mut limits = CandidateOwnerLoadLimits::default();
         if let Some(value) = self.max_bundle_bytes {
+            // The ceiling applies to an explicit cap. The native default has
+            // no cap since 42bae6e0 and is used as is when the cap is omitted.
+            if value > MAX_CANDIDATE_BUNDLE_BYTES {
+                return Err("per-owner bundle exceeds the 1 GiB hard ceiling".into());
+            }
             limits.bundle.max_bundle_bytes = value;
         }
         if let Some(value) = self.max_total_input_bytes {
@@ -128,9 +133,6 @@ impl LoadLimits {
         }
         if let Some(value) = self.max_coefficient_bytes {
             limits.bundle.max_coefficient_bytes = value;
-        }
-        if limits.bundle.max_bundle_bytes > MAX_CANDIDATE_BUNDLE_BYTES {
-            return Err("per-owner bundle exceeds the 1 GiB hard ceiling".into());
         }
         Ok(limits)
     }
@@ -186,7 +188,7 @@ impl Selection {
 fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     File::open(path)?
-        .take(maximum as u64 + 1)
+        .take(u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_end(&mut bytes)?;
     if bytes.len() > maximum {
         return Err(format!("input exceeds admission limit: {}", path.display()).into());

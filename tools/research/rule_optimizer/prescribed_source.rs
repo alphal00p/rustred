@@ -286,11 +286,15 @@ fn nomination_mode(r: &Value) -> Result<&str> {
 
 fn policies(r: &Value) -> Result<OriginalSourceCombinationLimits> {
     let exact = ExactAlgebraLimits {
+        // Count/work limits are opt-in diagnostics since 42bae6e0. Every
+        // group of this proof policy opts in, so the request's limits apply.
+        diagnostics_enabled: true,
         max_exponent: checked(u16::try_from(limit(r, "max_exponent")?))?,
         max_polynomial_terms: limit(r, "max_polynomial_terms")?,
         max_term_operations: limit(r, "max_term_operations")?,
     };
     let indexed = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: exact,
         max_specialization_power_operations: limit(r, "max_term_operations")?,
         max_specialization_integer_bits: limit(r, "max_term_operations")?,
@@ -326,6 +330,10 @@ fn policies(r: &Value) -> Result<OriginalSourceCombinationLimits> {
     p.geometry.max_requested_box_coordinate_cells = limit(r, "max_coordinate_cells")?;
     p.geometry.max_uncovered_box_coordinate_cells = limit(r, "max_coordinate_cells")?;
     p.geometry.max_split_operations = limit(r, "max_term_operations")?;
+    p.translated_sources = p.translated_sources.with_diagnostics();
+    p.rule = p.rule.with_diagnostics();
+    p.cell = p.cell.with_diagnostics();
+    p.geometry = p.geometry.with_diagnostics();
     Ok(p)
 }
 
@@ -867,8 +875,10 @@ powers = [1]
         let (bytes, mut r) = fixture();
         let (_, original) = produce::<1>(&bytes, &r, true).unwrap();
         let p = CandidateOwnerLoadLimits::default();
+        // The native default bundle cap is usize::MAX since 42bae6e0, above
+        // this tool's explicit 1 GiB ceiling; the fixture is far smaller.
         r["owner_load_limits"] = json!({
-            "max_bundle_bytes":p.bundle.max_bundle_bytes,
+            "max_bundle_bytes":p.bundle.max_bundle_bytes.min(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES),
             "max_total_input_bytes":p.max_total_input_bytes,
             "max_total_coefficient_bytes":p.bundle.max_total_coefficient_bytes,
             "max_collection_entries":p.bundle.max_collection_entries,

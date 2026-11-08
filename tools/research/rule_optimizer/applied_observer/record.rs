@@ -172,6 +172,9 @@ impl Recorder {
             .open(output.join("events.jsonl"))
             .map_err(|e| e.to_string())?;
         let binary = BinaryIoLimits {
+            // max_coefficients is a count, enforced only as an opt-in
+            // diagnostic since 42bae6e0.
+            diagnostics_enabled: true,
             max_program_bytes: limits
                 .max_total_atom_bytes
                 .checked_add(limits.max_state_bytes)
@@ -544,6 +547,7 @@ fn problem_kind(value: &OwnerAppliedProblemKind, cap: usize) -> Value {
 fn failure_kind(value: &OwnerAppliedFailure) -> &'static str {
     match value {
         OwnerAppliedFailure::Matching(_) => "matching",
+        OwnerAppliedFailure::Resources(_) => "resources",
         OwnerAppliedFailure::Cancelled => "cancelled",
         OwnerAppliedFailure::StoppedByConsumer => "stopped_by_consumer",
         OwnerAppliedFailure::ResourceLimit { .. } => "resource_limit",

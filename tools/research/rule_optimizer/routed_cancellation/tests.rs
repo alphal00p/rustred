@@ -258,8 +258,11 @@ fn distinct_native_verified_routes_really_cancel_at_one_target() {
     s.add(tb.terms()[0].key().clone(), &negative).unwrap();
     assert_eq!(s.map.len(), 1);
     assert!(s.map.values().all(|v| v.is_zero()));
-    let mut budget = integral_transport::ExpansionLimits::default();
-    budget.max_endpoint_power_entries = 0;
+    let budget = integral_transport::ExpansionLimits {
+        diagnostics_enabled: true,
+        max_endpoint_power_entries: 0,
+        ..Default::default()
+    };
     assert!(b.transport(&kb, budget).is_err());
     let mut invalid = second.clone();
     invalid.owner_mask = "110".into();

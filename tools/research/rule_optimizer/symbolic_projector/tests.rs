@@ -278,6 +278,7 @@ fn native_ingress_membership_does_not_remove_index_poles() {
         c.admit_native_result_with_limits(
             q.raw().clone(),
             ExactAlgebraLimits {
+                diagnostics_enabled: true,
                 max_polynomial_terms: 0,
                 ..Default::default()
             }

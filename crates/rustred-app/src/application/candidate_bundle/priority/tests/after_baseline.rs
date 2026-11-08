@@ -3,6 +3,7 @@ use crate::{
     CandidateCertificationRequest, CandidateProgramInspectionOptions,
     inspect_generated_candidate_program,
 };
+use rustred::persistence::{EncodedCoefficientTable, SectionTag};
 
 fn marked() -> (Vec<u8>, CheckedPriorityOwnerExport) {
     let (bytes, family) = base();
@@ -16,6 +17,23 @@ fn marked() -> (Vec<u8>, CheckedPriorityOwnerExport) {
     )
     .unwrap();
     (bytes, export)
+}
+
+/// Encode `bundle`'s records with the Symbolica state and coefficient sections
+/// of `bytes`, byte for byte. `codec::write` would export the state anew, and
+/// that export also carries Symbolica's process-wide variable-list and
+/// finite-field registries, which tests running in parallel extend.
+fn with_encoded_coefficients_of(
+    bytes: &[u8],
+    bundle: &super::super::super::model::Bundle,
+) -> Vec<u8> {
+    let (envelope, _, _) = codec::read_structure(bytes, Default::default()).unwrap();
+    let section = |tag| envelope.section(tag).expect("checked section").to_vec();
+    let table = EncodedCoefficientTable {
+        state: section(SectionTag::SYMBOLICA_STATE),
+        atoms: section(SectionTag::COEFFICIENTS),
+    };
+    codec::write_records(&bundle.records, &bundle.family, &table, Default::default()).unwrap()
 }
 
 #[test]
@@ -178,7 +196,7 @@ fn policy_payload_is_cold_reinspected_and_policy_only_change_rejects_resume_and_
     assert!(bundle.sectors[0].rules.len() > 1);
     bundle.records.rule_dispatch[0].rule = 1;
     assert_eq!(bundle.sectors, old_records.sectors);
-    let changed = codec::write(&bundle, Default::default()).unwrap();
+    let changed = with_encoded_coefficients_of(export.bytes(), &bundle);
     assert_eq!(changed.len(), export.bytes().len());
     assert_ne!(changed, export.bytes());
     std::fs::write(&owner_path, &changed).unwrap();

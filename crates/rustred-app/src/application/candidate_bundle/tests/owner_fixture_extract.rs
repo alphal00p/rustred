@@ -60,7 +60,11 @@ fn extract_saved_owner_fixtures_without_generation() {
     let mut bytes = Vec::new();
     reader
         .by_ref()
-        .take(limits.bundle_byte_limit() as u64 + 1)
+        .take(
+            u64::try_from(limits.bundle_byte_limit())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        )
         .read_to_end(&mut bytes)
         .unwrap();
     assert!(bytes.len() <= limits.bundle_byte_limit());

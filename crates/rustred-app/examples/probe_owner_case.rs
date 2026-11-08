@@ -251,6 +251,9 @@ fn solver_error(error: &SolverError) -> Value {
         }
         SolverError::UnluckySample => json!({"kind":"unlucky-modular-sample"}),
         SolverError::Power(_) => json!({"kind":"compact-power-error"}),
+        SolverError::Resources(error) => {
+            json!({"kind":"resources","message":bounded_message(&error.to_string())})
+        }
     }
 }
 
@@ -294,6 +297,9 @@ fn replay_error(error: &SourcePortAuditError) -> Value {
         SourcePortAuditError::ResourceBudgetExhausted { resource } => {
             json!({"kind":"source-replay-budget","resource":resource})
         }
+        SourcePortAuditError::Resources(error) => {
+            json!({"kind":"source-replay-resources","message":bounded_message(&error.to_string())})
+        }
         SourcePortAuditError::UnsupportedResourcePolicy {
             resource,
             requested,
@@ -334,6 +340,9 @@ fn match_failure(error: &OwnerDomainMatchFailure) -> Value {
             json!({"kind":"domain-input-or-geometry","message":bounded_message(message)})
         }
         OwnerDomainMatchFailure::Cancelled => json!({"kind":"cancelled"}),
+        OwnerDomainMatchFailure::Resources(error) => {
+            json!({"kind":"resources","message":bounded_message(&error.to_string())})
+        }
         OwnerDomainMatchFailure::StoppedByConsumer => json!({"kind":"stopped-by-consumer"}),
         OwnerDomainMatchFailure::ResourceLimit {
             resource,
@@ -800,7 +809,11 @@ fn main() {
         let mut bytes = Vec::new();
         File::open(&args.selection)
             .map_err(|_| "cannot open selection")?
-            .take(MAX_INPUT_BYTES as u64 + 1)
+            .take(
+                u64::try_from(MAX_INPUT_BYTES)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(1),
+            )
             .read_to_end(&mut bytes)
             .map_err(|_| "cannot read selection")?;
         if bytes.len() > MAX_INPUT_BYTES {

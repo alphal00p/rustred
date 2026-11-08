@@ -9,6 +9,9 @@ fn options(r: &Value) -> Result<rustred_app::CandidateSourceSupportOptions> {
         "invalid owner mask",
     )?;
     let exact = ExactAlgebraLimits {
+        // Count/work limits are opt-in diagnostics since 42bae6e0. The
+        // source-generation limits opt in, so the request's limits apply.
+        diagnostics_enabled: true,
         max_exponent: checked(u16::try_from(limit(r, "max_exponent")?))?,
         max_polynomial_terms: limit(r, "max_polynomial_terms")?,
         max_term_operations: limit(r, "max_term_operations")?,
@@ -16,6 +19,7 @@ fn options(r: &Value) -> Result<rustred_app::CandidateSourceSupportOptions> {
     let mut source_generation = rustred::identity::ParametricIbpConfig::default();
     source_generation.context_limits.max_index_variables = mask.len();
     source_generation.relation_limits.arithmetic = IndexedAlgebraLimits {
+        diagnostics_enabled: true,
         exact_algebra: exact,
         max_specialization_power_operations: limit(r, "max_term_operations")?,
         max_specialization_integer_bits: limit(r, "max_term_operations")?,
@@ -24,6 +28,10 @@ fn options(r: &Value) -> Result<rustred_app::CandidateSourceSupportOptions> {
         .relation_limits
         .identity_conditions
         .max_sources = limit(r, "max_generated_conditions")?;
+    source_generation.relation_limits.identity_conditions = source_generation
+        .relation_limits
+        .identity_conditions
+        .with_diagnostics();
     Ok(rustred_app::CandidateSourceSupportOptions {
         sector: mask.bytes().map(|b| b == b'1').collect(),
         rule_ordinal: number(r, "rule_ordinal")?,
