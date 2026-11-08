@@ -394,15 +394,16 @@ fn numerator_case(p: &Presentation, max_rank: u32, rng: &mut SplitMix) -> Forcer
 
 /// Per loop count, random inputs reduce onto `Unit` and masters only: `count`
 /// distinct keys of `rustred p-validate`'s generator (dots <= 3 and rank <=
-/// `max_rank` in total, random subsectors), every top's corner (lines at 1,
-/// ISPs at 0: the full NO sector is rare among random subsectors), and
-/// `count / 4` numerator inputs lowered onto the slots. Returns
-/// `(loops, inputs, seconds)` per loop count.
+/// `max_rank` in total, random subsectors; the whole box when it holds at most
+/// `count` keys, as at one loop), every top's corner (lines at 1, ISPs at 0:
+/// the full NO sector is rare among random subsectors), and `count / 4`
+/// numerator inputs lowered onto the slots. Returns `(loops, inputs, whole box,
+/// seconds)` per loop count.
 fn random_inputs_reduce_onto_masters_only(
     count: usize,
     max_rank: u32,
     batch: usize,
-) -> Vec<(u8, usize, f64)> {
+) -> Vec<(u8, usize, bool, f64)> {
     let assembled = scope_three();
     let library = mapped_three();
     let c = library.coefficient_context();
@@ -416,7 +417,7 @@ fn random_inputs_reduce_onto_masters_only(
             max_rank,
             ..ValidateOptions::default()
         };
-        let (mut keys, _) = validation_keys(assembled, loops, &options);
+        let (mut keys, whole) = validation_keys(assembled, loops, &options);
         assert!(
             keys.len() >= count.min(100),
             "L{loops}: {} keys",
@@ -478,7 +479,7 @@ fn random_inputs_reduce_onto_masters_only(
             "L{loops}: {inputs} inputs ({} keys incl. corners, {numerators} numerator inputs) onto masters, 0 residual terms, {seconds:.1} s",
             keys.len()
         );
-        report.push((loops, inputs, seconds));
+        report.push((loops, inputs, whole, seconds));
     }
     report
 }
@@ -490,10 +491,14 @@ fn random_inputs_reduce_onto_unit_and_masters_only() {
 }
 
 #[test]
-#[ignore = "slow: 400 keys and 100 numerator inputs per loop count up to rank 8"]
+#[ignore = "slow: up to rank 8, 3L about 12 min optimised"]
 fn random_inputs_reduce_onto_unit_and_masters_only_at_full_bounds() {
     let report = random_inputs_reduce_onto_masters_only(400, 8, 20);
-    assert!(report.iter().all(|&(_, inputs, _)| inputs >= 300));
+    // One loop has fewer than 300 inputs in the whole bounded box: all of them.
+    assert!(
+        (report.iter()).all(|&(_, inputs, whole, _)| inputs >= 300 || whole),
+        "{report:?}"
+    );
 }
 
 fn rustred() -> Command {
