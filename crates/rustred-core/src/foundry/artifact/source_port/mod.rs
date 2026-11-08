@@ -211,6 +211,15 @@ impl SourcePortAuditError {
     }
 }
 
+/// A resource checkpoint of the exact source replay. A refused budget (for
+/// example a caller's cancellation, which Symbolica reports through the
+/// budget's monitor) stops the replay with the typed resource error, which
+/// callers treat as retryable: nothing derived from the partial replay is
+/// kept.
+fn checkpoint() -> Result<(), SourcePortAuditError> {
+    symbolica::utils::resources::checkpoint().map_err(SourcePortAuditError::Resources)
+}
+
 fn error(value: impl fmt::Display + 'static) -> SourcePortAuditError {
     if let Some(resource) = crate::persistence::resource_failure(&value) {
         return SourcePortAuditError::Resources(resource);
@@ -239,6 +248,7 @@ fn error(value: impl fmt::Display + 'static) -> SourcePortAuditError {
         crate::identity::ParametricIbpError,
         crate::identity::ParametricRelationError,
         crate::identity::TranslatedSourceError,
+        crate::sector::zero::Error,
     );
     SourcePortAuditError::message(value.to_string())
 }
@@ -428,6 +438,7 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut seen = BTreeSet::new();
         let mut zero_certificates = Vec::with_capacity(zero_sectors.len());
         for &sector in zero_sectors.iter() {
+            checkpoint()?;
             if sector[family.denominator_count()..]
                 .iter()
                 .any(|active| *active)

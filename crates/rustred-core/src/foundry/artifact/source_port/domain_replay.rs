@@ -21,6 +21,7 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut report = self.replay_domain_rules(sector, permutation, solution)?;
         let ordering = replay_ordering(sector, permutation, &solution.order)?;
         for (ordinal, rule) in solution.rules.iter().enumerate() {
+            super::checkpoint()?;
             let partition = geometry::application_partition(
                 rule,
                 self.sources.index_variables(),

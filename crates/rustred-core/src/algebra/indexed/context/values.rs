@@ -73,7 +73,12 @@ impl IndexedCoefficientContext {
     pub fn lift(&self, value: &Coefficient) -> Result<IndexedCoefficient, IndexedAlgebraError> {
         self.base
             .validate_with_limits(value, ExactAlgebraLimits::default())
-            .map_err(|_| IndexedAlgebraError::WrongContext)?;
+            .map_err(|error| match error {
+                // A refused resource budget (e.g. a cancelled request) is not
+                // a foreign coefficient: keep it typed, so callers can retry.
+                crate::algebra::ExactAlgebraError::Resource(_) => error.into(),
+                _ => IndexedAlgebraError::WrongContext,
+            })?;
         self.lift_authenticated_base_with_limits(value, ExactAlgebraLimits::default())
     }
 

@@ -431,3 +431,42 @@ fn degrees_beyond_the_bound_fail_closed() {
         assert_eq!(result.is_ok(), ok, "{max_degree}");
     }
 }
+
+/// A refused checkpoint inside the operation loop stops a polynomial replay
+/// (both representations) with the refusal; an unrefused replay returns the
+/// exact images.
+#[test]
+fn a_polynomial_replay_stops_at_a_refused_checkpoint_inside_its_operations() {
+    use crate::reduction::stopping::{Stopping, is_stop};
+    let mut p = Program::new();
+    p.init(0, "(d+3)/(d-1)");
+    p.pop(0);
+    for k in 0..5 * CHECKPOINT_OPS {
+        p.emit(true, k % 3, &format!("(d+{k})/(d^2+{})", k % 4 + 1));
+    }
+    let (trace, basis, exact) = p.finish();
+    let outputs = [0, 1, 2];
+    let expected: Vec<Image> = exact.iter().map(|c| reduce(c, LARGE[0])).collect();
+    for denominators in [
+        PolynomialDenominators::Factorized,
+        PolynomialDenominators::Dense,
+    ] {
+        let clean = Stopping::armed(None);
+        let images = clean
+            .run(|| replay_images(&trace, &basis, &outputs, &LARGE[..1], 1, denominators))
+            .unwrap();
+        assert_eq!(images, vec![expected.clone()]);
+        let checkpoints = clean.seen();
+        assert!(
+            checkpoints >= trace.ops.len() / CHECKPOINT_OPS,
+            "{checkpoints}"
+        );
+        for stop_at in 1..=checkpoints {
+            let stopping = Stopping::armed(Some(stop_at));
+            let error = stopping
+                .run(|| replay_images(&trace, &basis, &outputs, &LARGE[..1], 1, denominators))
+                .unwrap_err();
+            assert!(is_stop(&error), "{stop_at}: {error}");
+        }
+    }
+}

@@ -40,6 +40,29 @@ fn message_location_keeps_typed_proof_errors_intact() {
     );
 }
 
+/// A resource refusal inside zero-sector algebra (e.g. a cancelled request
+/// stopping Symbolica's power-shift algebra) stays a typed resource error,
+/// which callers retry, instead of an ordinary validation message.
+#[test]
+fn zero_sector_resource_refusals_stay_typed_resource_errors() {
+    use symbolica::utils::resources::ResourceLimitError;
+    let refusal = ResourceLimitError::MonitorUnavailable {
+        resource: "request",
+        message: "request cancelled".into(),
+    };
+    let zero = crate::sector::zero::Error::ExactAlgebra(
+        crate::algebra::ExactAlgebraError::Resource(refusal.clone()),
+    );
+    assert!(
+        matches!(super::error(zero), SourcePortAuditError::Resources(error) if error == refusal)
+    );
+    let ordinary = crate::sector::zero::Error::KernelInvariant { stage: "rank" };
+    assert!(matches!(
+        super::error(ordinary),
+        SourcePortAuditError::Message(_)
+    ));
+}
+
 #[test]
 fn lowering_storage_failure_identifies_sector_and_retained_rule() {
     let (audit, solution) = solved_tadpole();
