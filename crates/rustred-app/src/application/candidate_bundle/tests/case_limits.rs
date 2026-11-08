@@ -17,6 +17,7 @@ fn application_intersection_limits_reach_real_geometry_failure() {
     for rank in [None, Some(10)] {
         let mut request = FamilyCandidatesRequest::new(K1);
         request.max_numerator_rank = rank;
+        request.case_intersection_limits.diagnostics_enabled = true;
         request.case_intersection_limits.max_work_items = 0;
         let error = family_candidates(request).unwrap_err();
         assert_eq!(error.kind(), AppErrorKind::Execution);

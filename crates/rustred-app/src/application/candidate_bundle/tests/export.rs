@@ -154,6 +154,7 @@ fn export_rejects_mislabeled_scope_source_and_transport_limits() {
     changed.finite_case_policy = FiniteCasePolicy::RetainRankFinite;
     variants.push((changed, "requires max_numerator_rank"));
     let mut changed = request.clone();
+    changed.finite_case_limits.diagnostics_enabled = true;
     changed.finite_case_limits.max_visited_points += 1;
     variants.push((changed, "require retain-rank-finite"));
     for (changed, expected) in variants {

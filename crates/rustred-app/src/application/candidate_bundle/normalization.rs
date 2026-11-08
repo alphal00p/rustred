@@ -341,6 +341,7 @@ powers=[1,1,1]
             &raw,
             OrderingPolicy::SpiredUncutV1,
             CandidateTerminalNormalizationLimits {
+                diagnostics_enabled: true,
                 max_terminals: 0,
                 ..Default::default()
             },
