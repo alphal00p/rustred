@@ -24,7 +24,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let limits = CandidateBundleLimits::default();
     let mut bytes = Vec::new();
     std::fs::File::open(path)?
-        .take(limits.max_bundle_bytes as u64 + 1)
+        .take(
+            u64::try_from(limits.max_bundle_bytes)
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        )
         .read_to_end(&mut bytes)?;
     let report = inspect_generated_candidate_program(&bytes, limits, options)?;
     let mut output = BufWriter::new(std::io::stdout().lock());

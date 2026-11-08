@@ -186,7 +186,7 @@ impl Selection {
 fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     File::open(path)?
-        .take(maximum as u64 + 1)
+        .take(u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_end(&mut bytes)?;
     if bytes.len() > maximum {
         return Err(format!("input exceeds admission limit: {}", path.display()).into());

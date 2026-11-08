@@ -36,7 +36,7 @@ fn limits() -> CandidateBundleLimits {
 fn read(path: &str, cap: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     File::open(path)?
-        .take(cap as u64 + 1)
+        .take(u64::try_from(cap).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_end(&mut bytes)?;
     if bytes.len() > cap {
         return Err(format!("input exceeds {cap} bytes: {path}").into());

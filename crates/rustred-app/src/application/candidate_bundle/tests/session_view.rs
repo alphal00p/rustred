@@ -37,6 +37,28 @@ fn generated_policy_is_retained_and_file_ingress_uses_explicit_bounds() {
 }
 
 #[test]
+fn file_ingress_under_the_default_limits_reads_the_whole_file() {
+    // The default byte cap is `usize::MAX`; the one-byte overshoot read must
+    // not wrap to an empty read ("truncated binary program").
+    let limits = CandidateBundleLimits::default();
+    assert_eq!(limits.max_bundle_bytes, usize::MAX);
+    let result = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let directory = super::checkpoint::Directory::new();
+    let path = directory.0.join("candidate.rrbin");
+    std::fs::write(&path, result.bundle()).unwrap();
+    let loaded = CandidateArtifact::open_file(&path, limits).unwrap();
+    let opened = CandidateArtifact::open(result.bundle(), limits).unwrap();
+    assert_eq!(loaded.metadata().unwrap(), opened.metadata().unwrap());
+    let mut exact = limits;
+    exact.max_bundle_bytes = result.bundle().len();
+    let loaded = CandidateArtifact::open_file(&path, exact).unwrap();
+    assert_eq!(
+        loaded.metadata().unwrap()["encoded_bytes"],
+        result.bundle().len()
+    );
+}
+
+#[test]
 fn native_terminal_normalization_is_family_bound_paged_and_structural_only() {
     use rustred::{
         family::IntegralKey, reduction::terminal_normalization::TerminalNormalizationPlan,
