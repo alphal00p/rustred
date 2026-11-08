@@ -32,7 +32,7 @@ use rustred::propagator::{
 };
 use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
-    ReductionLimits,
+    ReductionLimits, SampledOptions,
 };
 use rustred::solver::litered::{DEFAULT_PRIME, PrimeField, ZpSample};
 use serde_json::Value;
@@ -82,16 +82,17 @@ fn anchors() -> Vec<ForcerCase> {
     parse_fixture(ANCHORS_JSON).unwrap().cases
 }
 
-fn arithmetics() -> [OrderedWeightArithmetic; 2] {
+/// Exact, ModularPolynomial and ModularSampled (one thread each): every
+/// reduction onto masters must agree in all three (M2 exit criterion 2).
+fn arithmetics() -> [OrderedWeightArithmetic; 3] {
+    let common = ModularCommon {
+        threads: 1,
+        ..Default::default()
+    };
     [
         OrderedWeightArithmetic::Exact,
-        OrderedWeightArithmetic::ModularPolynomial(
-            ModularCommon {
-                threads: 1,
-                ..Default::default()
-            },
-            PolynomialOptions::default(),
-        ),
+        OrderedWeightArithmetic::ModularPolynomial(common, PolynomialOptions::default()),
+        OrderedWeightArithmetic::ModularSampled(common, SampledOptions::default()),
     ]
 }
 
@@ -724,8 +725,9 @@ fn the_one_loop_anchors_hold_on_the_reference_library() {
             assert_eq!(
                 onto_masters(&library, inputs.clone(), arithmetic),
                 expected,
-                "{}",
-                anchor.name
+                "{}, {}",
+                anchor.name,
+                arithmetic.name()
             );
         }
         checked += 1;

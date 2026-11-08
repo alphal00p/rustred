@@ -5,11 +5,16 @@
 //! `no` and `t105`, the Forcer anchors (kites, NO, the t1star05 parents incl.
 //! the n = 0 chart) hold exactly in the (Gamma(1 + m eps) monomial x master)
 //! basis, random inputs reduce onto masters without a residual, and
-//! `rustred p-basis` writes the layer. The anchors are the core tests' copy of
-//! vakint's fixture (`rustred-core/tests/p_library/basis_anchors/`).
+//! `rustred p-basis` writes the layer. Every reduction onto masters is compared
+//! across the weight arithmetics (Exact, ModularPolynomial, ModularSampled, and
+//! both modular ones with 4 threads under 16 scheduler threads: vakint's
+//! shape), which must give Exact's terms (M2 exit criterion 2). The anchors
+//! are the core tests' copy of vakint's fixture
+//! (`rustred-core/tests/p_library/basis_anchors/`).
 //!
 //! This module was registered in `main.rs` by M2-T9 (departure D-T9-1: the
 //! anchors need the Custom owners, which only the app can generate).
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
@@ -26,13 +31,13 @@ use rustred::propagator::basis::{
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
 use rustred::propagator::library::{
-    PBasis, PLibrary, PReductionRequest, PTerm, PTerminal, PUncoveredPolicy,
+    PBasis, PLibrary, PReduction, PReductionRequest, PTerm, PTerminal, PUncoveredPolicy,
 };
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot};
 use rustred::propagator::tag::GammaTag;
 use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
-    ReductionLimits,
+    ReductionLimits, SampledOptions,
 };
 use rustred_app::propagator::assemble::{
     AssembleOptions, AssembledLibrary, SplitMix, ValidateOptions, random_key, validation_keys,
@@ -91,37 +96,128 @@ fn scheme(loops: i16) -> GammaTag {
     GammaTag::from_pairs([(1, loops), (-1, 2 * loops), (-2, -loops)]).unwrap()
 }
 
-fn modular() -> OrderedWeightArithmetic {
+fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
     OrderedWeightArithmetic::ModularPolynomial(
         ModularCommon {
-            threads: 1,
+            threads,
             ..Default::default()
         },
         PolynomialOptions::default(),
     )
 }
 
+fn modular_sampled(threads: usize) -> OrderedWeightArithmetic {
+    OrderedWeightArithmetic::ModularSampled(
+        ModularCommon {
+            threads,
+            ..Default::default()
+        },
+        SampledOptions::default(),
+    )
+}
+
+/// A weight arithmetic under a scheduler: name, weights, scheduler threads.
+type Configuration = (&'static str, OrderedWeightArithmetic, usize);
+
+/// Exact, ModularPolynomial and ModularSampled, one thread each. Exact first:
+/// the others are compared with it.
+fn arithmetics() -> [Configuration; 3] {
+    [
+        ("Exact", OrderedWeightArithmetic::Exact, 1),
+        ("ModularPolynomial", modular_polynomial(1), 1),
+        ("ModularSampled", modular_sampled(1), 1),
+    ]
+}
+
+/// vakint's shape: modular weights with 4 threads under 16 scheduler threads.
+fn threaded() -> [Configuration; 2] {
+    [
+        ("ModularPolynomial(4) x 16", modular_polynomial(4), 16),
+        ("ModularSampled(4) x 16", modular_sampled(4), 16),
+    ]
+}
+
+fn reduction(
+    library: &PLibrary,
+    inputs: Vec<(PresentationId, IntegralKey, Coefficient)>,
+    &(_, arithmetic, threads): &Configuration,
+    onto_masters: bool,
+) -> Result<PReduction, PError> {
+    let mut scheduler = OrderedSchedulerOptions::default();
+    if threads > 1 {
+        scheduler = OrderedSchedulerOptions {
+            threads,
+            window_keys: 8,
+            ..scheduler
+        };
+    }
+    let mut reduction = library.reduce(PReductionRequest {
+        inputs,
+        arithmetic,
+        scheduler,
+        step_cache: None,
+        uncovered: PUncoveredPolicy::Reject,
+        onto_masters,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    })?;
+    reduction.terms.retain(|term| !term.coefficient.is_zero());
+    Ok(reduction)
+}
+
+/// The nonzero terms of an Exact reduction.
 fn reduce(
     library: &PLibrary,
     inputs: Vec<(PresentationId, IntegralKey, Coefficient)>,
-    arithmetic: OrderedWeightArithmetic,
     onto_masters: bool,
 ) -> Result<Vec<PTerm>, PError> {
-    Ok(library
-        .reduce(PReductionRequest {
-            inputs,
-            arithmetic,
-            scheduler: OrderedSchedulerOptions::default(),
-            step_cache: None,
-            uncovered: PUncoveredPolicy::Reject,
-            onto_masters,
-            limits: ReductionLimits::default(),
-            inspector: None,
-        })?
-        .terms
-        .into_iter()
-        .filter(|term| !term.coefficient.is_zero())
-        .collect())
+    Ok(reduction(library, inputs, &arithmetics()[0], onto_masters)?.terms)
+}
+
+/// Wall seconds and requests per configuration name.
+type Wall = BTreeMap<&'static str, (usize, f64)>;
+
+/// Reduces `inputs` onto masters in each configuration and asserts that every
+/// one gives the terms and nonzero conditions of the first (Exact); adds the
+/// wall seconds to `wall` and returns the nonzero terms.
+fn reduce_in_every_arithmetic(
+    library: &PLibrary,
+    inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    configurations: &[Configuration],
+    wall: &mut Wall,
+    what: &str,
+) -> Vec<PTerm> {
+    let mut exact: Option<PReduction> = None;
+    for configuration in configurations {
+        let start = Instant::now();
+        let reduced = reduction(library, inputs.to_vec(), configuration, true)
+            .unwrap_or_else(|error| panic!("{what}, {}: {error}", configuration.0));
+        let entry = wall.entry(configuration.0).or_default();
+        entry.0 += 1;
+        entry.1 += start.elapsed().as_secs_f64();
+        match &exact {
+            None => exact = Some(reduced),
+            Some(exact) => {
+                assert_eq!(exact.terms, reduced.terms, "{what}, {}", configuration.0);
+                assert_eq!(
+                    exact.nonzero_conditions, reduced.nonzero_conditions,
+                    "{what}, {}",
+                    configuration.0
+                );
+            }
+        }
+    }
+    exact.expect("at least one configuration").terms
+}
+
+fn wall_text(configurations: &[Configuration], wall: &Wall) -> String {
+    (configurations.iter())
+        .filter_map(|(name, _, _)| {
+            let (requests, seconds) = wall.get(name)?;
+            Some(format!("{name} {seconds:.3} s ({requests} requests)"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn master(name: &str) -> PBasis {
@@ -228,9 +324,11 @@ fn scope_one_to_two_has_only_the_unit_row_and_its_anchors_hold() {
         "the trivial node"
     );
     derivation.layer.check_library(library).unwrap();
-    // The 1L and 2L anchors hold on the scope 1-2 program as well.
+    // The 1L and 2L anchors hold on the scope 1-2 program as well, in every
+    // arithmetic.
     let c = mapped.coefficient_context();
     let mut checked = 0;
+    let mut wall = Wall::new();
     for case in anchor_cases() {
         let Some(top) = mapped.top_presentation(&case.family) else {
             continue;
@@ -238,11 +336,17 @@ fn scope_one_to_two_has_only_the_unit_row_and_its_anchors_hold() {
         let presentation = mapped.presentation(top);
         let inputs = case.inputs(c, presentation).unwrap();
         let expected = case.expected(c, presentation.loops).unwrap();
-        let reduced = reduce(&mapped, inputs, OrderedWeightArithmetic::Exact, true).unwrap();
-        assert_eq!(reduced, expected, "anchor {} at scope 1-2", case.name);
+        let what = format!("anchor {} at scope 1-2", case.name);
+        let reduced =
+            reduce_in_every_arithmetic(&mapped, &inputs, &arithmetics(), &mut wall, &what);
+        assert_eq!(reduced, expected, "{what}");
         checked += 1;
     }
     assert_eq!(checked, 6);
+    println!(
+        "scope 1-2 anchors: wall {}",
+        wall_text(&arithmetics(), &wall)
+    );
 }
 
 #[test]
@@ -281,28 +385,35 @@ fn the_master_integrals_reduce_onto_their_signed_masters() {
             IntegralKey::try_new(site.key.iter().copied()).unwrap(),
             c.one(),
         )];
-        // (eps G)^-L I_M(master) = sign Master(name) at Q^2 = 1.
-        for arithmetic in [OrderedWeightArithmetic::Exact, modular()] {
-            assert_eq!(
-                reduce(library, input.clone(), arithmetic, true).unwrap(),
-                [PTerm {
-                    basis: master(site.master.name),
-                    tag: GammaTag::one(),
-                    coefficient: c.integer(i64::from(site.master.sign)),
-                }],
-                "{}",
+        // (eps G)^-L I_M(master) = sign Master(name) at Q^2 = 1, in every
+        // arithmetic.
+        let configurations: Vec<Configuration> =
+            arithmetics().into_iter().chain(threaded()).collect();
+        let mut wall = Wall::new();
+        assert_eq!(
+            reduce_in_every_arithmetic(
+                library,
+                &input,
+                &configurations,
+                &mut wall,
                 site.master.name
-            );
-        }
+            ),
+            [PTerm {
+                basis: master(site.master.name),
+                tag: GammaTag::one(),
+                coefficient: c.integer(i64::from(site.master.sign)),
+            }],
+            "{}",
+            site.master.name
+        );
+        println!(
+            "master {}: wall {}",
+            site.master.name,
+            wall_text(&configurations, &wall)
+        );
         // Onto terminals the mapped library is the library.
         assert_eq!(
-            reduce(
-                library,
-                input.clone(),
-                OrderedWeightArithmetic::Exact,
-                false
-            )
-            .unwrap(),
+            reduce(library, input.clone(), false).unwrap(),
             site.reduction
         );
     }
@@ -312,11 +423,16 @@ fn anchor_cases() -> Vec<ForcerCase> {
     parse_fixture(ANCHORS_JSON).unwrap().cases
 }
 
+/// The 11 anchors in every arithmetic (and both modular ones with 4 threads
+/// under 16 scheduler threads); wall times printed per arithmetic and loop
+/// count.
 #[test]
 fn the_forcer_anchors_hold_exactly_on_the_assembled_library() {
     let library = mapped_three();
     let c = library.coefficient_context();
+    let configurations: Vec<Configuration> = arithmetics().into_iter().chain(threaded()).collect();
     let mut checked = Vec::new();
+    let mut walls: BTreeMap<u8, Wall> = BTreeMap::new();
     for case in anchor_cases() {
         let top = library
             .top_presentation(&case.family)
@@ -325,13 +441,19 @@ fn the_forcer_anchors_hold_exactly_on_the_assembled_library() {
         let inputs = case.inputs(c, presentation).unwrap();
         let expected = case.expected(c, presentation.loops).unwrap();
         assert!(!expected.is_empty(), "{}", case.name);
-        for arithmetic in [OrderedWeightArithmetic::Exact, modular()] {
-            let reduced = reduce(library, inputs.clone(), arithmetic, true).unwrap();
-            assert_eq!(reduced, expected, "anchor {}", case.name);
-        }
+        let what = format!("anchor {}", case.name);
+        let wall = walls.entry(presentation.loops).or_default();
+        let reduced = reduce_in_every_arithmetic(library, &inputs, &configurations, wall, &what);
+        assert_eq!(reduced, expected, "{what}");
         checked.push(case.name);
     }
     assert_eq!(checked.len(), 11);
+    for (loops, wall) in &walls {
+        println!(
+            "L{loops} anchors: wall {}",
+            wall_text(&configurations, wall)
+        );
+    }
 }
 
 #[test]
@@ -397,13 +519,17 @@ fn numerator_case(p: &Presentation, max_rank: u32, rng: &mut SplitMix) -> Forcer
 /// `max_rank` in total, random subsectors; the whole box when it holds at most
 /// `count` keys, as at one loop), every top's corner (lines at 1, ISPs at 0:
 /// the full NO sector is rare among random subsectors), and `count / 4`
-/// numerator inputs lowered onto the slots. Returns `(loops, inputs, whole box,
-/// seconds)` per loop count.
+/// numerator inputs lowered onto the slots. Every request is reduced in each
+/// configuration of `every` (Exact first); the first request, the one with the
+/// corners and the first numerator input also in each of `some`; all must give
+/// Exact's terms.
 fn random_inputs_reduce_onto_masters_only(
     count: usize,
     max_rank: u32,
     batch: usize,
-) -> Vec<(u8, usize, bool, f64)> {
+    every: &[Configuration],
+    some: &[Configuration],
+) -> Vec<RandomRow> {
     let assembled = scope_three();
     let library = mapped_three();
     let c = library.coefficient_context();
@@ -454,9 +580,19 @@ fn random_inputs_reduce_onto_masters_only(
                 requests.push(inputs);
             }
         }
-        let mut masters = std::collections::BTreeSet::new();
-        for inputs in requests {
-            for term in reduce(library, inputs, OrderedWeightArithmetic::Exact, true).unwrap() {
+        // The corners are the last keys.
+        let selected = BTreeSet::from([0, (keys.len() - 1) / batch, keys.len().div_ceil(batch)]);
+        let mut wall = Wall::new();
+        let mut masters = BTreeSet::new();
+        for (index, inputs) in requests.iter().enumerate() {
+            let mut configurations = every.to_vec();
+            if selected.contains(&index) {
+                configurations.extend_from_slice(some);
+            }
+            let what = format!("L{loops} request {index}");
+            for term in
+                reduce_in_every_arithmetic(library, inputs, &configurations, &mut wall, &what)
+            {
                 match term.basis {
                     PBasis::Unit => {}
                     PBasis::Master(name) => {
@@ -475,28 +611,58 @@ fn random_inputs_reduce_onto_masters_only(
         }
         let inputs = keys.len() + numerators;
         let seconds = start.elapsed().as_secs_f64();
+        let all: Vec<Configuration> = every.iter().chain(some).copied().collect();
         println!(
-            "L{loops}: {inputs} inputs ({} keys incl. corners, {numerators} numerator inputs) onto masters, 0 residual terms, {seconds:.1} s",
-            keys.len()
+            "L{loops}: {inputs} inputs ({} keys incl. corners, {numerators} numerator inputs) onto masters, 0 residual terms, every arithmetic = Exact, {seconds:.1} s; wall {}",
+            keys.len(),
+            wall_text(&all, &wall)
         );
-        report.push((loops, inputs, whole, seconds));
+        report.push(RandomRow {
+            loops,
+            inputs,
+            whole_box: whole,
+            wall,
+        });
     }
     report
 }
 
-#[test]
-fn random_inputs_reduce_onto_unit_and_masters_only() {
-    let report = random_inputs_reduce_onto_masters_only(40, 4, 8);
-    assert_eq!(report.len(), 3);
+/// One loop count of a random run.
+#[derive(Debug)]
+struct RandomRow {
+    loops: u8,
+    inputs: usize,
+    /// The keys are p-validate's whole bounded box (one loop).
+    whole_box: bool,
+    wall: Wall,
 }
 
 #[test]
-#[ignore = "slow: up to rank 8, 3L about 12 min optimised"]
+fn random_inputs_reduce_onto_unit_and_masters_only() {
+    let report = random_inputs_reduce_onto_masters_only(40, 4, 8, &arithmetics(), &threaded());
+    assert_eq!(report.len(), 3);
+    for row in &report {
+        for (name, _, _) in arithmetics().iter().chain(&threaded()) {
+            assert!(
+                row.wall
+                    .get(name)
+                    .is_some_and(|&(requests, _)| requests >= 1),
+                "L{}: {name}",
+                row.loops
+            );
+        }
+    }
+}
+
+/// vakint's default p arithmetic (ModularPolynomial) against Exact at full
+/// bounds.
+#[test]
+#[ignore = "slow: rank <= 8 in Exact and ModularPolynomial, 3L 20 min optimised"]
 fn random_inputs_reduce_onto_unit_and_masters_only_at_full_bounds() {
-    let report = random_inputs_reduce_onto_masters_only(400, 8, 20);
+    let report = random_inputs_reduce_onto_masters_only(400, 8, 20, &arithmetics()[..2], &[]);
     // One loop has fewer than 300 inputs in the whole bounded box: all of them.
     assert!(
-        (report.iter()).all(|&(_, inputs, whole, _)| inputs >= 300 || whole),
+        (report.iter()).all(|row| row.inputs >= 300 || row.whole_box),
         "{report:?}"
     );
 }
