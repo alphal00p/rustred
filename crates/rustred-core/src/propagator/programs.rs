@@ -10,6 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::carpet::CarpetStep;
+use super::custom::build_custom_step;
 use super::descent::check_custom_guard;
 use super::error::PError;
 use super::insertion::InsertionStep;
@@ -85,7 +86,11 @@ pub fn lane_program(library: &PLibrary, owner: &POwnerSpec) -> Result<OwnerProgr
     Ok(OwnerProgram::Lane(step))
 }
 
-/// The Custom step of `owner`: guard first, then the payload.
+/// The Custom step of `owner`: the library's guard first (its residual
+/// terminals, sector and charts), then the payload through
+/// [`build_custom_step`], which re-checks the guard on the record, binds the
+/// payload to the presentation's family and checks that the record describes
+/// it. Charts are prepared on their first step (lazy owners).
 fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneStep>, PError> {
     let presentation = library
         .presentations()
@@ -97,15 +102,11 @@ fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneSt
             ))
         })?;
     check_custom_guard(library, owner)?;
-    let (Some(payload), Some(_meta)) = (&owner.payload, &owner.custom) else {
+    let (Some(payload), Some(meta)) = (&owner.payload, &owner.custom) else {
         return Err(PError::MalformedLibrary(format!(
             "the Custom owner {:016x} has no payload",
             owner.class.0
         )));
     };
-    let _bytes = payload.bytes()?;
-    // `custom::build_custom_step(presentation, &bytes, meta)` arrives with
-    // M2-T7c; until then a Custom owner fails closed.
-    let _ = presentation;
-    Err(PError::NotImplemented("M2-T7c"))
+    build_custom_step(presentation, &payload.bytes()?, meta)
 }

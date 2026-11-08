@@ -3,10 +3,16 @@
 //! [`check`] is the load-time certificate of architecture section 5.5, on the
 //! structure of a library:
 //!
-//! 1. Custom owners: support-primary orders for owners without forced axes; for
-//!    eps owners the persisted two-sided flags equal the forced axes (plan M2
-//!    amendment 2026-11-06, every two-sided order is not support-primary).
-//! 2. Custom rules are checked per RHS term (descent witnesses).
+//! 1. Custom owners: the payload is generated on the owner sector; its order is
+//!    support-primary for an owner without forced axes; for an eps owner the
+//!    persisted order program is two-sided exactly on the forced axes (plan M2
+//!    amendment 2026-11-06: every two-sided order is not support-primary).
+//! 2. Custom rules are checked per RHS term through the owner's `order_key`
+//!    (D-T6-1) on a witness box of keys of every raw chart
+//!    ([`custom_witness_keys`]): every child of a step is a
+//!    [`DescentWitness::SameSectorStrict`] Apply key or a
+//!    [`DescentWitness::Subsector`] Route key, every terminal a residual of
+//!    the owner.
 //! 3. Every census route is verified and compiled into its transport, and maps
 //!    `t` lines with their eps lines onto an owner of the same `t`; every edge
 //!    map is verified and belongs to exactly one owner.
@@ -19,8 +25,12 @@
 //! 7. The hard false knock-out guard on Custom owners ([`check_custom_guard`]).
 //!
 //! Every owner's program is built on the way (`lane_program`): a class without a
-//! lane program fails the certificate. Items 1 and 2 read Custom payloads,
-//! which arrive with M2-T7c; until then a Custom owner fails closed.
+//! lane program fails the certificate. Items 1 and 2 read the Custom payloads
+//! (M2-T7c, `custom::inspect_custom_payload` and the owner's `CustomStep`).
+//! Item 2 is checked on instances, not on the symbolic rules: the generated
+//! rules carry their case (face and equations) as data, and the step's own
+//! dispatch decides which rule applies to a key, so the box steps keys through
+//! the program the engine runs. Every chart's corner is in the box.
 //!
 //! [`trace`] is the dynamic side, `rustred p-validate`: it follows keys through
 //! the census, the routes and the owner programs without coefficients and counts
@@ -34,16 +44,17 @@ use std::sync::Arc;
 
 use crate::family::IntegralKey;
 use crate::reduction::ReductionLimits;
-use crate::sector::Mask;
 use crate::sector::symmetry::integral_transport::{self, ExpansionLimits, Prepared};
 use crate::sector::symmetry::{self, CoefficientMatrix, MomentumMap};
+use crate::sector::{Mask, OrderingPolicy};
 
 use super::census::{PSectorFate, SignedAffineLoopMap};
+use super::custom::{CustomPayloadSummary, inspect_custom_payload};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
-use super::library::{OwnerProgram, PLibrary, POwnerSpec, PTerminal};
+use super::library::{OwnerProgram, PLibrary, POwner, POwnerSpec, PTerminal};
 use super::presentation::{EdgeKind, Presentation, Slot, verify_edge_map};
-use super::step::{PKeyView, POrderKey, PStage, PStepContext};
+use super::step::{PKeyView, PLaneStep, POrderKey, PStage, PStepContext};
 use super::tag::GammaTag;
 use super::{OwnerClassId, PresentationId};
 
@@ -62,9 +73,31 @@ pub struct DescentReport {
     pub edge_maps: usize,
     /// Custom owners that passed the hard guard.
     pub guarded_owners: usize,
+    /// Rules of the Custom payloads.
+    pub custom_rules: usize,
+    /// Keys of the Custom witness boxes stepped (item 2).
+    pub witness_keys: usize,
+    /// The children of those steps, by witness.
+    pub witnesses: BTreeMap<DescentWitness, usize>,
     /// Overlay rules (none in M2).
     pub overlays: usize,
 }
+
+/// Why a child of a Custom step is below its key (AD section 5.5 item 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DescentWitness {
+    /// An Apply key of the same owner, strictly lower in its `order_key`.
+    SameSectorStrict,
+    /// A Route key on a strict subsector of the owner support: fewer lines,
+    /// a later phase.
+    Subsector,
+}
+
+/// Total dots over the raw chart's slots of a Custom witness key.
+pub const CUSTOM_WITNESS_DOTS: u32 = 2;
+/// Total numerator rank over the other slots (eps axes off the chart at
+/// `n <= 0`, ISPs) of a Custom witness key.
+pub const CUSTOM_WITNESS_RANK: u32 = 2;
 
 fn malformed(detail: impl Into<String>) -> PError {
     PError::MalformedLibrary(detail.into())
@@ -313,6 +346,7 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
             )));
         }
         let t = (support & line_mask(parent)).count_ones() as usize;
+        let mut summary = None;
         match spec.lane {
             OwnerLane::SeriesParallel | OwnerLane::Insertion | OwnerLane::Carpet => {
                 check_rule_owner(library, spec, parent, t)?;
@@ -321,6 +355,7 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
                 report.guarded_owners += 1;
+                summary = Some(check_custom_order(spec, parent, support)?);
             }
             lane => {
                 return Err(malformed(format!(
@@ -329,17 +364,196 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
                 )));
             }
         }
-        match owner.program(library)? {
-            OwnerProgram::Lane(_) => *report.owners.entry(spec.lane).or_default() += 1,
+        let step = match owner.program(library)? {
+            OwnerProgram::Lane(step) => step,
             OwnerProgram::Missing { ledger } => {
                 return Err(PError::MissingOwner {
                     class: spec.class,
                     ledger: *ledger,
                 });
             }
+        };
+        *report.owners.entry(spec.lane).or_default() += 1;
+        if let Some(summary) = summary {
+            report.custom_rules += summary.rules();
+            check_custom_witnesses(library, owner, step.as_ref(), support, &mut report)?;
         }
     }
     Ok(report)
+}
+
+/// Item 1 for a Custom owner: its payload is generated on the owner sector,
+/// with a support-primary order and no two-sided axis when the sector has no
+/// forced axis, else with an order program two-sided exactly on the forced
+/// axes. Returns the payload's summary.
+fn check_custom_order(
+    spec: &POwnerSpec,
+    parent: &Presentation,
+    support: u64,
+) -> Result<CustomPayloadSummary, PError> {
+    let fail = |detail: String| {
+        malformed(format!(
+            "Custom owner {:016x} on presentation {}: {detail}",
+            spec.class.0, parent.id.0
+        ))
+    };
+    let payload = spec
+        .payload
+        .as_ref()
+        .ok_or_else(|| fail("no payload".to_owned()))?;
+    let summary = inspect_custom_payload(&payload.bytes()?)?;
+    if summary.support != support || summary.arity != parent.slots.len() {
+        return Err(fail(format!(
+            "the payload is generated on support {:#x} of arity {}, the owner sector is {support:#x} of arity {}",
+            summary.support,
+            summary.arity,
+            parent.slots.len()
+        )));
+    }
+    let policy = OrderingPolicy::try_from_stable_id(&summary.ordering)
+        .map_err(|error| fail(format!("the payload's order {}: {error}", summary.ordering)))?;
+    let program_axes = policy.program().map_or(0, |program| {
+        (program.two_sided().iter().enumerate())
+            .filter(|&(_, &two_sided)| two_sided)
+            .fold(0_u64, |mask, (axis, _)| mask | 1 << axis)
+    });
+    let forced = parent.forced_axes() & support;
+    if summary.two_sided_axes != forced || program_axes != forced {
+        return Err(fail(format!(
+            "the order is two-sided on {:#x} (program {program_axes:#x}), the forced axes are {forced:#x}",
+            summary.two_sided_axes
+        )));
+    }
+    if forced == 0 && !policy.is_support_primary() {
+        return Err(fail(format!(
+            "the order {} is not support-primary",
+            summary.ordering
+        )));
+    }
+    Ok(summary)
+}
+
+/// The keys of the witness box of a Custom owner with `support` and forced
+/// axes `forced` on `arity` slots: on every raw chart, the chart's slots at
+/// `1 + dots` with at most [`CUSTOM_WITNESS_DOTS`] dots in total and the other
+/// slots at `-rank` with at most [`CUSTOM_WITNESS_RANK`] in total. Charts
+/// ascending, keys in enumeration order.
+pub fn custom_witness_keys(arity: usize, support: u64, forced: u64) -> Vec<Vec<i64>> {
+    fn spread(slots: &[usize], total: u32, sign: i64, base: &[i64], out: &mut Vec<Vec<i64>>) {
+        let Some((&slot, rest)) = slots.split_first() else {
+            out.push(base.to_vec());
+            return;
+        };
+        for amount in 0..=total {
+            let mut powers = base.to_vec();
+            powers[slot] += sign * i64::from(amount);
+            spread(rest, total - amount, sign, &powers, out);
+        }
+    }
+    let free = support & !forced;
+    let mut charts: Vec<u64> = (0..1_u64 << forced.count_ones())
+        .map(|bits| free | deposit(bits, forced))
+        .collect();
+    charts.sort_unstable();
+    let mut keys = Vec::new();
+    for chart in charts {
+        let (positive, other): (Vec<usize>, Vec<usize>) =
+            (0..arity).partition(|&slot| chart >> slot & 1 == 1);
+        let corner: Vec<i64> = (0..arity)
+            .map(|slot| i64::from(chart >> slot & 1 == 1))
+            .collect();
+        let mut dotted = Vec::new();
+        spread(&positive, CUSTOM_WITNESS_DOTS, 1, &corner, &mut dotted);
+        for base in dotted {
+            spread(&other, CUSTOM_WITNESS_RANK, -1, &base, &mut keys);
+        }
+    }
+    keys
+}
+
+/// Item 2 for a Custom owner: every key of its witness box is stepped; each
+/// child is an Apply key of the owner support strictly lower in the owner's
+/// `order_key`, or a Route key of the owner presentation on a strict subsector
+/// of the support; each terminal is one of the owner's residuals.
+fn check_custom_witnesses(
+    library: &PLibrary,
+    owner: &POwner,
+    step: &dyn PLaneStep,
+    support: u64,
+    report: &mut DescentReport,
+) -> Result<(), PError> {
+    let spec = &owner.spec;
+    let presentation = library.presentation(spec.presentation);
+    let limits = ReductionLimits::default();
+    let cx = PStepContext {
+        library,
+        owner,
+        limits: &limits,
+    };
+    let fail = |key: &[i64], detail: String| {
+        malformed(format!(
+            "Custom owner {:016x}, key {key:?}: {detail}",
+            spec.class.0
+        ))
+    };
+    let tag = GammaTag::one();
+    let keys = custom_witness_keys(
+        presentation.slots.len(),
+        support,
+        presentation.forced_axes(),
+    );
+    for key in &keys {
+        let order = step.order_key(&cx, key)?;
+        let view = PKeyView {
+            presentation: spec.presentation,
+            powers: key,
+            tag: &tag,
+        };
+        let output = step.step(&cx, &view)?;
+        for child in &output.children {
+            let child_support = support_of(presentation, &child.powers);
+            if child.presentation != spec.presentation || child.tag != tag {
+                return Err(fail(
+                    key,
+                    format!(
+                        "a child on presentation {} with tag {:?}",
+                        child.presentation.0, child.tag
+                    ),
+                ));
+            }
+            let witness = match child.stage {
+                PStage::Apply
+                    if child_support == support && step.order_key(&cx, &child.powers)? < order =>
+                {
+                    DescentWitness::SameSectorStrict
+                }
+                PStage::Route if child_support & !support == 0 && child_support != support => {
+                    DescentWitness::Subsector
+                }
+                stage => {
+                    return Err(fail(
+                        key,
+                        format!(
+                            "the {stage:?} child {:?} on support {child_support:#x} does not descend",
+                            child.powers
+                        ),
+                    ));
+                }
+            };
+            *report.witnesses.entry(witness).or_default() += 1;
+        }
+        for (terminal, terminal_tag, _) in &output.terminals {
+            let residual = matches!(
+                library.terminals().get(terminal.0 as usize),
+                Some(PTerminal::Residual { owner: class, .. }) if *class == spec.class
+            );
+            if !residual || !spec.terminals.contains(terminal) || *terminal_tag != tag {
+                return Err(fail(key, format!("the terminal {}", terminal.0)));
+            }
+        }
+    }
+    report.witness_keys += keys.len();
+    Ok(())
 }
 
 /// Item 4 for a rule lane: the trivial node at one loop, else one rule edge into
@@ -463,6 +677,11 @@ pub struct TraceReport {
     pub shard_identities: usize,
     /// Distinct Apply sites `(class, powers)` per owner class.
     pub applied: BTreeMap<OwnerClassId, usize>,
+    /// Distinct Route keys per presentation (zero sectors included).
+    pub routed: BTreeMap<PresentationId, usize>,
+    /// Distinct Route keys transported through a route that flips `q`
+    /// (`external_sign = -1`).
+    pub flipped_route_keys: usize,
     /// Failures by kind; every failing key counts once.
     pub failures: BTreeMap<TraceFailureKind, usize>,
     /// The first failures, at most [`TRACE_FAILURE_SAMPLES`].
@@ -789,7 +1008,18 @@ impl<'l> Tracer<'l> {
         }
     }
 
-    /// Step `key` and check that every child descends.
+    /// Whether the Route key `powers` of presentation `id` is transported
+    /// through a route with `external_sign = -1`.
+    fn flips_q(&self, id: PresentationId, powers: &[i64]) -> Result<bool, PError> {
+        let support = support_of(self.presentation(id)?, powers);
+        Ok(matches!(
+            self.library.census().sectors.get(&(id, support)),
+            Some(PSectorFate::Owner { class, map })
+                if map.external_sign < 0
+                    && self.library.census().classes[class].owner != (id, support)
+        ))
+    }
+
     /// The step-cache shard of `key`: stage, `t`, presentation or class.
     fn shard(&self, key: &TraceKey) -> Result<(u8, usize, u64), PError> {
         Ok(match key {
@@ -798,6 +1028,7 @@ impl<'l> Tracer<'l> {
         })
     }
 
+    /// Step `key` and check that every child descends.
     fn expand(&mut self, key: &TraceKey) -> Result<(Vec<TraceKey>, Vec<Terminal>), Refusal> {
         let parent = self.position(key)?;
         let (children, terminals) = self.children(key)?;
@@ -889,6 +1120,12 @@ pub fn trace_with(
                         identities.insert(Identity::Key(key.clone()));
                         identities.extend(children.iter().cloned().map(Identity::Key));
                         identities.extend(terminals.into_iter().map(Identity::Terminal));
+                    }
+                    if let TraceKey::Route(id, powers, _) = &key {
+                        *report.routed.entry(*id).or_default() += 1;
+                        if !children.is_empty() && tracer.flips_q(*id, powers)? {
+                            report.flipped_route_keys += 1;
+                        }
                     }
                     match &key {
                         TraceKey::Route(..) if children.is_empty() => report.zero_keys += 1,

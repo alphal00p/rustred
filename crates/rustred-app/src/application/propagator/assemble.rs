@@ -31,14 +31,17 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
+use rustred::family::IntegralKey;
 use rustred::propagator::census::{PCensusOptions, p_census};
+use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{PFamiliesFile, PFamilyEntry};
-use rustred::propagator::lane::{LaneDecision, LaneRoles, OwnerLane};
-use rustred::propagator::library::{PLibrary, POwnerSpec};
+use rustred::propagator::lane::{LaneDecision, LaneRoles, OwnerLane, TriangleRoles};
+use rustred::propagator::library::{PLibrary, PLibraryBuilder, POwnerSpec, PTerminal};
 use rustred::propagator::present::{present, present_node, top_topology};
 use rustred::propagator::presentation::{Presentation, Slot};
+use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::topology::{ChildMode, Dag, DagEdgeKind, TopologyService};
 use rustred::propagator::triangle::{TemplateError, TriangleTemplate};
 use rustred::propagator::{NodeIndex, OwnerClassId, PTerminalId, PresentationId};
@@ -90,7 +93,8 @@ pub struct AssembledLibrary {
     pub custom: BTreeMap<String, CustomOwnerPayload>,
     /// `None` when `verify_descent` was off.
     pub descent: Option<DescentReport>,
-    /// Wall seconds per assembly phase.
+    /// Wall seconds per assembly phase (`owners` includes generating the
+    /// Custom payloads).
     pub timings: Vec<(&'static str, f64)>,
 }
 
@@ -120,6 +124,11 @@ impl Clock {
     }
 }
 
+/// The Triangle template check of assembly: `Ok` keeps the node on its lane,
+/// a [`TemplateError::Mismatch`] presents it as Custom, a
+/// [`TemplateError::Failure`] stops the assembly.
+pub type TriangleCheck<'a> = &'a dyn Fn(&Presentation, &TriangleRoles) -> Result<(), TemplateError>;
+
 /// The library program of scope `1..=max_loops` of `families`, see the module
 /// docs. `Provided` payloads are used verbatim, by class label.
 pub fn assemble_library(
@@ -127,6 +136,22 @@ pub fn assemble_library(
     max_loops: u8,
     custom: CustomPayloads,
     options: &AssembleOptions,
+) -> Result<AssembledLibrary, PError> {
+    let extract = |presentation: &Presentation, roles: &TriangleRoles| {
+        TriangleTemplate::extract(presentation, roles).map(|_| ())
+    };
+    assemble_library_with(families, max_loops, custom, options, &extract)
+}
+
+/// [`assemble_library`] with another Triangle template check: tests of the
+/// fallback branches use it.
+#[doc(hidden)]
+pub fn assemble_library_with(
+    families: &PFamiliesFile,
+    max_loops: u8,
+    custom: CustomPayloads,
+    options: &AssembleOptions,
+    triangle: TriangleCheck<'_>,
 ) -> Result<AssembledLibrary, PError> {
     let mut clock = Clock(Instant::now(), Vec::new());
     let context = CoefficientContext::try_new(["d"]).map_err(|_| PError::ContextMismatch)?;
@@ -172,8 +197,8 @@ pub fn assemble_library(
         let (mut decision, mut presentation, mut fallback) =
             (made.decision, made.presentation, made.fallback);
         if let (LaneRoles::Triangle(roles), Some(adapted)) = (decision.roles, &presentation) {
-            match TriangleTemplate::extract(adapted, &roles) {
-                Ok(_) => {}
+            match triangle(adapted, &roles) {
+                Ok(()) => {}
                 Err(TemplateError::Mismatch(mismatch)) => {
                     decision = CUSTOM;
                     presentation = Some(present(node, &CUSTOM, &tops, id, &context)?);
@@ -246,7 +271,7 @@ pub fn assemble_library(
                 &label,
                 &presentations[owner_presentation.0 as usize],
             )?;
-            custom_owner(&mut spec, &payload)?;
+            custom_owner(&mut builder, &mut spec, &payload)?;
             payloads.insert(label, payload);
         } else {
             for edge in dag.edges_from(node_index.0) {
@@ -271,6 +296,7 @@ pub fn assemble_library(
         }
         owners.push(spec);
     }
+    clock.lap("owners");
     builder.set_census(census)?;
     for spec in owners {
         builder.add_owner(spec)?;
@@ -322,9 +348,32 @@ fn custom_payload(
     }
 }
 
-/// The payload, meta and residual terminals of a Custom owner (M2-T7c).
-fn custom_owner(_spec: &mut POwnerSpec, _payload: &CustomOwnerPayload) -> Result<(), PError> {
-    Err(PError::NotImplemented("M2-T7c"))
+/// The payload, meta and residual terminals of a Custom owner (M2-T7c): one
+/// [`PTerminal::Residual`] per residual key of the payload, chart by chart, in
+/// the owner's terminals. The payload is kept as bytes; `lane_program` checks
+/// that the meta describes it and binds it to the owner presentation's family.
+fn custom_owner(
+    builder: &mut PLibraryBuilder,
+    spec: &mut POwnerSpec,
+    payload: &CustomOwnerPayload,
+) -> Result<(), PError> {
+    let summary = inspect_custom_payload(&payload.bytes)?;
+    for residual in summary.residual_keys() {
+        let key = IntegralKey::try_new(residual).map_err(|error| {
+            PError::MalformedLibrary(format!(
+                "a residual of the Custom owner {:016x}: {error}",
+                spec.class.0
+            ))
+        })?;
+        spec.terminals
+            .push(builder.add_terminal(PTerminal::Residual {
+                owner: spec.class,
+                key,
+            })?);
+    }
+    spec.payload = Some(CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)));
+    spec.custom = Some(payload.meta.clone());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +415,19 @@ pub struct ValidateRow {
     pub box_exhausted: bool,
     pub report: TraceReport,
     pub seconds: f64,
+}
+
+impl ValidateRow {
+    /// Random keys drawn short of the request (the generator gives up after
+    /// `50 * points` draws): `requested - keys`, zero when the box was
+    /// exhausted or the request met.
+    pub fn shortfall(&self, requested: usize) -> usize {
+        if self.box_exhausted {
+            0
+        } else {
+            requested.saturating_sub(self.keys)
+        }
+    }
 }
 
 /// A small deterministic generator (SplitMix64).
@@ -525,6 +587,11 @@ pub fn validate_library(
     assembled: &AssembledLibrary,
     options: &ValidateOptions,
 ) -> Result<Vec<ValidateRow>, PError> {
+    if options.points == 0 {
+        return Err(PError::Unsupported(
+            "p-validate: 0 keys per loop count requested".to_owned(),
+        ));
+    }
     let mut rows = Vec::new();
     for loops in 1..=assembled.max_loops {
         let start = Instant::now();

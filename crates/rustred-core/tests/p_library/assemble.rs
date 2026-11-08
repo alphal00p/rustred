@@ -311,3 +311,32 @@ impl CloneLane for OwnerProgram {
         }
     }
 }
+
+/// The witness box of a Custom owner (certificate item 2): on every raw chart,
+/// the chart's slots at `1 + dots` (2 dots in total) and the other slots at
+/// `-rank` (rank 2 in total). NO: one chart of 8 lines and its ISP, 45 x 3
+/// keys; the eps kite: the chart `n >= 1` of 5 lines (21 keys) and the chart
+/// `n <= 0` of 4 lines with the eps axis at 0, -1, -2 (15 x 3 keys). Every
+/// chart's corner is in the box, and every key is on the owner support.
+#[test]
+fn the_custom_witness_box_covers_every_raw_chart() {
+    let no = descent::custom_witness_keys(9, 0xff, 0);
+    assert_eq!(no.len(), 45 * 3);
+    let kite = descent::custom_witness_keys(5, 0x1f, 0x1);
+    assert_eq!(kite.len(), 21 + 15 * 3);
+    let distinct: std::collections::BTreeSet<_> = kite.iter().collect();
+    assert_eq!(distinct.len(), kite.len());
+    assert!(kite.contains(&vec![1, 1, 1, 1, 1]));
+    assert!(kite.contains(&vec![0, 1, 1, 1, 1]));
+    assert!(kite.contains(&vec![-2, 1, 1, 1, 1]));
+    assert!(no.contains(&vec![1, 1, 1, 1, 1, 1, 1, 1, 0]));
+    for powers in &kite {
+        let dots: i64 =
+            powers[1..].iter().map(|power| power - 1).sum::<i64>() + (powers[0] - 1).max(0);
+        assert!(powers[1..].iter().all(|&power| power >= 1) && dots <= 2);
+        assert!(powers[0] >= -2);
+    }
+    for powers in &no {
+        assert!(powers[..8].iter().all(|&power| power >= 1) && (-2..=0).contains(&powers[8]));
+    }
+}
