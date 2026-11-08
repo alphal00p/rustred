@@ -132,21 +132,29 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let files = p_library_files(&assembled).map_err(failed)?;
     write_p_library_files(&files, &arguments.out).map_err(failed)?;
     let start = Instant::now();
-    let loaded = load_p_library(
+    let loaded_back = load_p_library(
         PLibrarySource::Directory(arguments.out.clone()),
         &PLibraryOptions {
             verify_descent: true,
         },
     )
-    .map_err(failed)?;
-    let loaded_seconds = start.elapsed().as_secs_f64();
-    let differences = p_library_differences(&assembled.library, &loaded).map_err(failed)?;
-    if !differences.is_empty() {
-        return Err(failed(PError::MalformedLibrary(format!(
-            "the written package loads as another program: {}",
-            differences.join("; ")
-        ))));
+    .and_then(|loaded| {
+        let differences = p_library_differences(&assembled.library, &loaded)?;
+        if differences.is_empty() {
+            Ok(())
+        } else {
+            Err(PError::MalformedLibrary(format!(
+                "the written package loads as another program: {}",
+                differences.join("; ")
+            )))
+        }
+    });
+    if let Err(error) = loaded_back {
+        // Only packages that passed the loader stay on disk (D-T8b-9).
+        let _ = std::fs::remove_dir_all(&arguments.out);
+        return Err(failed(error));
     }
+    let loaded_seconds = start.elapsed().as_secs_f64();
 
     let mut stdout = std::io::stdout().lock();
     let report = |error: std::io::Error| CliError::OutputIo(error.to_string());

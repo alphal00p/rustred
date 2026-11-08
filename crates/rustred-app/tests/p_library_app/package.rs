@@ -1131,16 +1131,14 @@ fn a_payload_its_record_does_not_describe_is_refused() {
                         .slots
                         .len()
         })
-        .map(|p| p.id.0);
-    if let Some(other) = other {
-        let result = edit_owner("custom-family", &|owner, _| {
+        .map(|p| p.id.0)
+        .expect("another presentation of three lines");
+    malformed(
+        edit_owner("custom-family", &|owner, _| {
             owner["presentation"] = other.into()
-        });
-        match result {
-            Err(PError::MalformedLibrary(_)) => {}
-            other => panic!("a payload on another presentation loaded: {other:?}"),
-        }
-    }
+        }),
+        "bound to another family",
+    );
     // The residual terminal dropped from the owner.
     let result = edit_owner("custom-residual", &|owner, _| {
         owner["terminals"] = serde_json::json!([])
@@ -1520,10 +1518,7 @@ fn a_disk_step_cache_of_the_assembled_scope_three_program_serves_the_loaded_one(
     assert_eq!(replay.terms, first.terms);
     assert_eq!(replay.nonzero_conditions, first.nonzero_conditions);
     assert_eq!(progress.step_cache_misses, 0, "{progress:?}");
-    assert!(
-        progress.step_cache_hits > 0 || reopened.tail_statistics().is_some(),
-        "{progress:?}"
-    );
+    assert!(progress.step_cache_hits > 0, "{progress:?}");
 }
 
 /// The real Custom payloads and the scope 1-3 layer fail closed: the NO and
