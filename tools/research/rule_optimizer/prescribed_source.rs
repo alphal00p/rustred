@@ -875,8 +875,10 @@ powers = [1]
         let (bytes, mut r) = fixture();
         let (_, original) = produce::<1>(&bytes, &r, true).unwrap();
         let p = CandidateOwnerLoadLimits::default();
+        // The native default bundle cap is usize::MAX since 42bae6e0, above
+        // this tool's explicit 1 GiB ceiling; the fixture is far smaller.
         r["owner_load_limits"] = json!({
-            "max_bundle_bytes":p.bundle.max_bundle_bytes,
+            "max_bundle_bytes":p.bundle.max_bundle_bytes.min(rustred_app::MAX_CANDIDATE_BUNDLE_BYTES),
             "max_total_input_bytes":p.max_total_input_bytes,
             "max_total_coefficient_bytes":p.bundle.max_total_coefficient_bytes,
             "max_collection_entries":p.bundle.max_collection_entries,
