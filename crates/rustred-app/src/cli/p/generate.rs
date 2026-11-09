@@ -251,6 +251,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             n_cores: arguments.threads,
             budget: arguments.budget,
             lp_given,
+            fallthrough: None,
         };
         let (payload, report) =
             generate_custom_owner_with_report(presentation, &options).map_err(failed)?;

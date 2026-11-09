@@ -10,6 +10,7 @@ mod eps;
 mod iface4;
 mod package;
 mod perf;
+mod portfolio;
 mod twosided;
 
 /// The app side of the frozen interfaces (plan M2 section 4), public path
