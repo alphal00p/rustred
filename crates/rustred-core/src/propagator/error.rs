@@ -94,7 +94,17 @@ impl fmt::Display for PError {
     }
 }
 
-impl std::error::Error for PError {}
+/// The engine and transport failures keep their cause, so a refused resource
+/// budget (a cancelled request) stays recognisable through the chain.
+impl std::error::Error for PError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Engine(error) => Some(error),
+            Self::Transport(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<ReductionError> for PError {
     fn from(error: ReductionError) -> Self {
