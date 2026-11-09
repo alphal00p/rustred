@@ -230,7 +230,7 @@ fn the_lane_program_factory_rebuilds_every_owner_and_fails_closed() {
         lane_program(library, &with_payload),
         Err(PError::MalformedLibrary(_))
     ));
-    for lane in [OwnerLane::Zero, OwnerLane::Diamond, OwnerLane::Product] {
+    for lane in [OwnerLane::Zero, OwnerLane::Product] {
         let mut no_program = sp.clone();
         no_program.lane = lane;
         assert!(matches!(
@@ -238,6 +238,13 @@ fn the_lane_program_factory_rebuilds_every_owner_and_fails_closed() {
             Err(PError::MalformedLibrary(_))
         ));
     }
+    // The Diamond lane has a program (M3-T5b): triangle roles break its contract.
+    let mut diamond = triangle.clone();
+    diamond.lane = OwnerLane::Diamond;
+    assert!(matches!(
+        lane_program(library, &diamond),
+        Err(PError::Contract(_))
+    ));
     let mut custom = triangle.clone();
     custom.lane = OwnerLane::Custom;
     custom.roles = LaneRoles::None;
