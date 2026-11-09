@@ -695,6 +695,14 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         println!("{row}");
     }
     check_owners_tsv(assembled);
+    // The staged STAGE 1 package (`rustred p-package --max-loops 4`), when
+    // named, is this program.
+    if std::env::var_os("RUSTRED_P_LIBRARY_1_4").is_some() {
+        assert_eq!(
+            p_library_differences(library, &staged_package()).unwrap(),
+            Vec::<String>::new()
+        );
+    }
     check_inventory(assembled);
 }
 
