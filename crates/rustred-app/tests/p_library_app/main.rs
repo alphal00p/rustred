@@ -5,6 +5,7 @@ mod basis;
 mod cli;
 mod custom;
 mod eps;
+mod iface4;
 mod package;
 mod twosided;
 

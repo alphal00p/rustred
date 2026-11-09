@@ -38,6 +38,12 @@ pub enum PError {
     Transport(integral_transport::Error),
     Generation(String),
     Engine(ReductionError),
+    /// A generation job ran out of its budget (M3-I1, plan M3 D-M3-4):
+    /// `resource` is `"time"` or `"rss"`; nothing of the job is kept.
+    BudgetExceeded {
+        resource: &'static str,
+        detail: String,
+    },
 }
 
 impl fmt::Display for PError {
@@ -81,6 +87,9 @@ impl fmt::Display for PError {
             Self::Transport(error) => write!(formatter, "transport: {error}"),
             Self::Generation(detail) => write!(formatter, "generation: {detail}"),
             Self::Engine(error) => write!(formatter, "engine: {error}"),
+            Self::BudgetExceeded { resource, detail } => {
+                write!(formatter, "{resource} budget exceeded: {detail}")
+            }
         }
     }
 }

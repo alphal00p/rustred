@@ -1217,6 +1217,7 @@ impl<const N: usize> CustomStep<N> {
                 &mut Vec::new(),
                 &mut ReductionRequest::default(),
                 &mut ReductionStatistics::default(),
+                &ReductionLimits::default(),
             );
             match applied {
                 Ok(AppliedOwnerStep::Terminal | AppliedOwnerStep::Applied(_)) => {}
@@ -1261,11 +1262,11 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         OwnerLane::Custom
     }
 
-    /// One rule application. Limits: the rule evaluator runs under the
-    /// candidate owner context's `ReductionLimits::default()`, fixed at build
-    /// (as the application's candidate loader does), not under `cx.limits`;
-    /// `apply_prepared_owner` takes no limits of its own. The engine applies
-    /// the request's limits to everything after the step.
+    /// One rule application, evaluated under the request's limits
+    /// (`cx.limits`, M3-I1; with `ReductionLimits::default()` exactly as
+    /// before). Preparing a chart on its first step still runs under the
+    /// owner context's build-time `ReductionLimits::default()`, so a prepared
+    /// chart does not depend on which request prepared it.
     fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
         self.check_key(key.presentation, key.powers)?;
         let class = cx.owner.spec.class;
@@ -1282,6 +1283,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             &mut conditions,
             &mut request,
             &mut work,
+            cx.limits,
         )
         .map_err(|error| step_error(class, error))?;
         let mut out = PStepOut {
