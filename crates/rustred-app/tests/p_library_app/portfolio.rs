@@ -44,6 +44,9 @@ const T075P1: &str = include_str!("t075/T075p1.sym");
 const T075P1_SLOTS: [usize; 14] = [3, 5, 1, 4, 0, 8, 2, 6, 7, 12, 13, 11, 9, 10];
 /// The RS set: `rules_study/ko4/T075/ko4-dump/OUT.table.jsonl` (table_dump.v1).
 const RS_TABLE_ENV: &str = "RUSTRED_T075P1_RS_TABLE";
+/// Points whose value (not only the difference) is reduced, to show that the
+/// values compared are not all zero.
+const SAMPLE: usize = 20;
 /// Values of `d` that tell a pole at one `d` from a pole at every `d`.
 const GENERIC_DS: [(i64, i64); 2] = [(10_007, 2_003), (20_011, 4_001)];
 
@@ -341,6 +344,20 @@ impl Parser<'_> {
 }
 
 impl Expr {
+    /// The numerator of the coefficient vanishes at `n` for every `d` (three
+    /// generic values; Symbolica prints a rational function as `num/den`).
+    fn numerator_vanishes(&self, n: &[i64]) -> bool {
+        let numerator = match self {
+            Expr::Quotient(numerator, _) => numerator,
+            other => other,
+        };
+        (GENERIC_DS.iter().chain([&(30_011, 6_007)])).all(|&g| {
+            numerator
+                .eval(n, &Rational::from(g))
+                .is_some_and(|v| v.is_zero())
+        })
+    }
+
     /// The value at free indices `n` and `d`; `None` at a pole.
     fn eval(&self, n: &[i64], d: &Rational) -> Option<Rational> {
         Some(match self {
@@ -507,39 +524,48 @@ impl RuleSet {
             let (rule, n) = (rules.iter())
                 .find_map(|rule| rule.free_indices(&key, d).map(|n| (rule, n)))
                 .unwrap_or_else(|| panic!("no rule covers {key:?}"));
-            let terms: Option<Vec<(Vec<i64>, Rational)>> = (rule.rhs.iter())
-                .map(|(powers, coefficient)| {
-                    let child = (powers.iter().enumerate())
-                        .map(|(slot, power)| match *power {
-                            Pow::Free(offset) => n[slot] + offset,
-                            Pow::Fixed(fixed) => fixed,
-                        })
-                        .collect();
-                    let factor = coefficient.eval(&n, d);
-                    // A pole at every d is a rule applied off its domain.
+            // As the M2 evaluator (twosided.rs, `DynRule::apply`): a term whose
+            // numerator vanishes at `n` is absent; a pole at this `d` voids the
+            // points; a pole at every `d` is a rule applied off its domain.
+            let mut terms = Vec::with_capacity(rule.rhs.len());
+            let mut pole = false;
+            for (powers, coefficient) in &rule.rhs {
+                let factor = coefficient.eval(&n, d);
+                if !factor.as_ref().is_some_and(|f| !f.is_zero())
+                    && coefficient.numerator_vanishes(&n)
+                {
+                    continue;
+                }
+                let Some(factor) = factor else {
                     assert!(
-                        factor.is_some()
-                            || GENERIC_DS
-                                .iter()
-                                .any(|&g| { coefficient.eval(&n, &Rational::from(g)).is_some() }),
+                        (GENERIC_DS.iter())
+                            .any(|&g| coefficient.eval(&n, &Rational::from(g)).is_some()),
                         "{key:?}: a coefficient with a pole at every d"
                     );
-                    Some((child, factor?))
-                })
-                .collect();
-            let Some(terms) = terms else {
-                poles.extend(value.keys());
-                continue;
-            };
-            for (child, factor) in terms {
+                    pole = true;
+                    break;
+                };
+                let child: Vec<i64> = (powers.iter().enumerate())
+                    .map(|(slot, power)| match *power {
+                        Pow::Free(offset) => n[slot] + offset,
+                        Pow::Fixed(fixed) => fixed,
+                    })
+                    .collect();
                 // Every step descends strictly in the rule set's order.
                 assert!(
                     self.order.complexity_key(&child).unwrap() < complexity,
                     "{key:?} -> {child:?} does not descend"
                 );
                 if !factor.is_zero() {
-                    push(&mut frontier, child, &value, &factor);
+                    terms.push((child, factor));
                 }
+            }
+            if pole {
+                poles.extend(value.keys());
+                continue;
+            }
+            for (child, factor) in terms {
+                push(&mut frontier, child, &value, &factor);
             }
         }
         out
@@ -703,7 +729,9 @@ fn lower_charts(
 }
 
 /// A deterministic random key of the top support: lines at `1 +` dots (at
-/// most 2 in total), the eps line in `-2..=3`, ISPs at `-` rank (at most 2).
+/// most one), the eps line in `-2..=3`, ISPs at `-` rank (at most one): 324
+/// keys. (Two dots and rank two make the exact pass of the lower charts
+/// exceed 30 GB and an hour, run-t075c-5.)
 fn random_key(state: &mut u64, presentation: &Presentation) -> Vec<i64> {
     let mut next = |bound: usize| {
         *state = state
@@ -724,10 +752,10 @@ fn random_key(state: &mut u64, presentation: &Presentation) -> Vec<i64> {
             Slot::Isp(_) => isps.push(slot),
         }
     }
-    for _ in 0..next(3) {
+    for _ in 0..next(2) {
         key[lines[next(lines.len())]] += 1;
     }
-    for _ in 0..next(3) {
+    for _ in 0..next(2) {
         key[isps[next(isps.len())]] -= 1;
     }
     key
@@ -812,12 +840,12 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let zero = |key: &[i64]| zeros.contains(&chart_of(key));
     let never = |_: &[i64]| false;
 
-    // Denominators near 1000: no small linear factor of a coefficient
+    // Prime denominators near 100: no small linear factor of a coefficient
     // vanishes there (37/10 voided 68 of the 200 points in a first run).
     let ds = [
-        Rational::from((3701, 1009)),
-        Rational::from((4127, 1013)),
-        Rational::from((3911, 1019)),
+        Rational::from((373, 101)),
+        Rational::from((421, 103)),
+        Rational::from((397, 107)),
     ];
     let mut state = 0x7075_c0de_u64;
     let mut keys = Vec::new();
@@ -831,7 +859,7 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let unit = |point: usize| BTreeMap::from([(point, Rational::one())]);
     // One value of d: the points without a pole, each with its masters
     // nonzero or not and its exits equal or not.
-    let compare = |d: &Rational| -> Vec<(usize, bool, bool)> {
+    let compare = |d: &Rational| -> Vec<(usize, Option<bool>, bool)> {
         let clock = Instant::now();
         let mut poles = BTreeSet::new();
         let starts: Vec<_> = (keys.iter().enumerate())
@@ -849,16 +877,27 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
                 }
             }
         }
-        // One pass of the lower charts for both sides: RS point p is `points + p`.
+        // One pass of the lower charts: component p is ours minus RS of point
+        // p (it must vanish), component `points + p` ours alone for the first
+        // SAMPLE points (they must not all vanish).
         let mut lower_start: BTreeMap<Vec<i64>, Vector> = ours_exits.clone();
         for (e, value) in &rs_exits {
-            let shifted = value
-                .iter()
+            add_scaled(
+                lower_start.entry(e.clone()).or_default(),
+                value,
+                &-Rational::one(),
+            );
+        }
+        let same: Vec<bool> = (0..points)
+            .map(|point| point_terms(&lower_start, point).is_empty())
+            .collect();
+        for (e, value) in &ours_exits {
+            let sample: Vector = (value.range(..SAMPLE))
                 .map(|(&p, c)| (points + p, c.clone()))
                 .collect();
             add_scaled(
                 lower_start.entry(e.clone()).or_default(),
-                &shifted,
+                &sample,
                 &Rational::one(),
             );
         }
@@ -873,13 +912,14 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
         poles.extend(lower_poles.iter().map(|index| index % points));
         let mut compared = Vec::new();
         for point in (0..points).filter(|point| !poles.contains(point)) {
-            let (a, b) = (
-                point_terms(&masters, point),
-                point_terms(&masters, points + point),
+            let difference = point_terms(&masters, point);
+            assert!(
+                difference.is_empty(),
+                "T075c {:?} at d = {d}: ours - RS = {difference:?}",
+                keys[point]
             );
-            assert_eq!(a, b, "T075c {:?} at d = {d}", keys[point]);
-            let same = point_terms(&ours_exits, point) == point_terms(&rs_exits, point);
-            compared.push((point, !a.is_empty(), same));
+            let value = (point < SAMPLE).then(|| !point_terms(&masters, points + point).is_empty());
+            compared.push((point, value, same[point]));
         }
         eprintln!(
             "T075c d = {d}: {} exits ours, {} RS, {} lower keys at the masters, {} points with a pole; {reduced:.1} s + {:.1} s",
@@ -897,11 +937,12 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
         threads.into_iter().map(|t| t.join().unwrap()).collect()
     });
     let mut pole_free = vec![0; points];
-    let (mut evaluations, mut nonzero, mut same_exits) = (0, 0, 0);
+    let (mut evaluations, mut sampled, mut nonzero, mut same_exits) = (0, 0, 0, 0);
     for &(point, value, same) in compared.iter().flatten() {
         pole_free[point] += 1;
         evaluations += 1;
-        nonzero += usize::from(value);
+        sampled += usize::from(value.is_some());
+        nonzero += usize::from(value == Some(true));
         same_exits += usize::from(same);
     }
     for (key, &at) in keys.iter().zip(&pole_free) {
@@ -913,7 +954,7 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
         );
     }
     eprintln!(
-        "T075c vs RS T075p1: {points} points, {evaluations} evaluations equal ({same_exits} with the same exits, {nonzero} nonzero)"
+        "T075c vs RS T075p1: {points} points, {evaluations} evaluations equal ({same_exits} with the same exits; {nonzero} of {sampled} sampled values nonzero)"
     );
-    assert!(nonzero * 2 > evaluations, "most values are nonzero");
+    assert!(nonzero * 2 > sampled, "most values are nonzero");
 }
