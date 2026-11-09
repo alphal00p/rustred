@@ -48,7 +48,7 @@ use rustred::propagator::{NodeIndex, OwnerClassId, PTerminalId, PresentationId};
 use rustred::reduction::ReductionLimits;
 
 use super::CustomPayloads;
-use super::generate::{CustomOwnerPayload, generate_custom_owner};
+use super::generate::{CustomOwnerPayload, custom_owner_lp_count, generate_custom_owner};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssembleOptions {
@@ -130,17 +130,140 @@ impl Clock {
 pub type TriangleCheck<'a> = &'a dyn Fn(&Presentation, &TriangleRoles) -> Result<(), TemplateError>;
 
 /// The library program of scope `1..=max_loops` of `families`, see the module
-/// docs. `Provided` payloads are used verbatim, by class label.
+/// docs. `Provided` payloads are used verbatim, by class label, with the LP
+/// count their record states (see [`assemble_library_recounted`]).
 pub fn assemble_library(
     families: &PFamiliesFile,
     max_loops: u8,
     custom: CustomPayloads,
     options: &AssembleOptions,
 ) -> Result<AssembledLibrary, PError> {
-    let extract = |presentation: &Presentation, roles: &TriangleRoles| {
-        TriangleTemplate::extract(presentation, roles).map(|_| ())
+    assemble_library_with(families, max_loops, custom, options, &triangle_template)
+}
+
+fn triangle_template(
+    presentation: &Presentation,
+    roles: &TriangleRoles,
+) -> Result<(), TemplateError> {
+    TriangleTemplate::extract(presentation, roles).map(|_| ())
+}
+
+/// Which `Provided` Custom payloads [`assemble_library_recounted`] recounts
+/// (M3-I1, I-2; the follow-up of departure PSF6): an owner whose support has
+/// at most `max_lines` lines, or every owner. The default filter is
+/// [`Self::from_env`]: the owners of at most [`Self::DEFAULT_MAX_LINES`]
+/// lines (seconds each), every owner only when `P_LP_RECOUNT_ALL=1` (a 10 or
+/// 11 line count takes about 24 min and 3.4 GB, and M3-T15's count is the
+/// one full count, plan M3 D-M3-3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecountProvidedLp {
+    max_lines: Option<u32>,
+}
+
+impl RecountProvidedLp {
+    pub const DEFAULT_MAX_LINES: u32 = 9;
+    pub const ALL_VARIABLE: &'static str = "P_LP_RECOUNT_ALL";
+
+    /// The owners of at most `max_lines` lines.
+    pub fn up_to_lines(max_lines: u32) -> Self {
+        Self {
+            max_lines: Some(max_lines),
+        }
+    }
+
+    /// The filter of this process: [`Self::for_variable`] of `P_LP_RECOUNT_ALL`.
+    pub fn from_env() -> Self {
+        Self::for_variable(std::env::var(Self::ALL_VARIABLE).ok().as_deref())
+    }
+
+    /// Every owner for the value `"1"`, else the owners of at most
+    /// [`Self::DEFAULT_MAX_LINES`] lines.
+    pub fn for_variable(value: Option<&str>) -> Self {
+        match value {
+            Some("1") => Self { max_lines: None },
+            _ => Self::up_to_lines(Self::DEFAULT_MAX_LINES),
+        }
+    }
+
+    /// `None`: every owner.
+    pub fn max_lines(&self) -> Option<u32> {
+        self.max_lines
+    }
+
+    pub fn recounts(&self, lines: u32) -> bool {
+        self.max_lines.is_none_or(|max| lines <= max)
+    }
+}
+
+/// The recount of one `Provided` Custom payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LpRecount {
+    pub label: String,
+    /// Lines of the owner support (eps axes included).
+    pub lines: u32,
+    /// The count of the payload's record.
+    pub stored: u32,
+    /// `None`: not recounted (more lines than the filter), the stored count is
+    /// trusted as the loader trusts it.
+    pub recounted: Option<u32>,
+}
+
+/// Recount the LP masters of the support of a `Provided` payload of the owner
+/// `label` on `presentation` with [`custom_owner_lp_count`], as generation
+/// counts them, when `recount` takes an owner of its line count. A count other
+/// than the record's is refused ([`PError::MalformedLibrary`]): the record is
+/// not the payload's, and the false-knock-out guard would check a count nobody
+/// derived.
+pub fn recount_provided_lp(
+    label: &str,
+    presentation: &Presentation,
+    payload: &CustomOwnerPayload,
+    recount: &RecountProvidedLp,
+) -> Result<LpRecount, PError> {
+    let support = inspect_custom_payload(&payload.bytes)?.support;
+    let lines = support.count_ones();
+    let stored = payload.meta.lp_count;
+    let mut outcome = LpRecount {
+        label: label.to_owned(),
+        lines,
+        stored,
+        recounted: None,
     };
-    assemble_library_with(families, max_loops, custom, options, &extract)
+    if recount.recounts(lines) {
+        let counted = custom_owner_lp_count(presentation, support)?;
+        if counted != stored {
+            return Err(PError::MalformedLibrary(format!(
+                "the Provided Custom owner {label} records LP {stored}, its support {support:#x} \
+                 ({lines} lines) counts LP {counted}"
+            )));
+        }
+        outcome.recounted = Some(counted);
+    }
+    Ok(outcome)
+}
+
+/// [`assemble_library`] that recounts the LP of every `Provided` payload that
+/// `recount` takes ([`recount_provided_lp`]) before it builds the owner, and
+/// refuses a count other than the record's; with `Generate` payloads it is
+/// [`assemble_library`] (generation counts). Returns the recounts in class
+/// order. The loader never recounts: LP is not re-derived at load.
+pub fn assemble_library_recounted(
+    families: &PFamiliesFile,
+    max_loops: u8,
+    custom: CustomPayloads,
+    options: &AssembleOptions,
+    recount: &RecountProvidedLp,
+) -> Result<(AssembledLibrary, Vec<LpRecount>), PError> {
+    let mut recounts = Vec::new();
+    let assembled = assemble(
+        families,
+        max_loops,
+        custom,
+        options,
+        &triangle_template,
+        Some((recount, &mut recounts)),
+    )?;
+    Ok((assembled, recounts))
 }
 
 /// [`assemble_library`] with another Triangle template check: tests of the
@@ -152,6 +275,17 @@ pub fn assemble_library_with(
     custom: CustomPayloads,
     options: &AssembleOptions,
     triangle: TriangleCheck<'_>,
+) -> Result<AssembledLibrary, PError> {
+    assemble(families, max_loops, custom, options, triangle, None)
+}
+
+fn assemble(
+    families: &PFamiliesFile,
+    max_loops: u8,
+    custom: CustomPayloads,
+    options: &AssembleOptions,
+    triangle: TriangleCheck<'_>,
+    mut recount: Option<(&RecountProvidedLp, &mut Vec<LpRecount>)>,
 ) -> Result<AssembledLibrary, PError> {
     let mut clock = Clock(Instant::now(), Vec::new());
     let context = CoefficientContext::try_new(["d"]).map_err(|_| PError::ContextMismatch)?;
@@ -270,6 +404,9 @@ pub fn assemble_library_with(
                 &custom,
                 &label,
                 &presentations[owner_presentation.0 as usize],
+                recount
+                    .as_mut()
+                    .map(|(filter, recounts)| (*filter, &mut **recounts)),
             )?;
             custom_owner(&mut builder, &mut spec, &payload)?;
             payloads.insert(label, payload);
@@ -332,19 +469,27 @@ fn too_many() -> PError {
     PError::MalformedLibrary("too many presentations".to_owned())
 }
 
-/// The payload of the Custom owner `label`: generated, or provided verbatim.
+/// The payload of the Custom owner `label`: generated, or provided verbatim
+/// (its LP recounted under `recount`, [`recount_provided_lp`]).
 fn custom_payload(
     custom: &CustomPayloads,
     label: &str,
     presentation: &Presentation,
+    recount: Option<(&RecountProvidedLp, &mut Vec<LpRecount>)>,
 ) -> Result<CustomOwnerPayload, PError> {
     match custom {
         CustomPayloads::Generate(options) => generate_custom_owner(presentation, options),
-        CustomPayloads::Provided(payloads) => payloads.get(label).cloned().ok_or_else(|| {
-            PError::MalformedLibrary(format!(
-                "no payload is provided for the Custom owner {label}"
-            ))
-        }),
+        CustomPayloads::Provided(payloads) => {
+            let payload = payloads.get(label).cloned().ok_or_else(|| {
+                PError::MalformedLibrary(format!(
+                    "no payload is provided for the Custom owner {label}"
+                ))
+            })?;
+            if let Some((filter, recounts)) = recount {
+                recounts.push(recount_provided_lp(label, presentation, &payload, filter)?);
+            }
+            Ok(payload)
+        }
     }
 }
 

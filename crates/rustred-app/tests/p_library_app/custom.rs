@@ -377,6 +377,7 @@ fn hand_library(
             let options = CustomOwnerOptions {
                 support: Some(sector),
                 n_cores: 1,
+                ..CustomOwnerOptions::default()
             };
             generate_custom_owner_with_report(&presentations[0], &options)
                 .unwrap_or_else(|error| panic!("support {sector:#x}: {error}"))

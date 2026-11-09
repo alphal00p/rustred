@@ -13,7 +13,7 @@ use super::evaluator::CandidateEvaluator;
 use super::owners::{DeferredCandidateOwnerPrograms, OwnerStep};
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
-use crate::reduction::{ReductionRequest, ReductionStatistics};
+use crate::reduction::{ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::OrderingPolicy;
 
 /// The outcome of one owner step.
@@ -35,6 +35,10 @@ pub(crate) enum AppliedOwnerStep {
 /// dispatch is keyed by it, and each chart of an eps owner is a sector of its
 /// own. Never pass the support with the forced axes (plan sec.3.4). A key of
 /// another chart is `InvalidInput`, as in the routed Apply arm.
+///
+/// The rule is evaluated under the caller's `limits` (the request's, M3-I1),
+/// not the owner context's build-time limits; preparing the owner on first
+/// use still runs under the context's.
 pub(crate) fn apply_prepared_owner<const N: usize>(
     programs: &DeferredCandidateOwnerPrograms<N>,
     sector: &[bool; N],
@@ -42,6 +46,7 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
     conditions: &mut Vec<Coefficient>,
     request: &mut ReductionRequest,
     work: &mut ReductionStatistics,
+    limits: &ReductionLimits,
 ) -> Result<AppliedOwnerStep, CandidateReductionError> {
     let chart: [bool; N] =
         std::array::from_fn(|slot| key.powers().get(slot).copied().unwrap_or(0) > 0);
@@ -52,7 +57,7 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
     }
     let context = programs.context();
     let shared = &context.shared;
-    let limits = context.limits;
+    let limits = *limits;
     let owner = programs.owner(sector)?.ok_or_else(|| {
         CandidateReductionError::InvalidInput("the owner sector has no prepared program".into())
     })?;
@@ -223,6 +228,7 @@ mod tests {
                 &mut conditions,
                 &mut request,
                 &mut work,
+                &ReductionLimits::default(),
             )
             .unwrap()
         };
@@ -245,6 +251,7 @@ mod tests {
                     &mut conditions,
                     &mut request,
                     &mut work,
+                    &ReductionLimits::default(),
                 ),
                 Err(CandidateReductionError::InvalidInput(_))
             ));
@@ -293,6 +300,7 @@ mod tests {
                 &mut conditions,
                 &mut request,
                 &mut work,
+                &ReductionLimits::default(),
             )
             .unwrap();
             assert!(matches!(step, AppliedOwnerStep::Applied(_)));
@@ -337,6 +345,7 @@ mod tests {
                 &mut conditions,
                 &mut request,
                 &mut work,
+                &ReductionLimits::default(),
             )
             .unwrap(),
             AppliedOwnerStep::Terminal
@@ -349,6 +358,7 @@ mod tests {
                 &mut conditions,
                 &mut request,
                 &mut work,
+                &ReductionLimits::default(),
             ),
             Err(CandidateReductionError::InvalidInput(_))
         ));

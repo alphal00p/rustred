@@ -32,7 +32,10 @@ use rustred::propagator::tag::GammaTag;
 use rustred::propagator::{OwnerClassId, P_LIBRARY_SCHEMA, PTerminalId, p_versions};
 
 use super::CustomPayloads;
-use super::assemble::{AssembleOptions, AssembledLibrary, assemble_library};
+use super::assemble::{
+    AssembleOptions, AssembledLibrary, LpRecount, RecountProvidedLp, assemble_library,
+    assemble_library_recounted,
+};
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CustomRecord, EdgeMapRecord, FAMILIES_FILE, FamilyFileRecord,
     FilesRecord, LAYER_FILE, LIBRARY_FILE, LaneRecord, LibraryManifest, NodeRecord, OwnerRecord,
@@ -66,6 +69,21 @@ pub fn assemble_p_package(
     options: &AssembleOptions,
 ) -> Result<AssembledLibrary, PError> {
     attach_basis_layer(assemble_library(families, max_loops, custom, options)?)
+}
+
+/// [`assemble_p_package`] with the LP recount of the `Provided` payloads
+/// that `recount` takes (`assemble_library_recounted`, M3-I1): `rustred
+/// p-package --reuse-custom <dir> --recount-lp`.
+pub fn assemble_p_package_recounted(
+    families: &PFamiliesFile,
+    max_loops: u8,
+    custom: CustomPayloads,
+    options: &AssembleOptions,
+    recount: &RecountProvidedLp,
+) -> Result<(AssembledLibrary, Vec<LpRecount>), PError> {
+    let (assembled, recounts) =
+        assemble_library_recounted(families, max_loops, custom, options, recount)?;
+    Ok((attach_basis_layer(assembled)?, recounts))
 }
 
 /// The Symbolica save format of a Custom payload (a candidate bundle): the
