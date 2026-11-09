@@ -193,6 +193,9 @@ fn exact() -> ExactAlgebraLimits {
 
 type Input = (PresentationId, IntegralKey, Coefficient);
 
+/// A weighted sum of keys of one presentation.
+type Terms = Vec<(Vec<i64>, Rational)>;
+
 fn key(powers: &[i64]) -> IntegralKey {
     IntegralKey::try_new(powers.iter().copied()).unwrap()
 }
@@ -652,6 +655,12 @@ fn slot_factors(p: &Presentation) -> Vec<(Vec<i64>, Vec<i64>)> {
 /// A line correspondence: source line slot -> target line slot.
 type Sigma = BTreeMap<usize, usize>;
 
+/// The visitor of [`line_maps`]'s search: `true` stops it.
+type Visit<'a> = dyn FnMut(&[(usize, i64)]) -> bool + 'a;
+
+/// A 4L top with the map and line correspondence that carry a key onto it.
+type Placement = (PresentationId, LoopMap, Sigma);
+
 /// Up to `limit` maps `phi` (unimodular, `q` fixed) that carry every line of
 /// `lines` (slots of a source with momentum rows `momenta`) onto a distinct
 /// line of `target` up to sign, the identity excluded when `exclude_identity`.
@@ -710,7 +719,7 @@ fn line_maps(
         tuple: &mut Vec<(usize, i64)>,
         loops: usize,
         targets: &[(usize, Vec<i64>)],
-        visit: &mut dyn FnMut(&[(usize, i64)]) -> bool,
+        visit: &mut Visit<'_>,
     ) -> bool {
         if tuple.len() == loops {
             return visit(tuple);
@@ -785,7 +794,7 @@ fn transport(
     map: &LoopMap,
     sigma: &Sigma,
     target: &Presentation,
-) -> Option<Vec<(Vec<i64>, Rational)>> {
+) -> Option<Terms> {
     let width = target.slots.len();
     let mut base = vec![0_i64; width];
     for (slot, &power) in powers.iter().enumerate().filter(|(_, power)| **power > 0) {
@@ -852,7 +861,7 @@ fn times(
 }
 
 /// The keys `base - exponents` of a numerator polynomial over denominators `base`.
-fn over(base: &[i64], polynomial: BTreeMap<Vec<i64>, Rational>) -> Vec<(Vec<i64>, Rational)> {
+fn over(base: &[i64], polynomial: BTreeMap<Vec<i64>, Rational>) -> Terms {
     (polynomial.into_iter())
         .map(|(exponents, weight)| {
             let powers = base.iter().zip(&exponents).map(|(b, e)| b - e).collect();
@@ -1315,7 +1324,8 @@ fn table_value(context: &CoefficientContext, text: &str, n: &[i64]) -> Option<Co
 /// table gate items 1-4 PASS; `rules_study/s5-tables/s5-dump/tables/
 /// T148.table.jsonl`): every rule's identity `I(target) = Sum_t c_t I(key_t)`
 /// at `P_VALIDATE4_T148_POINTS` random points of its domain (default 2; free
-/// axes small: lines 1 or 2, numerators 0 or -1; the
+/// axes small: lines 1 or 2, numerators -1 or -2 (a free numerator axis at 0
+/// would raise an exit term onto a sector of no 4L top); the
 /// chart, its fixed values, off its exception branches and off coefficient
 /// poles) holds through the library: the table's family (`gram(q,q,1)`) is
 /// carried onto bubu's owner presentation (`q^2 = -1`) by a unimodular map of
@@ -1428,7 +1438,7 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                 .map(|axis| match rule["fixed"][axis].as_i64() {
                     Some(value) => value,
                     None if chart_guards[axis] == "n>=1" => 1 + i64::from(rng.below(3) == 0),
-                    None => -i64::from(rng.below(3) == 0),
+                    None => -1 - i64::from(rng.below(4) == 0),
                 })
                 .collect();
             let excepted = rule["exceptions"].as_array().unwrap().iter().any(|branch| {
@@ -1455,9 +1465,8 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     let one = context.one();
     // Exit keys off bubu's top: a 4L top and map per denominator set, found once.
     let four = tops(library, 4);
-    let other_tops: Mutex<HashMap<Vec<usize>, Option<(PresentationId, LoopMap, Sigma)>>> =
-        Mutex::new(HashMap::new());
-    let elsewhere = |powers: &[i64]| -> Option<(PresentationId, Vec<(Vec<i64>, Rational)>)> {
+    let other_tops: Mutex<HashMap<Vec<usize>, Option<Placement>>> = Mutex::new(HashMap::new());
+    let elsewhere = |powers: &[i64]| -> Option<(PresentationId, Terms)> {
         let lines: Vec<usize> = (0..powers.len()).filter(|&s| powers[s] > 0).collect();
         let found = other_tops.lock().unwrap().get(&lines).cloned();
         let found = found.unwrap_or_else(|| {
@@ -1492,14 +1501,13 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                     // Each integral of the identity is carried over on its own: onto bubu's top
                     // by the map of the table's lines, or, for an exit key whose extra line is
                     // no line of that top, onto any 4L top whose lines take its denominators.
-                    let carried: Option<Vec<(PresentationId, Vec<(Vec<i64>, Rational)>)>> = (terms
-                        .iter())
-                    .map(|(powers, _)| {
-                        transport(&momenta, powers, &map, &sigma, target)
-                            .map(|image| (presentation, image))
-                            .or_else(|| elsewhere(powers))
-                    })
-                    .collect();
+                    let carried: Option<Vec<(PresentationId, Terms)>> = (terms.iter())
+                        .map(|(powers, _)| {
+                            transport(&momenta, powers, &map, &sigma, target)
+                                .map(|image| (presentation, image))
+                                .or_else(|| elsewhere(powers))
+                        })
+                        .collect();
                     let Some(carried) = carried else {
                         off_top.fetch_add(1, Ordering::Relaxed);
                         continue;
@@ -1626,7 +1634,7 @@ fn lowered(
     products: &[(usize, usize)],
     q_sign: i64,
     weight: Rational,
-) -> Vec<(Vec<i64>, Rational)> {
+) -> Terms {
     let loops = usize::from(p.loops);
     let unit = |column: usize| {
         let mut row = vec![0_i64; loops + 1];
@@ -1706,7 +1714,7 @@ fn p0_spired_agrees_on_the_forcer_blind_crossed_owners() {
             label(library, class),
             p0.masters.len()
         );
-        let mut inputs: Vec<(Vec<(Vec<i64>, Rational)>, i64)> = Vec::new();
+        let mut inputs: Vec<(Terms, i64)> = Vec::new();
         for index in 0..count {
             let kept = (line_slots(p).into_iter())
                 .filter(|&s| support >> s & 1 == 1 && rng.below(5) != 0)
