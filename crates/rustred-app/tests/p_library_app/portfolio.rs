@@ -28,13 +28,11 @@ use rustred::propagator::custom::{
 };
 use rustred::propagator::error::PError;
 use rustred::propagator::families::P_FAMILIES_V1_JSON;
-use rustred::propagator::presentation::{
-    Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
-};
+use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use rustred::sector::{ComplexityKey, Mask, OrderingPolicy, zero};
 use rustred_app::propagator::generate::{
-    CustomOwnerFallthrough, CustomOwnerOptions, FallthroughOrder, custom_owner_nodes,
-    generate_custom_owner_with_report,
+    CustomOwnerFallthrough, CustomOwnerOptions, FallthroughOrder, GenerationBudget,
+    custom_owner_nodes, generate_custom_owner_with_report,
 };
 use rustred_app::{CandidateGenerationSession, FamilyCandidatesRequest, SectorFailurePolicy};
 use symbolica::domains::rational::Rational;
@@ -241,13 +239,14 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn parse(text: &str, slots: &[usize]) -> Expr {
+        let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
         let mut parser = Parser {
-            text: text.as_bytes(),
+            text: compact.as_bytes(),
             at: 0,
             slots,
         };
         let expr = parser.sum();
-        assert_eq!(parser.at, text.len(), "unparsed tail of {text:?}");
+        assert_eq!(parser.at, compact.len(), "unparsed tail of {text:?}");
         expr
     }
 
@@ -393,7 +392,12 @@ fn mask_bits(mask: u64, arity: usize) -> Vec<bool> {
     (0..arity).map(|slot| mask >> slot & 1 == 1).collect()
 }
 
-fn order_policy(descriptor: OrderDescriptor) -> OrderingPolicy {
+/// The default two-sided order on the eps axes `two_sided` with the support
+/// and coordinate priorities `priority`.
+fn slot_order_policy(two_sided: Vec<bool>, priority: &[usize]) -> OrderingPolicy {
+    let mut descriptor = OrderDescriptor::spired_uncut_two_sided(two_sided);
+    descriptor.support_priority = priority.to_vec();
+    descriptor.coordinate_priority = priority.to_vec();
     OrderingPolicy::try_programmed(CompiledOrder::compile(descriptor, Limits::default()).unwrap())
         .unwrap()
 }
@@ -463,7 +467,9 @@ impl RuleSet {
         type Frontier = BTreeMap<(ComplexityKey, Vec<i64>), Rational>;
         let push = |frontier: &mut Frontier, key: Vec<i64>, value: Rational| {
             let complexity = self.order.complexity_key(&key).unwrap();
-            let entry = frontier.entry((complexity, key)).or_insert_with(Rational::zero);
+            let entry = frontier
+                .entry((complexity, key))
+                .or_insert_with(Rational::zero);
             *entry = &*entry + &value;
         };
         let mut frontier = Frontier::new();
@@ -525,16 +531,16 @@ fn rs_rule_set(table: &str, slots: &[usize]) -> RuleSet {
     }
     let two_sided: Vec<bool> = serde_json::from_value(header["two_sided_axes"].clone()).unwrap();
     let end = records.last().unwrap();
-    assert_eq!((end["type"].as_str(), end["rules"].as_u64()), (Some("end"), Some(360)));
+    assert_eq!(
+        (end["type"].as_str(), end["rules"].as_u64()),
+        (Some("end"), Some(360))
+    );
     assert_eq!(end["residuals"].as_u64(), Some(0));
 
     let mut eps = vec![false; arity];
     for (slot, &flag) in two_sided.iter().enumerate() {
         eps[slots[slot]] = flag;
     }
-    let mut descriptor = OrderDescriptor::spired_uncut_two_sided(eps);
-    descriptor.support_priority = slots.to_vec();
-    descriptor.coordinate_priority = slots.to_vec();
 
     let key = |text: &str| -> Vec<Pow> {
         let inner = text.strip_prefix("I(").unwrap().strip_suffix(')').unwrap();
@@ -570,7 +576,12 @@ fn rs_rule_set(table: &str, slots: &[usize]) -> RuleSet {
         }
         charts.entry(chart).or_default().push(Rule {
             target,
-            equations: record["equations"].as_array().unwrap().iter().map(parse).collect(),
+            equations: record["equations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(parse)
+                .collect(),
             exclusions: (record["exceptions"].as_array().unwrap().iter())
                 .map(|branch| branch.as_array().unwrap().iter().map(parse).collect())
                 .collect(),
@@ -581,7 +592,7 @@ fn rs_rule_set(table: &str, slots: &[usize]) -> RuleSet {
     }
     assert_eq!(charts.values().map(Vec::len).sum::<usize>(), 360);
     RuleSet {
-        order: order_policy(descriptor),
+        order: slot_order_policy(eps, slots),
         charts,
         residuals: BTreeSet::new(),
     }
@@ -627,7 +638,8 @@ fn lower_charts(
     );
     let mut set = RuleSet::from_payload(generated.bundle(), arity);
     let forced = presentation.forced_axes();
-    let top = |chart: &Vec<bool>| (lines.iter()).all(|&slot| chart[slot] || forced >> slot & 1 == 1);
+    let top =
+        |chart: &Vec<bool>| (lines.iter()).all(|&slot| chart[slot] || forced >> slot & 1 == 1);
     set.charts.retain(|chart, _| !top(chart));
     (set, zeros)
 }
@@ -678,8 +690,13 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let presentation = presentation("T075c", &c);
     let arity = presentation.slots.len();
 
+    // Each attempt under a budget (M3-I1), as generation runs in M3.
     let options = CustomOwnerOptions {
         n_cores: 2,
+        budget: GenerationBudget {
+            max_seconds: Some(900.0),
+            max_rss_bytes: Some(8 << 30),
+        },
         fallthrough: Some(CustomOwnerFallthrough::default()),
         ..CustomOwnerOptions::default()
     };
@@ -713,15 +730,13 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     );
     let winner = attempts.last().unwrap();
     assert!(winner.refusal.is_none() && attempts.len() >= 2);
-    let provenance = format!(
-        "custom owner; L2 fall-through attempt {}: {}",
-        attempts.len() - 1,
-        winner.order
-    );
-    assert!(
-        (payload.bytes.windows(provenance.len())).any(|window| window == provenance.as_bytes()),
-        "{provenance}"
-    );
+    // The payload records the winning slot order: its order program.
+    let FallthroughOrder::Slots { priority, .. } = &winner.order else {
+        panic!("T075c closed on {}", winner.order);
+    };
+    let forced = presentation.forced_axes();
+    let order = slot_order_policy(mask_bits(forced, arity), priority);
+    assert_eq!(order.stable_id().to_string(), report.ordering);
     assert_eq!((report.lp_count, report.lp_given), (0, false));
     assert!(report.residual_keys.is_empty() && payload.meta.residuals == 0);
     assert_eq!(payload.meta.charts.len(), 2);
@@ -730,9 +745,10 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let table = std::fs::read_to_string(&rs_path).unwrap();
     let rs = rs_rule_set(&table, &slots);
     let (lower, zeros) = lower_charts(&presentation, &ours.order);
-    let forced = presentation.forced_axes();
     let top_lines: Vec<usize> = (0..arity)
-        .filter(|&slot| matches!(presentation.slots[slot], Slot::Line(_)) && forced >> slot & 1 == 0)
+        .filter(|&slot| {
+            matches!(presentation.slots[slot], Slot::Line(_)) && forced >> slot & 1 == 0
+        })
         .collect();
     let exit = |key: &[i64]| top_lines.iter().any(|&slot| key[slot] <= 0);
     let zero = |key: &[i64]| zeros.contains(&chart_of(key));
@@ -781,7 +797,12 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
             evaluations += 1;
             at += 1;
         }
-        assert!(at >= 2, "T075c {key:?}: poles at {} of {} values of d", 3 - at, ds.len());
+        assert!(
+            at >= 2,
+            "T075c {key:?}: poles at {} of {} values of d",
+            3 - at,
+            ds.len()
+        );
         points += 1;
     }
     eprintln!(

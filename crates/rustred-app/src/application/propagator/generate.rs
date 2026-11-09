@@ -28,10 +28,11 @@
 //! The first attempt that closes wins; each attempt is a complete generation
 //! under the guard and the budget, the LP count is taken once. Only a failed
 //! chart or an exceeded budget is retried: a guard refusal, a failed LP count
-//! or a payload that does not prepare fails at once. A winning attempt other
-//! than the first records its order in the payload: the order program, and
-//! the seed or source order in the bundle's `family_source` provenance. It is
-//! the whole of the fall-through in M3: no chart re-solve, no deeper search.
+//! or a payload that does not prepare fails at once. The payload of a winning
+//! slot order records it in its order program (`integral_order`, with the
+//! priorities); the report lists every attempt with its seed or source order
+//! and refusal ([`CustomOwnerReport::fallthrough`]). It is the whole of the
+//! fall-through in M3: no chart re-solve, no deeper search.
 //!
 //! A [`GenerationBudget`] bounds the whole call (LP count, solve,
 //! preparation) in wall time and process RSS (plan M3 D-M3-4, M3-I1): it is
@@ -166,7 +167,7 @@ impl std::fmt::Display for FallthroughOrder {
             Self::Source { index } => write!(
                 formatter,
                 "source order {index} ({})",
-                FALLTHROUGH_SOURCE_ORDERS[*index]
+                FALLTHROUGH_SOURCE_ORDERS.get(*index).unwrap_or(&"unknown")
             ),
         }
     }
@@ -470,7 +471,6 @@ pub fn generate_custom_owner_with_report(
         None => attempt(
             presentation,
             options,
-            0,
             &FallthroughOrder::Default,
             &mut AttemptTrace::default(),
         ),
@@ -478,19 +478,17 @@ pub fn generate_custom_owner_with_report(
     }
 }
 
-/// One generation under the budget of `options`, `order` being attempt
-/// `index` of a fall-through (0 without one).
+/// One generation under the budget of `options` and `order`.
 fn attempt(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
-    index: usize,
     order: &FallthroughOrder,
     trace: &mut AttemptTrace,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     match Budget::new(&options.budget)? {
-        None => generate(presentation, options, None, index, order, trace),
+        None => generate(presentation, options, None, order, trace),
         Some(budget) => (budget.resources)
-            .run(|| generate(presentation, options, Some(&budget), index, order, trace))
+            .run(|| generate(presentation, options, Some(&budget), order, trace))
             .map_err(|error| budget.attribute(error)),
     }
 }
@@ -594,8 +592,14 @@ fn source_order(index: usize, arity: usize) -> CandidateDiscoveryStrategy {
     let ones = || vec![1; arity];
     let priorities = match index {
         0 => vec![row(Terms, false), row(CoefficientMonomials, false)],
-        1 => vec![row(NegativeShifts { weights: ones() }, false), row(Terms, false)],
-        2 => vec![row(PositiveShifts { weights: ones() }, false), row(Terms, false)],
+        1 => vec![
+            row(NegativeShifts { weights: ones() }, false),
+            row(Terms, false),
+        ],
+        2 => vec![
+            row(PositiveShifts { weights: ones() }, false),
+            row(Terms, false),
+        ],
         3 => vec![row(Terms, true)],
         4 => vec![
             row(AbsoluteShifts { weights: ones() }, true),
@@ -626,10 +630,10 @@ fn generate_with_fallthrough(
     let given = options.lp_given.is_some();
     let mut counted = None;
     let mut attempts = Vec::with_capacity(orders.len());
-    for (index, order) in orders.into_iter().enumerate() {
+    for order in orders {
         let mut trace = AttemptTrace::default();
         let begun = Instant::now();
-        let outcome = attempt(presentation, &options, index, &order, &mut trace);
+        let outcome = attempt(presentation, &options, &order, &mut trace);
         let seconds = begun.elapsed().as_secs_f64();
         match outcome {
             Ok((payload, mut report)) => {
@@ -688,7 +692,6 @@ fn generate(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
     budget: Option<&Budget>,
-    index: usize,
     order: &FallthroughOrder,
     trace: &mut AttemptTrace,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
@@ -725,12 +728,7 @@ fn generate(
     trace.lp = Some((lp_count, lp_seconds));
     check()?;
 
-    // The bundle's `family_source` is its provenance: a fall-through attempt
-    // other than the first records its order there.
-    let mut request = FamilyCandidatesRequest::new(match order {
-        FallthroughOrder::Default => "custom owner".to_owned(),
-        order => format!("custom owner; L2 fall-through attempt {index}: {order}"),
-    });
+    let mut request = FamilyCandidatesRequest::new("custom owner");
     match order {
         FallthroughOrder::Default => {}
         FallthroughOrder::Slots { priority, .. } => {
