@@ -21,7 +21,9 @@
 //!   of the 4L tops reduce to zero exactly in `Q(d)`: `PLib(x) = Sum_j e_j
 //!   PLib(T_j)` for every row `x = Sum_j e_j T_j`. The rules-study oracles:
 //!   R_INT (the 8 integer 4L Custom owners keep one residual, the corner),
-//!   the knock-outs T148, T015, T041, T003, T016 keep none; P0 SpIRed in the
+//!   the knock-outs T148, T015, T041, T003, T016 keep none; the frozen T148
+//!   table and Astra's VERIFIED T015/T041 all-index rules replayed identity
+//!   by identity through the library; P0 SpIRed in the
 //!   owner family of the Forcer-blind crossed owners T147 (cross), T152 (no1),
 //!   T153 (no2), compared in the tag basis at two random `d`.
 //! - Arithmetic and threads (the one place in M3): Exact, ModularPolynomial
@@ -1572,6 +1574,353 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
         start.elapsed().as_secs_f64()
     );
     assert!(nonzero.load(Ordering::Relaxed) > 0);
+}
+
+/// A momentum of a rules-study routing (`"u-w"`, `"-z"`, `"Q-y"`) as a row
+/// over `(loop momenta.., Q)`.
+fn momentum_row(text: &str, names: &[String]) -> Vec<i64> {
+    let mut row = vec![0_i64; names.len() + 1];
+    let mut sign = 1;
+    for c in text.chars().filter(|c| !c.is_whitespace()) {
+        match c {
+            '+' => sign = 1,
+            '-' => sign = -1,
+            name => {
+                let index = if name == 'Q' {
+                    names.len()
+                } else {
+                    (names.iter().position(|n| n.chars().eq([name])))
+                        .unwrap_or_else(|| panic!("momentum {text:?}"))
+                };
+                row[index] += sign;
+                sign = 1;
+            }
+        }
+    }
+    row
+}
+
+/// A factor `alpha . a + b2 d/2 + g2/2` of a rule term at the point `n`
+/// (integer parts; the crossed line has the full exponent `n_c + units eps`,
+/// `eps = (4 - d)/2`) as `(constant, coefficient of d)`.
+fn rule_factor(factor: &Value, n: &[i64], crossed: usize, units: i64) -> (Rational, Rational) {
+    let b2 = factor["b2"].as_i64().unwrap();
+    let g2 = factor["g2"].as_i64().unwrap();
+    let (mut constant, mut slope) = (rational(g2, 2), rational(b2, 2));
+    for (i, alpha) in factor["alpha"].as_array().unwrap().iter().enumerate() {
+        let alpha = alpha.as_i64().unwrap();
+        constant = &constant + &rational(alpha * n[i], 1);
+        if i == crossed {
+            constant = &constant + &rational(2 * alpha * units, 1);
+            slope = &slope + &rational(-alpha * units, 2);
+        }
+    }
+    (constant, slope)
+}
+
+/// A guard `"<name> <op> <integer>"` of a rule piece.
+fn guard_holds(guard: &str, value: &dyn Fn(&str) -> i64) -> bool {
+    let parts: Vec<&str> = guard.split_whitespace().collect();
+    assert_eq!(parts.len(), 3, "guard {guard:?}");
+    let (left, right) = (value(parts[0]), parts[2].parse::<i64>().unwrap());
+    match parts[1] {
+        "<" => left < right,
+        "<=" => left <= right,
+        "==" => left == right,
+        ">=" => left >= right,
+        ">" => left > right,
+        op => panic!("guard {guard:?}: operator {op}"),
+    }
+}
+
+/// Astra's VERIFIED all-index rules of the 3L-eps knock-outs T015 (fastar3)
+/// and T041 (lastar5) (`RUSTRED_ASTRA_RULES`/T015.json, T041.json; rules
+/// study M2_M3_INPUTS sec.3, I-14): every stage `Z(a) = Sum_t kappa_t
+/// Prod num_t / Prod den_t Z(a + shift_t)` (a factor `alpha . a + b2 d/2 +
+/// g2/2` over the full exponents, the crossed line `a_c = n_c + eps`; terms
+/// with a vanishing numerator factor dropped first, as the rules say) at
+/// `P_VALIDATE4_RULE_POINTS` (default 10) random points of each stage's
+/// guard (lines 1 or 2, the crossed line -1..2, ISP exponents 0..-2) holds
+/// through the library on the owner's eps-node presentation: the rule's
+/// graph (its routing, Euclidean `Q^2 = +1`, literal dot-product ISPs) is
+/// carried onto the presentation by a unimodular map of its lines with the
+/// crossed line on the eps line, every integral times `(-1)^(sum n)` for the
+/// sign of `q^2` (as the T148 table), and the reduction of the difference is
+/// zero in `Q(d)`; the targets alone reduce to nonzero terms (counted).
+#[test]
+#[ignore = "slow: needs the scope 1-4 package and RUSTRED_ASTRA_RULES; optimised"]
+fn the_verified_t015_and_t041_rules_hold_through_the_library() {
+    let library = scope_four();
+    let context = library.coefficient_context();
+    let directory = PathBuf::from(
+        std::env::var_os("RUSTRED_ASTRA_RULES").expect("RUSTRED_ASTRA_RULES names the rules"),
+    );
+    let points: usize = setting("RULE_POINTS", 10);
+    let owners = custom_owners(library);
+    let mut rng = SplitMix::new(setting("RULE_SEED", 0x0418_0015_0041_u64));
+    let start = Instant::now();
+    let mut report = Vec::new();
+    for (name, owner_name) in [("T015", "fastar3"), ("T041", "lastar5")] {
+        let text = std::fs::read_to_string(directory.join(format!("{name}.json"))).unwrap();
+        let rule: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            (rule["target"].as_str(), rule["status"].as_str()),
+            (Some(name), Some("VERIFIED"))
+        );
+        let families = rule["families"].as_array().unwrap();
+        let edges = &families[0]["graph_edges"];
+        let k = &families[0]["targets"][0]["k"];
+        for family in families {
+            assert_eq!(&family["graph_edges"], edges, "{name}: one graph");
+            assert_eq!(&family["targets"][0]["k"], k, "{name}: one crossed line");
+        }
+        let edges: Vec<&str> = edges
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_str().unwrap())
+            .collect();
+        let lines = edges.len();
+        let k: Vec<i64> = k
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        let crossed = k.iter().position(|&v| v != 0).unwrap();
+        let units = k[crossed];
+        let basis = families
+            .iter()
+            .find_map(|f| f["isp_basis"].as_object())
+            .unwrap();
+        let loop_names: Vec<String> = (basis["loop_momenta"].as_array().unwrap().iter())
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect();
+        let routing: Vec<Vec<i64>> = match &basis["routing"] {
+            Value::Array(rows) => (rows.iter().enumerate())
+                .map(|(i, row)| {
+                    assert_eq!(row["line"].as_u64(), Some(i as u64));
+                    assert_eq!(row["edge"].as_str(), Some(edges[i]));
+                    momentum_row(row["momentum"].as_str().unwrap(), &loop_names)
+                })
+                .collect(),
+            Value::Object(rows) => (edges.iter())
+                .map(|edge| momentum_row(rows[*edge].as_str().unwrap(), &loop_names))
+                .collect(),
+            other => panic!("{name}: routing {other}"),
+        };
+        // The ISPs `left.right` in exponent order.
+        let isps: Vec<(String, String)> = match basis.get("isps") {
+            Some(isps) => (isps.as_array().unwrap().iter())
+                .map(|isp| {
+                    let definition = isp["definition"].as_str().unwrap().to_owned();
+                    (isp["name"].as_str().unwrap().to_owned(), definition)
+                })
+                .collect(),
+            None => {
+                let names = basis["names"].as_array().unwrap();
+                assert_eq!(names.len(), 1);
+                let definition = basis["definition"].as_str().unwrap().to_owned();
+                vec![(names[0].as_str().unwrap().to_owned(), definition)]
+            }
+        };
+        if let Some(order) = basis.get("order") {
+            let order: Vec<&str> = order
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(
+                order,
+                isps.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+            );
+        }
+        let exponents: Vec<String> = (basis
+            .get("exponents")
+            .or_else(|| basis.get("exponent_names")))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+        assert_eq!(exponents.len(), isps.len());
+        let mut momenta: Vec<(Vec<i64>, Vec<i64>)> = routing
+            .iter()
+            .map(|row| (row.clone(), row.clone()))
+            .collect();
+        for (isp, definition) in &isps {
+            let dot = (definition.split('='))
+                .map(str::trim)
+                .find(|part| part.len() == 3 && part.as_bytes()[1] == b'.')
+                .unwrap_or_else(|| panic!("{name}: ISP {isp} = {definition}"));
+            momenta.push((
+                momentum_row(&dot[..1], &loop_names),
+                momentum_row(&dot[2..], &loop_names),
+            ));
+        }
+        let width = momenta.len();
+        let (owner, _) = library.census().classes[&owners[owner_name]].owner;
+        let presentation = match &library.presentation(owner).kind {
+            PresentationKind::Induced { top, .. } => *top,
+            _ => owner,
+        };
+        let target = library.presentation(presentation);
+        assert_eq!(
+            target.slots.len(),
+            width,
+            "{name}: slots of {owner_name}'s presentation"
+        );
+        let line_list: Vec<usize> = (0..lines).collect();
+        let eps_units = |slot: usize| match &target.slots[slot] {
+            Slot::Line(line) => i64::from(line.eps_units),
+            Slot::Isp(_) => 0,
+        };
+        let (map, sigma) = line_maps(&momenta, &line_list, target, false, 4096)
+            .into_iter()
+            .find(|(_, sigma)| eps_units(sigma[&crossed]) == units)
+            .unwrap_or_else(|| panic!("{name}: no map onto {owner_name}'s lines"));
+        let eps_slot = sigma[&crossed];
+        assert!(
+            (0..target.slots.len()).all(|s| (s == eps_slot) == (eps_units(s) != 0)),
+            "{name}: one eps line"
+        );
+        // `I(powers)` of the rule on the presentation: the crossed line stays a
+        // line (its power is `n_c + eps`, never expanded).
+        let carry = |powers: &[i64]| -> Terms {
+            let mut integer = powers.to_vec();
+            integer[crossed] = 0;
+            let mut image = transport(&momenta, &integer, &map, &sigma, target)
+                .unwrap_or_else(|| panic!("{name}: {powers:?} has no image"));
+            for (key, _) in &mut image {
+                key[eps_slot] += powers[crossed];
+            }
+            image
+        };
+        let mut checked = 0;
+        let mut nonzero = 0;
+        let mut largest = 0;
+        for family in families {
+            let label = family["id"].as_str().or(family["name"].as_str()).unwrap();
+            let pieces = family["pieces"].as_array().unwrap();
+            assert_eq!(pieces.len(), 1, "{name} {label}");
+            let guards: Vec<&str> = (pieces[0]["guard"].as_array().unwrap().iter())
+                .map(|g| g.as_str().unwrap())
+                .collect();
+            let mut cases: Vec<Vec<i64>> = Vec::new();
+            for _ in 0..1000 {
+                if cases.len() == points {
+                    break;
+                }
+                let n: Vec<i64> = (0..width)
+                    .map(|i| {
+                        if i == crossed {
+                            rng.below(4) as i64 - 1
+                        } else if i < lines {
+                            1 + i64::from(rng.below(3) == 0)
+                        } else {
+                            -(rng.below(3) as i64)
+                        }
+                    })
+                    .collect();
+                let value = |axis: &str| -> i64 {
+                    match axis.strip_prefix('a').and_then(|i| i.parse::<usize>().ok()) {
+                        Some(i) => n[i],
+                        None => n[lines + exponents.iter().position(|e| e == axis).unwrap()],
+                    }
+                };
+                if guards.iter().all(|g| guard_holds(g, &value)) && !cases.contains(&n) {
+                    cases.push(n);
+                }
+            }
+            assert_eq!(cases.len(), points, "{name} {label}: points in the guard");
+            for n in cases {
+                let mut terms: Vec<(Vec<i64>, Coefficient)> = vec![(n.clone(), context.one())];
+                for term in family["terms"].as_array().unwrap() {
+                    let mut text = format!("({})", term["kappa"].as_str().unwrap());
+                    let mut vanishes = false;
+                    for (part, operator) in [("num", '*'), ("den", '/')] {
+                        for factor in term[part].as_array().unwrap() {
+                            let (c0, c1) = rule_factor(factor, &n, crossed, units);
+                            if c0.is_zero() && c1.is_zero() {
+                                assert_eq!(part, "num", "{name} {label} at {n:?}: a pole");
+                                vanishes = true;
+                            }
+                            for _ in 0..factor["mult"].as_i64().unwrap() {
+                                text.push_str(&format!("{operator}(({c0})+({c1})*d)"));
+                            }
+                        }
+                    }
+                    if vanishes {
+                        continue;
+                    }
+                    let mut powers = n.clone();
+                    for (axis, shift) in term["shift"].as_object().unwrap() {
+                        let index = match axis.strip_prefix("isp:") {
+                            Some(isp) => lines + isps.iter().position(|(i, _)| i == isp).unwrap(),
+                            None => axis.parse::<usize>().unwrap(),
+                        };
+                        powers[index] += shift.as_i64().unwrap();
+                    }
+                    let value =
+                        rustred::propagator::basis::parse_coefficient(context, &text, exact())
+                            .unwrap_or_else(|e| panic!("{name} {label}: {text}: {e}"));
+                    terms.push((powers, context.try_neg(&value, exact()).unwrap()));
+                }
+                let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
+                for (powers, value) in &terms {
+                    let sign = if powers.iter().sum::<i64>() % 2 == 0 {
+                        1
+                    } else {
+                        -1
+                    };
+                    for (key, weight) in carry(powers) {
+                        let weight = coefficient_of(context, &(&weight * &rational(sign, 1)));
+                        let term = context.try_mul(value, &weight, exact()).unwrap();
+                        let entry = sum.entry(key).or_insert_with(|| context.integer(0));
+                        *entry = context.try_add(entry, &term, exact()).unwrap();
+                    }
+                }
+                let inputs: Vec<Input> = (sum.into_iter())
+                    .filter(|(_, c)| !c.is_zero())
+                    .map(|(powers, c)| (presentation, key(&powers), c))
+                    .collect();
+                let begin = Instant::now();
+                let size = inputs.len();
+                largest = largest.max(size);
+                let reduction = reduce(library, inputs);
+                eprintln!(
+                    "{name} {label} at {n:?}: {} terms, {size} keys, {:.1} s",
+                    terms.len(),
+                    begin.elapsed().as_secs_f64()
+                );
+                assert!(
+                    nonzero_terms(&reduction).is_empty(),
+                    "{name} {label} at {n:?}: {:?}",
+                    nonzero_terms(&reduction)
+                );
+                let alone: Vec<Input> = (carry(&n).into_iter())
+                    .map(|(powers, w)| (presentation, key(&powers), coefficient_of(context, &w)))
+                    .collect();
+                if !nonzero_terms(&reduce(library, alone)).is_empty() {
+                    nonzero += 1;
+                }
+                checked += 1;
+            }
+        }
+        assert!(nonzero > 0, "{name}: every target reduced to zero");
+        report.push(format!(
+            "{name} ({owner_name}, {} stages): {checked} identities hold, {nonzero} nonzero targets, \
+             largest {largest} keys; crossed line {crossed} on eps slot {eps_slot}; map {map:?}",
+            families.len()
+        ));
+    }
+    println!(
+        "VERIFIED rules through the library: {}; {:.1} s",
+        report.join("; "),
+        start.elapsed().as_secs_f64()
+    );
 }
 
 /// `count` distinct rational `d` over the prime 101: no integer, no half-integer.
