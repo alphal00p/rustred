@@ -374,7 +374,10 @@ fn template_digest() -> String {
 
 /// A change of the meaning of a recorded step needs a bump of
 /// `P_DIAMOND_TEMPLATE_VERSION` with a new digest here.
-const TEMPLATE_PIN: (u32, &str) = (1, "");
+const TEMPLATE_PIN: (u32, &str) = (
+    1,
+    "2da6645c22eb72f3439b71ed151a759321fba07cfc9b0446a94f86f4e568d69e",
+);
 
 #[test]
 fn the_template_content_is_pinned_to_its_version() {
