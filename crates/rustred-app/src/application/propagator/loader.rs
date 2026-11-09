@@ -16,7 +16,9 @@
 //!    the one of `census.json`;
 //! 4. edge maps (verified by the builder), terminals in id order, owners: the
 //!    hard guard `lp_count >= 1 => residuals >= 1` is checked before a payload
-//!    file is read; a payload must have this build's save format, the structure
+//!    file is read (the stored LP is trusted: it is not re-derived at load;
+//!    `rustred p-package --recount-lp` recounts it when a package is written,
+//!    M3-I1); a payload must have this build's save format, the structure
 //!    its record describes (charts, residual count, two-sided axes), the owner's
 //!    residual terminals as its residual keys and the owner presentation's
 //!    family (`custom::inspect_custom_payload`, structure only);
@@ -28,9 +30,13 @@
 //!    builds every owner program once (`descent::check`), then the census's
 //!    strong completeness (`PCensus::check_complete`: every zero proof and every
 //!    route again, so a sector held as zero without a proof is refused, never a
-//!    silent zero), then the layer re-derived (`basis::derive_basis_layer`:
-//!    every row must be the one this program derives). Without it, all three
-//!    are the word of the writer.
+//!    silent zero), then the layer re-derived (`basis::derive_basis_layer`
+//!    onto the masters of the scope: every row must be the one this program
+//!    derives). Without it, all three are the word of the writer.
+//!
+//! [`read_custom_payloads`] reads the Custom payloads of a package, or of an
+//! owner directory of `rustred p-generate` records ([`read_owner_records`]),
+//! for `rustred p-package --reuse-custom`.
 //!
 //! Owner programs are otherwise built on first use through
 //! `programs::lane_program`, Custom payloads only through
@@ -285,15 +291,20 @@ fn check_payload(
 /// The Custom payloads of a package by class label, with their meta, for
 /// `rustred p-package --reuse-custom` and regeneration tests
 /// (`CustomPayloads::Provided`). Versions and the guard are checked as by
-/// [`load_p_library`]. An existing directory without `library.json` is read as
+/// [`load_p_library`]. An existing directory without `library.json` and
+/// without the package's `census.rrbin`, `census.json` or `owners/` is read as
 /// an owner directory of `rustred p-generate` ([`read_owner_records`]); a
-/// missing directory is refused as a package (missing `library.json`).
+/// missing directory, or a package that lost its `library.json`, is refused as
+/// a package (missing `library.json`).
 pub fn read_custom_payloads(
     source: &PLibrarySource,
 ) -> Result<BTreeMap<String, CustomOwnerPayload>, PError> {
     if let PLibrarySource::Directory(directory) = source
         && directory.is_dir()
         && !directory.join(LIBRARY_FILE).exists()
+        && ![CENSUS_FILE, CENSUS_JSON_FILE, "owners"]
+            .iter()
+            .any(|name| directory.join(name).exists())
     {
         return read_owner_records(directory);
     }
@@ -671,10 +682,11 @@ fn load_layer(
 }
 
 /// The rows of a package's layer are the ones this library derives (M2-T9's
-/// `derive_basis_layer`, with its fresh-`d` checks): a row mapping a residual
+/// `derive_basis_layer`, with its fresh-`d` checks, onto the masters of the
+/// library's scope, `PBasisOptions::for_library`): a row mapping a residual
 /// onto the wrong master, tag or coefficient is refused, never a wrong value.
 fn check_layer_derivation(library: &PLibrary, layer: &PBasisLayer) -> Result<(), PError> {
-    let derived = derive_basis_layer(library, &PBasisOptions::default())?.layer;
+    let derived = derive_basis_layer(library, &PBasisOptions::for_library(library)?)?.layer;
     if let Some(index) = (layer.rows().iter().zip(derived.rows()))
         .position(|(held, own)| held != own)
         .or_else(|| (layer.rows().len() != derived.rows().len()).then_some(derived.rows().len()))

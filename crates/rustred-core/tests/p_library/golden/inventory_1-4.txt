@@ -30,7 +30,7 @@ count node_lane_L4_Custom 13  # DAG nodes of that loop count presented on that l
 count node_lane_L4_Insertion 141  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_SeriesParallel 79  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_Triangle 33  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
-count diamond_nodes_on_custom 4  # DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom)
+count diamond_nodes_on_custom 4  # DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom; C-D kept it)
 count triangle_fallbacks 0  # Triangle nodes presented as Custom because their IBP row is not Forcer's
 count presentations 453  # presentations of the program: the tops, then one per DAG node with a presentation
 count census_nodes 437  # DAG nodes with a presentation in the census (every node but the trivial one)
@@ -65,6 +65,9 @@ count owners_SeriesParallel 99  # owners (one per class) on that lane
 count owners_Triangle 52  # owners (one per class) on that lane
 count edge_maps 227  # verified edge maps of the rule owners' rule edges into a presented node
 count terminals 17  # terminals: Unit, then one residual per residual key of a Custom owner
+count layer_rows 17  # rows of the basis layer, one per terminal (M3-T17: Unit, then each residual onto Forcer's masters)
+count layer_masters 16  # distinct masters named by the layer's rows (of P_BASIS_MASTERS_1_TO_4 at scope 1-4)
+count layer_rows_one_master_term 16  # residual rows that are a single master term (a square system whose matrix is a permutation)
 count certificate_zero_sectors 163059  # certificate: census sectors proved zero
 count certificate_owner_sectors 310  # certificate: census sectors that are their class's owner sector
 count certificate_routes 21769  # certificate: census routes verified and compiled
@@ -99,3 +102,20 @@ custom L4T11-23719591fd40fdf4 no1 node 6 L4 lines 11 eps 0 arity 14 lp 1 residua
 custom L4T11-44b602110b8577dd haha node 3 L4 lines 11 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7ff] rules 220 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 4853 lines blake3 0510817815719dbb800a7f2c2fd84e1be8b7cb1cf3d7b7fb9fe49c9aae9bb824
 custom L4T11-b08ea0232a8b1503 no3 node 9 L4 lines 11 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [7ff] rules 43 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 1069 lines blake3 8115f4b029beb58d72203fb1570fbb5084173a0fdb05ad786d33bacb1d8eb21a
 custom L4T11-f1d077dbbd38929d no2 node 2 L4 lines 11 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7ff] rules 303 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 7311 lines blake3 855aded5c1a525bab71db12af912ad67b14094f6f5cec65a11b303c9d87ff3df
+layer 0 unit node 437 key [] = (1) tag [] Unit
+layer 1 L4T09-1c8abad2243e10bc node 96 key [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] lala
+layer 2 L4T11-23719591fd40fdf4 node 6 key [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] no1
+layer 3 L3T08-2e0e8204acdb3064 node 242 key [1, 1, 1, 1, 1, 1, 1, 1, 0] = (1/(-27+27*d-9*d^2+d^3)) tag [(-2, -3), (-1, 6), (1, 3)] nostar6
+layer 4 L3T08-3e20768c104b7e3c node 236 key [1, 1, 1, 1, 1, 1, 1, 1, 0] = (1/(-27+27*d-9*d^2+d^3)) tag [(-2, -3), (-1, 6), (1, 3)] nostar5
+layer 5 L3T07-42d23ff2fca262c6 node 285 key [1, 1, 1, 1, 1, 1, 1, 0, 0] = (-1/(-27+27*d-9*d^2+d^3)) tag [(-2, -3), (-1, 6), (1, 3)] fastar2
+layer 6 L4T11-44b602110b8577dd node 3 key [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] haha
+layer 7 L3T08-61cd69124cf81eb3 node 241 key [1, 1, 1, 1, 1, 1, 1, 1, 0] = (1/(-27+27*d-9*d^2+d^3)) tag [(-2, -3), (-1, 6), (1, 3)] no
+layer 8 L2T05-810c5f0ff11c4c40 node 406 key [1, 1, 1, 1, 1] = (-1/(9-6*d+d^2)) tag [(-2, -2), (-1, 4), (1, 2)] t105
+layer 9 L4T10-9f80d1b9bedb371e node 33 key [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0] = (1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] no6
+layer 10 L2T05-ae7e6d53b1956fd5 node 405 key [1, 1, 1, 1, 1] = (-1/(9-6*d+d^2)) tag [(-2, -2), (-1, 4), (1, 2)] t124
+layer 11 L4T09-bb81f2828d54b056 node 104 key [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] nono
+layer 12 L2T05-bf1266160e2a5d31 node 407 key [1, 1, 1, 1, 1] = (-1/(9-6*d+d^2)) tag [(-2, -2), (-1, 4), (1, 2)] t145
+layer 13 L4T08-cd9ded89aad8feea node 198 key [1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0] = (1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] cross
+layer 14 L4T08-d261f9c2d25e2dac node 151 key [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0] = (1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] bebe
+layer 15 L4T11-f1d077dbbd38929d node 2 key [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] no2
+layer 16 L2T05-f4b9292827603c5c node 408 key [1, 1, 1, 1, 1] = (-1/(9-6*d+d^2)) tag [(-2, -2), (-1, 4), (1, 2)] t155
