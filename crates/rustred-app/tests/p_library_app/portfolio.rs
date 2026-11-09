@@ -19,6 +19,7 @@
 //! homogeneous in `q^2`).
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
 use rustred::order::{CompiledOrder, Limits, OrderDescriptor};
@@ -43,6 +44,8 @@ const T075P1: &str = include_str!("t075/T075p1.sym");
 const T075P1_SLOTS: [usize; 14] = [3, 5, 1, 4, 0, 8, 2, 6, 7, 12, 13, 11, 9, 10];
 /// The RS set: `rules_study/ko4/T075/ko4-dump/OUT.table.jsonl` (table_dump.v1).
 const RS_TABLE_ENV: &str = "RUSTRED_T075P1_RS_TABLE";
+/// Values of `d` that tell a pole at one `d` from a pole at every `d`.
+const GENERIC_DS: [(i64, i64); 2] = [(10_007, 2_003), (20_011, 4_001)];
 
 // ----- the fall-through is opt-in -----
 
@@ -455,35 +458,48 @@ impl RuleSet {
         }
     }
 
-    /// `key` times `coefficient`, reduced at `d` until every term is a
-    /// residual or `stop` (zero-sector terms dropped); `None` at a pole.
+    /// Start keys with their coefficients by point, reduced at `d` until
+    /// every term is a residual or `stop` (zero-sector terms dropped). Each
+    /// key is reduced once for every point that reaches it. A pole at a key
+    /// voids the points that reach it (`poles`).
     fn reduce(
         &self,
-        start: &BTreeMap<Vec<i64>, Rational>,
+        start: Vec<(Vec<i64>, Vector)>,
         d: &Rational,
         stop: &dyn Fn(&[i64]) -> bool,
         zero: &dyn Fn(&[i64]) -> bool,
-    ) -> Option<BTreeMap<Vec<i64>, Rational>> {
-        type Frontier = BTreeMap<(ComplexityKey, Vec<i64>), Rational>;
-        let push = |frontier: &mut Frontier, key: Vec<i64>, value: Rational| {
+        poles: &mut BTreeSet<usize>,
+    ) -> BTreeMap<Vec<i64>, Vector> {
+        type Frontier = BTreeMap<(ComplexityKey, Vec<i64>), Vector>;
+        let push = |frontier: &mut Frontier, key: Vec<i64>, value: &Vector, factor: &Rational| {
             let complexity = self.order.complexity_key(&key).unwrap();
-            let entry = frontier
-                .entry((complexity, key))
-                .or_insert_with(Rational::zero);
-            *entry = &*entry + &value;
+            add_scaled(
+                frontier.entry((complexity, key)).or_default(),
+                value,
+                factor,
+            );
         };
         let mut frontier = Frontier::new();
-        for (key, value) in start {
-            push(&mut frontier, key.clone(), value.clone());
+        for (key, value) in &start {
+            push(&mut frontier, key.clone(), value, &Rational::one());
         }
-        let mut out = BTreeMap::new();
-        while let Some(((_, key), value)) = frontier.pop_last() {
-            if value.is_zero() || zero(&key) {
+        let mut out: BTreeMap<Vec<i64>, Vector> = BTreeMap::new();
+        let (clock, mut reduced) = (Instant::now(), 0usize);
+        while let Some(((complexity, key), mut value)) = frontier.pop_last() {
+            reduced += 1;
+            if reduced % 20_000 == 0 {
+                eprintln!(
+                    "T075c reduce at d = {d}: {reduced} keys, {} pending, {:.1} s",
+                    frontier.len(),
+                    clock.elapsed().as_secs_f64()
+                );
+            }
+            value.retain(|point, coefficient| !coefficient.is_zero() && !poles.contains(point));
+            if value.is_empty() || zero(&key) {
                 continue;
             }
             if stop(&key) || self.residuals.contains(&key) {
-                let entry = out.entry(key).or_insert_with(Rational::zero);
-                *entry = &*entry + &value;
+                add_scaled(out.entry(key).or_default(), &value, &Rational::one());
                 continue;
             }
             let rules = (self.charts.get(&chart_of(&key)))
@@ -491,22 +507,64 @@ impl RuleSet {
             let (rule, n) = (rules.iter())
                 .find_map(|rule| rule.free_indices(&key, d).map(|n| (rule, n)))
                 .unwrap_or_else(|| panic!("no rule covers {key:?}"));
-            for (powers, coefficient) in &rule.rhs {
-                let child: Vec<i64> = (powers.iter().enumerate())
-                    .map(|(slot, power)| match *power {
-                        Pow::Free(offset) => n[slot] + offset,
-                        Pow::Fixed(fixed) => fixed,
-                    })
-                    .collect();
-                let factor = coefficient.eval(&n, d)?;
+            let terms: Option<Vec<(Vec<i64>, Rational)>> = (rule.rhs.iter())
+                .map(|(powers, coefficient)| {
+                    let child = (powers.iter().enumerate())
+                        .map(|(slot, power)| match *power {
+                            Pow::Free(offset) => n[slot] + offset,
+                            Pow::Fixed(fixed) => fixed,
+                        })
+                        .collect();
+                    let factor = coefficient.eval(&n, d);
+                    // A pole at every d is a rule applied off its domain.
+                    assert!(
+                        factor.is_some()
+                            || GENERIC_DS
+                                .iter()
+                                .any(|&g| { coefficient.eval(&n, &Rational::from(g)).is_some() }),
+                        "{key:?}: a coefficient with a pole at every d"
+                    );
+                    Some((child, factor?))
+                })
+                .collect();
+            let Some(terms) = terms else {
+                poles.extend(value.keys());
+                continue;
+            };
+            for (child, factor) in terms {
+                // Every step descends strictly in the rule set's order.
+                assert!(
+                    self.order.complexity_key(&child).unwrap() < complexity,
+                    "{key:?} -> {child:?} does not descend"
+                );
                 if !factor.is_zero() {
-                    push(&mut frontier, child, &value * &factor);
+                    push(&mut frontier, child, &value, &factor);
                 }
             }
         }
-        out.retain(|_, value: &mut Rational| !value.is_zero());
-        Some(out)
+        out
     }
+}
+
+/// Coefficients of one key, by point.
+type Vector = BTreeMap<usize, Rational>;
+
+fn add_scaled(into: &mut Vector, from: &Vector, factor: &Rational) {
+    for (&point, value) in from {
+        let entry = into.entry(point).or_insert_with(Rational::zero);
+        *entry = &*entry + &(value * factor);
+    }
+}
+
+/// The terms of point `point` in `reduced`, without zeros.
+fn point_terms(reduced: &BTreeMap<Vec<i64>, Vector>, point: usize) -> BTreeMap<Vec<i64>, Rational> {
+    (reduced.iter())
+        .filter_map(|(key, value)| {
+            (value.get(&point))
+                .filter(|coefficient| !coefficient.is_zero())
+                .map(|coefficient| (key.clone(), coefficient.clone()))
+        })
+        .collect()
 }
 
 /// The RS set (table_dump.v1) in the slots of T075c (`slots[j]` is the T075c
@@ -754,59 +812,108 @@ fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let zero = |key: &[i64]| zeros.contains(&chart_of(key));
     let never = |_: &[i64]| false;
 
+    // Denominators near 1000: no small linear factor of a coefficient
+    // vanishes there (37/10 voided 68 of the 200 points in a first run).
     let ds = [
-        Rational::from((37, 10)),
-        Rational::from((29, 7)),
-        Rational::from((53, 13)),
+        Rational::from((3701, 1009)),
+        Rational::from((4127, 1013)),
+        Rational::from((3911, 1019)),
     ];
     let mut state = 0x7075_c0de_u64;
-    let mut seen = BTreeSet::new();
-    let (mut points, mut evaluations, mut poles, mut nonzero, mut same_exits) = (0, 0, 0, 0, 0);
-    while points < 200 {
+    let mut keys = Vec::new();
+    while keys.len() < 200 {
         let key = random_key(&mut state, &presentation);
-        if !seen.insert(key.clone()) {
-            continue;
+        if !keys.contains(&key) {
+            keys.push(key);
         }
-        let start = BTreeMap::from([(key.clone(), Rational::one())]);
-        let total: i64 = key.iter().sum();
-        let mut at = 0;
-        for d in &ds {
-            let ours_exits = ours.reduce(&start, d, &exit, &zero);
-            let rs_exits = rs.reduce(&start, d, &exit, &zero).map(|exits| {
-                (exits.into_iter())
-                    .map(|(e, value)| {
-                        let odd = (e.iter().sum::<i64>() - total) % 2 != 0;
-                        let value = if odd { -value } else { value };
-                        (e, value)
-                    })
-                    .collect::<BTreeMap<_, _>>()
-            });
-            let (Some(ours_exits), Some(rs_exits)) = (ours_exits, rs_exits) else {
-                poles += 1;
-                continue;
-            };
-            let a = lower.reduce(&ours_exits, d, &never, &zero);
-            let b = lower.reduce(&rs_exits, d, &never, &zero);
-            let (Some(a), Some(b)) = (a, b) else {
-                poles += 1;
-                continue;
-            };
-            assert_eq!(a, b, "T075c {key:?} at d = {d}");
-            same_exits += usize::from(ours_exits == rs_exits);
-            nonzero += usize::from(!a.is_empty());
-            evaluations += 1;
-            at += 1;
+    }
+    let points = keys.len();
+    let unit = |point: usize| BTreeMap::from([(point, Rational::one())]);
+    // One value of d: the points without a pole, each with its masters
+    // nonzero or not and its exits equal or not.
+    let compare = |d: &Rational| -> Vec<(usize, bool, bool)> {
+        let clock = Instant::now();
+        let mut poles = BTreeSet::new();
+        let starts: Vec<_> = (keys.iter().enumerate())
+            .map(|(point, key)| (key.clone(), unit(point)))
+            .collect();
+        let ours_exits = ours.reduce(starts.clone(), d, &exit, &zero, &mut poles);
+        let mut rs_exits = rs.reduce(starts, d, &exit, &zero, &mut poles);
+        let reduced = clock.elapsed().as_secs_f64();
+        // Convention q.q = +1 of the RS set -> q.q = -1.
+        for (e, value) in &mut rs_exits {
+            let total: i64 = e.iter().sum();
+            for (&point, coefficient) in value.iter_mut() {
+                if (total - keys[point].iter().sum::<i64>()) % 2 != 0 {
+                    *coefficient = -coefficient.clone();
+                }
+            }
         }
+        // One pass of the lower charts for both sides: RS point p is `points + p`.
+        let mut lower_start: BTreeMap<Vec<i64>, Vector> = ours_exits.clone();
+        for (e, value) in &rs_exits {
+            let shifted = value
+                .iter()
+                .map(|(&p, c)| (points + p, c.clone()))
+                .collect();
+            add_scaled(
+                lower_start.entry(e.clone()).or_default(),
+                &shifted,
+                &Rational::one(),
+            );
+        }
+        let mut lower_poles = BTreeSet::new();
+        let masters = lower.reduce(
+            lower_start.into_iter().collect(),
+            d,
+            &never,
+            &zero,
+            &mut lower_poles,
+        );
+        poles.extend(lower_poles.iter().map(|index| index % points));
+        let mut compared = Vec::new();
+        for point in (0..points).filter(|point| !poles.contains(point)) {
+            let (a, b) = (
+                point_terms(&masters, point),
+                point_terms(&masters, points + point),
+            );
+            assert_eq!(a, b, "T075c {:?} at d = {d}", keys[point]);
+            let same = point_terms(&ours_exits, point) == point_terms(&rs_exits, point);
+            compared.push((point, !a.is_empty(), same));
+        }
+        eprintln!(
+            "T075c d = {d}: {} exits ours, {} RS, {} lower keys at the masters, {} points with a pole; {reduced:.1} s + {:.1} s",
+            ours_exits.len(),
+            rs_exits.len(),
+            masters.len(),
+            poles.len(),
+            clock.elapsed().as_secs_f64() - reduced
+        );
+        compared
+    };
+    // The values of d side by side, one thread each.
+    let compared: Vec<_> = std::thread::scope(|scope| {
+        let threads: Vec<_> = (ds.iter()).map(|d| scope.spawn(|| compare(d))).collect();
+        threads.into_iter().map(|t| t.join().unwrap()).collect()
+    });
+    let mut pole_free = vec![0; points];
+    let (mut evaluations, mut nonzero, mut same_exits) = (0, 0, 0);
+    for &(point, value, same) in compared.iter().flatten() {
+        pole_free[point] += 1;
+        evaluations += 1;
+        nonzero += usize::from(value);
+        same_exits += usize::from(same);
+    }
+    for (key, &at) in keys.iter().zip(&pole_free) {
         assert!(
             at >= 2,
             "T075c {key:?}: poles at {} of {} values of d",
-            3 - at,
+            ds.len() - at,
             ds.len()
         );
-        points += 1;
     }
     eprintln!(
-        "T075c vs RS T075p1: {points} points, {evaluations} evaluations equal ({same_exits} with the same exits, {nonzero} nonzero), {poles} poles"
+        "T075c vs RS T075p1: {points} points, {evaluations} evaluations equal ({same_exits} with the same exits, {nonzero} nonzero)"
     );
     assert!(nonzero * 2 > evaluations, "most values are nonzero");
 }
