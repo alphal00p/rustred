@@ -8,7 +8,8 @@ use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
-    bilinear_integer, definite_quadratic, linear_resultant, modular, native,
+    DeferredRegion, UnsupportedBranchPolicy, bilinear_integer, definite_quadratic,
+    linear_resultant, modular, native,
 };
 use crate::solver::GeometryError;
 
@@ -52,6 +53,8 @@ struct Engine<'a, const N: usize> {
     max_numerator_rank: Option<u32>,
     stats: CaseIntersectionStats,
     resolutions: Vec<CaseResolution<N>>,
+    unsupported: UnsupportedBranchPolicy,
+    deferred: Vec<DeferredRegion<N>>,
 }
 
 // CaseIntersectionError carries the stats (S1/S2 counters included) by value.
@@ -63,6 +66,7 @@ pub(super) fn intersect<const N: usize>(
     sector: &[bool; N],
     limits: CaseIntersectionLimits,
     max_numerator_rank: Option<u32>,
+    unsupported: UnsupportedBranchPolicy,
 ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
     let equations: Arc<[CoefficientPolynomial]> = conjunction.to_vec().into();
     let mut engine = Engine {
@@ -79,6 +83,8 @@ pub(super) fn intersect<const N: usize>(
         max_numerator_rank,
         stats: CaseIntersectionStats::default(),
         resolutions: Vec::new(),
+        unsupported,
+        deferred: Vec::new(),
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         checkpoint()?;
@@ -91,6 +97,7 @@ pub(super) fn intersect<const N: usize>(
             max_numerator_rank,
             stats: engine.stats,
             resolutions: engine.resolutions,
+            deferred: engine.deferred,
         }),
         Ok(Err(failure)) => Err(engine.error(failure)),
         Err(_) => Err(engine.error(CaseIntersectionFailure::NativeAlgebra)),
@@ -148,7 +155,9 @@ impl<const N: usize> Engine<'_, N> {
 
     /// Refine the current branch. A branch that no exact step can refine is
     /// still resolved exactly when S1 or S2 applies (see
-    /// [`Self::resolve_stuck_branch`]); otherwise the refusal is unchanged.
+    /// [`Self::resolve_stuck_branch`]); otherwise the refusal is unchanged,
+    /// or, only under [`UnsupportedBranchPolicy::Defer`], the branch is
+    /// deferred (S4, [`Self::defer_stuck_branch`]).
     fn process(
         &mut self,
         pending: &mut Vec<WorkItem<N>>,
@@ -158,9 +167,51 @@ impl<const N: usize> Engine<'_, N> {
             Err(
                 failure @ (CaseIntersectionFailure::UnsupportedGeometry
                 | CaseIntersectionFailure::RepeatedState),
-            ) => self.resolve_stuck_branch(failure, resolved),
+            ) => self.settle_stuck_branch(failure, resolved),
             other => other,
         }
+    }
+
+    /// S1, S2, then (only under `Defer`) S4 on the stuck current branch.
+    fn settle_stuck_branch(
+        &mut self,
+        failure: CaseIntersectionFailure,
+        resolved: &mut Vec<Case<N>>,
+    ) -> Result<(), CaseIntersectionFailure> {
+        match self.resolve_stuck_branch(failure, resolved) {
+            Err(
+                refusal @ (CaseIntersectionFailure::UnsupportedGeometry
+                | CaseIntersectionFailure::RepeatedState),
+            ) if self.unsupported == UnsupportedBranchPolicy::Defer => {
+                self.defer_stuck_branch(refusal)
+            }
+            other => other,
+        }
+    }
+
+    /// S4: keep the stuck current branch (integer points of chart `parent`
+    /// where `equations` vanish) out of the resolved union and record it
+    /// exactly. Reached only after S1 and S2 returned the original refusal;
+    /// resource errors never get here. An empty conjunction cannot be stuck
+    /// (refine resolves it); it would keep its refusal rather than defer the
+    /// whole chart.
+    fn defer_stuck_branch(
+        &mut self,
+        reason: CaseIntersectionFailure,
+    ) -> Result<(), CaseIntersectionFailure> {
+        if self.current.equations.is_empty() {
+            return Err(reason);
+        }
+        let region = DeferredRegion {
+            reason,
+            parent: self.original_parent.clone(),
+            chart: self.current.parent.clone(),
+            conjunction: self.current.equations.clone(),
+        };
+        if !self.deferred.contains(&region) {
+            self.deferred.push(region);
+        }
+        Ok(())
     }
 
     /// S1 (lift), then S2 (modular emptiness), on the stuck current branch
@@ -657,10 +708,50 @@ pub(super) fn resolve_stuck_branch_for_test<const N: usize>(
         max_numerator_rank: None,
         stats: CaseIntersectionStats::default(),
         resolutions: Vec::new(),
+        unsupported: UnsupportedBranchPolicy::Refuse,
+        deferred: Vec::new(),
     };
     let mut resolved = Vec::new();
     engine.resolve_stuck_branch(failure, &mut resolved)?;
     Ok((resolved, engine.resolutions, engine.stats))
+}
+
+/// Test seam: [`resolve_stuck_branch_for_test`] followed by S4 under
+/// `unsupported`, exactly as `process` settles a stuck branch.
+#[cfg(test)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub(super) fn settle_stuck_branch_for_test<const N: usize>(
+    original_parent: &Case<N>,
+    original_conjunction: &[CoefficientPolynomial],
+    chart: &Case<N>,
+    branch: &[CoefficientPolynomial],
+    indices: &[usize; N],
+    sector: &[bool; N],
+    unsupported: UnsupportedBranchPolicy,
+    failure: CaseIntersectionFailure,
+) -> Result<(Vec<Case<N>>, Vec<CaseResolution<N>>, Vec<DeferredRegion<N>>), CaseIntersectionFailure>
+{
+    let equations: Arc<[CoefficientPolynomial]> = native::restrict(chart, branch, indices)?.into();
+    let mut engine = Engine {
+        original_parent: original_parent.clone(),
+        original_conjunction: original_conjunction.to_vec().into(),
+        current: WorkItem {
+            parent: chart.clone(),
+            equations,
+            ancestry: None,
+        },
+        indices,
+        sector,
+        limits: CaseIntersectionLimits::default(),
+        max_numerator_rank: None,
+        stats: CaseIntersectionStats::default(),
+        resolutions: Vec::new(),
+        unsupported,
+        deferred: Vec::new(),
+    };
+    let mut resolved = Vec::new();
+    engine.settle_stuck_branch(failure, &mut resolved)?;
+    Ok((resolved, engine.resolutions, engine.deferred))
 }
 
 /// S1 test: `chart` lies in `original_parent` and the ORIGINAL conjunction

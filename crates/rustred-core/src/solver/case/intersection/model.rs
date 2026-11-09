@@ -2,6 +2,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use symbolica::prelude::Integer;
+
 use crate::algebra::CoefficientPolynomial;
 
 use super::super::{AffineGeometryError, Case};
@@ -100,6 +102,76 @@ pub struct CaseIntersectionResult<const N: usize> {
     /// that was nevertheless resolved exactly (S1 lift / S2 modular emptiness).
     /// Empty when the ordinary refinement path resolved every branch.
     pub resolutions: Vec<CaseResolution<N>>,
+    /// S4, only under [`UnsupportedBranchPolicy::Defer`]: branches that no
+    /// exact step (refinement, S1, S2) resolved. They are NOT part of `cases`
+    /// and never claimed covered: `cases` is then the exact OR of everything
+    /// else, and the exceptional locus is contained in `cases` together with
+    /// these regions. Always empty under the default
+    /// [`UnsupportedBranchPolicy::Refuse`], which fails atomically instead.
+    pub deferred: Vec<DeferredRegion<N>>,
+}
+
+/// What the engine does with an AND branch that refinement, S1 and S2 all
+/// leave unresolved (`UnsupportedGeometry` or `RepeatedState`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum UnsupportedBranchPolicy {
+    /// Fail the complete intersection atomically (the established behaviour).
+    #[default]
+    Refuse,
+    /// S4 (opt-in): record the branch as a [`DeferredRegion`], keep it out of
+    /// the resolved union and finish every other branch. The caller owns the
+    /// deferred points: no rule may be applied there.
+    Defer,
+}
+
+/// One unresolved AND branch kept out of a successful intersection (S4).
+///
+/// The region is exactly the set of integer points `n` of `chart` (fixed
+/// coordinates and coupled affine equalities, within the caller's sector
+/// signs) at which every polynomial of `conjunction` vanishes. It is a subset
+/// of `parent` intersected with the ORIGINAL conjunction (every engine step is
+/// an exact refinement), possibly empty, never approximated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeferredRegion<const N: usize> {
+    /// The refusal the engine would have returned without deferral:
+    /// `UnsupportedGeometry` or `RepeatedState`.
+    pub reason: CaseIntersectionFailure,
+    /// The parent case of the whole intersection (`self` of the call).
+    pub parent: Case<N>,
+    /// The branch chart: an exact affine sub-case of `parent`.
+    pub chart: Case<N>,
+    /// The unresolved conjunction restricted to `chart` (or a same-ideal
+    /// basis of it), equations equal to zero, in the original variables.
+    pub conjunction: Arc<[CoefficientPolynomial]>,
+}
+
+impl<const N: usize> DeferredRegion<N> {
+    /// The region as one AND-list of polynomial equations, the same form as
+    /// an exception branch: `n_i - v` for every fixed coordinate of `chart`,
+    /// the chart's coupled affine equalities, then `conjunction`. An integer
+    /// point of the sector lies in the region iff all of them vanish there.
+    /// `None` only if there is no polynomial to take the variable map from
+    /// (never for a region built by the engine, whose conjunction is nonempty).
+    pub fn predicates(&self, indices: &[usize; N]) -> Option<Vec<CoefficientPolynomial>> {
+        let template = self
+            .conjunction
+            .first()
+            .or_else(|| self.chart.affine().and_then(|a| a.equations().first()))?;
+        let mut predicates = Vec::new();
+        for (axis, value) in self.chart.fixed().iter().enumerate() {
+            if let Some(value) = value {
+                let mut exponents = vec![0_u16; template.nvars()];
+                exponents[indices[axis]] = 1;
+                let variable = template.monomial(Integer::from(1), exponents);
+                predicates.push(variable - template.constant(Integer::from(*value)));
+            }
+        }
+        if let Some(affine) = self.chart.affine() {
+            predicates.extend(affine.equations().iter().cloned());
+        }
+        predicates.extend(self.conjunction.iter().cloned());
+        Some(predicates)
+    }
 }
 
 /// Why an otherwise unrefinable AND branch was resolved exactly.

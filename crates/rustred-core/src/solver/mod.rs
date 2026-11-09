@@ -89,7 +89,8 @@ pub use candidate_reduction::{
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
-    CaseIntersectionStats, CaseResolution, CaseResolutionReason, CoordinateCase,
+    CaseIntersectionStats, CaseResolution, CaseResolutionReason, CoordinateCase, DeferredRegion,
+    UnsupportedBranchPolicy,
 };
 pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
@@ -121,9 +122,9 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, RuleDispatchPolicy,
-    SectorDomainSolution, SectorEvent, SectorPhase, SectorRule, SectorSolution, SectorSolveError,
-    SectorSolveOptions, SectorStats,
+    DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError,
+    RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution, SectorEvent, SectorPhase,
+    SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,

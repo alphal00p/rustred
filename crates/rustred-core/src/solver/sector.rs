@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 use super::geometry::{GeometryError, compare_cases};
 use super::{
     AffineGeometryError, Case, CaseIntersectionError, CaseIntersectionFailure,
-    CaseIntersectionLimits, CoordinateCase, ExceptionError, ExceptionalConditions, Integral,
-    RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError,
+    CaseIntersectionLimits, CoordinateCase, DeferredRegion, ExceptionError, ExceptionalConditions,
+    Integral, RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError,
+    UnsupportedBranchPolicy,
 };
 
 mod domains;
@@ -98,32 +99,99 @@ impl<const N: usize> SectorRule<N> {
         sector: &[bool; N],
         max_numerator_rank: Option<u32>,
         limits: CaseIntersectionLimits,
+        before_branch: impl FnMut(),
+    ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
+        let mut deferred = Vec::new();
+        let admitted = self.admit_exceptional_cases_with_policy(
+            indices,
+            sector,
+            max_numerator_rank,
+            limits,
+            UnsupportedBranchPolicy::Refuse,
+            &mut deferred,
+            before_branch,
+        );
+        debug_assert!(deferred.is_empty(), "Refuse never defers");
+        admitted
+    }
+
+    /// The complete OR of exceptional cases. Under `Defer` (S4) every
+    /// unresolved branch is appended to `deferred` with the index of its
+    /// exception branch instead of failing; such a branch is NOT among the
+    /// returned cases and is never counted as discarded (proved empty).
+    #[allow(clippy::too_many_arguments)]
+    fn admit_exceptional_cases_with_policy(
+        &self,
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+        limits: CaseIntersectionLimits,
+        unsupported: UnsupportedBranchPolicy,
+        deferred: &mut Vec<(usize, DeferredRegion<N>)>,
         mut before_branch: impl FnMut(),
     ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
         let mut cases = Vec::new();
         let mut discarded = 0;
         let mut resolutions = ResolutionCounts::default();
-        for branch in &self.exceptions.branches {
+        for (position, branch) in self.exceptions.branches.iter().enumerate() {
             before_branch();
-            let intersection = match max_numerator_rank {
-                None => self
-                    .candidate
-                    .case
-                    .intersect_many(branch, indices, sector, limits),
-                Some(maximum) => self.candidate.case.intersect_many_with_max_numerator_rank(
-                    branch, indices, sector, limits, maximum,
-                ),
-            }
-            .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
-            if intersection.cases.is_empty() {
+            let intersection = self
+                .candidate
+                .case
+                .intersect_many_with_policy(
+                    branch,
+                    indices,
+                    sector,
+                    limits,
+                    max_numerator_rank,
+                    unsupported,
+                )
+                .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
+            if intersection.cases.is_empty() && intersection.deferred.is_empty() {
                 discarded += 1;
             }
             resolutions.lifted += intersection.stats.lifted_branches;
             resolutions.modular_empty += intersection.stats.modular_empty_branches;
             cases.extend(intersection.cases);
+            deferred.extend(
+                intersection
+                    .deferred
+                    .into_iter()
+                    .map(|region| (position, region)),
+            );
         }
         Ok((cases, discarded, resolutions))
     }
+}
+
+/// One exceptional branch region that the opt-in S4 solve
+/// ([`SectorSolver::solve_sector_deferring`]) left unresolved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SectorDeferredRegion<const N: usize> {
+    /// Index in [`SectorSolution::rules`] of the rule whose exceptional
+    /// geometry produced the region (its case is `region.parent`).
+    pub rule: usize,
+    /// Index of the AND branch in that rule's `exceptions.branches` (the
+    /// original conjunction of the intersection).
+    pub branch: usize,
+    pub region: DeferredRegion<N>,
+}
+
+/// Output of the opt-in S4 solve: a sector solution that is complete except
+/// for `deferred`.
+///
+/// Contract (exact and conservative): an integer point of the sector that
+/// lies in any deferred region (see [`DeferredRegion::predicates`]) is
+/// UNCOVERED. No rule of `solution` may be applied there, whether or not a
+/// rule's case would contain it; such points must be supplied separately
+/// (e.g. an exact finite table) or refused. Every other point is covered by
+/// the unchanged queue logic (children, coverage pruning, numerical leaves),
+/// exactly as in an ordinary [`SectorSolution`]. With no deferred region this
+/// is the ordinary solution of [`SectorSolver::solve_sector`].
+#[derive(Debug)]
+pub struct DeferredSectorSolution<const N: usize> {
+    pub solution: SectorSolution<N>,
+    pub deferred: Vec<SectorDeferredRegion<N>>,
 }
 
 /// Stuck exceptional branches resolved exactly while admitting one rule's
@@ -340,11 +408,52 @@ impl<const N: usize> SectorSolver<'_, N> {
         options: SectorSolveOptions,
         observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        self.solve_case_queue(vec![self.initial_case()], options, observe)
+    }
+
+    fn initial_case(&self) -> Case<N> {
         let initial = CoordinateCase::new(std::array::from_fn(|i| {
             self.system.fixed()[i].or_else(|| self.config.removed_deltas[i].then_some(1))
         }))
         .expect("one is a representable compact fixed power");
-        self.solve_case_queue(vec![Case::from(initial)], options, observe)
+        Case::from(initial)
+    }
+
+    /// Opt-in S4: [`Self::solve_sector`], except that an exceptional branch
+    /// the case intersection cannot resolve (refinement, S1, S2) is deferred
+    /// instead of failing the sector. See [`DeferredSectorSolution`] for the
+    /// coverage contract. Rule selection must be `FirstValid`; coverage
+    /// pruning of queued cases never relies on a deferred intersection. The
+    /// queue always runs inline (no capacity dispatch).
+    pub fn solve_sector_deferring(
+        &self,
+        options: SectorSolveOptions,
+    ) -> Result<DeferredSectorSolution<N>, SectorSolveError<N>> {
+        self.solve_sector_deferring_with_observer(options, |_| {})
+    }
+
+    pub fn solve_sector_deferring_with_observer(
+        &self,
+        options: SectorSolveOptions,
+        mut observe: impl FnMut(SectorEvent<'_, N>),
+    ) -> Result<DeferredSectorSolution<N>, SectorSolveError<N>> {
+        let initial = self.initial_case();
+        if !matches!(self.config.rule_selection, RuleSelectionPolicy::FirstValid) {
+            return Err(SectorSolveError::Search {
+                case: initial,
+                source: SolverError::InvalidInput(
+                    "deferred exceptional branches require FirstValid rule selection".into(),
+                ),
+            });
+        }
+        let mut deferred = Vec::new();
+        let solution = self.solve_case_queue_with_deferral(
+            vec![initial],
+            options,
+            &mut observe,
+            Some(&mut deferred),
+        )?;
+        Ok(DeferredSectorSolution { solution, deferred })
     }
 
     /// Common queue machinery; callers own the distinction between a full
@@ -371,7 +480,21 @@ impl<const N: usize> SectorSolver<'_, N> {
         &self,
         initial: Vec<Case<N>>,
         options: SectorSolveOptions,
+        observe: &mut dyn FnMut(SectorEvent<'_, N>),
+    ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        self.solve_case_queue_with_deferral(initial, options, observe, None)
+    }
+
+    /// The queue body. `deferral` is `None` for every ordinary solve (atomic
+    /// intersection failures, unchanged); `Some` only for the opt-in S4 solve,
+    /// and then only the FirstValid admission of a found rule's exceptional
+    /// cases defers. Coverage pruning ([`Self::rule_covers`]) never defers.
+    fn solve_case_queue_with_deferral(
+        &self,
+        initial: Vec<Case<N>>,
+        options: SectorSolveOptions,
         mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
+        mut deferral: Option<&mut Vec<SectorDeferredRegion<N>>>,
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         // Two-sided eps axes are an opt-in of the sources and must be carried
         // by the order program exactly (plan M2 sec.3.4): generation order and
@@ -461,6 +584,15 @@ impl<const N: usize> SectorSolver<'_, N> {
                 pending: pending.len(),
             });
             if !matches!(self.config.rule_selection, RuleSelectionPolicy::FirstValid) {
+                if deferral.is_some() {
+                    return Err(SectorSolveError::Search {
+                        case: current,
+                        source: SolverError::InvalidInput(
+                            "deferred exceptional branches require FirstValid rule selection"
+                                .into(),
+                        ),
+                    });
+                }
                 let selected = self.select_rule(&current, options, &mut stats, &mut observe)?;
                 stats.symbolic_cases += 1;
                 stats.discarded_cases += selected.discarded;
@@ -515,12 +647,38 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered
             // by this rule itself, so only earlier rules may suppress it.
-            let (children, discarded, resolutions) = rule.admit_exceptional_cases_in_scope(
-                &self.system.indices,
-                self.order.sector(),
-                options.max_numerator_rank,
-                options.case_intersection_limits,
-            )?;
+            let (children, discarded, resolutions) = match deferral.as_deref_mut() {
+                None => rule.admit_exceptional_cases_in_scope(
+                    &self.system.indices,
+                    self.order.sector(),
+                    options.max_numerator_rank,
+                    options.case_intersection_limits,
+                )?,
+                Some(deferred) => {
+                    // S4: the rule is published at index `rules.len()` below
+                    // (nothing else is pushed before it); its deferred
+                    // regions stay out of `children`.
+                    let mut regions = Vec::new();
+                    let admitted = rule.admit_exceptional_cases_with_policy(
+                        &self.system.indices,
+                        self.order.sector(),
+                        options.max_numerator_rank,
+                        options.case_intersection_limits,
+                        UnsupportedBranchPolicy::Defer,
+                        &mut regions,
+                        || {},
+                    )?;
+                    let index = rules.len();
+                    deferred.extend(regions.into_iter().map(|(branch, region)| {
+                        SectorDeferredRegion {
+                            rule: index,
+                            branch,
+                            region,
+                        }
+                    }));
+                    admitted
+                }
+            };
             stats.discarded_cases += discarded;
             stats.case_lifts += resolutions.lifted;
             stats.case_modular_empty += resolutions.modular_empty;
@@ -775,3 +933,7 @@ mod tests;
 #[cfg(test)]
 #[path = "sector/intersection_tests.rs"]
 mod intersection_tests;
+
+#[cfg(test)]
+#[path = "sector/defer_tests.rs"]
+mod defer_tests;

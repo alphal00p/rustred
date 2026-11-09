@@ -17,6 +17,7 @@ mod native;
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
+    DeferredRegion, UnsupportedBranchPolicy,
 };
 
 use crate::algebra::CoefficientPolynomial;
@@ -38,7 +39,15 @@ impl<const N: usize> Case<N> {
         sector: &[bool; N],
         limits: CaseIntersectionLimits,
     ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
-        engine::intersect(self, conjunction, indices, sector, limits, None)
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            None,
+            UnsupportedBranchPolicy::Refuse,
+        )
     }
 
     /// Exact exceptional geometry within `sum(max(-n_i,0)) <= maximum`.
@@ -60,7 +69,44 @@ impl<const N: usize> Case<N> {
         limits: CaseIntersectionLimits,
         maximum: u32,
     ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
-        engine::intersect(self, conjunction, indices, sector, limits, Some(maximum))
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            Some(maximum),
+            UnsupportedBranchPolicy::Refuse,
+        )
+    }
+
+    /// [`Self::intersect_many`] (`max_numerator_rank` `None`) or
+    /// [`Self::intersect_many_with_max_numerator_rank`] with an explicit
+    /// policy for branches that no exact step resolves. `Refuse` is exactly
+    /// those methods. `Defer` (S4, opt-in) returns such branches in
+    /// [`CaseIntersectionResult::deferred`] instead of failing: `cases` then
+    /// does NOT cover them, and a caller must keep every rule away from them.
+    /// All other failures (resources, budgets, admission, invalid input)
+    /// remain atomic under both policies.
+    #[allow(clippy::result_large_err)]
+    pub fn intersect_many_with_policy(
+        &self,
+        conjunction: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        max_numerator_rank: Option<u32>,
+        unsupported: UnsupportedBranchPolicy,
+    ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            max_numerator_rank,
+            unsupported,
+        )
     }
 }
 
@@ -99,3 +145,9 @@ mod lift_tests;
 
 #[cfg(test)]
 mod lift_review_tests;
+
+#[cfg(test)]
+mod t167_p1_b5_captured;
+
+#[cfg(test)]
+mod defer_tests;

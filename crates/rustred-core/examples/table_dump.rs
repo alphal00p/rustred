@@ -1,13 +1,21 @@
 //! Knock-out (rules study) table probe; built from rustred p_integral (rr-ko-tooling).
 //!
 //!   table_dump FAMILY MASK ORDER OUT.jsonl [--cert OUT.cert.jsonl] [--depth K] [--zero all|downset]
-//!              [--workers W] [--charts M1,M2,..] [--cert-max-rows K]
+//!              [--workers W] [--charts M1,M2,..] [--cert-max-rows K] [--defer-unsupported]
 //!
 //! Solves every chart of the sector MASK of FAMILY (one chart without two-sided axes, 2^j with j axes)
 //! and writes the complete machine table as JSONL. rules_study/s5-tables/FORMAT.md is the format.
 //! MASK = 0/1 string, or `top` = the prop(..,1) lines of the family file.
 //! ORDER = auto | legacy | two_sided | eps_first | eps_third | plain_two_sided | one_sided
 //!   auto = legacy without eps axes, two_sided with them.
+//!
+//! `--defer-unsupported` (opt-in S4, off by default; without it the output is unchanged): an
+//! exceptional branch that the case intersection cannot resolve no longer fails the chart. It is
+//! written as a `deferred_region` record (after the chart's rules and residuals) and counted in
+//! `chart_end`/`end` (`deferred_regions`); the header schema is then `table_dump.v1-defer` and
+//! carries `"defer_unsupported":true`. Contract: an integer point of the chart (its guards) at which
+//! every polynomial of a region's `predicates` vanishes is NOT reduced by any rule of the chart;
+//! it must come from a separate exact table, else fail closed. Certificates are unchanged.
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
@@ -18,12 +26,16 @@ use rustred::input::{Compiler, Limits, LoweringLimits};
 use rustred::order::{CompiledOrder, DegreeRow, OrderDescriptor};
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    Case, Integral, SectorConfig, SectorExecutor, SectorRule, SectorSolveOptions, SectorSolver,
-    SourceSystem,
+    Case, Integral, SectorConfig, SectorDeferredRegion, SectorExecutionError, SectorExecutor,
+    SectorRule, SectorSolveOptions, SectorSolver, SourceSystem,
 };
 
 /// Bump on any change of the record layout (FORMAT.md).
 const SCHEMA: &str = "table_dump.v1";
+/// Table schema with `--defer-unsupported` (v1 plus `deferred_region` records and the
+/// `deferred_regions` counters). A v1-only reader refuses it instead of treating the deferred
+/// points as covered. The certificate file keeps [`SCHEMA`]: its layout is unchanged.
+const SCHEMA_DEFER: &str = "table_dump.v1-defer";
 /// The source line of the build. Was "94ec3300" for the rules-s5-tables study
 /// builds (B3, B5: rustred 94ec3300 plus the example and solver/table_export.rs).
 const SOURCE_BASE: &str = "p_integral";
@@ -99,13 +111,14 @@ struct Cli {
     workers: usize,
     charts: Option<Vec<Vec<bool>>>,
     cert_max_rows: usize,
+    defer_unsupported: bool,
 }
 
 fn cli() -> (Cli, IntegralFamily) {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
         eprintln!(
-            "usage: table_dump FAMILY MASK ORDER OUT.jsonl [--cert F] [--depth K] [--zero all|downset] [--workers W] [--charts M1,M2] [--cert-max-rows K]"
+            "usage: table_dump FAMILY MASK ORDER OUT.jsonl [--cert F] [--depth K] [--zero all|downset] [--workers W] [--charts M1,M2] [--cert-max-rows K] [--defer-unsupported]"
         );
         std::process::exit(2);
     }
@@ -146,9 +159,15 @@ fn cli() -> (Cli, IntegralFamily) {
         workers: 1,
         charts: None,
         cert_max_rows: usize::MAX,
+        defer_unsupported: false,
     };
     let mut i = 5;
     while i < args.len() {
+        if args[i] == "--defer-unsupported" {
+            c.defer_unsupported = true;
+            i += 1;
+            continue;
+        }
         let value = args.get(i + 1).expect("flag value").clone();
         match args[i].as_str() {
             "--cert" => c.cert = Some(value),
@@ -236,16 +255,7 @@ fn write_rule<const N: usize>(
         .iter()
         .map(|b| strings(b.iter()))
         .collect();
-    let fixed: Vec<String> = c
-        .case
-        .fixed()
-        .iter()
-        .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
-        .collect();
-    let equations = match &c.case {
-        Case::Coordinate(_) => "[]".to_string(),
-        Case::Affine(a) => strings(a.equations().iter()),
-    };
+    let (fixed, equations) = case_fields(&c.case);
     let mut seeds: Vec<String> = c
         .sources
         .iter()
@@ -259,7 +269,7 @@ fn write_rule<const N: usize>(
         q(chart),
         index,
         q(&format!("{:?}", c.case)),
-        fixed.join(","),
+        fixed,
         equations,
         q(&c.target.to_string()),
         rhs.join(","),
@@ -272,6 +282,58 @@ fn write_rule<const N: usize>(
     )
     .unwrap();
     c.rhs.len()
+}
+
+/// `fixed` (without brackets) and `equations` of a case, as in `rule` records.
+fn case_fields<const N: usize>(case: &Case<N>) -> (String, String) {
+    let fixed: Vec<String> = case
+        .fixed()
+        .iter()
+        .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
+        .collect();
+    let equations = match case {
+        Case::Coordinate(_) => "[]".to_string(),
+        Case::Affine(a) => strings(a.equations().iter()),
+    };
+    (fixed.join(","), equations)
+}
+
+/// One `deferred_region` record (S4, `--defer-unsupported`).
+fn write_deferred<const N: usize>(
+    f: &mut impl std::io::Write,
+    chart: &str,
+    index: usize,
+    deferred: &SectorDeferredRegion<N>,
+    rules: &[SectorRule<N>],
+    indices: &[usize; N],
+) {
+    let region = &deferred.region;
+    let (fixed, equations) = case_fields(&region.chart);
+    let (parent_fixed, parent_equations) = case_fields(&region.parent);
+    let rule = &rules[deferred.rule];
+    let branch = &rule.exceptions.branches[deferred.branch];
+    let predicates = region
+        .predicates(indices)
+        .expect("an engine-deferred region has a nonempty conjunction");
+    writeln!(
+        f,
+        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"case\":{},\"fixed\":[{}],\"equations\":{},\"conjunction\":{},\"predicates\":{}}}",
+        q(chart),
+        deferred.rule,
+        deferred.branch,
+        q(&format!("{:?}", region.reason)),
+        region.parent == rule.candidate.case,
+        q(&format!("{:?}", region.parent)),
+        parent_fixed,
+        parent_equations,
+        strings(branch.iter()),
+        q(&format!("{:?}", region.chart)),
+        fixed,
+        equations,
+        strings(region.conjunction.iter()),
+        strings(predicates.iter())
+    )
+    .unwrap();
 }
 
 fn write_cert_header<const N: usize>(
@@ -481,10 +543,19 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             .map(|b| format!("{b:02x}"))
             .collect()
     });
+    let defer_field = if cli.defer_unsupported {
+        ",\"defer_unsupported\":true"
+    } else {
+        ""
+    };
     writeln!(
         out,
-        "{{\"type\":\"header\",\"schema\":{},\"source_base\":{},\"family\":{},\"family_file\":{},\"family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"order_bytes\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":{},\"zero_seconds\":{zero_seconds:.3}}}",
-        q(SCHEMA),
+        "{{\"type\":\"header\",\"schema\":{},\"source_base\":{},\"family\":{},\"family_file\":{},\"family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"order_bytes\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":{},\"zero_seconds\":{zero_seconds:.3}{defer_field}}}",
+        q(if cli.defer_unsupported {
+            SCHEMA_DEFER
+        } else {
+            SCHEMA
+        }),
         q(SOURCE_BASE),
         q(fam.name()),
         q(&cli.family_path),
@@ -534,6 +605,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
     };
     let (mut total_rules, mut total_terms, mut total_residuals, mut errors) =
         (0usize, 0usize, 0usize, 0usize);
+    let mut total_deferred = 0usize;
     let mut totals = CertTotals::default();
     for chart in &charts {
         let label = mask_string(&chart[..n]);
@@ -565,11 +637,37 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
         .unwrap();
         out.flush().unwrap();
         let t1 = Instant::now();
-        let result = executor.map(&sources, &[*chart], &config, options, |done| {
-            Ok::<_, String>(done.solution)
-        });
+        let result = if cli.defer_unsupported {
+            // The executor's single-chart job (SectorSolver::new + solve on its pool), with the
+            // opt-in S4 solve instead of solve_sector; errors keep the executor's shape.
+            let sector = *chart;
+            executor.install(|| {
+                let solver =
+                    SectorSolver::new(&sources, sector, config.clone()).map_err(|source| {
+                        SectorExecutionError::<N, String>::Prepare {
+                            ordinal: 0,
+                            sector,
+                            source,
+                        }
+                    })?;
+                solver
+                    .solve_sector_deferring(options)
+                    .map(|done| vec![(done.solution, done.deferred)])
+                    .map_err(|source| SectorExecutionError::Solve {
+                        ordinal: 0,
+                        sector,
+                        source,
+                    })
+            })
+        } else {
+            executor
+                .map(&sources, &[*chart], &config, options, |done| {
+                    Ok::<_, String>(done.solution)
+                })
+                .map(|v| v.into_iter().map(|s| (s, Vec::new())).collect::<Vec<_>>())
+        };
         let seconds = t1.elapsed().as_secs_f64();
-        let solution = match result {
+        let (solution, deferred) = match result {
             Ok(mut v) => v.pop().unwrap(),
             Err(e) => {
                 let full = format!("{e:?}");
@@ -609,10 +707,25 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             )
             .unwrap();
         }
+        for (index, region) in deferred.iter().enumerate() {
+            write_deferred(
+                &mut out,
+                &label,
+                index,
+                region,
+                &solution.rules,
+                sources.index_variables(),
+            );
+        }
+        let deferred_field = if cli.defer_unsupported {
+            format!(",\"deferred_regions\":{}", deferred.len())
+        } else {
+            String::new()
+        };
         let s = &solution.stats;
         writeln!(
             out,
-            "{{\"type\":\"chart_end\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches},\"residuals\":{},\"symbolic_cases\":{},\"numerical_cases\":{},\"discarded_cases\":{},\"case_lifts\":{},\"case_modular_empty\":{},\"finite_points_visited\":{},\"max_numerator_rank\":{},\"finite_case_policy\":{}}}",
+            "{{\"type\":\"chart_end\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches},\"residuals\":{},\"symbolic_cases\":{},\"numerical_cases\":{},\"discarded_cases\":{},\"case_lifts\":{},\"case_modular_empty\":{},\"finite_points_visited\":{},\"max_numerator_rank\":{},\"finite_case_policy\":{}{deferred_field}}}",
             q(&label),
             solution.rules.len(),
             solution.finite_residuals.len(),
@@ -628,10 +741,11 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
         .unwrap();
         out.flush().unwrap();
         println!(
-            "{{\"chart\":\"{label}\",\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches},\"residuals\":{}}}",
+            "{{\"chart\":\"{label}\",\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches},\"residuals\":{}{deferred_field}}}",
             solution.rules.len(),
             solution.finite_residuals.len()
         );
+        total_deferred += deferred.len();
         total_rules += solution.rules.len();
         total_terms += terms;
         total_residuals += solution.finite_residuals.len();
@@ -672,9 +786,14 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             totals.seconds
         );
     }
+    let deferred_total_field = if cli.defer_unsupported {
+        format!(",\"deferred_regions\":{total_deferred}")
+    } else {
+        String::new()
+    };
     writeln!(
         out,
-        "{{\"type\":\"end\",\"charts\":{},\"rules\":{total_rules},\"rhs_terms\":{total_terms},\"residuals\":{total_residuals},\"chart_errors\":{errors},\"seconds\":{:.3},\"vmhwm_kb\":{}}}",
+        "{{\"type\":\"end\",\"charts\":{},\"rules\":{total_rules},\"rhs_terms\":{total_terms},\"residuals\":{total_residuals},\"chart_errors\":{errors},\"seconds\":{:.3},\"vmhwm_kb\":{}{deferred_total_field}}}",
         charts.len(),
         t_total.elapsed().as_secs_f64(),
         vmhwm_kb()
@@ -682,7 +801,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
     .unwrap();
     out.flush().unwrap();
     println!(
-        "{{\"rules\":{total_rules},\"rhs_terms\":{total_terms},\"residuals\":{total_residuals},\"chart_errors\":{errors},\"seconds\":{:.3},\"vmhwm_kb\":{}}}",
+        "{{\"rules\":{total_rules},\"rhs_terms\":{total_terms},\"residuals\":{total_residuals},\"chart_errors\":{errors},\"seconds\":{:.3},\"vmhwm_kb\":{}{deferred_total_field}}}",
         t_total.elapsed().as_secs_f64(),
         vmhwm_kb()
     );
