@@ -9,7 +9,7 @@
 //! rustred-core's golden directory, beside M3-T15's `owners_1-4.tsv`), the
 //! descent certificate, a short trace, per-rule firing on the Custom witness
 //! boxes (I-5), the regeneration of the package from the staged payloads with
-//! the LP recount of the owners of at most 9 lines (every owner only with
+//! M3-I1's LP recount of the owners of at most 9 lines (every owner only with
 //! `P_LP_RECOUNT_ALL=1`) and one load under `verify_descent` (I-8), and the
 //! numbers of the D-SIZE decision (load times, first result, resident sizes).
 //! The 4L tests are `#[ignore]` and run optimised once (notes/rr-assemble4.md).
@@ -48,25 +48,22 @@ use rustred::propagator::{
     OwnerClassId, P_CUSTOM_OWNER_VERSION, P_OWNER_LIBRARY_SEMANTICS, PresentationId,
 };
 use rustred::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic, ReductionLimits};
-use rustred_app::propagator::assemble::{ValidateOptions, assemble_library_with, validate_library};
-use rustred_app::propagator::generate::custom_owner_lp_count;
+use rustred_app::propagator::assemble::{
+    LpRecount, RecountProvidedLp, ValidateOptions, assemble_library_recounted,
+    assemble_library_with, validate_library,
+};
 use rustred_app::propagator::loader::read_custom_payloads;
 use rustred_app::propagator::package::{
     assemble_p_package, p_library_differences, p_library_files, write_p_library_files,
 };
 use rustred_app::propagator::{
     AssembleOptions, AssembledLibrary, CustomOwnerOptions, CustomOwnerPayload, CustomPayloads,
-    PLibraryOptions, PLibrarySource, assemble_library, load_p_library,
+    PLibraryOptions, PLibrarySource, load_p_library,
 };
 
 // ---------------------------------------------------------------------------
 // The program
 // ---------------------------------------------------------------------------
-
-/// The owners of at most this many lines are recounted by the regeneration
-/// test; the 10- and 11-line owners only with `P_LP_RECOUNT_ALL=1` (each about
-/// 24 min and 3.4 GB, D-M3-3: M3-T15's count is the one count).
-const RECOUNT_MAX_LINES: u32 = 9;
 
 const CORE_GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -95,15 +92,18 @@ fn owners_directory() -> PathBuf {
 }
 
 /// The scope 1-4 program from the staged payloads, with its descent
-/// certificate; assembled once per test process.
-fn scope_four() -> &'static AssembledLibrary {
-    static LIBRARY: OnceLock<AssembledLibrary> = OnceLock::new();
+/// certificate, and M3-I1's LP recount of the payloads (the owners of at most
+/// 9 lines; every owner only with `P_LP_RECOUNT_ALL=1`, D-M3-3); assembled
+/// once per test process.
+fn scope_four() -> &'static (AssembledLibrary, Vec<LpRecount>) {
+    static LIBRARY: OnceLock<(AssembledLibrary, Vec<LpRecount>)> = OnceLock::new();
     LIBRARY.get_or_init(|| {
         let payloads = read_custom_payloads(&PLibrarySource::Directory(owners_directory()))
             .expect("the staged owners read back");
         println!("{} staged Custom payloads", payloads.len());
         let start = Instant::now();
-        let assembled = assemble_library(
+        let recount = RecountProvidedLp::from_env();
+        let (assembled, recounts) = assemble_library_recounted(
             &families(),
             4,
             CustomPayloads::Provided(payloads),
@@ -111,15 +111,17 @@ fn scope_four() -> &'static AssembledLibrary {
                 threads: workers(),
                 verify_descent: true,
             },
+            &recount,
         )
         .expect("scope 1-4 assembles");
         println!(
-            "scope 1-4 assembled in {:.1} s on {} census threads: {:?}",
+            "scope 1-4 assembled in {:.1} s on {} census threads (LP recount up to {:?} lines): {:?}",
             start.elapsed().as_secs_f64(),
             workers(),
+            recount.max_lines(),
             assembled.timings
         );
-        assembled
+        (assembled, recounts)
     })
 }
 
@@ -421,7 +423,8 @@ fn custom_rows(assembled: &AssembledLibrary) -> Vec<String> {
 }
 
 /// The inventory text: identity, the named counts (`count <name> <value>  #
-/// <definition>`), M3-T15's `owners_1-4.tsv` by hash, the Custom owners.
+/// <definition>`), the Custom owners (checked against M3-T15's
+/// `owners_1-4.tsv` by [`check_owners_tsv`]).
 fn inventory(assembled: &AssembledLibrary) -> String {
     use std::fmt::Write as _;
     let mut out = String::from(
@@ -432,15 +435,88 @@ fn inventory(assembled: &AssembledLibrary) -> String {
     for c in named_counts(assembled) {
         writeln!(out, "count {} {}  # {}", c.name, c.value, c.definition).unwrap();
     }
-    let owners_tsv = std::fs::read(Path::new(CORE_GOLDEN).join("owners_1-4.tsv")).map_or_else(
-        |_| "absent".to_owned(),
-        |b| blake3::hash(&b).to_hex().to_string(),
-    );
-    writeln!(out, "owners_1-4.tsv blake3 {owners_tsv}").unwrap();
     for row in custom_rows(assembled) {
         writeln!(out, "{row}").unwrap();
     }
     out
+}
+
+/// M3-T15's committed owner table `owners_1-4.tsv` describes the Custom
+/// owners of the program, row by row: one row per Custom owner, with its
+/// Forcer name, lane (`Custom(diamond)` exactly on the Diamond nodes), node,
+/// loops, lines, eps lines, family, support, two-sided axes, charts, rules,
+/// residuals, LP and payload bytes. (The payload sha256 column is checked
+/// against the staged files by `sha256sum -c`, notes/rr-assemble4.md.)
+fn check_owners_tsv(assembled: &AssembledLibrary) {
+    let library = &assembled.library;
+    let path = Path::new(CORE_GOLDEN).join("owners_1-4.tsv");
+    let text = std::fs::read_to_string(&path).expect("M3-T15's owners_1-4.tsv");
+    let mut rows = text.lines().filter(|line| !line.starts_with('#'));
+    let header: Vec<&str> = rows.next().unwrap().split('\t').collect();
+    let column = |name: &str| header.iter().position(|c| *c == name).unwrap();
+    let owners: BTreeMap<String, (&POwner, u64)> = (custom_owners(library).into_iter())
+        .map(|(label, owner, support)| (label, (owner, support)))
+        .collect();
+    let mut seen = BTreeSet::new();
+    for row in rows {
+        let cells: Vec<&str> = row.split('\t').collect();
+        let cell = |name: &str| cells[column(name)];
+        let label = cell("class");
+        let (owner, support) = owners[label];
+        let spec = &owner.spec;
+        let presentation = library.presentation(spec.presentation);
+        let node = spec.node.unwrap();
+        let diamond = assembled.dag.nodes[node.0 as usize].action.kind() == ActionKind::Diamond;
+        let meta = spec.custom.as_ref().unwrap();
+        let bytes = spec.payload.as_ref().unwrap().bytes().unwrap();
+        let summary = inspect_custom_payload(&bytes).unwrap();
+        let arity = presentation.slots.len();
+        let held = [
+            name_of(presentation),
+            (if diamond { "Custom(diamond)" } else { "Custom" }).to_owned(),
+            node.0.to_string(),
+            presentation.loops.to_string(),
+            lines_of(presentation, support).to_string(),
+            presentation.forced_axes().count_ones().to_string(),
+            presentation.family.name().to_owned(),
+            mask_text(support, arity),
+            mask_text(meta.two_sided_axes, arity),
+            meta.charts.len().to_string(),
+            summary.rules().to_string(),
+            meta.residuals.to_string(),
+            meta.lp_count.to_string(),
+            bytes.len().to_string(),
+        ];
+        let recorded = [
+            "forcer",
+            "lane",
+            "node",
+            "loops",
+            "lines",
+            "eps_lines",
+            "family",
+            "support",
+            "two_sided_axes",
+            "charts",
+            "rules",
+            "residuals",
+            "lp",
+            "payload_bytes",
+        ]
+        .map(|name| cell(name).to_owned());
+        assert_eq!(
+            held,
+            recorded,
+            "{label}: the program against {}",
+            path.display()
+        );
+        assert!(seen.insert(label.to_owned()), "{label} twice");
+    }
+    assert_eq!(
+        seen.len(),
+        owners.len(),
+        "owners_1-4.tsv rows against Custom owners"
+    );
 }
 
 /// `count` lines of an inventory by name.
@@ -520,7 +596,7 @@ fn check_inventory(assembled: &AssembledLibrary) {
 #[test]
 #[ignore = "slow: scope 1-4 assembly with census, completeness check and certificate; needs RUSTRED_P_OWNERS_1_4"]
 fn scope_one_to_four_assembles_from_the_staged_owners() {
-    let assembled = scope_four();
+    let (assembled, _) = scope_four();
     let counts: BTreeMap<String, usize> = (named_counts(assembled).into_iter())
         .map(|c| (c.name, c.value))
         .collect();
@@ -590,7 +666,9 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
     let rows = validate_library(
         assembled,
         &ValidateOptions {
-            points: 50,
+            points: 10,
+            max_dots: 1,
+            max_rank: 2,
             ..ValidateOptions::default()
         },
     )
@@ -616,6 +694,7 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
     for row in custom_rows(assembled) {
         println!("{row}");
     }
+    check_owners_tsv(assembled);
     check_inventory(assembled);
 }
 
@@ -745,7 +824,7 @@ fn firing(library: &PLibrary, owner: &POwner, support: u64) -> Firing {
 #[test]
 #[ignore = "slow: every Custom witness box of scope 1-4; needs RUSTRED_P_OWNERS_1_4"]
 fn the_four_loop_witness_boxes_fire_the_custom_rules() {
-    let assembled = scope_four();
+    let (assembled, _) = scope_four();
     let library = &assembled.library;
     let (mut rules, mut fired, mut possibly, mut faces, mut keys) = (0, 0, 0, 0, 0);
     for (label, owner, support) in custom_owners(library) {
@@ -784,14 +863,67 @@ fn the_four_loop_witness_boxes_fire_the_custom_rules() {
 /// The memo counters of a kernel step: weights, then numerator tables.
 type MemoReader = Box<dyn Fn() -> (MemoCounters, MemoCounters)>;
 
-/// Resident set size of this process, KiB (`/proc/self/status`).
-fn rss_kib() -> u64 {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap();
-    (status.lines())
-        .find_map(|line| line.strip_prefix("VmRSS:"))
-        .and_then(|rest| rest.split_whitespace().next())
-        .and_then(|kib| kib.parse().ok())
-        .unwrap()
+/// glibc's `struct mallinfo2` (only two fields are read).
+#[allow(dead_code)]
+#[repr(C)]
+struct MallInfo2 {
+    arena: usize,
+    ordblks: usize,
+    smblks: usize,
+    hblks: usize,
+    hblkhd: usize,
+    usmblks: usize,
+    fsmblks: usize,
+    uordblks: usize,
+    fordblks: usize,
+    keepcost: usize,
+}
+
+unsafe extern "C" {
+    fn mallinfo2() -> MallInfo2;
+}
+
+/// Heap bytes in use (glibc `mallinfo2`: allocated chunks plus mmapped
+/// blocks), a measure that freed-but-resident memory does not blur, unlike
+/// the RSS. glibc reports the main arena only: run with `MALLOC_ARENA_MAX=1`
+/// (tools/release_tests.sh) so that every thread allocates there.
+fn heap_bytes() -> usize {
+    // SAFETY: mallinfo2 takes no argument and returns a plain struct.
+    let info = unsafe { mallinfo2() };
+    info.uordblks + info.hblkhd
+}
+
+fn mib(bytes: usize) -> f64 {
+    bytes as f64 / (1 << 20) as f64
+}
+
+/// Keys of a kernel owner of `support` on `arity` slots: the support's
+/// slots at `1 + dots` with at most `dots` in total, the other slots (ISPs)
+/// at `-rank` with at most `rank` in total.
+fn kernel_box(arity: usize, support: u64, dots: u32, rank: u32) -> Vec<Vec<i64>> {
+    fn spread(slots: &[usize], total: u32, sign: i64, base: &[i64], out: &mut Vec<Vec<i64>>) {
+        let Some((&slot, rest)) = slots.split_first() else {
+            out.push(base.to_vec());
+            return;
+        };
+        for amount in 0..=total {
+            let mut powers = base.to_vec();
+            powers[slot] += sign * i64::from(amount);
+            spread(rest, total - amount, sign, &powers, out);
+        }
+    }
+    let (lines, other): (Vec<usize>, Vec<usize>) =
+        (0..arity).partition(|&slot| support >> slot & 1 == 1);
+    let corner: Vec<i64> = (0..arity)
+        .map(|slot| i64::from(support >> slot & 1 == 1))
+        .collect();
+    let mut dotted = Vec::new();
+    spread(&lines, dots, 1, &corner, &mut dotted);
+    let mut keys = Vec::new();
+    for base in dotted {
+        spread(&other, rank, -1, &base, &mut keys);
+    }
+    keys
 }
 
 fn temporary(name: &str) -> PathBuf {
@@ -832,52 +964,37 @@ fn load(directory: &Path, verify_descent: bool) -> (Arc<PLibrary>, f64) {
     (library, start.elapsed().as_secs_f64())
 }
 
-/// The stored LP counts of the staged payloads against RustRed's counter:
-/// the owners of at most [`RECOUNT_MAX_LINES`] lines, all with
-/// `P_LP_RECOUNT_ALL=1` (I-2, D-M3-3). Returns `(recounted, skipped)`.
-fn recount_lp(library: &PLibrary) -> (usize, usize) {
-    let all = std::env::var("P_LP_RECOUNT_ALL").is_ok_and(|value| value == "1");
-    let (mut recounted, mut skipped) = (0, 0);
-    for (label, owner, support) in custom_owners(library) {
-        let presentation = library.presentation(owner.spec.presentation);
-        let lines = lines_of(presentation, support);
-        if lines > RECOUNT_MAX_LINES && !all {
-            skipped += 1;
-            continue;
-        }
-        let start = Instant::now();
-        let lp = custom_owner_lp_count(presentation, support).unwrap();
-        let stored = owner.spec.custom.as_ref().unwrap().lp_count;
-        println!(
-            "LP recount {label} {} ({lines} lines): {lp}, stored {stored}, {:.2} s",
-            name_of(presentation),
-            start.elapsed().as_secs_f64()
-        );
-        assert_eq!(
-            lp, stored,
-            "{label}: RustRed's count differs from the stored LP"
-        );
-        recounted += 1;
-    }
-    (recounted, skipped)
-}
-
 /// The regeneration test of scope 1-4 (I-8; D-M3-3): the staged payloads with
 /// their stored LP (recounted for the owners of at most 9 lines), the package
 /// written and loaded back once under `verify_descent` (certificate, strong
 /// completeness), the same program. Recorded for D-SIZE (D-M3-6), not
 /// criteria: bytes per part, load time with and without the certificate, the
 /// time to the first result of a 1L input against the 1-4 and the 1-3
-/// package, CustomStep resident size per owner (lazy, eager) and the kernel
-/// memos of the 4L kernel owners over their witness boxes (I-19).
+/// package (resident sizes: `the_scope_one_to_four_package_resident_sizes`).
 #[test]
 #[ignore = "slow: scope 1-4 package written and certified; needs RUSTRED_P_OWNERS_1_4"]
 fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
-    let assembled = scope_four();
+    let (assembled, recounts) = scope_four();
     let library = &assembled.library;
-    let (recounted, skipped) = recount_lp(library);
+    // M3-I1's recount refuses a count other than the record's; here: which
+    // owners it recounted (every Custom owner of at most 9 lines).
+    for r in recounts {
+        println!(
+            "LP {} ({} lines): stored {}, recounted {:?}",
+            r.label, r.lines, r.stored, r.recounted
+        );
+        assert_eq!(
+            r.recounted.is_some(),
+            RecountProvidedLp::from_env().recounts(r.lines)
+        );
+        assert!(r.recounted.is_none_or(|lp| lp == r.stored));
+    }
+    assert_eq!(recounts.len(), assembled.custom.len());
+    let recounted = recounts.iter().filter(|r| r.recounted.is_some()).count();
     println!(
-        "LP recounted for {recounted} owners, {skipped} owners of more than {RECOUNT_MAX_LINES} lines skipped"
+        "LP recounted for {recounted} owners, {} owners of more than {} lines not (stored LP trusted)",
+        recounts.len() - recounted,
+        RecountProvidedLp::DEFAULT_MAX_LINES
     );
 
     // The package: written, then loaded once with the certificate.
@@ -938,43 +1055,99 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
         "the 1L bubble differs between the programs"
     );
 
-    // CustomStep resident size per owner: lazy, then every chart prepared.
+    let _ = std::fs::remove_dir_all(&directory);
+    let _ = std::fs::remove_dir_all(&three);
+}
+
+/// The package of scope 1-4 named by `RUSTRED_P_LIBRARY_1_4` (the STAGE 1
+/// package), loaded without the certificate in a fresh process.
+fn staged_package() -> Arc<PLibrary> {
+    let directory = std::env::var_os("RUSTRED_P_LIBRARY_1_4").expect(
+        "RUSTRED_P_LIBRARY_1_4 names the scope 1-4 package ($WS/artefacts/m3/p-library-1-4-s1)",
+    );
+    let before = heap_bytes();
+    let (library, seconds) = load(Path::new(&directory), false);
+    println!(
+        "package loaded without the certificate in {seconds:.2} s, heap of the program {:.1} MiB",
+        mib(heap_bytes().saturating_sub(before))
+    );
+    library
+}
+
+/// I-19 and D-SIZE (recorded, not criteria): the heap of each Custom
+/// owner's step, lazy (charts prepared on first use, the run-time default)
+/// and eager (every chart prepared), and the kernel memos of the 4L kernel
+/// owners, fresh steps over a box of their keys, measured by `mallinfo2` in a
+/// process that only loaded the package.
+#[test]
+#[ignore = "measurement: needs RUSTRED_P_LIBRARY_1_4 and MALLOC_ARENA_MAX=1"]
+fn the_scope_one_to_four_package_resident_sizes() {
+    let unverified = staged_package();
+    // CustomStep heap per owner: lazy (charts prepared on first use), then
+    // eager (every chart prepared); both held, so each delta is that step's.
+    let arenas = std::env::var("MALLOC_ARENA_MAX").unwrap_or_default();
+    println!("heap measured by mallinfo2, MALLOC_ARENA_MAX={arenas:?} (1: every arena counted)");
     let mut steps: Vec<Arc<dyn PLaneStep>> = Vec::new();
+    let (mut lazy_total, mut eager_total) = (0, 0);
     for (label, owner, _) in custom_owners(&unverified) {
         let spec = &owner.spec;
         let presentation = unverified.presentation(spec.presentation);
         let bytes = spec.payload.as_ref().unwrap().bytes().unwrap();
         let meta = spec.custom.as_ref().unwrap();
-        let before = rss_kib();
+        let before = heap_bytes();
         steps.push(build_custom_step(presentation, &bytes, meta).unwrap());
-        let lazy = rss_kib();
+        let lazy = heap_bytes().saturating_sub(before);
         let start = Instant::now();
+        let before = heap_bytes();
         steps.push(build_custom_step_prepared(presentation, &bytes, meta).unwrap());
+        let eager = heap_bytes().saturating_sub(before);
+        (lazy_total, eager_total) = (lazy_total + lazy, eager_total + eager);
         println!(
-            "CustomStep {label} {}: payload {} bytes, resident lazy {} KiB, eager {} KiB, prepared in {:.2} s",
+            "CustomStep {label} {}: payload {} bytes, heap lazy {:.2} MiB, eager {:.2} MiB, prepared in {:.2} s",
             name_of(presentation),
             bytes.len(),
-            lazy.saturating_sub(before),
-            rss_kib().saturating_sub(lazy),
+            mib(lazy),
+            mib(eager),
             start.elapsed().as_secs_f64()
         );
     }
+    println!(
+        "CustomStep heap, all {} owners: lazy {:.1} MiB, eager {:.1} MiB",
+        steps.len() / 2,
+        mib(lazy_total),
+        mib(eager_total)
+    );
     drop(steps);
 
-    // The kernel memos of the 4L kernel owners over their witness boxes.
+    // The kernel memos of the 4L kernel owners, fresh steps over a box of
+    // their keys: at most one dot, ISP rank up to 8 (the benchmark cells'
+    // rank); owner by owner, all held, until a wall or heap budget is spent.
+    const SECONDS: f64 = 1200.0;
+    const HEAP: usize = 16 << 30;
     let limits = ReductionLimits::default();
     let tag = GammaTag::one();
     let (mut owners, mut keys) = (0, 0);
     let (mut weights, mut tables) = (MemoCounters::default(), MemoCounters::default());
-    let before = rss_kib();
+    let before = heap_bytes();
     let start = Instant::now();
     let mut held: Vec<Arc<dyn PLaneStep>> = Vec::new();
+    let mut kernel_owners = 0;
     for owner in unverified.owners() {
         let spec = &owner.spec;
         let presentation = unverified.presentation(spec.presentation);
         if presentation.loops != 4 {
             continue;
         }
+        if matches!(
+            spec.lane,
+            OwnerLane::SeriesParallel | OwnerLane::Insertion | OwnerLane::Carpet
+        ) {
+            kernel_owners += 1;
+        }
+        if start.elapsed().as_secs_f64() > SECONDS || heap_bytes().saturating_sub(before) > HEAP {
+            continue;
+        }
+        let owner_start = (Instant::now(), heap_bytes(), keys);
         let (step, counters): (Arc<dyn PLaneStep>, MemoReader) = match spec.lane {
             OwnerLane::SeriesParallel => {
                 let step = Arc::new(SeriesParallelStep::from_owner(&unverified, spec).unwrap());
@@ -999,7 +1172,7 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
             owner,
             limits: &limits,
         };
-        for powers in custom_witness_keys(presentation.slots.len(), support, 0) {
+        for powers in kernel_box(presentation.slots.len(), support, 1, 8) {
             let view = PKeyView {
                 presentation: spec.presentation,
                 powers: &powers,
@@ -1009,20 +1182,31 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
             keys += 1;
         }
         let (w, t) = counters();
+        println!(
+            "kernel {:?} {} ({} lines): {} keys, weight entries {}, table entries {}, heap {:.1} MiB, {:.1} s",
+            spec.lane,
+            name_of(presentation),
+            lines_of(presentation, support),
+            keys - owner_start.2,
+            w.misses,
+            t.misses,
+            mib(heap_bytes().saturating_sub(owner_start.1)),
+            owner_start.0.elapsed().as_secs_f64()
+        );
         weights = weights + w;
         tables = tables + t;
         owners += 1;
         held.push(step);
     }
     println!(
-        "kernel memos at 4L: {owners} owners, {keys} witness keys stepped in {:.1} s; weights {weights:?}, \
-         numerator tables {tables:?} (entries = misses below 2^16 per memo); resident growth {} KiB",
+        "kernel memos at 4L: {owners} of {kernel_owners} kernel owners (wall budget {SECONDS} s, heap budget \
+         {} MiB), {keys} keys (dots <= 1, ISP rank <= 8) stepped in {:.1} s; weights {weights:?}, numerator \
+         tables {tables:?} (entries = misses, at most 2^16 per memo); heap of the steps and their memos {:.1} MiB",
+        HEAP >> 20,
         start.elapsed().as_secs_f64(),
-        rss_kib().saturating_sub(before)
+        mib(heap_bytes().saturating_sub(before))
     );
     drop(held);
-    let _ = std::fs::remove_dir_all(&directory);
-    let _ = std::fs::remove_dir_all(&three);
 }
 
 // ---------------------------------------------------------------------------
