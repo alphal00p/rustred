@@ -1,13 +1,12 @@
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rustred::algebra::{Coefficient, CoefficientPolynomial, IndexedCoefficientContext};
 use rustred::persistence::{
     BinaryIoError, BinaryProgramKind, BinarySection, CoefficientTableBuilder,
-    DecodedCoefficientTable, EncodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
-    SectionTag, encode_program, inspect_program,
+    EncodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope, SectionTag, encode_program,
 };
-use rustred::solver::{Integral, Power, SectorSolution, SectorStats};
+use rustred::propagator::bundle_wire::{self, BundleWireError, BundleWireErrorKind, StoredProgram};
+use rustred::solver::{Integral, SectorSolution};
 
 pub(super) mod dispatch;
 pub(super) mod rules;
@@ -35,17 +34,8 @@ pub(super) fn read_with_budget(
             budget.admit_sector(sector)?;
         }
     }
-    let coefficients = DecodedCoefficientTable::import_generated(
-        envelope
-            .section(SectionTag::SYMBOLICA_STATE)
-            .expect("checked section"),
-        envelope
-            .section(SectionTag::COEFFICIENTS)
-            .expect("checked section"),
-        limits.binary_limits(),
-    )
-    .map_err(binary_error)?;
-    validate_ids(&records, coefficients.len())?;
+    let coefficients =
+        bundle_wire::import_coefficients(&envelope, &records, limits.binary_limits())?;
     Ok(Bundle {
         records,
         family,
@@ -60,70 +50,28 @@ pub(super) fn read_structure(
     if bytes.len() > limits.bundle_byte_limit() {
         return Err(AppError::limit("candidate bundle exceeds its byte limit"));
     }
-    let envelope = inspect_program(bytes, limits.binary_limits()).map_err(binary_error)?;
-    if envelope.kind() != BinaryProgramKind::Candidates
-        || envelope
-            .sections()
-            .iter()
-            .map(|s| s.tag)
-            .collect::<Vec<_>>()
-            != [
-                SectionTag::SYMBOLICA_STATE,
-                SectionTag::COEFFICIENTS,
-                SectionTag::FAMILY,
-                SectionTag::PROGRAM,
-            ]
-    {
-        return Err(AppError::schema(
-            "expected a generated candidate binary program",
-        ));
-    }
+    let envelope = bundle_wire::candidate_sections(bytes, limits.binary_limits())?;
     let program = envelope
         .section(SectionTag::PROGRAM)
         .expect("checked section");
     let allowance = limits.bundle_byte_limit();
-    let (schema, _): (String, usize) = decode_record(program, allowance)?;
-    let (records, consumed): (ProgramRecord, usize) = match schema.as_str() {
-        DISPATCH_CANDIDATE_BUNDLE_SCHEMA => decode_record(program, allowance)?,
-        CANDIDATE_BUNDLE_SCHEMA => dispatch::decode_v2(program, allowance)?,
-        LEGACY_CANDIDATE_BUNDLE_SCHEMA => {
-            let (old, consumed): (LegacyProgramRecord, usize) = decode_record(program, allowance)?;
+    let records = match bundle_wire::decode_program_record(program, allowance)? {
+        StoredProgram::Current(records) => records,
+        StoredProgram::Legacy(old) => {
             let integral_order =
                 super::load::candidate_ordering(old.root_sector.len(), old.permutation.as_deref())?
                     .stable_id()
                     .to_string();
-            (
-                ProgramRecord {
-                    schema: old.schema,
-                    status: old.status,
-                    solver_policy: old.solver_policy,
-                    family_source: old.family_source,
-                    input_format: old.input_format,
-                    family_fingerprint: old.family_fingerprint,
-                    root_sector: old.root_sector,
-                    permutation: old.permutation,
-                    integral_order,
-                    sectors: old.sectors,
-                    rule_dispatch: Vec::new(),
-                },
-                consumed,
-            )
+            old.with_order(integral_order)
         }
-        _ => return Err(AppError::schema("unsupported candidate structural schema")),
     };
-    if consumed != program.len() {
-        return Err(AppError::schema("trailing candidate structural bytes"));
-    }
     // Shape/collection checks precede native Symbolica state import. The native
     // state and algebra records still require trusted generated provenance.
     validate(&records, limits)?;
     let encoded_family = envelope
         .section(SectionTag::FAMILY)
         .expect("checked section");
-    let (family, consumed): (NativeFamilyRecord, usize) = decode_record(encoded_family, allowance)?;
-    if consumed != encoded_family.len() {
-        return Err(AppError::schema("trailing native family record bytes"));
-    }
+    let family = bundle_wire::decode_family_record(encoded_family, allowance)?;
     family
         .validate_shape(limits.family_limits(), limits.binary_limits())
         .map_err(binary_error)?;
@@ -135,68 +83,25 @@ pub(super) fn read_structure(
     Ok((envelope, records, family))
 }
 
-/// Bincode's public allocation-claim API enforces the caller's runtime grant.
-/// Framing and nested allocation checks remain active above the former 1 GiB
-/// default; native Symbolica payloads still require trusted provenance.
+/// One bincode record under the caller's allowance (`bundle_wire::decode_record`,
+/// the candidate bundle's reader).
 pub(in crate::application) fn decode_record<T: bincode::Decode<()>>(
     bytes: &[u8],
     allowance: usize,
 ) -> Result<(T, usize), AppError> {
-    use bincode::de::{
-        Decoder,
-        read::{Reader, SliceReader},
-    };
-    struct Counted<'a> {
-        reader: SliceReader<'a>,
-        position: usize,
+    Ok(bundle_wire::decode_record(bytes, allowance)?)
+}
+
+/// The shared decoder's refusals keep their kind, message and resource cause.
+impl From<BundleWireError> for AppError {
+    fn from(error: BundleWireError) -> Self {
+        let kind = match error.kind() {
+            BundleWireErrorKind::Input => crate::AppErrorKind::Input,
+            BundleWireErrorKind::Schema => crate::AppErrorKind::Schema,
+            BundleWireErrorKind::Limit => crate::AppErrorKind::Limit,
+        };
+        AppError::from_native(error, kind)
     }
-    impl Reader for Counted<'_> {
-        fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode::error::DecodeError> {
-            symbolica::utils::resources::checkpoint().map_err(|error| {
-                bincode::error::DecodeError::Io {
-                    inner: std::io::Error::other(error),
-                    additional: bytes.len(),
-                }
-            })?;
-            self.reader.read(bytes)?;
-            self.position += bytes.len();
-            Ok(())
-        }
-        fn consume(&mut self, n: usize) {
-            self.reader.consume(n);
-            self.position += n;
-        }
-    }
-    symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
-    if bytes.len() > allowance {
-        return Err(AppError::limit(
-            "candidate structural bytes exceed caller allowance",
-        ));
-    }
-    let mut decoder = bincode::de::DecoderImpl::new(
-        Counted {
-            reader: SliceReader::new(bytes),
-            position: 0,
-        },
-        bincode::config::standard().with_limit::<{ usize::MAX }>(),
-        (),
-    );
-    let error = |e: bincode::error::DecodeError| match e {
-        bincode::error::DecodeError::LimitExceeded => {
-            AppError::limit("candidate structural allocation exceeds caller allowance")
-        }
-        bincode::error::DecodeError::Io { inner, .. } => {
-            AppError::from_native(inner, crate::AppErrorKind::Schema)
-        }
-        _ => AppError::schema(format!("invalid candidate structural record: {e}")),
-    };
-    decoder
-        .claim_bytes_read(usize::MAX - allowance)
-        .map_err(error)?;
-    let value = T::decode(&mut decoder).map_err(error)?;
-    let consumed = decoder.reader().position;
-    symbolica::utils::resources::checkpoint().map_err(AppError::resource)?;
-    Ok((value, consumed))
 }
 
 #[cfg(test)]
@@ -280,7 +185,7 @@ pub(super) fn binary_error(error: BinaryIoError) -> AppError {
 pub(super) fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
     for sector in &records.sectors {
         for rule in &sector.rules {
-            rules::validate_rule_ids(rule, count)?;
+            bundle_wire::validate_rule_ids(rule, count)?;
         }
     }
     Ok(())
@@ -304,40 +209,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
     super::preparation::validate_permutation(n, bundle.permutation.as_deref())?;
     super::order::saved_policy(bundle)?;
     let mut budget = CollectionBudget::new(limits, bundle.sectors.len())?;
-    let mut seen = BTreeSet::new();
-    for sector in &bundle.sectors {
-        if sector.sector.len() != n
-            || !seen.insert(&sector.sector)
-            || sector
-                .sector
-                .iter()
-                .zip(&bundle.root_sector)
-                .any(|(&active, &root)| active && !root)
-        {
-            return Err(AppError::input(
-                "candidate sector is duplicate, wrong-arity, or outside root",
-            ));
-        }
-        budget.admit_sector(sector)?;
-        for integral in &sector.finite_residuals {
-            validate_integral(integral, n)?;
-            if integral.symbolic.iter().any(|&value| value)
-                || integral
-                    .values
-                    .iter()
-                    .zip(&sector.sector)
-                    .any(|(&v, &active)| (v > 0) != active)
-            {
-                return Err(AppError::input(
-                    "candidate residual is not a concrete key in its sector",
-                ));
-            }
-        }
-        for rule in &sector.rules {
-            rules::validate_rule(rule, n)?;
-        }
-    }
-    Ok(())
+    bundle_wire::validate_sectors(bundle, |sector| budget.admit_sector(sector))
 }
 
 /// The unchanged candidate structural-entry policy, reusable incrementally
@@ -584,37 +456,11 @@ mod collection_budget_tests {
     }
 }
 
-fn validate_integral(value: &IntegralRecord, n: usize) -> Result<(), AppError> {
-    if value.symbolic.len() != n || value.values.len() != n {
-        return Err(AppError::input("candidate integral has the wrong arity"));
-    }
-    for (&symbolic, &value) in value.symbolic.iter().zip(&value.values) {
-        Power::new(symbolic, value)
-            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
-    }
-    Ok(())
-}
-
 fn integral_record<const N: usize>(value: &Integral<N>) -> IntegralRecord {
     IntegralRecord {
         symbolic: value.powers().iter().map(|p| p.is_symbolic()).collect(),
         values: value.powers().iter().map(|p| p.value()).collect(),
     }
-}
-
-fn integral<const N: usize>(value: &IntegralRecord) -> Result<Integral<N>, AppError> {
-    validate_integral(value, value.values.len())?;
-    if !rustred::fits_storage(value.values.len(), N) {
-        return Err(AppError::input(
-            "candidate integral exceeds storage capacity",
-        ));
-    }
-    let mut powers = [Power::default(); N];
-    for (axis, power) in powers.iter_mut().take(value.values.len()).enumerate() {
-        *power = Power::new(value.symbolic[axis], value.values[axis])
-            .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
-    }
-    Ok(Integral::new(powers))
 }
 
 pub(super) fn sector_record<const N: usize>(
@@ -729,22 +575,7 @@ fn intern_polynomial(
 }
 
 /// Capacity variables extend the authenticated physical context only with unused temporary axes.
-pub(super) fn storage_variables<const N: usize>(
-    context: &IndexedCoefficientContext,
-) -> Vec<symbolica::poly::PolyVariable> {
-    let identity = context.one();
-    let mut storage_variables = identity.raw().get_variables().as_ref().clone();
-    let mut temporary = 0;
-    while storage_variables.len() < identity.raw().get_variables().len() + N - context.index_count()
-    {
-        let variable = symbolica::poly::PolyVariable::Temporary(temporary);
-        temporary += 1;
-        if !storage_variables.contains(&variable) {
-            storage_variables.push(variable);
-        }
-    }
-    storage_variables
-}
+pub(super) use bundle_wire::storage_variables;
 
 /// Rebuild ordinary transport values only. This performs no source replay and
 /// never constructs a ClosedArtifact, replay certificate, or trusted matrix.
@@ -779,45 +610,21 @@ pub(super) fn solutions_from_table<const N: usize>(
         return Err(AppError::input("candidate reconstruction arity"));
     }
     let storage_variables = storage_variables::<N>(context);
-    let variables = storage_variables.as_slice();
-    bundle
-        .sectors
-        .iter()
-        .enumerate()
-        .map(|(sector_ordinal, record)| {
-            let sector: [bool; N] =
-                rustred::storage_array(&record.sector, false).expect("validated arity");
-            let rules = record
-                .rules
-                .iter()
-                .enumerate()
-                .map(|(rule_ordinal, record)| {
-                    let mut rule =
-                        rules::restore_rule(record, coefficients, variables, indices, &sector)?;
-                    rule.dispatch_policy = dispatch::policy(bundle, sector_ordinal, rule_ordinal);
-                    Ok(rule)
-                })
-                .collect::<Result<Vec<_>, AppError>>()?;
-            let finite_residuals = record
-                .finite_residuals
-                .iter()
-                .map(integral)
-                .collect::<Result<Vec<_>, _>>()?;
-            let order =
-                rustred::solver::IntegralOrder::from_persisted_policy(sector, &mathematical_order)
-                    .and_then(|order| order.with_physical_arity(context.index_count()))
-                    .map_err(|error| AppError::from_native(error, crate::AppErrorKind::Input))?;
-            Ok((
-                sector,
-                SectorSolution {
-                    order,
-                    rules,
-                    finite_residuals,
-                    stats: SectorStats::default(),
-                    max_numerator_rank,
-                    finite_case_policy,
-                },
-            ))
+    let restore = bundle_wire::Restore {
+        table: coefficients,
+        variables: &storage_variables,
+        indices,
+    };
+    (0..bundle.sectors.len())
+        .map(|ordinal| {
+            Ok(restore.sector(
+                bundle,
+                ordinal,
+                &mathematical_order,
+                context.index_count(),
+                max_numerator_rank,
+                finite_case_policy,
+            )?)
         })
         .collect()
 }

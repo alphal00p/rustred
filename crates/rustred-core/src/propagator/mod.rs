@@ -36,6 +36,8 @@ pub mod triangle;
 
 // Custom owners (M2-T7c).
 pub mod custom;
+// The candidate bundle's wire records, reader and restore (M3-T7d).
+pub mod bundle_wire;
 
 // Descent certificate (M2-T8a).
 pub mod descent;

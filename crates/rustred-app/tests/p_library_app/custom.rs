@@ -24,6 +24,7 @@ use std::time::Instant;
 
 use rustred::algebra::{Coefficient, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
+use rustred::propagator::bundle_wire;
 use rustred::propagator::census::{PCensusOptions, PSectorFate, p_census};
 use rustred::propagator::custom::{
     CUSTOM_PAYLOAD_DUMP_VERSION, CUSTOM_PAYLOAD_SCHEMAS, CustomPower, build_custom_step,
@@ -172,9 +173,20 @@ fn both_owners_generate_all_rank_with_as_many_residuals_as_lp_masters() {
     }
     assert_eq!(no().payload.meta.charts.len(), 1);
     assert_eq!(t1star05().payload.meta.charts.len(), 2);
-    // The payload is the application's candidate bundle: the core reader
-    // knows its schemas.
-    assert!(CUSTOM_PAYLOAD_SCHEMAS.contains(&CANDIDATE_BUNDLE_SCHEMA));
+    // The payload is the application's candidate bundle, read by the bundle's
+    // one decoder: the application's schema and the Custom schemas are the
+    // core module's constants (M3-T7d).
+    assert_eq!(
+        CANDIDATE_BUNDLE_SCHEMA,
+        bundle_wire::CANDIDATE_BUNDLE_SCHEMA
+    );
+    assert_eq!(
+        CUSTOM_PAYLOAD_SCHEMAS,
+        [
+            bundle_wire::CANDIDATE_BUNDLE_SCHEMA,
+            bundle_wire::DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+        ]
+    );
 }
 
 /// A one-sided generation of t1star05: only the chart `n >= 1`, no two-sided data.
