@@ -46,26 +46,18 @@ use super::format::{
 use super::loader::counts_of;
 use crate::application::producer::ProducerOutputV1;
 
-/// The largest loop count of a scope whose basis layer [`attach_basis_layer`]
-/// derives: the default reference masters (`PBasisOptions::default()`,
-/// `P_BASIS_MASTERS_1_TO_3`) are Forcer's masters of 1L-3L, and a 4L program
-/// has residual terminals they cannot square (`derive_basis_layer` refuses it).
-/// A program of a larger scope is packaged without a layer until its masters
-/// are defined (M3-T17's `P_BASIS_MASTERS_1_TO_4`, attached by M3-T8c
-/// STAGE 2): `library.json` lists no layer and every residual of a reduction
-/// stays `PBasis::Residual`.
-pub const BASIS_LAYER_MAX_LOOPS: u8 = 3;
-
-/// `assembled` with a basis map: when assembly attached none and the scope
-/// ends at most at [`BASIS_LAYER_MAX_LOOPS`], the library's own layer onto
-/// Forcer's masters is derived and attached (M2-T9,
-/// `basis::with_derived_basis_layer`: same programs, same identity, the map
-/// acts after the engine). At scope 1-2 the layer is the `Unit` row alone.
+/// `assembled` with a basis map: when assembly attached none, the library's
+/// own layer onto Forcer's masters of its scope is derived and attached
+/// (M2-T9, `basis::with_derived_basis_layer`: same programs, same identity,
+/// the map acts after the engine). The masters are those of the scope's top
+/// loop count (`PBasisOptions::for_library`: `P_BASIS_MASTERS_1_TO_3` up to
+/// 3 loops, M3-T17's `P_BASIS_MASTERS_1_TO_4` at 4); a scope above the known
+/// ones is refused, never packaged without a layer. At scope 1-2 the layer is
+/// the `Unit` row alone.
 pub fn attach_basis_layer(mut assembled: AssembledLibrary) -> Result<AssembledLibrary, PError> {
-    if assembled.library.basis_map().is_none()
-        && *assembled.library.scope().end() <= BASIS_LAYER_MAX_LOOPS
-    {
-        let (library, _) = with_derived_basis_layer(&assembled.library, &PBasisOptions::default())?;
+    if assembled.library.basis_map().is_none() {
+        let options = PBasisOptions::for_library(&assembled.library)?;
+        let (library, _) = with_derived_basis_layer(&assembled.library, &options)?;
         assembled.library = Arc::new(library);
     }
     Ok(assembled)

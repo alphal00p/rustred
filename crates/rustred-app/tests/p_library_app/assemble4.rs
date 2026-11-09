@@ -12,6 +12,12 @@
 //! M3-I1's LP recount of the owners of at most 9 lines (every owner only with
 //! `P_LP_RECOUNT_ALL=1`) and one load under `verify_descent` (I-8), and the
 //! numbers of the D-SIZE decision (load times, first result, resident sizes).
+//! STAGE 2 adds M3-T17's basis layer: the program under test is the one
+//! `rustred p-package` writes (`assemble_p_package_recounted`, the layer onto
+//! Forcer's 16 masters of `P_BASIS_MASTERS_1_TO_4` derived and attached), and
+//! the inventory lists the layer's rows. The race of D-M3-2 ended in C-D
+//! (M3-T5b not merged before M3-T17): the 4 Diamond nodes d384, d394, d399 and
+//! no3 stay Custom owners, the STAGE 1 state.
 //! The 4L tests are `#[ignore]` and run optimised once (notes/rr-assemble4.md).
 //! The certificate's refusal of a Custom Route child on the owner support
 //! (review S2 of M2-T8a, `RouteOnSupport`) runs in the gate at scope 1-2.
@@ -21,6 +27,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use rustred::family::IntegralKey;
+use rustred::propagator::basis::{PBasisLayer, coefficient_text};
 use rustred::propagator::carpet::CarpetStep;
 use rustred::propagator::census::PSectorFate;
 use rustred::propagator::custom::{
@@ -34,7 +41,7 @@ use rustred::propagator::insertion::InsertionStep;
 use rustred::propagator::kernel::MemoCounters;
 use rustred::propagator::lane::{OwnerLane, TriangleRoles};
 use rustred::propagator::library::{
-    OwnerProgram, PLibrary, POwner, PReduction, PReductionRequest, PUncoveredPolicy,
+    OwnerProgram, PBasis, PLibrary, POwner, PReduction, PReductionRequest, PUncoveredPolicy,
 };
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot};
 use rustred::propagator::series_parallel::SeriesParallelStep;
@@ -49,12 +56,12 @@ use rustred::propagator::{
 };
 use rustred::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic, ReductionLimits};
 use rustred_app::propagator::assemble::{
-    LpRecount, RecountProvidedLp, ValidateOptions, assemble_library_recounted,
-    assemble_library_with, validate_library,
+    LpRecount, RecountProvidedLp, ValidateOptions, assemble_library_with, validate_library,
 };
 use rustred_app::propagator::loader::read_custom_payloads;
 use rustred_app::propagator::package::{
-    assemble_p_package, p_library_differences, p_library_files, write_p_library_files,
+    assemble_p_package, assemble_p_package_recounted, p_library_differences, p_library_files,
+    write_p_library_files,
 };
 use rustred_app::propagator::{
     AssembleOptions, AssembledLibrary, CustomOwnerOptions, CustomOwnerPayload, CustomPayloads,
@@ -92,9 +99,10 @@ fn owners_directory() -> PathBuf {
 }
 
 /// The scope 1-4 program from the staged payloads, with its descent
-/// certificate, and M3-I1's LP recount of the payloads (the owners of at most
-/// 9 lines; every owner only with `P_LP_RECOUNT_ALL=1`, D-M3-3); assembled
-/// once per test process.
+/// certificate, M3-I1's LP recount of the payloads (the owners of at most 9
+/// lines; every owner only with `P_LP_RECOUNT_ALL=1`, D-M3-3) and its basis
+/// layer onto the 4L masters (`assemble_p_package_recounted`: the program
+/// `rustred p-package --recount-lp` writes); assembled once per test process.
 fn scope_four() -> &'static (AssembledLibrary, Vec<LpRecount>) {
     static LIBRARY: OnceLock<(AssembledLibrary, Vec<LpRecount>)> = OnceLock::new();
     LIBRARY.get_or_init(|| {
@@ -103,7 +111,7 @@ fn scope_four() -> &'static (AssembledLibrary, Vec<LpRecount>) {
         println!("{} staged Custom payloads", payloads.len());
         let start = Instant::now();
         let recount = RecountProvidedLp::from_env();
-        let (assembled, recounts) = assemble_library_recounted(
+        let (assembled, recounts) = assemble_p_package_recounted(
             &families(),
             4,
             CustomPayloads::Provided(payloads),
@@ -231,7 +239,7 @@ fn named_counts(assembled: &AssembledLibrary) -> Vec<Count> {
     counts.push(count(
         "diamond_nodes_on_custom",
         diamonds,
-        "DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom)",
+        "DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom; C-D kept it)",
     ));
     counts.push(count(
         "triangle_fallbacks",
@@ -334,6 +342,27 @@ fn named_counts(assembled: &AssembledLibrary) -> Vec<Count> {
         library.terminals().len(),
         "terminals: Unit, then one residual per residual key of a Custom owner",
     ));
+    if let Some(layer) = PBasisLayer::from_library(library).unwrap() {
+        counts.push(count(
+            "layer_rows",
+            layer.rows().len(),
+            "rows of the basis layer, one per terminal (M3-T17: Unit, then each residual onto Forcer's masters)",
+        ));
+        counts.push(count(
+            "layer_masters",
+            layer.masters().len(),
+            "distinct masters named by the layer's rows (of P_BASIS_MASTERS_1_TO_4 at scope 1-4)",
+        ));
+        counts.push(count(
+            "layer_rows_one_master_term",
+            (layer.rows().iter())
+                .filter(|row| {
+                    matches!(row.terms.as_slice(), [term] if matches!(term.basis, PBasis::Master(_)))
+                })
+                .count(),
+            "residual rows that are a single master term (a square system whose matrix is a permutation)",
+        ));
+    }
     if let Some(report) = &assembled.descent {
         for (what, value, definition) in [
             (
@@ -424,7 +453,7 @@ fn custom_rows(assembled: &AssembledLibrary) -> Vec<String> {
 
 /// The inventory text: identity, the named counts (`count <name> <value>  #
 /// <definition>`), the Custom owners (checked against M3-T15's
-/// `owners_1-4.tsv` by [`check_owners_tsv`]).
+/// `owners_1-4.tsv` by [`check_owners_tsv`]), the basis layer's rows.
 fn inventory(assembled: &AssembledLibrary) -> String {
     use std::fmt::Write as _;
     let mut out = String::from(
@@ -438,7 +467,44 @@ fn inventory(assembled: &AssembledLibrary) -> String {
     for row in custom_rows(assembled) {
         writeln!(out, "{row}").unwrap();
     }
+    for row in layer_rows(&assembled.library) {
+        writeln!(out, "{row}").unwrap();
+    }
     out
+}
+
+/// One line per row of the program's basis layer (none without a layer):
+/// the terminal (id, class, node, key), then its terms (coefficient in
+/// `Q(d)`, Gamma tag exponents, `1` or the master).
+fn layer_rows(library: &PLibrary) -> Vec<String> {
+    let Some(layer) = PBasisLayer::from_library(library).unwrap() else {
+        return Vec::new();
+    };
+    (layer.rows().iter())
+        .map(|row| {
+            let terms: Vec<String> = (row.terms.iter())
+                .map(|term| {
+                    let basis = match &term.basis {
+                        PBasis::Master(name) => name.clone(),
+                        other => format!("{other:?}"),
+                    };
+                    format!(
+                        "({}) tag {:?} {basis}",
+                        coefficient_text(&term.coefficient),
+                        term.tag.exponents()
+                    )
+                })
+                .collect();
+            format!(
+                "layer {} {} node {} key {:?} = {}",
+                row.terminal.id.0,
+                row.terminal.class.as_deref().unwrap_or("unit"),
+                row.terminal.node.map_or(-1, |n| i64::from(n.0)),
+                row.terminal.key,
+                terms.join(" + ")
+            )
+        })
+        .collect()
 }
 
 /// M3-T15's committed owner table `owners_1-4.tsv` describes the Custom
@@ -534,7 +600,11 @@ fn counts_by_name(text: &str) -> BTreeMap<String, String> {
 }
 
 /// `(scope, identity, blake3 of the inventory)`, append-only as the 1-2 and
-/// 1-3 pins of M2-T8a: a new inventory needs a new identity.
+/// 1-3 pins of M2-T8a: a new inventory of the program needs a new identity,
+/// and two pins never share an identity. The STAGE 1 pin (never pushed) was
+/// replaced in STAGE 2, same identity: the inventory gained the basis layer's
+/// rows, which act after the engine and are not part of the identity (they are
+/// re-derived at load under `verify_descent`; D-T8c4-7).
 const INVENTORY_PINS: &[(&str, &str, &str)] = &[(
     "1-4",
     "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
@@ -590,13 +660,14 @@ fn check_inventory(assembled: &AssembledLibrary) {
     );
 }
 
-/// The program of scope 1-4 from M3-T15's staged payloads (G1 except Diamond
-/// active; G4's certificate): ForcerTree 438 nodes with Forcer's action table,
-/// the Diamond nodes on the Custom lane, the census strongly complete over 437
-/// node presentations and 310 classes (4,519 nonzero sectors of the 4L tops on
-/// 183 classes), one owner per class with its verified edge maps or its
-/// staged payload, the descent certificate; a short trace refuses nothing (0
-/// MissingOwner); the golden inventory pins all of it to the identity.
+/// The program of scope 1-4 from M3-T15's staged payloads (G1 with C-D: the
+/// Diamond nodes on the Custom lane; G4's certificate): ForcerTree 438 nodes
+/// with Forcer's action table, the census strongly complete over 437 node
+/// presentations and 310 classes (4,519 nonzero sectors of the 4L tops on 183
+/// classes), one owner per class with its verified edge maps or its staged
+/// payload, the descent certificate, M3-T17's basis layer (17 rows onto the
+/// 16 masters); a short trace refuses nothing (0 MissingOwner); the golden
+/// inventory pins all of it to the identity.
 #[test]
 #[ignore = "slow: scope 1-4 assembly with census, completeness check and certificate; needs RUSTRED_P_OWNERS_1_4"]
 fn scope_one_to_four_assembles_from_the_staged_owners() {
@@ -613,8 +684,14 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         ("l4_tops", 11),
         ("l4_top_nonzero_sectors", 4_519),
         ("l4_top_classes", 183),
+        // C-D (D-M3-2): the Diamond nodes stay on the Custom lane.
         ("diamond_nodes_on_custom", 4),
         ("triangle_fallbacks", 0),
+        // M3-T17's layer: Unit + 16 residuals, each one master term.
+        ("terminals", 17),
+        ("layer_rows", 17),
+        ("layer_masters", 16),
+        ("layer_rows_one_master_term", 16),
         ("forcer_action_L0_Trivial", 1),
         ("forcer_action_L1_Insertion", 6),
         ("forcer_action_L2_Insertion", 20),
@@ -699,8 +776,8 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         println!("{row}");
     }
     check_owners_tsv(assembled);
-    // The staged STAGE 1 package (`rustred p-package --max-loops 4`), when
-    // named, is this program.
+    // The staged package (`rustred p-package --max-loops 4 --recount-lp`;
+    // STAGE 2: the final package with its layer), when named, is this program.
     if std::env::var_os("RUSTRED_P_LIBRARY_1_4").is_some() {
         assert_eq!(
             p_library_differences(library, &staged_package()).unwrap(),
@@ -750,11 +827,16 @@ fn instantiated(rule: &CustomRule, powers: &[i64]) -> Option<Vec<Vec<i64>>> {
 /// face match the key and whose instantiated RHS holds every child of the
 /// step. Unique: one such rule; ambiguous: several; unattributed: none (the
 /// step's own dispatch is not visible, so this is a lower bound of firing).
+/// A face is met when some key of the box matches the rule's target and fixed
+/// slots (not its case equations). Keys whose step has no child are counted
+/// apart (terminal keys: residuals only; zero keys: nothing), since every
+/// rule meeting them would "match".
 #[derive(Debug, Default)]
 struct Firing {
     rules: usize,
     keys: usize,
     terminal_keys: usize,
+    zero_keys: usize,
     faces_met: BTreeSet<usize>,
     fired: BTreeSet<usize>,
     possibly_fired: BTreeSet<usize>,
@@ -793,27 +875,32 @@ fn firing(library: &PLibrary, owner: &POwner, support: u64) -> Firing {
             tag: &tag,
         };
         let step_out = step.step(&cx, &view).unwrap();
-        if step_out.children.is_empty() && !step_out.terminals.is_empty() {
-            out.terminal_keys += 1;
-            continue;
-        }
-        let children: BTreeSet<&Vec<i64>> = step_out.children.iter().map(|c| &c.powers).collect();
         let chart = (powers.iter().enumerate())
             .filter(|&(_, &p)| p > 0)
             .fold(0_u64, |mask, (slot, _)| mask | 1 << slot);
-        let mut matching = Vec::new();
+        let mut faced = Vec::new();
         for (index, rule) in rules.iter().enumerate() {
             if rule.chart != chart {
                 continue;
             }
-            let Some(rhs) = instantiated(rule, &powers) else {
-                continue;
-            };
-            out.faces_met.insert(index);
-            if children.iter().all(|child| rhs.contains(child)) {
-                matching.push(index);
+            if let Some(rhs) = instantiated(rule, &powers) {
+                out.faces_met.insert(index);
+                faced.push((index, rhs));
             }
         }
+        if step_out.children.is_empty() {
+            if step_out.terminals.is_empty() {
+                out.zero_keys += 1;
+            } else {
+                out.terminal_keys += 1;
+            }
+            continue;
+        }
+        let children: BTreeSet<&Vec<i64>> = step_out.children.iter().map(|c| &c.powers).collect();
+        let matching: Vec<usize> = (faced.iter())
+            .filter(|(_, rhs)| children.iter().all(|child| rhs.contains(child)))
+            .map(|(index, _)| *index)
+            .collect();
         match matching.as_slice() {
             [] => out.unattributed_keys += 1,
             [one] => {
@@ -831,8 +918,10 @@ fn firing(library: &PLibrary, owner: &POwner, support: u64) -> Firing {
 
 /// I-5 (D-T8a-15 follow-up): per Custom owner of scope 1-4, the rules that
 /// fire on its certificate witness box (dots <= 2, rank <= 2), attributed by
-/// their children. Recorded, with the faces the box meets; the certificate
-/// itself (every child descends) is `scope_one_to_four_assembles_...`'s.
+/// their children. Asserted: the box meets every rule's face and every step
+/// with children is attributed to a rule; recorded: fired (unique) and
+/// possibly fired. The certificate itself (every child descends) is
+/// `scope_one_to_four_assembles_...`'s.
 #[test]
 #[ignore = "slow: every Custom witness box of scope 1-4; needs RUSTRED_P_OWNERS_1_4"]
 fn the_four_loop_witness_boxes_fire_the_custom_rules() {
@@ -844,7 +933,7 @@ fn the_four_loop_witness_boxes_fire_the_custom_rules() {
         let f = firing(library, owner, support);
         println!(
             "firing {label} {}: {} rules, faces met {}, fired (unique) {}, possibly fired {}, \
-             keys {} (terminal {}, ambiguous {}, unattributed {}), {:.2} s",
+             keys {} (terminal {}, zero {}, ambiguous {}, unattributed {}), {:.2} s",
             name_of(library.presentation(owner.spec.presentation)),
             f.rules,
             f.faces_met.len(),
@@ -852,11 +941,14 @@ fn the_four_loop_witness_boxes_fire_the_custom_rules() {
             f.possibly_fired.len(),
             f.keys,
             f.terminal_keys,
+            f.zero_keys,
             f.ambiguous_keys,
             f.unattributed_keys,
             start.elapsed().as_secs_f64()
         );
-        assert!(f.keys > 0 && f.faces_met.len() <= f.rules);
+        assert!(f.keys > 0, "{label}: an empty witness box");
+        assert_eq!(f.faces_met.len(), f.rules, "{label}: a rule's face unmet");
+        assert_eq!(f.unattributed_keys, 0, "{label}: a step no rule explains");
         rules += f.rules;
         fired += f.fired.len();
         possibly += f.possibly_fired.len();
@@ -876,6 +968,7 @@ fn the_four_loop_witness_boxes_fire_the_custom_rules() {
 type MemoReader = Box<dyn Fn() -> (MemoCounters, MemoCounters)>;
 
 /// glibc's `struct mallinfo2` (only two fields are read).
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[allow(dead_code)]
 #[repr(C)]
 struct MallInfo2 {
@@ -891,6 +984,7 @@ struct MallInfo2 {
     keepcost: usize,
 }
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 unsafe extern "C" {
     fn mallinfo2() -> MallInfo2;
 }
@@ -899,10 +993,17 @@ unsafe extern "C" {
 /// blocks), a measure that freed-but-resident memory does not blur, unlike
 /// the RSS. glibc reports the main arena only: run with `MALLOC_ARENA_MAX=1`
 /// (tools/release_tests.sh) so that every thread allocates there.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn heap_bytes() -> usize {
     // SAFETY: mallinfo2 takes no argument and returns a plain struct.
     let info = unsafe { mallinfo2() };
     info.uordblks + info.hblkhd
+}
+
+/// Without glibc there is no `mallinfo2`: the measures read 0.
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn heap_bytes() -> usize {
+    0
 }
 
 fn mib(bytes: usize) -> f64 {
@@ -1003,6 +1104,13 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     }
     assert_eq!(recounts.len(), assembled.custom.len());
     let recounted = recounts.iter().filter(|r| r.recounted.is_some()).count();
+    // The 18 Custom owners of at most 9 lines (owners_1-4.tsv), all 25 with
+    // P_LP_RECOUNT_ALL=1: a line filter regressing to none fails here.
+    let expected = match RecountProvidedLp::from_env().max_lines() {
+        None => 25,
+        Some(_) => 18,
+    };
+    assert_eq!(recounted, expected, "Custom owners LP-recounted");
     println!(
         "LP recounted for {recounted} owners, {} owners of more than {} lines not (stored LP trusted)",
         recounts.len() - recounted,
@@ -1071,11 +1179,12 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     let _ = std::fs::remove_dir_all(&three);
 }
 
-/// The package of scope 1-4 named by `RUSTRED_P_LIBRARY_1_4` (the STAGE 1
-/// package), loaded without the certificate in a fresh process.
+/// The package of scope 1-4 named by `RUSTRED_P_LIBRARY_1_4` (the staged
+/// package: $WS/artefacts/m3/p-library-1-4, with its layer, since STAGE 2),
+/// loaded without the certificate.
 fn staged_package() -> Arc<PLibrary> {
     let directory = std::env::var_os("RUSTRED_P_LIBRARY_1_4").expect(
-        "RUSTRED_P_LIBRARY_1_4 names the scope 1-4 package ($WS/artefacts/m3/p-library-1-4-s1)",
+        "RUSTRED_P_LIBRARY_1_4 names the scope 1-4 package ($WS/artefacts/m3/p-library-1-4)",
     );
     let before = heap_bytes();
     let (library, seconds) = load(Path::new(&directory), false);
@@ -1090,10 +1199,17 @@ fn staged_package() -> Arc<PLibrary> {
 /// owner's step, lazy (charts prepared on first use, the run-time default)
 /// and eager (every chart prepared), and the kernel memos of the 4L kernel
 /// owners, fresh steps over a box of their keys, measured by `mallinfo2` in a
-/// process that only loaded the package.
+/// process that only loaded the package. A measurement, not a check: it runs
+/// only when `RUSTRED_P_MEASURE_RESIDENT=1` (a run of every ignored test skips
+/// it; its kernel sweep can hold many GB within one owner, review S1 should-fix
+/// 9).
 #[test]
-#[ignore = "measurement: needs RUSTRED_P_LIBRARY_1_4 and MALLOC_ARENA_MAX=1"]
+#[ignore = "measurement: needs RUSTRED_P_MEASURE_RESIDENT=1, RUSTRED_P_LIBRARY_1_4 and MALLOC_ARENA_MAX=1"]
 fn the_scope_one_to_four_package_resident_sizes() {
+    if std::env::var_os("RUSTRED_P_MEASURE_RESIDENT").is_none_or(|v| v != "1") {
+        println!("SKIPPED: a measurement, run only with RUSTRED_P_MEASURE_RESIDENT=1");
+        return;
+    }
     let unverified = staged_package();
     // CustomStep heap per owner: lazy (charts prepared on first use), then
     // eager (every chart prepared); both held, so each delta is that step's.
@@ -1433,5 +1549,13 @@ fn owner_records_of_p_generate_are_provided_payloads() {
     std::fs::create_dir_all(&directory).unwrap();
     let error = read_custom_payloads(&PLibrarySource::Directory(directory.clone())).unwrap_err();
     assert!(error.to_string().contains("neither"), "{error}");
+    // A package that lost its library.json stays a package (review S1
+    // should-fix 7): refused for the missing file, not read as records.
+    std::fs::write(directory.join("census.json"), "{}").unwrap();
+    let error = read_custom_payloads(&PLibrarySource::Directory(directory.clone())).unwrap_err();
+    assert!(
+        error.to_string().contains("missing file library.json"),
+        "{error}"
+    );
     std::fs::remove_dir_all(&directory).unwrap();
 }
