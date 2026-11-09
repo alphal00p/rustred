@@ -17,8 +17,9 @@
 //! `rustred p-package` writes (`assemble_p_package_recounted`, the layer onto
 //! Forcer's 16 masters of `P_BASIS_MASTERS_1_TO_4` derived and attached), and
 //! the inventory lists the layer's rows. The race of D-M3-2 ended in C-D
-//! (M3-T5b not merged before M3-T17): the 4 Diamond nodes d384, d394, d399 and
-//! no3 stay Custom owners, the STAGE 1 state.
+//! (M3-T5b not merged before M3-T17), so the M3 package kept the 4 Diamond
+//! nodes d384, d394, d399 and no3 as Custom owners; since M3-T5b they are on
+//! the Diamond lane (their staged payloads unused, 21 Custom owners).
 //! The 4L tests are `#[ignore]` and run optimised once (notes/rr-assemble4.md).
 //! The certificate's refusal of a Custom Route child on the owner support
 //! (review S2 of M2-T8a, `RouteOnSupport`) runs in the gate at scope 1-2.
@@ -240,7 +241,7 @@ fn named_counts(assembled: &AssembledLibrary) -> Vec<Count> {
     counts.push(count(
         "diamond_nodes_on_custom",
         diamonds,
-        "DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom; C-D kept it)",
+        "DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2; 0 since the Diamond lane of M3-T5b)",
     ));
     counts.push(count(
         "triangle_fallbacks",
@@ -1121,11 +1122,12 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     }
     assert_eq!(recounts.len(), assembled.custom.len());
     let recounted = recounts.iter().filter(|r| r.recounted.is_some()).count();
-    // The 18 Custom owners of at most 9 lines (owners_1-4.tsv), all 25 with
-    // P_LP_RECOUNT_ALL=1: a line filter regressing to none fails here.
+    // The 17 Custom owners of at most 9 lines (owners_1-4.tsv without the
+    // Diamond nodes, M3-T5b), all 21 with P_LP_RECOUNT_ALL=1: a line filter
+    // regressing to none fails here.
     let expected = match RecountProvidedLp::from_env().max_lines() {
-        None => 25,
-        Some(_) => 18,
+        None => 21,
+        Some(_) => 17,
     };
     assert_eq!(recounted, expected, "Custom owners LP-recounted");
     println!(

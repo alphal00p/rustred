@@ -16,6 +16,14 @@
 //! M3-V7's 4L Forcer fixtures from `RUSTRED_P4L_FORCER`. Every test here is
 //! `#[ignore]` and runs optimised; unset, they panic with this message, never
 //! pass silently.
+//!
+//! The reference side of the G3 comparison reduces under `Exact` by default;
+//! `RUSTRED_G3_REFERENCE_ARITHMETIC=modular_polynomial` reduces it under
+//! `OrderedWeightArithmetic::ModularPolynomial` instead (the SpIRed owner of
+//! no3 is very slow under `Exact`): its terms are lifted over `Q(d)` by the
+//! shared modular driver (CRT, rational reconstruction, a confirming prime,
+//! a fresh verification prime), and the Diamond side stays `Exact`, so the
+//! comparison is still exact in `Q(d)`.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -34,7 +42,10 @@ use rustred::propagator::presentation::{Presentation, PresentationKind, Slot};
 use rustred::propagator::tag::GammaTag;
 use rustred::propagator::triangle::TriangleTemplate;
 use rustred::propagator::{NodeIndex, PresentationId};
-use rustred::reduction::{OrderedSchedulerOptions, OrderedWeightArithmetic, ReductionLimits};
+use rustred::reduction::{
+    ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
+    ReductionLimits,
+};
 use rustred_app::propagator::assemble::{SplitMix, assemble_library_checked};
 use rustred_app::propagator::loader::read_custom_payloads;
 use rustred_app::propagator::{
@@ -226,17 +237,47 @@ fn sector_key(top: &Presentation, mask: u64, dots: u32, rank: u32, rng: &mut Spl
     powers
 }
 
-fn reduce(library: &PLibrary, top: PresentationId, powers: &[i64]) -> PReduction {
+fn reduce(
+    library: &PLibrary,
+    top: PresentationId,
+    powers: &[i64],
+    arithmetic: OrderedWeightArithmetic,
+) -> PReduction {
     let context = library.coefficient_context();
     let key = IntegralKey::try_new(powers.iter().copied()).unwrap();
-    reduce_inputs(library, vec![(top, key, context.one())])
+    reduce_with(library, vec![(top, key, context.one())], arithmetic)
 }
 
 fn reduce_inputs(library: &PLibrary, inputs: Vec<PInput>) -> PReduction {
+    reduce_with(library, inputs, OrderedWeightArithmetic::Exact)
+}
+
+/// The arithmetic of the G3 reference side: `Exact`, or `ModularPolynomial`
+/// (default options: lifted over `Q(d)` with a confirming prime and one fresh
+/// verification prime) under `RUSTRED_G3_REFERENCE_ARITHMETIC=modular_polynomial`.
+fn reference_arithmetic() -> OrderedWeightArithmetic {
+    match std::env::var("RUSTRED_G3_REFERENCE_ARITHMETIC").as_deref() {
+        Err(_) | Ok("exact") => OrderedWeightArithmetic::Exact,
+        Ok("modular_polynomial") => OrderedWeightArithmetic::ModularPolynomial(
+            ModularCommon {
+                threads: threads(),
+                ..ModularCommon::default()
+            },
+            PolynomialOptions::default(),
+        ),
+        Ok(other) => panic!("RUSTRED_G3_REFERENCE_ARITHMETIC={other}: exact or modular_polynomial"),
+    }
+}
+
+fn reduce_with(
+    library: &PLibrary,
+    inputs: Vec<PInput>,
+    arithmetic: OrderedWeightArithmetic,
+) -> PReduction {
     library
         .reduce(PReductionRequest {
             inputs,
-            arithmetic: OrderedWeightArithmetic::Exact,
+            arithmetic,
             scheduler: OrderedSchedulerOptions {
                 threads: threads(),
                 window_keys: 8,
@@ -289,7 +330,7 @@ fn at(value: &Coefficient, d: &Rational) -> Rational {
 /// to 2 and numerator rank up to 3 in total (both present among the keys), reduce
 /// to the same terminals with the same `Q(d)` coefficients through the Diamond
 /// lane as through the SpIRed owner; the values agree at two distinct `d` and
-/// some key is nonzero at both.
+/// some key is nonzero at both. One progress line per key (start and result).
 fn template_equals_spired(name: &str, seed: u64) {
     let Pair { reference, diamond } = pair();
     let label = DIAMONDS.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -325,13 +366,39 @@ fn template_equals_spired(name: &str, seed: u64) {
     let rational = |n: i64, d: i64| Rational::from((Integer::from(n), Integer::from(d)));
     let dimensions = [rational(1213, 101), rational(-307, 101)];
     let (mut nonzero, mut seconds) = (0, [0.0_f64; 2]);
-    for key in &keys {
+    let arithmetic = reference_arithmetic();
+    let begun = Instant::now();
+    for (index, key) in keys.iter().enumerate() {
+        println!(
+            "G3 {name} key {}/{}: {key:?} start at {:.1} s (reference {})",
+            index + 1,
+            keys.len(),
+            begun.elapsed().as_secs_f64(),
+            arithmetic.name()
+        );
         let start = Instant::now();
-        let expected = named_terms(&reference.library, &reduce(&reference.library, top, key));
-        seconds[0] += start.elapsed().as_secs_f64();
+        let expected = named_terms(
+            &reference.library,
+            &reduce(&reference.library, top, key, arithmetic),
+        );
+        let reference_seconds = start.elapsed().as_secs_f64();
+        seconds[0] += reference_seconds;
         let start = Instant::now();
-        let found = named_terms(&diamond.library, &reduce(&diamond.library, top, key));
-        seconds[1] += start.elapsed().as_secs_f64();
+        let found = named_terms(
+            &diamond.library,
+            &reduce(&diamond.library, top, key, OrderedWeightArithmetic::Exact),
+        );
+        let diamond_seconds = start.elapsed().as_secs_f64();
+        seconds[1] += diamond_seconds;
+        println!(
+            "G3 {name} key {}/{}: SpIRed owner ({}) {reference_seconds:.1} s, Diamond lane (exact) \
+             {diamond_seconds:.1} s, {} terms, equal {}",
+            index + 1,
+            keys.len(),
+            arithmetic.name(),
+            expected.len(),
+            found == expected
+        );
         assert_eq!(
             found, expected,
             "{name} {key:?}: the Diamond lane against the SpIRed owner"
@@ -351,9 +418,10 @@ fn template_equals_spired(name: &str, seed: u64) {
     }
     println!(
         "G3 {name} ({label}, top {}, sector {mask:#x}): {} keys ({dotted} dotted, {numerators} with numerators), \
-         {nonzero} nonzero at both d, equal exactly; SpIRed owner {:.1} s, Diamond lane {:.1} s",
+         {nonzero} nonzero at both d, equal exactly; SpIRed owner ({}) {:.1} s, Diamond lane (exact) {:.1} s",
         top.0,
         keys.len(),
+        arithmetic.name(),
         seconds[0],
         seconds[1]
     );
@@ -382,6 +450,127 @@ fn the_diamond_lane_equals_spired_on_d399() {
 #[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4)"]
 fn the_diamond_lane_equals_spired_on_no3() {
     template_equals_spired("no3", 0x0003);
+}
+
+// ---------------------------------------------------------------------------
+// What the lane buys on vakint's 4L benchmark cells
+// ---------------------------------------------------------------------------
+
+/// The 11 tops of vakint's 4L benchmark cells (benchmark_p_integrals.json).
+const BENCHMARK_TOPS: [&str; 11] = [
+    "P4L_LA4", "P4L_J1", "P4L_J2", "P4L_J4", "P4L_J5", "P4L_J6", "P4L_J11", "P4L_HAHA", "P4L_NO1",
+    "P4L_NO2", "P4L_NO3",
+];
+
+/// The tops of the benchmark cells that reach a diamond node: P4L_NO3 is no3,
+/// d384 and d394 are sectors of P4L_NO2, d399 of P4L_J11.
+const BENCHMARK_DIAMOND_TOPS: [&str; 3] = ["P4L_NO2", "P4L_J11", "P4L_NO3"];
+
+/// The line powers of a numerator-free 4L benchmark cell (as vakint lowers it:
+/// the same powers on every top, the ISPs at 0).
+fn benchmark_powers(cell: &str) -> Vec<i64> {
+    let mut powers = vec![1; 11];
+    match cell {
+        "L4_d0_r0" => {}
+        "L4_d1_r0" => powers[0] = 2,
+        "L4_d2_r0" => (powers[0], powers[10]) = (2, 2),
+        other => panic!("{other}: L4_d0_r0, L4_d1_r0 or L4_d2_r0"),
+    }
+    powers
+}
+
+fn benchmark_inputs(library: &PLibrary, tops: &[&str], powers: &[i64]) -> Vec<PInput> {
+    let context = library.coefficient_context();
+    (tops.iter())
+        .map(|family| {
+            let top = (library.top_presentation(family)).unwrap_or_else(|| panic!("top {family}"));
+            let arity = library.presentation(top).slots.len();
+            let key = (0..arity).map(|slot| powers.get(slot).copied().unwrap_or(0));
+            (top, IntegralKey::try_new(key).unwrap(), context.one())
+        })
+        .collect()
+}
+
+fn arithmetic_named(name: &str) -> OrderedWeightArithmetic {
+    match name {
+        "exact" => OrderedWeightArithmetic::Exact,
+        "modular_polynomial" => OrderedWeightArithmetic::ModularPolynomial(
+            ModularCommon {
+                threads: threads(),
+                ..ModularCommon::default()
+            },
+            PolynomialOptions::default(),
+        ),
+        other => panic!("{other}: exact or modular_polynomial"),
+    }
+}
+
+/// What the Diamond lane buys at 4L on vakint's benchmark cells, each of which
+/// reaches the diamond nodes: every `cell:arithmetic` of
+/// `RUSTRED_P4L_BENCH_CELLS` (default `L4_d0_r0:exact,L4_d0_r0:modular_polynomial,
+/// L4_d2_r0:modular_polynomial`) reduced as one request through the reference
+/// (the diamonds as SpIRed Custom owners) and through the Diamond lane, twice
+/// each (the second run has the kernel memos of the first), then per top on the
+/// three tops with a diamond. The terms are equal; the times are a
+/// measurement (indicative, no bound).
+#[test]
+#[ignore = "measurement: two scope 1-4 assemblies and 4L benchmark cells (RUSTRED_P_REUSE_1_4)"]
+fn benchmark_cells_through_the_diamond_lane_and_the_spired_owners() {
+    let Pair { reference, diamond } = pair();
+    let cells = std::env::var("RUSTRED_P4L_BENCH_CELLS").unwrap_or_else(|_| {
+        "L4_d0_r0:exact,L4_d0_r0:modular_polynomial,L4_d2_r0:modular_polynomial".to_owned()
+    });
+    for item in cells.split(',') {
+        let (cell, arithmetic) = item.split_once(':').unwrap();
+        let powers = benchmark_powers(cell);
+        let arithmetic = arithmetic_named(arithmetic);
+        let mut runs = Vec::new();
+        for pass in ["first", "second"] {
+            for (side, library) in [
+                ("SpIRed owners", &reference.library),
+                ("Diamond lane", &diamond.library),
+            ] {
+                let inputs = benchmark_inputs(library, &BENCHMARK_TOPS, &powers);
+                let start = Instant::now();
+                let reduction = reduce_with(library, inputs, arithmetic);
+                let seconds = start.elapsed().as_secs_f64();
+                let terms = named_terms(library, &reduction);
+                println!(
+                    "BENCH {cell} {} t{} {pass} {side}: {seconds:.3} s, {} input keys, {} terminal keys, {} terms",
+                    arithmetic.name(),
+                    threads(),
+                    reduction.statistics.progress.input_keys,
+                    reduction.statistics.progress.terminal_keys,
+                    terms.len()
+                );
+                runs.push(terms);
+            }
+        }
+        assert!(
+            runs.iter().all(|terms| *terms == runs[0]),
+            "{cell}: the programs differ"
+        );
+        for family in BENCHMARK_DIAMOND_TOPS {
+            let mut tops = Vec::new();
+            for (side, library) in [
+                ("SpIRed owners", &reference.library),
+                ("Diamond lane", &diamond.library),
+            ] {
+                let inputs = benchmark_inputs(library, &[family], &powers);
+                let start = Instant::now();
+                let terms = named_terms(library, &reduce_with(library, inputs, arithmetic));
+                println!(
+                    "BENCH {cell} {} t{} top {family} {side}: {:.3} s, {} terms",
+                    arithmetic.name(),
+                    threads(),
+                    start.elapsed().as_secs_f64(),
+                    terms.len()
+                );
+                tops.push(terms);
+            }
+            assert_eq!(tops[0], tops[1], "{cell} {family}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
