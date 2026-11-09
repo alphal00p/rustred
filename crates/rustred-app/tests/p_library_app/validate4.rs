@@ -1320,8 +1320,9 @@ fn table_value(context: &CoefficientContext, text: &str, n: &[i64]) -> Option<Co
 /// poles) holds through the library: the table's family (`gram(q,q,1)`) is
 /// carried onto bubu's owner presentation (`q^2 = -1`) by a unimodular map of
 /// its 9 lines onto the owner's (each term times `(-1)^(sum n)` for the sign of
-/// `q^2`, M2_M3_INPUTS A11), and the reduction of the difference is zero in
-/// `Q(d)`.
+/// `q^2`, M2_M3_INPUTS A11; an exit key whose extra line is no line of that
+/// top goes onto another 4L top that has it), and the reduction of the
+/// difference is zero in `Q(d)`.
 #[test]
 #[ignore = "slow: needs the scope 1-4 package and RUSTRED_T148_TABLE; optimised"]
 fn the_frozen_t148_bubu_table_holds_through_the_library() {
@@ -1452,6 +1453,26 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     let nonzero = AtomicUsize::new(0);
     let off_top = AtomicUsize::new(0);
     let one = context.one();
+    // Exit keys off bubu's top: a 4L top and map per denominator set, found once.
+    let four = tops(library, 4);
+    let other_tops: Mutex<HashMap<Vec<usize>, Option<(PresentationId, LoopMap, Sigma)>>> =
+        Mutex::new(HashMap::new());
+    let elsewhere = |powers: &[i64]| -> Option<(PresentationId, Vec<(Vec<i64>, Rational)>)> {
+        let lines: Vec<usize> = (0..powers.len()).filter(|&s| powers[s] > 0).collect();
+        let found = other_tops.lock().unwrap().get(&lines).cloned();
+        let found = found.unwrap_or_else(|| {
+            let found = four.iter().find_map(|&top| {
+                let p = library.presentation(top);
+                (line_maps(&momenta, &lines, p, false, 1).into_iter().next())
+                    .map(|(map, sigma)| (top, map, sigma))
+            });
+            other_tops.lock().unwrap().insert(lines, found.clone());
+            found
+        })?;
+        let (top, map, sigma) = found;
+        transport(&momenta, powers, &map, &sigma, library.presentation(top))
+            .map(|image| (top, image))
+    };
     std::thread::scope(|scope| {
         for _ in 0..workers.max(1) {
             scope.spawn(|| {
@@ -1468,15 +1489,24 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                         let value = context.try_neg(&value, exact()).unwrap();
                         terms.push((table_key(term[0].as_str().unwrap(), n), value));
                     }
-                    let carried: Option<Vec<_>> = (terms.iter())
-                        .map(|(powers, _)| transport(&momenta, powers, &map, &sigma, target))
-                        .collect();
+                    // Each integral of the identity is carried over on its own: onto bubu's top
+                    // by the map of the table's lines, or, for an exit key whose extra line is
+                    // no line of that top, onto any 4L top whose lines take its denominators.
+                    let carried: Option<Vec<(PresentationId, Vec<(Vec<i64>, Rational)>)>> = (terms
+                        .iter())
+                    .map(|(powers, _)| {
+                        transport(&momenta, powers, &map, &sigma, target)
+                            .map(|image| (presentation, image))
+                            .or_else(|| elsewhere(powers))
+                    })
+                    .collect();
                     let Some(carried) = carried else {
                         off_top.fetch_add(1, Ordering::Relaxed);
                         continue;
                     };
-                    let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
-                    for ((powers, value), image) in terms.iter().zip(carried) {
+                    let mut sum: BTreeMap<(PresentationId, Vec<i64>), Coefficient> =
+                        BTreeMap::new();
+                    for ((powers, value), (onto, image)) in terms.iter().zip(carried) {
                         let sign = if powers.iter().sum::<i64>() % 2 == 0 {
                             1
                         } else {
@@ -1485,13 +1515,14 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                         for (key, weight) in image {
                             let weight = coefficient_of(context, &(&weight * &rational(sign, 1)));
                             let term = context.try_mul(value, &weight, exact()).unwrap();
-                            let entry = sum.entry(key).or_insert_with(|| context.integer(0));
+                            let entry =
+                                (sum.entry((onto, key))).or_insert_with(|| context.integer(0));
                             *entry = context.try_add(entry, &term, exact()).unwrap();
                         }
                     }
                     let inputs: Vec<Input> = (sum.into_iter())
                         .filter(|(_, c)| !c.is_zero())
-                        .map(|(powers, c)| (presentation, key(&powers), c))
+                        .map(|((onto, powers), c)| (onto, key(&powers), c))
                         .collect();
                     let begin = Instant::now();
                     let size = inputs.len();
@@ -1523,7 +1554,7 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     });
     println!(
         "T148 table: {} rule identities ({} rules, {skipped} points not found in a domain, {} with a key \
-         off the top's lines) hold through the library; {} nonzero targets; map {map:?}; {:.1} s",
+         on no 4L top's lines) hold through the library; {} nonzero targets; map {map:?}; {:.1} s",
         cases.len() - off_top.load(Ordering::Relaxed),
         rules.len(),
         off_top.load(Ordering::Relaxed),
