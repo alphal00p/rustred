@@ -33,8 +33,8 @@ use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, Sl
 use rustred::sector::{ComplexityKey, Mask, OrderingPolicy, zero};
 use rustred_app::propagator::generate::{
     CustomOwnerFallthrough, CustomOwnerOptions, FALLTHROUGH_SOURCE_ORDERS, FallthroughOrder,
-    GenerationBudget, custom_owner_nodes, fallthrough_orders, generate_custom_owner_on_order,
-    generate_custom_owner_with_report,
+    GenerationBudget, custom_owner_nodes, fallthrough_orders, fallthrough_retries,
+    generate_custom_owner_on_order, generate_custom_owner_with_report,
 };
 use rustred_app::{CandidateGenerationSession, FamilyCandidatesRequest, SectorFailurePolicy};
 use symbolica::domains::rational::Rational;
@@ -116,8 +116,10 @@ fn the_fallthrough_is_opt_in_and_keeps_an_owner_that_closes() {
 }
 
 /// Every order of a fall-through closes an owner that closes (t1star05):
-/// three slot orders, recorded in the payload's order program, and the six
-/// source orders, with the LP and residuals of the plain owner.
+/// three slot orders, recorded in the payload's order program, the numerator
+/// before eps order (an eps owner; also recorded, with the residual keys of
+/// the plain owner: masters stay at eps `n = 1`), and the six source orders,
+/// with the LP and residuals of the plain owner.
 #[test]
 fn every_order_of_the_fallthrough_closes_an_owner_that_closes() {
     let nodes = custom_owner_nodes(P_FAMILIES_V1_JSON, 3).unwrap();
@@ -130,7 +132,15 @@ fn every_order_of_the_fallthrough_closes_an_owner_that_closes() {
         ..CustomOwnerFallthrough::default()
     };
     let orders = fallthrough_orders(presentation, &all).unwrap();
-    assert_eq!(orders.len(), 1 + 3 + 6);
+    assert_eq!(orders.len(), 1 + 3 + 1 + 6);
+    assert_eq!(orders[4], FallthroughOrder::NumeratorBeforeEps);
+    // After a refused chart as listed; after a default order over its
+    // budget, numerator before eps first.
+    assert_eq!(fallthrough_retries(&orders, false), orders[1..]);
+    let over = fallthrough_retries(&orders, true);
+    assert_eq!(over[0], FallthroughOrder::NumeratorBeforeEps);
+    assert_eq!(over[1..4], orders[1..4]);
+    assert_eq!(over[4..], orders[5..]);
     let arity = presentation.slots.len();
     let forced = presentation.forced_axes();
     for order in &orders[1..] {
@@ -146,6 +156,18 @@ fn every_order_of_the_fallthrough_closes_an_owner_that_closes() {
                 slot_order_policy(mask_bits(forced, arity), priority)
                     .stable_id()
                     .to_string()
+            }
+            FallthroughOrder::NumeratorBeforeEps => {
+                assert_eq!(report.residual_keys, plain_report.residual_keys);
+                let mut descriptor =
+                    OrderDescriptor::spired_uncut_two_sided(mask_bits(forced, arity));
+                descriptor.degree_rows.swap(1, 2);
+                OrderingPolicy::try_programmed(
+                    CompiledOrder::compile(descriptor, Limits::default()).unwrap(),
+                )
+                .unwrap()
+                .stable_id()
+                .to_string()
             }
             _ => plain_report.ordering.clone(),
         };
