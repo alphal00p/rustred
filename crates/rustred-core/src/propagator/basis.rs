@@ -71,7 +71,7 @@ use super::lane::LaneRoles;
 use super::library::{
     PBasis, PBasisMap, PLibrary, PReductionRequest, PTerm, PTerminal, PUncoveredPolicy,
 };
-use super::presentation::{Presentation, Slot};
+use super::presentation::{Presentation, PresentationKind, Slot};
 use super::tag::GammaTag;
 use super::topology::{Action, Fate, GraphKey, Normalised, PTopo, canonical, normalise};
 use super::{
@@ -1019,7 +1019,7 @@ pub struct PMasterSite {
     pub node: NodeIndex,
     /// The node's presentation.
     pub presentation: PresentationId,
-    /// Every line slot at 1, every ISP slot at 0.
+    /// [`node_corner`] of the presentation.
     pub key: Vec<i64>,
     /// `sign (eps G(1,1))^L Master(name)`.
     pub value: PTerm,
@@ -1063,6 +1063,22 @@ struct Found {
     key: Vec<i64>,
 }
 
+/// A node's integral at unit powers on a presentation of that node: 1 on each
+/// line of the node's graph (on an induced presentation, the lines of its
+/// sector; elsewhere every line), 0 on every other slot. A master's site key.
+pub fn node_corner(presentation: &Presentation) -> Vec<i64> {
+    let sector = match presentation.kind {
+        PresentationKind::Induced { mask, .. } => mask,
+        _ => u64::MAX,
+    };
+    (presentation.slots.iter().enumerate())
+        .map(|(slot, kind)| match kind {
+            Slot::Line(_) if sector >> slot & 1 == 1 => 1,
+            _ => 0,
+        })
+        .collect()
+}
+
 /// The master sites of `library`: each master of `options` whose topology is a
 /// node of the library's DAG, on the first presentation of that node; and the
 /// names of the others.
@@ -1088,10 +1104,11 @@ fn master_sites(
                 ))
             })?;
         // The eps units line by line, as a multiset (t155: one line with two).
-        let mut slot_units: Vec<u8> = (presentation.slots.iter())
-            .filter_map(|slot| match slot {
-                Slot::Line(line) => Some(line.eps_units),
-                Slot::Isp(_) => None,
+        let key = node_corner(presentation);
+        let mut slot_units: Vec<u8> = (presentation.slots.iter().zip(&key))
+            .filter_map(|(slot, &power)| match slot {
+                Slot::Line(line) if power == 1 => Some(line.eps_units),
+                _ => None,
             })
             .collect();
         let graph = master.graph()?;
@@ -1105,12 +1122,6 @@ fn master_sites(
                 presentation.id.0, master.name
             )));
         }
-        let key = (presentation.slots.iter())
-            .map(|slot| match slot {
-                Slot::Line(_) => 1,
-                Slot::Isp(_) => 0,
-            })
-            .collect();
         sites.push(Found {
             master: *master,
             node: NodeIndex(node.index),

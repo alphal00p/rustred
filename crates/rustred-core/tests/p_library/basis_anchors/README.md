@@ -37,3 +37,13 @@ its own). The outputs are raw `C_G` before the Wick sign: `reduced = (-1)^(sum a
 
 Refresh: copy the file again from the gammaloop commit of a later 'ANCHORS READY' line and update the commit and the
 hashes here and in `basis4.rs`. M3-T8c's final merge event compares this copy with V7's latest tip (`cmp`).
+
+# M_MAP rows (copy, M3-T17)
+
+`m_map.tsv` holds the 64 rows of the rules-study M_MAP (CONFIRMED 64/64, `rules_study/M2_M3_INPUTS.md` section 3):
+the columns of `rules_study/s2-masters/data/masters.tsv` (sha256
+`7126c0a4334922b7769e773a58163244a7e5f137c067c3a3aedef7b61a227c9f`, 64 rows, unchanged) plus each node's external
+vertices `S`, `T` from `rules_study/targets.tsv` (sha256
+`941e93195bdf906feaf2505a53a0d70f4801694280939a465a09037350106b4e`; its `edges` equal masters.tsv's on all 64 rows),
+written 2026-11-09 by M3-T17 (read-only inputs). Evidence of the map: `rules_study/verify-s2-s2-masters/rule4/`.
+`rustred-app/tests/p_library_app/basis4.rs` checks it against the scope 1-4 program.
