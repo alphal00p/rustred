@@ -8,6 +8,7 @@
 //! deferred region (nothing is lost). Planted points of a deferred region lie in
 //! no resolved case (no rule is derived for them through the union).
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use symbolica::prelude::Integer;
@@ -27,7 +28,10 @@ use super::{
 const DEFER: UnsupportedBranchPolicy = UnsupportedBranchPolicy::Defer;
 const REFUSE: UnsupportedBranchPolicy = UnsupportedBranchPolicy::Refuse;
 
-fn equations(context: &CoefficientContext, values: &[&str]) -> Vec<CoefficientPolynomial> {
+pub(super) fn equations(
+    context: &CoefficientContext,
+    values: &[&str],
+) -> Vec<CoefficientPolynomial> {
     values
         .iter()
         .map(|value| context.coefficient_fixture(value).numerator)
@@ -36,7 +40,7 @@ fn equations(context: &CoefficientContext, values: &[&str]) -> Vec<CoefficientPo
 
 /// Exact value of an integer polynomial in the index variables at an integer
 /// point (i128 arithmetic; test-sized values only).
-fn value<const N: usize>(
+pub(super) fn value<const N: usize>(
     polynomial: &CoefficientPolynomial,
     indices: &[usize; N],
     point: &[i64; N],
@@ -63,7 +67,7 @@ fn value<const N: usize>(
     total
 }
 
-fn vanishes<const N: usize>(
+pub(super) fn vanishes<const N: usize>(
     conjunction: &[CoefficientPolynomial],
     indices: &[usize; N],
     point: &[i64; N],
@@ -74,7 +78,7 @@ fn vanishes<const N: usize>(
 }
 
 /// Exact membership in a chart: fixed coordinates and every primitive row.
-fn on_chart<const N: usize>(chart: &Case<N>, point: &[i64; N]) -> bool {
+pub(super) fn on_chart<const N: usize>(chart: &Case<N>, point: &[i64; N]) -> bool {
     let fixed = chart
         .fixed()
         .iter()
@@ -94,7 +98,7 @@ fn on_chart<const N: usize>(chart: &Case<N>, point: &[i64; N]) -> bool {
 
 /// Membership through the public predicate list only, cross-checked against
 /// the region's chart and conjunction.
-fn in_region<const N: usize>(
+pub(super) fn in_region<const N: usize>(
     region: &DeferredRegion<N>,
     indices: &[usize; N],
     point: &[i64; N],
@@ -102,10 +106,15 @@ fn in_region<const N: usize>(
     let by_predicates = vanishes(&region.predicates(indices).unwrap(), indices, point);
     let by_parts = on_chart(&region.chart, point) && vanishes(&region.conjunction, indices, point);
     assert_eq!(by_predicates, by_parts, "predicates disagree at {point:?}");
+    // Opt-in refinement only (empty otherwise): every exclusion must be nonzero.
     by_predicates
+        && region
+            .exclusions
+            .iter()
+            .all(|exclusion| value(exclusion, indices, point) != 0)
 }
 
-fn in_sector<const N: usize>(sector: &[bool; N], point: &[i64; N]) -> bool {
+pub(super) fn in_sector<const N: usize>(sector: &[bool; N], point: &[i64; N]) -> bool {
     point
         .iter()
         .zip(sector)
@@ -113,17 +122,17 @@ fn in_sector<const N: usize>(sector: &[bool; N], point: &[i64; N]) -> bool {
 }
 
 #[derive(Debug, Default)]
-struct BoxCount {
-    sector_points: usize,
-    locus: usize,
-    in_cases: usize,
-    in_regions: usize,
-    only_in_regions: usize,
+pub(super) struct BoxCount {
+    pub(super) sector_points: usize,
+    pub(super) locus: usize,
+    pub(super) in_cases: usize,
+    pub(super) in_regions: usize,
+    pub(super) only_in_regions: usize,
 }
 
 /// Exactness of a successful (possibly deferred) result on `points` within
 /// the sector, against the ORIGINAL parent and conjunction.
-fn check_points<const N: usize>(
+pub(super) fn check_points<const N: usize>(
     parent: &Case<N>,
     original: &[CoefficientPolynomial],
     result: &CaseIntersectionResult<N>,
@@ -154,7 +163,10 @@ fn check_points<const N: usize>(
     count
 }
 
-fn grid<const N: usize>(low: [i64; N], high: [i64; N]) -> impl Iterator<Item = [i64; N]> {
+pub(super) fn grid<const N: usize>(
+    low: [i64; N],
+    high: [i64; N],
+) -> impl Iterator<Item = [i64; N]> {
     let total: usize = (0..N)
         .map(|axis| (high[axis] - low[axis] + 1) as usize)
         .product();
@@ -168,7 +180,7 @@ fn grid<const N: usize>(low: [i64; N], high: [i64; N]) -> impl Iterator<Item = [
     })
 }
 
-fn coordinate<const N: usize>(fixed: [Option<i16>; N]) -> Case<N> {
+pub(super) fn coordinate<const N: usize>(fixed: [Option<i16>; N]) -> Case<N> {
     CoordinateCase::new(fixed).unwrap().into()
 }
 
@@ -277,6 +289,8 @@ fn a_stuck_pell_branch_is_deferred_exactly() {
             conjunction: native::restrict(&generic, &conjunction, &indices)
                 .unwrap()
                 .into(),
+            exclusions: Arc::from([]),
+            dependents: Arc::from([]),
         }]
     );
     let region = &result.deferred[0];
@@ -400,6 +414,8 @@ fn defer_settles_both_refusals_only_after_s1_and_s2() {
                 conjunction: native::restrict(&x_is(2), &branch, &indices)
                     .unwrap()
                     .into(),
+                exclusions: Arc::from([]),
+                dependents: Arc::from([]),
             }]
         );
         assert!(in_region(&deferred[0], &indices, &[2, 3, 2]));
@@ -454,14 +470,14 @@ fn defer_never_hides_budget_failures() {
     );
 }
 
-struct T167 {
-    context: CoefficientContext,
-    indices: [usize; 20],
-    sector: [bool; 20],
+pub(super) struct T167 {
+    pub(super) context: CoefficientContext,
+    pub(super) indices: [usize; 20],
+    pub(super) sector: [bool; 20],
 }
 
 impl T167 {
-    fn new(fixture: &CapturedT167) -> Self {
+    pub(super) fn new(fixture: &CapturedT167) -> Self {
         let names: Vec<_> = std::iter::once("d".to_owned())
             .chain((0..20).map(|axis| format!("n{axis}")))
             .collect();
@@ -472,7 +488,7 @@ impl T167 {
         }
     }
 
-    fn chart(&self, fixed: [Option<i16>; 20], equalities: &[&str]) -> Case<20> {
+    pub(super) fn chart(&self, fixed: [Option<i16>; 20], equalities: &[&str]) -> Case<20> {
         let face = coordinate(fixed);
         if equalities.is_empty() {
             return face;
@@ -555,6 +571,8 @@ fn t167_p1_b5_refusal_becomes_exactly_the_captured_deferred_region() {
             parent: parent.clone(),
             chart: chart.clone(),
             conjunction: unresolved.clone().into(),
+            exclusions: Arc::from([]),
+            dependents: Arc::from([]),
         }]
     );
     let region = &result.deferred[0];
@@ -588,10 +606,10 @@ fn t167_p1_b5_refusal_becomes_exactly_the_captured_deferred_region() {
 }
 
 /// Deterministic generator (same recurrence as `lift_tests`).
-struct Lcg(u64);
+pub(super) struct Lcg(pub(super) u64);
 
 impl Lcg {
-    fn next(&mut self) -> u64 {
+    pub(super) fn next(&mut self) -> u64 {
         self.0 = self
             .0
             .wrapping_mul(6364136223846793005)
@@ -599,15 +617,15 @@ impl Lcg {
         self.0 >> 33
     }
 
-    fn range(&mut self, low: i64, high: i64) -> i64 {
+    pub(super) fn range(&mut self, low: i64, high: i64) -> i64 {
         low + (self.next() % (high - low + 1) as u64) as i64
     }
 }
 
-const NAMES: [&str; 4] = ["a", "b", "c", "e"];
+pub(super) const NAMES: [&str; 4] = ["a", "b", "c", "e"];
 
 /// A random integer polynomial of degree <= 2 vanishing at `point`.
-fn planted(random: &mut Lcg, point: [i64; 4], variables: usize) -> String {
+pub(super) fn planted(random: &mut Lcg, point: [i64; 4], variables: usize) -> String {
     let mut terms = Vec::new();
     let mut value: i128 = 0;
     for _ in 0..random.range(2, 5) {
@@ -625,7 +643,7 @@ fn planted(random: &mut Lcg, point: [i64; 4], variables: usize) -> String {
     format!("{}-({value})", terms.join("+"))
 }
 
-fn row_through(random: &mut Lcg, point: [i64; 4]) -> Option<String> {
+pub(super) fn row_through(random: &mut Lcg, point: [i64; 4]) -> Option<String> {
     let row: [i64; 4] = std::array::from_fn(|_| {
         random.range(-2, 2) * [1, 2, 3, 4, 5, 6, 7, 9][random.range(0, 7) as usize]
     });

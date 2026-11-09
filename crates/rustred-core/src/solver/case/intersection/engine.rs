@@ -7,12 +7,13 @@ use crate::algebra::CoefficientPolynomial;
 use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
-    DeferredRegion, UnsupportedBranchPolicy, bilinear_integer, definite_quadratic,
-    linear_resultant, modular, native,
+    CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
+    bilinear_integer, definite_quadratic, linear_resultant, modular, native,
 };
 use crate::solver::GeometryError;
 
+mod graph;
 mod rank;
 
 /// Ancestry is shared by siblings. A repeated state along one refinement path
@@ -20,6 +21,7 @@ mod rank;
 struct Ancestry<const N: usize> {
     parent: Case<N>,
     equations: Arc<[CoefficientPolynomial]>,
+    exclusions: Arc<[CoefficientPolynomial]>,
     previous: Option<Arc<Self>>,
 }
 
@@ -41,6 +43,13 @@ struct WorkItem<const N: usize> {
     parent: Case<N>,
     equations: Arc<[CoefficientPolynomial]>,
     ancestry: Option<Arc<Ancestry<N>>>,
+    /// Opt-in [`CaseRefinement`] only (always empty otherwise): primitive
+    /// irreducible polynomials whose zeros inside this item are owned by an
+    /// earlier sibling. The item is responsible only for its points at which
+    /// every exclusion is nonzero, and may drop the others.
+    exclusions: Arc<[CoefficientPolynomial]>,
+    /// G-split rounds that replaced equations on the way to this item.
+    graph_rounds: u8,
 }
 
 struct Engine<'a, const N: usize> {
@@ -55,6 +64,11 @@ struct Engine<'a, const N: usize> {
     resolutions: Vec<CaseResolution<N>>,
     unsupported: UnsupportedBranchPolicy,
     deferred: Vec<DeferredRegion<N>>,
+    refinement: CaseRefinement,
+    refinement_stats: CaseRefinementStats,
+    /// Some G-split remainder replaced equations: resolved cases must then be
+    /// checked against the original conjunction (see [`CaseRefinement`]).
+    check_original: bool,
 }
 
 // CaseIntersectionError carries the stats (S1/S2 counters included) by value.
@@ -67,6 +81,7 @@ pub(super) fn intersect<const N: usize>(
     limits: CaseIntersectionLimits,
     max_numerator_rank: Option<u32>,
     unsupported: UnsupportedBranchPolicy,
+    refinement: CaseRefinement,
 ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
     let equations: Arc<[CoefficientPolynomial]> = conjunction.to_vec().into();
     let mut engine = Engine {
@@ -76,6 +91,8 @@ pub(super) fn intersect<const N: usize>(
             parent: parent.clone(),
             equations,
             ancestry: None,
+            exclusions: Arc::from([]),
+            graph_rounds: 0,
         },
         indices,
         sector,
@@ -85,6 +102,9 @@ pub(super) fn intersect<const N: usize>(
         resolutions: Vec::new(),
         unsupported,
         deferred: Vec::new(),
+        refinement,
+        refinement_stats: CaseRefinementStats::default(),
+        check_original: false,
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         checkpoint()?;
@@ -98,6 +118,7 @@ pub(super) fn intersect<const N: usize>(
             stats: engine.stats,
             resolutions: engine.resolutions,
             deferred: engine.deferred,
+            refinement: engine.refinement_stats,
         }),
         Ok(Err(failure)) => Err(engine.error(failure)),
         Err(_) => Err(engine.error(CaseIntersectionFailure::NativeAlgebra)),
@@ -148,6 +169,9 @@ impl<const N: usize> Engine<'_, N> {
         }
         let start = Instant::now();
         resolved.retain(|case| rank::in_scope(case, self.max_numerator_rank));
+        if self.check_original {
+            resolved = self.drop_excluded_cases(resolved)?;
+        }
         let result = canonical_union(resolved);
         self.stats.union_time += start.elapsed();
         result
@@ -167,23 +191,45 @@ impl<const N: usize> Engine<'_, N> {
             Err(
                 failure @ (CaseIntersectionFailure::UnsupportedGeometry
                 | CaseIntersectionFailure::RepeatedState),
-            ) => self.settle_stuck_branch(failure, resolved),
+            ) => self.settle_stuck_branch(failure, pending, resolved),
             other => other,
         }
     }
 
-    /// S1, S2, then (only under `Defer`) S4 on the stuck current branch.
+    /// S1, S2, then (opt-in) G-split, then (only under `Defer`) S4 on the
+    /// stuck current branch.
     fn settle_stuck_branch(
         &mut self,
         failure: CaseIntersectionFailure,
+        pending: &mut Vec<WorkItem<N>>,
         resolved: &mut Vec<Case<N>>,
     ) -> Result<(), CaseIntersectionFailure> {
         match self.resolve_stuck_branch(failure, resolved) {
             Err(
                 refusal @ (CaseIntersectionFailure::UnsupportedGeometry
                 | CaseIntersectionFailure::RepeatedState),
-            ) if self.unsupported == UnsupportedBranchPolicy::Defer => {
-                self.defer_stuck_branch(refusal)
+            ) => {
+                if self.refinement.any()
+                    && graph::chart_misses_sector(&self.current.parent, self.sector)
+                {
+                    self.refinement_stats.sector_empty_branches = self
+                        .refinement_stats
+                        .sector_empty_branches
+                        .saturating_add(1);
+                    return Ok(());
+                }
+                let mut dependents = Vec::new();
+                if self.refinement.graph_split {
+                    match self.graph_split(pending, true)? {
+                        graph::GraphOutcome::Pushed => return Ok(()),
+                        graph::GraphOutcome::Unchanged(found) => dependents = found,
+                    }
+                }
+                if self.unsupported == UnsupportedBranchPolicy::Defer {
+                    self.defer_stuck_branch(refusal, dependents)
+                } else {
+                    Err(refusal)
+                }
             }
             other => other,
         }
@@ -198,15 +244,22 @@ impl<const N: usize> Engine<'_, N> {
     fn defer_stuck_branch(
         &mut self,
         reason: CaseIntersectionFailure,
+        dependents: Vec<GraphDependent>,
     ) -> Result<(), CaseIntersectionFailure> {
         if self.current.equations.is_empty() {
             return Err(reason);
+        }
+        if !dependents.is_empty() {
+            self.refinement_stats.graph_deferred =
+                self.refinement_stats.graph_deferred.saturating_add(1);
         }
         let region = DeferredRegion {
             reason,
             parent: self.original_parent.clone(),
             chart: self.current.parent.clone(),
             conjunction: self.current.equations.clone(),
+            exclusions: self.current.exclusions.clone(),
+            dependents: dependents.into(),
         };
         if !self.deferred.contains(&region) {
             self.deferred.push(region);
@@ -319,6 +372,10 @@ impl<const N: usize> Engine<'_, N> {
         // chart strengthening. Strict queued children share ancestry/budgets
         // but may merit a new attempt on their smaller exact conjunction.
         let mut lex_attempted = false;
+        // Opt-in refinement: one factor-first pass and one G-split attempt
+        // per state before its normalization (reset whenever it changes).
+        let mut factor_checked = false;
+        let mut graph_checked = false;
         loop {
             checkpoint()?;
             if !rank::in_scope(&self.current.parent, self.max_numerator_rank) {
@@ -392,6 +449,8 @@ impl<const N: usize> Engine<'_, N> {
                 self.current.parent = child;
                 self.current.equations = nonlinear.into();
                 normalized = false;
+                factor_checked = false;
+                graph_checked = false;
                 continue;
             }
 
@@ -405,6 +464,22 @@ impl<const N: usize> Engine<'_, N> {
                 return Ok(());
             }
 
+            if !normalized && self.refinement.any() {
+                if self.refinement.factor_first && !factor_checked {
+                    match self.refined_factor_pass(pending)? {
+                        FactorStep::Consumed => return Ok(()),
+                        FactorStep::Replaced => continue,
+                        FactorStep::Unchanged => factor_checked = true,
+                    }
+                }
+                if self.refinement.graph_split && !graph_checked {
+                    graph_checked = true;
+                    if let graph::GraphOutcome::Pushed = self.graph_split(pending, false)? {
+                        return Ok(());
+                    }
+                }
+            }
+
             if !normalized {
                 self.remember_state()?;
                 if self.current.equations.len() > 1 {
@@ -414,7 +489,18 @@ impl<const N: usize> Engine<'_, N> {
                         CaseIntersectionBudget::Normalizations,
                     )?;
                     let start = Instant::now();
-                    let basis = native::normalize(&self.current.equations);
+                    let saturating =
+                        self.refinement.saturate && !self.current.exclusions.is_empty();
+                    let basis = if saturating {
+                        native::saturate(&self.current.equations, &self.current.exclusions)
+                    } else {
+                        native::normalize(&self.current.equations)
+                    };
+                    if saturating {
+                        self.refinement_stats.saturations =
+                            self.refinement_stats.saturations.saturating_add(1);
+                        self.refinement_stats.saturation_time += start.elapsed();
+                    }
                     self.stats.normalization_time += start.elapsed();
                     let basis = basis?;
                     self.check_terms(&basis)?;
@@ -426,7 +512,23 @@ impl<const N: usize> Engine<'_, N> {
                 }
             }
 
+            if self.refinement.any() {
+                match self.refined_factor_pass(pending)? {
+                    FactorStep::Consumed => return Ok(()),
+                    FactorStep::Replaced => {
+                        normalized = false;
+                        factor_checked = false;
+                        graph_checked = false;
+                        continue;
+                    }
+                    FactorStep::Unchanged => {}
+                }
+            }
             for position in 0..self.current.equations.len() {
+                if self.refinement.any() {
+                    // The exclusion-aware pass above already factored them.
+                    break;
+                }
                 spend(
                     &mut self.stats.factorizations,
                     self.limits.diagnostic_limit(self.limits.max_factorizations),
@@ -470,6 +572,8 @@ impl<const N: usize> Engine<'_, N> {
                         parent: self.current.parent.clone(),
                         equations: child_equations.into(),
                         ancestry: self.current.ancestry.clone(),
+                        exclusions: self.current.exclusions.clone(),
+                        graph_rounds: self.current.graph_rounds,
                     });
                 }
                 return Ok(());
@@ -533,6 +637,8 @@ impl<const N: usize> Engine<'_, N> {
                 }
                 self.current.parent = child;
                 normalized = false;
+                factor_checked = false;
+                graph_checked = false;
                 continue;
             }
             // Preserve the complete existing bilinear pass before spending
@@ -589,6 +695,8 @@ impl<const N: usize> Engine<'_, N> {
                             parent: self.current.parent.clone(),
                             equations: equations.into(),
                             ancestry: self.current.ancestry.clone(),
+                            exclusions: self.current.exclusions.clone(),
+                            graph_rounds: self.current.graph_rounds,
                         });
                     }
                     return Ok(());
@@ -665,6 +773,7 @@ impl<const N: usize> Engine<'_, N> {
             checkpoint()?;
             if previous.parent == self.current.parent
                 && previous.equations == self.current.equations
+                && previous.exclusions == self.current.exclusions
             {
                 return Err(CaseIntersectionFailure::RepeatedState);
             }
@@ -673,10 +782,141 @@ impl<const N: usize> Engine<'_, N> {
         self.current.ancestry = Some(Arc::new(Ancestry {
             parent: self.current.parent.clone(),
             equations: self.current.equations.clone(),
+            exclusions: self.current.exclusions.clone(),
             previous: self.current.ancestry.clone(),
         }));
         Ok(())
     }
+
+    /// Opt-in refinement: factor every equation of the current state, drop
+    /// factors that are exclusions of this item (their zeros are owned by an
+    /// earlier sibling), and branch on the first equation with two or more
+    /// remaining factors. Children are disjoint: the child of factor `f_k`
+    /// excludes `f_1..f_{k-1}` (affine factors come first).
+    fn refined_factor_pass(
+        &mut self,
+        pending: &mut Vec<WorkItem<N>>,
+    ) -> Result<FactorStep, CaseIntersectionFailure> {
+        for position in 0..self.current.equations.len() {
+            spend(
+                &mut self.stats.factorizations,
+                self.limits.diagnostic_limit(self.limits.max_factorizations),
+                CaseIntersectionBudget::Factorizations,
+            )?;
+            let start = Instant::now();
+            let factors = native::factors(&self.current.equations[position]);
+            self.stats.factorization_time += start.elapsed();
+            let mut factors = factors?;
+            self.check_terms(&factors)?;
+            native::retain_possible_integer_factors(&mut factors, self.indices);
+            let found = factors.len();
+            factors.retain(|factor| !self.current.exclusions.contains(factor));
+            if factors.is_empty() {
+                // Either no factor has an integer zero (the established
+                // reading), or every zero lies on an excluded hypersurface.
+                if found > 0 {
+                    self.refinement_stats.excluded_empty_branches = self
+                        .refinement_stats
+                        .excluded_empty_branches
+                        .saturating_add(1);
+                }
+                return Ok(FactorStep::Consumed);
+            }
+            if factors.len() == 1 {
+                if factors[0] == self.current.equations[position] {
+                    continue;
+                }
+                // A product of excluded factors and ONE remaining factor (or
+                // a repeated factor): on this item it is that factor alone.
+                self.refinement_stats.excluded_factor_drops = self
+                    .refinement_stats
+                    .excluded_factor_drops
+                    .saturating_add(1);
+                let mut equations = self.current.equations.to_vec();
+                equations[position] = factors.pop().expect("one factor");
+                native::canonicalize(&mut equations);
+                self.current.equations = equations.into();
+                return Ok(FactorStep::Replaced);
+            }
+            if self.limits.diagnostics_enabled
+                && self
+                    .stats
+                    .work_items
+                    .checked_add(pending.len())
+                    .and_then(|count| count.checked_add(factors.len()))
+                    .is_none_or(|count| count > self.limits.max_work_items)
+            {
+                return Err(CaseIntersectionFailure::Budget {
+                    kind: CaseIntersectionBudget::WorkItems,
+                    limit: self.limits.max_work_items,
+                });
+            }
+            factors.sort_by_key(|factor| (!native::is_affine(factor), factor.nterms()));
+            self.stats.factor_children = self.stats.factor_children.saturating_add(factors.len());
+            self.refinement_stats.factor_first_splits =
+                self.refinement_stats.factor_first_splits.saturating_add(1);
+            self.refinement_stats.factor_first_children = self
+                .refinement_stats
+                .factor_first_children
+                .saturating_add(factors.len());
+            for (rank, factor) in factors.iter().enumerate().rev() {
+                let mut child_equations = self.current.equations.to_vec();
+                child_equations[position] = factor.clone();
+                native::canonicalize(&mut child_equations);
+                let mut exclusions = self.current.exclusions.to_vec();
+                exclusions.extend(factors[..rank].iter().cloned());
+                native::canonicalize(&mut exclusions);
+                pending.push(WorkItem {
+                    parent: self.current.parent.clone(),
+                    equations: child_equations.into(),
+                    ancestry: self.current.ancestry.clone(),
+                    exclusions: exclusions.into(),
+                    graph_rounds: self.current.graph_rounds,
+                });
+            }
+            return Ok(FactorStep::Consumed);
+        }
+        Ok(FactorStep::Unchanged)
+    }
+
+    /// Keep only resolved cases on which the ORIGINAL conjunction vanishes
+    /// identically. Needed only after a G-split remainder replaced equations:
+    /// such a remainder implies the original conjunction wherever no
+    /// exclusion vanishes, so a case on which the original does not vanish
+    /// lies inside an excluded hypersurface, whose points a sibling owns.
+    fn drop_excluded_cases(
+        &mut self,
+        cases: Vec<Case<N>>,
+    ) -> Result<Vec<Case<N>>, CaseIntersectionFailure> {
+        let mut kept = Vec::with_capacity(cases.len());
+        for case in cases {
+            checkpoint()?;
+            if original_vanishes_on(
+                &self.original_parent,
+                &self.original_conjunction,
+                &case,
+                self.indices,
+            )? {
+                kept.push(case);
+            } else {
+                self.refinement_stats.excluded_cases_dropped = self
+                    .refinement_stats
+                    .excluded_cases_dropped
+                    .saturating_add(1);
+            }
+        }
+        Ok(kept)
+    }
+}
+
+/// Outcome of the opt-in factor pass on the current state.
+enum FactorStep {
+    /// Every equation is irreducible and none has an excluded factor.
+    Unchanged,
+    /// One equation was replaced in place by its only non-excluded factor.
+    Replaced,
+    /// The state was split into factor children (or proved empty).
+    Consumed,
 }
 
 /// Test seam: run only the stuck-branch resolution (S1 then S2) of the
@@ -701,6 +941,8 @@ pub(super) fn resolve_stuck_branch_for_test<const N: usize>(
             parent: chart.clone(),
             equations,
             ancestry: None,
+            exclusions: Arc::from([]),
+            graph_rounds: 0,
         },
         indices,
         sector,
@@ -710,6 +952,9 @@ pub(super) fn resolve_stuck_branch_for_test<const N: usize>(
         resolutions: Vec::new(),
         unsupported: UnsupportedBranchPolicy::Refuse,
         deferred: Vec::new(),
+        refinement: CaseRefinement::default(),
+        refinement_stats: CaseRefinementStats::default(),
+        check_original: false,
     };
     let mut resolved = Vec::new();
     engine.resolve_stuck_branch(failure, &mut resolved)?;
@@ -739,6 +984,8 @@ pub(super) fn settle_stuck_branch_for_test<const N: usize>(
             parent: chart.clone(),
             equations,
             ancestry: None,
+            exclusions: Arc::from([]),
+            graph_rounds: 0,
         },
         indices,
         sector,
@@ -748,9 +995,14 @@ pub(super) fn settle_stuck_branch_for_test<const N: usize>(
         resolutions: Vec::new(),
         unsupported,
         deferred: Vec::new(),
+        refinement: CaseRefinement::default(),
+        refinement_stats: CaseRefinementStats::default(),
+        check_original: false,
     };
     let mut resolved = Vec::new();
-    engine.settle_stuck_branch(failure, &mut resolved)?;
+    let mut pending = Vec::new();
+    engine.settle_stuck_branch(failure, &mut pending, &mut resolved)?;
+    debug_assert!(pending.is_empty(), "G-split is off in this seam");
     Ok((resolved, engine.resolutions, engine.deferred))
 }
 

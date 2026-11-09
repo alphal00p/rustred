@@ -109,6 +109,98 @@ pub struct CaseIntersectionResult<const N: usize> {
     /// these regions. Always empty under the default
     /// [`UnsupportedBranchPolicy::Refuse`], which fails atomically instead.
     pub deferred: Vec<DeferredRegion<N>>,
+    /// Counters of the opt-in [`CaseRefinement`] steps (default when off).
+    pub refinement: CaseRefinementStats,
+}
+
+/// Opt-in exact refinement steps of the intersection engine (all off by
+/// default; with every switch off the engine runs its established code path
+/// unchanged, byte for byte).
+///
+/// - `factor_first`: factor every equation of a branch before its first
+///   ideal normalization (and again after each affine admission), and branch
+///   on any reducible equation first. Siblings are made disjoint: the child of
+///   factor `f_k` excludes the factors `f_1..f_{k-1}` of its earlier siblings,
+///   whose points those siblings own.
+/// - `saturate`: the ideal normalization of a branch with exclusions `h` is the
+///   saturation `I : (prod h)^inf` (Rabinowitsch variable, block elimination
+///   order) instead of the plain basis, and factors equal to an exclusion
+///   create no branch. Integer points with every exclusion nonzero are kept.
+/// - `graph_split` ("G-split"): an equation linear in a free coordinate `x`,
+///   `c(y) x + r(y)` with every factor of `c` affine, is used to eliminate `x`
+///   (`x = -r/c`) from the other equations. Each new factor `c_f` becomes an
+///   ordinary child `{c_f = 0} AND branch`; the remainder (`c != 0`) keeps the
+///   defining equations and the eliminated (denominator-free, saturated)
+///   equations, with the factors as exclusions. A remainder that no exact step
+///   resolves is deferred (S4) with its exclusions and dependents.
+/// - with any step on, a stuck branch whose chart provably misses the sector
+///   (exact elimination of its primitive rows in reverse axis order, then the
+///   row bound test on active >= 1 / inactive <= 0) is dropped as empty.
+///
+/// Exactness: every step keeps the OR of resolved cases and deferred regions
+/// equal to the exceptional locus. A resolved case on which the ORIGINAL
+/// conjunction does not vanish identically can only arise inside an excluded
+/// hypersurface (owned by a sibling) and is dropped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct CaseRefinement {
+    pub factor_first: bool,
+    pub saturate: bool,
+    pub graph_split: bool,
+}
+
+impl CaseRefinement {
+    /// Every opt-in step (factor-first, saturation and G-split).
+    pub const fn all() -> Self {
+        Self {
+            factor_first: true,
+            saturate: true,
+            graph_split: true,
+        }
+    }
+
+    /// Whether any opt-in step is enabled.
+    pub const fn any(self) -> bool {
+        self.factor_first || self.saturate || self.graph_split
+    }
+}
+
+/// Counters of the opt-in [`CaseRefinement`] steps (all zero when off).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CaseRefinementStats {
+    /// Reducible equations split before the first ideal normalization.
+    pub factor_first_splits: usize,
+    pub factor_first_children: usize,
+    /// Equations divided by an excluded factor without branching.
+    pub excluded_factor_drops: usize,
+    /// Branches proved empty because an equation is a product of exclusions.
+    pub excluded_empty_branches: usize,
+    /// Saturated normalizations (branches with exclusions).
+    pub saturations: usize,
+    pub saturation_time: Duration,
+    /// G-splits that pushed children and/or a reduced remainder.
+    pub graph_splits: usize,
+    /// Coefficient-zero children pushed by G-split.
+    pub graph_children: usize,
+    /// Remainders deferred as typed graph regions (S4 with dependents).
+    pub graph_deferred: usize,
+    /// Stuck branches whose chart provably misses the sector (exact
+    /// elimination of the chart rows in reverse axis order).
+    pub sector_empty_branches: usize,
+    /// Resolved cases dropped because the original conjunction does not
+    /// vanish identically on them (they lie in an excluded hypersurface).
+    pub excluded_cases_dropped: usize,
+}
+
+/// One eliminated coordinate of a G-split remainder: on the region,
+/// `denominator * n_axis + (-numerator) = 0`, i.e. `n_axis = numerator /
+/// denominator`, with `denominator != 0` there (its factors are exclusions).
+/// Dependents are triangular: the numerator and denominator of a dependent
+/// contain neither its own coordinate nor any earlier dependent's coordinate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphDependent {
+    pub axis: usize,
+    pub numerator: CoefficientPolynomial,
+    pub denominator: CoefficientPolynomial,
 }
 
 /// What the engine does with an AND branch that refinement, S1 and S2 all
@@ -128,7 +220,8 @@ pub enum UnsupportedBranchPolicy {
 ///
 /// The region is exactly the set of integer points `n` of `chart` (fixed
 /// coordinates and coupled affine equalities, within the caller's sector
-/// signs) at which every polynomial of `conjunction` vanishes. It is a subset
+/// signs) at which every polynomial of `conjunction` vanishes and (opt-in
+/// [`CaseRefinement`] only) every polynomial of `exclusions` is nonzero. It is a subset
 /// of `parent` intersected with the ORIGINAL conjunction (every engine step is
 /// an exact refinement), possibly empty, never approximated.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,13 +236,24 @@ pub struct DeferredRegion<const N: usize> {
     /// The unresolved conjunction restricted to `chart` (or a same-ideal
     /// basis of it), equations equal to zero, in the original variables.
     pub conjunction: Arc<[CoefficientPolynomial]>,
+    /// Opt-in [`CaseRefinement`] only (empty otherwise): the region contains
+    /// only points at which EVERY one of these polynomials is nonzero. Points
+    /// of `chart` and `conjunction` where one of them vanishes belong to
+    /// sibling cases or regions of the same intersection, not to this one.
+    pub exclusions: Arc<[CoefficientPolynomial]>,
+    /// Opt-in G-split only (empty otherwise): the coordinates that are
+    /// rational functions of the others on the region (informational; the
+    /// region is defined by `chart`, `conjunction` and `exclusions` alone).
+    pub dependents: Arc<[GraphDependent]>,
 }
 
 impl<const N: usize> DeferredRegion<N> {
     /// The region as one AND-list of polynomial equations, the same form as
     /// an exception branch: `n_i - v` for every fixed coordinate of `chart`,
     /// the chart's coupled affine equalities, then `conjunction`. An integer
-    /// point of the sector lies in the region iff all of them vanish there.
+    /// point of the sector lies in the region iff all of them vanish there
+    /// and no polynomial of [`Self::exclusions`] vanishes there (exclusions are
+    /// always empty unless the opt-in [`CaseRefinement`] produced them).
     /// `None` only if there is no polynomial to take the variable map from
     /// (never for a region built by the engine, whose conjunction is nonempty).
     pub fn predicates(&self, indices: &[usize; N]) -> Option<Vec<CoefficientPolynomial>> {

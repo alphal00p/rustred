@@ -111,6 +111,8 @@ impl<const N: usize> Engine<'_, N> {
                 parent: face.into(),
                 equations: std::sync::Arc::clone(&equations),
                 ancestry: self.current.ancestry.clone(),
+                exclusions: self.current.exclusions.clone(),
+                graph_rounds: self.current.graph_rounds,
             });
         }
         self.stats.rank_splits = self.stats.rank_splits.saturating_add(1);

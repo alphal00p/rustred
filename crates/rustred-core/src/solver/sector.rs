@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use super::geometry::{GeometryError, compare_cases};
 use super::{
     AffineGeometryError, Case, CaseIntersectionError, CaseIntersectionFailure,
-    CaseIntersectionLimits, CoordinateCase, DeferredRegion, ExceptionError, ExceptionalConditions,
-    Integral, RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError,
-    UnsupportedBranchPolicy,
+    CaseIntersectionLimits, CaseRefinement, CoordinateCase, DeferredRegion, ExceptionError,
+    ExceptionalConditions, Integral, RuleCandidate, SearchEvent, SearchOptions, SectorSolver,
+    SolverError, UnsupportedBranchPolicy,
 };
 
 mod domains;
@@ -108,6 +108,7 @@ impl<const N: usize> SectorRule<N> {
             max_numerator_rank,
             limits,
             UnsupportedBranchPolicy::Refuse,
+            CaseRefinement::default(),
             &mut deferred,
             before_branch,
         );
@@ -127,6 +128,7 @@ impl<const N: usize> SectorRule<N> {
         max_numerator_rank: Option<u32>,
         limits: CaseIntersectionLimits,
         unsupported: UnsupportedBranchPolicy,
+        refinement: CaseRefinement,
         deferred: &mut Vec<(usize, DeferredRegion<N>)>,
         mut before_branch: impl FnMut(),
     ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
@@ -138,13 +140,14 @@ impl<const N: usize> SectorRule<N> {
             let intersection = self
                 .candidate
                 .case
-                .intersect_many_with_policy(
+                .intersect_many_refined(
                     branch,
                     indices,
                     sector,
                     limits,
                     max_numerator_rank,
                     unsupported,
+                    refinement,
                 )
                 .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
             if intersection.cases.is_empty() && intersection.deferred.is_empty() {
@@ -435,6 +438,32 @@ impl<const N: usize> SectorSolver<'_, N> {
     pub fn solve_sector_deferring_with_observer(
         &self,
         options: SectorSolveOptions,
+        observe: impl FnMut(SectorEvent<'_, N>),
+    ) -> Result<DeferredSectorSolution<N>, SectorSolveError<N>> {
+        self.solve_sector_deferring_refined_with_observer(
+            options,
+            CaseRefinement::default(),
+            observe,
+        )
+    }
+
+    /// [`Self::solve_sector_deferring`] with the opt-in exact
+    /// [`CaseRefinement`] steps (factor-first, saturation, G-split) in the
+    /// admission of every found rule's exceptional cases. Queue coverage
+    /// pruning keeps the plain intersection. `CaseRefinement::default()` is
+    /// exactly [`Self::solve_sector_deferring`].
+    pub fn solve_sector_deferring_refined(
+        &self,
+        options: SectorSolveOptions,
+        refinement: CaseRefinement,
+    ) -> Result<DeferredSectorSolution<N>, SectorSolveError<N>> {
+        self.solve_sector_deferring_refined_with_observer(options, refinement, |_| {})
+    }
+
+    pub fn solve_sector_deferring_refined_with_observer(
+        &self,
+        options: SectorSolveOptions,
+        refinement: CaseRefinement,
         mut observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<DeferredSectorSolution<N>, SectorSolveError<N>> {
         let initial = self.initial_case();
@@ -451,7 +480,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             vec![initial],
             options,
             &mut observe,
-            Some(&mut deferred),
+            Some((&mut deferred, refinement)),
         )?;
         Ok(DeferredSectorSolution { solution, deferred })
     }
@@ -494,7 +523,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         initial: Vec<Case<N>>,
         options: SectorSolveOptions,
         mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
-        mut deferral: Option<&mut Vec<SectorDeferredRegion<N>>>,
+        mut deferral: Option<(&mut Vec<SectorDeferredRegion<N>>, CaseRefinement)>,
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         // Two-sided eps axes are an opt-in of the sources and must be carried
         // by the order program exactly (plan M2 sec.3.4): generation order and
@@ -647,14 +676,14 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered
             // by this rule itself, so only earlier rules may suppress it.
-            let (children, discarded, resolutions) = match deferral.as_deref_mut() {
+            let (children, discarded, resolutions) = match deferral.as_mut() {
                 None => rule.admit_exceptional_cases_in_scope(
                     &self.system.indices,
                     self.order.sector(),
                     options.max_numerator_rank,
                     options.case_intersection_limits,
                 )?,
-                Some(deferred) => {
+                Some((deferred, refinement)) => {
                     // S4: the rule is published at index `rules.len()` below
                     // (nothing else is pushed before it); its deferred
                     // regions stay out of `children`.
@@ -665,6 +694,7 @@ impl<const N: usize> SectorSolver<'_, N> {
                         options.max_numerator_rank,
                         options.case_intersection_limits,
                         UnsupportedBranchPolicy::Defer,
+                        *refinement,
                         &mut regions,
                         || {},
                     )?;

@@ -2,6 +2,7 @@
 //!
 //!   table_dump FAMILY MASK ORDER OUT.jsonl [--cert OUT.cert.jsonl] [--depth K] [--zero all|downset]
 //!              [--workers W] [--charts M1,M2,..] [--cert-max-rows K] [--defer-unsupported]
+//!              [--case-gsplit]
 //!
 //! Solves every chart of the sector MASK of FAMILY (one chart without two-sided axes, 2^j with j axes)
 //! and writes the complete machine table as JSONL. rules_study/s5-tables/FORMAT.md is the format.
@@ -16,6 +17,14 @@
 //! carries `"defer_unsupported":true`. Contract: an integer point of the chart (its guards) at which
 //! every polynomial of a region's `predicates` vanishes is NOT reduced by any rule of the chart;
 //! it must come from a separate exact table, else fail closed. Certificates are unchanged.
+//!
+//! `--case-gsplit` (opt-in, requires `--defer-unsupported`; off by default): the exceptional-case
+//! admission of every found rule uses the exact factor-first + saturation + G-split refinement of
+//! the case intersection (`CaseRefinement::all()`). The header schema is then
+//! `table_dump.v1-defer-gsplit` with `"case_gsplit":true`, and every `deferred_region` record also
+//! carries `exclusions` (the region holds only points where EVERY exclusion is nonzero; points of
+//! the predicates where an exclusion vanishes belong to ordinary cases/rules or to other regions)
+//! and `dependents` (informational: `n_axis = numerator/denominator` on the region, triangular).
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
@@ -26,8 +35,9 @@ use rustred::input::{Compiler, Limits, LoweringLimits};
 use rustred::order::{CompiledOrder, DegreeRow, OrderDescriptor};
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    Case, Integral, SectorConfig, SectorDeferredRegion, SectorExecutionError, SectorExecutor,
-    SectorRule, SectorSolveOptions, SectorSolver, SourceSystem,
+    Case, CaseRefinement, Integral, SectorConfig, SectorDeferredRegion, SectorEvent,
+    SectorExecutionError, SectorExecutor, SectorRule, SectorSolveOptions, SectorSolver,
+    SourceSystem,
 };
 
 /// Bump on any change of the record layout (FORMAT.md).
@@ -36,6 +46,10 @@ const SCHEMA: &str = "table_dump.v1";
 /// `deferred_regions` counters). A v1-only reader refuses it instead of treating the deferred
 /// points as covered. The certificate file keeps [`SCHEMA`]: its layout is unchanged.
 const SCHEMA_DEFER: &str = "table_dump.v1-defer";
+/// Table schema with `--defer-unsupported --case-gsplit`: v1-defer plus `exclusions` and
+/// `dependents` in every `deferred_region`. A v1-defer reader refuses it (it would ignore the
+/// exclusions).
+const SCHEMA_DEFER_GSPLIT: &str = "table_dump.v1-defer-gsplit";
 /// The source line of the build. Was "94ec3300" for the rules-s5-tables study
 /// builds (B3, B5: rustred 94ec3300 plus the example and solver/table_export.rs).
 const SOURCE_BASE: &str = "p_integral";
@@ -112,13 +126,14 @@ struct Cli {
     charts: Option<Vec<Vec<bool>>>,
     cert_max_rows: usize,
     defer_unsupported: bool,
+    case_gsplit: bool,
 }
 
 fn cli() -> (Cli, IntegralFamily) {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
         eprintln!(
-            "usage: table_dump FAMILY MASK ORDER OUT.jsonl [--cert F] [--depth K] [--zero all|downset] [--workers W] [--charts M1,M2] [--cert-max-rows K] [--defer-unsupported]"
+            "usage: table_dump FAMILY MASK ORDER OUT.jsonl [--cert F] [--depth K] [--zero all|downset] [--workers W] [--charts M1,M2] [--cert-max-rows K] [--defer-unsupported] [--case-gsplit]"
         );
         std::process::exit(2);
     }
@@ -160,11 +175,17 @@ fn cli() -> (Cli, IntegralFamily) {
         charts: None,
         cert_max_rows: usize::MAX,
         defer_unsupported: false,
+        case_gsplit: false,
     };
     let mut i = 5;
     while i < args.len() {
         if args[i] == "--defer-unsupported" {
             c.defer_unsupported = true;
+            i += 1;
+            continue;
+        }
+        if args[i] == "--case-gsplit" {
+            c.case_gsplit = true;
             i += 1;
             continue;
         }
@@ -187,6 +208,10 @@ fn cli() -> (Cli, IntegralFamily) {
         }
         i += 2;
     }
+    assert!(
+        !c.case_gsplit || c.defer_unsupported,
+        "--case-gsplit requires --defer-unsupported"
+    );
     (c, family)
 }
 
@@ -306,6 +331,7 @@ fn write_deferred<const N: usize>(
     deferred: &SectorDeferredRegion<N>,
     rules: &[SectorRule<N>],
     indices: &[usize; N],
+    case_gsplit: bool,
 ) {
     let region = &deferred.region;
     let (fixed, equations) = case_fields(&region.chart);
@@ -315,9 +341,30 @@ fn write_deferred<const N: usize>(
     let predicates = region
         .predicates(indices)
         .expect("an engine-deferred region has a nonempty conjunction");
+    let gsplit_fields = if case_gsplit {
+        let dependents = region
+            .dependents
+            .iter()
+            .map(|dependent| {
+                format!(
+                    "{{\"axis\":{},\"numerator\":{},\"denominator\":{}}}",
+                    dependent.axis,
+                    q(&dependent.numerator.to_string()),
+                    q(&dependent.denominator.to_string())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            ",\"exclusions\":{},\"dependents\":[{dependents}]",
+            strings(region.exclusions.iter())
+        )
+    } else {
+        String::new()
+    };
     writeln!(
         f,
-        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"case\":{},\"fixed\":[{}],\"equations\":{},\"conjunction\":{},\"predicates\":{}}}",
+        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"case\":{},\"fixed\":[{}],\"equations\":{},\"conjunction\":{},\"predicates\":{}{gsplit_fields}}}",
         q(chart),
         deferred.rule,
         deferred.branch,
@@ -543,7 +590,9 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             .map(|b| format!("{b:02x}"))
             .collect()
     });
-    let defer_field = if cli.defer_unsupported {
+    let defer_field = if cli.case_gsplit {
+        ",\"defer_unsupported\":true,\"case_gsplit\":true"
+    } else if cli.defer_unsupported {
         ",\"defer_unsupported\":true"
     } else {
         ""
@@ -551,7 +600,9 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
     writeln!(
         out,
         "{{\"type\":\"header\",\"schema\":{},\"source_base\":{},\"family\":{},\"family_file\":{},\"family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"order_bytes\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":{},\"zero_seconds\":{zero_seconds:.3}{defer_field}}}",
-        q(if cli.defer_unsupported {
+        q(if cli.case_gsplit {
+            SCHEMA_DEFER_GSPLIT
+        } else if cli.defer_unsupported {
             SCHEMA_DEFER
         } else {
             SCHEMA
@@ -650,8 +701,40 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                             source,
                         }
                     })?;
-                solver
-                    .solve_sector_deferring(options)
+                let solved = if cli.case_gsplit {
+                    // Progress on stderr only (the table bytes are unaffected): one line per
+                    // started case, exceptional-geometry phase and found rule.
+                    let started = Instant::now();
+                    let mut found = 0usize;
+                    solver.solve_sector_deferring_refined_with_observer(
+                        options,
+                        CaseRefinement::all(),
+                        |event| match event {
+                            SectorEvent::CaseStarted { case, pending } => eprintln!(
+                                "[gsplit-progress] {:.1}s case_started pending={pending} fixed={:?} affine={}",
+                                started.elapsed().as_secs_f64(),
+                                case.fixed(),
+                                case.affine().is_some()
+                            ),
+                            SectorEvent::PhaseStarted { phase, .. } => eprintln!(
+                                "[gsplit-progress] {:.1}s phase {phase:?}",
+                                started.elapsed().as_secs_f64()
+                            ),
+                            SectorEvent::RuleFound { rule, pending } => {
+                                found += 1;
+                                eprintln!(
+                                    "[gsplit-progress] {:.1}s rule_found {found} pending={pending} exception_branches={}",
+                                    started.elapsed().as_secs_f64(),
+                                    rule.exceptions.branches.len()
+                                );
+                            }
+                            _ => {}
+                        },
+                    )
+                } else {
+                    solver.solve_sector_deferring(options)
+                };
+                solved
                     .map(|done| vec![(done.solution, done.deferred)])
                     .map_err(|source| SectorExecutionError::Solve {
                         ordinal: 0,
@@ -715,6 +798,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                 region,
                 &solution.rules,
                 sources.index_variables(),
+                cli.case_gsplit,
             );
         }
         let deferred_field = if cli.defer_unsupported {

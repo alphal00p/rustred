@@ -16,8 +16,8 @@ mod native;
 
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
-    DeferredRegion, UnsupportedBranchPolicy,
+    CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
 };
 
 use crate::algebra::CoefficientPolynomial;
@@ -47,6 +47,7 @@ impl<const N: usize> Case<N> {
             limits,
             None,
             UnsupportedBranchPolicy::Refuse,
+            CaseRefinement::default(),
         )
     }
 
@@ -77,6 +78,7 @@ impl<const N: usize> Case<N> {
             limits,
             Some(maximum),
             UnsupportedBranchPolicy::Refuse,
+            CaseRefinement::default(),
         )
     }
 
@@ -106,6 +108,35 @@ impl<const N: usize> Case<N> {
             limits,
             max_numerator_rank,
             unsupported,
+            CaseRefinement::default(),
+        )
+    }
+
+    /// [`Self::intersect_many_with_policy`] with the opt-in exact refinement
+    /// steps of [`CaseRefinement`] (factor-first, saturation, G-split). With
+    /// `CaseRefinement::default()` (every step off) this is exactly
+    /// [`Self::intersect_many_with_policy`]. Results stay exact: the OR of
+    /// `cases` and `deferred` (with their exclusions) is the exceptional locus.
+    #[allow(clippy::result_large_err, clippy::too_many_arguments)]
+    pub fn intersect_many_refined(
+        &self,
+        conjunction: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        max_numerator_rank: Option<u32>,
+        unsupported: UnsupportedBranchPolicy,
+        refinement: CaseRefinement,
+    ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            max_numerator_rank,
+            unsupported,
+            refinement,
         )
     }
 }
@@ -151,3 +182,9 @@ mod t167_p1_b5_captured;
 
 #[cfg(test)]
 mod defer_tests;
+
+#[cfg(test)]
+mod t167_gsplit_captured;
+
+#[cfg(test)]
+mod gsplit_tests;
