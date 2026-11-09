@@ -124,7 +124,6 @@ fn every_diamond_node_of_the_4l_dag_has_the_shape() {
         .collect();
     names.sort_unstable();
     assert_eq!(names, ["d384", "d394", "d399", "no3"]);
-    assert_eq!(P_DIAMOND_TEMPLATE_VERSION, 1);
     for node in four_loop_diamonds() {
         let p = &*node.presentation;
         let template = DiamondTemplate::extract(p, &node.roles)
@@ -324,4 +323,64 @@ fn the_template_refuses_what_is_not_a_diamond() {
         }),
         PError::Contract(_)
     ));
+}
+
+/// The content of the lane on the four nodes: roles, the pivot and apex forms at
+/// one `d`, and the children of one step on a dotted key with a numerator.
+fn template_digest() -> String {
+    let d = rational(37, 10);
+    let form = |form: &RowForm| format!("{} {:?}", at(&form.constant, &d), form.slopes);
+    let mut text = String::new();
+    let mut nodes: Vec<&DiamondNode> = four_loop_diamonds().iter().collect();
+    nodes.sort_by(|a, b| a.name.cmp(&b.name));
+    for node in nodes {
+        let p = &node.presentation;
+        let step = DiamondStep::new(Arc::clone(p), node.roles).unwrap();
+        let template = step.template();
+        text += &format!(
+            "{} {:?} {} {:?}\n",
+            node.name,
+            template.roles(),
+            form(template.pivot()),
+            template.apex().iter().map(form).collect::<Vec<_>>()
+        );
+        let lines = (p.slots.iter())
+            .filter(|s| matches!(s, Slot::Line(_)))
+            .count();
+        let mut powers: Vec<i64> = (0..p.slots.len())
+            .map(|slot| i64::from(slot < lines) * (1 + i64::try_from(slot % 2).unwrap()))
+            .collect();
+        if let Some(isp) = powers.get_mut(lines) {
+            *isp = -1;
+        }
+        let tag = GammaTag::one();
+        let key = PKeyView {
+            presentation: p.id,
+            powers: &powers,
+            tag: &tag,
+        };
+        let output = step.apply(&key, &ReductionLimits::default()).unwrap();
+        for child in &output.children {
+            text += &format!(
+                "{:?} {:?} {}\n",
+                child.stage,
+                child.powers,
+                at(&child.coefficient, &d)
+            );
+        }
+    }
+    blake3::hash(text.as_bytes()).to_hex().to_string()
+}
+
+/// A change of the meaning of a recorded step needs a bump of
+/// `P_DIAMOND_TEMPLATE_VERSION` with a new digest here.
+const TEMPLATE_PIN: (u32, &str) = (1, "");
+
+#[test]
+fn the_template_content_is_pinned_to_its_version() {
+    assert_eq!(
+        (P_DIAMOND_TEMPLATE_VERSION, template_digest().as_str()),
+        TEMPLATE_PIN,
+        "bump P_DIAMOND_TEMPLATE_VERSION with every new digest"
+    );
 }
