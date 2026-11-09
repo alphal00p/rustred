@@ -233,7 +233,11 @@ fn named_counts(assembled: &AssembledLibrary) -> Vec<Count> {
     ));
     counts.push(count(
         "triangle_fallbacks",
-        assembled.nodes.iter().filter(|n| n.fallback.is_some()).count(),
+        assembled
+            .nodes
+            .iter()
+            .filter(|n| n.fallback.is_some())
+            .count(),
         "Triangle nodes presented as Custom because their IBP row is not Forcer's",
     ));
     counts.push(count(
@@ -243,7 +247,11 @@ fn named_counts(assembled: &AssembledLibrary) -> Vec<Count> {
     ));
     counts.push(count(
         "census_nodes",
-        assembled.nodes.iter().filter(|n| n.presentation.is_some()).count(),
+        assembled
+            .nodes
+            .iter()
+            .filter(|n| n.presentation.is_some())
+            .count(),
         "DAG nodes with a presentation in the census (every node but the trivial one)",
     ));
     counts.push(count(
@@ -424,8 +432,10 @@ fn inventory(assembled: &AssembledLibrary) -> String {
     for c in named_counts(assembled) {
         writeln!(out, "count {} {}  # {}", c.name, c.value, c.definition).unwrap();
     }
-    let owners_tsv = std::fs::read(Path::new(CORE_GOLDEN).join("owners_1-4.tsv"))
-        .map_or_else(|_| "absent".to_owned(), |b| blake3::hash(&b).to_hex().to_string());
+    let owners_tsv = std::fs::read(Path::new(CORE_GOLDEN).join("owners_1-4.tsv")).map_or_else(
+        |_| "absent".to_owned(),
+        |b| blake3::hash(&b).to_hex().to_string(),
+    );
     writeln!(out, "owners_1-4.tsv blake3 {owners_tsv}").unwrap();
     for row in custom_rows(assembled) {
         writeln!(out, "{row}").unwrap();
@@ -439,7 +449,10 @@ fn counts_by_name(text: &str) -> BTreeMap<String, String> {
         .filter_map(|line| line.strip_prefix("count "))
         .map(|line| {
             let (name, rest) = line.split_once(' ').unwrap();
-            (name.to_owned(), rest.split("  #").next().unwrap().to_owned())
+            (
+                name.to_owned(),
+                rest.split("  #").next().unwrap().to_owned(),
+            )
         })
         .collect()
 }
@@ -466,7 +479,13 @@ fn check_inventory(assembled: &AssembledLibrary) {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .filter(|name| held.get(*name) != found.get(*name))
-        .map(|name| format!("{name}: golden {:?}, now {:?}", held.get(name), found.get(name)))
+        .map(|name| {
+            format!(
+                "{name}: golden {:?}, now {:?}",
+                held.get(name),
+                found.get(name)
+            )
+        })
         .collect();
     assert!(
         differing.is_empty(),
@@ -533,13 +552,20 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
     ] {
         assert_eq!(at(name), value, "{name}");
     }
-    let lanes: BTreeMap<&str, usize> = ["SeriesParallel", "Insertion", "Carpet", "Triangle", "Custom", "Zero"]
-        .into_iter()
-        .map(|lane| {
-            let total = (0..=4).map(|l| at(&format!("node_lane_L{l}_{lane}"))).sum();
-            (lane, total)
-        })
-        .collect();
+    let lanes: BTreeMap<&str, usize> = [
+        "SeriesParallel",
+        "Insertion",
+        "Carpet",
+        "Triangle",
+        "Custom",
+        "Zero",
+    ]
+    .into_iter()
+    .map(|lane| {
+        let total = (0..=4).map(|l| at(&format!("node_lane_L{l}_{lane}"))).sum();
+        (lane, total)
+    })
+    .collect();
     assert_eq!(
         lanes,
         BTreeMap::from([
@@ -601,7 +627,10 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
 /// (fixed slots equal, the face met): each free index `n<slot>` is the key's
 /// power minus the target's offset.
 fn instantiated(rule: &CustomRule, powers: &[i64]) -> Option<Vec<Vec<i64>>> {
-    let face = rule.fixed.iter().all(|&(axis, value)| powers[axis] == value);
+    let face = rule
+        .fixed
+        .iter()
+        .all(|&(axis, value)| powers[axis] == value);
     let mut free = vec![None; powers.len()];
     for (slot, power) in rule.target.iter().enumerate() {
         match *power {
@@ -661,7 +690,11 @@ fn firing(library: &PLibrary, owner: &POwner, support: u64) -> Firing {
         rules: rules.len(),
         ..Firing::default()
     };
-    for powers in custom_witness_keys(presentation.slots.len(), support, presentation.forced_axes()) {
+    for powers in custom_witness_keys(
+        presentation.slots.len(),
+        support,
+        presentation.forced_axes(),
+    ) {
         out.keys += 1;
         let view = PKeyView {
             presentation: spec.presentation,
@@ -759,7 +792,8 @@ fn rss_kib() -> u64 {
 }
 
 fn temporary(name: &str) -> PathBuf {
-    let directory = std::env::temp_dir().join(format!("rr-assemble4-{name}-{}", std::process::id()));
+    let directory =
+        std::env::temp_dir().join(format!("rr-assemble4-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     directory
 }
@@ -769,7 +803,11 @@ fn first_result(library: &PLibrary) -> PReduction {
     let one = library.coefficient_context().one();
     library
         .reduce(PReductionRequest {
-            inputs: vec![(PresentationId(0), IntegralKey::try_new([1, 1]).unwrap(), one)],
+            inputs: vec![(
+                PresentationId(0),
+                IntegralKey::try_new([1, 1]).unwrap(),
+                one,
+            )],
             arithmetic: OrderedWeightArithmetic::Exact,
             scheduler: OrderedSchedulerOptions::default(),
             step_cache: None,
@@ -812,7 +850,10 @@ fn recount_lp(library: &PLibrary) -> (usize, usize) {
             name_of(presentation),
             start.elapsed().as_secs_f64()
         );
-        assert_eq!(lp, stored, "{label}: RustRed's count differs from the stored LP");
+        assert_eq!(
+            lp, stored,
+            "{label}: RustRed's count differs from the stored LP"
+        );
         recounted += 1;
     }
     (recounted, skipped)
@@ -832,7 +873,9 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     let assembled = scope_four();
     let library = &assembled.library;
     let (recounted, skipped) = recount_lp(library);
-    println!("LP recounted for {recounted} owners, {skipped} owners of more than {RECOUNT_MAX_LINES} lines skipped");
+    println!(
+        "LP recounted for {recounted} owners, {skipped} owners of more than {RECOUNT_MAX_LINES} lines skipped"
+    );
 
     // The package: written, then loaded once with the certificate.
     let files = p_library_files(assembled).unwrap();
@@ -844,14 +887,23 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
         entry.1 += bytes.len();
     }
     let total: usize = files.iter().map(|(_, b)| b.len()).sum();
-    println!("package parts (files, bytes): {parts:?}, total {total} bytes in {} files", files.len());
+    println!(
+        "package parts (files, bytes): {parts:?}, total {total} bytes in {} files",
+        files.len()
+    );
     let directory = temporary("package");
     write_p_library_files(&files, &directory).unwrap();
     let (unverified, without) = load(&directory, false);
     let (verified, with) = load(&directory, true);
     println!("load release: without the certificate {without:.2} s, with {with:.2} s");
-    assert_eq!(p_library_differences(library, &verified).unwrap(), Vec::<String>::new());
-    assert_eq!(p_library_differences(library, &unverified).unwrap(), Vec::<String>::new());
+    assert_eq!(
+        p_library_differences(library, &verified).unwrap(),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        p_library_differences(library, &unverified).unwrap(),
+        Vec::<String>::new()
+    );
     drop(verified);
 
     // The first result of one 1L input: the 1-4 package against a 1-3 package.
@@ -878,7 +930,10 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
         );
         results.push(reduction.terms);
     }
-    assert_eq!(results[0], results[1], "the 1L bubble differs between the programs");
+    assert_eq!(
+        results[0], results[1],
+        "the 1L bubble differs between the programs"
+    );
 
     // CustomStep resident size per owner: lazy, then every chart prepared.
     let mut steps: Vec<Arc<dyn PLaneStep>> = Vec::new();
@@ -917,25 +972,27 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
         if presentation.loops != 4 {
             continue;
         }
-        let (step, counters): (Arc<dyn PLaneStep>, Box<dyn Fn() -> (MemoCounters, MemoCounters)>) =
-            match spec.lane {
-                OwnerLane::SeriesParallel => {
-                    let step = Arc::new(SeriesParallelStep::from_owner(&unverified, spec).unwrap());
-                    let held = Arc::clone(&step);
-                    (step, Box::new(move || held.memo_counters()))
-                }
-                OwnerLane::Insertion => {
-                    let step = Arc::new(InsertionStep::from_owner(&unverified, spec).unwrap());
-                    let held = Arc::clone(&step);
-                    (step, Box::new(move || held.memo_counters()))
-                }
-                OwnerLane::Carpet => {
-                    let step = Arc::new(CarpetStep::from_owner(&unverified, spec).unwrap());
-                    let held = Arc::clone(&step);
-                    (step, Box::new(move || held.memo_counters()))
-                }
-                _ => continue,
-            };
+        let (step, counters): (
+            Arc<dyn PLaneStep>,
+            Box<dyn Fn() -> (MemoCounters, MemoCounters)>,
+        ) = match spec.lane {
+            OwnerLane::SeriesParallel => {
+                let step = Arc::new(SeriesParallelStep::from_owner(&unverified, spec).unwrap());
+                let held = Arc::clone(&step);
+                (step, Box::new(move || held.memo_counters()))
+            }
+            OwnerLane::Insertion => {
+                let step = Arc::new(InsertionStep::from_owner(&unverified, spec).unwrap());
+                let held = Arc::clone(&step);
+                (step, Box::new(move || held.memo_counters()))
+            }
+            OwnerLane::Carpet => {
+                let step = Arc::new(CarpetStep::from_owner(&unverified, spec).unwrap());
+                let held = Arc::clone(&step);
+                (step, Box::new(move || held.memo_counters()))
+            }
+            _ => continue,
+        };
         let support = unverified.census().classes[&spec.class].owner.1;
         let cx = PStepContext {
             library: &unverified,
@@ -1164,7 +1221,10 @@ fn owner_records_of_p_generate_are_provided_payloads() {
     };
     for (record, needle) in [
         (edited("/schema", "other".into()), "schema"),
-        (edited("/versions/P_CUSTOM_OWNER_VERSION", 99.into()), "P_CUSTOM_OWNER_VERSION"),
+        (
+            edited("/versions/P_CUSTOM_OWNER_VERSION", 99.into()),
+            "P_CUSTOM_OWNER_VERSION",
+        ),
         (edited("/label", "L2T05-0".into()), "another label"),
         (edited("/residuals", 1.into()), "records"),
         (edited("/support", "00000".into()), "records"),

@@ -337,7 +337,8 @@ fn read_owner_record(
 ) -> Result<CustomOwnerPayload, PError> {
     let read = |name: String| {
         let path = directory.join(&name);
-        std::fs::read(&path).map_err(|error| malformed(format!("reading {}: {error}", path.display())))
+        std::fs::read(&path)
+            .map_err(|error| malformed(format!("reading {}: {error}", path.display())))
     };
     let what = format!("{label}.json");
     let record: serde_json::Value = serde_json::from_slice(&read(what.clone())?)
@@ -355,12 +356,19 @@ fn read_owner_record(
         let value = versions.and_then(|versions| versions.get(name));
         value.map_or_else(
             || ABSENT.to_owned(),
-            |value| value.as_str().map_or_else(|| value.to_string(), str::to_owned),
+            |value| {
+                value
+                    .as_str()
+                    .map_or_else(|| value.to_string(), str::to_owned)
+            },
         )
     };
     for (name, expected) in [
         ("P_CUSTOM_OWNER_VERSION", P_CUSTOM_OWNER_VERSION.to_string()),
-        ("P_OWNER_LIBRARY_SEMANTICS", P_OWNER_LIBRARY_SEMANTICS.to_owned()),
+        (
+            "P_OWNER_LIBRARY_SEMANTICS",
+            P_OWNER_LIBRARY_SEMANTICS.to_owned(),
+        ),
     ] {
         let found = version(name);
         if found != expected {
@@ -394,7 +402,12 @@ fn read_owner_record(
     let mut charts = (field("charts")?.as_array())
         .ok_or_else(|| malformed(format!("{what}: charts is no list")))?
         .iter()
-        .map(|chart| mask("a chart", chart.get("chart").and_then(serde_json::Value::as_str)))
+        .map(|chart| {
+            mask(
+                "a chart",
+                chart.get("chart").and_then(serde_json::Value::as_str),
+            )
+        })
         .collect::<Result<Vec<u64>, PError>>()?;
     charts.sort_unstable();
     let recorded = (
@@ -442,7 +455,8 @@ pub fn read_owner_records(
         .map_err(|error| malformed(format!("reading {}: {error}", directory.display())))?;
     let mut labels = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|error| malformed(format!("{}: {error}", directory.display())))?;
+        let entry =
+            entry.map_err(|error| malformed(format!("{}: {error}", directory.display())))?;
         let name = entry.file_name();
         let Some(label) = name.to_str().and_then(|name| name.strip_suffix(".json")) else {
             continue;
