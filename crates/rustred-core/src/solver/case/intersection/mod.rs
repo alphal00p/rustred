@@ -91,3 +91,6 @@ mod overflow_consistency_tests;
 
 #[cfg(test)]
 mod lift_tests;
+
+#[cfg(test)]
+mod lift_review_tests;
