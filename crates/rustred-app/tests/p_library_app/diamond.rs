@@ -7,17 +7,23 @@
 //! diamond sector (dots and numerators, exact in `Q(d)`, then compared at two
 //! distinct `d`) are the template equal to the SpIRed owner on that node.
 //!
+//! Forcer does not apply its diamond rule to no3: it overrides it with
+//! `SchemeZno3` (forcer-rules.h:7). The no3 battery of M3-V7 checks the lane
+//! against Forcer's values there.
+//!
 //! The payloads come from `RUSTRED_P_REUSE_1_4`: a scope 1-4 package (M3-T8c's
-//! `artefacts/m3/p-library-1-4-s1`) or anything `read_custom_payloads` reads.
-//! Every test here is `#[ignore]` and runs optimised; unset, they panic with
-//! this message, never pass silently.
-use std::collections::BTreeMap;
+//! `artefacts/m3/p-library-1-4-s1`) or anything `read_custom_payloads` reads;
+//! M3-V7's 4L Forcer fixtures from `RUSTRED_P4L_FORCER`. Every test here is
+//! `#[ignore]` and runs optimised; unset, they panic with this message, never
+//! pass silently.
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
 
 use rustred::algebra::Coefficient;
 use rustred::family::IntegralKey;
+use rustred::propagator::basis::anchors::{ForcerCase, PInput, parse_fixture};
 use rustred::propagator::diamond::DiamondError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
 use rustred::propagator::lane::OwnerLane;
@@ -223,9 +229,13 @@ fn sector_key(top: &Presentation, mask: u64, dots: u32, rank: u32, rng: &mut Spl
 fn reduce(library: &PLibrary, top: PresentationId, powers: &[i64]) -> PReduction {
     let context = library.coefficient_context();
     let key = IntegralKey::try_new(powers.iter().copied()).unwrap();
+    reduce_inputs(library, vec![(top, key, context.one())])
+}
+
+fn reduce_inputs(library: &PLibrary, inputs: Vec<PInput>) -> PReduction {
     library
         .reduce(PReductionRequest {
-            inputs: vec![(top, key, context.one())],
+            inputs,
             arithmetic: OrderedWeightArithmetic::Exact,
             scheduler: OrderedSchedulerOptions {
                 threads: threads(),
@@ -241,14 +251,14 @@ fn reduce(library: &PLibrary, top: PresentationId, powers: &[i64]) -> PReduction
         .unwrap()
 }
 
-/// A reduction onto the terminals, each named by value (`Unit`, or a residual by
-/// owner class and key), so that two libraries compare term by term.
-fn named_terms(
-    library: &PLibrary,
-    reduction: &PReduction,
-) -> BTreeMap<(String, GammaTag), Coefficient> {
+/// Terms by terminal name (`Unit`, or a residual by owner class and key) and tag.
+type Terms = BTreeMap<(String, GammaTag), Coefficient>;
+
+/// A reduction onto the terminals, each named by value, so that two libraries
+/// compare term by term.
+fn named_terms(library: &PLibrary, reduction: &PReduction) -> Terms {
     let context = library.coefficient_context();
-    let mut terms: BTreeMap<(String, GammaTag), Coefficient> = BTreeMap::new();
+    let mut terms = Terms::new();
     for term in &reduction.terms {
         let name = match &term.basis {
             PBasis::Unit => "Unit".to_owned(),
@@ -327,7 +337,7 @@ fn template_equals_spired(name: &str, seed: u64) {
             "{name} {key:?}: the Diamond lane against the SpIRed owner"
         );
         for d in &dimensions {
-            let values = |terms: &BTreeMap<(String, GammaTag), Coefficient>| -> Vec<Rational> {
+            let values = |terms: &Terms| -> Vec<Rational> {
                 terms.values().map(|value| at(value, d)).collect()
             };
             assert_eq!(
@@ -366,4 +376,198 @@ fn the_diamond_lane_equals_spired_on_d394() {
 #[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4)"]
 fn the_diamond_lane_equals_spired_on_d399() {
     template_equals_spired("d399", 0x0399);
+}
+
+#[test]
+#[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4)"]
+fn the_diamond_lane_equals_spired_on_no3() {
+    template_equals_spired("no3", 0x0003);
+}
+
+// ---------------------------------------------------------------------------
+// no3 against Forcer (SchemeZno3)
+// ---------------------------------------------------------------------------
+
+/// vakint's 1L-3L Forcer anchors (the masters `no` and `t105`).
+const P_ANCHORS_JSON: &str =
+    include_str!("../../../rustred-core/tests/p_library/basis_anchors/p_anchors.json");
+
+/// The cases of one of M3-V7's frozen 4L Forcer fixtures (`$WS/artefacts/m3/
+/// vk-fixtures4`, gammaloop `crates/vakint/tests/fixtures/forcer/`).
+fn four_loop_forcer_cases(file: &str) -> Vec<ForcerCase> {
+    let directory = std::env::var_os("RUSTRED_P4L_FORCER")
+        .map(PathBuf::from)
+        .expect("RUSTRED_P4L_FORCER must name M3-V7's 4L Forcer fixtures (p4l_anchors.json, p4l_battery.json)");
+    let text = std::fs::read_to_string(directory.join(file)).unwrap();
+    parse_fixture(&text).unwrap().cases
+}
+
+fn case_loops(library: &PLibrary, case: &ForcerCase) -> (PresentationId, u8) {
+    let top = (library.top_presentation(&case.family))
+        .unwrap_or_else(|| panic!("{}: no family {}", case.name, case.family));
+    (top, library.presentation(top).loops)
+}
+
+/// A Forcer case reduced by `library` onto its terminals.
+fn case_terms(library: &PLibrary, case: &ForcerCase) -> Terms {
+    let (top, _) = case_loops(library, case);
+    let context = library.coefficient_context();
+    let inputs = case.inputs(context, library.presentation(top)).unwrap();
+    named_terms(library, &reduce_inputs(library, inputs))
+}
+
+/// A Forcer master in a library's terminals: an anchor whose Forcer value is
+/// `c T Master(name)` alone, with `c`, `T` and the anchor's reduction.
+struct MasterImage {
+    anchor: String,
+    tag: GammaTag,
+    coefficient: Coefficient,
+    terms: Terms,
+}
+
+/// The images of the masters in Forcer's values of `cases`.
+fn master_images(
+    library: &PLibrary,
+    anchors: &[ForcerCase],
+    cases: &[&ForcerCase],
+) -> BTreeMap<String, MasterImage> {
+    let context = library.coefficient_context();
+    let mut needed = BTreeSet::new();
+    for case in cases {
+        let (_, loops) = case_loops(library, case);
+        for term in case.expected(context, loops).unwrap() {
+            if let PBasis::Master(name) = term.basis {
+                needed.insert(name);
+            }
+        }
+    }
+    let mut images = BTreeMap::new();
+    for case in anchors {
+        let (_, loops) = case_loops(library, case);
+        let expected = case.expected(context, loops).unwrap();
+        let [term] = expected.as_slice() else {
+            continue;
+        };
+        let PBasis::Master(name) = &term.basis else {
+            continue;
+        };
+        if needed.contains(name) && !images.contains_key(name) {
+            let terms = case_terms(library, case);
+            assert!(!terms.is_empty(), "the anchor {} vanished", case.name);
+            images.insert(
+                name.clone(),
+                MasterImage {
+                    anchor: case.name.clone(),
+                    tag: term.tag.clone(),
+                    coefficient: term.coefficient.clone(),
+                    terms,
+                },
+            );
+        }
+    }
+    images
+}
+
+/// Forcer's value of `case` with every `Master(name)` replaced by its image:
+/// the terms that `library` gives if it agrees with Forcer.
+fn forcer_terms(
+    library: &PLibrary,
+    case: &ForcerCase,
+    images: &BTreeMap<String, MasterImage>,
+) -> Terms {
+    let context = library.coefficient_context();
+    let (_, loops) = case_loops(library, case);
+    let mut terms = Terms::new();
+    let mut add = |key: (String, GammaTag), value: Coefficient| {
+        let entry = terms.entry(key).or_insert_with(|| context.zero());
+        *entry = context.try_add(entry, &value, Default::default()).unwrap();
+    };
+    for term in case.expected(context, loops).unwrap() {
+        match &term.basis {
+            PBasis::Unit => add(("Unit".to_owned(), term.tag), term.coefficient),
+            PBasis::Master(name) => {
+                let image = (images.get(name))
+                    .unwrap_or_else(|| panic!("{}: no anchor is Master({name}) alone", case.name));
+                let scale = context
+                    .try_div(&term.coefficient, &image.coefficient, Default::default())
+                    .unwrap();
+                let shift = term.tag.add(&image.tag.neg());
+                for ((terminal, tag), value) in &image.terms {
+                    let value = context.try_mul(&scale, value, Default::default()).unwrap();
+                    add((terminal.clone(), tag.add(&shift)), value);
+                }
+            }
+            PBasis::Residual(id) => panic!("{}: a residual {id:?} in Forcer's value", case.name),
+        }
+    }
+    terms.retain(|_, value| !value.is_zero());
+    terms
+}
+
+/// G3's Forcer item. Forcer reduces no3 with `SchemeZno3`, the Diamond lane
+/// with the diamond rule: on M3-V7's no3 battery (the top, an ISP, rank 2, a
+/// dot) the lane's reduction equals Forcer's value exactly in `Q(d)`, and at
+/// two `d`, once each Forcer master is replaced by the reduction of its Forcer
+/// anchor. The bubu top (a Custom owner, masters bebe, cross, t145) checks the
+/// replacement itself.
+#[test]
+#[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4, RUSTRED_P4L_FORCER)"]
+fn the_diamond_lane_agrees_with_forcer_on_no3() {
+    let Pair { diamond, .. } = pair();
+    let library = &diamond.library;
+    let anchors: Vec<ForcerCase> = (four_loop_forcer_cases("p4l_anchors.json").into_iter())
+        .chain(parse_fixture(P_ANCHORS_JSON).unwrap().cases)
+        .collect();
+    let battery = four_loop_forcer_cases("p4l_battery.json");
+    let mut cases: Vec<&ForcerCase> = battery.iter().filter(|c| c.family == "P4L_NO3").collect();
+    let names: Vec<&str> = cases.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["no3_top", "no3_isp", "no3_rank3", "no3_dot"]);
+    cases.push(anchors.iter().find(|c| c.name == "bubu_top").unwrap());
+    let start = Instant::now();
+    let images = master_images(library, &anchors, &cases);
+    println!(
+        "master images ({:.1} s): {:?}",
+        start.elapsed().as_secs_f64(),
+        (images.iter())
+            .map(|(name, image)| (name, &image.anchor, image.terms.len()))
+            .collect::<Vec<_>>()
+    );
+    let rational = |n: i64, d: i64| Rational::from((Integer::from(n), Integer::from(d)));
+    let dimensions = [rational(1213, 101), rational(-307, 101)];
+    for case in cases {
+        let start = Instant::now();
+        let found = case_terms(library, case);
+        let expected = forcer_terms(library, case, &images);
+        assert!(!expected.is_empty(), "{}", case.name);
+        assert_eq!(
+            found, expected,
+            "{}: the Diamond-lane library against Forcer",
+            case.name
+        );
+        for d in &dimensions {
+            let values = |terms: &Terms| -> Vec<Rational> {
+                terms.values().map(|value| at(value, d)).collect()
+            };
+            assert_eq!(
+                values(&found),
+                values(&expected),
+                "{} at d = {d}",
+                case.name
+            );
+            assert!(
+                values(&found).iter().any(|v| !v.is_zero()),
+                "{} at d = {d}",
+                case.name
+            );
+        }
+        println!(
+            "Forcer {} ({}, {} {:?}): {} terms, equal exactly and at both d ({:.1} s)",
+            case.name,
+            case.family,
+            case.numerator,
+            case.powers,
+            found.len(),
+            start.elapsed().as_secs_f64()
+        );
+    }
 }

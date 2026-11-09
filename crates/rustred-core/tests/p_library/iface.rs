@@ -477,6 +477,7 @@ fn the_library_exposes_what_it_was_built_from() {
             "P_INSERTION_KERNEL_VERSION",
             "P_CARPET_KERNEL_VERSION",
             "P_TRIANGLE_TEMPLATE_VERSION",
+            "P_DIAMOND_TEMPLATE_VERSION",
             "P_CUSTOM_OWNER_VERSION",
             "P_LIBRARY_SCHEMA",
             "P_FAMILIES_SCHEMA",
