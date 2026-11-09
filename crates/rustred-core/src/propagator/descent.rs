@@ -652,7 +652,9 @@ fn check_diamond_owner(
     }
     let lowered: Vec<u16> = roles.b().iter().chain(roles.c()).copied().collect();
     let integer = support & line_mask(parent) & !parent.forced_axes();
-    let mask = (lowered.iter()).fold(0_u64, |mask, &slot| mask | 1_u64.checked_shl(u32::from(slot)).unwrap_or(0));
+    let mask = (lowered.iter()).fold(0_u64, |mask, &slot| {
+        mask | 1_u64.checked_shl(u32::from(slot)).unwrap_or(0)
+    });
     if mask.count_ones() as usize != lowered.len() || mask & integer != mask {
         return Err(malformed(format!(
             "Diamond owner {:016x}: b, c = {lowered:?} are not distinct integer lines of {support:#x}",

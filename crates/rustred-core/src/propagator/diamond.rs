@@ -137,14 +137,18 @@ fn role_slots(r: &DiamondRoles) -> Vec<u16> {
 }
 
 /// The diamond's lines and loops on `p`, see the module docs: the loops
-/// `0..L + S` run through `b_i` (`i < L`) and the spectator, the last `b` is
-/// `-Sum` of them, `a_i = +-(b_i +- c_i)`, `b` and `c` are integer lines, no
+/// `0..L + S` run through `b_i` (`i < L`) and the spectator, the last `b`
+/// carries each of them with a unit coefficient and nothing else,
+/// `a_i = +-(b_i +- c_i)`, `b` and `c` are integer lines, no
 /// other line carries a diamond loop, and every factor of an ISP is free of the
 /// diamond loops or free of everything else.
 pub fn check_diamond_contract(p: &Presentation, r: &DiamondRoles) -> Result<(), PError> {
     p.validate()?;
     let fail = |detail: String| {
-        PError::Contract(format!("diamond contract, presentation {}: {detail}", p.id.0))
+        PError::Contract(format!(
+            "diamond contract, presentation {}: {detail}",
+            p.id.0
+        ))
     };
     let loops = r.loops();
     let width = usize::from(p.loops) + 1;
@@ -167,13 +171,16 @@ pub fn check_diamond_contract(p: &Presentation, r: &DiamondRoles) -> Result<(), 
     };
     let last = r.paths() - 1;
     for (path, &b) in r.b().iter().enumerate() {
-        let expected = if path < last {
-            unit(width, path)
-        } else {
-            (0..width).map(|column| i64::from(column < loops)).collect()
-        };
         let line_b = line(b)?;
-        if !up_to_sign(&line_b.momentum, &expected) {
+        // `b_i = +-k_i`; every diamond loop runs through the last `b`, each in
+        // the direction of its own lower line.
+        let holds = if path < last {
+            up_to_sign(&line_b.momentum, &unit(width, path))
+        } else {
+            let (inner, outer) = line_b.momentum.split_at(loops);
+            inner.iter().all(|entry| entry.abs() == 1) && outer.iter().all(|&entry| entry == 0)
+        };
+        if !holds {
             return Err(fail(format!("b[{path}] is {:?}", line_b.momentum)));
         }
         if line_b.eps_units != 0 {
@@ -354,7 +361,9 @@ impl<'a> Extraction<'a> {
             let wanted = shift(raised, lowered);
             match row.get(&wanted) {
                 Some(value) => self.lift(context, value),
-                None => Err(self.mismatch(format!("the summed row has no term at shift {wanted:?}"))),
+                None => {
+                    Err(self.mismatch(format!("the summed row has no term at shift {wanted:?}")))
+                }
             }
         };
         let mut forms = DiamondRowForms {
@@ -436,7 +445,9 @@ impl<'a> Extraction<'a> {
         let roles = self.roles;
         let mut units = 0_u8;
         for &a in roles.a() {
-            units = units.checked_add(self.eps_units(a)?).ok_or_else(|| self.mismatch("too many eps units"))?;
+            units = units
+                .checked_add(self.eps_units(a)?)
+                .ok_or_else(|| self.mismatch("too many eps units"))?;
         }
         if let Some(spectator) = roles.spectator {
             let twice = self.eps_units(spectator)?.checked_mul(2);
@@ -453,7 +464,8 @@ impl<'a> Extraction<'a> {
         let constant = context
             .try_sub(&scaled, &eps_power_shift(context, units)?, limits)
             .map_err(exact)?;
-        let degree = |side: &[i64]| i64::from(side[..roles.loops()].iter().any(|&entry| entry != 0));
+        let degree =
+            |side: &[i64]| i64::from(side[..roles.loops()].iter().any(|&entry| entry != 0));
         let mut slopes: Vec<(u16, i64)> = Vec::with_capacity(self.presentation.slots.len());
         for (slot, entry) in self.presentation.slots.iter().enumerate() {
             let slot = u16::try_from(slot).expect("at most 64 slots");
@@ -505,7 +517,11 @@ impl<'a> Extraction<'a> {
                 lower_b,
                 &negated(context, &expected)?,
             )?;
-            compare(format!("A{path}+ C{path}-"), &forms.lower_c[path], &expected)?;
+            compare(
+                format!("A{path}+ C{path}-"),
+                &forms.lower_c[path],
+                &expected,
+            )?;
             // `X_i` as the row has it: minus the entry of `A_i+ B_i-`.
             apex.push(negated(context, lower_b)?);
         }
@@ -562,7 +578,9 @@ impl DiamondTemplate {
                 .iter()
                 .find(|relation| *relation.row_id() == wanted)
                 .ok_or_else(|| {
-                    extraction.mismatch(format!("the generator has no row (d/dk{loop_index}).k{loop_index}"))
+                    extraction.mismatch(format!(
+                        "the generator has no row (d/dk{loop_index}).k{loop_index}"
+                    ))
                 })?;
             chosen.push(relation);
         }
@@ -618,7 +636,11 @@ impl DiamondTemplate {
 
     /// The solved row at `powers`, for any integer powers: per path `i` the term
     /// lowering `b_i`, then the one lowering `c_i`.
-    pub fn solve(&self, powers: &[i64], limits: ExactAlgebraLimits) -> Result<Vec<RowTerm>, PError> {
+    pub fn solve(
+        &self,
+        powers: &[i64],
+        limits: ExactAlgebraLimits,
+    ) -> Result<Vec<RowTerm>, PError> {
         if powers.len() != self.arity {
             return Err(PError::Contract(format!(
                 "a key of {} powers on the diamond template of {}, arity {}",
@@ -800,6 +822,9 @@ impl PLaneStep for DiamondStep {
                 power.saturating_neg()
             })
         });
-        Ok(POrderKey::Lexicographic(vec![self.measure(powers)?, distance]))
+        Ok(POrderKey::Lexicographic(vec![
+            self.measure(powers)?,
+            distance,
+        ]))
     }
 }

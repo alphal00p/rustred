@@ -20,7 +20,7 @@ use rustred::propagator::step::{PKeyView, PStage};
 use rustred::propagator::tag::GammaTag;
 use rustred::propagator::topology::{ChildMode, GraphKey, NodeInfo, PTopo, reduction_graph};
 use rustred::propagator::triangle::RowForm;
-use rustred::propagator::{PresentationId, P_DIAMOND_TEMPLATE_VERSION};
+use rustred::propagator::{P_DIAMOND_TEMPLATE_VERSION, PresentationId};
 use rustred::reduction::ReductionLimits;
 use symbolica::domains::rational::{Q, Rational};
 
@@ -60,7 +60,8 @@ fn diamond_nodes(loops: u8) -> Vec<DiamondNode> {
         .collect();
     let dag = reduction_graph(&roots, ChildMode::ForcerTree);
     let first_id = u32::try_from(top_presentations.len()).unwrap();
-    let diamonds = (dag.nodes.iter()).filter(|node| decide(node).unwrap().lane == OwnerLane::Diamond);
+    let diamonds =
+        (dag.nodes.iter()).filter(|node| decide(node).unwrap().lane == OwnerLane::Diamond);
     diamonds
         .map(|node| {
             let name = forcer_names()[&node.key].clone();
@@ -113,7 +114,10 @@ fn eps_units(p: &Presentation, slot: u16) -> u8 {
 #[test]
 fn every_diamond_node_of_the_4l_dag_has_the_shape() {
     for loops in 1..=3 {
-        assert!(diamond_nodes(loops).is_empty(), "a diamond at {loops} loops");
+        assert!(
+            diamond_nodes(loops).is_empty(),
+            "a diamond at {loops} loops"
+        );
     }
     let mut names: Vec<&str> = (four_loop_diamonds().iter())
         .map(|node| node.name.as_str())
@@ -129,7 +133,9 @@ fn every_diamond_node_of_the_4l_dag_has_the_shape() {
         let apex_units: i64 = (roles.a().iter())
             .map(|&slot| i64::from(eps_units(p, slot)))
             .sum();
-        let spectator_units = roles.spectator.map_or(0, |slot| i64::from(eps_units(p, slot)));
+        let spectator_units = roles
+            .spectator
+            .map_or(0, |slot| i64::from(eps_units(p, slot)));
         let loops = i64::try_from(roles.loops()).unwrap();
         let slope = d_slope(&template.pivot().constant);
         assert_eq!(
@@ -155,8 +161,14 @@ fn every_diamond_node_of_the_4l_dag_has_the_shape() {
 
 /// A random Apply key: integer lines at `1 + dots`, `rank` over the ISPs.
 fn random_key(p: &Presentation, rng: &mut StdRng, dots: i64, rank: i64) -> Vec<i64> {
-    let lines = p.slots.iter().filter(|s| matches!(s, Slot::Line(_))).count();
-    let mut powers: Vec<i64> = (0..p.slots.len()).map(|slot| i64::from(slot < lines)).collect();
+    let lines = p
+        .slots
+        .iter()
+        .filter(|s| matches!(s, Slot::Line(_)))
+        .count();
+    let mut powers: Vec<i64> = (0..p.slots.len())
+        .map(|slot| i64::from(slot < lines))
+        .collect();
     for _ in 0..dots {
         powers[rng.random_range(0..lines)] += 1;
     }
@@ -192,7 +204,12 @@ fn a_diamond_step_lowers_one_lower_or_outer_line() {
             };
             let output = step.apply(&key, &limits).unwrap();
             assert!(output.terminals.is_empty() && output.conditions.is_empty());
-            assert_eq!(output.children.len(), 2 * node.roles.paths(), "{}", node.name);
+            assert_eq!(
+                output.children.len(),
+                2 * node.roles.paths(),
+                "{}",
+                node.name
+            );
             let measure = step.measure(&powers).unwrap();
             for child in &output.children {
                 assert_eq!((child.presentation, &child.tag), (p.id, &tag));
@@ -200,13 +217,21 @@ fn a_diamond_step_lowers_one_lower_or_outer_line() {
                 assert_eq!(step.measure(&child.powers).unwrap(), measure - 1);
                 let pinched = (node.roles.b().iter().chain(node.roles.c()))
                     .any(|&slot| child.powers[usize::from(slot)] == 0);
-                let expected = if pinched { PStage::Route } else { PStage::Apply };
+                let expected = if pinched {
+                    PStage::Route
+                } else {
+                    PStage::Apply
+                };
                 assert_eq!(child.stage, expected, "{} {:?}", node.name, child.powers);
                 routes += usize::from(pinched);
                 applies += usize::from(!pinched);
             }
         }
-        assert!(routes > 0 && applies > 0, "{}: {routes} Route, {applies} Apply", node.name);
+        assert!(
+            routes > 0 && applies > 0,
+            "{}: {routes} Route, {applies} Apply",
+            node.name
+        );
     }
 }
 
@@ -259,7 +284,11 @@ fn the_template_refuses_what_is_not_a_diamond() {
         .unwrap();
     let negate = |form: &RowForm| RowForm {
         constant: context.try_neg(&form.constant, Default::default()).unwrap(),
-        slopes: form.slopes.iter().map(|&(slot, slope)| (slot, -slope)).collect(),
+        slopes: form
+            .slopes
+            .iter()
+            .map(|&(slot, slope)| (slot, -slope))
+            .collect(),
     };
     let forms = DiamondRowForms {
         pivot: RowForm {

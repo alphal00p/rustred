@@ -40,15 +40,22 @@ pub fn decide(node: &NodeInfo) -> Result<LaneDecision, PError> {
         Action::Trivial => return Ok(terminal(true)),
         Action::Custom => return Ok(CUSTOM),
         Action::Diamond(diamond) => {
-            let lines = |lines: &[u8]| lines.iter().map(|&line| u16::from(line)).collect::<Vec<_>>();
+            let lines = |lines: &[u8]| {
+                lines
+                    .iter()
+                    .map(|&line| u16::from(line))
+                    .collect::<Vec<_>>()
+            };
             let spectator = match diamond.spect.as_slice() {
                 [] => None,
                 &[line] => Some(u16::from(line)),
-                _ => return Err(PError::Unsupported(format!(
-                    "node {}: a diamond with {} spectator lines",
-                    node.index,
-                    diamond.spect.len()
-                ))),
+                _ => {
+                    return Err(PError::Unsupported(format!(
+                        "node {}: a diamond with {} spectator lines",
+                        node.index,
+                        diamond.spect.len()
+                    )));
+                }
             };
             let roles = DiamondRoles::new(
                 &lines(&diamond.a),
