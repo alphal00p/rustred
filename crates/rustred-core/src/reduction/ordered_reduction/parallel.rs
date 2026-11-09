@@ -245,6 +245,8 @@ pub(crate) trait ConcurrentWeights:
 
     /// Check one step coefficient (the check of [`OrderedWeights::scale`]).
     fn prepare(&self, coefficient: Coefficient) -> Result<Self::Prepared, ReductionError>;
+    /// The step coefficient a prepared one was checked from (for the tail log).
+    fn prepared_coefficient(prepared: &Self::Prepared) -> &Coefficient;
     fn scale_prepared(
         &self,
         weight: &Self::Weight,
@@ -1371,9 +1373,12 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
     // Value weights rewrite nothing; a persistent tail table can still
-    // close the tail (see `tail`).
+    // close the tail (see `tail`). Kernels that ask for it log the tail as
+    // the sequential journal does, so that a populating table completes and
+    // tabulates it (`OrderedKernel::concurrent_logs_tail`).
+    let logging = kernel.concurrent_logs_tail();
     let mut tail = if adjoint_tail {
-        TailRun::new(kernel, weights, 1, false)?
+        TailRun::new(kernel, weights, 1, logging)?
     } else {
         None
     };
@@ -1391,7 +1396,11 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
             window_keys,
             &mut state,
             phase,
+            tail.as_mut().filter(|_| logging),
         )? {}
+        if logging && let Some(tail) = &mut tail {
+            tail.phase_finished(phase);
+        }
         state.finish_phase(kernel, phase)?;
     }
     if let Some(tail) = tail {
@@ -1411,8 +1420,12 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     window_keys: usize,
     state: &mut Admitted<K, A>,
     phase: usize,
+    mut tail: Option<&mut TailRun<K>>,
 ) -> Result<bool, K::Error> {
     let total_phases = state.progress.total_phases;
+    let log_context = tail
+        .as_ref()
+        .map(|_| (kernel.context().clone(), kernel.limits().exact_algebra));
     let mut clock = WindowClock::start();
     let frontier_keys_before = state.frontier.len();
     let mut taken = Vec::new();
@@ -1648,6 +1661,41 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
             };
             if !expands {
                 continue;
+            }
+            // The step of an expanded key, in pop order, as the sequential
+            // journal observes it (only when the tail is logged).
+            if let Some(tail) = tail.as_deref_mut().filter(|tail| tail.logging()) {
+                let step = OrderedStep {
+                    terms: (expansion.children.iter())
+                        .filter_map(|edge| match edge {
+                            Edge::Live {
+                                key,
+                                coefficient: Ok(coefficient),
+                                ..
+                            } => Some((key.clone(), A::prepared_coefficient(coefficient).clone())),
+                            _ => None,
+                        })
+                        .collect(),
+                    terminals: (expansion.terminals.iter())
+                        .filter_map(|terminal| {
+                            let coefficient = terminal.coefficient.as_ref().ok()?;
+                            Some((
+                                terminal.key.clone(),
+                                A::prepared_coefficient(coefficient).clone(),
+                            ))
+                        })
+                        .collect(),
+                    nonzero_conditions: expansion.conditions.clone(),
+                };
+                let scheduled = Scheduled {
+                    phase: std::cmp::Reverse(node.position.phase),
+                    priority: node.position.priority.clone(),
+                    key: node.key.clone(),
+                };
+                let (context, limits) = log_context
+                    .as_ref()
+                    .ok_or_else(|| invariant("ordered tail log without its context"))?;
+                tail.observe_step(&scheduled, &step, context, *limits)?;
             }
             for (edge, child) in expansion.children.iter_mut().enumerate() {
                 let Edge::Live {

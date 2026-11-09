@@ -990,6 +990,11 @@ impl<K: OrderedKernel> TailRun<K> {
     }
 
     /// Log one expanded step of the candidate tail.
+    /// Whether [`Self::observe_step`] records anything now.
+    pub(super) fn logging(&self) -> bool {
+        !self.closed && self.log_enabled && !self.conflict
+    }
+
     pub(super) fn observe_step(
         &mut self,
         node: &Scheduled<K::Key, K::Priority>,
