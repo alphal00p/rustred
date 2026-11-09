@@ -781,6 +781,9 @@ fn the_four_loop_witness_boxes_fire_the_custom_rules() {
 // Regeneration from the staged payloads (I-8, I-2) and the D-SIZE numbers
 // ---------------------------------------------------------------------------
 
+/// The memo counters of a kernel step: weights, then numerator tables.
+type MemoReader = Box<dyn Fn() -> (MemoCounters, MemoCounters)>;
+
 /// Resident set size of this process, KiB (`/proc/self/status`).
 fn rss_kib() -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
@@ -972,10 +975,7 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
         if presentation.loops != 4 {
             continue;
         }
-        let (step, counters): (
-            Arc<dyn PLaneStep>,
-            Box<dyn Fn() -> (MemoCounters, MemoCounters)>,
-        ) = match spec.lane {
+        let (step, counters): (Arc<dyn PLaneStep>, MemoReader) = match spec.lane {
             OwnerLane::SeriesParallel => {
                 let step = Arc::new(SeriesParallelStep::from_owner(&unverified, spec).unwrap());
                 let held = Arc::clone(&step);
