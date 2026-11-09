@@ -1,8 +1,13 @@
 //! Ordered exceptional-case traversal for the executable SpIRed source port.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::time::{Duration, Instant};
+
+use symbolica::prelude::Integer;
+
+use crate::algebra::CoefficientPolynomial;
 
 use super::geometry::{GeometryError, compare_cases};
 use super::{
@@ -109,6 +114,7 @@ impl<const N: usize> SectorRule<N> {
             limits,
             UnsupportedBranchPolicy::Refuse,
             &mut deferred,
+            &mut Vec::new(),
             before_branch,
         );
         debug_assert!(deferred.is_empty(), "Refuse never defers");
@@ -119,6 +125,7 @@ impl<const N: usize> SectorRule<N> {
     /// unresolved branch is appended to `deferred` with the index of its
     /// exception branch instead of failing; such a branch is NOT among the
     /// returned cases and is never counted as discarded (proved empty).
+    /// `case_branches` receives the exception branch of every returned case.
     #[allow(clippy::too_many_arguments)]
     fn admit_exceptional_cases_with_policy(
         &self,
@@ -128,6 +135,7 @@ impl<const N: usize> SectorRule<N> {
         limits: CaseIntersectionLimits,
         unsupported: UnsupportedBranchPolicy,
         deferred: &mut Vec<(usize, DeferredRegion<N>)>,
+        case_branches: &mut Vec<usize>,
         mut before_branch: impl FnMut(),
     ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
         let mut cases = Vec::new();
@@ -152,6 +160,7 @@ impl<const N: usize> SectorRule<N> {
             }
             resolutions.lifted += intersection.stats.lifted_branches;
             resolutions.modular_empty += intersection.stats.modular_empty_branches;
+            case_branches.extend(std::iter::repeat_n(position, intersection.cases.len()));
             cases.extend(intersection.cases);
             deferred.extend(
                 intersection
@@ -177,6 +186,15 @@ pub struct SectorDeferredRegion<const N: usize> {
     pub region: DeferredRegion<N>,
 }
 
+/// The rule and exception branch whose exceptional cases first enqueued a
+/// case (S4 provenance): the case lies in that branch's locus on that rule's
+/// case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SectorRuleParent {
+    pub rule: usize,
+    pub branch: usize,
+}
+
 /// Output of the opt-in S4 solve: a sector solution that is complete except
 /// for `deferred`.
 ///
@@ -192,6 +210,123 @@ pub struct SectorDeferredRegion<const N: usize> {
 pub struct DeferredSectorSolution<const N: usize> {
     pub solution: SectorSolution<N>,
     pub deferred: Vec<SectorDeferredRegion<N>>,
+    /// Per rule of `solution.rules` (same index): the rule and exception
+    /// branch whose exceptional cases first enqueued this rule's case; `None`
+    /// for an initial case. Following it from a region's rule up to `None`
+    /// gives the region's complete parent chain from the chart root.
+    pub rule_parents: Vec<Option<SectorRuleParent>>,
+}
+
+impl<const N: usize> DeferredSectorSolution<N> {
+    /// The parent chain of `self.deferred[region]`, chart root first; the last
+    /// link is the region's own rule and branch. Every link's rule case lies in
+    /// the previous link's branch locus on the previous rule's case, and the
+    /// region lies in all of them. The flag is false if the provenance is
+    /// missing or inconsistent (then the chain stops early).
+    pub fn parent_chain(&self, region: usize) -> (Vec<SectorRuleParent>, bool) {
+        let Some(deferred) = self.deferred.get(region) else {
+            return (Vec::new(), false);
+        };
+        let mut chain = vec![SectorRuleParent {
+            rule: deferred.rule,
+            branch: deferred.branch,
+        }];
+        let mut complete = self.rule_parents.len() == self.solution.rules.len();
+        while let Some(parent) = self
+            .rule_parents
+            .get(chain[chain.len() - 1].rule)
+            .copied()
+            .flatten()
+        {
+            if parent.rule >= chain[chain.len() - 1].rule {
+                complete = false;
+                break;
+            }
+            chain.push(parent);
+        }
+        chain.reverse();
+        (chain, complete)
+    }
+}
+
+/// Which (rule, RHS term) pairs of `rules` may send a point of a deferred
+/// region (`predicates`, see [`DeferredRegion::predicates`]) into the region:
+/// the term's key at a point n of the rule's case satisfies every predicate.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeferredExitScan {
+    /// Rule-term pairs examined.
+    pub pairs: usize,
+    /// Pairs proved never to land in the region.
+    pub excluded: usize,
+    /// The other pairs, `(rule, term)`: possible exits into the region.
+    pub candidates: Vec<(usize, usize)>,
+}
+
+/// Conservative exit scan for the S4 hybrid table: a pair is excluded only by
+/// proof, either a numeric key coordinate of the other sign than `sector`, or
+/// a predicate pulled back by the key (`n_i -> n_i + offset` on symbolic axes,
+/// `n_i -> value` on numeric ones) that is a nonzero constant on the rule's
+/// case. A listed pair's landing set is {n in the rule's domain : every
+/// predicate vanishes at key(n)}.
+pub fn deferred_exit_scan<const N: usize>(
+    predicates: &[CoefficientPolynomial],
+    rules: &[SectorRule<N>],
+    indices: &[usize; N],
+    sector: &[bool; N],
+) -> DeferredExitScan {
+    let mut scan = DeferredExitScan::default();
+    for (r, rule) in rules.iter().enumerate() {
+        for (t, term) in rule.candidate.rhs.iter().enumerate() {
+            scan.pairs += 1;
+            let key = &term.integral;
+            let other_sign = key
+                .powers()
+                .iter()
+                .zip(sector)
+                .any(|(power, &active)| !power.is_symbolic() && (power.value() >= 1) != active);
+            let misses = other_sign
+                || predicates.iter().any(|predicate| {
+                    let pulled = pull_back(predicate, key, indices);
+                    let restricted = match rule.candidate.case.affine() {
+                        Some(affine) => affine.restrict_equation(&pulled).unwrap_or(pulled),
+                        None => pulled,
+                    };
+                    restricted.is_constant() && !restricted.is_zero()
+                });
+            if misses {
+                scan.excluded += 1;
+            } else {
+                scan.candidates.push((r, t));
+            }
+        }
+    }
+    scan
+}
+
+/// `polynomial(key(n))`: symbolic axes shifted by their offset, numeric set.
+fn pull_back<const N: usize>(
+    polynomial: &CoefficientPolynomial,
+    key: &Integral<N>,
+    indices: &[usize; N],
+) -> CoefficientPolynomial {
+    let mut pulled = polynomial.clone();
+    for (axis, power) in key.powers().iter().enumerate() {
+        let value = Integer::from(i64::from(power.value()));
+        if !power.is_symbolic() {
+            pulled = pulled.replace(indices[axis], &value);
+        } else if power.value() != 0 {
+            pulled = pulled.shift_var(indices[axis], &value);
+        }
+    }
+    pulled
+}
+
+/// S4 bookkeeping of one deferring solve.
+#[derive(Default)]
+struct DeferralLog<const N: usize> {
+    regions: Vec<SectorDeferredRegion<N>>,
+    producers: HashMap<Case<N>, SectorRuleParent>,
+    rule_parents: Vec<Option<SectorRuleParent>>,
 }
 
 /// Stuck exceptional branches resolved exactly while admitting one rule's
@@ -446,14 +581,19 @@ impl<const N: usize> SectorSolver<'_, N> {
                 ),
             });
         }
-        let mut deferred = Vec::new();
+        let mut log = DeferralLog::default();
         let solution = self.solve_case_queue_with_deferral(
             vec![initial],
             options,
             &mut observe,
-            Some(&mut deferred),
+            Some(&mut log),
         )?;
-        Ok(DeferredSectorSolution { solution, deferred })
+        debug_assert_eq!(log.rule_parents.len(), solution.rules.len());
+        Ok(DeferredSectorSolution {
+            solution,
+            deferred: log.regions,
+            rule_parents: log.rule_parents,
+        })
     }
 
     /// Common queue machinery; callers own the distinction between a full
@@ -494,7 +634,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         initial: Vec<Case<N>>,
         options: SectorSolveOptions,
         mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
-        mut deferral: Option<&mut Vec<SectorDeferredRegion<N>>>,
+        mut deferral: Option<&mut DeferralLog<N>>,
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         // Two-sided eps axes are an opt-in of the sources and must be carried
         // by the order program exactly (plan M2 sec.3.4): generation order and
@@ -647,38 +787,51 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered
             // by this rule itself, so only earlier rules may suppress it.
-            let (children, discarded, resolutions) = match deferral.as_deref_mut() {
-                None => rule.admit_exceptional_cases_in_scope(
-                    &self.system.indices,
-                    self.order.sector(),
-                    options.max_numerator_rank,
-                    options.case_intersection_limits,
-                )?,
-                Some(deferred) => {
-                    // S4: the rule is published at index `rules.len()` below
-                    // (nothing else is pushed before it); its deferred
-                    // regions stay out of `children`.
-                    let mut regions = Vec::new();
-                    let admitted = rule.admit_exceptional_cases_with_policy(
+            let (children, discarded, resolutions) =
+                match deferral.as_deref_mut() {
+                    None => rule.admit_exceptional_cases_in_scope(
                         &self.system.indices,
                         self.order.sector(),
                         options.max_numerator_rank,
                         options.case_intersection_limits,
-                        UnsupportedBranchPolicy::Defer,
-                        &mut regions,
-                        || {},
-                    )?;
-                    let index = rules.len();
-                    deferred.extend(regions.into_iter().map(|(branch, region)| {
-                        SectorDeferredRegion {
-                            rule: index,
-                            branch,
-                            region,
+                    )?,
+                    Some(log) => {
+                        // S4: the rule is published at index `rules.len()` below
+                        // (nothing else is pushed before it); its deferred
+                        // regions stay out of `children`.
+                        let mut regions = Vec::new();
+                        let mut branches = Vec::new();
+                        let admitted = rule.admit_exceptional_cases_with_policy(
+                            &self.system.indices,
+                            self.order.sector(),
+                            options.max_numerator_rank,
+                            options.case_intersection_limits,
+                            UnsupportedBranchPolicy::Defer,
+                            &mut regions,
+                            &mut branches,
+                            || {},
+                        )?;
+                        let index = rules.len();
+                        log.regions
+                            .extend(regions.into_iter().map(|(branch, region)| {
+                                SectorDeferredRegion {
+                                    rule: index,
+                                    branch,
+                                    region,
+                                }
+                            }));
+                        for (child, &branch) in admitted.0.iter().zip(&branches) {
+                            log.producers
+                                .entry(child.clone())
+                                .or_insert(SectorRuleParent {
+                                    rule: index,
+                                    branch,
+                                });
                         }
-                    }));
-                    admitted
-                }
-            };
+                        log.rule_parents.push(log.producers.get(&current).copied());
+                        admitted
+                    }
+                };
             stats.discarded_cases += discarded;
             stats.case_lifts += resolutions.lifted;
             stats.case_modular_empty += resolutions.modular_empty;
@@ -765,6 +918,10 @@ impl<const N: usize> SectorSolver<'_, N> {
                 rule: &rule,
                 pending: 0,
             });
+            if let Some(log) = deferral.as_deref_mut() {
+                log.rule_parents
+                    .push(log.producers.get(&rule.candidate.case).copied());
+            }
             rules.push(rule);
         }
         stats.elapsed = start.elapsed();

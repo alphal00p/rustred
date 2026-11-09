@@ -26,8 +26,8 @@ use rustred::input::{Compiler, Limits, LoweringLimits};
 use rustred::order::{CompiledOrder, DegreeRow, OrderDescriptor};
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    Case, Integral, SectorConfig, SectorDeferredRegion, SectorExecutionError, SectorExecutor,
-    SectorRule, SectorSolveOptions, SectorSolver, SourceSystem,
+    Case, DeferredSectorSolution, Integral, SectorConfig, SectorExecutionError, SectorExecutor,
+    SectorRule, SectorSolveOptions, SectorSolver, SourceSystem, deferred_exit_scan,
 };
 
 /// Bump on any change of the record layout (FORMAT.md).
@@ -36,6 +36,9 @@ const SCHEMA: &str = "table_dump.v1";
 /// `deferred_regions` counters). A v1-only reader refuses it instead of treating the deferred
 /// points as covered. The certificate file keeps [`SCHEMA`]: its layout is unchanged.
 const SCHEMA_DEFER: &str = "table_dump.v1-defer";
+/// R* box authority carried by every `deferred_region` record. Informative only: table_dump applies
+/// no box, no rank cap and no D cut (coefficients stay symbolic in n and d).
+const BOX_AUTHORITY: &str = r#"{"ruling":"DECISIONS.md 2026-11-06 ~06:15Z (user ruling; R* scope of P_INTEGRAL_5L_plan section 5)","definition":"rules_study/s5-tables/direct-route/DIRECT_ROUTE_BOX.md","A":"sum of positive indices","R":"sum of absolute negative indices (ISP slots)","box_by_loops":{"1":[10,7],"2":[12,7],"3":[14,7],"4":[16,7],"5":[18,7]},"gauge":"Feynman (K=0)","d_cut":"none","applied_by_table_dump":false}"#;
 /// The source line of the build. Was "94ec3300" for the rules-s5-tables study
 /// builds (B3, B5: rustred 94ec3300 plus the example and solver/table_export.rs).
 const SOURCE_BASE: &str = "p_integral";
@@ -298,15 +301,66 @@ fn case_fields<const N: usize>(case: &Case<N>) -> (String, String) {
     (fixed.join(","), equations)
 }
 
-/// One `deferred_region` record (S4, `--defer-unsupported`).
+/// Primitive integer rows `[a_0, .., a_{N-1}, b]` (`sum a_i n_i = b`) of every equality of an affine
+/// case, fixed coordinates included; `[]` for a coordinate case (its `fixed` values are all of it).
+fn case_rows<const N: usize>(case: &Case<N>) -> String {
+    let Some(affine) = case.affine() else {
+        return "[]".to_string();
+    };
+    let rows: Vec<String> = affine
+        .primitive_matrix()
+        .row_iter()
+        .map(|row| {
+            let values: Vec<String> = row.iter().map(ToString::to_string).collect();
+            format!("[{}]", values.join(","))
+        })
+        .collect();
+    format!("[{}]", rows.join(","))
+}
+
+/// One element of a region's parent chain: rule `rule`, its case and coefficient conditions, and
+/// the exception branch `branch` whose locus holds further down the chain.
+fn chain_link<const N: usize>(rules: &[SectorRule<N>], rule: usize, branch: usize) -> String {
+    let r = &rules[rule];
+    let (fixed, equations) = case_fields(&r.candidate.case);
+    let exceptions: Vec<String> = r
+        .exceptions
+        .branches
+        .iter()
+        .map(|b| strings(b.iter()))
+        .collect();
+    let mut denominators: Vec<String> = r
+        .candidate
+        .rhs
+        .iter()
+        .map(|t| t.coefficient.denominator.to_string())
+        .collect();
+    denominators.sort();
+    denominators.dedup();
+    format!(
+        "{{\"rule\":{rule},\"target\":{},\"case\":{},\"fixed\":[{}],\"equations\":{},\"rows\":{},\"exceptions\":[{}],\"branch\":{branch},\"rhs_denominators\":{}}}",
+        q(&r.candidate.target.to_string()),
+        q(&format!("{:?}", r.candidate.case)),
+        fixed,
+        equations,
+        case_rows(&r.candidate.case),
+        exceptions.join(","),
+        strings(denominators.iter())
+    )
+}
+
+/// One `deferred_region` record (S4, `--defer-unsupported`) for `solved.deferred[index]`.
 fn write_deferred<const N: usize>(
     f: &mut impl std::io::Write,
     chart: &str,
+    guards: &[String],
     index: usize,
-    deferred: &SectorDeferredRegion<N>,
-    rules: &[SectorRule<N>],
+    solved: &DeferredSectorSolution<N>,
     indices: &[usize; N],
+    loops: usize,
 ) {
+    let rules = &solved.solution.rules;
+    let deferred = &solved.deferred[index];
     let region = &deferred.region;
     let (fixed, equations) = case_fields(&region.chart);
     let (parent_fixed, parent_equations) = case_fields(&region.parent);
@@ -315,23 +369,77 @@ fn write_deferred<const N: usize>(
     let predicates = region
         .predicates(indices)
         .expect("an engine-deferred region has a nonempty conjunction");
+    let (chain, complete) = solved.parent_chain(index);
+    let chain: Vec<String> = chain
+        .iter()
+        .map(|link| chain_link(rules, link.rule, link.branch))
+        .collect();
+    let names: Vec<String> = region.conjunction[0]
+        .get_vars_ref()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let axes: Vec<String> = indices.iter().map(|&i| names[i].clone()).collect();
+    let checks = &region.checks;
+    let s2: Vec<String> = checks
+        .modular
+        .iter()
+        .map(|(prime, outcome)| {
+            format!(
+                "{{\"prime\":{prime},\"outcome\":{}}}",
+                q(&format!("{outcome:?}"))
+            )
+        })
+        .collect();
+    let failure = checks
+        .failure
+        .as_ref()
+        .map_or("null".to_string(), |e| q(&format!("{e:?}")));
+    let scan = deferred_exit_scan(&predicates, rules, indices, solved.solution.order.sector());
+    let exits: Vec<String> = scan
+        .candidates
+        .iter()
+        .map(|&(r, t)| {
+            format!(
+                "[{r},{t},{}]",
+                q(&rules[r].candidate.rhs[t].integral.to_string())
+            )
+        })
+        .collect();
+    let (pairs, excluded) = (scan.pairs, scan.excluded);
+    let box_this = match loops {
+        1..=5 => format!("[{},7]", 8 + 2 * loops),
+        _ => "null".to_string(),
+    };
     writeln!(
         f,
-        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"case\":{},\"fixed\":[{}],\"equations\":{},\"conjunction\":{},\"predicates\":{}}}",
+        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"variables\":{},\"index_variables\":{},\"chart_guards\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"parent_chain_complete\":{complete},\"parent_chain\":[{}],\"case\":{},\"fixed\":[{}],\"equations\":{},\"rows\":{},\"conjunction\":{},\"predicates\":{},\"s1\":{{\"chart_in_original_parent\":{},\"original_restricts_to_zero\":false,\"lifted\":false}},\"s2\":[{}],\"check_failure\":{},\"box_authority\":{},\"box_this_family\":{},\"exit_scan\":{{\"scope\":\"rules of this chart\",\"pairs\":{pairs},\"excluded\":{excluded},\"candidates\":{}}},\"exits\":[{}]}}",
         q(chart),
         deferred.rule,
         deferred.branch,
         q(&format!("{:?}", region.reason)),
+        strings(names.iter()),
+        strings(axes.iter()),
+        strings(guards.iter()),
         region.parent == rule.candidate.case,
         q(&format!("{:?}", region.parent)),
         parent_fixed,
         parent_equations,
         strings(branch.iter()),
+        chain.join(","),
         q(&format!("{:?}", region.chart)),
         fixed,
         equations,
+        case_rows(&region.chart),
         strings(region.conjunction.iter()),
-        strings(predicates.iter())
+        strings(predicates.iter()),
+        checks.chart_in_original_parent,
+        s2.join(","),
+        failure,
+        BOX_AUTHORITY,
+        box_this,
+        exits.len(),
+        exits.join(",")
     )
     .unwrap();
 }
@@ -652,7 +760,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                     })?;
                 solver
                     .solve_sector_deferring(options)
-                    .map(|done| vec![(done.solution, done.deferred)])
+                    .map(|done| vec![done])
                     .map_err(|source| SectorExecutionError::Solve {
                         ordinal: 0,
                         sector,
@@ -664,10 +772,18 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                 .map(&sources, &[*chart], &config, options, |done| {
                     Ok::<_, String>(done.solution)
                 })
-                .map(|v| v.into_iter().map(|s| (s, Vec::new())).collect::<Vec<_>>())
+                .map(|v| {
+                    v.into_iter()
+                        .map(|solution| DeferredSectorSolution {
+                            solution,
+                            deferred: Vec::new(),
+                            rule_parents: Vec::new(),
+                        })
+                        .collect::<Vec<_>>()
+                })
         };
         let seconds = t1.elapsed().as_secs_f64();
-        let (solution, deferred) = match result {
+        let done = match result {
             Ok(mut v) => v.pop().unwrap(),
             Err(e) => {
                 let full = format!("{e:?}");
@@ -691,6 +807,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                 continue;
             }
         };
+        let solution = &done.solution;
         let mut terms = 0;
         let mut branches = 0;
         for (index, rule) in solution.rules.iter().enumerate() {
@@ -707,18 +824,19 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             )
             .unwrap();
         }
-        for (index, region) in deferred.iter().enumerate() {
+        for index in 0..done.deferred.len() {
             write_deferred(
                 &mut out,
                 &label,
+                &guards,
                 index,
-                region,
-                &solution.rules,
+                &done,
                 sources.index_variables(),
+                fam.loop_count(),
             );
         }
         let deferred_field = if cli.defer_unsupported {
-            format!(",\"deferred_regions\":{}", deferred.len())
+            format!(",\"deferred_regions\":{}", done.deferred.len())
         } else {
             String::new()
         };
@@ -745,7 +863,7 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             solution.rules.len(),
             solution.finite_residuals.len()
         );
-        total_deferred += deferred.len();
+        total_deferred += done.deferred.len();
         total_rules += solution.rules.len();
         total_terms += terms;
         total_residuals += solution.finite_residuals.len();

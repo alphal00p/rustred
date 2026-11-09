@@ -21,7 +21,8 @@ use super::t167_captured_inputs::CapturedT167;
 use super::t167_p1_b5_captured::T167_P1_B5;
 use super::{
     CaseIntersectionBudget, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseResolutionReason, DeferredRegion, UnsupportedBranchPolicy, native,
+    CaseIntersectionResult, CaseResolutionReason, DeferredRegion, ModularCheck,
+    UnsupportedBranchPolicy, native,
 };
 
 const DEFER: UnsupportedBranchPolicy = UnsupportedBranchPolicy::Defer;
@@ -103,6 +104,46 @@ fn in_region<const N: usize>(
     let by_parts = on_chart(&region.chart, point) && vanishes(&region.conjunction, indices, point);
     assert_eq!(by_predicates, by_parts, "predicates disagree at {point:?}");
     by_predicates
+}
+
+/// The decision part of a region (everything but the diagnostic `checks`).
+type Core<const N: usize> = (
+    CaseIntersectionFailure,
+    Case<N>,
+    Case<N>,
+    Vec<CoefficientPolynomial>,
+);
+
+fn core<const N: usize>(region: &DeferredRegion<N>) -> Core<N> {
+    (
+        region.reason.clone(),
+        region.parent.clone(),
+        region.chart.clone(),
+        region.conjunction.to_vec(),
+    )
+}
+
+/// The S1/S2 record of a deferred branch: S1 saw the chart inside the
+/// parent, S2 checked all four primes without proving emptiness.
+fn assert_checks<const N: usize>(region: &DeferredRegion<N>) {
+    let checks = &region.checks;
+    assert!(checks.chart_in_original_parent, "{checks:?}");
+    assert!(checks.failure.is_none(), "{checks:?}");
+    assert_eq!(
+        checks
+            .modular
+            .iter()
+            .map(|(prime, _)| *prime)
+            .collect::<Vec<_>>(),
+        vec![2, 3, 5, 7]
+    );
+    assert!(
+        checks
+            .modular
+            .iter()
+            .all(|(_, check)| *check != ModularCheck::ProvedEmpty),
+        "{checks:?}"
+    );
 }
 
 fn in_sector<const N: usize>(sector: &[bool; N], point: &[i64; N]) -> bool {
@@ -269,17 +310,24 @@ fn a_stuck_pell_branch_is_deferred_exactly() {
         .unwrap();
     assert!(result.cases.is_empty());
     assert_eq!(
-        result.deferred,
-        vec![DeferredRegion {
-            reason: CaseIntersectionFailure::UnsupportedGeometry,
-            parent: generic.clone(),
-            chart: generic.clone(),
-            conjunction: native::restrict(&generic, &conjunction, &indices)
-                .unwrap()
-                .into(),
-        }]
+        result.deferred.iter().map(core).collect::<Vec<_>>(),
+        vec![(
+            CaseIntersectionFailure::UnsupportedGeometry,
+            generic.clone(),
+            generic.clone(),
+            native::restrict(&generic, &conjunction, &indices).unwrap(),
+        )]
     );
     let region = &result.deferred[0];
+    assert_checks(region);
+    // Integer Pell points exist: a common zero modulo every prime.
+    assert!(
+        region
+            .checks
+            .modular
+            .iter()
+            .all(|(_, check)| *check == ModularCheck::CommonZero)
+    );
     // Planted Pell points (any z) are in the region; near misses are not.
     for point in [[3, 2, 7], [17, 12, 1], [99, 70, 2], [577, 408, 5]] {
         assert!(in_region(region, &indices, &point), "{point:?}");
@@ -392,16 +440,15 @@ fn defer_settles_both_refusals_only_after_s1_and_s2() {
         .unwrap();
         assert!(resolved.is_empty() && resolutions.is_empty());
         assert_eq!(
-            deferred,
-            vec![DeferredRegion {
-                reason: failure.clone(),
-                parent: generic.clone(),
-                chart: x_is(2),
-                conjunction: native::restrict(&x_is(2), &branch, &indices)
-                    .unwrap()
-                    .into(),
-            }]
+            deferred.iter().map(core).collect::<Vec<_>>(),
+            vec![(
+                failure.clone(),
+                generic.clone(),
+                x_is(2),
+                native::restrict(&x_is(2), &branch, &indices).unwrap(),
+            )]
         );
+        assert_checks(&deferred[0]);
         assert!(in_region(&deferred[0], &indices, &[2, 3, 2]));
         assert!(!in_region(&deferred[0], &indices, &[1, 3, 2]));
         // x = 1: S1 lifts first; nothing is deferred.
@@ -549,15 +596,17 @@ fn t167_p1_b5_refusal_becomes_exactly_the_captured_deferred_region() {
         );
     }
     assert_eq!(
-        result.deferred,
-        vec![DeferredRegion {
-            reason: CaseIntersectionFailure::UnsupportedGeometry,
-            parent: parent.clone(),
-            chart: chart.clone(),
-            conjunction: unresolved.clone().into(),
-        }]
+        result.deferred.iter().map(core).collect::<Vec<_>>(),
+        vec![(
+            CaseIntersectionFailure::UnsupportedGeometry,
+            parent.clone(),
+            chart.clone(),
+            unresolved.clone(),
+        )]
     );
     let region = &result.deferred[0];
+    println!("T167_P1_B5 checks {:?}", region.checks);
+    assert_checks(region);
     for case in &result.cases {
         assert!(parent.contains(case).unwrap());
         assert!(
@@ -737,6 +786,7 @@ fn defer_never_loses_or_invents_a_point() {
         for region in &result.deferred {
             assert_eq!(region.parent, parent);
             assert!(parent.contains(&region.chart).unwrap());
+            assert_checks(region);
             assert!(matches!(
                 region.reason,
                 CaseIntersectionFailure::UnsupportedGeometry

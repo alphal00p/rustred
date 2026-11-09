@@ -17,7 +17,7 @@ mod native;
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
-    DeferredRegion, UnsupportedBranchPolicy,
+    DeferredRegion, ModularCheck, StuckBranchChecks, UnsupportedBranchPolicy,
 };
 
 use crate::algebra::CoefficientPolynomial;

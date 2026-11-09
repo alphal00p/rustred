@@ -18,8 +18,8 @@ use symbolica::prelude::Integer;
 use crate::algebra::CoefficientPolynomial;
 
 use super::super::Case;
-use super::CaseIntersectionFailure;
 use super::engine::checkpoint;
+use super::{CaseIntersectionFailure, ModularCheck};
 
 /// The primes tried, in order. The first one proving emptiness is reported.
 pub(super) const PRIMES: [u32; 4] = [2, 3, 5, 7];
@@ -333,6 +333,75 @@ pub(super) fn integer_empty_prime<const N: usize>(
         }
     }
     Ok(None)
+}
+
+/// Diagnostic twin of [`integer_empty_prime`] for the S4 record: the outcome
+/// at EVERY prime of [`PRIMES`] instead of the first proof, with the same
+/// reductions, lattice and budgets. Decides nothing.
+pub(super) fn residue_checks<const N: usize>(
+    parent: &Case<N>,
+    equations: &[CoefficientPolynomial],
+    indices: &[usize; N],
+) -> Result<Vec<(u32, ModularCheck)>, CaseIntersectionFailure> {
+    let Some(first) = equations.first() else {
+        return Ok(Vec::new());
+    };
+    let mut axis_of = vec![None; first.nvars()];
+    for (axis, &position) in indices.iter().enumerate() {
+        if let Some(slot) = axis_of.get_mut(position) {
+            *slot = Some(axis);
+        }
+    }
+    if equations
+        .iter()
+        .any(|equation| equation.nvars() != axis_of.len())
+    {
+        return Ok(Vec::new());
+    }
+    let mut checks = Vec::new();
+    'primes: for prime in PRIMES {
+        checkpoint()?;
+        let mut reduced = Vec::new();
+        for equation in equations {
+            match reduce(equation, &axis_of, prime) {
+                Reduced::Unusable | Reduced::Zero => {}
+                Reduced::NonzeroConstant => {
+                    checks.push((prime, ModularCheck::ProvedEmpty));
+                    continue 'primes;
+                }
+                Reduced::Terms(terms) => reduced.push(terms),
+            }
+        }
+        let Some(space) = residue_space(parent, prime) else {
+            checks.push((prime, ModularCheck::ProvedEmpty));
+            continue;
+        };
+        if reduced.is_empty() {
+            checks.push((prime, ModularCheck::NoConstraint));
+            continue;
+        }
+        let all: Vec<&Vec<Term>> = reduced.iter().collect();
+        let check = match common_zero(&space, &all, prime)? {
+            Some(false) => ModularCheck::ProvedEmpty,
+            Some(true) => ModularCheck::CommonZero,
+            None => {
+                let mut check = ModularCheck::ZeroPerEquation;
+                for terms in &reduced {
+                    match common_zero(&space, &[terms], prime)? {
+                        Some(false) => {
+                            check = ModularCheck::ProvedEmpty;
+                            break;
+                        }
+                        Some(true) => {}
+                        None => check = ModularCheck::OverBudget,
+                    }
+                }
+                check
+            }
+        };
+        checks.push((prime, check));
+    }
+    Ok(checks)
 }
 
 #[cfg(test)]

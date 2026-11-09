@@ -8,8 +8,8 @@ use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
-    DeferredRegion, UnsupportedBranchPolicy, bilinear_integer, definite_quadratic,
-    linear_resultant, modular, native,
+    DeferredRegion, StuckBranchChecks, UnsupportedBranchPolicy, bilinear_integer,
+    definite_quadratic, linear_resultant, modular, native,
 };
 use crate::solver::GeometryError;
 
@@ -207,11 +207,43 @@ impl<const N: usize> Engine<'_, N> {
             parent: self.original_parent.clone(),
             chart: self.current.parent.clone(),
             conjunction: self.current.equations.clone(),
+            checks: self.stuck_branch_checks()?,
         };
         if !self.deferred.contains(&region) {
             self.deferred.push(region);
         }
         Ok(())
+    }
+
+    /// The S1/S2 record of a deferred branch: the same exact tests again,
+    /// reporting every outcome. Resource limits propagate; any other failure
+    /// is recorded and changes nothing.
+    fn stuck_branch_checks(&mut self) -> Result<StuckBranchChecks, CaseIntersectionFailure> {
+        let mut failure = None;
+        let chart_in_original_parent = match self.original_parent.contains(&self.current.parent) {
+            Ok(inside) => inside,
+            Err(error) => {
+                failure = Some(CaseIntersectionFailure::Admission(error));
+                false
+            }
+        };
+        let modular = match modular::residue_checks(
+            &self.current.parent,
+            &self.current.equations,
+            self.indices,
+        ) {
+            Ok(checks) => checks,
+            Err(error @ CaseIntersectionFailure::Resources(_)) => return Err(error),
+            Err(error) => {
+                failure.get_or_insert(error);
+                Vec::new()
+            }
+        };
+        Ok(StuckBranchChecks {
+            chart_in_original_parent,
+            modular,
+            failure,
+        })
     }
 
     /// S1 (lift), then S2 (modular emptiness), on the stuck current branch

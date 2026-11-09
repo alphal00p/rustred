@@ -4,8 +4,8 @@
 
 use crate::algebra::{CoefficientContext, CoefficientPolynomial};
 use crate::solver::{
-    RuleQualityFeature, RuleQualityPriority, RuleTrialLimits, SectorConfig,
-    SourceDiscoveryStrategy, SourceSystem, Term,
+    Power, RuleQualityFeature, RuleQualityPriority, RuleTrialLimits, SearchStats, SectorConfig,
+    SectorRuleParent, SourceDiscoveryStrategy, SourceSystem, Term, deferred_exit_scan,
 };
 
 use super::*;
@@ -138,6 +138,35 @@ fn an_unresolved_exceptional_factor_is_deferred_and_never_dispatched() {
     );
     let branch = &parent.exceptions.branches[deferred.branch];
     assert_eq!(solved.solution.rules.len(), 1);
+    assert_eq!(solved.rule_parents, vec![None]);
+    assert_eq!(
+        solved.parent_chain(0),
+        (vec![SectorRuleParent { rule: 0, branch: 0 }], true)
+    );
+    assert_eq!(solved.parent_chain(1), (Vec::new(), false));
+    // Exits: the rule's only RHS term I(n0-1,n1,n2) reaches the circle from
+    // (3,1,1) and (2,2,1); it is the one candidate.
+    let predicates = deferred.region.predicates(&indices).unwrap();
+    let scan = deferred_exit_scan(&predicates, &solved.solution.rules, &indices, &[true; 3]);
+    assert_eq!(scan.pairs, solved.solution.rules[0].candidate.rhs.len());
+    assert_eq!(scan.candidates.len() + scan.excluded, scan.pairs);
+    println!(
+        "S4_SECTOR rhs {:?} scan {scan:?}",
+        solved.solution.rules[0]
+            .candidate
+            .rhs
+            .iter()
+            .map(|term| term.integral.to_string())
+            .collect::<Vec<_>>()
+    );
+    for &(rule, term) in &scan.candidates {
+        let key = solved.solution.rules[rule].candidate.rhs[term].integral;
+        assert!(key.powers().iter().all(|power| power.is_symbolic()));
+    }
+    assert!(!scan.candidates.is_empty());
+    let checks = &deferred.region.checks;
+    assert!(checks.chart_in_original_parent && checks.failure.is_none());
+    assert_eq!(checks.modular.len(), 4);
     // Every region point of the box is exceptional for its own rule (so no
     // rule's own guard admits it) and the region is never dispatched.
     let mut region_points = Vec::new();
@@ -171,6 +200,7 @@ fn deferral_without_stuck_branches_is_the_ordinary_solution() {
     let ordinary = solver.solve_sector(Default::default()).unwrap();
     let solved = solver.solve_sector_deferring(Default::default()).unwrap();
     assert!(solved.deferred.is_empty());
+    assert_eq!(solved.rule_parents.len(), solved.solution.rules.len());
     let shape = |solution: &SectorSolution<1>| {
         solution
             .rules
@@ -207,6 +237,39 @@ fn deferral_without_stuck_branches_is_the_ordinary_solution() {
             .collect::<Vec<_>>()
     };
     assert_eq!(shape(&solved.solution), shape(&ordinary));
+    // A two-loop family with exceptional children: same rules, and every
+    // recorded parent is an earlier rule whose case contains the child's case.
+    let system = SourceSystem::<3>::from_family(&crate::solver::tests::sunset()).unwrap();
+    let solver = SectorSolver::new(&system, [true; 3], SectorConfig::default()).unwrap();
+    let ordinary = solver.solve_sector(Default::default()).unwrap();
+    let solved = solver.solve_sector_deferring(Default::default()).unwrap();
+    assert!(solved.deferred.is_empty());
+    assert_eq!(shape(&solved.solution), shape(&ordinary));
+    assert_eq!(solved.rule_parents.len(), solved.solution.rules.len());
+    assert_eq!(solved.rule_parents[0], None);
+    let rules = &solved.solution.rules;
+    let mut children = 0;
+    for (index, parent) in solved.rule_parents.iter().enumerate() {
+        let Some(parent) = parent else {
+            continue;
+        };
+        children += 1;
+        assert!(parent.rule < index, "{index}: {parent:?}");
+        assert!(parent.branch < rules[parent.rule].exceptions.branches.len());
+        assert!(
+            rules[parent.rule]
+                .candidate
+                .case
+                .contains(&rules[index].candidate.case)
+                .unwrap(),
+            "{index}: {parent:?}"
+        );
+    }
+    println!(
+        "S4_SUNSET rules={} with_parent={children} parents={:?}",
+        rules.len(),
+        solved.rule_parents
+    );
 }
 
 #[test]
@@ -242,4 +305,106 @@ fn deferral_requires_first_valid_rule_selection() {
         }) => assert!(message.contains("FirstValid"), "{message}"),
         other => panic!("expected the portfolio refusal, got {other:?}"),
     }
+}
+
+fn power(symbolic: bool, value: i16) -> Power {
+    Power::new(symbolic, value).unwrap()
+}
+
+fn rule_with_keys(
+    context: &CoefficientContext,
+    case: Case<3>,
+    keys: &[[Power; 3]],
+) -> SectorRule<3> {
+    SectorRule {
+        dispatch_policy: Default::default(),
+        candidate: RuleCandidate {
+            case,
+            target: Integral::symbolic([0; 3]).unwrap(),
+            rhs: keys
+                .iter()
+                .map(|&powers| Term {
+                    integral: Integral::new(powers),
+                    coefficient: context.coefficient_fixture("1"),
+                })
+                .collect(),
+            sources: Vec::new(),
+            stats: SearchStats::default(),
+        },
+        exceptions: ExceptionalConditions {
+            branches: Vec::new(),
+        },
+    }
+}
+
+#[test]
+fn the_exit_scan_excludes_only_by_proof() {
+    let context = CoefficientContext::new(["a", "b", "c"]);
+    let indices = [0, 1, 2];
+    let sector = [true; 3];
+    let predicates: Vec<CoefficientPolynomial> = ["a-1", "b^2-2*c^2-1"]
+        .iter()
+        .map(|p| context.coefficient_fixture(p).numerator)
+        .collect();
+    let generic = rule_with_keys(
+        &context,
+        Case::generic(),
+        &[
+            // numeric 0 on an active axis: another chart
+            [power(false, 0), power(true, 0), power(true, 0)],
+            // numeric 2: a - 1 = 1 there
+            [power(false, 2), power(true, 0), power(true, 0)],
+            // numeric 1: lands where b^2 - 2c^2 = 1
+            [power(false, 1), power(true, 0), power(true, 0)],
+            // a + 1 - 1 = a: lands at a = 0 only (outside the chart, kept: no proof here)
+            [power(true, 1), power(true, 0), power(true, 0)],
+            // b shifted: still a Pell condition
+            [power(false, 1), power(true, -1), power(true, 2)],
+        ],
+    );
+    let on_line = Case::generic()
+        .intersect(
+            &[context.coefficient_fixture("a-b-1").numerator],
+            &indices,
+            &sector,
+        )
+        .unwrap()
+        .unwrap();
+    let affine = rule_with_keys(
+        &context,
+        on_line,
+        &[
+            // on a = b + 1: (a-1) -> b, b^2-2c^2-1 stays: possible
+            [power(true, 0), power(true, 0), power(true, 0)],
+        ],
+    );
+    let scan = deferred_exit_scan(&predicates, &[generic, affine], &indices, &sector);
+    assert_eq!(scan.pairs, 6);
+    assert_eq!(scan.excluded, 2);
+    assert_eq!(scan.candidates, vec![(0, 2), (0, 3), (0, 4), (1, 0)]);
+    // A predicate that is a nonzero constant on the rule's affine case.
+    let shifted: Vec<CoefficientPolynomial> = ["a-b-2"]
+        .iter()
+        .map(|p| context.coefficient_fixture(p).numerator)
+        .collect();
+    let on_line = Case::generic()
+        .intersect(
+            &[context.coefficient_fixture("a-b-1").numerator],
+            &indices,
+            &sector,
+        )
+        .unwrap()
+        .unwrap();
+    let rules = [rule_with_keys(
+        &context,
+        on_line,
+        &[
+            [power(true, 0), power(true, 0), power(true, 0)],
+            [power(true, 1), power(true, 0), power(true, 0)],
+        ],
+    )];
+    let scan = deferred_exit_scan(&shifted, &rules, &indices, &sector);
+    // key n: a-b-2 = -1 on the line (excluded); key (a+1, b, c): a+1-b-2 = 0 (lands).
+    assert_eq!(scan.excluded, 1);
+    assert_eq!(scan.candidates, vec![(0, 1)]);
 }
