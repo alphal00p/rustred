@@ -54,6 +54,8 @@ struct Engine<'a, const N: usize> {
     resolutions: Vec<CaseResolution<N>>,
 }
 
+// CaseIntersectionError carries the stats (S1/S2 counters included) by value.
+#[allow(clippy::result_large_err)]
 pub(super) fn intersect<const N: usize>(
     parent: &Case<N>,
     conjunction: &[CoefficientPolynomial],

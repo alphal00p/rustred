@@ -7,6 +7,8 @@
 //! payloads. Coefficient coordinates are [d, n0, ..., n19]; index variables 1..=20.
 
 pub(super) struct CapturedT167 {
+    /// Provenance label of the capture (table_dump order run); not read by the tests.
+    #[allow(dead_code)]
     pub order: &'static str,
     pub sector: &'static str,
     pub original_fixed: [Option<i16>; 20],

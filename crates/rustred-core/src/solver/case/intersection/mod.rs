@@ -30,6 +30,7 @@ impl<const N: usize> Case<N> {
     /// operation; an empty successful `cases` vector means every branch is
     /// proved empty. Counters describe geometry work, not solver sources,
     /// closure, or master counts.
+    #[allow(clippy::result_large_err)]
     pub fn intersect_many(
         &self,
         conjunction: &[CoefficientPolynomial],
@@ -50,6 +51,7 @@ impl<const N: usize> Case<N> {
     /// conversion, and every refinement shares the same work budget. Unsupported positive-
     /// power geometry still fails atomically. Returned equality cases can
     /// over-cover outside the explicit rank scope; this is not family closure.
+    #[allow(clippy::result_large_err)]
     pub fn intersect_many_with_max_numerator_rank(
         &self,
         conjunction: &[CoefficientPolynomial],
@@ -88,6 +90,9 @@ mod rank_priority_tests;
 
 #[cfg(test)]
 mod overflow_consistency_tests;
+
+#[cfg(test)]
+mod t167_captured_inputs;
 
 #[cfg(test)]
 mod lift_tests;

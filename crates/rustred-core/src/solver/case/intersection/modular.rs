@@ -103,6 +103,8 @@ struct ResidueSpace {
 
 /// `None`: the chart rows are inconsistent modulo `p`, so the chart (and the
 /// branch) has no integer point at all.
+// Row elimination over two rows at once: index loops are the clear form here.
+#[allow(clippy::needless_range_loop)]
 fn residue_space<const N: usize>(parent: &Case<N>, prime: u32) -> Option<ResidueSpace> {
     let mut rows: Vec<Vec<u32>> = Vec::new();
     for (axis, value) in parent.fixed().iter().enumerate() {
@@ -165,6 +167,7 @@ fn residue_space<const N: usize>(parent: &Case<N>, prime: u32) -> Option<Residue
 
 /// Whether the reduced equations have a common zero on the residue space.
 /// `None`: the test is above the residue or evaluation budget.
+#[allow(clippy::needless_range_loop, clippy::type_complexity)]
 fn common_zero(
     space: &ResidueSpace,
     equations: &[&Vec<Term>],

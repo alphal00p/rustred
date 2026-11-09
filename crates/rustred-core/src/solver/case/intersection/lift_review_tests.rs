@@ -18,10 +18,7 @@ use super::{
     CaseIntersectionFailure, CaseIntersectionLimits, CaseResolutionReason, modular, native,
 };
 
-#[allow(dead_code)]
-#[path = "t167_captured_inputs.rs"]
-mod inputs;
-use inputs::T167_ORIG;
+use super::t167_captured_inputs::T167_ORIG;
 
 fn equations(context: &CoefficientContext, values: &[&str]) -> Vec<CoefficientPolynomial> {
     values
@@ -424,6 +421,7 @@ fn row_through(random: &mut Lcg, point: [i64; 4]) -> Option<String> {
 }
 
 #[test]
+#[allow(clippy::result_large_err)]
 fn review_engine_never_loses_a_planted_point() {
     let context = CoefficientContext::new(["d", "a", "b", "c", "e"]);
     let indices = [1, 2, 3, 4];

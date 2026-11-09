@@ -15,9 +15,7 @@ use super::{
     CaseIntersectionFailure, CaseIntersectionLimits, CaseResolutionReason, modular, native,
 };
 
-#[path = "t167_captured_inputs.rs"]
-mod inputs;
-use inputs::{CapturedT167, T167_ORIG, T167_P1_PF0};
+use super::t167_captured_inputs::{CapturedT167, T167_ORIG, T167_P1_PF0};
 
 fn equations(context: &CoefficientContext, values: &[&str]) -> Vec<CoefficientPolynomial> {
     values
