@@ -5,6 +5,7 @@ mod support;
 
 mod assemble;
 mod basis;
+mod basis4;
 mod canary;
 mod census;
 mod class;

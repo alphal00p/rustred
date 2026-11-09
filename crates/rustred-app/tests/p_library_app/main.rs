@@ -3,6 +3,7 @@
 mod assemble;
 mod assemble4;
 mod basis;
+mod basis4;
 mod cli;
 mod custom;
 mod eps;

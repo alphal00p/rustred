@@ -38,31 +38,31 @@ use rustred::solver::litered::{DEFAULT_PRIME, PrimeField, ZpSample};
 use serde_json::Value;
 
 const ANCHORS_JSON: &str = include_str!("basis_anchors/p_anchors.json");
-const GRAPH_KEYS_TSV: &str =
+pub(crate) const GRAPH_KEYS_TSV: &str =
     include_str!("../../../rustred-topology/tests/fixtures/forcer/graph_keys_p_topology_v1.tsv");
 
-fn context() -> CoefficientContext {
+pub(crate) fn context() -> CoefficientContext {
     CoefficientContext::try_new(["d"]).unwrap()
 }
 
-fn exact() -> ExactAlgebraLimits {
+pub(crate) fn exact() -> ExactAlgebraLimits {
     ExactAlgebraLimits::default()
 }
 
-fn coefficient(c: &CoefficientContext, text: &str) -> Coefficient {
+pub(crate) fn coefficient(c: &CoefficientContext, text: &str) -> Coefficient {
     parse_coefficient(c, text, exact()).unwrap()
 }
 
-fn tag(pairs: &[(i8, i16)]) -> GammaTag {
+pub(crate) fn tag(pairs: &[(i8, i16)]) -> GammaTag {
     GammaTag::from_pairs(pairs.iter().copied()).unwrap()
 }
 
 /// `(eps G(1,1))^loops` without `(d - 3)^-loops`.
-fn scheme(loops: i16) -> GammaTag {
+pub(crate) fn scheme(loops: i16) -> GammaTag {
     tag(&[(1, loops), (-1, 2 * loops), (-2, -loops)])
 }
 
-fn term(basis: PBasis, tag: GammaTag, coefficient: Coefficient) -> PTerm {
+pub(crate) fn term(basis: PBasis, tag: GammaTag, coefficient: Coefficient) -> PTerm {
     PTerm {
         basis,
         tag,
@@ -70,7 +70,7 @@ fn term(basis: PBasis, tag: GammaTag, coefficient: Coefficient) -> PTerm {
     }
 }
 
-fn master(name: &str) -> PBasis {
+pub(crate) fn master(name: &str) -> PBasis {
     PBasis::Master(name.to_owned())
 }
 

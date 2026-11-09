@@ -17,6 +17,16 @@
 //! - `Master(no) = Zno(1^8,0) Q^4` (forcer-rules.h:16; forcer.h:276), so
 //!   `I_M(NO; 1^8, 0) = +(eps G(1,1))^3 Master(no)`.
 //!
+//! [`P_BASIS_MASTERS_1_TO_3`] holds those two; [`P_BASIS_MASTERS_1_TO_4`] all
+//! of Forcer's 16 (plan M3 D-M3-5), the scope-4 choice of
+//! [`p_basis_masters`]. Every 4L definition has the same form,
+//! `Z_topo(1,..,1, 0,..,0) = Master(name) / Q^(2w)`, read at `Q^2 = 1`; t155's
+//! `Z(0,0,0,0,2,1,1,1,1,1)` (forcer-rules.h:281) is no dot: the first five
+//! arguments of Forcer's t1 family are the eps units of its lines
+//! (forcer-rules.h:279), so it is t1star55 at unit powers with two eps units on
+//! line 2-4, the convention above. The signs and normalisations are pinned by
+//! Forcer anchors (M3-T17), never only read off the source.
+//!
 //! Derivation ([`derive_basis_layer`], `rustred p-basis`, AD section 6): each
 //! reference master whose topology is a node of the library is reduced in that
 //! node's presentation onto the terminals, `X_i = Sum_j A_ij T_j + S_i` (`S_i`
@@ -54,10 +64,14 @@ use crate::reduction::{
 use crate::solver::litered::{DEFAULT_PRIME, PrimeField, ZpSample};
 
 use super::error::PError;
+use super::kernel::bubble::{LinePower, relative_tag};
+use super::kernel::carpet::carpet_tag;
+use super::kernel::owner_edges;
+use super::lane::LaneRoles;
 use super::library::{
     PBasis, PBasisMap, PLibrary, PReductionRequest, PTerm, PTerminal, PUncoveredPolicy,
 };
-use super::presentation::Slot;
+use super::presentation::{Presentation, PresentationKind, Slot};
 use super::tag::GammaTag;
 use super::topology::{Action, Fate, GraphKey, Normalised, PTopo, canonical, normalise};
 use super::{
@@ -107,25 +121,159 @@ pub struct PMasterDefinition {
     pub source: &'static str,
 }
 
+const MASTER_NO: PMasterDefinition = PMasterDefinition {
+    name: "no",
+    topology: "nostar0",
+    notation: "0-1* 3-4 2-3 1-2 1-6 5-6 4-5 3-6 2-5 4-9",
+    sign: 1,
+    source: "Zno(1,1,1,1,1,1,1,1,0) = BasicNOIntegral / (Q^2)^2 (forcer-rules.h:16); \
+             BasicNOIntegral = Master(no) (forcer.h:276)",
+};
+
+const MASTER_T105: PMasterDefinition = PMasterDefinition {
+    name: "t105",
+    topology: "t1star05",
+    notation: "0-1* 2-3 1-2 1-4 3-4 2-4* 3-9",
+    sign: -1,
+    source: "Zt1star5(1,1,1,1,1) = BasicT1Integral ep^2 / Q^2 (forcer-rules.h:15, :242); \
+             BasicT1Integral = Master(t105) / ep^2 (forcer.h:277)",
+};
+
 /// The masters of the 1L-3L library (plan M2 section 3.3, pinned).
-pub const P_BASIS_MASTERS_1_TO_3: [PMasterDefinition; 2] = [
+pub const P_BASIS_MASTERS_1_TO_3: [PMasterDefinition; 2] = [MASTER_NO, MASTER_T105];
+
+/// Forcer's 16 masters, the masters of a library of scope 1-4 (plan M3
+/// D-M3-5), by name as [`FORCER_MASTER_NAMES`]. Paths are relative to vakint's
+/// `form_src/forcer/` (Forcer 68a30bf); the notations are those of
+/// `forcer_dag_68a30bf.tsv`. `no` and `t105` are the entries of
+/// [`P_BASIS_MASTERS_1_TO_3`].
+pub const P_BASIS_MASTERS_1_TO_4: [PMasterDefinition; 16] = [
     PMasterDefinition {
-        name: "no",
-        topology: "nostar0",
-        notation: "0-1* 3-4 2-3 1-2 1-6 5-6 4-5 3-6 2-5 4-9",
+        name: "bebe",
+        topology: "bebe",
+        notation: "0-1 4-5 1-4 3-5 1-3 1-2 2-4 2-3 3-4 5-9",
         sign: 1,
-        source: "Zno(1,1,1,1,1,1,1,1,0) = BasicNOIntegral / (Q^2)^2 (forcer-rules.h:16); \
-                 BasicNOIntegral = Master(no) (forcer.h:276)",
+        source: "Z(1,1,1,1,1,1,1,1,0,0,0,0,0,0) = Master(bebe) (forcer/forcer-manual.h:9066)",
     },
     PMasterDefinition {
-        name: "t105",
-        topology: "t1star05",
-        notation: "0-1* 2-3 1-2 1-4 3-4 2-4* 3-9",
+        name: "cross",
+        topology: "cross",
+        notation: "0-1 3-5 1-3 4-5 1-4 2-5 1-2 2-3 2-4 5-9",
+        sign: 1,
+        source: "Z(1,1,1,1,1,1,1,1,0,0,0,0,0,0) = Master(cross) (forcer/forcer-manual.h:7383)",
+    },
+    PMasterDefinition {
+        name: "fastar2",
+        topology: "fastar2",
+        notation: "0-1 3-4 2-3* 1-2 1-5 4-5 3-5 2-5 4-9",
         sign: -1,
-        source: "Zt1star5(1,1,1,1,1) = BasicT1Integral ep^2 / Q^2 (forcer-rules.h:15, :242); \
-                 BasicT1Integral = Master(t105) / ep^2 (forcer.h:277)",
+        source: "Zfastar2(1,1,1,1,1,1,1,0,0) = Master(fastar2) / Q2 (forcer/forcer-rules.h:182, \
+                 FASTAR2SCHEME 1, the default; scheme 0: forcer/forcer-manual.h:665)",
+    },
+    PMasterDefinition {
+        name: "haha",
+        topology: "haha",
+        notation: "0-3 5-8 4-5 3-4 2-3 1-2 1-8 5-6 1-6 4-7 2-7 6-7 8-9",
+        sign: -1,
+        source: "Z(1,1,1,1,1,1,1,1,1,1,1,0,0,0) = Master(haha) (forcer/forcer-manual.h:1886)",
+    },
+    PMasterDefinition {
+        name: "lala",
+        topology: "lala",
+        notation: "0-3 5-8 4-5 3-4 2-3 1-2 1-8 2-4 1-4 1-5 8-9",
+        sign: -1,
+        source: "Z(1,1,1,1,1,1,1,1,1,0,0,0,0,0) = Master(lala) (forcer/forcer-manual.h:5008)",
+    },
+    MASTER_NO,
+    PMasterDefinition {
+        name: "no1",
+        topology: "no1",
+        notation: "0-1 4-8 3-4 2-3 1-2 1-5 5-6 6-7 7-8 3-7 2-6 4-5 8-9",
+        sign: -1,
+        source: "Z(1,1,1,1,1,1,1,1,1,1,1,0,0,0) = Master(no1) (forcer/forcer-manual.h:2594, :2687)",
+    },
+    PMasterDefinition {
+        name: "no2",
+        topology: "no2",
+        notation: "0-1 5-8 4-5 2-4 1-2 1-6 3-6 3-7 7-8 5-6 3-4 2-7 8-9",
+        sign: -1,
+        source: "Zno2(1,1,1,1,1,1,1,1,1,1,1,0,0,0) = Master(no2) / Q2^3 (forcer/forcer-rules.h:57)",
+    },
+    PMasterDefinition {
+        name: "no6",
+        topology: "no6",
+        notation: "0-1 7-8 6-7 2-6 1-2 1-7 3-7 3-4 4-8 4-6 2-3 8-9",
+        sign: 1,
+        source: "Z(1,1,1,1,1,1,1,1,1,1,0,0,0,0) = Master(no6) (forcer/forcer-manual.h:3851)",
+    },
+    PMasterDefinition {
+        name: "nono",
+        topology: "nono",
+        notation: "0-1 4-6 2-4 1-2 1-3 3-5 5-6 4-5 3-4 2-5 6-9",
+        sign: -1,
+        source: "Z(1,1,1,1,1,1,1,1,1,0,0,0,0,0) = Master(nono) (forcer/forcer-manual.h:6421)",
+    },
+    PMasterDefinition {
+        name: "nostar5",
+        topology: "nostar5",
+        notation: "0-1 3-4 2-3 1-2 1-6 5-6* 4-5 3-6 2-5 4-9",
+        sign: 1,
+        source: "Znostar5(1,1,1,1,1,1,1,1,0) = BasicNOIntegral5 / Q2^2 (forcer/forcer-rules.h:201, \
+                 NOSTAR5SCHEME 1, the default; scheme 0: :196, XXX: normalization?); \
+                 BasicNOIntegral5 = Master(nostar5) (forcer.h:278)",
+    },
+    PMasterDefinition {
+        name: "nostar6",
+        topology: "nostar6",
+        notation: "0-1 3-4 2-3 1-2 1-6 5-6 4-5* 3-6 2-5 4-9",
+        sign: 1,
+        source: "Znostar6(1,1,1,1,1,1,1,1,0) = BasicNOIntegral6 / Q2^2 (forcer/forcer-rules.h:221, \
+                 NOSTAR6SCHEME 1, the default; scheme 0: :216, XXX: normalization?); \
+                 BasicNOIntegral6 = Master(nostar6) (forcer.h:279)",
+    },
+    MASTER_T105,
+    PMasterDefinition {
+        name: "t124",
+        topology: "t1star24",
+        notation: "0-1 2-3 1-2* 1-4 3-4* 2-4 3-9",
+        sign: -1,
+        source: "Z(0,1,0,1,0,1,1,1,1,1) = BasicT1Integral24 / Q2 * Q2^5 (forcer/forcer-rules.h:252, \
+                 XXX: normalization?), i.e. Zt1star24(1,1,1,1,1) = BasicT1Integral24 / Q2 (:250); \
+                 BasicT1Integral24 = Master(t124) (forcer.h:282)",
+    },
+    PMasterDefinition {
+        name: "t145",
+        topology: "t1star45",
+        notation: "0-1 2-3 1-2 1-4 3-4* 2-4* 3-9",
+        sign: -1,
+        source: "Z(0,0,0,1,1,1,1,1,1,1) = BasicT1Integral45 / Q2 * Q2^5 (forcer/forcer-rules.h:271, \
+                 XXX: normalization?), i.e. Zt1star45(1,1,1,1,1) = BasicT1Integral45 / Q2 (:269); \
+                 BasicT1Integral45 = Master(t145) (forcer.h:281)",
+    },
+    PMasterDefinition {
+        name: "t155",
+        topology: "t1star55",
+        notation: "0-1 2-3 1-2 1-4 3-4 2-4** 3-9",
+        sign: -1,
+        source: "Z(0,0,0,0,2,1,1,1,1,1) = BasicT1Integral55 / Q2 * Q2^5 (forcer/forcer-rules.h:281, \
+                 XXX: normalization?), i.e. Zt1star55(1,1,1,1,1) = BasicT1Integral55 / Q2 (:279; \
+                 the leading 0,0,0,0,2 are eps units: line 2-4 at 1+2eps, every line at power 1, \
+                 no dot); BasicT1Integral55 = Master(t155) (forcer.h:280)",
     },
 ];
+
+/// The reference masters of a library whose loops go up to `max_loops`:
+/// [`P_BASIS_MASTERS_1_TO_3`] for 1-3 (unchanged since M2),
+/// [`P_BASIS_MASTERS_1_TO_4`] for 4. Forcer has no masters above four loops.
+pub fn p_basis_masters(max_loops: u8) -> Result<&'static [PMasterDefinition], PError> {
+    match max_loops {
+        1..=3 => Ok(&P_BASIS_MASTERS_1_TO_3),
+        4 => Ok(&P_BASIS_MASTERS_1_TO_4),
+        _ => Err(PError::Unsupported(format!(
+            "no Forcer reference masters for libraries of {max_loops} loops (1-4 are known)"
+        ))),
+    }
+}
 
 /// A topology in Forcer notation (see [`PMasterDefinition::notation`]): the
 /// internal lines, vertices numbered in order of first appearance from the two
@@ -835,6 +983,9 @@ pub struct PBasisOptions {
     pub seed: u64,
 }
 
+/// The 1L-3L masters ([`P_BASIS_MASTERS_1_TO_3`]); a scope 1-4 library needs
+/// [`PBasisOptions::for_library`] (with the default it fails closed: two
+/// masters for its sixteen residuals).
 impl Default for PBasisOptions {
     fn default() -> Self {
         Self {
@@ -846,6 +997,21 @@ impl Default for PBasisOptions {
     }
 }
 
+impl PBasisOptions {
+    /// The defaults with the masters of [`p_basis_masters`]`(max_loops)`.
+    pub fn for_max_loops(max_loops: u8) -> Result<Self, PError> {
+        Ok(Self {
+            masters: p_basis_masters(max_loops)?.to_vec(),
+            ..Self::default()
+        })
+    }
+
+    /// [`Self::for_max_loops`] at the top loop count of `library`'s scope.
+    pub fn for_library(library: &PLibrary) -> Result<Self, PError> {
+        Self::for_max_loops(*library.scope().end())
+    }
+}
+
 /// Where a reference master sits in a library, and what it reduces to.
 #[derive(Clone, Debug)]
 pub struct PMasterSite {
@@ -853,7 +1019,7 @@ pub struct PMasterSite {
     pub node: NodeIndex,
     /// The node's presentation.
     pub presentation: PresentationId,
-    /// Every line slot at 1, every ISP slot at 0.
+    /// [`node_corner`] of the presentation.
     pub key: Vec<i64>,
     /// `sign (eps G(1,1))^L Master(name)`.
     pub value: PTerm,
@@ -897,6 +1063,22 @@ struct Found {
     key: Vec<i64>,
 }
 
+/// A node's integral at unit powers on a presentation of that node: 1 on each
+/// line of the node's graph (on an induced presentation, the lines of its
+/// sector; elsewhere every line), 0 on every other slot. A master's site key.
+pub fn node_corner(presentation: &Presentation) -> Vec<i64> {
+    let sector = match presentation.kind {
+        PresentationKind::Induced { mask, .. } => mask,
+        _ => u64::MAX,
+    };
+    (presentation.slots.iter().enumerate())
+        .map(|(slot, kind)| match kind {
+            Slot::Line(_) if sector >> slot & 1 == 1 => 1,
+            _ => 0,
+        })
+        .collect()
+}
+
 /// The master sites of `library`: each master of `options` whose topology is a
 /// node of the library's DAG, on the first presentation of that node; and the
 /// names of the others.
@@ -921,22 +1103,25 @@ fn master_sites(
                     node.index, master.name
                 ))
             })?;
-        let eps_slots = (presentation.slots.iter())
-            .filter(|slot| matches!(slot, Slot::Line(line) if line.eps_units != 0))
-            .count();
+        // The eps units line by line, as a multiset (t155: one line with two).
+        let key = node_corner(presentation);
+        let mut slot_units: Vec<u8> = (presentation.slots.iter().zip(&key))
+            .filter_map(|(slot, &power)| match slot {
+                Slot::Line(line) if power == 1 => Some(line.eps_units),
+                _ => None,
+            })
+            .collect();
         let graph = master.graph()?;
-        if usize::from(graph.eps_lines()) != eps_slots || presentation.loops != graph.loops() {
+        let mut graph_units: Vec<u8> = graph.lines.iter().map(|line| line.2).collect();
+        slot_units.sort_unstable();
+        graph_units.sort_unstable();
+        if slot_units != graph_units || presentation.loops != graph.loops() {
             return Err(malformed(format!(
-                "presentation {} of master {} does not have the master's loops and eps lines",
+                "presentation {} of master {} does not have the master's loops and eps units \
+                 ({slot_units:?} on its lines, {graph_units:?} on the master's)",
                 presentation.id.0, master.name
             )));
         }
-        let key = (presentation.slots.iter())
-            .map(|slot| match slot {
-                Slot::Line(_) => 1,
-                Slot::Isp(_) => 0,
-            })
-            .collect();
         sites.push(Found {
             master: *master,
             node: NodeIndex(node.index),
@@ -1381,6 +1566,74 @@ pub fn with_derived_basis_layer(
     let derivation = derive_basis_layer(library, options)?;
     let mapped = with_basis_layer(library, Arc::new(derivation.layer.clone()))?;
     Ok((mapped, derivation))
+}
+
+// ---------------------------------------------------------------------------
+// The Gamma tag range (plan M3-T17 item 6)
+// ---------------------------------------------------------------------------
+
+/// The largest `|m|` of a `Gamma(1 + m eps)` that a step of `library`
+/// multiplies in: the tag `T_ins(j1, j2)` of every owner with Insertion roles
+/// (the Insertion and SeriesParallel lanes; `j` of its two bubble lines) and
+/// with Carpet roles (`j_inner = j_third + j_blob + L_blob` and `j_r`, as
+/// `CarpetStep::new` computes them); the other lanes multiply no Gamma
+/// function, and 0 if no owner does. A reduction's tags are products of these
+/// (exponents add, `m` stays) and the layer's `(eps G(1,1))^L` has `|m| <= 2`,
+/// so every tag of a reduction onto masters has `|m|` at most the larger of
+/// this count and 2. A tag beyond `P_GAMMA_TAG_MAX_M` is
+/// `PError::TagOutOfRange` here, as in the step itself.
+pub fn largest_gamma_m(library: &PLibrary) -> Result<i8, PError> {
+    let units = |presentation: &Presentation, slot: u16| -> Result<i64, PError> {
+        match presentation.slots.get(usize::from(slot)) {
+            Some(Slot::Line(line)) => Ok(i64::from(line.eps_units)),
+            _ => Err(malformed(format!(
+                "role slot {slot} of presentation {} is not a line",
+                presentation.id.0
+            ))),
+        }
+    };
+    let mut largest = 0_i8;
+    for owner in library.owners() {
+        let tag = match owner.spec.roles {
+            LaneRoles::Insertion(roles) => {
+                let parent = library.presentation(owner.spec.presentation);
+                relative_tag(
+                    units(parent, roles.lines[0])?,
+                    units(parent, roles.lines[1])?,
+                )?
+            }
+            LaneRoles::Carpet(roles) => {
+                let (parent, edges) = owner_edges(library, &owner.spec)?;
+                let [(edge, child)] = edges.as_slice() else {
+                    return Err(malformed(format!(
+                        "the carpet owner on presentation {} has {} edge maps",
+                        parent.id.0,
+                        edges.len()
+                    )));
+                };
+                let mut blob = 0;
+                for (slot, target) in parent.slots.iter().zip(&edge.line_slots) {
+                    if let (Slot::Line(line), Some(_)) = (slot, target) {
+                        blob += i64::from(line.eps_units);
+                    }
+                }
+                let third = match roles.third {
+                    Some(third) => units(&parent, third)?,
+                    None => 0,
+                };
+                let inner = third + blob + i64::from(child.loops);
+                carpet_tag(
+                    LinePower::new(1, inner),
+                    LinePower::new(1, units(&parent, roles.r)?),
+                )?
+            }
+            LaneRoles::None | LaneRoles::Triangle(_) => continue,
+        };
+        for &(m, _) in tag.exponents() {
+            largest = largest.max(m.abs());
+        }
+    }
+    Ok(largest)
 }
 
 // ---------------------------------------------------------------------------
