@@ -37,9 +37,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use rustred::algebra::{
-    Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraLimits,
-};
+use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::identity::ParametricIbpGenerator;
 use rustred::propagator::census::PSectorFate;
@@ -58,9 +56,7 @@ use rustred::reduction::{
 };
 use rustred::solver::litered::{DynamicLiteRedSession, LiteRedOptions};
 use rustred_app::propagator::assemble::{SplitMix, ValidateOptions, validation_keys};
-use rustred_app::propagator::{
-    AssembledLibrary, PLibraryOptions, PLibrarySource, load_p_library,
-};
+use rustred_app::propagator::{AssembledLibrary, PLibraryOptions, PLibrarySource, load_p_library};
 use serde_json::{Value, json};
 use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::{Q, Rational};
@@ -311,7 +307,13 @@ fn sector(library: &PLibrary, p: &Presentation, powers: &[i64]) -> (u64, bool) {
 /// A random key of `p` on the lines `kept` (each kept with probability 3/4
 /// when `kept` is `None`): `dots` extra units on them and `rank` numerator
 /// units on the other slots, each at most `-3`.
-fn random_powers(p: &Presentation, kept: Option<u64>, dots: u32, rank: u32, rng: &mut SplitMix) -> Vec<i64> {
+fn random_powers(
+    p: &Presentation,
+    kept: Option<u64>,
+    dots: u32,
+    rank: u32,
+    rng: &mut SplitMix,
+) -> Vec<i64> {
     let lines = line_slots(p);
     let mut powers = vec![0_i64; p.slots.len()];
     let mut on = Vec::new();
@@ -470,23 +472,42 @@ fn p_validate_shards_add_up_to_every_key_with_no_refusal() {
     rows.sort_by_key(|row| row["shard"].as_u64().unwrap());
     let first = rows[0].clone();
     let count = first["shards"].as_u64().unwrap() as usize;
-    let same = ["identity", "loops", "points", "seed", "max_dots", "max_rank", "shards", "total_keys"];
+    let same = [
+        "identity",
+        "loops",
+        "points",
+        "seed",
+        "max_dots",
+        "max_rank",
+        "shards",
+        "total_keys",
+    ];
     for row in &rows {
         for field in same {
             assert_eq!(row[field], first[field], "shard {}: {field}", row["shard"]);
         }
     }
-    let shards: Vec<u64> = rows.iter().map(|row| row["shard"].as_u64().unwrap()).collect();
-    let missing: Vec<usize> = (0..count).filter(|s| !shards.contains(&(*s as u64))).collect();
+    let shards: Vec<u64> = rows
+        .iter()
+        .map(|row| row["shard"].as_u64().unwrap())
+        .collect();
+    let missing: Vec<usize> = (0..count)
+        .filter(|s| !shards.contains(&(*s as u64)))
+        .collect();
     let sum = |field: &str| -> u64 { rows.iter().map(|row| row[field].as_u64().unwrap()).sum() };
     let failure = |kind: &str| -> u64 {
-        rows.iter().map(|row| row["failures"][kind].as_u64().unwrap()).sum()
+        rows.iter()
+            .map(|row| row["failures"][kind].as_u64().unwrap())
+            .sum()
     };
     let mut applied = BTreeSet::new();
     for row in &rows {
         applied.extend(row["applied"].as_object().unwrap().keys().cloned());
     }
-    let seconds: Vec<f64> = rows.iter().map(|row| row["seconds"].as_f64().unwrap()).collect();
+    let seconds: Vec<f64> = rows
+        .iter()
+        .map(|row| row["seconds"].as_f64().unwrap())
+        .collect();
     let library = package().map(|_| scope_four());
     let never: Vec<String> = library.map_or_else(Vec::new, |library| {
         (library.owners())
@@ -537,11 +558,8 @@ struct LoopMap(Vec<Vec<i64>>);
 
 impl LoopMap {
     fn is_identity(&self) -> bool {
-        (self.0.iter().enumerate()).all(|(i, row)| {
-            row.iter()
-                .enumerate()
-                .all(|(j, &v)| v == i64::from(i == j))
-        })
+        (self.0.iter().enumerate())
+            .all(|(i, row)| row.iter().enumerate().all(|(j, &v)| v == i64::from(i == j)))
     }
 
     /// `m(phi(k), q)` for a momentum row `m` over `(k, q)`.
@@ -593,7 +611,12 @@ fn unimodular_inverse(matrix: &[Vec<i64>]) -> Vec<Vec<i64>> {
     let minor = |row: usize, column: usize| -> Vec<Vec<i64>> {
         (0..n)
             .filter(|&r| r != row)
-            .map(|r| (0..n).filter(|&c| c != column).map(|c| matrix[r][c]).collect())
+            .map(|r| {
+                (0..n)
+                    .filter(|&c| c != column)
+                    .map(|c| matrix[r][c])
+                    .collect()
+            })
             .collect()
     };
     (0..n)
@@ -744,26 +767,45 @@ fn line_maps(
 }
 
 /// `I(powers)` of a source with slot rows `momenta`, written on `target`
-/// through `phi`: the lines of `sigma` keep their powers on their images, every
+/// through `phi`: every denominator goes to its image line (by `sigma`, else
+/// the target line its squared momentum maps onto) with its power, every
 /// numerator `D_s^(-n)` becomes `(left.phi . right.phi)^(-n)` expressed in the
-/// slots of `target` and expanded. A weighted sum of keys of `target`.
+/// slots of `target` and expanded. A weighted sum of keys of `target`; `None`
+/// when a denominator has no image line.
 fn transport(
     momenta: &[(Vec<i64>, Vec<i64>)],
     powers: &[i64],
     map: &LoopMap,
     sigma: &Sigma,
     target: &Presentation,
-) -> Vec<(Vec<i64>, Rational)> {
+) -> Option<Vec<(Vec<i64>, Rational)>> {
     let width = target.slots.len();
     let mut base = vec![0_i64; width];
-    for (&from, &to) in sigma {
-        base[to] = powers[from];
+    for (slot, &power) in powers.iter().enumerate().filter(|(_, power)| **power > 0) {
+        let to = match sigma.get(&slot) {
+            Some(&to) => to,
+            None => {
+                let (left, right) = &momenta[slot];
+                let image = map.image(left);
+                let negated: Vec<i64> = image.iter().map(|v| -v).collect();
+                (left == right).then_some(())?;
+                (target.slots.iter().enumerate()).find_map(|(to, s)| match s {
+                    Slot::Line(line) if line.momentum == image || line.momentum == negated => {
+                        Some(to)
+                    }
+                    _ => None,
+                })?
+            }
+        };
+        if base[to] != 0 {
+            return None;
+        }
+        base[to] = power;
     }
     let mut polynomial: BTreeMap<Vec<i64>, Rational> =
         BTreeMap::from([(vec![0_i64; width], Rational::one())]);
     for (slot, &power) in powers.iter().enumerate() {
-        if power > 0 {
-            assert!(sigma.contains_key(&slot), "a denominator off the map");
+        if power >= 0 {
             continue;
         }
         let (left, right) = &momenta[slot];
@@ -774,7 +816,7 @@ fn transport(
             polynomial = times(&polynomial, &form);
         }
     }
-    over(&base, polynomial)
+    Some(over(&base, polynomial))
 }
 
 /// A polynomial in the slots (exponents -> coefficient) times `a.b = c + Sum_i
@@ -844,9 +886,18 @@ fn four_loop_reductions_are_invariant_under_unimodular_loop_momentum_maps() {
         }
         let mut maps = Vec::new();
         for &target in &order {
-            let found = line_maps(&momenta, &lines, library.presentation(target), target == source.id, 16);
+            let found = line_maps(
+                &momenta,
+                &lines,
+                library.presentation(target),
+                target == source.id,
+                16,
+            );
             if !found.is_empty() {
-                maps = found.into_iter().map(|(map, sigma)| (target, map, sigma)).collect();
+                maps = found
+                    .into_iter()
+                    .map(|(map, sigma)| (target, map, sigma))
+                    .collect();
                 break;
             }
         }
@@ -855,18 +906,31 @@ fn four_loop_reductions_are_invariant_under_unimodular_loop_momentum_maps() {
             continue;
         }
         let (target, map, sigma) = maps.swap_remove(rng.below(maps.len() as u64) as usize);
-        let ours = reduce(library, vec![(source.id, key(&powers), library.coefficient_context().one())]);
+        let ours = reduce(
+            library,
+            vec![(source.id, key(&powers), library.coefficient_context().one())],
+        );
         let ours = nonzero_terms(&ours);
         if ours.is_empty() {
             zero_draws += 1;
             continue;
         }
-        let image = transport(&momenta, &powers, &map, &sigma, library.presentation(target));
+        let image = transport(
+            &momenta,
+            &powers,
+            &map,
+            &sigma,
+            library.presentation(target),
+        )
+        .unwrap();
         let theirs = nonzero_terms(&reduce(library, inputs_of(library, target, &image)));
         assert_eq!(
-            ours, theirs,
+            ours,
+            theirs,
             "{} {powers:?} and its image on {} under {map:?} ({} keys)",
-            source.id.0, target.0, image.len()
+            source.id.0,
+            target.0,
+            image.len()
         );
         checked += 1;
         across += usize::from(target != source.id);
@@ -913,9 +977,14 @@ fn ibp_combination(
             if value.is_zero() {
                 continue;
             }
-            let powers: Vec<i64> = seed.iter().zip(shift.values()).map(|(a, b)| a + b).collect();
+            let powers: Vec<i64> = seed
+                .iter()
+                .zip(shift.values())
+                .map(|(a, b)| a + b)
+                .collect();
             assert!(
-                (p.slots.iter().zip(&powers)).all(|(slot, &n)| n <= 0 || matches!(slot, Slot::Line(_))),
+                (p.slots.iter().zip(&powers))
+                    .all(|(slot, &n)| n <= 0 || matches!(slot, Slot::Line(_))),
                 "a row term with a positive ISP power: {powers:?}"
             );
             let term = context.try_mul(&value, &weight, exact()).unwrap();
@@ -972,10 +1041,20 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
         let (presentation, support) = record.owner;
         let p = library.presentation(presentation);
         for s in 0..per_owner {
-            let rank = if s % 2 == 0 { 2 * rng.below(2) } else { 1 + 2 * rng.below(2) };
-            let powers = random_powers(p, Some(support), rng.below(3) as u32, rank as u32, &mut rng);
+            let rank = if s % 2 == 0 {
+                2 * rng.below(2)
+            } else {
+                1 + 2 * rng.below(2)
+            };
+            let powers =
+                random_powers(p, Some(support), rng.below(3) as u32, rank as u32, &mut rng);
             seeds.push(Seed {
-                what: format!("L{} {:?} {}", record.key.loops, owner.spec.lane, record.key.label()),
+                what: format!(
+                    "L{} {:?} {}",
+                    record.key.loops,
+                    owner.spec.lane,
+                    record.key.label()
+                ),
                 presentation,
                 powers,
             });
@@ -1039,12 +1118,17 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
     });
     let results = results.into_inner().unwrap();
     assert_eq!(results.len(), seeds.len());
-    let keys: Vec<(PresentationId, Vec<i64>)> =
-        seeds.iter().map(|s| (s.presentation, s.powers.clone())).collect();
+    let keys: Vec<(PresentationId, Vec<i64>)> = seeds
+        .iter()
+        .map(|s| (s.presentation, s.powers.clone()))
+        .collect();
     let trace = descent::trace(library, &keys, ReductionLimits::default()).unwrap();
     assert!(trace.is_clean(), "{:?}", trace.samples);
     let nonzero = results.iter().filter(|r| r.seed_nonzero).count();
-    let odd = results.iter().filter(|r| r.rank % 2 == 1 && r.seed_nonzero).count();
+    let odd = results
+        .iter()
+        .filter(|r| r.rank % 2 == 1 && r.seed_nonzero)
+        .count();
     let slowest = results
         .iter()
         .max_by(|a, b| a.seconds.total_cmp(&b.seconds))
@@ -1054,7 +1138,10 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
         let rows: Vec<Value> = (results.iter())
             .map(|r| json!([r.what, r.rows, r.keys, r.seed_nonzero, r.rank, r.seconds]))
             .collect();
-        write_json(&directory.join("ibp_rows.json"), &json!({"identity": library.identity(), "seeds": rows}));
+        write_json(
+            &directory.join("ibp_rows.json"),
+            &json!({"identity": library.identity(), "seeds": rows}),
+        );
     }
     println!(
         "IBP rows: {} seeds ({owner_seeds} on {} owners, {} on 4L top subsectors), {} rows, {} keys, \
@@ -1073,7 +1160,10 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
         slowest.seconds,
         start.elapsed().as_secs_f64()
     );
-    assert!(nonzero * 2 >= results.len(), "most seeds are nonzero integrals");
+    assert!(
+        nonzero * 2 >= results.len(),
+        "most seeds are nonzero integrals"
+    );
 }
 
 /// The rules-study statements on the owners (rules_study/M2_M3_INPUTS.md
@@ -1117,7 +1207,12 @@ fn the_rules_study_residual_statements_hold_on_the_owners() {
 
 /// A table key `I(n0, n1-1, 2, ..)` at the point `n`.
 fn table_key(text: &str, n: &[i64]) -> Vec<i64> {
-    let inner = text.trim().strip_prefix("I(").unwrap().strip_suffix(')').unwrap();
+    let inner = text
+        .trim()
+        .strip_prefix("I(")
+        .unwrap()
+        .strip_suffix(')')
+        .unwrap();
     (inner.split(','))
         .map(|entry| {
             let entry = entry.trim();
@@ -1126,7 +1221,11 @@ fn table_key(text: &str, n: &[i64]) -> Vec<i64> {
                 Some(rest) => {
                     let end = rest.find(['+', '-']).unwrap_or(rest.len());
                     let index: usize = rest[..end].parse().unwrap();
-                    let offset: i64 = if end == rest.len() { 0 } else { rest[end..].parse().unwrap() };
+                    let offset: i64 = if end == rest.len() {
+                        0
+                    } else {
+                        rest[end..].parse().unwrap()
+                    };
                     n[index] + offset
                 }
             }
@@ -1141,7 +1240,10 @@ fn table_value(context: &CoefficientContext, text: &str, n: &[i64]) -> Option<Co
     let mut chars = text.chars().peekable();
     let mut previous = ' ';
     while let Some(c) = chars.next() {
-        if c == 'n' && !previous.is_ascii_alphanumeric() && chars.peek().is_some_and(char::is_ascii_digit) {
+        if c == 'n'
+            && !previous.is_ascii_alphanumeric()
+            && chars.peek().is_some_and(char::is_ascii_digit)
+        {
             let mut digits = String::new();
             while let Some(&digit) = chars.peek().filter(|c| c.is_ascii_digit()) {
                 digits.push(digit);
@@ -1178,11 +1280,15 @@ fn table_value(context: &CoefficientContext, text: &str, n: &[i64]) -> Option<Co
 fn the_frozen_t148_bubu_table_holds_through_the_library() {
     let library = scope_four();
     let context = library.coefficient_context();
-    let path = std::env::var_os("RUSTRED_T148_TABLE").expect("RUSTRED_T148_TABLE names T148.table.jsonl");
+    let path =
+        std::env::var_os("RUSTRED_T148_TABLE").expect("RUSTRED_T148_TABLE names T148.table.jsonl");
     let points: usize = setting("T148_POINTS", 2);
     let workers: usize = setting("WORKERS", 4);
     let text = std::fs::read_to_string(path).unwrap();
-    let records: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let records: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
     let header = &records[0];
     assert_eq!(header["schema"], "table_dump.v1");
     assert_eq!(header["family"], "T148");
@@ -1195,10 +1301,17 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
         let inside = prop.split_once(",(").unwrap().1;
         let (momentum, rest) = inside.split_once(")^2,").unwrap();
         let mut row = vec![0_i64; 5];
-        for (sign, name) in momentum.replace('-', "+-").split('+').filter(|t| !t.is_empty()).map(|t| {
-            t.strip_prefix('-').map_or((1, t), |name| (-1, name))
-        }) {
-            let column = if name == "q" { 4 } else { name[1..].parse::<usize>().unwrap() - 1 };
+        for (sign, name) in momentum
+            .replace('-', "+-")
+            .split('+')
+            .filter(|t| !t.is_empty())
+            .map(|t| t.strip_prefix('-').map_or((1, t), |name| (-1, name)))
+        {
+            let column = if name == "q" {
+                4
+            } else {
+                name[1..].parse::<usize>().unwrap() - 1
+            };
             row[column] += sign;
         }
         if rest.starts_with('1') {
@@ -1208,20 +1321,28 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     }
     assert_eq!((momenta.len(), lines.len()), (14, 9));
     let bubu = custom_owners(library)["bubu"];
-    let (presentation, support) = library.census().classes[&bubu].owner;
+    let (owner, support) = library.census().classes[&bubu].owner;
+    // Keys of the table may carry a denominator off bubu's sector (an exit
+    // term into a ten-line sector of the top): reduce on the top itself.
+    let presentation = match &library.presentation(owner).kind {
+        PresentationKind::Induced { top, .. } => *top,
+        _ => owner,
+    };
     let target = library.presentation(presentation);
+    assert_eq!(target.slots, library.presentation(owner).slots);
     let (map, sigma) = line_maps(&momenta, &lines, target, false, 4096)
         .into_iter()
         .find(|(_, sigma)| sigma.values().fold(0_u64, |m, &s| m | 1 << s) == support)
         .expect("the table's lines map onto bubu's");
     let rules: Vec<&Value> = records.iter().filter(|r| r["type"] == "rule").collect();
     assert_eq!(rules.len(), 139);
-    let chart_guards: Vec<String> = (records.iter().find(|r| r["type"] == "chart").unwrap()["guards"])
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|g| g.as_str().unwrap().to_owned())
-        .collect();
+    let chart_guards: Vec<String> =
+        (records.iter().find(|r| r["type"] == "chart").unwrap()["guards"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g.as_str().unwrap().to_owned())
+            .collect();
     let mut rng = SplitMix::new(setting("T148_SEED", 0x0418_7148_u64));
     let mut cases: Vec<(usize, Vec<i64>)> = Vec::new();
     let mut skipped = 0;
@@ -1244,9 +1365,11 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                     table_value(context, equation.as_str().unwrap(), &n).is_none_or(|v| v.is_zero())
                 })
             });
-            let regular = rule["rhs"].as_array().unwrap().iter().all(|term| {
-                table_value(context, term[1].as_str().unwrap(), &n).is_some()
-            });
+            let regular = rule["rhs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|term| table_value(context, term[1].as_str().unwrap(), &n).is_some());
             if !excepted && regular && !cases.contains(&(index, n.clone())) {
                 cases.push((index, n));
                 found += 1;
@@ -1257,58 +1380,76 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     let start = Instant::now();
     let next = AtomicUsize::new(0);
     let nonzero = AtomicUsize::new(0);
+    let off_top = AtomicUsize::new(0);
     let one = context.one();
     std::thread::scope(|scope| {
         for _ in 0..workers.max(1) {
-            scope.spawn(|| loop {
-                let position = next.fetch_add(1, Ordering::Relaxed);
-                let Some((index, n)) = cases.get(position) else {
-                    break;
-                };
-                let rule = rules[*index];
-                let mut terms = vec![(table_key(rule["target"].as_str().unwrap(), n), one.clone())];
-                for term in rule["rhs"].as_array().unwrap() {
-                    let value = table_value(context, term[1].as_str().unwrap(), n).unwrap();
-                    let value = context.try_neg(&value, exact()).unwrap();
-                    terms.push((table_key(term[0].as_str().unwrap(), n), value));
-                }
-                let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
-                for (powers, value) in &terms {
-                    let sign = if powers.iter().sum::<i64>() % 2 == 0 { 1 } else { -1 };
-                    for (key, weight) in transport(&momenta, powers, &map, &sigma, target) {
-                        let weight = coefficient_of(context, &(&weight * &rational(sign, 1)));
-                        let term = context.try_mul(value, &weight, exact()).unwrap();
-                        let entry = sum.entry(key).or_insert_with(|| context.integer(0));
-                        *entry = context.try_add(entry, &term, exact()).unwrap();
+            scope.spawn(|| {
+                loop {
+                    let position = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((index, n)) = cases.get(position) else {
+                        break;
+                    };
+                    let rule = rules[*index];
+                    let mut terms =
+                        vec![(table_key(rule["target"].as_str().unwrap(), n), one.clone())];
+                    for term in rule["rhs"].as_array().unwrap() {
+                        let value = table_value(context, term[1].as_str().unwrap(), n).unwrap();
+                        let value = context.try_neg(&value, exact()).unwrap();
+                        terms.push((table_key(term[0].as_str().unwrap(), n), value));
                     }
-                }
-                let inputs: Vec<Input> = (sum.into_iter())
-                    .filter(|(_, c)| !c.is_zero())
-                    .map(|(powers, c)| (presentation, key(&powers), c))
-                    .collect();
-                let reduction = reduce(library, inputs);
-                assert!(
-                    nonzero_terms(&reduction).is_empty(),
-                    "T148 rule {index} at {n:?}: {:?}",
-                    nonzero_terms(&reduction)
-                );
-                let target_key = table_key(rule["target"].as_str().unwrap(), n);
-                let alone: Vec<Input> = transport(&momenta, &target_key, &map, &sigma, target)
-                    .into_iter()
-                    .map(|(powers, w)| (presentation, key(&powers), coefficient_of(context, &w)))
-                    .collect();
-                if !nonzero_terms(&reduce(library, alone)).is_empty() {
-                    nonzero.fetch_add(1, Ordering::Relaxed);
+                    let carried: Option<Vec<_>> = (terms.iter())
+                        .map(|(powers, _)| transport(&momenta, powers, &map, &sigma, target))
+                        .collect();
+                    let Some(carried) = carried else {
+                        off_top.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    };
+                    let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
+                    for ((powers, value), image) in terms.iter().zip(carried) {
+                        let sign = if powers.iter().sum::<i64>() % 2 == 0 {
+                            1
+                        } else {
+                            -1
+                        };
+                        for (key, weight) in image {
+                            let weight = coefficient_of(context, &(&weight * &rational(sign, 1)));
+                            let term = context.try_mul(value, &weight, exact()).unwrap();
+                            let entry = sum.entry(key).or_insert_with(|| context.integer(0));
+                            *entry = context.try_add(entry, &term, exact()).unwrap();
+                        }
+                    }
+                    let inputs: Vec<Input> = (sum.into_iter())
+                        .filter(|(_, c)| !c.is_zero())
+                        .map(|(powers, c)| (presentation, key(&powers), c))
+                        .collect();
+                    let reduction = reduce(library, inputs);
+                    assert!(
+                        nonzero_terms(&reduction).is_empty(),
+                        "T148 rule {index} at {n:?}: {:?}",
+                        nonzero_terms(&reduction)
+                    );
+                    let target_key = table_key(rule["target"].as_str().unwrap(), n);
+                    let alone: Vec<Input> = transport(&momenta, &target_key, &map, &sigma, target)
+                        .unwrap()
+                        .into_iter()
+                        .map(|(powers, w)| {
+                            (presentation, key(&powers), coefficient_of(context, &w))
+                        })
+                        .collect();
+                    if !nonzero_terms(&reduce(library, alone)).is_empty() {
+                        nonzero.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             });
         }
     });
     println!(
-        "T148 table: {} rule identities at {} points ({} rules, {skipped} points not found in a domain) \
-         hold through the library; {} nonzero targets; map {map:?}; {:.1} s",
-        cases.len(),
-        cases.len(),
+        "T148 table: {} rule identities ({} rules, {skipped} points not found in a domain, {} with a key \
+         off the top's lines) hold through the library; {} nonzero targets; map {map:?}; {:.1} s",
+        cases.len() - off_top.load(Ordering::Relaxed),
         rules.len(),
+        off_top.load(Ordering::Relaxed),
         nonzero.load(Ordering::Relaxed),
         start.elapsed().as_secs_f64()
     );
@@ -1465,15 +1606,17 @@ fn p0_spired_agrees_on_the_forcer_blind_crossed_owners() {
             let weight = rational(1 + rng.below(9) as i64, 1 + rng.below(4) as i64);
             if index % 2 == 0 {
                 let rank = rng.below(5);
-                let powers = random_powers(p, Some(kept), rng.below(3) as u32, rank as u32, &mut rng);
+                let powers =
+                    random_powers(p, Some(kept), rng.below(3) as u32, rank as u32, &mut rng);
                 let rank = rank_of(&powers);
                 inputs.push((vec![(powers, weight)], rank));
             } else {
                 let base = random_powers(p, Some(kept), rng.below(3) as u32, 0, &mut rng);
                 let types = scalar_products(p);
                 let rank = rng.below(5) as usize;
-                let products: Vec<(usize, usize)> =
-                    (0..rank).map(|_| types[rng.below(types.len() as u64) as usize]).collect();
+                let products: Vec<(usize, usize)> = (0..rank)
+                    .map(|_| types[rng.below(types.len() as u64) as usize])
+                    .collect();
                 let q_sign = if rng.below(2) == 0 { 1 } else { -1 };
                 inputs.push((lowered(p, &base, &products, q_sign, weight), rank as i64));
             }
@@ -1483,7 +1626,8 @@ fn p0_spired_agrees_on_the_forcer_blind_crossed_owners() {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        let index: BTreeMap<&Vec<i64>, usize> = keys.iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let index: BTreeMap<&Vec<i64>, usize> =
+            keys.iter().enumerate().map(|(i, k)| (k, i)).collect();
         let masters: Vec<PReduction> = (p0.masters.clone().into_iter())
             .map(|master| reduce(library, vec![(presentation, master, context.one())]))
             .collect();
@@ -1499,7 +1643,11 @@ fn p0_spired_agrees_on_the_forcer_blind_crossed_owners() {
                 let mut expected = BTreeMap::new();
                 for (powers, weight) in terms {
                     for (master, coefficient) in rows[index[powers]].iter().enumerate() {
-                        add_scaled(&mut expected, &master_values[master], &(coefficient * weight));
+                        add_scaled(
+                            &mut expected,
+                            &master_values[master],
+                            &(coefficient * weight),
+                        );
                     }
                 }
                 assert_eq!(ours, expected, "P0 {name}: {terms:?} at d = {d}");
@@ -1552,7 +1700,9 @@ fn exact_equals_both_modular_arithmetics_and_threads_are_bit_identical_at_four_l
     for slot in line_slots(p) {
         first[slot] = 1;
     }
-    let isp = (0..p.slots.len()).find(|&s| matches!(p.slots[s], Slot::Isp(_))).unwrap();
+    let isp = (0..p.slots.len())
+        .find(|&s| matches!(p.slots[s], Slot::Isp(_)))
+        .unwrap();
     first[isp] = -1;
     let cross = custom_owners(library)["cross"];
     let (owner, support) = library.census().classes[&cross].owner;
@@ -1571,7 +1721,11 @@ fn exact_equals_both_modular_arithmetics_and_threads_are_bit_identical_at_four_l
         ("ModularSampled(4) x 16", modular_sampled(4), 16),
     ];
     for (position, (presentation, powers)) in inputs.iter().enumerate() {
-        let used = if position == 0 { &configurations[..] } else { &configurations[..3] };
+        let used = if position == 0 {
+            &configurations[..]
+        } else {
+            &configurations[..3]
+        };
         let mut exact: Option<PReduction> = None;
         for &(name, arithmetic, threads) in used {
             let start = Instant::now();
