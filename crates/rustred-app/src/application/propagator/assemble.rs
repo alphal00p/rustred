@@ -292,7 +292,9 @@ pub fn assemble_library_with(
     triangle: TriangleCheck<'_>,
 ) -> Result<AssembledLibrary, PError> {
     let diamond: DiamondCheck<'_> = &diamond_template_check;
-    assemble(families, max_loops, custom, options, triangle, diamond, None)
+    assemble(
+        families, max_loops, custom, options, triangle, diamond, None,
+    )
 }
 
 /// [`assemble_library_with`] with another Diamond template check as well: the
@@ -306,7 +308,9 @@ pub fn assemble_library_checked(
     triangle: TriangleCheck<'_>,
     diamond: DiamondCheck<'_>,
 ) -> Result<AssembledLibrary, PError> {
-    assemble(families, max_loops, custom, options, triangle, diamond, None)
+    assemble(
+        families, max_loops, custom, options, triangle, diamond, None,
+    )
 }
 
 fn assemble(
