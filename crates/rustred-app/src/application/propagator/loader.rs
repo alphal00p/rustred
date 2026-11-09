@@ -285,12 +285,14 @@ fn check_payload(
 /// The Custom payloads of a package by class label, with their meta, for
 /// `rustred p-package --reuse-custom` and regeneration tests
 /// (`CustomPayloads::Provided`). Versions and the guard are checked as by
-/// [`load_p_library`]. A directory without `library.json` is read as an owner
-/// directory of `rustred p-generate` ([`read_owner_records`]).
+/// [`load_p_library`]. An existing directory without `library.json` is read as
+/// an owner directory of `rustred p-generate` ([`read_owner_records`]); a
+/// missing directory is refused as a package (missing `library.json`).
 pub fn read_custom_payloads(
     source: &PLibrarySource,
 ) -> Result<BTreeMap<String, CustomOwnerPayload>, PError> {
     if let PLibrarySource::Directory(directory) = source
+        && directory.is_dir()
         && !directory.join(LIBRARY_FILE).exists()
     {
         return read_owner_records(directory);
