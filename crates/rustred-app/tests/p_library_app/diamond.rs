@@ -408,16 +408,49 @@ fn case_loops(library: &PLibrary, case: &ForcerCase) -> (PresentationId, u8) {
     (top, library.presentation(top).loops)
 }
 
-/// A Forcer case reduced by `library` onto its terminals.
+/// A Forcer case reduced by `library` onto its terminals, in Forcer's
+/// normalisation: the reduction (convention C1 at `Q^2 = 1`) times
+/// `(eps G(1,1))^-L`, as `ForcerCase::expected` (convention C3, basis.rs).
 fn case_terms(library: &PLibrary, case: &ForcerCase) -> Terms {
-    let (top, _) = case_loops(library, case);
+    let (top, loops) = case_loops(library, case);
     let context = library.coefficient_context();
     let inputs = case.inputs(context, library.presentation(top)).unwrap();
-    named_terms(library, &reduce_inputs(library, inputs))
+    in_g_scheme(
+        library,
+        named_terms(library, &reduce_inputs(library, inputs)),
+        loops,
+    )
+}
+
+/// `(eps G(1,1))^-loops` times `terms`: per loop the tag
+/// `{(+1,-1),(-1,-2),(-2,+1)}` and the factor `d - 3` (basis.rs `scheme_tag`).
+fn in_g_scheme(library: &PLibrary, terms: Terms, loops: u8) -> Terms {
+    let context = library.coefficient_context();
+    let l = i16::from(loops);
+    let shift = GammaTag::from_pairs([(1, -l), (-1, -2 * l), (-2, l)]).unwrap();
+    let d = context.parameter("d").unwrap();
+    let d_minus_3 = context
+        .try_sub(&d, &context.integer(3), Default::default())
+        .unwrap();
+    let mut factor = context.one();
+    for _ in 0..loops {
+        factor = context
+            .try_mul(&factor, &d_minus_3, Default::default())
+            .unwrap();
+    }
+    (terms.into_iter())
+        .map(|((name, tag), value)| {
+            let value = context
+                .try_mul(&value, &factor, Default::default())
+                .unwrap();
+            ((name, tag.add(&shift)), value)
+        })
+        .collect()
 }
 
 /// A Forcer master in a library's terminals: an anchor whose Forcer value is
-/// `c T Master(name)` alone, with `c`, `T` and the anchor's reduction.
+/// `c T Master(name)` alone, with `c`, `T` and the anchor's reduction (in
+/// Forcer's normalisation, so anchors of fewer loops than the case serve).
 struct MasterImage {
     anchor: String,
     tag: GammaTag,
@@ -505,10 +538,11 @@ fn forcer_terms(
 }
 
 /// G3's Forcer item. Forcer reduces no3 with `SchemeZno3`, the Diamond lane
-/// with the diamond rule: on M3-V7's no3 battery (the top, an ISP, rank 2, a
-/// dot) the lane's reduction equals Forcer's value exactly in `Q(d)`, and at
-/// two `d`, once each Forcer master is replaced by the reduction of its Forcer
-/// anchor. The bubu top (a Custom owner, masters bebe, cross, t145) checks the
+/// with the diamond rule: on M3-V7's no3 battery (the top, a numerator of
+/// rank 1 and of rank 2, a dot) the lane's reduction, in Forcer's
+/// normalisation, equals Forcer's value exactly in `Q(d)`, and at two `d`,
+/// once each Forcer master is replaced by the reduction of its Forcer anchor.
+/// The bubu top (a Custom owner, masters bebe, cross, t145) checks the
 /// replacement itself.
 #[test]
 #[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4, RUSTRED_P4L_FORCER)"]
