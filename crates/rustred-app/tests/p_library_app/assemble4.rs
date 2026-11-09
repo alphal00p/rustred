@@ -1,7 +1,8 @@
 //! The scope 1-4 library program (owner: M3-T8c rr-assemble4).
 //!
 //! STAGE 1 assembles the program of the built-in tops with 1-4 loops, the
-//! Diamond nodes on the Custom lane (plan M3 D-M3-2), from the Custom payloads
+//! Diamond nodes on the Diamond lane (M3-T5b; on the Custom lane before it,
+//! plan M3 D-M3-2), from the Custom payloads
 //! M3-T15 generated once and staged with their LP counts (D-M3-3): the owner
 //! directory named by `RUSTRED_P_OWNERS_1_4` (`rustred p-generate` records,
 //! read by `read_custom_payloads` as `CustomPayloads::Provided`). Checked: the
@@ -512,7 +513,8 @@ fn layer_rows(library: &PLibrary) -> Vec<String> {
 /// Forcer name, lane (`Custom(diamond)` exactly on the Diamond nodes), node,
 /// loops, lines, eps lines, family, support, two-sided axes, charts, rules,
 /// residuals, LP and payload bytes. (The payload sha256 column is checked
-/// against the staged files by `sha256sum -c`, notes/rr-assemble4.md.)
+/// against the staged files by `sha256sum -c`, notes/rr-assemble4.md.) The
+/// `Custom(diamond)` rows are on the Diamond lane now (M3-T5b): no payload.
 fn check_owners_tsv(assembled: &AssembledLibrary) {
     let library = &assembled.library;
     let path = Path::new(CORE_GOLDEN).join("owners_1-4.tsv");
@@ -524,10 +526,22 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
         .map(|(label, owner, support)| (label, (owner, support)))
         .collect();
     let mut seen = BTreeSet::new();
+    let mut diamonds = 0;
     for row in rows {
         let cells: Vec<&str> = row.split('\t').collect();
         let cell = |name: &str| cells[column(name)];
         let label = cell("class");
+        if cell("lane") == "Custom(diamond)" {
+            let census = library.census();
+            let owner = (library.owners())
+                .find(|o| census.classes[&o.spec.class].key.label() == label)
+                .unwrap_or_else(|| panic!("{label}: no owner"));
+            assert_eq!(owner.spec.lane, OwnerLane::Diamond, "{label}");
+            assert!(owner.spec.payload.is_none(), "{label}");
+            assert!(seen.insert(label.to_owned()), "{label} twice");
+            diamonds += 1;
+            continue;
+        }
         let (owner, support) = owners[label];
         let spec = &owner.spec;
         let presentation = library.presentation(spec.presentation);
@@ -578,9 +592,10 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
         );
         assert!(seen.insert(label.to_owned()), "{label} twice");
     }
+    assert_eq!(diamonds, 4, "owners_1-4.tsv: the Diamond nodes");
     assert_eq!(
         seen.len(),
-        owners.len(),
+        owners.len() + diamonds,
         "owners_1-4.tsv rows against Custom owners"
     );
 }
@@ -660,14 +675,15 @@ fn check_inventory(assembled: &AssembledLibrary) {
     );
 }
 
-/// The program of scope 1-4 from M3-T15's staged payloads (G1 with C-D: the
-/// Diamond nodes on the Custom lane; G4's certificate): ForcerTree 438 nodes
-/// with Forcer's action table, the census strongly complete over 437 node
-/// presentations and 310 classes (4,519 nonzero sectors of the 4L tops on 183
-/// classes), one owner per class with its verified edge maps or its staged
-/// payload, the descent certificate, M3-T17's basis layer (17 rows onto the
-/// 16 masters); a short trace refuses nothing (0 MissingOwner); the golden
-/// inventory pins all of it to the identity.
+/// The program of scope 1-4 from M3-T15's staged payloads (G1, the Diamond
+/// lane active since M3-T5b; G4's certificate): ForcerTree 438 nodes with
+/// Forcer's action table, the Diamond nodes on the Diamond lane (their staged
+/// payloads unused), the census strongly complete over 437 node presentations
+/// and 310 classes (4,519 nonzero sectors of the 4L tops on 183 classes), one
+/// owner per class with its verified edge maps or its staged payload, the
+/// descent certificate, M3-T17's basis layer (17 rows onto the 16 masters); a
+/// short trace refuses nothing (0 MissingOwner); the golden inventory pins all
+/// of it to the identity.
 #[test]
 #[ignore = "slow: scope 1-4 assembly with census, completeness check and certificate; needs RUSTRED_P_OWNERS_1_4"]
 fn scope_one_to_four_assembles_from_the_staged_owners() {
@@ -684,8 +700,7 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         ("l4_tops", 11),
         ("l4_top_nonzero_sectors", 4_519),
         ("l4_top_classes", 183),
-        // C-D (D-M3-2): the Diamond nodes stay on the Custom lane.
-        ("diamond_nodes_on_custom", 4),
+        ("diamond_nodes_on_custom", 0),
         ("triangle_fallbacks", 0),
         // M3-T17's layer: Unit + 16 residuals, each one master term.
         ("terminals", 17),
@@ -714,6 +729,7 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         "Insertion",
         "Carpet",
         "Triangle",
+        "Diamond",
         "Custom",
         "Zero",
     ]
@@ -730,7 +746,8 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
             ("Insertion", 174),
             ("Carpet", 24),
             ("Triangle", 53),
-            ("Custom", 25),
+            ("Diamond", 4),
+            ("Custom", 21),
             ("Zero", 1),
         ])
     );
