@@ -16,6 +16,7 @@ pub(super) struct Admitted<const N: usize> {
     pub rule: SectorRule<N>,
     pub children: Vec<Case<N>>,
     pub discarded: usize,
+    pub resolutions: super::ResolutionCounts,
     features: Features,
 }
 
@@ -157,7 +158,7 @@ impl<const N: usize> SectorSolver<'_, N> {
                 || work.geometry_calls += 1,
             );
             work.geometry = started.elapsed();
-            let (children, discarded) = admitted?;
+            let (children, discarded, resolutions) = admitted?;
             if children.iter().any(|child| child == current) {
                 return Err(SectorSolveError::NonProgress {
                     case: current.clone(),
@@ -167,6 +168,7 @@ impl<const N: usize> SectorSolver<'_, N> {
                 rule,
                 children,
                 discarded,
+                resolutions,
                 features: Features::default(),
             };
             admitted.features =

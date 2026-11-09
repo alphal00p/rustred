@@ -88,7 +88,7 @@ pub use candidate_reduction::{
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
-    CaseIntersectionStats, CoordinateCase,
+    CaseIntersectionStats, CaseResolution, CaseResolutionReason, CoordinateCase,
 };
 pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};

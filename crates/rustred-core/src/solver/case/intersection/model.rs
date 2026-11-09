@@ -74,6 +74,12 @@ pub struct CaseIntersectionStats {
     /// Exact bounded-negative-coordinate refinements, not sampled solutions.
     pub rank_splits: usize,
     pub rank_children: usize,
+    /// Stuck branches resolved because the ORIGINAL conjunction restricts to
+    /// zero on their chart (S1 lift, [`CaseResolutionReason::Lifted`]).
+    pub lifted_branches: usize,
+    /// Stuck branches proved integer-empty by residues modulo a small prime
+    /// on the chart lattice (S2, [`CaseResolutionReason::ModularEmpty`]).
+    pub modular_empty_branches: usize,
     pub peak_conjunction_terms: usize,
     pub restriction_time: Duration,
     pub admission_time: Duration,
@@ -90,6 +96,37 @@ pub struct CaseIntersectionResult<const N: usize> {
     pub cases: Vec<Case<N>>,
     pub max_numerator_rank: Option<u32>,
     pub stats: CaseIntersectionStats,
+    /// Provenance of every branch that no refinement step could refine but
+    /// that was nevertheless resolved exactly (S1 lift / S2 modular emptiness).
+    /// Empty when the ordinary refinement path resolved every branch.
+    pub resolutions: Vec<CaseResolution<N>>,
+}
+
+/// Why an otherwise unrefinable AND branch was resolved exactly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CaseResolutionReason {
+    /// S1: the ORIGINAL conjunction restricts to zero on the branch chart, so
+    /// the whole chart (a subset of the original parent) lies in the locus and
+    /// replaces the branch (which is a subset of the chart). The union stays
+    /// exactly the exceptional locus.
+    Lifted,
+    /// S2: the branch conjunction has no common zero modulo `prime` at any
+    /// residue of the chart lattice (fixed coordinates and primitive integer
+    /// chart rows reduced modulo `prime`), so the branch has no integer point.
+    ModularEmpty { prime: u32 },
+}
+
+/// Exact provenance of one branch resolved by [`CaseResolutionReason`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaseResolution<const N: usize> {
+    pub reason: CaseResolutionReason,
+    /// The refusal the engine would have returned without this resolution.
+    pub replaced: CaseIntersectionFailure,
+    /// The branch chart; for [`CaseResolutionReason::Lifted`] also the case
+    /// added to the union (before canonical pruning and rank scoping).
+    pub chart: Case<N>,
+    /// The branch conjunction restricted to `chart`, equations equal to zero.
+    pub conjunction: Arc<[CoefficientPolynomial]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

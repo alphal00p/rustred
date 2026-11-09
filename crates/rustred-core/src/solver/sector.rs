@@ -51,7 +51,7 @@ impl<const N: usize> SectorRule<N> {
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<Vec<Case<N>>, SectorSolveError<N>> {
-        let (admitted, _) = self.admit_exceptional_cases(indices, sector)?;
+        let (admitted, _, _) = self.admit_exceptional_cases(indices, sector)?;
         let mut cases = Vec::new();
         for case in admitted {
             if prune_subsumed(&mut cases, &case).map_err(|source| SectorSolveError::Geometry {
@@ -73,7 +73,7 @@ impl<const N: usize> SectorRule<N> {
         &self,
         indices: &[usize; N],
         sector: &[bool; N],
-    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+    ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
         self.admit_exceptional_cases_in_scope(
             indices,
             sector,
@@ -88,7 +88,7 @@ impl<const N: usize> SectorRule<N> {
         sector: &[bool; N],
         max_numerator_rank: Option<u32>,
         limits: CaseIntersectionLimits,
-    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+    ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
         self.admit_exceptional_cases_counted(indices, sector, max_numerator_rank, limits, || {})
     }
 
@@ -99,9 +99,10 @@ impl<const N: usize> SectorRule<N> {
         max_numerator_rank: Option<u32>,
         limits: CaseIntersectionLimits,
         mut before_branch: impl FnMut(),
-    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+    ) -> Result<(Vec<Case<N>>, usize, ResolutionCounts), SectorSolveError<N>> {
         let mut cases = Vec::new();
         let mut discarded = 0;
+        let mut resolutions = ResolutionCounts::default();
         for branch in &self.exceptions.branches {
             before_branch();
             let intersection = match max_numerator_rank {
@@ -117,10 +118,20 @@ impl<const N: usize> SectorRule<N> {
             if intersection.cases.is_empty() {
                 discarded += 1;
             }
+            resolutions.lifted += intersection.stats.lifted_branches;
+            resolutions.modular_empty += intersection.stats.modular_empty_branches;
             cases.extend(intersection.cases);
         }
-        Ok((cases, discarded))
+        Ok((cases, discarded, resolutions))
     }
+}
+
+/// Stuck exceptional branches resolved exactly while admitting one rule's
+/// cases (case-intersection S1 lift and S2 modular emptiness).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ResolutionCounts {
+    pub lifted: usize,
+    pub modular_empty: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -165,6 +176,12 @@ pub struct SectorStats {
     pub symbolic_cases: usize,
     pub numerical_cases: usize,
     pub discarded_cases: usize,
+    /// Exceptional branches the case intersection resolved by lifting their
+    /// chart into the locus (S1), summed over the rules found.
+    pub case_lifts: usize,
+    /// Exceptional branches the case intersection proved integer-empty modulo
+    /// a small prime (S2), summed over the rules found.
+    pub case_modular_empty: usize,
     pub symbolic_rows: usize,
     pub symbolic_search: Duration,
     pub exception_extraction: Duration,
@@ -447,6 +464,8 @@ impl<const N: usize> SectorSolver<'_, N> {
                 let selected = self.select_rule(&current, options, &mut stats, &mut observe)?;
                 stats.symbolic_cases += 1;
                 stats.discarded_cases += selected.discarded;
+                stats.case_lifts += selected.resolutions.lifted;
+                stats.case_modular_empty += selected.resolutions.modular_empty;
                 let geometry_start = Instant::now();
                 for child in selected.children {
                     if !self.enqueue(
@@ -496,13 +515,15 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered
             // by this rule itself, so only earlier rules may suppress it.
-            let (children, discarded) = rule.admit_exceptional_cases_in_scope(
+            let (children, discarded, resolutions) = rule.admit_exceptional_cases_in_scope(
                 &self.system.indices,
                 self.order.sector(),
                 options.max_numerator_rank,
                 options.case_intersection_limits,
             )?;
             stats.discarded_cases += discarded;
+            stats.case_lifts += resolutions.lifted;
+            stats.case_modular_empty += resolutions.modular_empty;
             if children.iter().any(|child| child == &current) {
                 return Err(SectorSolveError::NonProgress { case: current });
             }

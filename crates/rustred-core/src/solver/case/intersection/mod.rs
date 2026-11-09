@@ -11,11 +11,12 @@ mod engine;
 mod integer_divisors;
 mod linear_resultant;
 mod model;
+mod modular;
 mod native;
 
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats,
+    CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
 };
 
 use crate::algebra::CoefficientPolynomial;
@@ -87,3 +88,6 @@ mod rank_priority_tests;
 
 #[cfg(test)]
 mod overflow_consistency_tests;
+
+#[cfg(test)]
+mod lift_tests;

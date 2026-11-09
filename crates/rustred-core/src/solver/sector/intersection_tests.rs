@@ -266,7 +266,7 @@ fn coordinate_branch_chronology_matches_the_original_queue_for_every_permutation
                     }
                     numerical_counts.push(old_numerical.len());
                     for _repeat in 0..2 {
-                        let (children, mut discarded) = rule
+                        let (children, mut discarded, _) = rule
                             .admit_exceptional_cases(&[0, 1, 2], &[true; 3])
                             .unwrap();
                         let mut pending = Vec::new();

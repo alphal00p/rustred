@@ -7,8 +7,8 @@ use crate::algebra::CoefficientPolynomial;
 use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats, bilinear_integer, definite_quadratic,
-    linear_resultant, native,
+    CaseIntersectionResult, CaseIntersectionStats, CaseResolution, CaseResolutionReason,
+    bilinear_integer, definite_quadratic, linear_resultant, modular, native,
 };
 use crate::solver::GeometryError;
 
@@ -51,6 +51,7 @@ struct Engine<'a, const N: usize> {
     limits: CaseIntersectionLimits,
     max_numerator_rank: Option<u32>,
     stats: CaseIntersectionStats,
+    resolutions: Vec<CaseResolution<N>>,
 }
 
 pub(super) fn intersect<const N: usize>(
@@ -75,6 +76,7 @@ pub(super) fn intersect<const N: usize>(
         limits,
         max_numerator_rank,
         stats: CaseIntersectionStats::default(),
+        resolutions: Vec::new(),
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         checkpoint()?;
@@ -86,6 +88,7 @@ pub(super) fn intersect<const N: usize>(
             cases,
             max_numerator_rank,
             stats: engine.stats,
+            resolutions: engine.resolutions,
         }),
         Ok(Err(failure)) => Err(engine.error(failure)),
         Err(_) => Err(engine.error(CaseIntersectionFailure::NativeAlgebra)),
@@ -141,7 +144,89 @@ impl<const N: usize> Engine<'_, N> {
         result
     }
 
+    /// Refine the current branch. A branch that no exact step can refine is
+    /// still resolved exactly when S1 or S2 applies (see
+    /// [`Self::resolve_stuck_branch`]); otherwise the refusal is unchanged.
     fn process(
+        &mut self,
+        pending: &mut Vec<WorkItem<N>>,
+        resolved: &mut Vec<Case<N>>,
+    ) -> Result<(), CaseIntersectionFailure> {
+        match self.refine(pending, resolved) {
+            Err(
+                failure @ (CaseIntersectionFailure::UnsupportedGeometry
+                | CaseIntersectionFailure::RepeatedState),
+            ) => self.resolve_stuck_branch(failure, resolved),
+            other => other,
+        }
+    }
+
+    /// S1 (lift), then S2 (modular emptiness), on the stuck current branch
+    /// `self.current` (chart `parent`, conjunction `equations` restricted to it).
+    ///
+    /// S1: the chart was derived from the original parent by exact admissions
+    /// and splits, so it lies in the original parent (checked again here). If
+    /// the ORIGINAL conjunction restricts to zero on the chart, every point of
+    /// the chart is in the exceptional locus, and the branch is a subset of the
+    /// chart: adding the chart keeps the union exactly the locus.
+    /// S2: if the branch has no common zero modulo a small prime on the chart
+    /// lattice, it has no integer point and is dropped like any empty branch.
+    /// If neither applies, or either test fails internally, the original
+    /// refusal is returned unchanged (resource limits still propagate).
+    fn resolve_stuck_branch(
+        &mut self,
+        failure: CaseIntersectionFailure,
+        resolved: &mut Vec<Case<N>>,
+    ) -> Result<(), CaseIntersectionFailure> {
+        let reason = match self.stuck_branch_reason() {
+            Ok(Some(reason)) => reason,
+            Ok(None) => return Err(failure),
+            Err(error @ CaseIntersectionFailure::Resources(_)) => return Err(error),
+            Err(_) => return Err(failure),
+        };
+        match reason {
+            CaseResolutionReason::Lifted => {
+                self.stats.lifted_branches = self.stats.lifted_branches.saturating_add(1);
+                resolved.push(self.current.parent.clone());
+            }
+            CaseResolutionReason::ModularEmpty { .. } => {
+                self.stats.modular_empty_branches =
+                    self.stats.modular_empty_branches.saturating_add(1);
+            }
+        }
+        self.resolutions.push(CaseResolution {
+            reason,
+            replaced: failure,
+            chart: self.current.parent.clone(),
+            conjunction: self.current.equations.clone(),
+        });
+        Ok(())
+    }
+
+    fn stuck_branch_reason(
+        &mut self,
+    ) -> Result<Option<CaseResolutionReason>, CaseIntersectionFailure> {
+        let start = Instant::now();
+        let lifted = original_vanishes_on(
+            &self.original_parent,
+            &self.original_conjunction,
+            &self.current.parent,
+            self.indices,
+        );
+        self.stats.restriction_time += start.elapsed();
+        self.stats.restrictions = self.stats.restrictions.saturating_add(1);
+        if lifted? {
+            return Ok(Some(CaseResolutionReason::Lifted));
+        }
+        let prime = modular::integer_empty_prime(
+            &self.current.parent,
+            &self.current.equations,
+            self.indices,
+        )?;
+        Ok(prime.map(|prime| CaseResolutionReason::ModularEmpty { prime }))
+    }
+
+    fn refine(
         &mut self,
         pending: &mut Vec<WorkItem<N>>,
         resolved: &mut Vec<Case<N>>,
@@ -539,6 +624,58 @@ impl<const N: usize> Engine<'_, N> {
         }));
         Ok(())
     }
+}
+
+/// Test seam: run only the stuck-branch resolution (S1 then S2) of the
+/// engine on a captured branch `chart`/`branch` of `original_conjunction`,
+/// exactly as `process` does when refinement returns `failure`.
+#[cfg(test)]
+pub(super) fn resolve_stuck_branch_for_test<const N: usize>(
+    original_parent: &Case<N>,
+    original_conjunction: &[CoefficientPolynomial],
+    chart: &Case<N>,
+    branch: &[CoefficientPolynomial],
+    indices: &[usize; N],
+    sector: &[bool; N],
+    failure: CaseIntersectionFailure,
+) -> Result<(Vec<Case<N>>, Vec<CaseResolution<N>>, CaseIntersectionStats), CaseIntersectionFailure>
+{
+    let equations: Arc<[CoefficientPolynomial]> = native::restrict(chart, branch, indices)?.into();
+    let mut engine = Engine {
+        original_parent: original_parent.clone(),
+        original_conjunction: original_conjunction.to_vec().into(),
+        current: WorkItem {
+            parent: chart.clone(),
+            equations,
+            ancestry: None,
+        },
+        indices,
+        sector,
+        limits: CaseIntersectionLimits::default(),
+        max_numerator_rank: None,
+        stats: CaseIntersectionStats::default(),
+        resolutions: Vec::new(),
+    };
+    let mut resolved = Vec::new();
+    engine.resolve_stuck_branch(failure, &mut resolved)?;
+    Ok((resolved, engine.resolutions, engine.stats))
+}
+
+/// S1 test: `chart` lies in `original_parent` and the ORIGINAL conjunction
+/// restricts to zero on it (exact native restriction, no sampling).
+pub(super) fn original_vanishes_on<const N: usize>(
+    original_parent: &Case<N>,
+    original_conjunction: &[CoefficientPolynomial],
+    chart: &Case<N>,
+    indices: &[usize; N],
+) -> Result<bool, CaseIntersectionFailure> {
+    if !original_parent
+        .contains(chart)
+        .map_err(CaseIntersectionFailure::Admission)?
+    {
+        return Ok(false);
+    }
+    Ok(native::restrict(chart, original_conjunction, indices)?.is_empty())
 }
 
 pub(super) fn spend(

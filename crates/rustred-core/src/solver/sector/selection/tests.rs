@@ -548,6 +548,7 @@ fn quality_candidate<const N: usize>(target: Integral<N>, rhs: Vec<Integral<N>>)
         },
         children: Vec::new(),
         discarded: 0,
+        resolutions: Default::default(),
         features: Features::default(),
     }
 }
@@ -673,6 +674,7 @@ fn bounded_rule_portfolio_unpruned_children_and_guard_priorities_remain_distinct
         },
         children,
         discarded: 0,
+        resolutions: Default::default(),
         features: Features::default(),
     };
     let child = Case::from(CoordinateCase::new([Some(2)]).unwrap());
