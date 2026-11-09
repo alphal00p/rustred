@@ -16,8 +16,26 @@
 //! residual, missing two-sided data and missing charts, and the payload must
 //! build as a lane step with every chart prepared. A chart whose search fails (for example on an
 //! exceptional conjunction SpIRed cannot intersect) fails the owner with the
-//! chart mask and the solver's complete message; the owner is not retried
-//! another way (plan M2 sec.10, contingency C3 is the coordinator's).
+//! chart mask and the solver's complete message; by default the owner is not
+//! retried another way (plan M2 sec.10, contingency C3 is the coordinator's).
+//!
+//! The opt-in L2 fall-through ([`CustomOwnerOptions::fallthrough`], plan M3
+//! D-M3-4, M3-T13; AD sec.4.3) retries such an owner, and one over its budget,
+//! on other orders of the same presentation: first on permuted slot orders
+//! (the order program's support and coordinate priorities, lines among lines
+//! and ISPs among ISPs, one deterministic seed each), then, for an owner with
+//! eps axes, on the default order with the numerator degree before the eps
+//! excess ([`FallthroughOrder::NumeratorBeforeEps`]; right after the default
+//! order when that one was over budget), then under the default slot order
+//! with alternative source orders ([`FALLTHROUGH_SOURCE_ORDERS`]).
+//! The first attempt that closes wins; each attempt is a complete generation
+//! under the guard and the budget, the LP count is taken once. Only a failed
+//! chart or an exceeded budget is retried: a guard refusal, a failed LP count
+//! or a payload that does not prepare fails at once. The payload of a winning
+//! slot order records it in its order program (`integral_order`, with the
+//! priorities); the report lists every attempt with its seed or source order
+//! and refusal ([`CustomOwnerReport::fallthrough`]). It is the whole of the
+//! fall-through in M3: no chart re-solve, no deeper search.
 //!
 //! A [`GenerationBudget`] bounds the whole call (LP count, solve,
 //! preparation) in wall time and process RSS (plan M3 D-M3-4, M3-I1): it is
@@ -48,7 +66,8 @@ use rustred::propagator::{NodeIndex, PresentationId};
 use rustred::sector::{Mask, MasterCount, MasterCountOptions, MasterCounter};
 
 use crate::application::{
-    CandidateGenerationSession, FamilyCandidatesRequest, SectorFailurePolicy,
+    CandidateDiscoveryStrategy, CandidateGenerationSession, CandidateRowFeature,
+    CandidateRowPriority, CandidateSourcePriority, FamilyCandidatesRequest, SectorFailurePolicy,
 };
 
 /// How a Custom owner is generated.
@@ -68,6 +87,9 @@ pub struct CustomOwnerOptions {
     /// re-generation only, never a first count; the false-knock-out guard
     /// still checks it against the residuals.
     pub lp_given: Option<u32>,
+    /// The opt-in L2 fall-through of a refused or over-budget owner (see the
+    /// module documentation); `None` (the default) generates once.
+    pub fallthrough: Option<CustomOwnerFallthrough>,
 }
 
 impl Default for CustomOwnerOptions {
@@ -77,8 +99,100 @@ impl Default for CustomOwnerOptions {
             n_cores: 1,
             budget: GenerationBudget::default(),
             lp_given: None,
+            fallthrough: None,
         }
     }
+}
+
+/// The L2 fall-through: the orders tried after a first attempt under the
+/// default order fails on a chart or over budget (plan M3 D-M3-4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomOwnerFallthrough {
+    /// One permuted slot order per seed, in this order; at least
+    /// [`MIN_FALLTHROUGH_ORDERS`].
+    pub seeds: Vec<u64>,
+    /// How many of [`FALLTHROUGH_SOURCE_ORDERS`] are tried after the slot
+    /// orders, in that order: from [`MIN_FALLTHROUGH_ORDERS`] to all.
+    pub source_orders: usize,
+}
+
+/// The fewest permuted slot orders, and the fewest source orders, of a
+/// fall-through (plan M3 D-M3-4; AD sec.4.3).
+pub const MIN_FALLTHROUGH_ORDERS: usize = 3;
+
+/// The alternative source orders of AD sec.4.3 (the portfolio alternatives
+/// of the closure study, `study/patches/pint_anatomy.rs:75-80`): row features
+/// in priority order, `asc`ending or `desc`ending, shift weights all one.
+pub const FALLTHROUGH_SOURCE_ORDERS: [&str; 6] = [
+    "terms asc, coefficient-monomials asc",
+    "negative-shifts asc, terms asc",
+    "positive-shifts asc, terms asc",
+    "terms desc",
+    "absolute-shifts desc, coefficient-monomials asc",
+    "coefficient-monomials desc",
+];
+
+impl Default for CustomOwnerFallthrough {
+    /// Seeds 1, 2, 3 and the first three source orders.
+    fn default() -> Self {
+        Self {
+            seeds: vec![1, 2, 3],
+            source_orders: MIN_FALLTHROUGH_ORDERS,
+        }
+    }
+}
+
+/// The order of one generation attempt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FallthroughOrder {
+    /// The default order: the first attempt.
+    Default,
+    /// The default order program with these support and coordinate
+    /// priorities (slots in comparison order), drawn from `seed`.
+    Slots { seed: u64, priority: Vec<usize> },
+    /// For an owner with eps axes: the default order program with its
+    /// degree rows total excess, numerator degree, eps excess (the numerator
+    /// row before the eps row; `eps_third` of the KO table dumps,
+    /// `rules_study/s5-tables/FORMAT.md`). On the 4L eps top chart of
+    /// T082p3 that order closed in 28 s where the default one had not
+    /// closed after 5.5 h (Astra, coordinator note 2026-11-09 12:29Z).
+    NumeratorBeforeEps,
+    /// The default slot order with source order `index` of
+    /// [`FALLTHROUGH_SOURCE_ORDERS`].
+    Source { index: usize },
+}
+
+impl std::fmt::Display for FallthroughOrder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Default => write!(formatter, "the default order"),
+            Self::Slots { seed, priority } => {
+                let priority: Vec<String> = priority.iter().map(usize::to_string).collect();
+                write!(
+                    formatter,
+                    "slot order of seed {seed} (priority {})",
+                    priority.join(",")
+                )
+            }
+            Self::NumeratorBeforeEps => {
+                write!(formatter, "numerator degree before eps excess (eps_third)")
+            }
+            Self::Source { index } => write!(
+                formatter,
+                "source order {index} ({})",
+                FALLTHROUGH_SOURCE_ORDERS.get(*index).unwrap_or(&"unknown")
+            ),
+        }
+    }
+}
+
+/// One attempt of a fall-through.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FallthroughAttempt {
+    pub order: FallthroughOrder,
+    pub seconds: f64,
+    /// Why it failed (its complete error), `None` for the winning attempt.
+    pub refusal: Option<String>,
 }
 
 /// Ceilings of one generation call; `None` imposes none.
@@ -122,6 +236,9 @@ pub struct CustomOwnerReport {
     pub total_seconds: f64,
     /// The generation report (`rustred.family-candidates-output.toml.v1`).
     pub generation_report: String,
+    /// Under [`CustomOwnerOptions::fallthrough`]: every attempt in order, the
+    /// last one the winner (the first alone when it closed).
+    pub fallthrough: Option<Vec<FallthroughAttempt>>,
 }
 
 /// Generate the Custom owner of `presentation`; see the module documentation.
@@ -363,18 +480,306 @@ pub fn generate_custom_owner_with_report(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    match &options.fallthrough {
+        None => attempt(
+            presentation,
+            options,
+            &FallthroughOrder::Default,
+            &mut AttemptTrace::default(),
+        ),
+        Some(fallthrough) => generate_with_fallthrough(presentation, options, fallthrough),
+    }
+}
+
+/// One attempt of the fall-through by hand: the owner generated once on
+/// `order` (one of [`fallthrough_orders`]), without a fall-through.
+pub fn generate_custom_owner_on_order(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    order: &FallthroughOrder,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    let options = CustomOwnerOptions {
+        fallthrough: None,
+        ..options.clone()
+    };
+    attempt(presentation, &options, order, &mut AttemptTrace::default())
+}
+
+/// One generation under the budget of `options` and `order`.
+fn attempt(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    order: &FallthroughOrder,
+    trace: &mut AttemptTrace,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     match Budget::new(&options.budget)? {
-        None => generate(presentation, options, None),
+        None => generate(presentation, options, None, order, trace),
         Some(budget) => (budget.resources)
-            .run(|| generate(presentation, options, Some(&budget)))
+            .run(|| generate(presentation, options, Some(&budget), order, trace))
             .map_err(|error| budget.attribute(error)),
     }
+}
+
+/// What a failed attempt got: its LP count with the seconds it took, and
+/// whether the solve refused a chart.
+#[derive(Default)]
+struct AttemptTrace {
+    lp: Option<(u32, f64)>,
+    refused_charts: bool,
+}
+
+/// The orders of `fallthrough` on `presentation`, the default order first,
+/// then the slot orders, [`FallthroughOrder::NumeratorBeforeEps`] for an
+/// owner with eps axes, the source orders; a seed repeating an order already
+/// listed is dropped. When the default order runs over its budget, the
+/// fall-through tries [`FallthroughOrder::NumeratorBeforeEps`] next
+/// ([`fallthrough_retries`]).
+pub fn fallthrough_orders(
+    presentation: &Presentation,
+    fallthrough: &CustomOwnerFallthrough,
+) -> Result<Vec<FallthroughOrder>, PError> {
+    let sources = fallthrough.source_orders;
+    if !(MIN_FALLTHROUGH_ORDERS..=FALLTHROUGH_SOURCE_ORDERS.len()).contains(&sources) {
+        return Err(PError::Unsupported(format!(
+            "fall-through with {sources} source orders: from {MIN_FALLTHROUGH_ORDERS} to {}",
+            FALLTHROUGH_SOURCE_ORDERS.len()
+        )));
+    }
+    let arity = presentation.slots.len();
+    let mut priorities = vec![(0..arity).collect::<Vec<_>>()];
+    let mut orders = vec![FallthroughOrder::Default];
+    for &seed in &fallthrough.seeds {
+        let priority = slot_priority(presentation, seed);
+        if !priorities.contains(&priority) {
+            priorities.push(priority.clone());
+            orders.push(FallthroughOrder::Slots { seed, priority });
+        }
+    }
+    if orders.len() <= MIN_FALLTHROUGH_ORDERS {
+        return Err(PError::Unsupported(format!(
+            "fall-through seeds {:?} give {} slot orders of presentation {} other than the default, at least {MIN_FALLTHROUGH_ORDERS} are needed",
+            fallthrough.seeds,
+            orders.len() - 1,
+            presentation.id.0
+        )));
+    }
+    if presentation.forced_axes() != 0 {
+        orders.push(FallthroughOrder::NumeratorBeforeEps);
+    }
+    orders.extend((0..sources).map(|index| FallthroughOrder::Source { index }));
+    Ok(orders)
+}
+
+/// The orders a fall-through tries after its default order failed, given
+/// `orders` of [`fallthrough_orders`]: as listed, except that
+/// [`FallthroughOrder::NumeratorBeforeEps`] comes first when the default
+/// order ran `over_budget` (the order that closed a 4L eps top chart the
+/// default order had not closed in hours; on a refused chart the slot orders
+/// come first, as they closed T075c).
+pub fn fallthrough_retries(
+    orders: &[FallthroughOrder],
+    over_budget: bool,
+) -> Vec<FallthroughOrder> {
+    let mut retries: Vec<FallthroughOrder> = (orders.iter())
+        .filter(|order| **order != FallthroughOrder::Default)
+        .cloned()
+        .collect();
+    let eps = (retries.iter()).position(|order| *order == FallthroughOrder::NumeratorBeforeEps);
+    if let (true, Some(eps)) = (over_budget, eps) {
+        let eps = retries.remove(eps);
+        retries.insert(0, eps);
+    }
+    retries
+}
+
+/// The support and coordinate priorities of `seed`: the line slots shuffled,
+/// then the ISP slots shuffled (Fisher-Yates on SplitMix64), so that lines
+/// still compare before ISPs, as in a permuted presentation.
+fn slot_priority(presentation: &Presentation, seed: u64) -> Vec<usize> {
+    let mut state = seed;
+    let mut next = move || {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    };
+    let (mut lines, mut isps): (Vec<usize>, Vec<usize>) = (0..presentation.slots.len())
+        .partition(|&slot| matches!(presentation.slots[slot], Slot::Line(_)));
+    for group in [&mut lines, &mut isps] {
+        for i in (1..group.len()).rev() {
+            let j = (next() % (i as u64 + 1)) as usize;
+            group.swap(i, j);
+        }
+    }
+    lines.into_iter().chain(isps).collect()
+}
+
+/// The default order program of `presentation` (with its eps axes
+/// two-sided) under the support and coordinate priorities `priority`.
+fn slot_order(
+    presentation: &Presentation,
+    priority: &[usize],
+) -> Result<rustred::order::CompiledOrder, PError> {
+    use rustred::order::{CompiledOrder, Limits, OrderDescriptor};
+    let arity = presentation.slots.len();
+    let forced = presentation.forced_axes();
+    let mut descriptor = if forced == 0 {
+        OrderDescriptor::spired_uncut(arity)
+    } else {
+        OrderDescriptor::spired_uncut_two_sided(bits(forced, arity))
+    };
+    descriptor.support_priority = priority.to_vec();
+    descriptor.coordinate_priority = priority.to_vec();
+    CompiledOrder::compile(descriptor, Limits::default()).map_err(|error| {
+        PError::Unsupported(format!("fall-through slot order {priority:?}: {error}"))
+    })
+}
+
+/// The default two-sided order program of `presentation` with the numerator
+/// row before the eps row ([`FallthroughOrder::NumeratorBeforeEps`]).
+fn numerator_before_eps(
+    presentation: &Presentation,
+) -> Result<rustred::order::CompiledOrder, PError> {
+    use rustred::order::{CompiledOrder, Limits, OrderDescriptor};
+    let forced = presentation.forced_axes();
+    if forced == 0 {
+        return Err(PError::Unsupported(format!(
+            "fall-through order numerator before eps: presentation {} has no eps axis",
+            presentation.id.0
+        )));
+    }
+    let mut descriptor =
+        OrderDescriptor::spired_uncut_two_sided(bits(forced, presentation.slots.len()));
+    // Rows total excess, eps excess, numerator degree become total excess,
+    // numerator degree, eps excess.
+    descriptor.degree_rows.swap(1, 2);
+    CompiledOrder::compile(descriptor, Limits::default()).map_err(|error| {
+        PError::Unsupported(format!("fall-through order numerator before eps: {error}"))
+    })
+}
+
+/// Source order `index` of [`FALLTHROUGH_SOURCE_ORDERS`] on `arity` slots.
+fn source_order(index: usize, arity: usize) -> CandidateDiscoveryStrategy {
+    use CandidateRowFeature::{
+        AbsoluteShifts, CoefficientMonomials, NegativeShifts, PositiveShifts, Terms,
+    };
+    let row = |feature, descending| CandidateRowPriority {
+        feature,
+        descending,
+    };
+    let ones = || vec![1; arity];
+    let priorities = match index {
+        0 => vec![row(Terms, false), row(CoefficientMonomials, false)],
+        1 => vec![
+            row(NegativeShifts { weights: ones() }, false),
+            row(Terms, false),
+        ],
+        2 => vec![
+            row(PositiveShifts { weights: ones() }, false),
+            row(Terms, false),
+        ],
+        3 => vec![row(Terms, true)],
+        4 => vec![
+            row(AbsoluteShifts { weights: ones() }, true),
+            row(CoefficientMonomials, false),
+        ],
+        _ => vec![row(CoefficientMonomials, true)],
+    };
+    CandidateDiscoveryStrategy {
+        rows: CandidateSourcePriority::Features { priorities },
+        ..CandidateDiscoveryStrategy::default()
+    }
+}
+
+/// The L2 fall-through (module documentation): the orders of `fallthrough`
+/// in turn, the first that closes wins. The LP count of the first attempt
+/// serves every later one.
+fn generate_with_fallthrough(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    fallthrough: &CustomOwnerFallthrough,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    let started = Instant::now();
+    let mut orders = fallthrough_orders(presentation, fallthrough)?;
+    let mut options = CustomOwnerOptions {
+        fallthrough: None,
+        ..options.clone()
+    };
+    let given = options.lp_given.is_some();
+    let mut counted = None;
+    let mut attempts = Vec::with_capacity(orders.len());
+    let mut next = 0;
+    while let Some(order) = orders.get(next).cloned() {
+        next += 1;
+        let mut trace = AttemptTrace::default();
+        let begun = Instant::now();
+        let outcome = attempt(presentation, &options, &order, &mut trace);
+        let seconds = begun.elapsed().as_secs_f64();
+        match outcome {
+            Ok((payload, mut report)) => {
+                attempts.push(FallthroughAttempt {
+                    order,
+                    seconds,
+                    refusal: None,
+                });
+                if let Some(lp_seconds) = counted {
+                    report.lp_given = given;
+                    report.lp_seconds = lp_seconds;
+                }
+                report.total_seconds = started.elapsed().as_secs_f64();
+                report.fallthrough = Some(attempts);
+                return Ok((payload, report));
+            }
+            Err(error) => {
+                let over_budget = matches!(error, PError::BudgetExceeded { .. });
+                let Some((count, lp_seconds)) = trace.lp else {
+                    return Err(error);
+                };
+                if !(trace.refused_charts || over_budget) {
+                    return Err(error);
+                }
+                if options.lp_given.is_none() {
+                    options.lp_given = Some(count);
+                    counted = Some(lp_seconds);
+                }
+                if order == FallthroughOrder::Default {
+                    let retries = fallthrough_retries(&orders, over_budget);
+                    orders.truncate(next);
+                    orders.extend(retries);
+                }
+                attempts.push(FallthroughAttempt {
+                    order,
+                    seconds,
+                    refusal: Some(error.to_string()),
+                });
+            }
+        }
+    }
+    let tried: Vec<String> = (attempts.iter().enumerate())
+        .map(|(index, attempt)| {
+            format!(
+                "attempt {index}, {}, {:.1} s: {}",
+                attempt.order,
+                attempt.seconds,
+                attempt.refusal.as_deref().unwrap_or("closed")
+            )
+        })
+        .collect();
+    Err(PError::Generation(format!(
+        "custom owner of presentation {}: refused on all {} orders of the L2 fall-through (no chart re-solve, no deeper search): {}",
+        presentation.id.0,
+        attempts.len(),
+        tried.join(" | ")
+    )))
 }
 
 fn generate(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
     budget: Option<&Budget>,
+    order: &FallthroughOrder,
+    trace: &mut AttemptTrace,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     let check = || budget.map_or(Ok(()), Budget::check);
     check()?;
@@ -406,9 +811,22 @@ fn generate(
         None => custom_owner_lp_count(presentation, support)?,
     };
     let lp_seconds = started.elapsed().as_secs_f64();
+    trace.lp = Some((lp_count, lp_seconds));
     check()?;
 
     let mut request = FamilyCandidatesRequest::new("custom owner");
+    match order {
+        FallthroughOrder::Default => {}
+        FallthroughOrder::Slots { priority, .. } => {
+            request.integral_order = Some(slot_order(presentation, priority)?);
+        }
+        FallthroughOrder::NumeratorBeforeEps => {
+            request.integral_order = Some(numerator_before_eps(presentation)?);
+        }
+        FallthroughOrder::Source { index } => {
+            request.discovery_strategy = Some(source_order(*index, arity));
+        }
+    }
     request.n_cores = options.n_cores;
     request.nonpositive_indices = (0..arity)
         .filter(|&slot| support >> slot & 1 == 0)
@@ -437,6 +855,7 @@ fn generate(
     check()?;
     let failed = failed_charts(generated.to_toml())?;
     if !failed.is_empty() {
+        trace.refused_charts = true;
         return Err(PError::Generation(format!(
             "custom owner of presentation {}, support {}: {}",
             presentation.id.0,
@@ -480,6 +899,7 @@ fn generate(
         generation_seconds,
         total_seconds: started.elapsed().as_secs_f64(),
         generation_report: generated.to_toml().to_owned(),
+        fallthrough: None,
     };
     Ok((CustomOwnerPayload { bytes, meta }, report))
 }
