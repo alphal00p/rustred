@@ -478,6 +478,20 @@ pub fn generate_custom_owner_with_report(
     }
 }
 
+/// One attempt of the fall-through by hand: the owner generated once on
+/// `order` (one of [`fallthrough_orders`]), without a fall-through.
+pub fn generate_custom_owner_on_order(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    order: &FallthroughOrder,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    let options = CustomOwnerOptions {
+        fallthrough: None,
+        ..options.clone()
+    };
+    attempt(presentation, &options, order, &mut AttemptTrace::default())
+}
+
 /// One generation under the budget of `options` and `order`.
 fn attempt(
     presentation: &Presentation,
@@ -503,7 +517,7 @@ struct AttemptTrace {
 
 /// The orders of `fallthrough` on `presentation`, the default order first;
 /// a seed repeating an order already listed is dropped.
-fn fallthrough_orders(
+pub fn fallthrough_orders(
     presentation: &Presentation,
     fallthrough: &CustomOwnerFallthrough,
 ) -> Result<Vec<FallthroughOrder>, PError> {

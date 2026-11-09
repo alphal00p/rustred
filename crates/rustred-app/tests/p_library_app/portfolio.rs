@@ -32,8 +32,9 @@ use rustred::propagator::families::P_FAMILIES_V1_JSON;
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use rustred::sector::{ComplexityKey, Mask, OrderingPolicy, zero};
 use rustred_app::propagator::generate::{
-    CustomOwnerFallthrough, CustomOwnerOptions, FallthroughOrder, GenerationBudget,
-    custom_owner_nodes, generate_custom_owner_with_report,
+    CustomOwnerFallthrough, CustomOwnerOptions, FALLTHROUGH_SOURCE_ORDERS, FallthroughOrder,
+    GenerationBudget, custom_owner_nodes, fallthrough_orders, generate_custom_owner_on_order,
+    generate_custom_owner_with_report,
 };
 use rustred_app::{CandidateGenerationSession, FamilyCandidatesRequest, SectorFailurePolicy};
 use symbolica::domains::rational::Rational;
@@ -110,6 +111,51 @@ fn the_fallthrough_is_opt_in_and_keeps_an_owner_that_closes() {
         assert!(
             matches!(&error, PError::Unsupported(text) if text.contains(expected)),
             "{error}"
+        );
+    }
+}
+
+/// Every order of a fall-through closes an owner that closes (t1star05):
+/// three slot orders, recorded in the payload's order program, and the six
+/// source orders, with the LP and residuals of the plain owner.
+#[test]
+fn every_order_of_the_fallthrough_closes_an_owner_that_closes() {
+    let nodes = custom_owner_nodes(P_FAMILIES_V1_JSON, 3).unwrap();
+    let kite = nodes.iter().find(|node| node.eps_lines == 1).unwrap();
+    let presentation = &kite.presentation;
+    let options = CustomOwnerOptions::default();
+    let (plain, plain_report) = generate_custom_owner_with_report(presentation, &options).unwrap();
+    let all = CustomOwnerFallthrough {
+        source_orders: FALLTHROUGH_SOURCE_ORDERS.len(),
+        ..CustomOwnerFallthrough::default()
+    };
+    let orders = fallthrough_orders(presentation, &all).unwrap();
+    assert_eq!(orders.len(), 1 + 3 + 6);
+    let arity = presentation.slots.len();
+    let forced = presentation.forced_axes();
+    for order in &orders[1..] {
+        let (payload, report) =
+            generate_custom_owner_on_order(presentation, &options, order).unwrap();
+        assert_eq!(
+            (payload.meta.lp_count, payload.meta.residuals),
+            (plain.meta.lp_count, plain.meta.residuals),
+            "{order}"
+        );
+        let ordering = match order {
+            FallthroughOrder::Slots { priority, .. } => {
+                slot_order_policy(mask_bits(forced, arity), priority)
+                    .stable_id()
+                    .to_string()
+            }
+            _ => plain_report.ordering.clone(),
+        };
+        assert_eq!(report.ordering, ordering, "{order}");
+        let generation: toml::Value = toml::from_str(&report.generation_report).unwrap();
+        let rows = (generation.get("discovery_strategy")).and_then(|s| s["rows"]["kind"].as_str());
+        assert_eq!(
+            rows == Some("features"),
+            matches!(order, FallthroughOrder::Source { .. }),
+            "{order}"
         );
     }
 }
@@ -766,7 +812,7 @@ fn random_key(state: &mut u64, presentation: &Presentation) -> Vec<i64> {
 /// equal to the VERIFIED_RS T075p1 set at 200 random points, each at two or
 /// more values of `d` (a point with a pole at every value fails).
 #[test]
-#[ignore = "slow: T075c through the fall-through and 200 points against the RS set, minutes optimised; needs RUSTRED_T075P1_RS_TABLE"]
+#[ignore = "slow: T075c through the fall-through and 200 points against the RS set, 35 min and 21 GB optimised on 4 CPUs; needs RUSTRED_T075P1_RS_TABLE"]
 fn t075c_closes_through_the_fallthrough_and_equals_the_rs_set() {
     let rs_path = std::env::var(RS_TABLE_ENV)
         .unwrap_or_else(|_| panic!("{RS_TABLE_ENV}: the path of the T075p1 RS set"));
