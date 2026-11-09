@@ -51,8 +51,8 @@ use rustred::propagator::library::{PLibrary, POwnerSpec};
 use rustred::propagator::presentation::{Presentation, PresentationKind};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::{
-    NodeIndex, OwnerClassId, P_FAMILIES_SCHEMA, P_LIBRARY_SCHEMA, PTerminalId, PresentationId,
-    p_versions,
+    NodeIndex, OwnerClassId, P_CUSTOM_OWNER_VERSION, P_FAMILIES_SCHEMA, P_LIBRARY_SCHEMA,
+    P_OWNER_LIBRARY_SEMANTICS, PTerminalId, PresentationId, p_versions,
 };
 
 use super::format::{
@@ -285,10 +285,18 @@ fn check_payload(
 /// The Custom payloads of a package by class label, with their meta, for
 /// `rustred p-package --reuse-custom` and regeneration tests
 /// (`CustomPayloads::Provided`). Versions and the guard are checked as by
-/// [`load_p_library`].
+/// [`load_p_library`]. An existing directory without `library.json` is read as
+/// an owner directory of `rustred p-generate` ([`read_owner_records`]); a
+/// missing directory is refused as a package (missing `library.json`).
 pub fn read_custom_payloads(
     source: &PLibrarySource,
 ) -> Result<BTreeMap<String, CustomOwnerPayload>, PError> {
+    if let PLibrarySource::Directory(directory) = source
+        && directory.is_dir()
+        && !directory.join(LIBRARY_FILE).exists()
+    {
+        return read_owner_records(directory);
+    }
     let files = Files(source);
     let manifest = read_manifest(&files)?;
     let mut payloads = BTreeMap::new();
@@ -303,6 +311,174 @@ pub fn read_custom_payloads(
             .ok_or_else(|| malformed(format!("the payload of {} has no meta", owner.class)))?
             .meta();
         payloads.insert(owner.class.clone(), CustomOwnerPayload { bytes, meta });
+    }
+    Ok(payloads)
+}
+
+/// Schema of the owner record `<label>.json` of `rustred p-generate`.
+const OWNER_RECORD_SCHEMA: &str = "rustred.p-custom-owner.v1";
+
+/// A slot mask written as one `0` or `1` per slot, slot 0 first, as
+/// `rustred p-generate` writes it.
+fn mask_text_value(text: &str, arity: usize) -> Option<u64> {
+    if text.len() != arity || arity > 64 {
+        return None;
+    }
+    (text.bytes().enumerate()).try_fold(0_u64, |mask, (slot, bit)| match bit {
+        b'0' => Some(mask),
+        b'1' => Some(mask | 1 << slot),
+        _ => None,
+    })
+}
+
+/// One owner record of [`read_owner_records`]: `<label>.json` describes the
+/// payload `<label>.rrbin`, whose LP count it stores.
+fn read_owner_record(
+    directory: &std::path::Path,
+    label: &str,
+) -> Result<CustomOwnerPayload, PError> {
+    let read = |name: String| {
+        let path = directory.join(&name);
+        std::fs::read(&path)
+            .map_err(|error| malformed(format!("reading {}: {error}", path.display())))
+    };
+    let what = format!("{label}.json");
+    let record: serde_json::Value = serde_json::from_slice(&read(what.clone())?)
+        .map_err(|error| malformed(format!("{what}: {error}")))?;
+    let schema = record.get("schema").and_then(serde_json::Value::as_str);
+    if schema != Some(OWNER_RECORD_SCHEMA) {
+        return Err(version_mismatch(
+            "the owner record schema",
+            schema.unwrap_or(ABSENT),
+            OWNER_RECORD_SCHEMA,
+        ));
+    }
+    let versions = record.get("versions");
+    let version = |name: &str| {
+        let value = versions.and_then(|versions| versions.get(name));
+        value.map_or_else(
+            || ABSENT.to_owned(),
+            |value| {
+                value
+                    .as_str()
+                    .map_or_else(|| value.to_string(), str::to_owned)
+            },
+        )
+    };
+    for (name, expected) in [
+        ("P_CUSTOM_OWNER_VERSION", P_CUSTOM_OWNER_VERSION.to_string()),
+        (
+            "P_OWNER_LIBRARY_SEMANTICS",
+            P_OWNER_LIBRARY_SEMANTICS.to_owned(),
+        ),
+    ] {
+        let found = version(name);
+        if found != expected {
+            return Err(version_mismatch(name, found, expected));
+        }
+    }
+    let field = |name: &str| {
+        record
+            .get(name)
+            .ok_or_else(|| malformed(format!("{what}: no {name}")))
+    };
+    let number = |name: &str| {
+        field(name)?
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| malformed(format!("{what}: {name} is no count")))
+    };
+    if field("label")?.as_str() != Some(label) {
+        return Err(malformed(format!("{what} records another label")));
+    }
+    let payload_file = format!("{label}.rrbin");
+    let bytes: Arc<[u8]> = Arc::from(read(payload_file.clone())?);
+    check_save_format(payload_save_format(&bytes, &payload_file)?, &payload_file)?;
+    let summary = inspect_custom_payload(&bytes)?;
+    let meta = summary.meta(number("lp_count")?)?;
+    let arity = summary.arity;
+    let mask = |name: &str, text: Option<&str>| {
+        text.and_then(|text| mask_text_value(text, arity))
+            .ok_or_else(|| malformed(format!("{what}: {name} is no mask of {arity} slots")))
+    };
+    let mut charts = (field("charts")?.as_array())
+        .ok_or_else(|| malformed(format!("{what}: charts is no list")))?
+        .iter()
+        .map(|chart| {
+            mask(
+                "a chart",
+                chart.get("chart").and_then(serde_json::Value::as_str),
+            )
+        })
+        .collect::<Result<Vec<u64>, PError>>()?;
+    charts.sort_unstable();
+    let recorded = (
+        number("arity")? as usize,
+        mask("support", field("support")?.as_str())?,
+        number("residuals")?,
+        mask("two_sided_axes", field("two_sided_axes")?.as_str())?,
+        charts,
+    );
+    let held = (
+        arity,
+        summary.support,
+        meta.residuals,
+        meta.two_sided_axes,
+        meta.charts.clone(),
+    );
+    if recorded != held {
+        return Err(malformed(format!(
+            "{payload_file} holds (arity, support, residuals, two-sided axes, charts) {held:?}, \
+             {what} records {recorded:?}"
+        )));
+    }
+    if meta.lp_count >= 1 && meta.residuals == 0 {
+        return Err(malformed(format!(
+            "false knock-out guard: the Custom owner {label} records LP = {} and 0 residuals",
+            meta.lp_count
+        )));
+    }
+    Ok(CustomOwnerPayload { bytes, meta })
+}
+
+/// The Custom payloads of an owner directory written by `rustred p-generate`
+/// (M3-T15 stages the scope 1-4 owners so), by class label: every
+/// `<label>.json` with a payload `<label>.rrbin` beside it is an owner record;
+/// other files are not read. Each record has this build's schema,
+/// `P_CUSTOM_OWNER_VERSION` and `P_OWNER_LIBRARY_SEMANTICS` (else
+/// [`PError::VersionMismatch`]), names its own label, and describes its payload
+/// (save format, arity, support, residuals, two-sided axes, charts); its LP
+/// count is the stored one, taken as recorded (plan M3 D-M3-3: counted once, at
+/// generation), under the hard guard. A directory without a record is refused.
+pub fn read_owner_records(
+    directory: &std::path::Path,
+) -> Result<BTreeMap<String, CustomOwnerPayload>, PError> {
+    let entries = std::fs::read_dir(directory)
+        .map_err(|error| malformed(format!("reading {}: {error}", directory.display())))?;
+    let mut labels = Vec::new();
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| malformed(format!("{}: {error}", directory.display())))?;
+        let name = entry.file_name();
+        let Some(label) = name.to_str().and_then(|name| name.strip_suffix(".json")) else {
+            continue;
+        };
+        if directory.join(format!("{label}.rrbin")).is_file() {
+            owner_file(label)?;
+            labels.push(label.to_owned());
+        }
+    }
+    if labels.is_empty() {
+        return Err(malformed(format!(
+            "{} holds neither {LIBRARY_FILE} nor an owner record <label>.json with <label>.rrbin",
+            directory.display()
+        )));
+    }
+    labels.sort_unstable();
+    let mut payloads = BTreeMap::new();
+    for label in labels {
+        let payload = read_owner_record(directory, &label)?;
+        payloads.insert(label, payload);
     }
     Ok(payloads)
 }
