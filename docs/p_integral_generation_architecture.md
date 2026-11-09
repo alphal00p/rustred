@@ -47,6 +47,20 @@ document and the M2 plan differ, the plan wins. The normalisation conventions C1
 11. The task breakdown of §10 is superseded by `WS/M2_PLAN.md` §5-6 for M2 (departure 16 at
     `WS/M2_PLAN.md:1396`).
 
+Amended 2026-11-09 for M3, the scope 1-4 library (`WS/M3_PLAN.md` §3 decisions D-M3-1..10, §8
+deferred items, §12 departures; task notes `WS/notes/rr-{gen4,iface4,portfolio,basis4,assemble4,
+diamond}.md`). Where this document and the M3 plan differ, the plan wins. Each amendment is
+marked "M3 amendment" in place; the departures are listed in §0 item 11. Code citations are at
+rustred `p_integral` `b7fd9f2b` (the M3-T8c final merge). In short:
+
+1. The Diamond lane lost its race: the 4 Diamond nodes ship as Custom owners (C-D, §3.5).
+2. The 4L Custom owners are 21 + 4, generated once all-rank, with the LP count stored (§3.4).
+3. Generation runs under time and RSS budgets with an opt-in L2 fall-through. The rest of the
+   locus ladder (§4) moves to 5L.
+4. The 4L basis is Forcer's 16 masters (§6, conventions in `docs/p_integrals.md`).
+5. No version constant was added or bumped in M3 (§8).
+6. The scope 1-4 package ships in vakint-external-data (D-SIZE (B), §8).
+
 Scope:
 
 - Massless propagator-type integrals ("p-integrals"):
@@ -167,6 +181,50 @@ Paths:
     - M2 amendment: step and tail caches only, with the Gamma tag in the record identity; no
       result cache (§7.4). One library program per release scope shares one step cache across
       its loop counts (§7.4).
+11. **M3 amendment: decisions and departures of the 4L milestone** (`WS/M3_PLAN.md` §3 at
+    `:183-279`, §8 at `:1098`, §12 at `:1289`).
+    - **One program per engine, scope 1-4 supersedes 1-3 (D-M3-1).** With a scope 1-4
+      library present, every 1L-4L input goes through it. There is no cross-program step
+      sharing: the 1L-3L part runs cold under 1-4. Two programs per engine and stable
+      presentation ids across programs move to M5.
+    - **Diamond lane: race lost, C-D (D-M3-2; plan departure 9).** M3-T17 merged (`1a36bcc2`,
+      2026-11-09 14:35Z) before M3-T5b, so the 4 Diamond nodes d384, d394, d399 and no3 ship as
+      Custom owners. This departs from "every node takes Forcer's action" (§0 item 4, §9) on
+      those 4 nodes only. Details and the reason are in §3.5.
+    - **Owners (D-M3-3; plan departure 3).** 21 Forcer custom nodes plus the 4 Diamond nodes,
+      all-rank through `generate_custom_owner`
+      (`crates/rustred-app/src/application/propagator/generate.rs:245`). The LP count runs once
+      per owner (M3-T15) and is stored; regeneration recounts only owners of at most 9 lines
+      (§3.4).
+    - **Generation safety (D-M3-4; plan departures 2 and 4).** Every generation has a time and
+      an RSS budget, and there is an opt-in L2 fall-through: at least 3 permuted slot orders,
+      then alternative source orders. There is no chart re-solve, no deeper search and no
+      `LocusPolicy` plumbing (§3.4, §4.3).
+    - **The locus ladder moves to 5L** (plan §8, DEC 2026-11-08 14:04Z (b)). This covers L0
+      emptiness, L1 affine-bilinear, the L3/L4 discharge driver, `LocusPolicy::Ledger`, the
+      LocusLedger and the runtime LocalLaporta overlays (former T11, T12, T14, T16). §4 stays
+      the design for 5L. No scope 1-4 owner needed it: all 25 close under the default order with
+      residuals = LP [M `WS/notes/rr-gen4.md`].
+    - **Basis (D-M3-5).** The terminals map onto Forcer's 16 masters (`P_BASIS_MASTERS_1_TO_4`,
+      `crates/rustred-core/src/propagator/basis.rs:150`). The map is a square layer of format
+      `rustred.p-basis-layer.v1` with no relations between residuals (contingency C-B not
+      needed). The signs and normalisations are in `docs/p_integrals.md` ("Scope 1-4: Forcer's
+      16 masters").
+    - **D-SIZE (D-M3-6; plan departure 8).** Outcome (B), final by user ruling (DECISIONS
+      2026-11-09 01:01Z): the scope 1-4 package is loaded from vakint-external-data and is not
+      vendored. The sizes are in §8.
+    - **Default order (D-M3-7).** This is vakint-side, with no order code: RustRed comes first
+      whenever vakint has a 4L library, and Forcer handles 4L when none is present. There is no
+      silent Forcer retry after a RustRed run-time error.
+    - **KO RS sets (D-M3-9, plan §0.1, departure 1).** These are not owners of the scope 1-4
+      program: the 13 KO 4L-eps nodes are reached only from 5L parents. M3 uses only T075p1, as
+      the oracle of T075c (§3.4). The 5L phase imports the rest.
+    - **Test placement (D-M3-10).** The 4L assembly, regeneration and validation tests are
+      `#[ignore]` release tests (`crates/rustred-app/tests/p_library_app/assemble4.rs`). They run
+      once on the final tip and at the batch end of the M3-T8c final merge.
+    - **Deferred to M5:** the Diamond lane (M3-T5b branch `p_integral-rr-diamond` `2f744d99`,
+      §3.5), a blocking 4L speed gate, ablations, and cross-program step sharing. **Deferred to
+      5L:** `register_family`, run-time TopologyService use, and the reserved lanes of §3.5.
 
 ## 1. Vocabulary
 
@@ -664,6 +722,81 @@ Custom owners are the custom DAG nodes only: 2 / 21 / 283 at 3L / 4L / 5L [M]. T
 eps-nodes with `power_shifts`. At 1L-3L they are NO (integer, Induced presentation) and the eps
 kite t1star05. M2 amendment: they run as `CustomStep<M>` (§7.1).
 
+**M3 amendment: the 4L owners, with stored LP** (`WS/M3_PLAN.md` D-M3-3 and D-M3-4; M3-T15, I1,
+T13, T8c). Golden: `crates/rustred-core/tests/p_library/golden/owners_1-4.tsv`, one row per
+owner with its LP, residuals, rules, seconds, RSS and payload sha256.
+
+- **Which owners.** The scope 1-4 program has 25 Custom owners, one per class (no Whitney twins
+  among them):
+  - 2L, eps: t1star05, t1star24, t1star34, t1star45, t1star55;
+  - 3L: NO (`nostar0`, integer); eps: fastar2, fastar3, bustar5, lastar5, nostar5, nostar6;
+  - 4L, integer: the 9 Forcer custom nodes bebe, cross, lala, nono, bubu, no6, no1, no2, haha;
+  - the 4 Diamond nodes d384, d394, d399, no3 (C-D, §3.5).
+
+  These are the 21 Forcer custom nodes plus the 4 Diamonds. Inventory counts:
+  `node_lane_L{2,3,4}_Custom` 5 / 7 / 13 and `owners_Custom 25` in
+  `crates/rustred-core/tests/p_library/golden/inventory_1-4.txt`.
+- **LP and residuals.** 16 owners have LP 1 and one residual. Their residuals are the 16
+  terminals that the basis layer maps onto Forcer's 16 masters. The other 9 owners have LP 0 and
+  no residual: t1star34, fastar3, bustar5, lastar5, bubu (T148) and the 4 Diamonds. For every
+  owner, residuals = stored LP, and for the 21 Forcer nodes the LP equals
+  `rules_study/targets.tsv` `masters_lp_nosym`.
+- **Generation.** Every owner except NO and t1star05 was generated once, all-rank, by
+  `rustred p-generate --max-loops 4 --owner <class>` (`generate_custom_owner`,
+  `crates/rustred-app/src/application/propagator/generate.rs:245`; unrestricted SpIRed,
+  `SearchFinite`, two-sided eps axes). Each owner ran as one guarded job, with
+  1-33 s of generation per 4L owner [M]. NO and t1star05 are the M2 payloads, reused because no
+  P_* version had moved. Payloads and records: `WS/artefacts/m3/owners-1-4/`
+  (`<label>.rrbin` + `<label>.json`, schema `rustred.p-custom-owner.v1`,
+  `crates/rustred-app/src/cli/p/generate.rs:50`).
+- **The LP count runs once and is stored** (`custom_owner_lp_count`, `generate.rs:269`). The
+  count is `CustomOwnerMeta.lp_count`
+  (`crates/rustred-core/src/propagator/custom.rs:483-490`), which `library.json` carries per
+  owner. The hard guard at build and at load reads the stored count (`custom.rs:561-575`:
+  `lp_count >= 1` with no residual is refused); load never re-derives it. The 10- and 11-line
+  owners cost 176-4,740 s of LP each (no2 the longest; peak RSS up to 3.5 GB, no1) [M,
+  indicative].
+- **Consumption.** `rustred p-package --max-loops 4 --reuse-custom <owners-1-4> [--recount-lp]`
+  (`crates/rustred-app/src/cli/p/package.rs:1-19`).
+  - `read_custom_payloads` reads a directory without `library.json` as p-generate owner records
+    (`read_owner_records`, `crates/rustred-app/src/application/propagator/loader.rs:299`,
+    `:464`). Each record must describe its payload (arity, support, residuals, two-sided axes,
+    charts) and carry this build's `P_CUSTOM_OWNER_VERSION` and `P_OWNER_LIBRARY_SEMANTICS`.
+  - `--recount-lp` recounts only the owners of at most `RecountProvidedLp::DEFAULT_MAX_LINES` =
+    9 lines (`crates/rustred-app/src/application/propagator/assemble.rs:159-184`). That is 18 of
+    the 25. The 7 owners of 10/11 lines (no1, haha, no2, no3, no6, d394, d399) are recounted only
+    with `P_LP_RECOUNT_ALL=1`, never by default. A recount different from the record is refused.
+- **Budgets (M3-I1).** `GenerationBudget { max_seconds, max_rss_bytes }` (`generate.rs:200`) is
+  checked in-process; over budget is `PError::BudgetExceeded { resource: "time" | "rss" }`
+  (`crates/rustred-core/src/propagator/error.rs:43`). CLI: `p-generate --max-seconds <s>
+  --max-rss <bytes> --lp-from <dir>`, where `--lp-from` passes a recorded LP as
+  `CustomOwnerOptions.lp_given` (`generate.rs:89`) so a retry skips the count.
+- **L2 fall-through (M3-T13).** This replaces "`BoundedPortfolio` with fall-through" and
+  `LocusPolicy::Ledger` below for M3. It is opt-in: `CustomOwnerOptions.fallthrough`
+  (`CustomOwnerFallthrough`, `generate.rs:110`) is `None` by default, and `p-generate` passes
+  `None`.
+  - When on, attempt 0 uses the default order. After a failed chart or `BudgetExceeded`, the
+    retries are tried in this order (`fallthrough_orders`, `generate.rs:537`;
+    `fallthrough_retries`, `:579`; `generate_custom_owner_on_order`, `:496`):
+    - at least `MIN_FALLTHROUGH_ORDERS` = 3 permuted slot orders (`:121`). Each permutes the
+      default order program's support and coordinate priorities (lines among lines, ISPs among
+      ISPs), with seeds 1, 2, 3;
+    - for an owner with eps axes, `FallthroughOrder::NumeratorBeforeEps` (`:147`);
+    - then 3 to 6 alternative baseline source orders (`FALLTHROUGH_SOURCE_ORDERS`, `:126`).
+  - Each retry is a whole regeneration. `solver/sector/selection.rs` is unchanged, so the
+    recipe of a persisted `bounded-portfolio` keeps its meaning.
+  - What is never retried: a guard refusal (false knock-out), an LP-count failure, or a
+    support/chart mismatch.
+  - A winning attempt i > 0 records "custom owner; L2 fall-through attempt i: <order>" as the
+    bundle's `family_source`. The payload records its order program.
+  - There is no chart re-solve and no deeper search. A 4L-DAG owner still refused would go to
+    the user (contingency C-L). No scope 1-4 owner needed a retry.
+  - Evidence (`crates/rustred-app/tests/p_library_app/portfolio.rs:838`, ignored; run once,
+    `WS/artefacts/m3/rr-portfolio/run-t075c-7`): the 4L eps node T075c (scope 1-5) is refused
+    under the default order (unsupported nonlinear equalities). It closes on the seed-1 slot
+    order with 386 rules and 0 residuals = LP 0, and 600 of 600 evaluations equal the
+    VERIFIED_RS T075p1 set.
+
 Runs `family_candidates_from_family_controlled` on the induced presentation, with
 `selected_sectors` = the owner masks of that top family. Settings:
 
@@ -748,6 +881,62 @@ M2 only detects diamonds (`rustred-topology`, for the 4L golden). There is no di
 - Counts [M]: 4 nodes at 4L, including `no3`, which Forcer overrides with `SchemeZno3`; 42 at 5L.
 - Carpet and diamond together remove about 60 5L integer custom classes (32 + 28 of the first
   draft's generic classes) [D].
+
+**M3 amendment: departure C-D. The Diamond lane is not in the scope 1-4 library**
+(`WS/M3_PLAN.md` D-M3-2, departure 9; DECISIONS 2026-11-09 14:35Z-14:36Z).
+
+- **What ships.** The 4 Diamond nodes ship as Custom owners. Each is generated all-rank by
+  SpIRed, has LP 0 and no residual, and is listed in §3.4:
+
+  | Node | Owner class | DAG node | Lines |
+  |---|---|---|---|
+  | d384 | `L4T09-fcbb654a0b4296f8` | 132 | 9 |
+  | d394 | `L4T10-d1f7ffcd2b2f3614` | 48 | 10 |
+  | d399 | `L4T10-d07d0fffbe48f1f2` | 34 | 10 |
+  | no3 | `L4T11-b08ea0232a8b1503` | 9 | 11 |
+
+  - The mapping is M2's: `Action::Diamond(_)` presents on the Custom lane
+    (`crates/rustred-core/src/propagator/decide.rs:37`).
+  - The golden records it as `count diamond_nodes_on_custom 4` and
+    `count forcer_action_L4_Diamond 4`
+    (`crates/rustred-core/tests/p_library/golden/inventory_1-4.txt:33`, `:15`).
+  - So 4 of the 438 nodes do not take Forcer's action (§0 item 4, §9 "the 4L DAG equals
+    Forcer's ... identical actions"): the matcher action stays Diamond, but the lane is Custom.
+- **Why.** The plan made the lane a race: it would enter only if M3-T5b merged before M3-T17.
+  M3-T17 merged first (`1a36bcc2`), so C-D fired automatically, with no extra wait.
+  - The user's ruling takes precedence over "every node takes Forcer's action" (DECISIONS
+    2026-11-08 14:04Z, verbatim: "as soon as rustred backend is an option, it *must* be
+    default then").
+  - The Diamond lane changes which lane handles the 4 nodes, not their values. With M3-T17's
+    basis layer, the Diamond-as-Custom library is already complete and can reach Forcer parity,
+    so RustRed is "an option" from then on and must not wait.
+- **Cost of the departure** [M `WS/notes/rr-diamond.md`, STEP (5)]. The package carries 4
+  payloads it would not need under the lane: 3,539,779 B raw, about 207 KB under gzip -9. The
+  census is also larger: about 0.75 MB more in `census.json` and `census.rrbin`. In total
+  50,057,750 B against 45,780,441 B (-8.5%), measured without the basis layer.
+- **Reduction time.** Exact reductions are slower on the SpIRed owners than they would be with
+  the template [M, indicative]. For 30 keys each, d384 / d394 / d399 took 414 / 3,620 / 435 s
+  on the SpIRed owner against 19 / 203 / 143 s with the template.
+- **M3-T5b is parked for M5** with branch `p_integral-rr-diamond` at `2f744d99` (base
+  `fd81c7ff`, before T17) and a HANDOFF.
+  - What the branch has built:
+    - the lane as designed above: `propagator/diamond.rs`, a `DiamondTemplate` from the summed
+      `(d/dk_i).k_i` rows, exact in `d`, with an exception-free pivot of `d` slope
+      `L + S + Sum j_a/2 + Sum j_s >= 1`;
+    - a `DiamondStep` (a `PLaneStep`) whose children stay on the owner presentation through
+      census routes, with no edge maps (a departure from the brief's wording);
+    - `DiamondRoles` and `check_diamond_contract`;
+    - `P_DIAMOND_TEMPLATE_VERSION = 1` in `p_versions()`.
+  - What is verified on it:
+    - G3 on d384, d394 and d399: the template equals the SpIRed owner exactly in `Q(d)` on 30
+      keys each;
+    - no3 under `SchemeZno3` equals Forcer exactly on 4 inputs.
+  - Open for M5:
+    - no3 against its SpIRed owner: stopped after more than 3 h of Exact reference reductions;
+    - the rebase onto T17 and T8c, with re-blessed pins and goldens;
+    - the identity move from `P_DIAMOND_TEMPLATE_VERSION`. This moves vakint's built-in
+      `data/p/p-library-1-3` identity too: the integrator regenerates it at the next pin.
+  - No second package and no version bump follow from C-D in M3.
 
 Reserved lanes (interfaces frozen in M2, implemented only when a gate needs them):
 
@@ -1327,11 +1516,78 @@ Version constants (hand-bumped, in `propagator/mod.rs`):
 
 `ORDERED_STEP_SEMANTICS` is not bumped: existing adapters do not change.
 
+**M3 amendment: version constants in M3.** None was added and none was bumped on rustred
+`p_integral` in M3 (`git diff 6e13f9ca..b7fd9f2b`). The constants stay as M2 left them
+(`crates/rustred-core/src/propagator/mod.rs:52-69`, `p_versions()` at `:76`), so the identity of
+the scope 1-3 program, and of vakint's built-in `data/p/p-library-1-3`, is unchanged. The scope
+1-4 identity is `"p-library:scope=1-4:" + p_versions()` (`PLibrary::identity`,
+`crates/rustred-core/src/propagator/library.rs:227`).
+
+- `P_DIAMOND_TEMPLATE_VERSION = 1` exists only on the parked M3-T5b branch (`2f744d99`, §3.5).
+  It enters `p_versions()` when the Diamond lane merges (M5).
+- `P_SP_LANE_SEMANTICS` and `P_LOCUS_LEDGER_SCHEMA` were not introduced: SeriesParallel stays
+  the insertion chain (§3.2), and the locus ledger is 5L (§0 item 11).
+- Every M3 addition is behind an option or a new API, and no existing semantics changed:
+  - M3-I1's budgets, `lp_given` and Provided LP recount. The record keys `lp_count_source`,
+    `lp_given_from` and `budget` are additive; the schema string is unchanged.
+  - M3-T13's opt-in fall-through (`None` by default).
+  - M3-T17's `P_BASIS_MASTERS_1_TO_4` (a reference list chosen by scope through
+    `p_basis_masters`, `basis.rs:268`; `PBasisOptions::default()` stays the 1-3 list).
+  - M3-T8c's owner-record reader and scope-generic layer attachment.
+  - M3-T19 STAGE 1's R1 fix: the concurrent Exact scheduler journals the adjoint tail for p
+    step caches. It changes no step output, record encoding or tail semantics, so no `ORDERED_*`
+    or P_* bump.
+- The basis layer is not part of the identity. M3-T8c's scope 1-4 inventory pin
+  (`crates/rustred-app/tests/p_library_app/assemble4.rs:608`) was therefore replaced, not
+  appended, when STAGE 2 attached the layer: same identity, new inventory text.
+- Other new named constants are not versions:
+  - `RecountProvidedLp::DEFAULT_MAX_LINES = 9` and the variable `P_LP_RECOUNT_ALL`
+    (`crates/rustred-app/src/application/propagator/assemble.rs:164-165`);
+  - `MIN_FALLTHROUGH_ORDERS = 3` and `FALLTHROUGH_SOURCE_ORDERS` (`generate.rs:121`, `:126`).
+- Open tasks may still bump: M3-T7d and M3-T19's final stage, both still running when this was
+  written. Under `WS/M3_PLAN.md` §2 delta 6 they must report any bump, and that bump would then
+  be added here.
+
 Packaging:
 
 - 1L-3L are embedded in vakint. The 3L built-in library has 43 DAG nodes and 2 SpIRed owners
   (NO and the 2L kite with an eps-line).
-- 4L goes to vakint-external-data `p/4L/`.
+- 4L goes to vakint-external-data `p/4L/`. M3 amendment: it ships as the single scope 1-4 package
+  below (D-M3-1), not as a `p-library-L4/`.
+
+**M3 amendment: the scope 1-4 package** (M3-T8c final, `WS/artefacts/m3/p-library-1-4`, with
+SHA256SUMS and a README; built by `rustred p-package --max-loops 4 --reuse-custom
+WS/artefacts/m3/owners-1-4 --recount-lp` at `192e21f7`).
+
+- **Contents.** 453 presentations; 438 DAG nodes (437 census nodes, 310 classes); 185,138 census
+  sectors (163,059 zero); 21,769 verified routes; 227 edge maps.
+- **Owners.** SeriesParallel 99, Insertion 113, Carpet 21, Triangle 52, Custom 25 (§3.4).
+- **Terminals and layer.** 17 terminals: `Unit` and 16 residuals. The basis layer
+  `layer/p-layer.json` (11,342 B) maps them one-to-one onto Forcer's 16 masters.
+- **Size** (one tar under `gzip -9`, the D-SIZE number): 470 files, 50,069,108 B raw, 3,270,518 B
+  compressed. The largest parts:
+
+  | Part | Raw | gzip -9 |
+  |---|---|---|
+  | `census.json` (the largest file) | 22,617,822 B | 1,042,982 B |
+  | `owners/` (25 payloads) | 21,092,877 B | 1,367,435 B |
+  | `census.rrbin` | 2,080,494 B | 731,566 B |
+
+  The largest payload is bebe, at 3,640,693 B. No file is near vakint-external-data's per-file
+  limits (about 50 MB compress-or-split, 100 MB hard).
+- **D-SIZE outcome: (B), final** (user ruling, DECISIONS 2026-11-09 01:01Z, "External data
+  only").
+  - vakint's `.crate` is already 12,675,558 B, approximated by M3-V8 (`cargo package` itself
+    refuses the path dependencies). That is over the crates.io limit of 10,485,760 B before any
+    library.
+  - With the 1-4 package in place of 1-3 the `.crate` would be 15,886,364 B.
+  - The package is not vendored. vakint loads it from the vakint-external-data `p_integral`
+    branch through the listed-library resolver (M3-V8), and RustRed is vakint's 4L default
+    whenever that library is present (D-M3-7).
+- **Load times** [M, indicative, shared host]: 4.15 s without the descent certificate and about
+  440-450 s with it (certificate, strong completeness, layer re-derivation). The first 1L result
+  takes 3.9 s on the 1-4 package against 0.12 s on the 1-3 package (D-M3-1; a poor value is an M5
+  item, not a vendoring criterion).
 
 5L readiness:
 
@@ -1392,6 +1648,22 @@ M2 amendment (plan departure 16): for M2 this table is superseded by `WS/M2_PLAN
 tasks: T7 -> T7a/T7b/T7c, T8 -> T8a/T8b, T10 -> T10a/T10b/T10c, new M2-I0 and M2-D0, vakint
 V1-V5; T1b runs without T1). The `LocusPolicy` plumbing of T7 moves to M3.
 
+M3 amendment: for M3 the M3 rows below are superseded by `WS/M3_PLAN.md` §4-5 (19 tasks;
+departures 2-6 and 12 at `WS/M3_PLAN.md:1289`). Live states are in `WS/M3_STATUS.json`. How
+each M3 row was done, or where it went:
+
+| AD row | M3 | Outcome |
+|---|---|---|
+| T5b Diamond template | M3-T5b, race | Parked for M5: C-D, 4 Diamond nodes as Custom (§3.5) |
+| T11, T12, T14, T16 (locus ladder, ledger, safety net) | - | Deferred to 5L (§0 item 11); `LocusPolicy` plumbing too |
+| T13 L2 fall-through | M3-T13 | Merged `9f6696a1`. Bounded at L2: at least 3 slot orders, `NumeratorBeforeEps` for eps owners, 3-6 source orders; no chart re-solve, no deeper search; opt-in (§3.4). T075c closes and equals T075p1 |
+| T15 4L census and generation | M3-T15, then M3-I1 and M3-T8c | T15 merged `f4578abd`: 25 owners generated all-rank, LP counted once and stored. I1 merged `1d9c3e1b`: budgets, `lp_given`, Provided LP recount filter. T8c merged `fd81c7ff` (STAGE 1) and `b7fd9f2b` (final): package, golden inventory, certificate (§3.4, §8) |
+| T17 4L basis | M3-T17 | Merged `1a36bcc2`: `P_BASIS_MASTERS_1_TO_4`, square layer (no Kira, no relations), anchors exact under 3 arithmetics, M_MAP 64/64, no `PBasis::Residual` on random 4L inputs (`docs/p_integrals.md`) |
+| T18 4L validation | M3-T18 | Running at this writing (`p-validate` at 4L, §9) |
+| T19 performance | M3-T19 | STAGE 1 merged `2bb4afd1` (R1 fixed, cancellation); final stage records the 4L numbers; speed is not blocking (M5) |
+| T20 canary #2 | - | Removed (plan departure 12): to the 5L plan |
+| - | M3-T7d | Shared custom-payload decoder, off the critical path; running at this writing |
+
 The dependency on P0 (rustred-p0: admission of `E = 1`, homogeneity, row counts) holds for every
 task.
 
@@ -1446,6 +1718,15 @@ Open points to settle in M2/M3 (measured, not guessed):
   telemetry).
 - The series-parallel one-step form against per-bubble insertion, and the recursive against the
   summed triangle (M5).
+
+M3 amendment, settled points [M]:
+
+- **Terminal count.** The 25 Custom owners of scope 1-4 leave 16 residuals, one per Forcer
+  master: a square, permutation-shaped layer (`count layer_rows_one_master_term 16`).
+- **Depth.** The 4L masters are known in `Masters.prc` only through `eps^5` (no1, no2, lala),
+  `eps^6` (haha, no6, nono, cross), `eps^7` (bebe, fastar2, nostar5, nostar6, no) or `eps^9`
+  (t105, t124, t145, t155). Deeper requests fail closed in vakint (`Oep`). See the depth table
+  in `docs/p_integrals.md`.
 
 ## References
 

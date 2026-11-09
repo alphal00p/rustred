@@ -253,6 +253,11 @@ reduces 1L-3L p-integrals on Forcer's rule cascade. The design is in
 implemented by the M2 tasks; this section is their single statement. Any
 change goes through the coordinator and is recorded here.
 
+M3 amendment (2026-11-09): C1-C4 hold unchanged for the scope 1-4 library
+of milestone M3, which reduces 1L-4L p-integrals. Its masters, their signs
+and normalisations, the eps depth of their values, and the package are in
+"Scope 1-4: Forcer's 16 masters" at the end of this section.
+
 RustRed owns the normalisation. A reduction onto masters is directly the
 quantity vakint calls `reduced`, so vakint needs no translation table. The
 conventions are C1-C4 below, pinned by exact anchors.
@@ -358,3 +363,176 @@ Under C1 at `Q^2 = 1`:
 
 The signs are part of the convention: `PReduction` onto these masters must
 reproduce them.
+
+### Scope 1-4: Forcer's 16 masters
+
+Status: normative for the scope 1-4 library of milestone M3 (`WS/M3_PLAN.md`
+D-M3-5; M3-T17). Code: `P_BASIS_MASTERS_1_TO_4`
+(`crates/rustred-core/src/propagator/basis.rs:150`), with the names of
+`FORCER_MASTER_NAMES` (`basis.rs:84`) sorted, as in vakint's
+`p_master_names()`.
+
+How the list is chosen. `p_basis_masters(max_loops)` (`basis.rs:268`)
+returns `P_BASIS_MASTERS_1_TO_3` (`no`, `t105`, unchanged since M2) for
+scopes ending at 1-3 and `P_BASIS_MASTERS_1_TO_4` for scope 1-4. Any other
+scope is refused: Forcer has no masters above four loops.
+`PBasisOptions::for_library` picks the list by the library's scope; it is
+used by `p-package` and by the loader's layer check.
+`PBasisOptions::default()` stays the 1-3 list and fails closed at scope 1-4,
+where 2 masters cannot match 16 residuals.
+
+The definition, for every master. A master is a Forcer topology with every
+line at power 1, plus its eps units, and every ISP at 0. Forcer defines it
+as `Z_topo(1,..,1, 0,..,0) = Master(name) / Q^(2w)`, read at `Q^2 = 1`.
+Under C1 at `Q^2 = 1`:
+
+`I_M(master) = s (eps G(1,1))^L Master(name)`, with `s = (-1)^lines`
+
+- `L` is the loop count of the master's own topology: 2 for the t1 family,
+  3 for `no`, `nostar5`, `nostar6` and `fastar2`, and 4 for the integer 4L
+  masters.
+- `lines` is its number of internal lines.
+
+The basis layer row of the residual whose site is that master is exactly
+this term:
+
+`s (d-3)^-L * tag {(+1,+L), (-1,+2L), (-2,-L)} * Master(name)`
+
+That is `(eps G(1,1))^L` written as in C3. In the scope 1-4 layer every
+residual row is one master term: the system is square and its matrix is a
+permutation (`crates/rustred-core/tests/p_library/golden/inventory_1-4.txt`,
+the `layer` lines). The site of a master on an Induced presentation is
+`node_corner` (`basis.rs:1069`): 1 on the lines of the sector, 0 elsewhere.
+
+Forcer notation: `a-b` is one line, and each `*` is one eps unit on that
+line. The legs at vertex 0 and at the highest vertex are external; their
+stars are not part of the topology. The notations are those of
+`crates/rustred-topology/tests/fixtures/forcer/forcer_dag_68a30bf.tsv`.
+
+| Master | Topology | Internal lines (Forcer notation) | L | Lines | eps units | `s` | Residual owner (DAG node) |
+|---|---|---|---|---|---|---|---|
+| `bebe` | bebe | `4-5 1-4 3-5 1-3 1-2 2-4 2-3 3-4` | 4 | 8 | 0 | +1 | `L4T08-d261f9c2d25e2dac` (151) |
+| `cross` | cross | `3-5 1-3 4-5 1-4 2-5 1-2 2-3 2-4` | 4 | 8 | 0 | +1 | `L4T08-cd9ded89aad8feea` (198) |
+| `haha` | haha | `5-8 4-5 3-4 2-3 1-2 1-8 5-6 1-6 4-7 2-7 6-7` | 4 | 11 | 0 | -1 | `L4T11-44b602110b8577dd` (3) |
+| `lala` | lala | `5-8 4-5 3-4 2-3 1-2 1-8 2-4 1-4 1-5` | 4 | 9 | 0 | -1 | `L4T09-1c8abad2243e10bc` (96) |
+| `no1` | no1 | `4-8 3-4 2-3 1-2 1-5 5-6 6-7 7-8 3-7 2-6 4-5` | 4 | 11 | 0 | -1 | `L4T11-23719591fd40fdf4` (6) |
+| `no2` | no2 | `5-8 4-5 2-4 1-2 1-6 3-6 3-7 7-8 5-6 3-4 2-7` | 4 | 11 | 0 | -1 | `L4T11-f1d077dbbd38929d` (2) |
+| `no6` | no6 | `7-8 6-7 2-6 1-2 1-7 3-7 3-4 4-8 4-6 2-3` | 4 | 10 | 0 | +1 | `L4T10-9f80d1b9bedb371e` (33) |
+| `nono` | nono | `4-6 2-4 1-2 1-3 3-5 5-6 4-5 3-4 2-5` | 4 | 9 | 0 | -1 | `L4T09-bb81f2828d54b056` (104) |
+| `no` | nostar0 | `3-4 2-3 1-2 1-6 5-6 4-5 3-6 2-5` | 3 | 8 | 0 | +1 | `L3T08-61cd69124cf81eb3` (241) |
+| `nostar5` | nostar5 | `3-4 2-3 1-2 1-6 5-6* 4-5 3-6 2-5` | 3 | 8 | 1 | +1 | `L3T08-3e20768c104b7e3c` (236) |
+| `nostar6` | nostar6 | `3-4 2-3 1-2 1-6 5-6 4-5* 3-6 2-5` | 3 | 8 | 1 | +1 | `L3T08-2e0e8204acdb3064` (242) |
+| `fastar2` | fastar2 | `3-4 2-3* 1-2 1-5 4-5 3-5 2-5` | 3 | 7 | 1 | -1 | `L3T07-42d23ff2fca262c6` (285) |
+| `t105` | t1star05 | `2-3 1-2 1-4 3-4 2-4*` | 2 | 5 | 1 | -1 | `L2T05-810c5f0ff11c4c40` (406) |
+| `t124` | t1star24 | `2-3 1-2* 1-4 3-4* 2-4` | 2 | 5 | 2 | -1 | `L2T05-ae7e6d53b1956fd5` (405) |
+| `t145` | t1star45 | `2-3 1-2 1-4 3-4* 2-4*` | 2 | 5 | 2 | -1 | `L2T05-bf1266160e2a5d31` (407) |
+| `t155` | t1star55 | `2-3 1-2 1-4 3-4 2-4**` | 2 | 5 | 2 | -1 | `L2T05-f4b9292827603c5c` (408) |
+
+Where each definition is read. Paths are relative to vakint's
+`form_src/forcer/` (Forcer `68a30bf`). Every entry's `source` field in
+`basis.rs` holds the full text.
+
+- `bebe`, `cross`, `haha`, `lala`, `no1`, `no6`, `nono`:
+  `Z(1,..,1,0,..,0) = Master(name)` in `forcer/forcer-manual.h`, at lines
+  `:9066`, `:7383`, `:1886`, `:5008`, `:2594`/`:2687`, `:3851` and `:6421`.
+- `no2`: `Zno2(1^11,0,0,0) = Master(no2) / Q2^3` (`forcer/forcer-rules.h:57`).
+- `no`: `Zno(1^8,0) = BasicNOIntegral / (Q^2)^2` (`forcer-rules.h:16`), with
+  `BasicNOIntegral = Master(no)` (`forcer.h:276`).
+- `nostar5`, `nostar6`: `Znostar5/6(1^8,0) = BasicNOIntegral5/6 / Q2^2`
+  (`forcer/forcer-rules.h:201`, `:221`), with `BasicNOIntegral5/6 =
+  Master(nostar5/6)` (`forcer.h:278`, `:279`).
+  - These are Forcer's default schemes, `NOSTAR5SCHEME`/`NOSTAR6SCHEME 1`.
+  - The scheme-0 lines `:196` and `:216`, marked "XXX: normalization?", are
+    not used by default and not by RustRed.
+- `fastar2`: `Zfastar2(1^7,0,0) = Master(fastar2) / Q2`
+  (`forcer/forcer-rules.h:182`, default `FASTAR2SCHEME 1`).
+- `t105`: `Zt1star5(1^5) = BasicT1Integral ep^2 / Q^2`
+  (`forcer-rules.h:15`, `:242`), with `BasicT1Integral = Master(t105) / ep^2`
+  (`forcer.h:277`).
+- `t124`, `t145`, `t155`: `Zt1starXY(1^5) = BasicT1IntegralXY / Q2`
+  (`forcer/forcer-rules.h:250`, `:269`, `:279`), with
+  `BasicT1IntegralXY = Master(tXYZ)` (`forcer.h:282`, `:281`, `:280`).
+  - The lines `:252`, `:271` and `:281`, marked "XXX: normalization?", give
+    the same definitions in the raw `Z(...)` form.
+  - t155's `Z(0,0,0,0,2,1,1,1,1,1)` is not a dot. The five leading
+    arguments of Forcer's t1 family are the eps units of its lines
+    (`forcer-rules.h:279`). So t155 is t1star55 with every line at power 1
+    and line `2-4` at `1 + 2 eps`.
+
+How these are pinned (M3-T17, all [M]). The source reading above is a
+hypothesis; exact Forcer anchors pin the signs and the five "XXX"
+normalisations.
+
+- Anchors: the 17 frozen 4L Forcer anchors are
+  `crates/rustred-core/tests/p_library/basis_anchors/p4l_anchors.json`, a
+  byte copy of gammaloop `crates/vakint/tests/fixtures/forcer/p4l_anchors.json`
+  (sha256 `607013f2...`, checked equal at the M3-T8c merge). They are one
+  per master other than `no` and `t105`, plus `la4_top = -70 zeta(7)`,
+  `no3_top` and `bubu_top`.
+- The anchors and the 1L-3L anchors (28 in all) hold exactly on the scope
+  1-4 library under the Exact, ModularPolynomial and ModularSampled
+  arithmetics (`crates/rustred-app/tests/p_library_app/basis4.rs:317`).
+- An anchor realises an eps-line master at 4L with one one-loop bubble per
+  eps unit. Its expected value onto masters is then
+  `s eps^-k Master(name)`, with `k` the master's eps units and tag one.
+- The layer is square: 16 master sites, each reducing to its own residual
+  (`basis4.rs:206`). It is re-checked at 2 fresh `d` modulo `2^61 - 1`
+  (`derive_basis_layer`, `basis.rs:1276`).
+- M_MAP is 64 of 64 (`basis4.rs:416`, data `basis_anchors/m_map.tsv`).
+- 22 random nonzero 4L inputs reduce onto `Unit` and masters only, never a
+  `PBasis::Residual` (`basis4.rs:531`).
+- The largest Gamma-tag `|m|` on the library is 5, at most
+  `P_GAMMA_TAG_MAX_M = 8`.
+
+#### Depth of the master values (the Oep guard)
+
+vakint takes each `PMaster(name)` from Forcer's `Masters.prc` (gammaloop
+`crates/vakint/form_src/forcer/forcer/Masters.prc`, read by
+`crates/vakint/src/p_integral/masters.rs`). Each entry is a Laurent series
+in the G-scheme `eps`, up to an unknown tail `ep^K*(ALARMname)`, which vakint
+renders as `eps^K Oep(K, PMaster(name))`.
+
+A result whose requested order needs a master coefficient at `eps^K` or
+beyond fails closed in vakint's finalize step: an Oep, or
+`MissingMasterOrders` error. It is never truncated silently.
+
+RustRed's reduction is exact in `d` and does not depend on this table. The
+table bounds only how deep vakint can expand a RustRed (or Forcer) result.
+
+| Masters | Leading order | Known through | Unknown from (`ALARM`) |
+|---|---|---|---|
+| `bebe` | `eps^-2` | `eps^7` | `eps^8` |
+| `no1`, `no2` | `eps^-1` | `eps^5` | `eps^6` |
+| `haha`, `no6`, `cross` | `eps^-1` | `eps^6` | `eps^7` |
+| `lala` | `eps^0` | `eps^5` | `eps^6` |
+| `nono` | `eps^0` | `eps^6` | `eps^7` |
+| `no`, `nostar5`, `nostar6`, `fastar2` | `eps^0` | `eps^7` | `eps^8` |
+| `t105`, `t124`, `t145`, `t155` | `eps^0` | `eps^9` | `eps^10` |
+
+These are read from `Masters.prc` at gammaloop `p_integral` `68b0107b3`.
+The frozen expected-error cases are M3-V7's 26 Oep cases at 11 terms in
+`p4l_battery.json`: `no1`/`no2`/`lala` at `eps^6`, and
+`haha`/`cross`/`nono`/`no6` at `eps^7`.
+
+#### The scope 1-4 package
+
+The scope 1-4 program ships as one package, M3-T8c's final package
+`WS/artefacts/m3/p-library-1-4`, with SHA256SUMS and a README.
+
+- Size: 470 files, 50,069,108 B raw.
+  - One tar under `gzip -9`: 3,270,518 B.
+  - Largest file: `census.json`, 22.6 MB.
+  - Payloads: 25 Custom payloads, 21.1 MB in all.
+  - Basis layer: 11,342 B.
+- Contents: 438 DAG nodes and 310 classes. Its 17 terminals map onto the 16
+  masters above.
+- D-SIZE outcome: (B), final (user ruling 2026-11-09 01:01Z).
+  - vakint's `.crate` is about 12.7 MB without any library, already above
+    the crates.io limit of 10 MiB, so the package is not vendored.
+  - vakint loads it from the vakint-external-data `p_integral` branch
+    through the listed-library resolver.
+  - RustRed is vakint's 4L default whenever that library is present, and
+    Forcer is used when it is absent.
+- The built-in vakint library stays scope 1-3, with its identity unchanged:
+  no P_* version moved in M3.
+- Details are in `docs/p_integral_generation_architecture.md` §8.
