@@ -535,7 +535,11 @@ fn counts_by_name(text: &str) -> BTreeMap<String, String> {
 
 /// `(scope, identity, blake3 of the inventory)`, append-only as the 1-2 and
 /// 1-3 pins of M2-T8a: a new inventory needs a new identity.
-const INVENTORY_PINS: &[(&str, &str, &str)] = &[];
+const INVENTORY_PINS: &[(&str, &str, &str)] = &[(
+    "1-4",
+    "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+    "9d5594307d0424dca6c06c1ef783b6fd9a2998c875c90190d93aea259020c7b8",
+)];
 
 /// The golden inventory: equal by name for the counts, then as a whole, and
 /// pinned to the identity.
