@@ -31,6 +31,9 @@
 //!
 //! The ignored tests run optimised, once, on the final library
 //! (notes/rr-validate4.md); environment variables `P_VALIDATE4_*` size them.
+//! Their reductions run under ModularPolynomial (vakint's default, exact in
+//! `Q(d)`; `P_VALIDATE4_ARITHMETIC=exact` for Exact, which takes minutes on
+//! some 11-line seeds), shown equal to Exact by the non-ignored test.
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -255,8 +258,9 @@ fn reduce_with(
         .unwrap()
 }
 
+/// `inputs` reduced onto the terminals in [`exactness_arithmetic`].
 fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
-    reduce_with(library, inputs, OrderedWeightArithmetic::Exact, 1)
+    reduce_with(library, inputs, exactness_arithmetic(), 1)
 }
 
 /// The nonzero terms of a reduction, in a canonical order.
@@ -1019,10 +1023,13 @@ fn ibp_combination(
     (inputs, relations.len())
 }
 
-/// The arithmetic of the exactness reductions (`P_VALIDATE4_ARITHMETIC`:
-/// `exact`, the default, or `modular_polynomial`; both exact in `Q(d)`).
+/// The arithmetic of the exactness reductions (`P_VALIDATE4_ARITHMETIC`):
+/// `modular_polynomial` by default (vakint's default; exact in `Q(d)` by
+/// reconstruction, equal to Exact by
+/// [`exact_equals_both_modular_arithmetics_and_threads_are_bit_identical_at_four_loops`];
+/// Exact itself takes minutes on some 11-line 4L seeds), or `exact`.
 fn exactness_arithmetic() -> OrderedWeightArithmetic {
-    match setting("ARITHMETIC", "exact".to_owned()).as_str() {
+    match setting("ARITHMETIC", "modular_polynomial".to_owned()).as_str() {
         "exact" => OrderedWeightArithmetic::Exact,
         "modular_polynomial" => modular_polynomial(1),
         other => panic!("P_VALIDATE4_ARITHMETIC={other}"),
@@ -1051,7 +1058,7 @@ struct SeedRow {
 /// owner sector's corner with random dots <= 2 and numerator rank 0..=3 off
 /// the support, odd and even) and at 4 random subsectors of each 4L top
 /// (negative powers, rank <= 3), a random combination of all `L (L + 1)`
-/// ordinary IBP rows reduces to zero exactly in `Q(d)` under Exact. Every
+/// ordinary IBP rows reduces to zero exactly in `Q(d)` (`exactness_arithmetic`). Every
 /// owner is a seed site, so every owner and every 4L node class is checked;
 /// the seeds' keys are traced (Route keys through `q -> -q` routes counted).
 #[test]
@@ -1126,7 +1133,7 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
                     let (inputs, rows) = ibp_combination(library, p, &seed.powers, &mut local);
                     let keys = inputs.len();
                     let built = begin.elapsed().as_secs_f64();
-                    let reduction = reduce_with(library, inputs, exactness_arithmetic(), 1);
+                    let reduction = reduce(library, inputs);
                     assert!(
                         nonzero_terms(&reduction).is_empty(),
                         "{}: IBP rows at {:?} do not reduce to zero: {:?}",
@@ -1135,12 +1142,7 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
                         nonzero_terms(&reduction)
                     );
                     let one = library.coefficient_context().one();
-                    let alone = reduce_with(
-                        library,
-                        vec![(seed.presentation, key(&seed.powers), one)],
-                        exactness_arithmetic(),
-                        1,
-                    );
+                    let alone = reduce(library, vec![(seed.presentation, key(&seed.powers), one)]);
                     eprintln!(
                         "IBP seed {index} {} {:?}: {rows} rows, {keys} keys, rows built in {built:.1} s, \
                          {:.1} s",
@@ -1312,7 +1314,8 @@ fn table_value(context: &CoefficientContext, text: &str, n: &[i64]) -> Option<Co
 /// The T148 bubu table of the rules study (`RUSTRED_T148_TABLE`, frozen,
 /// table gate items 1-4 PASS; `rules_study/s5-tables/s5-dump/tables/
 /// T148.table.jsonl`): every rule's identity `I(target) = Sum_t c_t I(key_t)`
-/// at `P_VALIDATE4_T148_POINTS` random points of its domain (default 2: the
+/// at `P_VALIDATE4_T148_POINTS` random points of its domain (default 2; free
+/// axes small: lines 1 or 2, numerators 0 or -1; the
 /// chart, its fixed values, off its exception branches and off coefficient
 /// poles) holds through the library: the table's family (`gram(q,q,1)`) is
 /// carried onto bubu's owner presentation (`q^2 = -1`) by a unimodular map of
@@ -1374,10 +1377,33 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
     };
     let target = library.presentation(presentation);
     assert_eq!(target.slots, library.presentation(owner).slots);
+    // Of the maps onto bubu's lines, the one carrying most numerator props onto
+    // a slot of the target (fewest expansions).
+    let slot_rows: Vec<Vec<i64>> = slot_factors(target)
+        .into_iter()
+        .filter(|(left, right)| left == right)
+        .map(|(left, _)| left)
+        .collect();
+    let on_slot = |map: &LoopMap| {
+        (0..momenta.len())
+            .filter(|slot| !lines.contains(slot))
+            .filter(|&slot| {
+                let image = map.image(&momenta[slot].0);
+                let negated: Vec<i64> = image.iter().map(|v| -v).collect();
+                slot_rows.contains(&image) || slot_rows.contains(&negated)
+            })
+            .count()
+    };
     let (map, sigma) = line_maps(&momenta, &lines, target, false, 4096)
         .into_iter()
-        .find(|(_, sigma)| sigma.values().fold(0_u64, |m, &s| m | 1 << s) == support)
+        .filter(|(_, sigma)| sigma.values().fold(0_u64, |m, &s| m | 1 << s) == support)
+        .max_by_key(|(map, _)| on_slot(map))
         .expect("the table's lines map onto bubu's");
+    println!(
+        "T148 map onto bubu's presentation {}: {} of 5 numerator props onto a slot",
+        presentation.0,
+        on_slot(&map)
+    );
     let rules: Vec<&Value> = records.iter().filter(|r| r["type"] == "rule").collect();
     assert_eq!(rules.len(), 139);
     let chart_guards: Vec<String> =
@@ -1400,8 +1426,8 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
             let n: Vec<i64> = (0..14)
                 .map(|axis| match rule["fixed"][axis].as_i64() {
                     Some(value) => value,
-                    None if chart_guards[axis] == "n>=1" => 1 + rng.below(3) as i64,
-                    None => -(rng.below(3) as i64),
+                    None if chart_guards[axis] == "n>=1" => 1 + i64::from(rng.below(3) == 0),
+                    None => -i64::from(rng.below(3) == 0),
                 })
                 .collect();
             let excepted = rule["exceptions"].as_array().unwrap().iter().any(|branch| {
@@ -1470,7 +1496,7 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                     let begin = Instant::now();
                     let size = inputs.len();
                     eprintln!("T148 rule {index} at {n:?}: {size} keys: start");
-                    let reduction = reduce_with(library, inputs, exactness_arithmetic(), 1);
+                    let reduction = reduce(library, inputs);
                     eprintln!(
                         "T148 rule {index} at {n:?}: {size} keys, {:.1} s",
                         begin.elapsed().as_secs_f64()
