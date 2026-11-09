@@ -18,8 +18,8 @@
 //!    map is verified and belongs to exactly one owner.
 //! 4. SeriesParallel, Insertion and Carpet owners end in the trivial node at one
 //!    loop and otherwise have exactly one rule edge into a presentation of `L - 1`
-//!    loops and fewer lines; a Triangle owner has no edge and lowers integer lines
-//!    of its own support only.
+//!    loops and fewer lines; a Triangle or Diamond owner has no edge and lowers
+//!    integer lines of its own support only.
 //! 5. Overlays: none in M2.
 //! 6. Eps axes are forced into every support: census sectors and owner sectors.
 //! 7. The hard false knock-out guard on Custom owners ([`check_custom_guard`]).
@@ -352,6 +352,7 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
                 check_rule_owner(library, spec, parent, t)?;
             }
             OwnerLane::Triangle => check_triangle_owner(spec, parent, support)?,
+            OwnerLane::Diamond => check_diamond_owner(spec, parent, support)?,
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
                 report.guarded_owners += 1;
@@ -624,6 +625,37 @@ fn check_triangle_owner(
     if mask.count_ones() != 3 || mask & integer != mask {
         return Err(malformed(format!(
             "Triangle owner {:016x}: b, c1, c2 = {lowered:?} are not three integer lines of {support:#x}",
+            spec.class.0
+        )));
+    }
+    Ok(())
+}
+
+/// Item 4 for the Diamond lane (M3-T5b): no edge; every `b[i]` and `c[i]` is a
+/// distinct integer line of the owner's support, so every child lowers one.
+fn check_diamond_owner(
+    spec: &POwnerSpec,
+    parent: &Presentation,
+    support: u64,
+) -> Result<(), PError> {
+    let LaneRoles::Diamond(roles) = spec.roles else {
+        return Err(malformed(format!(
+            "Diamond owner {:016x} with roles {:?}",
+            spec.class.0, spec.roles
+        )));
+    };
+    if !spec.edge_maps.is_empty() {
+        return Err(malformed(format!(
+            "Diamond owner {:016x} names edge maps",
+            spec.class.0
+        )));
+    }
+    let lowered: Vec<u16> = roles.b().iter().chain(roles.c()).copied().collect();
+    let integer = support & line_mask(parent) & !parent.forced_axes();
+    let mask = (lowered.iter()).fold(0_u64, |mask, &slot| mask | 1_u64.checked_shl(u32::from(slot)).unwrap_or(0));
+    if mask.count_ones() as usize != lowered.len() || mask & integer != mask {
+        return Err(malformed(format!(
+            "Diamond owner {:016x}: b, c = {lowered:?} are not distinct integer lines of {support:#x}",
             spec.class.0
         )));
     }

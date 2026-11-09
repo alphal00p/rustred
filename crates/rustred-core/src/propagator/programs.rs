@@ -12,6 +12,7 @@ use std::sync::Arc;
 use super::carpet::CarpetStep;
 use super::custom::build_custom_step;
 use super::descent::check_custom_guard;
+use super::diamond::DiamondStep;
 use super::error::PError;
 use super::insertion::InsertionStep;
 use super::lane::OwnerLane;
@@ -47,12 +48,12 @@ impl fmt::Debug for CustomPayloadRef {
 
 /// The program of `owner` in `library`: the step of its lane, built from the
 /// owner's roles and edge maps (Insertion, SeriesParallel, Carpet: M2-T4;
-/// Triangle: M2-T5), or the Custom step of its payload (M2-T7c). The trivial
+/// Triangle: M2-T5; Diamond: M3-T5b), or the Custom step of its payload (M2-T7c). The trivial
 /// node is no owner: steps reach it as the terminal `Unit`.
 ///
 /// A rule lane carries no payload and no Custom meta; a Custom owner carries
-/// both and passes the false knock-out guard. `Zero`, `Diamond` (M3) and
-/// `Product` own no program in M2.
+/// both and passes the false knock-out guard. `Zero` and `Product` own no
+/// program.
 pub fn lane_program(library: &PLibrary, owner: &POwnerSpec) -> Result<OwnerProgram, PError> {
     let malformed = |detail: String| {
         PError::MalformedLibrary(format!(
@@ -71,8 +72,9 @@ pub fn lane_program(library: &PLibrary, owner: &POwnerSpec) -> Result<OwnerProgr
         OwnerLane::Insertion => Arc::new(InsertionStep::from_owner(library, owner)?),
         OwnerLane::Carpet => Arc::new(CarpetStep::from_owner(library, owner)?),
         OwnerLane::Triangle => Arc::new(TriangleStep::from_owner(library, owner)?),
+        OwnerLane::Diamond => Arc::new(DiamondStep::from_owner(library, owner)?),
         OwnerLane::Custom => custom_step(library, owner)?,
-        lane @ (OwnerLane::Zero | OwnerLane::Diamond | OwnerLane::Product) => {
+        lane @ (OwnerLane::Zero | OwnerLane::Product) => {
             return Err(malformed(format!("the lane {lane:?} has no program")));
         }
     };

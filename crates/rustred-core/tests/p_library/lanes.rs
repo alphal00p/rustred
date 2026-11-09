@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use rustred::algebra::CoefficientContext;
 use rustred::propagator::P_PRESENTATION_VERSION;
 use rustred::propagator::decide::{ADAPTED_LOOP, decide};
+use rustred::propagator::diamond::check_diamond_contract;
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile, load_p_families};
 use rustred::propagator::lane::{
@@ -233,22 +234,28 @@ fn lane_tables_are_the_plans() {
         three.names("Triangle"),
         sorted_names(&["d43", "d30", "d118", "d137", "d192", "d197"])
     );
-    // 4L ForcerTree, pinned: Forcer's actions with the SP split, Diamond as Custom.
+    // 4L ForcerTree, pinned: Forcer's actions with the SP split.
+    let four = lanes(4);
     assert_eq!(
-        lanes(4).table(),
+        four.table(),
         table(&[
             ("SeriesParallel", 161),
             ("Insertion", 174),
             ("Carpet", 24),
             ("Triangle", 53),
-            ("Custom", 25),
+            ("Diamond", 4),
+            ("Custom", 21),
             ("Trivial", 1),
         ])
+    );
+    assert_eq!(
+        four.names("Diamond"),
+        sorted_names(&["d384", "d394", "d399", "no3"])
     );
 }
 
 /// `(L, action)` and the SP split of the 4L DAG agree with the independent
-/// Python census node by node; Diamond is Custom until M3.
+/// Python census node by node.
 #[test]
 fn the_4l_table_equals_the_python_census() {
     let dag = &lanes(4).dag;
@@ -292,7 +299,8 @@ fn the_4l_table_equals_the_python_census() {
             ActionKind::Insertion => OwnerLane::Insertion,
             ActionKind::Carpet => OwnerLane::Carpet,
             ActionKind::Triangle => OwnerLane::Triangle,
-            ActionKind::Diamond | ActionKind::Custom => OwnerLane::Custom,
+            ActionKind::Diamond => OwnerLane::Diamond,
+            ActionKind::Custom => OwnerLane::Custom,
         };
         assert_eq!(
             lanes(4).decisions[node.index as usize].lane,
@@ -310,6 +318,7 @@ fn check_contract(presentation: &Presentation, decision: &LaneDecision) {
         LaneRoles::Insertion(roles) => check_insertion_contract(presentation, &roles).unwrap(),
         LaneRoles::Carpet(roles) => check_carpet_contract(presentation, &roles).unwrap(),
         LaneRoles::Triangle(roles) => check_triangle_contract(presentation, &roles).unwrap(),
+        LaneRoles::Diamond(roles) => check_diamond_contract(presentation, &roles).unwrap(),
     }
 }
 
@@ -367,6 +376,7 @@ fn every_presentation_meets_its_contract() {
                 }
                 (OwnerLane::Carpet, _) => Some(PresentationKind::CarpetAdapted),
                 (OwnerLane::Triangle, _) => Some(PresentationKind::TriangleAdapted),
+                (OwnerLane::Diamond, _) => Some(PresentationKind::DiamondAdapted),
                 (OwnerLane::Custom, 0) => None,
                 (OwnerLane::Custom, _) => Some(PresentationKind::EpsNode),
                 (lane, _) => panic!("{name}: lane {lane:?}"),
@@ -580,7 +590,8 @@ fn custom_presentations_are_induced_or_eps_nodes() {
             ref kind => panic!("{}: {kind:?}", forcer_name(&node.key)),
         }
     }
-    assert_eq!((integer, eps), (14, 11));
+    // The 4 diamond nodes (d384, d394, d399, no3) are Diamond owners (M3-T5b).
+    assert_eq!((integer, eps), (10, 11));
 }
 
 #[test]

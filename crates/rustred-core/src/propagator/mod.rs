@@ -34,6 +34,9 @@ pub mod present;
 // Triangle lane (M2-T5).
 pub mod triangle;
 
+// Diamond lane (M3-T5b).
+pub mod diamond;
+
 // Custom owners (M2-T7c).
 pub mod custom;
 // The candidate bundle's wire records, reader and restore (M3-T7d).
@@ -64,6 +67,9 @@ pub const P_GAMMA_TAG_WIDTH: usize = 16;
 pub const P_INSERTION_KERNEL_VERSION: u32 = 1;
 pub const P_CARPET_KERNEL_VERSION: u32 = 1;
 pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
+/// The Diamond template (M3-T5b). It enters [`p_versions`] with the lane's
+/// final stage, together with the golden identity pins.
+pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// Custom-owner generation options and the false-knock-out guard.
 pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";

@@ -19,6 +19,9 @@
 //!   from `s` to `t`, so `q` is routed through `r = q - p` alone and `third`,
 //!   the bridge of that graph, is `p`. The scan of [`IspCompletion`] takes every
 //!   `k_i.k_j` before any `k_i.q`, and `p^2` and `r` then span `p.q`.
+//! - Diamond: the tree holds every `a` and the last `b`, not the other `b` nor
+//!   the spectator, so loop `i < L` runs through `b[i]`, loop `L` through the
+//!   spectator, and each closes through `a[i]` and the last path alone.
 //! - Custom with eps lines: the default tree, by ascending line.
 //! - Custom without eps lines: the Induced presentation, a sector of a vakint
 //!   top with the top's slots and family.
@@ -35,9 +38,10 @@ use crate::reduction::ReductionError;
 
 use super::census::SignedAffineLoopMap;
 use super::decide::{ADAPTED_LOOP, CUSTOM, decide};
+use super::diamond::check_diamond_contract;
 use super::error::PError;
 use super::families::{P_FAMILIES_V1_JSON, PFamiliesFile, PFamilyEntry};
-use super::lane::{LaneDecision, LaneRoles, OwnerLane};
+use super::lane::{DiamondRoles, LaneDecision, LaneRoles, OwnerLane};
 use super::presentation::{
     EdgeKind, EdgeMap, NodeRef, P_EXTERNAL_SQUARE, Presentation, PresentationKind, Slot, SlotIsp,
     SlotLine, check_carpet_contract, check_insertion_contract, check_triangle_contract,
@@ -203,6 +207,34 @@ fn routed_carpet(node: &NodeInfo, r: usize) -> Result<Vec<Vec<i64>>, PError> {
     Ok(rows)
 }
 
+/// The diamond routing of the module docs: the loops `0..L + S` are the
+/// cotree lines `b[0..L]` and the spectator, in this order.
+fn routed_diamond(node: &NodeInfo, roles: &DiamondRoles) -> Result<Vec<Vec<i64>>, PError> {
+    let topo = &node.topo;
+    let loops = usize::from(node.loops);
+    let last = roles.paths() - 1;
+    let index = |slot: &u16| usize::from(*slot);
+    let first: Vec<usize> = (roles.b()[..last].iter().chain(&roles.spectator))
+        .map(index)
+        .collect();
+    let tree_first: Vec<usize> = (roles.a().iter().chain(&roles.b()[last..]))
+        .map(index)
+        .collect();
+    let tree = Tree::grow(topo, &tree_first, &first);
+    let mut cotree = first.clone();
+    cotree.extend(tree.cotree(None, &first));
+    if cotree.len() != loops {
+        return Err(broken(format!(
+            "{} cotree lines for {loops} loops",
+            cotree.len()
+        )));
+    }
+    let mut rows = vec![vec![0; loops + 1]; topo.lines.len()];
+    tree.add_cycles(&mut rows, &cotree, 0)?;
+    tree.add_external(&mut rows, loops)?;
+    Ok(rows)
+}
+
 /// `mom^2 = constant + row . S` over the coordinates of the family.
 fn square_row(momentum: &[i64]) -> (i64, Vec<i64>) {
     let (&q, loop_part) = momentum.split_last().expect("loops >= 1");
@@ -334,6 +366,10 @@ fn role_lines(roles: LaneRoles) -> Vec<u16> {
         LaneRoles::Triangle(roles) => {
             vec![roles.b, roles.a[0], roles.a[1], roles.c[0], roles.c[1]]
         }
+        LaneRoles::Diamond(roles) => (roles.a().iter().chain(roles.b()).chain(roles.c()))
+            .chain(&roles.spectator)
+            .copied()
+            .collect(),
     }
 }
 
@@ -376,6 +412,13 @@ fn adapted(
             let kind = PresentationKind::TriangleAdapted;
             let presentation = with_isps(node, rows, kind, id, context)?;
             check_triangle_contract(&presentation, &roles)?;
+            Ok(presentation)
+        }
+        (OwnerLane::Diamond, LaneRoles::Diamond(roles)) => {
+            let rows = routed_diamond(node, &roles)?;
+            let kind = PresentationKind::DiamondAdapted;
+            let presentation = with_isps(node, rows, kind, id, context)?;
+            check_diamond_contract(&presentation, &roles)?;
             Ok(presentation)
         }
         (lane, roles) => Err(broken(format!(
@@ -536,8 +579,9 @@ pub fn present(
         OwnerLane::SeriesParallel
         | OwnerLane::Insertion
         | OwnerLane::Carpet
-        | OwnerLane::Triangle => adapted(node, decision, id, context),
-        lane @ (OwnerLane::Zero | OwnerLane::Diamond | OwnerLane::Product) => Err(broken(format!(
+        | OwnerLane::Triangle
+        | OwnerLane::Diamond => adapted(node, decision, id, context),
+        lane @ (OwnerLane::Zero | OwnerLane::Product) => Err(broken(format!(
             "node {}: the lane {lane:?} has no presentation",
             node.index
         ))),
