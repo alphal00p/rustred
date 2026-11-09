@@ -1,54 +1,19 @@
 //! Shared native rule transport for sector candidates and partial overlays.
 //! These records carry no replay, descent, terminal or coverage authority.
 
-use rustred::algebra::{Coefficient, CoefficientPolynomial};
-use rustred::persistence::{
-    BinaryIoError, CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable,
-    LazyDecodedCoefficientTable,
-};
-use rustred::solver::{
-    AffineCase, AffineIntersection, Case, CoordinateCase, ExceptionalConditions, RuleCandidate,
-    SearchStats, SectorRule, Seed, SeedSource, Term,
-};
+use rustred::persistence::CoefficientTableBuilder;
+use rustred::propagator::bundle_wire::{self, Restore};
+use rustred::solver::{Case, SectorRule};
 use symbolica::prelude::PolyVariable;
 
 use super::super::model::{CaseRecord, RuleRecord, SeedRecord, TermRecord};
-use super::{
-    binary_error, integral, integral_record, intern_coefficient, intern_polynomial,
-    validate_integral,
-};
+use super::{integral_record, intern_coefficient, intern_polynomial};
 use crate::AppError;
 
-/// Local decoder seam: both stores use the existing native Symbolica codec.
-/// Rule reconstruction owns its output; no lazy reference escapes admission.
-pub(in crate::application::candidate_bundle) trait NativeCoefficientSource {
-    fn coefficient_count(&self) -> usize;
-    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError>;
-}
-impl NativeCoefficientSource for DecodedCoefficientTable {
-    fn coefficient_count(&self) -> usize {
-        self.len()
-    }
-    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
-        self.coefficient(id).cloned()
-    }
-}
-impl NativeCoefficientSource for LazyDecodedCoefficientTable {
-    fn coefficient_count(&self) -> usize {
-        self.len()
-    }
-    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
-        Ok(self.coefficient(id)?.as_ref().clone())
-    }
-}
-impl<T: NativeCoefficientSource> NativeCoefficientSource for std::sync::Arc<T> {
-    fn coefficient_count(&self) -> usize {
-        self.as_ref().coefficient_count()
-    }
-    fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
-        self.as_ref().coefficient_owned(id)
-    }
-}
+/// Local decoder seam: both stores use the existing native Symbolica codec
+/// (rustred-core's bundle restore reads either). Rule reconstruction owns its
+/// output; no lazy reference escapes admission.
+pub(in crate::application::candidate_bundle) use bundle_wire::CoefficientSource as NativeCoefficientSource;
 
 pub(in crate::application::candidate_bundle) fn case_record<const N: usize>(
     case: &Case<N>,
@@ -134,59 +99,21 @@ pub(in crate::application::candidate_bundle) fn validate_case(
     case: &CaseRecord,
     n: usize,
 ) -> Result<(), AppError> {
-    if case.fixed_axes.len() != case.fixed_values.len()
-        || case.fixed_axes.iter().any(|&axis| axis >= n)
-        || case.fixed_axes.windows(2).any(|axes| axes[0] >= axes[1])
-        || !matches!(case.kind.as_str(), "coordinate" | "affine")
-        || (case.kind == "coordinate") != case.equations.is_empty()
-    {
-        return Err(AppError::input("invalid candidate case shape"));
-    }
-    Ok(())
+    Ok(bundle_wire::validate_case(case, n)?)
 }
 
 pub(in crate::application::candidate_bundle) fn validate_rule(
     rule: &RuleRecord,
     n: usize,
 ) -> Result<(), AppError> {
-    validate_integral(&rule.target, n)?;
-    validate_case(&rule.case, n)?;
-    for term in &rule.rhs {
-        validate_integral(&term.integral, n)?;
-        if term.integral.symbolic != rule.target.symbolic {
-            return Err(AppError::input(
-                "candidate RHS symbolic layout differs from target",
-            ));
-        }
-    }
-    for source in &rule.sources {
-        validate_integral(&source.integral, n)?;
-        if source.shifts.len() != n {
-            return Err(AppError::input(
-                "candidate seed shift arity differs from root",
-            ));
-        }
-    }
-    Ok(())
+    Ok(bundle_wire::validate_rule(rule, n)?)
 }
 
 pub(in crate::application::candidate_bundle) fn validate_rule_ids(
     rule: &RuleRecord,
     count: usize,
 ) -> Result<(), AppError> {
-    if rule
-        .case
-        .equations
-        .iter()
-        .chain(rule.rhs.iter().map(|term| &term.coefficient))
-        .chain(rule.exclusions.iter().flatten())
-        .any(|&id| id as usize >= count)
-    {
-        return Err(AppError::input(
-            "candidate coefficient ID is outside its table",
-        ));
-    }
-    Ok(())
+    Ok(bundle_wire::validate_rule_ids(rule, count)?)
 }
 
 pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
@@ -196,32 +123,12 @@ pub(in crate::application::candidate_bundle) fn restore_case<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> Result<Case<N>, AppError> {
-    validate_case(record, N)?;
-    let mut fixed = [None; N];
-    for (&axis, &value) in record.fixed_axes.iter().zip(&record.fixed_values) {
-        fixed[axis] = Some(value);
-    }
-    let face = CoordinateCase::new(fixed)
-        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?;
-    if !face.is_in_sector(sector) {
-        return Err(AppError::input("candidate fixed face is outside sector"));
-    }
-    if record.kind == "coordinate" {
-        return Ok(face.into());
-    }
-    let equations = record
-        .equations
-        .iter()
-        .map(|&id| polynomial(table, variables, id))
-        .collect::<Result<Vec<_>, _>>()?;
-    match AffineCase::from_coordinate(&face, &equations, indices, sector)
-        .map_err(|e| AppError::from_native(e, crate::AppErrorKind::Input))?
-    {
-        AffineIntersection::Affine(case) if case.face().fixed() == &fixed => Ok(case.into()),
-        _ => Err(AppError::input(
-            "saved affine case does not reconstruct its declared fixed face",
-        )),
-    }
+    let restore = Restore {
+        table,
+        variables,
+        indices,
+    };
+    Ok(restore.case(record, sector)?)
 }
 
 pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
@@ -231,118 +138,10 @@ pub(in crate::application::candidate_bundle) fn restore_rule<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> Result<SectorRule<N>, AppError> {
-    validate_rule(record, record.target.values.len())?;
-    if !rustred::fits_storage(record.target.values.len(), N) {
-        return Err(AppError::input("candidate rule exceeds storage capacity"));
-    }
-    validate_rule_ids(record, table.coefficient_count())?;
-    let mut padded_case = record.case.clone();
-    for axis in record.target.values.len()..N {
-        padded_case.fixed_axes.push(axis);
-        padded_case.fixed_values.push(0);
-    }
-    let case = restore_case(&padded_case, table, variables, indices, sector)?;
-    let target = integral(&record.target)?;
-    if target != case.integral() {
-        return Err(AppError::input(
-            "candidate target is not canonical for its case",
-        ));
-    }
-    let rhs = record
-        .rhs
-        .iter()
-        .map(|term| {
-            Ok(Term {
-                integral: integral(&term.integral)?,
-                coefficient: coefficient(table, variables, term.coefficient)?,
-            })
-        })
-        .collect::<Result<_, AppError>>()?;
-    let sources = record
-        .sources
-        .iter()
-        .map(|source| {
-            Ok(SeedSource {
-                basis_row: source.basis_row,
-                seed: Seed {
-                    integral: integral(&source.integral)?,
-                    shifts: rustred::storage_array(&source.shifts, 0)
-                        .expect("validated seed arity"),
-                },
-            })
-        })
-        .collect::<Result<_, AppError>>()?;
-    let branches = record
-        .exclusions
-        .iter()
-        .map(|branch| {
-            branch
-                .iter()
-                .map(|&id| polynomial(table, variables, id))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<_, AppError>>()?;
-    Ok(SectorRule {
-        dispatch_policy: Default::default(),
-        candidate: RuleCandidate {
-            case,
-            target,
-            rhs,
-            sources,
-            stats: SearchStats::default(),
-        },
-        exceptions: ExceptionalConditions { branches },
-    })
-}
-
-fn coefficient(
-    table: &impl NativeCoefficientSource,
-    variables: &[PolyVariable],
-    id: u32,
-) -> Result<Coefficient, AppError> {
-    let id = CoefficientId::try_from_index(id as usize).map_err(binary_error)?;
-    let value = table.coefficient_owned(id).map_err(binary_error)?;
-    let physical_variables = value.get_variables().as_slice();
-    if physical_variables != variables
-        && (!cfg!(feature = "capacity-dispatch")
-            || !variables.starts_with(physical_variables)
-            || variables[physical_variables.len()..]
-                .iter()
-                .any(|v| !matches!(v, PolyVariable::Temporary(_))))
-    {
-        return Err(AppError::input(
-            "candidate coefficient has the wrong indexed variable map",
-        ));
-    }
-    if value.get_variables().as_slice() == variables {
-        Ok(value)
-    } else {
-        let numerator = value
-            .numerator
-            .rearrange_with_growth(variables)
-            .map_err(AppError::input)?;
-        let denominator = value
-            .denominator
-            .rearrange_with_growth(variables)
-            .map_err(AppError::input)?;
-        use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-        Ok(Coefficient::from_num_den(
-            numerator,
-            denominator,
-            &symbolica::domains::integer::Z,
-            true,
-        ))
-    }
-}
-
-fn polynomial(
-    table: &impl NativeCoefficientSource,
-    variables: &[PolyVariable],
-    id: u32,
-) -> Result<CoefficientPolynomial, AppError> {
-    let value = coefficient(table, variables, id)?;
-    if !value.denominator.is_one() {
-        return Err(AppError::input("candidate equation is not a polynomial"));
-    }
-    Ok(value.numerator)
+    let restore = Restore {
+        table,
+        variables,
+        indices,
+    };
+    Ok(restore.rule(record, sector)?)
 }

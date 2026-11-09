@@ -5,9 +5,9 @@ pub use rustred::solver::{CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePo
 
 use crate::application::InputFormat;
 
-pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v2";
-pub(super) const DISPATCH_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v3";
-pub(super) const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
+pub use rustred::propagator::bundle_wire::CANDIDATE_BUNDLE_SCHEMA;
+pub(super) use rustred::propagator::bundle_wire::DISPATCH_CANDIDATE_BUNDLE_SCHEMA;
+pub(super) use rustred::propagator::bundle_wire::LEGACY_CANDIDATE_BUNDLE_SCHEMA;
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v2";
 /// Default allowance for candidate ingress/output policies; callers may enlarge it.
@@ -19,7 +19,7 @@ pub const MAX_CANDIDATE_BUNDLE_BYTES: usize = 1024 * 1024 * 1024;
 /// caller from accidentally turning a bounded request into an unbounded
 /// resource campaign while the scoped artifact contract is completed.
 pub const MAX_RANK_SCOPED_CERTIFICATION_DEGREE: usize = 30;
-pub(super) const STATUS: &str = "uncertified-candidates";
+pub(super) use rustred::propagator::bundle_wire::CANDIDATE_BUNDLE_STATUS as STATUS;
 pub(super) const SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
 
 /// Structural metadata only: counts do not establish valid rules or closure.
@@ -448,84 +448,8 @@ impl std::ops::DerefMut for Bundle {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct ProgramRecord {
-    pub schema: String,
-    pub status: String,
-    pub solver_policy: String,
-    pub family_source: String,
-    pub input_format: String,
-    pub family_fingerprint: String,
-    pub root_sector: Vec<bool>,
-    pub permutation: Option<Vec<usize>>,
-    pub integral_order: String,
-    pub sectors: Vec<SectorRecord>,
-    /// Sparse execution policy, independent of equation/source wire records.
-    pub rule_dispatch: Vec<RuleDispatchRecord>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct RuleDispatchRecord {
-    pub sector: usize,
-    pub rule: usize,
-    /// 1 = AfterBaselinePartitionWholePiece; default entries are forbidden.
-    pub policy: u8,
-}
-
-/// Read-only adapter for existing control-owner inputs. No missing custom
-/// order is inferred: v1 had exactly the named Spired/permutation semantics.
-#[derive(bincode::Decode)]
-pub(super) struct LegacyProgramRecord {
-    pub schema: String,
-    pub status: String,
-    pub solver_policy: String,
-    pub family_source: String,
-    pub input_format: String,
-    pub family_fingerprint: String,
-    pub root_sector: Vec<bool>,
-    pub permutation: Option<Vec<usize>>,
-    pub sectors: Vec<SectorRecord>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct SectorRecord {
-    pub sector: Vec<bool>,
-    pub rules: Vec<RuleRecord>,
-    pub finite_residuals: Vec<IntegralRecord>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct RuleRecord {
-    pub case: CaseRecord,
-    pub target: IntegralRecord,
-    pub rhs: Vec<TermRecord>,
-    pub sources: Vec<SeedRecord>,
-    pub exclusions: Vec<Vec<u32>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct CaseRecord {
-    pub kind: String,
-    pub fixed_axes: Vec<usize>,
-    pub fixed_values: Vec<i16>,
-    pub equations: Vec<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct IntegralRecord {
-    pub symbolic: Vec<bool>,
-    pub values: Vec<i16>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct TermRecord {
-    pub integral: IntegralRecord,
-    pub coefficient: u32,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub(super) struct SeedRecord {
-    pub basis_row: usize,
-    pub integral: IntegralRecord,
-    pub shifts: Vec<i16>,
-}
+/// The bundle's wire records: one definition, in rustred-core (M3-T7d).
+pub(super) use rustred::propagator::bundle_wire::{
+    CaseRecord, IntegralRecord, ProgramRecord, RuleDispatchRecord, RuleRecord, SectorRecord,
+    SeedRecord, TermRecord,
+};

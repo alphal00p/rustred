@@ -7,10 +7,10 @@
 //! an integer owner, all `2^j` charts of the `j` eps axes for an eps owner,
 //! whose order program must carry two-sided data on every eps axis.
 //!
-//! The candidate-bundle format belongs to the application crate. This module
-//! reads the bundles it generates with a read-only copy of their structural
-//! records, so that the library can build a Custom owner from bytes alone
-//! ([`build_custom_step`], used by assembly and the loader through
+//! The application crate generates candidate bundles; this module reads them
+//! with the bundle's one decoder ([`super::bundle_wire`], shared with the
+//! application's codec), so that the library can build a Custom owner from
+//! bytes alone ([`build_custom_step`], used by assembly and the loader through
 //! `programs::lane_program`). The bundle's family must be the presentation's
 //! family. Nothing goes through the bundle loader's admission: it refuses eps
 //! families by design, and the p-only constructor
@@ -40,26 +40,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
-use symbolica::poly::PolyVariable;
-
-use crate::algebra::{Coefficient, CoefficientPolynomial, IndexedCoefficientContext};
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
-    BinaryIoLimits, BinaryProgramKind, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord,
-    SectionTag, inspect_program,
+    BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
+    SectionTag,
 };
-use crate::reduction::{ReductionLimits, ReductionRequest, ReductionStatistics};
+use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::{Mask, OrderingPolicy, zero};
 use crate::solver::owner_step::{AppliedOwnerStep, apply_prepared_owner, owner_ordering};
 use crate::solver::{
-    AffineCase, AffineIntersection, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerScope, CandidateReductionError, Case, CoordinateCase,
-    DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader, DeferredCandidateOwnerPrograms,
-    ExceptionalConditions, FiniteCasePolicy, Integral, IntegralOrder, Power, RuleCandidate,
-    RuleDispatchPolicy, SearchStats, SectorRule, SectorSolution, SectorStats, Seed, SeedSource,
-    Term,
+    CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+    CandidateReductionError, DeferredCandidateOwnerDescriptor, DeferredCandidateOwnerLoader,
+    DeferredCandidateOwnerPrograms, FiniteCasePolicy,
 };
 
+use super::bundle_wire::{
+    BundleWireError, CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS,
+    DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, StoredProgram,
+    candidate_sections, decode_family_record, decode_program_record, import_coefficients,
+    storage_variables, validate_dispatch, validate_sectors,
+};
 use super::error::PError;
 use super::lane::OwnerLane;
 use super::library::{CustomOwnerMeta, PTerminal};
@@ -68,16 +68,12 @@ use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, 
 use super::{OwnerClassId, PTerminalId, PresentationId};
 
 /// Bundle schemas a payload may carry: the generated candidate bundle without
-/// and with a rule-dispatch table (`rustred_app`'s `CANDIDATE_BUNDLE_SCHEMA`
-/// and its dispatch variant). Legacy v1 bundles have no order program.
-pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 2] = [
-    "rustred.generated-candidates.binary.v2",
-    "rustred.generated-candidates.binary.v3",
-];
-const DISPATCH_SCHEMA: &str = CUSTOM_PAYLOAD_SCHEMAS[1];
+/// and with a rule-dispatch table, as [`super::bundle_wire`] defines them (the
+/// application's codec writes them). Legacy v1 bundles have no order program.
+pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 2] =
+    [CANDIDATE_BUNDLE_SCHEMA, DISPATCH_CANDIDATE_BUNDLE_SCHEMA];
 /// First line of [`custom_payload_dump`]; bump it when the dump's text changes.
 pub const CUSTOM_PAYLOAD_DUMP_VERSION: &str = "rustred.p-custom-payload-dump.v1";
-const STATUS: &str = "uncertified-candidates";
 /// Unrestricted solver policies: the default numerical depth, or an explicit
 /// one, without a numerator cap or finite retention.
 const DEFAULT_SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
@@ -85,174 +81,16 @@ const DEPTH_POLICY: (&str, &str) = ("ordinary-source-port-numerical-depth-", "-v
 /// Structural allocation allowance of one payload's records.
 const MAX_RECORD_BYTES: usize = 1 << 30;
 
-// ----- structural records of a generated candidate bundle (read-only copy) -----
-
-#[derive(bincode::Decode)]
-struct WireSchema {
-    schema: String,
-}
-
-#[derive(bincode::Decode)]
-struct WireProgramV2 {
-    schema: String,
-    status: String,
-    solver_policy: String,
-    _family_source: String,
-    _input_format: String,
-    family_fingerprint: String,
-    root_sector: Vec<bool>,
-    permutation: Option<Vec<usize>>,
-    integral_order: String,
-    sectors: Vec<WireSector>,
-}
-
-#[derive(bincode::Decode)]
-struct WireProgramV3 {
-    schema: String,
-    status: String,
-    solver_policy: String,
-    _family_source: String,
-    _input_format: String,
-    family_fingerprint: String,
-    root_sector: Vec<bool>,
-    permutation: Option<Vec<usize>>,
-    integral_order: String,
-    sectors: Vec<WireSector>,
-    rule_dispatch: Vec<WireDispatch>,
-}
-
-#[derive(bincode::Decode)]
-struct WireDispatch {
-    sector: usize,
-    rule: usize,
-    policy: u8,
-}
-
-#[derive(bincode::Decode)]
-struct WireSector {
-    sector: Vec<bool>,
-    rules: Vec<WireRule>,
-    finite_residuals: Vec<WireIntegral>,
-}
-
-#[derive(bincode::Decode)]
-struct WireRule {
-    case: WireCase,
-    target: WireIntegral,
-    rhs: Vec<WireTerm>,
-    sources: Vec<WireSeed>,
-    exclusions: Vec<Vec<u32>>,
-}
-
-#[derive(bincode::Decode)]
-struct WireCase {
-    kind: String,
-    fixed_axes: Vec<usize>,
-    fixed_values: Vec<i16>,
-    equations: Vec<u32>,
-}
-
-#[derive(bincode::Decode)]
-struct WireIntegral {
-    symbolic: Vec<bool>,
-    values: Vec<i16>,
-}
-
-#[derive(bincode::Decode)]
-struct WireTerm {
-    integral: WireIntegral,
-    coefficient: u32,
-}
-
-#[derive(bincode::Decode)]
-struct WireSeed {
-    basis_row: usize,
-    integral: WireIntegral,
-    shifts: Vec<i16>,
-}
-
-/// The program record of either schema, with the dispatch table of v3.
-struct WireProgram {
-    schema: String,
-    status: String,
-    solver_policy: String,
-    family_fingerprint: String,
-    root_sector: Vec<bool>,
-    permutation: Option<Vec<usize>>,
-    integral_order: String,
-    sectors: Vec<WireSector>,
-    rule_dispatch: Vec<WireDispatch>,
-}
-
-impl From<WireProgramV2> for WireProgram {
-    fn from(wire: WireProgramV2) -> Self {
-        let WireProgramV2 {
-            schema,
-            status,
-            solver_policy,
-            _family_source: _,
-            _input_format: _,
-            family_fingerprint,
-            root_sector,
-            permutation,
-            integral_order,
-            sectors,
-        } = wire;
-        Self {
-            schema,
-            status,
-            solver_policy,
-            family_fingerprint,
-            root_sector,
-            permutation,
-            integral_order,
-            sectors,
-            rule_dispatch: Vec::new(),
-        }
-    }
-}
-
-impl From<WireProgramV3> for WireProgram {
-    fn from(wire: WireProgramV3) -> Self {
-        let WireProgramV3 {
-            schema,
-            status,
-            solver_policy,
-            _family_source: _,
-            _input_format: _,
-            family_fingerprint,
-            root_sector,
-            permutation,
-            integral_order,
-            sectors,
-            rule_dispatch,
-        } = wire;
-        Self {
-            schema,
-            status,
-            solver_policy,
-            family_fingerprint,
-            root_sector,
-            permutation,
-            integral_order,
-            sectors,
-            rule_dispatch,
-        }
-    }
-}
-
 fn payload_error(detail: impl fmt::Display) -> PError {
     PError::MalformedLibrary(format!("custom payload: {detail}"))
 }
 
-fn decode_record<T: bincode::Decode<()>>(bytes: &[u8], what: &str) -> Result<T, PError> {
-    let config = bincode::config::standard().with_limit::<MAX_RECORD_BYTES>();
-    let (value, consumed) = bincode::decode_from_slice(bytes, config)
-        .map_err(|error| payload_error(format!("{what}: {error}")))?;
-    if consumed != bytes.len() {
-        return Err(payload_error(format!("trailing bytes after the {what}")));
+/// A refused payload record; a resource refusal stays an engine resource error.
+fn wire_error(error: BundleWireError) -> PError {
+    match error.resource_limit_error() {
+        Some(resource) => PError::Engine(resource.clone().into()),
+        None => payload_error(error),
     }
-    Ok(value)
 }
 
 fn mask(bits: &[bool]) -> u64 {
@@ -268,55 +106,34 @@ fn bits(mask: u64, arity: usize) -> Vec<bool> {
 
 /// The structure of a payload, checked before any coefficient is read.
 struct Structure<'a> {
-    state: &'a [u8],
-    atoms: &'a [u8],
+    envelope: ProgramEnvelope<'a>,
     family: NativeFamilyRecord,
-    program: WireProgram,
+    program: ProgramRecord,
     ordering: OrderingPolicy,
 }
 
 fn read_structure(payload: &[u8]) -> Result<Structure<'_>, PError> {
-    let envelope = inspect_program(payload, BinaryIoLimits::default()).map_err(payload_error)?;
-    let tags: Vec<_> = envelope
-        .sections()
-        .iter()
-        .map(|section| section.tag)
-        .collect();
-    if envelope.kind() != BinaryProgramKind::Candidates
-        || tags
-            != [
-                SectionTag::SYMBOLICA_STATE,
-                SectionTag::COEFFICIENTS,
-                SectionTag::FAMILY,
-                SectionTag::PROGRAM,
-            ]
-    {
-        return Err(payload_error("not a generated candidate bundle"));
-    }
+    let envelope = candidate_sections(payload, BinaryIoLimits::default()).map_err(wire_error)?;
     let section = |tag| envelope.section(tag).expect("checked section");
-    let program_bytes = section(SectionTag::PROGRAM);
-    let config = bincode::config::standard().with_limit::<MAX_RECORD_BYTES>();
-    let (WireSchema { schema }, _) = bincode::decode_from_slice(program_bytes, config)
-        .map_err(|error| payload_error(format!("program schema: {error}")))?;
-    let program: WireProgram = match schema.as_str() {
-        schema if schema == CUSTOM_PAYLOAD_SCHEMAS[0] => {
-            decode_record::<WireProgramV2>(program_bytes, "program record")?.into()
-        }
-        DISPATCH_SCHEMA => decode_record::<WireProgramV3>(program_bytes, "program record")?.into(),
-        other => {
+    let program = match decode_program_record(section(SectionTag::PROGRAM), MAX_RECORD_BYTES)
+        .map_err(wire_error)?
+    {
+        StoredProgram::Current(program) => program,
+        StoredProgram::Legacy(program) => {
             return Err(payload_error(format!(
-                "schema {other:?}, expected one of {CUSTOM_PAYLOAD_SCHEMAS:?}"
+                "schema {:?}, expected one of {CUSTOM_PAYLOAD_SCHEMAS:?}",
+                program.schema
             )));
         }
     };
-    let family: NativeFamilyRecord = decode_record(section(SectionTag::FAMILY), "family record")?;
+    let family =
+        decode_family_record(section(SectionTag::FAMILY), MAX_RECORD_BYTES).map_err(wire_error)?;
     let ordering = validate(&program)?;
     if family.arity() != program.root_sector.len() {
         return Err(payload_error("family and root arities differ"));
     }
     Ok(Structure {
-        state: section(SectionTag::SYMBOLICA_STATE),
-        atoms: section(SectionTag::COEFFICIENTS),
+        envelope,
         family,
         program,
         ordering,
@@ -333,19 +150,11 @@ fn unrestricted(policy: &str) -> bool {
             .is_some_and(|depth| !depth.is_empty() && depth.bytes().all(|b| b.is_ascii_digit()))
 }
 
-fn validate_integral(integral: &WireIntegral, arity: usize) -> Result<(), PError> {
-    if integral.symbolic.len() != arity || integral.values.len() != arity {
-        return Err(payload_error("an integral of another arity"));
-    }
-    for (&symbolic, &value) in integral.symbolic.iter().zip(&integral.values) {
-        Power::new(symbolic, value).map_err(payload_error)?;
-    }
-    Ok(())
-}
-
-/// Shape checks of the whole program; returns its mathematical order.
-fn validate(program: &WireProgram) -> Result<OrderingPolicy, PError> {
-    if program.status != STATUS {
+/// The Custom owner's checks of a program (all-rank, an order, at least one
+/// chart) on top of the shape checks every bundle reader applies; returns its
+/// mathematical order.
+fn validate(program: &ProgramRecord) -> Result<OrderingPolicy, PError> {
+    if program.status != CANDIDATE_BUNDLE_STATUS {
         return Err(payload_error(format!("status {:?}", program.status)));
     }
     if !unrestricted(&program.solver_policy) {
@@ -374,69 +183,8 @@ fn validate(program: &WireProgram) -> Result<OrderingPolicy, PError> {
         }
         _ => {}
     }
-    if program.rule_dispatch.is_empty() == (program.schema == DISPATCH_SCHEMA) {
-        return Err(payload_error("dispatch table and schema disagree"));
-    }
-    let mut previous = None;
-    for entry in &program.rule_dispatch {
-        let key = (entry.sector, entry.rule);
-        if entry.policy != 1
-            || previous.is_some_and(|before| before >= key)
-            || program
-                .sectors
-                .get(entry.sector)
-                .is_none_or(|sector| entry.rule >= sector.rules.len())
-        {
-            return Err(payload_error("an invalid dispatch entry"));
-        }
-        previous = Some(key);
-    }
-    let root = mask(&program.root_sector);
-    let mut seen = BTreeSet::new();
-    for sector in &program.sectors {
-        let chart = mask(&sector.sector);
-        if sector.sector.len() != arity || !seen.insert(chart) || chart & !root != 0 {
-            return Err(payload_error(
-                "a chart that is duplicate, of another arity or outside the root",
-            ));
-        }
-        for residual in &sector.finite_residuals {
-            validate_integral(residual, arity)?;
-            if residual.symbolic.iter().any(|&symbolic| symbolic)
-                || residual
-                    .values
-                    .iter()
-                    .zip(&sector.sector)
-                    .any(|(&value, &active)| (value > 0) != active)
-            {
-                return Err(payload_error("a residual that is no key of its chart"));
-            }
-        }
-        for rule in &sector.rules {
-            validate_integral(&rule.target, arity)?;
-            let case = &rule.case;
-            if case.fixed_axes.len() != case.fixed_values.len()
-                || case.fixed_axes.iter().any(|&axis| axis >= arity)
-                || case.fixed_axes.windows(2).any(|axes| axes[0] >= axes[1])
-                || !matches!(case.kind.as_str(), "coordinate" | "affine")
-                || (case.kind == "coordinate") != case.equations.is_empty()
-            {
-                return Err(payload_error("a rule case of invalid shape"));
-            }
-            for term in &rule.rhs {
-                validate_integral(&term.integral, arity)?;
-                if term.integral.symbolic != rule.target.symbolic {
-                    return Err(payload_error("a rule term with another symbolic layout"));
-                }
-            }
-            for source in &rule.sources {
-                validate_integral(&source.integral, arity)?;
-                if source.shifts.len() != arity {
-                    return Err(payload_error("a seed shift of another arity"));
-                }
-            }
-        }
-    }
+    validate_dispatch(program).map_err(wire_error)?;
+    validate_sectors(program, |_| Ok::<_, BundleWireError>(())).map_err(wire_error)?;
     if program.sectors.is_empty() {
         return Err(payload_error("no chart"));
     }
@@ -614,7 +362,7 @@ pub fn check_custom_owner(
 
 /// A payload bound to its presentation's family, with its coefficients.
 struct Decoded {
-    program: WireProgram,
+    program: ProgramRecord,
     ordering: OrderingPolicy,
     table: DecodedCoefficientTable,
 }
@@ -634,8 +382,7 @@ impl fmt::Debug for Decoded {
 /// and arity; without a presentation, to the family the payload records.
 fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded, PError> {
     let Structure {
-        state,
-        atoms,
+        envelope,
         family,
         program,
         ordering,
@@ -650,8 +397,8 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             )));
         }
     }
-    let table = DecodedCoefficientTable::import_generated(state, atoms, BinaryIoLimits::default())
-        .map_err(payload_error)?;
+    let table =
+        import_coefficients(&envelope, &program, BinaryIoLimits::default()).map_err(wire_error)?;
     let rebuilt = family
         .to_family(
             &table,
@@ -673,21 +420,6 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             ))
         )));
     }
-    let count = table.len();
-    let ids = program
-        .sectors
-        .iter()
-        .flat_map(|sector| &sector.rules)
-        .flat_map(|rule| {
-            let rhs = rule.rhs.iter().map(|term| &term.coefficient);
-            let exclusions = rule.exclusions.iter().flatten();
-            rule.case.equations.iter().chain(rhs).chain(exclusions)
-        });
-    for &id in ids {
-        if id as usize >= count {
-            return Err(payload_error("a coefficient id outside the table"));
-        }
-    }
     Ok(Decoded {
         program,
         ordering,
@@ -699,70 +431,15 @@ fn invalid(detail: impl fmt::Display) -> CandidateReductionError {
     CandidateReductionError::InvalidInput(format!("custom payload: {detail}"))
 }
 
-/// The coefficient variables of an `N`-slot storage: the context's, then
-/// temporary padding variables (`capacity-dispatch` only).
-fn storage_variables<const N: usize>(context: &IndexedCoefficientContext) -> Vec<PolyVariable> {
-    let identity = context.one();
-    let declared = identity.raw().get_variables();
-    let mut variables = declared.as_ref().clone();
-    let mut temporary = 0;
-    while variables.len() < declared.len() + N - context.index_count() {
-        let variable = PolyVariable::Temporary(temporary);
-        temporary += 1;
-        if !variables.contains(&variable) {
-            variables.push(variable);
-        }
+/// A chart that does not restore; a resource refusal stays one.
+fn restore_error(error: BundleWireError) -> CandidateReductionError {
+    match error.resource_limit_error() {
+        Some(resource) => ReductionError::from(resource.clone()).into(),
+        None => invalid(error),
     }
-    variables
 }
 
 impl Decoded {
-    fn coefficient(
-        &self,
-        variables: &[PolyVariable],
-        id: u32,
-    ) -> Result<Coefficient, CandidateReductionError> {
-        let id = CoefficientId::try_from_index(id as usize).map_err(invalid)?;
-        let value = self.table.coefficient(id).map_err(invalid)?;
-        let physical = value.get_variables();
-        if physical.as_slice() == variables {
-            return Ok(value.clone());
-        }
-        if !cfg!(feature = "capacity-dispatch")
-            || !variables.starts_with(physical.as_slice())
-            || variables[physical.len()..]
-                .iter()
-                .any(|variable| !matches!(variable, PolyVariable::Temporary(_)))
-        {
-            return Err(invalid("a coefficient with another variable map"));
-        }
-        use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-        Ok(Coefficient::from_num_den(
-            value
-                .numerator
-                .rearrange_with_growth(variables)
-                .map_err(invalid)?,
-            value
-                .denominator
-                .rearrange_with_growth(variables)
-                .map_err(invalid)?,
-            &symbolica::domains::integer::Z,
-            true,
-        ))
-    }
-
-    fn polynomial(
-        &self,
-        variables: &[PolyVariable],
-        id: u32,
-    ) -> Result<CoefficientPolynomial, CandidateReductionError> {
-        let value = self.coefficient(variables, id)?;
-        if !value.denominator.is_one() {
-            return Err(invalid("an equation that is no polynomial"));
-        }
-        Ok(value.numerator)
-    }
-
     /// The saved solution of `chart`, in `context`'s variables.
     fn input<const N: usize>(
         &self,
@@ -770,137 +447,35 @@ impl Decoded {
         context: &CandidateOwnerContext<N>,
     ) -> Result<CandidateOwnerInput<N>, CandidateReductionError> {
         let program = &self.program;
-        let (ordinal, record) = (program.sectors.iter().enumerate())
-            .find(|(_, sector)| crate::storage_array(&sector.sector, false) == Some(chart))
+        let ordinal = (program.sectors.iter())
+            .position(|sector| crate::storage_array(&sector.sector, false) == Some(chart))
             .ok_or_else(|| invalid("no chart of this sector"))?;
         let root: [bool; N] =
             crate::storage_array(&program.root_sector, false).ok_or_else(|| invalid("arity"))?;
-        let variables = storage_variables::<N>(context.coefficient_context());
-        let indices = context.index_variables();
-        let rules = (record.rules.iter().enumerate())
-            .map(|(rule_ordinal, rule)| {
-                let mut rule = self.rule(rule, &variables, indices, &chart)?;
-                let dispatched = program
-                    .rule_dispatch
-                    .binary_search_by_key(&(ordinal, rule_ordinal), |entry| {
-                        (entry.sector, entry.rule)
-                    })
-                    .is_ok();
-                if dispatched {
-                    rule.dispatch_policy = RuleDispatchPolicy::AfterBaselinePartitionWholePiece;
-                }
-                Ok(rule)
-            })
-            .collect::<Result<Vec<_>, CandidateReductionError>>()?;
-        let finite_residuals = (record.finite_residuals.iter())
-            .map(integral::<N>)
-            .collect::<Result<Vec<_>, _>>()?;
-        let order = IntegralOrder::from_persisted_policy(chart, &self.ordering)
-            .and_then(|order| {
-                order.with_physical_arity(context.coefficient_context().index_count())
-            })
-            .map_err(invalid)?;
+        let coefficients = context.coefficient_context();
+        let variables = storage_variables::<N>(coefficients);
+        let restore = Restore {
+            table: &self.table,
+            variables: &variables,
+            indices: context.index_variables(),
+        };
+        let (_, solution) = restore
+            .sector(
+                program,
+                ordinal,
+                &self.ordering,
+                coefficients.index_count(),
+                None,
+                FiniteCasePolicy::SearchFinite,
+            )
+            .map_err(restore_error)?;
         Ok(CandidateOwnerInput {
             sector: chart,
             saved_root: root,
             ordering: self.ordering.clone(),
-            solution: SectorSolution {
-                order,
-                max_numerator_rank: None,
-                finite_case_policy: FiniteCasePolicy::SearchFinite,
-                rules,
-                finite_residuals,
-                stats: SectorStats::default(),
-            },
+            solution,
         })
     }
-
-    fn rule<const N: usize>(
-        &self,
-        record: &WireRule,
-        variables: &[PolyVariable],
-        indices: &[usize; N],
-        chart: &[bool; N],
-    ) -> Result<SectorRule<N>, CandidateReductionError> {
-        let arity = record.target.values.len();
-        let mut fixed = [None; N];
-        for (&axis, &value) in record.case.fixed_axes.iter().zip(&record.case.fixed_values) {
-            fixed[axis] = Some(value);
-        }
-        // Storage padding axes are fixed at zero.
-        for slot in fixed.iter_mut().skip(arity) {
-            *slot = Some(0);
-        }
-        let face = CoordinateCase::new(fixed).map_err(invalid)?;
-        if !face.is_in_sector(chart) {
-            return Err(invalid("a rule face outside its chart"));
-        }
-        let case: Case<N> = if record.case.kind == "coordinate" {
-            face.into()
-        } else {
-            let equations = (record.case.equations.iter())
-                .map(|&id| self.polynomial(variables, id))
-                .collect::<Result<Vec<_>, _>>()?;
-            match AffineCase::from_coordinate(&face, &equations, indices, chart).map_err(invalid)? {
-                AffineIntersection::Affine(case) if case.face().fixed() == &fixed => case.into(),
-                _ => return Err(invalid("an affine case off its fixed face")),
-            }
-        };
-        let target = integral::<N>(&record.target)?;
-        if target != case.integral() {
-            return Err(invalid("a rule target that is not its case's"));
-        }
-        let rhs = (record.rhs.iter())
-            .map(|term| {
-                Ok(Term {
-                    integral: integral::<N>(&term.integral)?,
-                    coefficient: self.coefficient(variables, term.coefficient)?,
-                })
-            })
-            .collect::<Result<_, CandidateReductionError>>()?;
-        let sources = (record.sources.iter())
-            .map(|source| {
-                Ok(SeedSource {
-                    basis_row: source.basis_row,
-                    seed: Seed {
-                        integral: integral::<N>(&source.integral)?,
-                        shifts: crate::storage_array(&source.shifts, 0)
-                            .ok_or_else(|| invalid("seed arity"))?,
-                    },
-                })
-            })
-            .collect::<Result<_, CandidateReductionError>>()?;
-        let branches = (record.exclusions.iter())
-            .map(|branch| {
-                branch
-                    .iter()
-                    .map(|&id| self.polynomial(variables, id))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .collect::<Result<_, CandidateReductionError>>()?;
-        Ok(SectorRule {
-            candidate: RuleCandidate {
-                case,
-                target,
-                rhs,
-                sources,
-                stats: SearchStats::default(),
-            },
-            exceptions: ExceptionalConditions { branches },
-            dispatch_policy: RuleDispatchPolicy::default(),
-        })
-    }
-}
-
-fn integral<const N: usize>(record: &WireIntegral) -> Result<Integral<N>, CandidateReductionError> {
-    if !crate::fits_storage(record.values.len(), N) {
-        return Err(invalid("an integral beyond the storage arity"));
-    }
-    let mut powers = [Power::default(); N];
-    for (axis, power) in powers.iter_mut().take(record.values.len()).enumerate() {
-        *power = Power::new(record.symbolic[axis], record.values[axis]).map_err(invalid)?;
-    }
-    Ok(Integral::new(powers))
 }
 
 // ----- the rules as data and the canonical dump -----
@@ -937,7 +512,7 @@ pub struct CustomRule {
     pub dispatched: bool,
 }
 
-fn custom_powers(record: &WireIntegral) -> Vec<CustomPower> {
+fn custom_powers(record: &IntegralRecord) -> Vec<CustomPower> {
     (record.symbolic.iter().zip(&record.values))
         .map(|(&symbolic, &value)| {
             if symbolic {
