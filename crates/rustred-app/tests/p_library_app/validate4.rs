@@ -1438,7 +1438,9 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                 .map(|axis| match rule["fixed"][axis].as_i64() {
                     Some(value) => value,
                     None if chart_guards[axis] == "n>=1" => 1 + i64::from(rng.below(3) == 0),
-                    None => -1 - i64::from(rng.below(4) == 0),
+                    // Free numerator axes mostly at 0: a -1 on a table numerator prop expands
+                    // into identities of 10^3-10^4 keys (none of the 5 props maps onto a slot).
+                    None => -i64::from(rng.below(3) == 0),
                 })
                 .collect();
             let excepted = rule["exceptions"].as_array().unwrap().iter().any(|branch| {
