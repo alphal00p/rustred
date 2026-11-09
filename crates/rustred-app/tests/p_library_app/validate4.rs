@@ -37,9 +37,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraLimits};
+use rustred::algebra::{
+    Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraLimits,
+    IndexedCoefficientContext,
+};
 use rustred::family::IntegralKey;
-use rustred::identity::ParametricIbpGenerator;
+use rustred::identity::{ParametricIbpGenerator, ParametricRelation};
 use rustred::propagator::census::PSectorFate;
 use rustred::propagator::descent::{self, TraceFailureKind, TraceReport};
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
@@ -953,6 +956,26 @@ fn four_loop_reductions_are_invariant_under_unimodular_loop_momentum_maps() {
 // (3) Exactness: RustRed's IBP rows, the rules-study oracles, P0 SpIRed
 // ---------------------------------------------------------------------------
 
+/// RustRed's ordinary IBP rows of a presentation's family, with the context
+/// that specializes them.
+type IbpRows = Arc<(IndexedCoefficientContext, Vec<ParametricRelation>)>;
+
+/// The rows of `p`, generated once per presentation.
+fn ibp_rows(p: &Presentation) -> IbpRows {
+    static ROWS: OnceLock<Mutex<HashMap<PresentationId, IbpRows>>> = OnceLock::new();
+    let cache = ROWS.get_or_init(Default::default);
+    if let Some(rows) = cache.lock().unwrap().get(&p.id) {
+        return Arc::clone(rows);
+    }
+    let generator = ParametricIbpGenerator::try_new(&p.family).unwrap();
+    let batch = generator.prepare_ordinary_ibp().unwrap();
+    let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
+    let relations = batch.complete(rows).unwrap().into_relations();
+    let rows = Arc::new((generator.context().clone(), relations));
+    cache.lock().unwrap().insert(p.id, Arc::clone(&rows));
+    rows
+}
+
 /// A random combination of every ordinary IBP row of `p`'s family at `seed`,
 /// as reduction inputs (keys of `p`), with the row count.
 fn ibp_combination(
@@ -962,13 +985,10 @@ fn ibp_combination(
     rng: &mut SplitMix,
 ) -> (Vec<Input>, usize) {
     let context = library.coefficient_context();
-    let generator = ParametricIbpGenerator::try_new(&p.family).unwrap();
-    let batch = generator.prepare_ordinary_ibp().unwrap();
-    let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
-    let relations = batch.complete(rows).unwrap().into_relations();
-    let indexed = generator.context();
+    let rows = ibp_rows(p);
+    let (indexed, relations) = &*rows;
     let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
-    for relation in &relations {
+    for relation in relations {
         let weight = context.integer(1 + rng.below(97) as i64);
         for (shift, value) in relation.terms() {
             let (value, _) = indexed
@@ -997,6 +1017,16 @@ fn ibp_combination(
         .map(|(powers, c)| (p.id, key(&powers), c))
         .collect();
     (inputs, relations.len())
+}
+
+/// The arithmetic of the exactness reductions (`P_VALIDATE4_ARITHMETIC`:
+/// `exact`, the default, or `modular_polynomial`; both exact in `Q(d)`).
+fn exactness_arithmetic() -> OrderedWeightArithmetic {
+    match setting("ARITHMETIC", "exact".to_owned()).as_str() {
+        "exact" => OrderedWeightArithmetic::Exact,
+        "modular_polynomial" => modular_polynomial(1),
+        other => panic!("P_VALIDATE4_ARITHMETIC={other}"),
+    }
 }
 
 /// One exactness seed: its owner (or top), presentation and powers.
@@ -1090,11 +1120,13 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
                         break;
                     };
                     let begin = Instant::now();
+                    eprintln!("IBP seed {index} {} {:?}: start", seed.what, seed.powers);
                     let p = library.presentation(seed.presentation);
                     let mut local = SplitMix::new(combination_seed ^ index as u64);
                     let (inputs, rows) = ibp_combination(library, p, &seed.powers, &mut local);
                     let keys = inputs.len();
-                    let reduction = reduce(library, inputs);
+                    let built = begin.elapsed().as_secs_f64();
+                    let reduction = reduce_with(library, inputs, exactness_arithmetic(), 1);
                     assert!(
                         nonzero_terms(&reduction).is_empty(),
                         "{}: IBP rows at {:?} do not reduce to zero: {:?}",
@@ -1103,7 +1135,19 @@ fn ibp_rows_reduce_to_zero_at_every_owner_and_on_random_four_loop_subsectors() {
                         nonzero_terms(&reduction)
                     );
                     let one = library.coefficient_context().one();
-                    let alone = reduce(library, vec![(seed.presentation, key(&seed.powers), one)]);
+                    let alone = reduce_with(
+                        library,
+                        vec![(seed.presentation, key(&seed.powers), one)],
+                        exactness_arithmetic(),
+                        1,
+                    );
+                    eprintln!(
+                        "IBP seed {index} {} {:?}: {rows} rows, {keys} keys, rows built in {built:.1} s, \
+                         {:.1} s",
+                        seed.what,
+                        seed.powers,
+                        begin.elapsed().as_secs_f64()
+                    );
                     results.lock().unwrap().push(SeedRow {
                         what: seed.what.clone(),
                         rows,
@@ -1423,7 +1467,14 @@ fn the_frozen_t148_bubu_table_holds_through_the_library() {
                         .filter(|(_, c)| !c.is_zero())
                         .map(|(powers, c)| (presentation, key(&powers), c))
                         .collect();
-                    let reduction = reduce(library, inputs);
+                    let begin = Instant::now();
+                    let size = inputs.len();
+                    eprintln!("T148 rule {index} at {n:?}: {size} keys: start");
+                    let reduction = reduce_with(library, inputs, exactness_arithmetic(), 1);
+                    eprintln!(
+                        "T148 rule {index} at {n:?}: {size} keys, {:.1} s",
+                        begin.elapsed().as_secs_f64()
+                    );
                     assert!(
                         nonzero_terms(&reduction).is_empty(),
                         "T148 rule {index} at {n:?}: {:?}",
