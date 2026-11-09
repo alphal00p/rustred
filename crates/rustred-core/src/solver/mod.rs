@@ -27,6 +27,7 @@ mod search;
 mod sector;
 mod seed;
 mod source;
+mod table_export;
 
 use std::time::{Duration, Instant};
 
@@ -131,6 +132,7 @@ pub use sector::{
 };
 pub use seed::{Seed, Seeds};
 pub use source::SourceSystem;
+pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
 
 /// Aggregate diagnostics returned by the topology-neutral family solver.
 ///
