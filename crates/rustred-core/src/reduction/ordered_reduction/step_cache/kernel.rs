@@ -17,13 +17,18 @@
 //! hit and miss counters are those of the sequential run for every thread
 //! count. Only shard loading can differ: a worker may load a shard for a key
 //! that then cancels, and under a resident-byte ceiling or a memory budget
-//! the earlier load can change which shards and records fit.
+//! the earlier load can change which shards and records fit. The concurrent
+//! Exact scheduler logs no adjoint tail, so with a populating tail table it
+//! does not record the tail-completion steps that the sequential journal
+//! records, except for propagator-library caches
+//! (`OrderedKernel::concurrent_logs_tail`).
 use std::collections::BTreeMap;
 use std::ops::Range;
 
 use super::codec::{NodeStage, decode_node, encode_node};
 use super::{
-    Lookup, LookupCount, OrderedStepCache, OrderedStepShard, RecordView, StepRecordInput, failure,
+    Lookup, LookupCount, OrderedStepCache, OrderedStepCacheAdapter, OrderedStepShard, RecordView,
+    StepRecordInput, failure,
 };
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::IntegralKey;
@@ -321,6 +326,13 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         &mut self,
     ) -> Result<Option<std::sync::Arc<crate::reduction::OrderedTailTable>>, Self::Error> {
         Ok(self.cache.tail_table(self.inner.context())?)
+    }
+
+    /// Propagator-library caches: a concurrent Exact request records the
+    /// steps and tail entries of the sequential scheduler and the recorded
+    /// arithmetics (one cache for every arithmetic and thread count).
+    fn concurrent_logs_tail(&self) -> bool {
+        self.cache.binding().adapter == OrderedStepCacheAdapter::PropagatorLibrary
     }
 
     fn tail_key(&self, encoded: &[u8]) -> Option<Self::Key> {

@@ -110,6 +110,17 @@ pub(crate) trait OrderedKernel {
     fn tail_table(&mut self) -> Result<Option<std::sync::Arc<OrderedTailTable>>, Self::Error> {
         Ok(None)
     }
+    /// Whether the concurrent scheduler (`Exact` on more than one thread)
+    /// logs the adjoint tail as the sequential journal does. With a
+    /// populating tail table it then completes and tabulates the tail, which
+    /// steps (and, through a step cache, records) the reached keys the
+    /// forward pass erased: the run records the same steps and tail entries
+    /// as the sequential scheduler and every recorded arithmetic, whatever
+    /// its thread count. Off by default: closed, candidate and
+    /// saved-application caches keep the concurrent scheduler unchanged.
+    fn concurrent_logs_tail(&self) -> bool {
+        false
+    }
     /// A scheduled key from its encoded identity (the step-cache encoding),
     /// when the adapter can rebuild it.
     fn tail_key(&self, _encoded: &[u8]) -> Option<Self::Key> {
@@ -538,6 +549,9 @@ impl ConcurrentWeights for ExactWeights {
     fn prepare(&self, coefficient: Coefficient) -> Result<Coefficient, ReductionError> {
         self.validate(&coefficient)?;
         Ok(coefficient)
+    }
+    fn prepared_coefficient(prepared: &Coefficient) -> &Coefficient {
+        prepared
     }
     /// The product of [`ExactWeights::scale`] for an already validated
     /// coefficient.
