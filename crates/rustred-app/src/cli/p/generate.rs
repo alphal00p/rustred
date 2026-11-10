@@ -5,6 +5,7 @@
 //!                    [--owner <class label>]... [--threads <n>] [--force]
 //!                    [--max-seconds <s>] [--max-rss <bytes>] [--lp-from <dir>]
 //!                    [--integral-order <json>] [--discovery <json>]
+//!                    [--exact-backend <backend>]
 //! ```
 //!
 //! Generates the Custom owners of the library program of the tops with at most
@@ -33,6 +34,11 @@
 //! (`CustomOwnerOptions::integral_order` and `discovery`, M5-R0 WP3); the
 //! record keeps both descriptors verbatim. Without them the default recipe is
 //! used, as before.
+//!
+//! --exact-backend chooses the native exact materialization backend (default
+//! sparse); sparse-target-factorized uses factorized target-block lifting.
+//! The owner JSON records the selected backend. Discovery and owner guards
+//! are unchanged.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -50,7 +56,9 @@ use crate::application::propagator::generate::{
     CustomOwnerNode, CustomOwnerOptions, GenerationBudget, custom_owner_nodes,
     generate_custom_owner_with_report,
 };
-use crate::application::{CandidateDiscoveryStrategy, CandidateIntegralOrder};
+use crate::application::{
+    CandidateDiscoveryStrategy, CandidateExactBackend, CandidateIntegralOrder,
+};
 use crate::cli::args::{ArgError, StreamPath, next_utf8_value, next_value, parse_positive_integer};
 use crate::cli::error::CliError;
 use crate::cli::io::{preflight_output_destination, read_input, write_output};
@@ -65,6 +73,7 @@ struct Arguments {
     out: PathBuf,
     owners: BTreeSet<String>,
     threads: usize,
+    exact_backend: CandidateExactBackend,
     force: bool,
     budget: GenerationBudget,
     lp_from: Option<PathBuf>,
@@ -78,6 +87,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut owners, mut threads, mut force) = (BTreeSet::new(), 1, false);
     let (mut budget, mut lp_from) = (GenerationBudget::default(), None);
     let (mut integral_order, mut discovery) = (None, None);
+    let mut exact_backend = CandidateExactBackend::default();
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -93,6 +103,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--lp-from" => "--lp-from",
             "--integral-order" => "--integral-order",
             "--discovery" => "--discovery",
+            "--exact-backend" => "--exact-backend",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if option != "--owner" && !seen.insert(option) {
@@ -147,6 +158,14 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                         })?,
                 );
             }
+            "--exact-backend" => {
+                let value = next_utf8_value(&mut arguments, option)?;
+                exact_backend = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option,
+                    value,
+                    expected: CandidateExactBackend::EXPECTED_VALUES,
+                })?;
+            }
             "--lp-from" => lp_from = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--integral-order" => {
                 integral_order = Some(PathBuf::from(next_value(&mut arguments, option)?))
@@ -161,6 +180,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
         owners,
         threads,
+        exact_backend,
         force,
         budget,
         lp_from,
@@ -289,6 +309,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         let options = CustomOwnerOptions {
             support: None,
             n_cores: arguments.threads,
+            exact_backend: arguments.exact_backend,
             budget: arguments.budget,
             lp_given,
             fallthrough: None,
@@ -341,6 +362,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "generation_seconds": report.generation_seconds,
             "total_seconds": report.total_seconds,
             "workers": arguments.threads,
+            "exact_backend": options.exact_backend.as_str(),
             "budget": {
                 "max_seconds": arguments.budget.max_seconds,
                 "max_rss_bytes": arguments.budget.max_rss_bytes,
@@ -395,6 +417,40 @@ mod tests {
     }
 
     #[test]
+    fn p_generate_selects_exact_backend_without_changing_default() {
+        let required = ["--families", "f", "--max-loops", "4", "--out", "o"];
+        assert_eq!(
+            parsed(&required).unwrap().exact_backend,
+            CandidateExactBackend::Sparse
+        );
+        for backend in [
+            CandidateExactBackend::Sparse,
+            CandidateExactBackend::SparseFactorized,
+            CandidateExactBackend::SparseTargetOnlyFactorized,
+        ] {
+            let args = [&required[..], &["--exact-backend", backend.as_str()]].concat();
+            assert_eq!(parsed(&args).unwrap().exact_backend, backend);
+        }
+        assert!(matches!(
+            parsed(&["--exact-backend", "invalid"]),
+            Err(ArgError::InvalidValue {
+                option: "--exact-backend",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parsed(&[
+                "--exact-backend",
+                "sparse",
+                "--exact-backend",
+                "sparse-target-factorized"
+            ]),
+            Err(ArgError::DuplicateOption("--exact-backend"))
+        ));
+        assert!(parsed(&["--exact-backend"]).is_err());
+    }
+
+    #[test]
     fn p_generate_parses_its_options() {
         let required = ["--families", "f", "--max-loops", "3", "--out", "o"];
         assert_eq!(
@@ -405,6 +461,7 @@ mod tests {
                 out: "o".into(),
                 owners: BTreeSet::new(),
                 threads: 1,
+                exact_backend: CandidateExactBackend::Sparse,
                 force: false,
                 budget: GenerationBudget::default(),
                 lp_from: None,

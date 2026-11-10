@@ -66,8 +66,9 @@ use rustred::propagator::{NodeIndex, PresentationId};
 use rustred::sector::{Mask, MasterCount, MasterCountOptions, MasterCounter};
 
 use crate::application::{
-    CandidateDiscoveryStrategy, CandidateGenerationSession, CandidateRowFeature,
-    CandidateRowPriority, CandidateSourcePriority, FamilyCandidatesRequest, SectorFailurePolicy,
+    CandidateDiscoveryStrategy, CandidateExactBackend, CandidateGenerationSession,
+    CandidateRowFeature, CandidateRowPriority, CandidateSourcePriority, FamilyCandidatesRequest,
+    SectorFailurePolicy,
 };
 
 /// How a Custom owner is generated.
@@ -79,6 +80,9 @@ pub struct CustomOwnerOptions {
     pub support: Option<u64>,
     /// Generation workers: charts are solved side by side.
     pub n_cores: usize,
+    /// Exact materialization backend for all generation attempts. Sparse by
+    /// default; discovery, mathematical order and owner guards are unchanged.
+    pub exact_backend: CandidateExactBackend,
     /// Time and RSS ceilings of the whole call; none by default.
     pub budget: GenerationBudget,
     /// The LP count of the support as RECORDED by an earlier generation of
@@ -109,6 +113,7 @@ impl Default for CustomOwnerOptions {
         Self {
             support: None,
             n_cores: 1,
+            exact_backend: CandidateExactBackend::default(),
             budget: GenerationBudget::default(),
             lp_given: None,
             fallthrough: None,
@@ -829,6 +834,7 @@ fn generate(
     check()?;
 
     let mut request = FamilyCandidatesRequest::new("custom owner");
+    request.exact_backend = options.exact_backend;
     match order {
         FallthroughOrder::Default => {
             if let Some(program) = &options.integral_order {
