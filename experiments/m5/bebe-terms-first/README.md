@@ -82,6 +82,18 @@ All three measured candidates have PReduction **value lines byte-identical** to 
 
 `results/RESULTS.json` gives exact baseline/candidate run directories and metrics, and `results/GENERATION-RUN.json` contains the executed generator argv. Full raw reductions remain under `/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/generation/terms-first-20261110T2256/`. Goldens are reused unchanged. Rank8's reference is a completed shipped-B1 result, not a newly designated WP0 golden.
 
+## New route-map context: b_static
+
+A subsequent matched experiment applies this same saved239-rule payload on the coordinator's experimental b_static package (maps commits e4312e31/24fda40a/809f5a54). The baseline has Diamond-only owner content, with no gated-bubu substitution. All new maps, the3Insertion presentations and the actual same17-terminal vector are retained; only bebe changes.
+
+| Cell | Baseline→candidate time s | Kernel peak RSS GB | Keys change | Edges change |
+|---|---:|---:|---:|---:|
+| NO3 d2_r6 |72.08→53.52|1.223→1.233|+1.15%|+2.40%|
+| NO3 d2_r8 |283.40→290.82|3.435→3.464|+0.56%|+1.33%|
+| NO2 d0_r6 |18.97→16.64|0.727→0.706|−9.71%|−16.47%|
+
+All6runs pass exact value/T-BFS/descent, with3reconstruction primes and1verification prime each. Commands, actual raw paths and exact numbers are in results/maps-b-static/RESULTS.json. The faster NO3rank6 time is indicative on the shared host and is not a structural graph win; its cause is not assigned. On this context NO2 improves and NO3 graphs/RSS slightly regress. This reverses the old context's graph tradeoff and reinforces that this is a measured candidate, not a universal default. Compare only within each matched library pair; cross-library deltas are not attributable to bebe alone.
+
 ## Artifact-format integration is pending
 
 The required format is the coordinator's read-only `notes/artifact-ordering.SPEC.md`. This handoff provides explicit order, FirstValid policy, per-rule native structural data and measured provenance as **experiment sidecars**. It makes no source API/schema-integration claim and does not change production content/cache identity.

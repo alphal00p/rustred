@@ -22,3 +22,5 @@ results/acceptance/NO3d2r6/certificate.json
 results/acceptance/NO3d2r8/ACCEPTANCE.json
 results/acceptance/NO3d2r8/certificate.json
 DATA-FILES.txt
+results/maps-b-static/RESULTS.json
+results/maps-b-static/RESULTS.md
