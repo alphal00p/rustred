@@ -156,6 +156,11 @@ pub struct StuckBranchChecks {
     /// rational-affine containment). When true, the ORIGINAL conjunction does
     /// not restrict to zero on the chart (otherwise S1 would have lifted it).
     pub chart_in_original_parent: bool,
+    /// S1 test itself, recomputed with the same exact restriction: whether
+    /// the ORIGINAL conjunction restricts to zero on the chart. `None` when it
+    /// was not computed (chart not in the original parent) or the restriction
+    /// failed (then `failure` is set). `Some(false)` on every branch S1 left.
+    pub original_restricts_to_zero: Option<bool>,
     /// S2 at each prime of 2, 3, 5, 7, in order, on the chart lattice.
     pub modular: Vec<(u32, ModularCheck)>,
     /// A non-resource failure inside these checks (the branch was deferred

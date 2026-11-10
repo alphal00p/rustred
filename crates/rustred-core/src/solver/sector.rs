@@ -1094,3 +1094,7 @@ mod intersection_tests;
 #[cfg(test)]
 #[path = "sector/defer_tests.rs"]
 mod defer_tests;
+
+#[cfg(test)]
+#[path = "sector/defer_review_tests.rs"]
+mod defer_review_tests;

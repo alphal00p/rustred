@@ -391,6 +391,10 @@ fn write_deferred<const N: usize>(
             )
         })
         .collect();
+    // S1 as recomputed by the engine: null if it was not established.
+    let s1_zero = checks
+        .original_restricts_to_zero
+        .map_or("null".to_string(), |zero| zero.to_string());
     let failure = checks
         .failure
         .as_ref()
@@ -413,7 +417,7 @@ fn write_deferred<const N: usize>(
     };
     writeln!(
         f,
-        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"variables\":{},\"index_variables\":{},\"chart_guards\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"parent_chain_complete\":{complete},\"parent_chain\":[{}],\"case\":{},\"fixed\":[{}],\"equations\":{},\"rows\":{},\"conjunction\":{},\"predicates\":{},\"s1\":{{\"chart_in_original_parent\":{},\"original_restricts_to_zero\":false,\"lifted\":false}},\"s2\":[{}],\"check_failure\":{},\"box_authority\":{},\"box_this_family\":{},\"exit_scan\":{{\"scope\":\"rules of this chart\",\"pairs\":{pairs},\"excluded\":{excluded},\"candidates\":{}}},\"exits\":[{}]}}",
+        "{{\"type\":\"deferred_region\",\"chart\":{},\"index\":{index},\"rule\":{},\"branch\":{},\"reason\":{},\"variables\":{},\"index_variables\":{},\"chart_guards\":{},\"parent_is_rule_case\":{},\"parent_case\":{},\"parent_fixed\":[{}],\"parent_equations\":{},\"branch_conjunction\":{},\"parent_chain_complete\":{complete},\"parent_chain\":[{}],\"case\":{},\"fixed\":[{}],\"equations\":{},\"rows\":{},\"conjunction\":{},\"predicates\":{},\"s1\":{{\"chart_in_original_parent\":{},\"original_restricts_to_zero\":{s1_zero},\"lifted\":false}},\"s2\":[{}],\"check_failure\":{},\"box_authority\":{},\"box_this_family\":{},\"exit_scan\":{{\"scope\":\"rules of this chart\",\"pairs\":{pairs},\"excluded\":{excluded},\"candidates\":{}}},\"exits\":[{}]}}",
         q(chart),
         deferred.rule,
         deferred.branch,

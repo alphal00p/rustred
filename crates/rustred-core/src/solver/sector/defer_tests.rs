@@ -166,6 +166,7 @@ fn an_unresolved_exceptional_factor_is_deferred_and_never_dispatched() {
     assert!(!scan.candidates.is_empty());
     let checks = &deferred.region.checks;
     assert!(checks.chart_in_original_parent && checks.failure.is_none());
+    assert_eq!(checks.original_restricts_to_zero, Some(false));
     assert_eq!(checks.modular.len(), 4);
     // Every region point of the box is exceptional for its own rule (so no
     // rule's own guard admits it) and the region is never dispatched.

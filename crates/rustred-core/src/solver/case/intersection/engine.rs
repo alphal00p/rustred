@@ -227,6 +227,24 @@ impl<const N: usize> Engine<'_, N> {
                 false
             }
         };
+        // S1 itself, not inferred from the deferral: the record must not
+        // claim an outcome the S1 test did not establish.
+        let original_restricts_to_zero = if chart_in_original_parent {
+            match native::restrict(
+                &self.current.parent,
+                &self.original_conjunction,
+                self.indices,
+            ) {
+                Ok(restricted) => Some(restricted.is_empty()),
+                Err(error @ CaseIntersectionFailure::Resources(_)) => return Err(error),
+                Err(error) => {
+                    failure.get_or_insert(error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let modular = match modular::residue_checks(
             &self.current.parent,
             &self.current.equations,
@@ -241,6 +259,7 @@ impl<const N: usize> Engine<'_, N> {
         };
         Ok(StuckBranchChecks {
             chart_in_original_parent,
+            original_restricts_to_zero,
             modular,
             failure,
         })

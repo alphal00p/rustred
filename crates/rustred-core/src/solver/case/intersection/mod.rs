@@ -151,3 +151,9 @@ mod t167_p1_b5_captured;
 
 #[cfg(test)]
 mod defer_tests;
+
+#[cfg(test)]
+mod t167_p1_astra_box;
+
+#[cfg(test)]
+mod defer_review_tests;

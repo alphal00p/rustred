@@ -128,6 +128,7 @@ fn core<const N: usize>(region: &DeferredRegion<N>) -> Core<N> {
 fn assert_checks<const N: usize>(region: &DeferredRegion<N>) {
     let checks = &region.checks;
     assert!(checks.chart_in_original_parent, "{checks:?}");
+    assert_eq!(checks.original_restricts_to_zero, Some(false), "{checks:?}");
     assert!(checks.failure.is_none(), "{checks:?}");
     assert_eq!(
         checks
