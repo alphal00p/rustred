@@ -17,7 +17,8 @@ mod native;
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
-    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, ModularCheck,
+    StuckBranchChecks, UnsupportedBranchPolicy,
 };
 
 use crate::algebra::CoefficientPolynomial;
@@ -188,3 +189,9 @@ mod t167_gsplit_captured;
 
 #[cfg(test)]
 mod gsplit_tests;
+
+#[cfg(test)]
+mod t167_p1_astra_box;
+
+#[cfg(test)]
+mod defer_review_tests;

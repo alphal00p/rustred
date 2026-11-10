@@ -9,7 +9,8 @@ pub use domain::Case;
 pub use intersection::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
-    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, ModularCheck,
+    StuckBranchChecks, UnsupportedBranchPolicy,
 };
 
 /// An equality case with some indices fixed and all other indices free.

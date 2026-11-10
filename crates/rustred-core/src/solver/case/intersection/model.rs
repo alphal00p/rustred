@@ -250,6 +250,45 @@ pub struct DeferredRegion<const N: usize> {
     /// rational functions of the others on the region (informational; the
     /// region is defined by `chart`, `conjunction` and `exclusions` alone).
     pub dependents: Arc<[GraphDependent]>,
+    /// What S1 and S2 found on this branch (diagnostic record only).
+    pub checks: StuckBranchChecks,
+}
+
+/// Why S1 and S2 left a deferred branch unresolved. Recomputed for the record
+/// after the deferral decision with the same exact tests; never used to
+/// decide anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StuckBranchChecks {
+    /// S1 precondition: the chart lies in the original parent (exact
+    /// rational-affine containment). When true, the ORIGINAL conjunction does
+    /// not restrict to zero on the chart (otherwise S1 would have lifted it).
+    pub chart_in_original_parent: bool,
+    /// S1 test itself, recomputed with the same exact restriction: whether
+    /// the ORIGINAL conjunction restricts to zero on the chart. `None` when it
+    /// was not computed (chart not in the original parent) or the restriction
+    /// failed (then `failure` is set). `Some(false)` on every branch S1 left.
+    pub original_restricts_to_zero: Option<bool>,
+    /// S2 at each prime of 2, 3, 5, 7, in order, on the chart lattice.
+    pub modular: Vec<(u32, ModularCheck)>,
+    /// A non-resource failure inside these checks (the branch was deferred
+    /// exactly as it would have been refused).
+    pub failure: Option<CaseIntersectionFailure>,
+}
+
+/// Outcome of the S2 residue test at one prime (see `modular`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ModularCheck {
+    /// Every usable equation vanishes identically modulo the prime.
+    NoConstraint,
+    /// The equations have a common zero modulo the prime on the chart lattice.
+    CommonZero,
+    /// The joint test was over budget; each equation alone has a zero.
+    ZeroPerEquation,
+    /// Over budget: no conclusion at this prime.
+    OverBudget,
+    /// No residue is a common zero (not expected on a deferred branch: S2
+    /// drops such a branch before deferral).
+    ProvedEmpty,
 }
 
 impl<const N: usize> DeferredRegion<N> {
@@ -272,7 +311,7 @@ impl<const N: usize> DeferredRegion<N> {
                 let mut exponents = vec![0_u16; template.nvars()];
                 exponents[indices[axis]] = 1;
                 let variable = template.monomial(Integer::from(1), exponents);
-                predicates.push(variable - template.constant(Integer::from(*value)));
+                predicates.push(variable - template.constant(Integer::from(i64::from(*value))));
             }
         }
         if let Some(affine) = self.chart.affine() {

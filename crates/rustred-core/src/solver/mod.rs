@@ -90,7 +90,8 @@ pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
     CaseIntersectionStats, CaseRefinement, CaseRefinementStats, CaseResolution,
-    CaseResolutionReason, CoordinateCase, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
+    CaseResolutionReason, CoordinateCase, DeferredRegion, GraphDependent, ModularCheck,
+    StuckBranchChecks, UnsupportedBranchPolicy,
 };
 pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
@@ -122,9 +123,10 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError,
-    RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution, SectorEvent, SectorPhase,
-    SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
+    DeferredExitScan, DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy,
+    FiniteRetentionError, RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution,
+    SectorEvent, SectorPhase, SectorRule, SectorRuleParent, SectorSolution, SectorSolveError,
+    SectorSolveOptions, SectorStats, deferred_exit_scan,
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,

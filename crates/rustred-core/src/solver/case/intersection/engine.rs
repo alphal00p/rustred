@@ -8,8 +8,9 @@ use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
-    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, UnsupportedBranchPolicy,
-    bilinear_integer, definite_quadratic, linear_resultant, modular, native,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, StuckBranchChecks,
+    UnsupportedBranchPolicy, bilinear_integer, definite_quadratic, linear_resultant, modular,
+    native,
 };
 use crate::solver::GeometryError;
 
@@ -260,11 +261,62 @@ impl<const N: usize> Engine<'_, N> {
             conjunction: self.current.equations.clone(),
             exclusions: self.current.exclusions.clone(),
             dependents: dependents.into(),
+            checks: self.stuck_branch_checks()?,
         };
         if !self.deferred.contains(&region) {
             self.deferred.push(region);
         }
         Ok(())
+    }
+
+    /// The S1/S2 record of a deferred branch: the same exact tests again,
+    /// reporting every outcome. Resource limits propagate; any other failure
+    /// is recorded and changes nothing.
+    fn stuck_branch_checks(&mut self) -> Result<StuckBranchChecks, CaseIntersectionFailure> {
+        let mut failure = None;
+        let chart_in_original_parent = match self.original_parent.contains(&self.current.parent) {
+            Ok(inside) => inside,
+            Err(error) => {
+                failure = Some(CaseIntersectionFailure::Admission(error));
+                false
+            }
+        };
+        // S1 itself, not inferred from the deferral: the record must not
+        // claim an outcome the S1 test did not establish.
+        let original_restricts_to_zero = if chart_in_original_parent {
+            match native::restrict(
+                &self.current.parent,
+                &self.original_conjunction,
+                self.indices,
+            ) {
+                Ok(restricted) => Some(restricted.is_empty()),
+                Err(error @ CaseIntersectionFailure::Resources(_)) => return Err(error),
+                Err(error) => {
+                    failure.get_or_insert(error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let modular = match modular::residue_checks(
+            &self.current.parent,
+            &self.current.equations,
+            self.indices,
+        ) {
+            Ok(checks) => checks,
+            Err(error @ CaseIntersectionFailure::Resources(_)) => return Err(error),
+            Err(error) => {
+                failure.get_or_insert(error);
+                Vec::new()
+            }
+        };
+        Ok(StuckBranchChecks {
+            chart_in_original_parent,
+            original_restricts_to_zero,
+            modular,
+            failure,
+        })
     }
 
     /// S1 (lift), then S2 (modular emptiness), on the stuck current branch
