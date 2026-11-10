@@ -52,12 +52,40 @@ pub(crate) struct OwnerOrbit {
     pub(crate) verified: usize,
     /// Order of the group they generate (the identity and `-1` included).
     pub(crate) group_order: usize,
+    /// The owner's order key is a symmetric function of the powers (every
+    /// lane but Custom and Triangle roles), so only the powers decide.
+    pub(crate) symmetric_order: bool,
     /// The group: `n x n` integer matrices (`n = L + 1`, row-vector
     /// convention `v -> v T`), each a product of verified maps.
     pub(crate) group: Vec<Vec<i128>>,
 }
 
 impl OwnerOrbit {
+    /// [`Self::image`] written into `out` (resized to `powers.len()`), without
+    /// allocating: the sign, or `None` when the action is not exact on the key.
+    pub(crate) fn image_into(
+        action: &[SlotImage],
+        powers: &[i64],
+        out: &mut [i64],
+    ) -> Option<bool> {
+        if action.len() < powers.len() || out.len() != powers.len() {
+            return None;
+        }
+        out.fill(0);
+        let mut negative = false;
+        for (slot, &power) in powers.iter().enumerate() {
+            if power == 0 {
+                continue;
+            }
+            let (target, flip) = action[slot]?;
+            out[usize::from(target)] = power;
+            if flip && power % 2 != 0 {
+                negative = !negative;
+            }
+        }
+        Some(negative)
+    }
+
     /// The image of `powers` under `action`, with its sign, when the action is
     /// exact on this key.
     pub(crate) fn image(action: &[SlotImage], powers: &[i64]) -> Option<(Vec<i64>, bool)> {
@@ -100,7 +128,8 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
         Slot::Line(line) => line,
         Slot::Isp(_) => unreachable!("support lines are lines"),
     };
-    let vec_of = |slot: usize| -> Vec<i128> { line(slot).momentum.iter().map(|&c| i128::from(c)).collect() };
+    let vec_of =
+        |slot: usize| -> Vec<i128> { line(slot).momentum.iter().map(|&c| i128::from(c)).collect() };
     let eps = |slot: usize| line(slot).eps_units;
     let mut orbit = OwnerOrbit::default();
     if loops == 0 || lines.is_empty() {
@@ -127,8 +156,14 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
         return Ok(orbit);
     }
     // v B^-1 = (v adj) / det; `last` = the last basis position a line depends on.
-    let coef: Vec<Vec<i128>> = lines.iter().map(|&slot| row_times(&vec_of(slot), &adj)).collect();
-    let last: Vec<Option<usize>> = coef.iter().map(|row| row.iter().rposition(|&c| c != 0)).collect();
+    let coef: Vec<Vec<i128>> = lines
+        .iter()
+        .map(|&slot| row_times(&vec_of(slot), &adj))
+        .collect();
+    let last: Vec<Option<usize>> = coef
+        .iter()
+        .map(|row| row.iter().rposition(|&c| c != 0))
+        .collect();
     let by_vec: std::collections::BTreeMap<Vec<i128>, usize> = lines
         .iter()
         .flat_map(|&slot| {
@@ -161,7 +196,9 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
     // by the verified maps so far is a product of verified isomorphisms and
     // needs no proof of its own; any other candidate is verified, and its
     // verified denominator action must equal the integer action computed here.
-    let unit: Vec<i128> = (0..n * n).map(|entry| i128::from(entry % (n + 1) == 0)).collect();
+    let unit: Vec<i128> = (0..n * n)
+        .map(|entry| i128::from(entry % (n + 1) == 0))
+        .collect();
     let mut group: BTreeSet<Vec<i128>> = BTreeSet::from([unit]);
     for t in &maps {
         if group.contains(t) {
@@ -194,9 +231,9 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
     let mut seen: BTreeSet<Box<[SlotImage]>> = BTreeSet::new();
     for t in &group {
         let action = slot_action(presentation, t, n);
-        let onto_support = lines.iter().all(|&slot| {
-            action[slot].is_some_and(|(target, _)| support >> target & 1 == 1)
-        });
+        let onto_support = lines
+            .iter()
+            .all(|&slot| action[slot].is_some_and(|(target, _)| support >> target & 1 == 1));
         if !onto_support || action == identity {
             continue;
         }
@@ -262,13 +299,14 @@ pub(crate) fn routed_orbit(
         if t.len() != n * n {
             return OwnerOrbit::default();
         }
-        let Some(conjugate) = multiply(&m_flat, t, n).and_then(|mt| multiply(&mt, &inverse, n)) else {
+        let Some(conjugate) = multiply(&m_flat, t, n).and_then(|mt| multiply(&mt, &inverse, n))
+        else {
             continue;
         };
         let action = slot_action(presentation, &conjugate, n);
-        let onto_support = lines.iter().all(|&slot| {
-            action[slot].is_some_and(|(target, _)| support >> target & 1 == 1)
-        });
+        let onto_support = lines
+            .iter()
+            .all(|&slot| action[slot].is_some_and(|(target, _)| support >> target & 1 == 1));
         if !onto_support || action == identity {
             continue;
         }
@@ -287,7 +325,9 @@ const MAX_GROUP_ORDER: usize = 4096;
 /// Every element of `group` is a word in the generators; the closure only needs
 /// the group itself as generators of the next step.
 fn orbit_generators(group: &BTreeSet<Vec<i128>>, n: usize) -> Vec<Vec<i128>> {
-    let unit: Vec<i128> = (0..n * n).map(|entry| i128::from(entry % (n + 1) == 0)).collect();
+    let unit: Vec<i128> = (0..n * n)
+        .map(|entry| i128::from(entry % (n + 1) == 0))
+        .collect();
     group.iter().filter(|t| **t != unit).cloned().collect()
 }
 
@@ -567,7 +607,12 @@ fn combine(coef: &[i128], images: &[Vec<i128>], det: i128) -> Option<Vec<i128>> 
 
 fn row_times(v: &[i128], m: &[Vec<i128>]) -> Vec<i128> {
     (0..m.len())
-        .map(|column| v.iter().enumerate().map(|(row, &x)| x * m[row][column]).sum())
+        .map(|column| {
+            v.iter()
+                .enumerate()
+                .map(|(row, &x)| x * m[row][column])
+                .sum()
+        })
         .collect()
 }
 
@@ -675,9 +720,16 @@ mod tests {
 
     #[test]
     fn an_image_carries_the_sign_of_odd_flipped_powers() {
-        let action: Vec<SlotImage> = vec![Some((1, false)), Some((0, false)), Some((2, true)), None];
-        assert_eq!(OwnerOrbit::image(&action, &[1, 2, -1, 0]), Some((vec![2, 1, -1, 0], true)));
-        assert_eq!(OwnerOrbit::image(&action, &[1, 2, -2, 0]), Some((vec![2, 1, -2, 0], false)));
+        let action: Vec<SlotImage> =
+            vec![Some((1, false)), Some((0, false)), Some((2, true)), None];
+        assert_eq!(
+            OwnerOrbit::image(&action, &[1, 2, -1, 0]),
+            Some((vec![2, 1, -1, 0], true))
+        );
+        assert_eq!(
+            OwnerOrbit::image(&action, &[1, 2, -2, 0]),
+            Some((vec![2, 1, -2, 0], false))
+        );
         assert_eq!(OwnerOrbit::image(&action, &[1, 2, 0, -1]), None);
     }
 }

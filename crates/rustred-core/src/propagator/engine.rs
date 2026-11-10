@@ -57,6 +57,7 @@ use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, d
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
+use smallvec::SmallVec;
 
 /// One scheduled identity of a p reduction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -228,7 +229,10 @@ impl PEngine {
             .filter(|(_, fate)| matches!(fate, PSectorFate::Owner { .. }))
             .map(|(&sector, _)| (sector, OnceLock::new()))
             .collect();
-        let orbits = owners.keys().map(|&class| (class, OnceLock::new())).collect();
+        let orbits = owners
+            .keys()
+            .map(|&class| (class, OnceLock::new()))
+            .collect();
         let route_orbits = census
             .sectors
             .iter()
@@ -880,7 +884,12 @@ impl<'l> PStepper<'l> {
             let (child, coefficient) = if shape.support(powers) == owner.support {
                 self.apply_key(class, powers, &tag, endpoint.coefficient().clone())?
             } else {
-                self.route_child(owner.presentation, powers, &tag, endpoint.coefficient().clone())?
+                self.route_child(
+                    owner.presentation,
+                    powers,
+                    &tag,
+                    endpoint.coefficient().clone(),
+                )?
             };
             merge(context, &self.limits, &mut step.terms, child, coefficient)?;
         }
@@ -983,9 +992,15 @@ impl<'l> PStepper<'l> {
             } else {
                 coefficient
             };
-            return Ok((self.engine.route_key(presentation, &image, tag)?, coefficient));
+            return Ok((
+                self.engine.route_key(presentation, &image, tag)?,
+                coefficient,
+            ));
         }
-        Ok((self.engine.route_key(presentation, powers, tag)?, coefficient))
+        Ok((
+            self.engine.route_key(presentation, powers, tag)?,
+            coefficient,
+        ))
     }
 
     fn canonical_route(
@@ -1029,12 +1044,9 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(orbit
-            .actions
-            .iter()
-            .filter_map(|action| OwnerOrbit::image(action, powers))
-            .filter(|(image, _)| image.as_slice() < powers && shape.support(image) == support)
-            .min())
+        Ok(least_image(&orbit.actions, powers, |image| {
+            shape.support(image) == support
+        }))
     }
 
     /// The verified automorphisms of the sector of `class`.
@@ -1047,7 +1059,15 @@ impl<'l> PStepper<'l> {
                 PError::MalformedLibrary(format!("owner class {:016x} has no orbit cell", class.0))
             })?
             .get_or_init(|| {
-                owner_orbit(self.library.presentation(slot.presentation), slot.support).map(Arc::new)
+                let owner = self.owner(class)?;
+                let mut orbit =
+                    owner_orbit(self.library.presentation(slot.presentation), slot.support)?;
+                // The default order key (every lane but Custom; Triangle owners
+                // weigh their role slots) is a symmetric function of the powers,
+                // so every image ties with the key and only the powers decide.
+                orbit.symmetric_order = owner.spec.lane != OwnerLane::Custom
+                    && !matches!(owner.spec.roles, LaneRoles::Triangle(_));
+                Ok(Arc::new(orbit))
             })
             .as_ref()
             .map_err(Clone::clone)
@@ -1066,6 +1086,13 @@ impl<'l> PStepper<'l> {
         if orbit.actions.is_empty() {
             return Ok(None);
         }
+        let slot = self.engine.owner(class)?;
+        let shape = self.engine.shape(slot.presentation)?;
+        if orbit.symmetric_order {
+            return Ok(least_image(&orbit.actions, powers, |image| {
+                shape.support(image) == slot.support
+            }));
+        }
         let mut images: BTreeMap<Vec<i64>, bool> = BTreeMap::new();
         for action in &orbit.actions {
             if let Some((image, negative)) = OwnerOrbit::image(action, powers)
@@ -1077,22 +1104,8 @@ impl<'l> PStepper<'l> {
         if images.is_empty() {
             return Ok(None);
         }
-        let slot = self.engine.owner(class)?;
-        let shape = self.engine.shape(slot.presentation)?;
         let owner = self.owner(class)?;
         let context = self.context(owner);
-        // The default order key (every lane but Custom; Triangle owners weigh
-        // their role slots) is a symmetric function of the powers, so every
-        // image ties with the key and only the powers decide.
-        if owner.spec.lane != OwnerLane::Custom
-            && !matches!(owner.spec.roles, LaneRoles::Triangle(_))
-        {
-            return Ok(images
-                .into_iter()
-                .filter(|(image, _)| shape.support(image) == slot.support)
-                .min()
-                .filter(|(image, _)| image.as_slice() < powers));
-        }
         let order = |powers: &[i64]| match owner.program(self.library) {
             Ok(OwnerProgram::Lane(lane)) => lane.order_key(&context, powers).ok(),
             Ok(OwnerProgram::Missing { .. }) => default_order_key(&owner.spec, powers).ok(),
@@ -1491,6 +1504,29 @@ impl ConcurrentStepCacheKernel for PKernel<'_, '_> {
     {
         stepper.recorded_key(stage, view)
     }
+}
+
+/// The least exact image of `powers` strictly below it under `actions`
+/// whose support passes `keep`, with its sign (the first action that reaches
+/// it decides the sign); `None` when the key is its own representative. One
+/// scratch buffer, no allocation per action (M5 R0 A2 hot path).
+fn least_image(
+    actions: &[Box<[super::orbit::SlotImage]>],
+    powers: &[i64],
+    keep: impl Fn(&[i64]) -> bool,
+) -> Option<(Vec<i64>, bool)> {
+    let mut scratch: SmallVec<[i64; 32]> = SmallVec::from_elem(0, powers.len());
+    let mut best: Option<(SmallVec<[i64; 32]>, bool)> = None;
+    for action in actions {
+        let Some(negative) = OwnerOrbit::image_into(action, powers, &mut scratch) else {
+            continue;
+        };
+        let bound = best.as_ref().map_or(powers, |(image, _)| image.as_slice());
+        if scratch.as_slice() < bound && keep(&scratch) {
+            best = Some((scratch.clone(), negative));
+        }
+    }
+    best.map(|(image, negative)| (image.into_vec(), negative))
 }
 
 #[cfg(test)]

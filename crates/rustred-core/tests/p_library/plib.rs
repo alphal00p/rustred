@@ -535,8 +535,9 @@ fn a_stale_record_of_an_unknown_terminal_is_refused() {
 /// The record bytes and the identity of the reference program: a changed record
 /// needs a changed `P_*` version, and with it a new identity here. Orbit
 /// canonicalisation (M5 R0 A2, on by default) changes the records and adds
-/// `P_ORBIT_CANON_VERSION` to the identity; switched off, the identity and the
-/// records are the ones from before it.
+/// `P_ORBIT_CANON_VERSION` to the step identity (never to the library identity
+/// that `library.json` records); switched off, both identities and the records
+/// are the ones from before it.
 #[test]
 fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     const BASE: &str = "p-library:scope=1-1:\
@@ -561,7 +562,8 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     ] {
         let library = one_loop_reference_library().unwrap();
         library.set_orbit_canonicalization(on);
-        assert_eq!(library.identity(), identity);
+        assert_eq!(library.identity(), BASE);
+        assert_eq!(library.step_identity(), identity);
         let context = library.coefficient_context();
         let directory = scratch(if on { "golden-orbit" } else { "golden" });
         let cache = OrderedStepCache::open(

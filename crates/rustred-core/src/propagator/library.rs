@@ -26,7 +26,9 @@ use super::step::PLaneStep;
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::topology::{Dag, NodeInfo};
-use super::{NodeIndex, OwnerClassId, P_ORBIT_CANON_VERSION, PTerminalId, PresentationId, p_versions};
+use super::{
+    NodeIndex, OwnerClassId, P_ORBIT_CANON_VERSION, PTerminalId, PresentationId, p_versions,
+};
 
 #[derive(Clone)]
 pub enum OwnerProgram {
@@ -234,27 +236,40 @@ impl PLibrary {
         }
     }
 
-    /// The cache identity of this program: `"p-library:scope=<a>-<b>:"` plus
-    /// every `name=value` of [`p_versions`], and `P_ORBIT_CANON_VERSION` while
-    /// orbit canonicalisation is on (it changes the recorded steps). No loop
-    /// count, no digest.
+    /// The identity of this program: `"p-library:scope=<a>-<b>:"` plus every
+    /// `name=value` of [`p_versions`]. No loop count, no digest. It names the
+    /// library content (`library.json` records it); reduction settings such as
+    /// orbit canonicalisation are not part of it, see [`Self::step_identity`].
     pub fn identity(&self) -> String {
-        let mut versions: Vec<String> = p_versions()
+        let versions: Vec<String> = p_versions()
             .into_iter()
             .map(|(name, value)| format!("{name}={value}"))
             .collect();
-        if self.orbit_canonicalization() {
-            let scope = if self.route_canonicalization() { "" } else { "-apply" };
-            versions.push(format!(
-                "P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
-            ));
-        }
         format!(
             "p-library:scope={}-{}:{}",
             self.scope.start(),
             self.scope.end(),
             versions.join(",")
         )
+    }
+
+    /// The identity the step cache binds to: [`Self::identity`], plus
+    /// `P_ORBIT_CANON_VERSION` while orbit canonicalisation is on (it changes
+    /// the recorded steps; `-apply` when it stops at Apply keys). With it off
+    /// this is exactly [`Self::identity`], so caches recorded before stay valid.
+    pub fn step_identity(&self) -> String {
+        let mut identity = self.identity();
+        if self.orbit_canonicalization() {
+            let scope = if self.route_canonicalization() {
+                ""
+            } else {
+                "-apply"
+            };
+            identity.push_str(&format!(
+                ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
+            ));
+        }
+        identity
     }
 
     /// Switch the orbit canonicalisation of Apply keys (M5 R0 A2) on or off
@@ -264,7 +279,7 @@ impl PLibrary {
     /// `+-1`, module [`super::orbit`]), so symmetric copies merge. The values
     /// do not depend on it: each replacement is an exact identity and the
     /// decomposition onto the fixed terminals is unique. The setting changes
-    /// the recorded steps, so it is part of [`Self::identity`] and of the step
+    /// the recorded steps, so it is part of [`Self::step_identity`] and of the step
     /// cache binding: set it before the first request that uses a cache.
     pub fn set_orbit_canonicalization(&self, on: bool) {
         self.orbit_canonicalization.store(on, Ordering::Relaxed);
@@ -501,7 +516,7 @@ impl PLibrary {
     pub fn step_cache_binding(&self) -> Result<OrderedStepCacheBinding, PError> {
         Ok(OrderedStepCacheBinding::new(
             OrderedStepCacheAdapter::PropagatorLibrary,
-            self.identity(),
+            self.step_identity(),
             &self.context,
             Some(UnresolvedPolicy::Reject),
         ))
