@@ -27,6 +27,7 @@ fn policy() -> RuleSelectionPolicy {
             descending: false,
         }],
         trigger: RulePortfolioTrigger::Always,
+        pre_screen: false,
     }
 }
 
@@ -324,44 +325,54 @@ fn bounded_rule_portfolio_validation_and_refusal_taxonomy_fail_closed() {
 
 #[test]
 fn bounded_rule_portfolio_broken_descent_after_valid_incumbent_is_fatal_not_fallback() {
-    let context = CoefficientContext::new(["n"]);
-    // A deliberately corrupted preconditioned row with duplicate heads must
-    // trip the unchanged strict-descent gate even after a valid baseline.
-    let system = SourceSystem::new(
-        vec![
-            row(&context, &[(0, "1"), (-1, "n-1")]),
-            row(&context, &[(0, "1"), (0, "1")]),
-        ],
-        [0],
-    )
-    .unwrap();
-    let solver = solver(&system, policy());
-    let mut stats = SectorStats::default();
-    let mut trials = Vec::new();
-    let result = solver.select_rule(
-        &Case::generic(),
-        SectorSolveOptions::default(),
-        &mut stats,
-        &mut |event| {
-            if let SectorEvent::RuleTrialFinished { summary, .. } = event {
-                trials.push(summary);
-            }
-        },
-    );
-    assert!(matches!(
-        result,
-        Err(SectorSolveError::Search {
-            source: SolverError::ExactReplay(_),
+    for pre_screen in [false, true] {
+        let context = CoefficientContext::new(["n"]);
+        // A deliberately corrupted preconditioned row with duplicate heads must
+        // trip the unchanged strict-descent gate even after a valid baseline.
+        let system = SourceSystem::new(
+            vec![
+                row(&context, &[(0, "1"), (-1, "n-1")]),
+                row(&context, &[(0, "1"), (0, "1"), (-1, "1")]),
+            ],
+            [0],
+        )
+        .unwrap();
+        let mut selection = policy();
+        let RuleSelectionPolicy::BoundedPortfolio {
+            pre_screen: enabled,
             ..
-        })
-    ));
-    assert_eq!(trials.len(), 2);
-    assert_eq!(trials[0].outcome, RuleTrialOutcome::Admitted);
-    assert_eq!(trials[1].outcome, RuleTrialOutcome::Fatal);
-    assert_eq!(stats.rule_selection.unwrap().fatal, 1);
-    assert_eq!(stats.symbolic_rows, 2);
+        } = &mut selection
+        else {
+            unreachable!()
+        };
+        *enabled = pre_screen;
+        let solver = solver(&system, selection);
+        let mut stats = SectorStats::default();
+        let mut trials = Vec::new();
+        let result = solver.select_rule(
+            &Case::generic(),
+            SectorSolveOptions::default(),
+            &mut stats,
+            &mut |event| {
+                if let SectorEvent::RuleTrialFinished { summary, .. } = event {
+                    trials.push(summary);
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(SectorSolveError::Search {
+                source: SolverError::ExactReplay(_),
+                ..
+            })
+        ));
+        assert_eq!(trials.len(), 2);
+        assert_eq!(trials[0].outcome, RuleTrialOutcome::Admitted);
+        assert_eq!(trials[1].outcome, RuleTrialOutcome::Fatal);
+        assert_eq!(stats.rule_selection.unwrap().fatal, 1);
+        assert_eq!(stats.symbolic_rows, 2);
+    }
 }
-
 #[test]
 fn bounded_rule_portfolio_search_caps_precede_second_row_and_exact_lift() {
     let context = CoefficientContext::new(["n"]);
@@ -802,6 +813,7 @@ fn bounded_rule_portfolio_constructor_materializes_alternatives_on_the_same_basi
                     descending: false,
                 }],
                 trigger: RulePortfolioTrigger::Always,
+                pre_screen: false,
             },
             ..Default::default()
         },

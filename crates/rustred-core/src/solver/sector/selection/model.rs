@@ -28,6 +28,9 @@ pub enum RuleSelectionPolicy {
         limits: RuleTrialLimits,
         quality: Vec<RuleQualityPriority>,
         trigger: RulePortfolioTrigger,
+        /// Opt-in only: reject a strictly worse known quality prefix before
+        /// guard extraction. Unknown priorities and ties always proceed.
+        pre_screen: bool,
     },
 }
 
@@ -101,6 +104,7 @@ impl RuleSelectionPolicy {
             limits,
             quality,
             trigger,
+            ..
         } = self
         else {
             return Ok(());
@@ -196,6 +200,9 @@ pub enum RuleTrialOutcome {
     DifferentTarget,
     /// Cooperative case budget stopped this optional trial or its admission.
     CaseTimeBudget,
+    /// Exact search, target matching and strict descent passed, but the known
+    /// pre-guard quality prefix was strictly worse than the incumbent's.
+    PreScreened,
 }
 
 /// Work of one trial, including rejected/fatal trials. `search.elapsed`
@@ -213,6 +220,10 @@ pub struct RuleTrialStats {
     pub case_elapsed: Duration,
     /// All 14 literal features, indexed by RuleQualityFeature discriminant.
     pub score: Option<[u64; 14]>,
+    /// Actual post-canonical RHS features, separate from a fully admitted
+    /// score. Present only when pre-screening is explicitly enabled.
+    pub pre_guard_rhs_terms: Option<u64>,
+    pub pre_guard_numerator_rank_raise: Option<u64>,
     pub target_matches_baseline: Option<bool>,
     pub duplicate_of_trial: Option<usize>,
     /// Actual seed displacement shells visited, not just the configured cap.
@@ -250,6 +261,7 @@ pub struct RuleSelectionStats {
     pub candidate_duplicates: usize,
     pub different_targets: usize,
     pub case_time_skips: usize,
+    pub pre_screened: usize,
     pub total: RuleTrialStats,
 }
 
@@ -288,6 +300,7 @@ impl RuleSelectionStats {
                     RuleTrialOutcome::DuplicateCandidate => self.candidate_duplicates += 1,
                     RuleTrialOutcome::DifferentTarget => self.different_targets += 1,
                     RuleTrialOutcome::CaseTimeBudget => self.case_time_skips += 1,
+                    RuleTrialOutcome::PreScreened => self.pre_screened += 1,
                     RuleTrialOutcome::DuplicateDescriptor => unreachable!(),
                     RuleTrialOutcome::Admitted => unreachable!(),
                 }

@@ -1,7 +1,70 @@
 use std::cmp::Ordering;
 
 use super::{Admitted, model::*};
-use crate::solver::{Power, SolverError};
+use crate::solver::{Power, RuleCandidate, SolverError};
+
+/// The only features read before guards. These are not a partly populated
+/// admitted score: unknown guard/geometry features have no value here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PreGuardFeatures {
+    pub(super) rhs_terms: u64,
+    pub(super) numerator_rank_raise: u64,
+}
+
+impl PreGuardFeatures {
+    pub(super) fn read<const N: usize>(
+        candidate: &RuleCandidate<N>,
+        sector: &[bool; N],
+    ) -> Result<Self, SolverError> {
+        let mut maximum = 0i64;
+        for term in &candidate.rhs {
+            let mut net = 0i64;
+            for (axis, &active) in sector.iter().enumerate() {
+                if !active {
+                    net = net
+                        .checked_add(signed_degree_change(
+                            candidate.target[axis],
+                            term.integral[axis],
+                            false,
+                        )?)
+                        .ok_or_else(|| invalid("signed inactive degree overflow"))?;
+                }
+            }
+            maximum = maximum.max(net);
+        }
+        Ok(Self {
+            rhs_terms: count(candidate.rhs.len())?,
+            numerator_rank_raise: maximum as u64,
+        })
+    }
+
+    pub(super) fn strictly_worse(
+        self,
+        incumbent: &Features,
+        priorities: &[RuleQualityPriority],
+    ) -> bool {
+        for priority in priorities {
+            let value = match priority.feature {
+                RuleQualityFeature::RhsTerms => self.rhs_terms,
+                RuleQualityFeature::PositiveMaxNetInactiveDegreeShift => self.numerator_rank_raise,
+                // An unknown earlier priority may dominate every later one.
+                _ => return false,
+            };
+            let ordering = value.cmp(&incumbent.get(priority.feature));
+            let ordering = if priority.descending {
+                ordering.reverse()
+            } else {
+                ordering
+            };
+            match ordering {
+                Ordering::Greater => return true,
+                Ordering::Less => return false,
+                Ordering::Equal => {}
+            }
+        }
+        false
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Features([u64; 14]);

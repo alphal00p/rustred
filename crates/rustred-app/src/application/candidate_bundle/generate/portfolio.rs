@@ -26,6 +26,8 @@ pub(super) struct Report {
     candidate_duplicates: u128,
     different_targets: u128,
     case_time_skips: u128,
+    #[serde(skip_serializing_if = "is_zero")]
+    pre_screened: u128,
     trial_elapsed_us: u128,
     search_seeds: u128,
     search_rows: u128,
@@ -41,6 +43,10 @@ pub(super) struct Report {
     exact_materialization_us: u128,
     guard_extraction_us: u128,
     geometry_us: u128,
+}
+
+fn is_zero(value: &u128) -> bool {
+    *value == 0
 }
 
 impl Report {
@@ -72,7 +78,8 @@ impl Report {
             canonical_distinct_completed,
             candidate_duplicates,
             different_targets,
-            case_time_skips
+            case_time_skips,
+            pre_screened
         );
         let work = stats.total;
         self.search_seeds += work.search.seeds as u128;

@@ -7,7 +7,12 @@ use std::time::Instant;
 mod model;
 mod quality;
 pub use model::*;
-use quality::Features;
+use quality::{Features, PreGuardFeatures};
+
+struct PreScreen<'a> {
+    incumbent: Option<&'a Features>,
+    priorities: &'a [RuleQualityPriority],
+}
 
 pub(super) struct Admitted<const N: usize> {
     pub rule: SectorRule<N>,
@@ -55,6 +60,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             limits,
             quality,
             trigger,
+            pre_screen,
         } = &self.config.rule_selection
         else {
             unreachable!("first-valid uses the original queue branch")
@@ -71,6 +77,10 @@ impl<const N: usize> SectorSolver<'_, N> {
             0,
             None,
             &[],
+            pre_screen.then_some(PreScreen {
+                incumbent: None,
+                priorities: quality,
+            }),
             case_started,
             stats,
             observe,
@@ -135,6 +145,10 @@ impl<const N: usize> SectorSolver<'_, N> {
                 index + 1,
                 Some(&baseline_target),
                 &identities,
+                pre_screen.then_some(PreScreen {
+                    incumbent: Some(&best_features),
+                    priorities: quality,
+                }),
                 case_started,
                 stats,
                 observe,
@@ -194,6 +208,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         trial: usize,
         baseline_target: Option<&Integral<N>>,
         identities: &[(usize, CandidateIdentity<N>)],
+        pre_screen: Option<PreScreen<'_>>,
         case_started: Instant,
         stats: &mut SectorStats,
         observe: &mut impl FnMut(SectorEvent<'_, N>),
@@ -245,6 +260,27 @@ impl<const N: usize> SectorSolver<'_, N> {
                 work.target_matches_baseline = Some(candidate.target == *target);
                 if candidate.target != *target {
                     selection_refusal = Some(RuleTrialOutcome::DifferentTarget);
+                    return Err(SectorSolveError::NonProgress {
+                        case: current.clone(),
+                    });
+                }
+            }
+            if let Some(screen) = pre_screen {
+                self.validate_rule_descent(&candidate)?;
+                let cheap =
+                    PreGuardFeatures::read(&candidate, self.order.sector()).map_err(|source| {
+                        SectorSolveError::Search {
+                            case: current.clone(),
+                            source,
+                        }
+                    })?;
+                work.pre_guard_rhs_terms = Some(cheap.rhs_terms);
+                work.pre_guard_numerator_rank_raise = Some(cheap.numerator_rank_raise);
+                if screen
+                    .incumbent
+                    .is_some_and(|best| cheap.strictly_worse(best, screen.priorities))
+                {
+                    selection_refusal = Some(RuleTrialOutcome::PreScreened);
                     return Err(SectorSolveError::NonProgress {
                         case: current.clone(),
                     });

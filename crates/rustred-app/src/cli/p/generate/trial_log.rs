@@ -212,6 +212,8 @@ mod tests {
             trial_elapsed_us: 123,
             case_elapsed_us: 150,
             score: Some([17; 14]),
+            pre_guard_rhs_terms: None,
+            pre_guard_numerator_rank_raise: None,
             target_matches_baseline: Some(true),
             duplicate_of_trial: Some(0),
             seed_first_depth: Some(1),

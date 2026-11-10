@@ -187,6 +187,10 @@ pub(crate) enum StageDetail {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         score: Option<[u64; 14]>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_rhs_terms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_numerator_rank_raise: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_matches_baseline: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         duplicate_of_trial: Option<usize>,

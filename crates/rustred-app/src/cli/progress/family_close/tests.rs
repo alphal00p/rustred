@@ -79,6 +79,8 @@ fn portfolio_trial_completion_does_not_count_a_rule_or_sector() {
         trial_elapsed_us: 0,
         case_elapsed_us: 0,
         score: None,
+        pre_guard_rhs_terms: None,
+        pre_guard_numerator_rank_raise: None,
         target_matches_baseline: None,
         duplicate_of_trial: None,
         seed_first_depth: None,

@@ -607,16 +607,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         &self,
         candidate: RuleCandidate<N>,
     ) -> Result<(SectorRule<N>, Duration), SectorSolveError<N>> {
-        if candidate
-            .rhs
-            .iter()
-            .any(|term| self.order.compare(&candidate.target, &term.integral) != Ordering::Less)
-        {
-            return Err(SectorSolveError::Search {
-                case: candidate.case,
-                source: SolverError::ExactReplay("winning rule is not strictly descending".into()),
-            });
-        }
+        self.validate_rule_descent(&candidate)?;
         let start = Instant::now();
         let exceptions = super::exception::extract_exceptions_two_sided(
             &candidate,
@@ -636,6 +627,25 @@ impl<const N: usize> SectorSolver<'_, N> {
             },
             start.elapsed(),
         ))
+    }
+
+    // Shared by ordinary admission and the opt-in pre-screen. A cheap score
+    // must never turn a malformed/non-descending identity into a refusal.
+    fn validate_rule_descent(
+        &self,
+        candidate: &RuleCandidate<N>,
+    ) -> Result<(), SectorSolveError<N>> {
+        if candidate
+            .rhs
+            .iter()
+            .any(|term| self.order.compare(&candidate.target, &term.integral) != Ordering::Less)
+        {
+            return Err(SectorSolveError::Search {
+                case: candidate.case.clone(),
+                source: SolverError::ExactReplay("winning rule is not strictly descending".into()),
+            });
+        }
+        Ok(())
     }
 
     fn enqueue(

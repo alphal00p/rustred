@@ -23,6 +23,8 @@ pub enum CandidateRulePortfolio {
         limits: CandidateRuleTrialLimits,
         quality: Vec<CandidateRuleQualityPriority>,
         trigger: CandidateRulePortfolioTrigger,
+        #[serde(default, skip_serializing_if = "is_false")]
+        pre_screen: bool,
     },
 }
 
@@ -47,6 +49,9 @@ fn default_alternatives() -> usize {
 }
 fn is_default_alternatives(value: &usize) -> bool {
     *value == 2
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Legacy source-only JSON is preserved byte-for-byte on serialization. An
@@ -236,10 +241,12 @@ impl CandidateRulePortfolio {
             limits,
             quality,
             trigger,
+            pre_screen,
             ..
         } = self;
         RuleSelectionPolicy::BoundedPortfolio {
             alternatives,
+            pre_screen: *pre_screen,
             limits: RuleTrialLimits {
                 max_depth: limits.max_depth,
                 max_rows: limits.max_rows,
