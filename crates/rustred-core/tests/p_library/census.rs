@@ -2232,21 +2232,24 @@ fn the_four_loop_dag_is_complete() {
         census.counts(&library.presentations).unwrap()
     );
 
-    // All 10,654 pairs take five minutes: the twins and a sample stay.
+    // All 10,830 pairs take five minutes: the twins and a sample stay. (10,654
+    // before the Diamond lane: the 4 diamond-adapted presentations add pairs.)
     assert_eq!(
         assert_traded_nodes_are_refused(&library, &census, 64),
-        (10_654, 172)
+        (10_830, 172)
     );
 
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
-    // are the 183 of the tops.
+    // are the 183 of the tops. The 4L sectors are those of the Diamond-lane
+    // presentations (176,608 / 156,045 / 20,563 with the diamonds as Custom
+    // owners), as in golden/inventory_1-4.txt.
     assert_eq!(
         count_rows(&census.counts(&library.presentations).unwrap()),
         [
             (1, 7, 16, 9, 7, 6),
             (2, 30, 298, 211, 87, 29),
             (3, 125, 8_216, 6_794, 1_422, 92),
-            (4, 291, 176_608, 156_045, 20_563, 183),
+            (4, 291, 173_024, 153_475, 19_549, 183),
         ]
     );
 }
