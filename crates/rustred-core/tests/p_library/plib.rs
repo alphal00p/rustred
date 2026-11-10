@@ -986,6 +986,85 @@ fn phases_descend_through_route_and_apply_with_their_stages() {
     )));
 }
 
+/// The opt-in path census (M5 R0 WP0) through an inspector.
+struct CensusProbe(rustred::propagator::path_census::PPathCensus);
+
+impl rustred::propagator::library::PInspector for CensusProbe {
+    fn inspect(&mut self, _: &rustred::reduction::OrderedPhaseEvent<'_>) -> Result<(), PError> {
+        Ok(())
+    }
+
+    fn path_census(&mut self) -> Option<&mut rustred::propagator::path_census::PPathCensus> {
+        Some(&mut self.0)
+    }
+}
+
+/// T-BFS: the census changes no value, sees every popped key once, in
+/// non-decreasing phases, each owner in one run per Apply phase, and counts
+/// the driver's keys and edges; its key cap stops the request.
+#[test]
+fn the_path_census_changes_no_value_and_certifies_the_layers() {
+    use rustred::propagator::path_census::{PPathCensus, PPathCensusOptions};
+    let context = context();
+    let (library, _) = routed_kite(&context);
+    let inputs = vec![
+        (PresentationId(0), key(&[2, 1, 3, 1, -1]), context.one()),
+        (
+            PresentationId(0),
+            key(&[1, 2, 1, 1, -2]),
+            context.integer(3),
+        ),
+    ];
+    let plain = library.reduce(request(inputs.clone())).unwrap();
+    let options = PPathCensusOptions {
+        keep_apply_keys: true,
+        max_keys: None,
+    };
+    for (arithmetic, scheduler) in [
+        (
+            OrderedWeightArithmetic::Exact,
+            OrderedSchedulerOptions::default(),
+        ),
+        (modular_polynomial(1), OrderedSchedulerOptions::default()),
+        (OrderedWeightArithmetic::Exact, sixteen_threads()),
+        (modular_polynomial(16), sixteen_threads()),
+    ] {
+        let mut probe = CensusProbe(PPathCensus::new(options));
+        let mut run = request(inputs.clone());
+        run.arithmetic = arithmetic;
+        run.scheduler = scheduler;
+        run.inspector = Some(&mut probe);
+        let reduced = library.reduce(run).unwrap();
+        same_result(&reduced, &plain);
+        let census = probe.0;
+        let certificate = census.certificate();
+        assert!(certificate.holds(), "{certificate:?}");
+        assert!(certificate.popped > 0 && certificate.apply_phases > 0);
+        let progress = reduced.statistics.progress;
+        assert_eq!(certificate.popped, progress.processed_keys as u64);
+        let steps: u64 = census.steps.values().map(|agg| agg.steps).sum();
+        assert_eq!(steps, census.popped);
+        let edges: u64 = census.steps.values().map(|agg| agg.edges()).sum();
+        assert_eq!(edges, progress.emitted_terms as u64);
+        let applies: u64 = census
+            .steps
+            .iter()
+            .filter(|(key, _)| key.1 == 1)
+            .map(|(_, agg)| agg.steps)
+            .sum();
+        assert_eq!(census.apply_keys.len() as u64, applies);
+        assert!(census.inflow.values().any(|inflow| !inflow.is_empty()));
+        assert!(!census.owners.is_empty());
+    }
+    let mut capped = CensusProbe(PPathCensus::new(PPathCensusOptions {
+        keep_apply_keys: false,
+        max_keys: Some(1),
+    }));
+    let mut run = request(inputs);
+    run.inspector = Some(&mut capped);
+    assert!(matches!(library.reduce(run), Err(PError::Unsupported(_))));
+}
+
 /// One integer-line owner of `lane` on a bubble, on every positive key.
 fn one_owner_library(lane: Arc<dyn PLaneStep>) -> (PLibrary, OwnerClassId) {
     library_with_program(OwnerProgram::Lane(lane))

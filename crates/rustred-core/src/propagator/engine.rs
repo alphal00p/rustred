@@ -33,8 +33,8 @@ use crate::reduction::ordered_reduction::step_cache::kernel::{
     ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
 };
 use crate::reduction::ordered_reduction::{
-    ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedOutput, OrderedPhaseDescriptor,
-    OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
+    ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedOutput, OrderedPhaseBoundary,
+    OrderedPhaseDescriptor, OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{
     OrderedSchedulerOptions, OrderedStepCache, OrderedStepShard, OrderedStepStage,
@@ -44,11 +44,12 @@ use crate::reduction::{
 use crate::sector::Mask;
 use crate::sector::symmetry::integral_transport::{self, ExpansionLimits, Prepared};
 use crate::sector::symmetry::{self, CoefficientMatrix, MomentumMap};
-use crate::solver::CandidateOrderedPhaseKind;
+use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress};
 
 use super::census::{PSectorFate, SignedAffineLoopMap};
 use super::error::PError;
 use super::library::{OwnerProgram, PInspector, PLibrary, POwner};
+use super::path_census::{PCensusAgg, PCensusKind, PCensusOwner, PPathCensus, PStepRecord};
 use super::presentation::Presentation;
 use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, default_order_key};
 use super::tag::GammaTag;
@@ -424,13 +425,21 @@ impl PEngine {
         scheduler: OrderedSchedulerOptions,
         cache: Option<&OrderedStepCache>,
         limits: ReductionLimits,
-        inspector: Option<&mut dyn PInspector>,
+        mut inspector: Option<&mut dyn PInspector>,
     ) -> Result<OrderedOutput, PError> {
+        let census = match inspector.as_deref_mut().and_then(PInspector::path_census) {
+            Some(census) => PCensusMode {
+                on: true,
+                keep_apply_keys: census.options.keep_apply_keys,
+            },
+            None => PCensusMode::OFF,
+        };
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
                 engine: self,
                 limits,
+                census,
             },
             inspector,
         };
@@ -536,15 +545,202 @@ pub(crate) struct PStepper<'l> {
     library: &'l PLibrary,
     engine: &'l PEngine,
     limits: ReductionLimits,
+    census: PCensusMode,
 }
 
-/// Work of one detached step.
-#[derive(Clone, Copy, Debug, Default)]
+/// Whether the request runs the opt-in path census (M5 R0 WP0).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PCensusMode {
+    on: bool,
+    keep_apply_keys: bool,
+}
+
+impl PCensusMode {
+    pub(crate) const OFF: Self = Self {
+        on: false,
+        keep_apply_keys: false,
+    };
+}
+
+/// Work of one detached step; with the path census on, its record.
+#[derive(Debug, Default)]
 pub(crate) struct PAccount {
     rule_applications: usize,
+    census: Option<Box<PStepRecord>>,
 }
 
 impl<'l> PStepper<'l> {
+    /// The path-census kind and id of a key: Route by presentation, Apply by
+    /// owner class.
+    fn census_id(key: &PKey) -> (PCensusKind, u64) {
+        match key {
+            PKey::Route { presentation, .. } => (0, u64::from(presentation.0)),
+            PKey::Apply { class, .. } => (1, class.0),
+        }
+    }
+
+    /// A 128-bit identity of a key (two independent SipHash-1-3 digests).
+    fn census_hash(key: &PKey) -> u128 {
+        use std::hash::{Hash, Hasher};
+        let mut first = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut first);
+        let mut second = std::collections::hash_map::DefaultHasher::new();
+        0x9e37_79b9_7f4a_7c15_u64.hash(&mut second);
+        key.hash(&mut second);
+        (u128::from(first.finish()) << 64) | u128::from(second.finish())
+    }
+
+    /// The path-census record of one computed step (census on only).
+    fn census_record(&self, key: &PKey, step: &OrderedStep<PKey>, nanos: u64) -> PStepRecord {
+        let (kind, id) = Self::census_id(key);
+        let (presentation, view) = match key {
+            PKey::Route { presentation, view } => (Some(*presentation), view),
+            PKey::Apply { class, view } => (
+                self.engine.owner(*class).ok().map(|slot| slot.presentation),
+                view,
+            ),
+        };
+        let parent_phase = self.phase(key).ok();
+        let (mut lines, mut dots, mut rank) = (0_u32, 0_i64, 0_i64);
+        if let Some(presentation) = presentation
+            && let Ok((powers, _)) = self.engine.split(presentation, view)
+            && let Ok(shape) = self.engine.shape(presentation)
+        {
+            lines = u32::try_from(shape.line_count(shape.support(powers))).unwrap_or(u32::MAX);
+            dots = powers.iter().filter(|&&p| p > 1).map(|&p| p - 1).sum();
+            rank = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
+        }
+        let mut agg = PCensusAgg {
+            steps: 1,
+            nanos,
+            terminals: step.terminals.len() as u64,
+            ch_max: step.terms.len() as u64,
+            empty: u64::from(step.terms.is_empty() && step.terminals.is_empty()),
+            ..PCensusAgg::default()
+        };
+        for (child, coefficient) in &step.terms {
+            match child {
+                PKey::Apply { class, .. } if kind == 1 && class.0 == id => agg.ch_same += 1,
+                PKey::Apply { .. } => agg.ch_apply += 1,
+                PKey::Route {
+                    presentation: child_presentation,
+                    view: child_view,
+                } => {
+                    agg.ch_route += 1;
+                    let zero = self
+                        .engine
+                        .split(*child_presentation, child_view)
+                        .ok()
+                        .and_then(|(child_powers, _)| {
+                            let support = self
+                                .engine
+                                .shape(*child_presentation)
+                                .ok()?
+                                .support(child_powers);
+                            Some(matches!(
+                                self.engine
+                                    .sector(self.library, *child_presentation, support),
+                                Ok(Sector::Zero)
+                            ))
+                        })
+                        .unwrap_or(false);
+                    agg.ch_zero += u64::from(zero);
+                }
+            }
+            match (parent_phase, self.phase(child).ok()) {
+                (Some(parent), Some(phase)) if phase < parent => agg.ch_earlier_phase += 1,
+                (Some(parent), Some(phase)) if phase == parent => {
+                    agg.ch_same_phase += 1;
+                    let same_owner =
+                        matches!(child, PKey::Apply { class, .. } if kind == 1 && class.0 == id);
+                    agg.ch_foreign_same_phase += u64::from(!same_owner);
+                }
+                _ => {}
+            }
+            let terms = (coefficient.numerator.nterms() + coefficient.denominator.nterms()) as u64;
+            agg.coeff_terms += terms;
+            agg.coeff_terms_max = agg.coeff_terms_max.max(terms);
+        }
+        for coefficient in step.terminals.values() {
+            let terms = (coefficient.numerator.nterms() + coefficient.denominator.nterms()) as u64;
+            agg.coeff_terms += terms;
+            agg.coeff_terms_max = agg.coeff_terms_max.max(terms);
+        }
+        let apply_view = match key {
+            PKey::Apply { view, .. } if self.census.keep_apply_keys => Some(view.powers().into()),
+            _ => None,
+        };
+        let phase = parent_phase.map_or(u32::MAX, |phase| u32::try_from(phase).unwrap_or(u32::MAX));
+        PStepRecord {
+            key: (phase, kind, id, lines, dots, rank),
+            agg,
+            apply_view,
+        }
+    }
+
+    /// The inflow of a phase at its start: its pending keys per `(kind, id)`,
+    /// its pending Apply keys per (lines, dots, rank), and the pending keys of
+    /// later phases.
+    #[allow(clippy::type_complexity)]
+    fn census_inflow(
+        &self,
+        event: &OrderedPhaseEvent<'_>,
+    ) -> (
+        BTreeMap<(PCensusKind, u64), u64>,
+        BTreeMap<(u32, i64, i64), u64>,
+        u64,
+    ) {
+        let mut inflow: BTreeMap<(PCensusKind, u64), u64> = BTreeMap::new();
+        let mut profile: BTreeMap<(u32, i64, i64), u64> = BTreeMap::new();
+        let mut later = 0_u64;
+        for entry in event.frontier() {
+            if entry.phase != event.phase {
+                later += 1;
+                continue;
+            }
+            let (kind, id, presentation) = match entry.stage {
+                OrderedKeyStage::ClassRoute { class } => {
+                    (0, class, u32::try_from(class).ok().map(PresentationId))
+                }
+                OrderedKeyStage::ClassApply { class } => (
+                    1,
+                    class,
+                    self.engine
+                        .owner(OwnerClassId(class))
+                        .ok()
+                        .map(|slot| slot.presentation),
+                ),
+                _ => (u8::MAX, 0, None),
+            };
+            *inflow.entry((kind, id)).or_default() += 1;
+            if kind == 1
+                && let Some(presentation) = presentation
+                && let Ok((powers, _)) = self.engine.split(presentation, entry.integral)
+                && let Ok(shape) = self.engine.shape(presentation)
+            {
+                let lines =
+                    u32::try_from(shape.line_count(shape.support(powers))).unwrap_or(u32::MAX);
+                let dots = powers.iter().filter(|&&p| p > 1).map(|&p| p - 1).sum();
+                let rank = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
+                *profile.entry((lines, dots, rank)).or_default() += 1;
+            }
+        }
+        (inflow, profile, later)
+    }
+
+    /// The census entry of owner `class`.
+    fn census_owner(&self, class: u64) -> Option<PCensusOwner> {
+        let class = OwnerClassId(class);
+        let slot = self.engine.owner(class).ok()?;
+        let owner = self.library.owner(class)?;
+        Some(PCensusOwner {
+            lane: format!("{:?}", owner.spec.lane),
+            presentation: slot.presentation.0,
+            t: slot.t,
+            rank: slot.rank,
+        })
+    }
+
     fn owner(&self, class: OwnerClassId) -> Result<&'l POwner, PError> {
         self.library
             .owner(class)
@@ -849,7 +1045,8 @@ impl OrderedStepper for PStepper<'_> {
     }
 
     fn step(&self, key: &PKey) -> (Result<OrderedStep<PKey>, PError>, PAccount) {
-        match key {
+        let started = self.census.on.then(std::time::Instant::now);
+        let (result, mut account) = match key {
             PKey::Route { presentation, view } => {
                 (self.route_step(*presentation, view), PAccount::default())
             }
@@ -857,10 +1054,16 @@ impl OrderedStepper for PStepper<'_> {
                 let result = self.apply_step(*class, view);
                 let account = PAccount {
                     rule_applications: usize::from(result.is_ok()),
+                    census: None,
                 };
                 (result, account)
             }
+        };
+        if let (Some(started), Ok(step)) = (started, &result) {
+            let nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            account.census = Some(Box::new(self.census_record(key, step, nanos)));
         }
+        (result, account)
     }
 
     fn later_phase(&self, parent: &PKey, child: &PKey) -> bool {
@@ -878,12 +1081,35 @@ struct PKernel<'l, 'r> {
 }
 
 impl PKernel<'_, '_> {
+    /// The path census of the request, when it is on.
+    fn census(&mut self) -> Option<&mut PPathCensus> {
+        if !self.stepper.census.on {
+            return None;
+        }
+        self.inspector
+            .as_deref_mut()
+            .and_then(PInspector::path_census)
+    }
+
     fn account(
-        &self,
+        &mut self,
         account: PAccount,
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<(), PError> {
+        if let Some(record) = account.census {
+            let class = (record.key.1 == 1).then_some(record.key.2);
+            let stepper = self.stepper;
+            if let Some(census) = self.census() {
+                if let Some(class) = class
+                    && !census.owners.contains_key(&class)
+                    && let Some(owner) = stepper.census_owner(class)
+                {
+                    census.owners.insert(class, owner);
+                }
+                census.stepped(*record);
+            }
+        }
         let limits = self.stepper.limits;
         request.record_rule_applications(
             account.rule_applications,
@@ -938,7 +1164,47 @@ impl OrderedKernel for PKernel<'_, '_> {
         })
     }
 
+    /// The drivers observe each popped key twice, before its step and after
+    /// it (`processed_keys` then counts it); the census counts the second.
+    fn observe(
+        &mut self,
+        progress: &CandidateOrderedReductionProgress,
+        current: Option<&PKey>,
+    ) -> Result<(), PError> {
+        if !self.stepper.census.on {
+            return Ok(());
+        }
+        let Some(key) = current else {
+            return Ok(());
+        };
+        let processed = progress.processed_keys as u64;
+        if self
+            .census()
+            .is_none_or(|census| processed != census.popped + 1)
+        {
+            return Ok(());
+        }
+        let phase = self.stepper.phase(key)?;
+        let (kind, id) = PStepper::census_id(key);
+        let hash = PStepper::census_hash(key);
+        match self.census() {
+            Some(census) => census.popped(phase, kind, id, hash),
+            None => Ok(()),
+        }
+    }
+
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {
+        if self.stepper.census.on {
+            let stepper = self.stepper;
+            let started = event.boundary == OrderedPhaseBoundary::Started;
+            let inflow = started.then(|| stepper.census_inflow(&event));
+            if let Some(census) = self.census() {
+                census.phase_boundary(event.phase, started, event.progress);
+                if let Some((inflow, profile, later)) = inflow {
+                    census.phase_inflow(event.phase, inflow, profile, later);
+                }
+            }
+        }
         let Some(inspector) = self.inspector.as_deref_mut() else {
             return Ok(());
         };
@@ -972,6 +1238,13 @@ impl ConcurrentOrderedKernel for PKernel<'_, '_> {
 impl OrderedStepCacheKernel for PKernel<'_, '_> {
     fn step_cache_shard(&mut self, key: &PKey) -> Option<OrderedStepShard> {
         self.stepper.shard(key)
+    }
+
+    fn step_cache_hit(&mut self, _key: &PKey) -> Result<(), PError> {
+        if let Some(census) = self.census() {
+            census.cache_hit();
+        }
+        Ok(())
     }
 
     fn step_cache_key(&self, stage: NodeStage, view: IntegralKey) -> Result<PKey, PError> {
@@ -1127,6 +1400,7 @@ mod tests {
             library: &library,
             engine: &engine,
             limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -1196,6 +1470,7 @@ mod tests {
             library: &library,
             engine: &engine,
             limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
