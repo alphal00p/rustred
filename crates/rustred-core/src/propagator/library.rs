@@ -118,6 +118,13 @@ pub trait PBasisMap: Send + Sync {
 /// Caller-thread phase inspection; an error stops the request with that error.
 pub trait PInspector {
     fn inspect(&mut self, event: &OrderedPhaseEvent<'_>) -> Result<(), PError>;
+    /// The opt-in path census of the request (M5 R0 WP0,
+    /// [`PPathCensus`](super::path_census::PPathCensus)); `None`, the
+    /// default, keeps it off. Asked once, when the request starts: a request
+    /// whose inspector returns `None` then records nothing.
+    fn path_census(&mut self) -> Option<&mut super::path_census::PPathCensus> {
+        None
+    }
 }
 
 impl<F> PInspector for F

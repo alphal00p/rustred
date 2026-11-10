@@ -11,6 +11,7 @@ pub mod error;
 pub mod families;
 pub mod lane;
 pub mod library;
+pub mod path_census;
 pub mod presentation;
 pub mod programs;
 pub mod step;
