@@ -38,6 +38,9 @@ pub mod triangle;
 // Diamond lane (M3-T5b).
 pub mod diamond;
 
+// Scheme lane (M5-R0 A1 spike, not merged): Forcer hand schemes as templates.
+pub mod scheme;
+
 // Custom owners (M2-T7c).
 pub mod custom;
 // The candidate bundle's wire records, reader and restore (M3-T7d).
@@ -70,6 +73,9 @@ pub const P_CARPET_KERNEL_VERSION: u32 = 1;
 pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
 /// The Diamond template and its lane (M3-T5b).
 pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
+/// The Scheme lane (M5-R0 A1 spike). NOT yet in `p_versions()`: the spike keeps
+/// the identity so that one binary loads both packages; enters at a merge.
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 1;
 /// Custom-owner generation options and the false-knock-out guard.
 pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";

@@ -387,6 +387,17 @@ fn assemble(
                 Err(DiamondError::Failure(error)) => return Err(error),
             }
         }
+        if let (LaneRoles::Scheme(_), Some(adapted)) = (decision.roles, &presentation) {
+            match rustred::propagator::scheme::SchemeTemplate::extract(adapted, node) {
+                Ok(_) => {}
+                Err(rustred::propagator::scheme::SchemeError::Mismatch(mismatch)) => {
+                    decision = CUSTOM;
+                    presentation = Some(present(node, &CUSTOM, &tops, id, &context)?);
+                    fallback = Some(mismatch);
+                }
+                Err(rustred::propagator::scheme::SchemeError::Failure(error)) => return Err(error),
+            }
+        }
         let index = NodeIndex(node.index);
         let presentation = presentation.map(|p| {
             presentations.push(Arc::new(p));
@@ -445,7 +456,16 @@ fn assemble(
             custom: None,
             terminals: Vec::new(),
         };
-        if spec.lane == OwnerLane::Custom {
+        if spec.lane == OwnerLane::Scheme {
+            // M5-R0 A1: the node's corner is its one residual terminal, as the
+            // Custom owner it replaces has it (same class, same powers).
+            let presentation = &presentations[owner_presentation.0 as usize];
+            let corner = rustred::propagator::basis::node_corner(presentation);
+            let key = IntegralKey::try_new(corner).map_err(|error| {
+                PError::MalformedLibrary(format!("the corner of the Scheme owner {label}: {error}"))
+            })?;
+            spec.terminals.push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
+        } else if spec.lane == OwnerLane::Custom {
             let payload = custom_payload(
                 &custom,
                 &label,
