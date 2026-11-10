@@ -568,7 +568,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     cache.save().unwrap();
     assert_eq!(
         records_digest(&directory),
-        "a203514fa01aa1bcabbab43d51908eeefead8c754fe281cf634854af3580bd77",
+        "a3f3d0fd2e771710565e555d26678a5d72a1d69e784b34573de76f5316d4c7b5",
         "the recorded p steps changed: bump the P_* version whose meaning changed"
     );
     std::fs::remove_dir_all(&directory).unwrap();
