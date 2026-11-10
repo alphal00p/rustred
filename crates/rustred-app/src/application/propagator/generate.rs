@@ -90,6 +90,18 @@ pub struct CustomOwnerOptions {
     /// The opt-in L2 fall-through of a refused or over-budget owner (see the
     /// module documentation); `None` (the default) generates once.
     pub fallthrough: Option<CustomOwnerFallthrough>,
+    /// The generation recipe of the first (default-order) attempt (M5-R0
+    /// WP3): an integral order program in place of the default SpIRed uncut
+    /// order, for example numerator degree before total excess, or a global
+    /// numerator-degree row before the support (`pre_support_degree_rows`,
+    /// under which no right-hand-side term of a rule can raise the numerator
+    /// rank). Only for an owner without eps axes. `None` keeps the default.
+    pub integral_order: Option<rustred::order::CompiledOrder>,
+    /// The discovery strategy of the first attempt (source row priorities and
+    /// the optional bounded rule portfolio with its quality keys, for example
+    /// the fewest numerator-raising shifts); `None` keeps the request default
+    /// (first valid).
+    pub discovery: Option<CandidateDiscoveryStrategy>,
 }
 
 impl Default for CustomOwnerOptions {
@@ -100,6 +112,8 @@ impl Default for CustomOwnerOptions {
             budget: GenerationBudget::default(),
             lp_given: None,
             fallthrough: None,
+            integral_order: None,
+            discovery: None,
         }
     }
 }
@@ -816,7 +830,18 @@ fn generate(
 
     let mut request = FamilyCandidatesRequest::new("custom owner");
     match order {
-        FallthroughOrder::Default => {}
+        FallthroughOrder::Default => {
+            if let Some(program) = &options.integral_order {
+                if forced != 0 {
+                    return Err(PError::Unsupported(format!(
+                        "custom owner of presentation {}: an integral order recipe is only for an owner without eps axes",
+                        presentation.id.0
+                    )));
+                }
+                request.integral_order = Some(program.clone());
+            }
+            request.discovery_strategy = options.discovery.clone();
+        }
         FallthroughOrder::Slots { priority, .. } => {
             request.integral_order = Some(slot_order(presentation, priority)?);
         }
