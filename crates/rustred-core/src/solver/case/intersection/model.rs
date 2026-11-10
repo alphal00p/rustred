@@ -133,6 +133,8 @@ pub struct CaseIntersectionResult<const N: usize> {
 ///   defining equations and the eliminated (denominator-free, saturated)
 ///   equations, with the factors as exclusions. A remainder that no exact step
 ///   resolves is deferred (S4) with its exclusions and dependents.
+/// - with any step on and [`UnsupportedBranchPolicy::Defer`], the unbounded
+///   Lex F4 fallback is skipped: such a branch is settled or deferred instead.
 /// - with any step on, a stuck branch whose chart provably misses the sector
 ///   (exact elimination of its primitive rows in reverse axis order, then the
 ///   row bound test on active >= 1 / inactive <= 0) is dropped as empty.
@@ -183,6 +185,9 @@ pub struct CaseRefinementStats {
     pub graph_children: usize,
     /// Remainders deferred as typed graph regions (S4 with dependents).
     pub graph_deferred: usize,
+    /// Lex F4 fallbacks skipped (refinement under `Defer` only): the branch
+    /// is settled or deferred instead of entering the unbounded Lex basis.
+    pub lex_skipped: usize,
     /// Stuck branches whose chart provably misses the sector (exact
     /// elimination of the chart rows in reverse axis order).
     pub sector_empty_branches: usize,

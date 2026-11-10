@@ -7,6 +7,7 @@
 //!   (sha256 197f2ac2c948245d3242622913c9f021a55c1e6cee396615364456c1a75b9370)
 //! - p1 box: /shared/vhirschi/t3code/astra_5L/out/active_exploration_20261109T0900/T167_locus_0935/box-points.json
 //!   (sha256 0053bf64d6360962ee79cdb0f02199b72a872f1d6e0139f344cc821d33d84ff3)
+//!
 //! Coefficient coordinates are [d, n0, ..., n19]; index variables 1..=20.
 
 use super::t167_captured_inputs::CapturedT167;

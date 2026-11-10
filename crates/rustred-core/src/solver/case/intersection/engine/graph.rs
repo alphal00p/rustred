@@ -174,7 +174,7 @@ impl<const N: usize> Engine<'_, N> {
                     candidates.push((key, position, axis, coefficient, remainder));
                 }
             }
-            candidates.sort_by(|left, right| left.0.cmp(&right.0));
+            candidates.sort_by_key(|candidate| candidate.0);
             let mut chosen = None;
             for (_, position, axis, coefficient, remainder) in candidates {
                 let factors = if coefficient.is_constant() {
@@ -266,13 +266,13 @@ pub(super) fn chart_misses_sector<const N: usize>(chart: &Case<N>, sector: &[boo
         };
         used[pivot] = true;
         let pivot_row = rows[pivot].clone();
-        for row in 0..rows.len() {
-            if row == pivot || rows[row][column].is_zero() {
+        for (index, row) in rows.iter_mut().enumerate() {
+            if index == pivot || row[column].is_zero() {
                 continue;
             }
-            let factor = rows[row][column].clone();
+            let factor = row[column].clone();
             let scale = pivot_row[column].clone();
-            let combined: Vec<Integer> = rows[row]
+            let combined: Vec<Integer> = row
                 .iter()
                 .zip(&pivot_row)
                 .map(|(value, pivot_value)| &(value * &scale) - &(pivot_value * &factor))
@@ -280,7 +280,7 @@ pub(super) fn chart_misses_sector<const N: usize>(chart: &Case<N>, sector: &[boo
             if row_misses_sector(&combined, fixed, sector) {
                 return true;
             }
-            rows[row] = combined;
+            *row = combined;
         }
     }
     false
@@ -310,17 +310,17 @@ fn row_misses_sector<const N: usize>(
         } else if sector[axis] != coefficient.is_negative() {
             // Unbounded above; an active axis contributes coefficient * 1 below.
             upper = None;
-            if let Some(bound) = &mut lower {
-                if sector[axis] {
-                    *bound += coefficient;
-                }
+            if sector[axis]
+                && let Some(bound) = &mut lower
+            {
+                *bound += coefficient;
             }
         } else {
             lower = None;
-            if let Some(bound) = &mut upper {
-                if sector[axis] {
-                    *bound += coefficient;
-                }
+            if sector[axis]
+                && let Some(bound) = &mut upper
+            {
+                *bound += coefficient;
             }
         }
     }

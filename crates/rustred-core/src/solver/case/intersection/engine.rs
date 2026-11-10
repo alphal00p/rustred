@@ -72,7 +72,7 @@ struct Engine<'a, const N: usize> {
 }
 
 // CaseIntersectionError carries the stats (S1/S2 counters included) by value.
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub(super) fn intersect<const N: usize>(
     parent: &Case<N>,
     conjunction: &[CoefficientPolynomial],
@@ -704,6 +704,14 @@ impl<const N: usize> Engine<'_, N> {
             }
             if self.split_rank_coordinate(pending)? {
                 return Ok(());
+            }
+            if self.refinement.any() && self.unsupported == UnsupportedBranchPolicy::Defer {
+                // Opt-in refinement under S4: never enter the unbounded Lex F4
+                // fallback. The branch is settled exactly instead (S1, S2,
+                // sector emptiness, G-split) or deferred as a region.
+                self.refinement_stats.lex_skipped =
+                    self.refinement_stats.lex_skipped.saturating_add(1);
+                return Err(CaseIntersectionFailure::UnsupportedGeometry);
             }
             if !lex_attempted
                 && native::lex_eligible(&self.current.equations, self.limits.diagnostics_enabled)
