@@ -712,9 +712,10 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         ("l4_top_classes", 183),
         ("diamond_nodes_on_custom", 0),
         ("triangle_fallbacks", 0),
-        // M3-T17's layer: Unit + 16 residuals, each one master term.
-        ("terminals", 17),
-        ("layer_rows", 17),
+        // M3-T17's layer: Unit + 16 residuals, each one master term; M5 B2: + the
+        // second residual of the rank-gated no1, a row of several terms.
+        ("terminals", 18),
+        ("layer_rows", 18),
         ("layer_masters", 16),
         ("layer_rows_one_master_term", 16),
         ("forcer_action_L0_Trivial", 1),
