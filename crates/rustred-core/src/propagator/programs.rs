@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::carpet::CarpetStep;
-use super::custom::build_custom_step;
+use super::custom::build_custom_step_ordered;
 use super::descent::check_custom_guard;
 use super::diamond::DiamondStep;
 use super::error::PError;
@@ -110,5 +110,10 @@ fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneSt
             owner.class.0
         )));
     };
-    build_custom_step(presentation, &payload.bytes()?, meta)
+    build_custom_step_ordered(
+        presentation,
+        &payload.bytes()?,
+        meta,
+        library.rule_order(owner.class),
+    )
 }

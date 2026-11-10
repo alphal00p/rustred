@@ -497,6 +497,62 @@ fn compile_route(
     source_support: u64,
     target_support: u64,
 ) -> Result<Prepared, PError> {
+    let verified = verify_route(source, target, map, source_support)?;
+    transport_of(source, target, verified, source_support, target_support)
+}
+
+/// The route of a sector from its saved verification (p artefact v2, spec
+/// item 4): a trusted restore ([`symmetry::saved::SavedVerifiedMap::restore`])
+/// of the map that [`verify_route`] proved when the package was written, then
+/// the same transport compilation. `None` without a saved record or when the
+/// record does not restore (the caller then verifies, as without saved routes).
+fn restored_route(
+    library: &PLibrary,
+    source: &Presentation,
+    target: &Presentation,
+    source_support: u64,
+    target_support: u64,
+) -> Option<Result<Prepared, PError>> {
+    let verified = library
+        .saved_routes()?
+        .restore(source, target, source_support)?;
+    Some(transport_of(
+        source,
+        target,
+        verified,
+        source_support,
+        target_support,
+    ))
+}
+
+fn transport_of(
+    source: &Presentation,
+    target: &Presentation,
+    verified: symmetry::VerifiedMap,
+    source_support: u64,
+    target_support: u64,
+) -> Result<Prepared, PError> {
+    let root = |presentation: &Presentation, support: u64| {
+        Mask::try_new((0..presentation.slots.len()).map(|slot| support >> slot & 1 == 1))
+            .map_err(|error| PError::MalformedLibrary(error.to_string()))
+    };
+    Ok(integral_transport::compile(
+        &source.family,
+        Arc::clone(&target.family),
+        Arc::new(verified),
+        root(source, source_support)?,
+        root(target, target_support)?,
+        ExpansionLimits::default(),
+    )?)
+}
+
+/// The exact verification of the route map of a sector.
+pub(crate) fn verify_route(
+    source: &Presentation,
+    target: &Presentation,
+    map: &SignedAffineLoopMap,
+    source_support: u64,
+) -> Result<symmetry::VerifiedMap, PError> {
     let context = source.family.coefficient_context();
     let (loops_in, loops_out) = (usize::from(map.loops_in), usize::from(map.loops_out));
     let malformed = |error: symmetry::Error| {
@@ -525,18 +581,42 @@ fn compile_route(
         symmetry::Limits::default(),
     )
     .map_err(malformed)?;
-    let root = |presentation: &Presentation, support: u64| {
-        Mask::try_new((0..presentation.slots.len()).map(|slot| support >> slot & 1 == 1))
-            .map_err(|error| PError::MalformedLibrary(error.to_string()))
-    };
-    Ok(integral_transport::compile(
-        &source.family,
-        Arc::clone(&target.family),
-        Arc::new(verified),
-        root(source, source_support)?,
-        root(target, target_support)?,
-        ExpansionLimits::default(),
-    )?)
+    Ok(verified)
+}
+
+/// Every routed sector of `library` (census fate `Owner` on a sector that is
+/// not an owner sector), in census order, with its owner's presentation and
+/// support and its census map.
+pub(crate) fn routed_sectors(
+    library: &PLibrary,
+) -> Vec<(
+    PresentationId,
+    u64,
+    PresentationId,
+    u64,
+    &SignedAffineLoopMap,
+)> {
+    let census = library.census();
+    let owners: BTreeMap<OwnerClassId, (PresentationId, u64)> = census
+        .classes
+        .iter()
+        .map(|(class, record)| (*class, record.owner))
+        .collect();
+    let owner_sectors: std::collections::BTreeSet<(PresentationId, u64)> =
+        owners.values().copied().collect();
+    census
+        .sectors
+        .iter()
+        .filter_map(|(&(presentation, support), fate)| match fate {
+            PSectorFate::Owner { class, map }
+                if !owner_sectors.contains(&(presentation, support)) =>
+            {
+                let &(target, target_support) = owners.get(class)?;
+                Some((presentation, support, target, target_support, map))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// The shared, read-only part of the adapter: pure positions and steps.
@@ -675,6 +755,7 @@ impl<'l> PStepper<'l> {
             key: (phase, kind, id, lines, dots, rank),
             agg,
             apply_view,
+            rule: None,
         }
     }
 
@@ -826,7 +907,10 @@ impl<'l> PStepper<'l> {
                     presentation.0
                 ))
             })?
-            .get_or_init(|| compile_route(source, target, map, support, owner.support))
+            .get_or_init(|| {
+                restored_route(self.library, source, target, support, owner.support)
+                    .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
+            })
             .as_ref()
             .map_err(Clone::clone)?;
         let key = IntegralKey::try_from_preallocated(powers.to_vec())
@@ -1051,6 +1135,9 @@ impl OrderedStepper for PStepper<'_> {
                 (self.route_step(*presentation, view), PAccount::default())
             }
             PKey::Apply { class, view } => {
+                if self.census.on {
+                    super::custom::take_rule_hit();
+                }
                 let result = self.apply_step(*class, view);
                 let account = PAccount {
                     rule_applications: usize::from(result.is_ok()),
@@ -1061,7 +1148,11 @@ impl OrderedStepper for PStepper<'_> {
         };
         if let (Some(started), Ok(step)) = (started, &result) {
             let nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-            account.census = Some(Box::new(self.census_record(key, step, nanos)));
+            let mut record = self.census_record(key, step, nanos);
+            if matches!(key, PKey::Apply { .. }) {
+                record.rule = super::custom::take_rule_hit();
+            }
+            account.census = Some(Box::new(record));
         }
         (result, account)
     }

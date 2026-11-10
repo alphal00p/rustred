@@ -229,6 +229,8 @@ pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<
             census: CENSUS_FILE.to_owned(),
             census_json: CENSUS_JSON_FILE.to_owned(),
             layer,
+            ordering: None,
+            routes: None,
         },
         presentations,
         nodes: (assembled.nodes.iter())

@@ -126,12 +126,43 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         self.apply_with_selection(target, Some((baseline, rule)), request, statistics)
     }
 
+    /// [`Self::apply_with_conditions`], also returning the applied rule's
+    /// position in the evaluator's rule list (its batch), for the p path
+    /// census's per-rule hit counts (M5 artefact v2, spec item 8).
+    pub(super) fn apply_with_conditions_rule(
+        &self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+    ) -> Result<
+        (BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>, usize),
+        CandidateReductionError,
+    > {
+        let mut position = 0;
+        let (terms, conditions) =
+            self.apply_with_selection_at(target, None, request, statistics, &mut position)?;
+        Ok((terms, conditions, position))
+    }
+
     fn apply_with_selection(
         &self,
         target: &IntegralKey,
         selected: Option<(&PreparedRule<N>, &PreparedRule<N>)>,
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
+    ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
+    {
+        let mut position = 0;
+        self.apply_with_selection_at(target, selected, request, statistics, &mut position)
+    }
+
+    fn apply_with_selection_at(
+        &self,
+        target: &IntegralKey,
+        selected: Option<(&PreparedRule<N>, &PreparedRule<N>)>,
+        request: &mut ReductionRequest,
+        statistics: &mut ReductionStatistics,
+        position: &mut usize,
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
         let mut conditions = Vec::new();
@@ -156,6 +187,10 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
             }
             None => self.selected_rule_with_conditions(target, &mut nonzero)?.1,
         };
+        *position = self
+            .rules
+            .first()
+            .map_or(0, |first| rule.ordinal.saturating_sub(first.ordinal));
         let terms = self.apply_selected(rule, target, request, statistics, &mut nonzero)?;
         Ok((terms, conditions))
     }
@@ -360,7 +395,10 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         if !self.applicable_with_conditions(rule, target, &mut nonzero)? {
             return Ok(None);
         }
-        request.record_rule_application(self.limits.diagnostic_limit(self.limits.max_rule_applications))?;
+        request.record_rule_application(
+            self.limits
+                .diagnostic_limit(self.limits.max_rule_applications),
+        )?;
         let mut terms = BTreeMap::from([(target.clone(), self.context.base().one())]);
         for term in &rule.rhs {
             let Some((child, coefficient)) =

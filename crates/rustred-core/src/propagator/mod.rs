@@ -14,6 +14,7 @@ pub mod library;
 pub mod path_census;
 pub mod presentation;
 pub mod programs;
+pub mod saved_routes;
 pub mod step;
 pub mod tag;
 pub mod terminal;
@@ -72,6 +73,13 @@ pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
 pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// Custom-owner generation options and the false-knock-out guard.
 pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
+/// p artefact v2 (notes/artifact-ordering.SPEC.md): the format and semantics
+/// of an explicit rule ordering file (`ordering.json`, schema
+/// [`P_ORDERING_SCHEMA`]). Not a `p_versions()` entry: a library without an
+/// ordering keeps its identity; one with an ordering appends
+/// `,P_ORDERING_VERSION=<v>:<heuristic>` (`PLibrary::identity`).
+pub const P_ORDERING_VERSION: u32 = 1;
+pub const P_ORDERING_SCHEMA: &str = "rustred.p-ordering.v1";
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
 pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";

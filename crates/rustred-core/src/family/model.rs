@@ -10,6 +10,8 @@ use crate::algebra::matrix::{
 };
 use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraLimits};
 
+use super::error::IntegralFamilyError;
+
 /// One coefficient-valued family datum that can contribute a generic-domain
 /// nonzero condition.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -253,9 +255,16 @@ pub struct IntegralFamily {
     pub(super) limits: IntegralFamilyLimits,
     pub(super) inverse_basis: Vec<Vec<Coefficient>>,
     pub(super) domain: FamilyDomain,
-    // denominator -> differentiated loop -> contraction momentum
-    pub(super) derivative_contractions: Vec<Vec<Vec<DenominatorExpansion>>>,
+    // denominator -> differentiated loop -> contraction momentum, built on
+    // first use (M5 1L-3L: family construction at library load was dominated
+    // by this cache, which only IBP generation reads). Its size census is
+    // still checked by the constructor.
+    pub(super) derivative_contractions: DerivativeContractions,
 }
+
+/// The lazily built derivative-contraction cache of a family.
+pub(super) type DerivativeContractions =
+    std::sync::OnceLock<Result<Vec<Vec<Vec<DenominatorExpansion>>>, IntegralFamilyError>>;
 
 impl IntegralFamily {
     pub fn name(&self) -> &str {

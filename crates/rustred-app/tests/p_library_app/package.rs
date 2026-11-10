@@ -1591,3 +1591,72 @@ fn scope_one_to_three_payloads_and_layer_fail_closed() {
         "row 1 is not the row this library derives",
     );
 }
+
+/// p artefact v2 (M5 m5-1l3l, notes/artifact-ordering.SPEC.md): an ordering
+/// under every heuristic, and the saved route verifications, give exactly the
+/// reductions of the unordered program; the identity carries the ordering
+/// tag; a verified load ignores the saved routes and keeps the ordering; a
+/// damaged rule order is refused when its owner is built.
+#[test]
+fn an_ordering_and_saved_routes_change_no_value() {
+    use rustred_app::propagator::ordering::{ORDERING_FILE, write_ordering, write_routes};
+    let assembled = scope_two();
+    let requests = random_requests(assembled, |_| keys(60));
+    let expected = reductions(&assembled.library, &requests, false);
+    let fast = PLibraryOptions {
+        verify_descent: false,
+    };
+    for heuristic in ["generation", "fewest-terms"] {
+        let (_scratch, directory) = written(assembled, heuristic);
+        let (saved, _) = write_routes(&directory).unwrap();
+        assert!(saved > 0);
+        let ordering = write_ordering(&directory, heuristic).unwrap();
+        assert!(ordering.owners.iter().any(|owner| !owner.charts.is_empty()));
+        let loaded = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+        assert_eq!(
+            loaded.identity(),
+            format!(
+                "{},P_ORDERING_VERSION=1:{heuristic}",
+                assembled.library.identity()
+            )
+        );
+        assert_eq!(
+            loaded.saved_routes().map(|routes| routes.len()),
+            Some(saved)
+        );
+        assert_eq!(reductions(&loaded, &requests, false), expected);
+        let verified = load(&directory).unwrap();
+        assert!(verified.saved_routes().is_none());
+        assert_eq!(verified.identity(), loaded.identity());
+        assert_eq!(
+            reductions(&verified, &requests[..20], false),
+            expected[..20]
+        );
+    }
+    let (_scratch, directory) = written(assembled, "damaged-order");
+    write_ordering(&directory, "generation").unwrap();
+    let mut file: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join(ORDERING_FILE)).unwrap()).unwrap();
+    let owner = (file["owners"].as_array_mut().unwrap().iter_mut())
+        .find(|owner| {
+            owner["charts"][0]["order"]
+                .as_array()
+                .is_some_and(|o| o.len() >= 2)
+        })
+        .unwrap();
+    let order = owner["charts"][0]["order"].as_array_mut().unwrap();
+    order[0] = order[1].clone();
+    std::fs::write(
+        directory.join(ORDERING_FILE),
+        serde_json::to_vec(&file).unwrap(),
+    )
+    .unwrap();
+    let damaged = load_p_library(PLibrarySource::Directory(directory), &fast).unwrap();
+    let refused = requests.iter().any(|inputs| {
+        matches!(
+            damaged.reduce(request(inputs.clone(), false)),
+            Err(PError::MalformedLibrary(message)) if message.contains("rule order")
+        )
+    });
+    assert!(refused, "no request reached the damaged owner");
+}

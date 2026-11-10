@@ -295,6 +295,7 @@ fn tsv(path: PathBuf) -> std::io::BufWriter<std::fs::File> {
 }
 
 fn main() {
+    let t_main = Instant::now();
     let args: Vec<String> = std::env::args().collect();
     assert!(
         args.len() >= 8,
@@ -325,6 +326,7 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    let (_, load_vmhwm) = rss();
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -425,6 +427,31 @@ fn main() {
     });
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
     let (vmrss, vmhwm) = rss();
+    // P_WARM=1 (M5 1L-3L): the same request again in this process, without
+    // inspector or census, after the cold one prepared routes and owner
+    // programs: the warm time of a long-lived process (vakint).
+    let warm_seconds = flag("P_WARM").then(|| {
+        let t_warm = Instant::now();
+        let warm = library.reduce(PReductionRequest {
+            inputs: inputs.clone(),
+            arithmetic: arithmetic(arith, threads),
+            scheduler: OrderedSchedulerOptions::with_threads(threads),
+            step_cache: None,
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: true,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        });
+        let seconds = t_warm.elapsed().as_secs_f64();
+        if let (Ok(cold), Ok(warm)) = (&result, &warm) {
+            assert_eq!(
+                canonical::canonical_text(cold),
+                canonical::canonical_text(warm),
+                "the warm request gives another reduction"
+            );
+        }
+        seconds
+    });
     let (status, terms, progress) = match &result {
         Ok(reduction) => {
             std::fs::write(
@@ -450,6 +477,8 @@ fn main() {
         "census": census_on, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
         "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
+        "load_vmhwm_kb": load_vmhwm, "warm_seconds": warm_seconds,
+        "process_seconds": t_main.elapsed().as_secs_f64(),
     });
     if let Some(p) = progress {
         summary["processed"] = p.processed_keys.into();
@@ -505,6 +534,20 @@ fn main() {
         };
         let owner_presentation =
             |class: u64| census.owners.get(&class).map_or(0, |o| o.presentation);
+        // rule_hits.tsv (M5 artefact v2, spec item 8): per Custom owner, chart,
+        // rule position (application order) and phase, the steps that applied it.
+        let mut file = tsv(out.join("rule_hits.tsv"));
+        writeln!(file, "class\tpresentation\tchart\trule\tphase\thits").unwrap();
+        for ((class, chart, rule, phase), hits) in &census.rule_hits {
+            writeln!(
+                file,
+                "{class:016x}\t{}\t{chart:#x}\t{rule}\t{phase}\t{hits}",
+                owner_presentation(*class)
+            )
+            .unwrap();
+        }
+        drop(file);
+        summary["rule_hits"] = census.rule_hits.values().sum::<u64>().into();
         // steps.tsv: the rustred-path columns, then the census additions.
         let mut file = tsv(out.join("steps.tsv"));
         writeln!(file, "kind\tid\tpresentation\tname\tlane\tphase\tlines\tdots\trank\tsteps\tstep_ms\tch_same\tch_apply\tch_route\tterminals\tch_max\tcoeff_terms\tcoeff_terms_max\tempty\tch_zero\tch_same_phase\tch_foreign_same_phase\tch_earlier_phase").unwrap();
