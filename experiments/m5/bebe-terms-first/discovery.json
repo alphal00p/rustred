@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "sectors": {
+    "kind": "active-first"
+  },
+  "rows": {
+    "kind": "features",
+    "priorities": [
+      {
+        "feature": {
+          "kind": "terms"
+        },
+        "descending": false
+      }
+    ]
+  }
+}
