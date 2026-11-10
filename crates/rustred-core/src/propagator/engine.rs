@@ -49,7 +49,9 @@ use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress
 use super::census::{PSectorFate, SignedAffineLoopMap};
 use super::error::PError;
 use super::library::{OwnerProgram, PInspector, PLibrary, POwner};
-use super::path_census::{PCensusAgg, PCensusKind, PCensusOwner, PPathCensus, PStepRecord};
+use super::path_census::{
+    PCensusAgg, PCensusKind, PCensusOwner, PPathCensus, PRouteRecord, PStepRecord,
+};
 use super::presentation::Presentation;
 use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, default_order_key};
 use super::tag::GammaTag;
@@ -670,11 +672,36 @@ impl<'l> PStepper<'l> {
             PKey::Apply { view, .. } if self.census.keep_apply_keys => Some(view.powers().into()),
             _ => None,
         };
+        let route = match key {
+            PKey::Route { presentation, view } => self.route_record(*presentation, view, step),
+            PKey::Apply { .. } => None,
+        };
         let phase = parent_phase.map_or(u32::MAX, |phase| u32::try_from(phase).unwrap_or(u32::MAX));
         PStepRecord {
             key: (phase, kind, id, lines, dots, rank),
             agg,
             apply_view,
+            route,
+        }
+    }
+
+    /// The route record of a Route key on a routed sector (census on only).
+    fn route_record(
+        &self,
+        presentation: PresentationId,
+        view: &IntegralKey,
+        step: &OrderedStep<PKey>,
+    ) -> Option<PRouteRecord> {
+        let (powers, _) = self.engine.split(presentation, view).ok()?;
+        let support = self.engine.shape(presentation).ok()?.support(powers);
+        match self.engine.sector(self.library, presentation, support) {
+            Ok(Sector::Routed { .. }) => Some(PRouteRecord {
+                presentation: presentation.0,
+                support,
+                numerator: powers.iter().map(|&p| p.min(0)).collect(),
+                terms: step.terms.len() as u64,
+            }),
+            _ => None,
         }
     }
 
