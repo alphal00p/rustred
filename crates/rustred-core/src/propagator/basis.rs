@@ -1290,8 +1290,12 @@ fn residual_deficits(library: &PLibrary, found: &[Found]) -> Vec<Deficit> {
         .collect()
 }
 
-/// The seeds of an owner's relations: each residual key, then each with one
-/// dot less on one line, in order and without repeats.
+/// The seeds of an owner's relations, in order and without repeats: each
+/// residual key; each with one dot less; each with one dot moved to another
+/// line of the support; each with one numerator more on a slot off the
+/// support (an ISP or a line at power <= 0); each with one dot less and one
+/// numerator more. An IBP row at a seed holds keys at most one step away, so
+/// these reach every row that holds a residual key or its first neighbours.
 fn relation_seeds(presentation: &Presentation, keys: &[Vec<i64>]) -> Vec<Vec<i64>> {
     let mut seeds: Vec<Vec<i64>> = Vec::new();
     let mut push = |seed: Vec<i64>| {
@@ -1299,14 +1303,47 @@ fn relation_seeds(presentation: &Presentation, keys: &[Vec<i64>]) -> Vec<Vec<i64
             seeds.push(seed);
         }
     };
+    let line = |slot: usize| matches!(presentation.slots.get(slot), Some(Slot::Line(_)));
+    let dotted = |key: &[i64]| -> Vec<usize> {
+        (0..key.len())
+            .filter(|&slot| line(slot) && key[slot] >= 2)
+            .collect()
+    };
+    let off =
+        |key: &[i64]| -> Vec<usize> { (0..key.len()).filter(|&slot| key[slot] <= 0).collect() };
     for key in keys {
         push(key.clone());
     }
     for key in keys {
-        for (slot, &power) in key.iter().enumerate() {
-            if power >= 2 && matches!(presentation.slots.get(slot), Some(Slot::Line(_))) {
+        for i in dotted(key) {
+            let mut seed = key.clone();
+            seed[i] -= 1;
+            push(seed);
+        }
+    }
+    for key in keys {
+        for i in dotted(key) {
+            for j in (0..key.len()).filter(|&j| j != i && line(j) && key[j] >= 1) {
                 let mut seed = key.clone();
-                seed[slot] -= 1;
+                seed[i] -= 1;
+                seed[j] += 1;
+                push(seed);
+            }
+        }
+    }
+    for key in keys {
+        for s in off(key) {
+            let mut seed = key.clone();
+            seed[s] -= 1;
+            push(seed);
+        }
+    }
+    for key in keys {
+        for i in dotted(key) {
+            for s in off(key) {
+                let mut seed = key.clone();
+                seed[i] -= 1;
+                seed[s] -= 1;
                 push(seed);
             }
         }
@@ -1404,7 +1441,9 @@ fn residual_relations(
             .map_err(|error| failed(format!("IBP rows: {error}")))?
             .into_relations();
         let (mut selected, mut checks) = (0, 0);
-        'seeds: for seed in relation_seeds(presentation, &owner.keys) {
+        let (mut tried, mut nonzero, mut with_owner) = (0, 0, 0);
+        let seeds = relation_seeds(presentation, &owner.keys);
+        'seeds: for seed in &seeds {
             for (ordinal, relation) in ibp.iter().enumerate() {
                 if selected == owner.deficit && checks == RELATION_CHECKS {
                     break 'seeds;
@@ -1435,6 +1474,7 @@ fn residual_relations(
                 if isp || sum.is_empty() {
                     continue;
                 }
+                tried += 1;
                 let inputs = (sum.into_iter())
                     .map(|(powers, c)| {
                         IntegralKey::try_new(powers.iter().copied())
@@ -1456,9 +1496,13 @@ fn residual_relations(
                     .terms;
                 let what = format!("IBP row {ordinal} at {seed:?}");
                 let (row, unit) = split_terms(&what, &reduction, residuals)?;
-                if owner.columns.iter().all(|&column| row[column].is_none()) {
+                nonzero += usize::from(reduction.iter().any(|term| !term.coefficient.is_zero()));
+                if (owner.columns.iter())
+                    .all(|&column| row[column].as_ref().is_none_or(Coefficient::is_zero))
+                {
                     continue;
                 }
+                with_owner += 1;
                 let joins = selected < owner.deficit
                     && images(&sample, &row).is_some_and(|image| echelon.try_add(image));
                 if !joins && checks == RELATION_CHECKS {
@@ -1484,9 +1528,13 @@ fn residual_relations(
         }
         if selected < owner.deficit {
             return Err(failed(format!(
-                "presentation {}: {selected} of {} relations from the IBP rows at {:?} and \
-                 one dot less",
-                owner.presentation.0, owner.deficit, owner.keys
+                "presentation {}: {selected} of {} relations from the IBP rows at the {} seeds of \
+                 the residual keys {:?} ({tried} rows reduced, {nonzero} nonzero, {with_owner} on \
+                 the owner's residuals)",
+                owner.presentation.0,
+                owner.deficit,
+                seeds.len(),
+                owner.keys
             )));
         }
     }
