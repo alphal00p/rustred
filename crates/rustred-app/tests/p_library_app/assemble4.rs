@@ -620,12 +620,21 @@ fn counts_by_name(text: &str) -> BTreeMap<String, String> {
 /// and two pins never share an identity. The STAGE 1 pin (never pushed) was
 /// replaced in STAGE 2, same identity: the inventory gained the basis layer's
 /// rows, which act after the engine and are not part of the identity (they are
-/// re-derived at load under `verify_descent`; D-T8c4-7).
-const INVENTORY_PINS: &[(&str, &str, &str)] = &[(
-    "1-4",
-    "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
-    "b006e4a0e7193a65d1ae683c6657dd42c27cbd7228cd412203908c92b077ac54",
-)];
+/// re-derived at load under `verify_descent`; D-T8c4-7). The second pin is
+/// M3-T5b's Diamond lane (P_DIAMOND_TEMPLATE_VERSION in the identity: the 4
+/// Diamond nodes on the Diamond lane, 21 Custom owners).
+const INVENTORY_PINS: &[(&str, &str, &str)] = &[
+    (
+        "1-4",
+        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "b006e4a0e7193a65d1ae683c6657dd42c27cbd7228cd412203908c92b077ac54",
+    ),
+    (
+        "1-4",
+        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "e22393316fe87ca20ca9b7e94b342a55f27f4555f3f194e290186a31ec22d94f",
+    ),
+];
 
 /// The golden inventory: equal by name for the counts, then as a whole, and
 /// pinned to the identity.
