@@ -298,7 +298,9 @@ fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
         Err(_) => Ok(BTreeMap::new()),
         Ok(path) => std::fs::read_to_string(&path)
             .map_err(|error| format!("{path}: {error}"))
-            .and_then(|text| serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))),
+            .and_then(|text| {
+                serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))
+            }),
     });
     let table = table
         .as_ref()
