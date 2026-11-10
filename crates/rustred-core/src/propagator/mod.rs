@@ -76,7 +76,7 @@ pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
 /// [`library::PLibrary::step_identity`] only while canonicalisation is on, so a
 /// library with it off keeps the step caches it had before; the library
 /// identity ([`library::PLibrary::identity`]) never carries it.
-pub const P_ORBIT_CANON_VERSION: u32 = 2;
+pub const P_ORBIT_CANON_VERSION: u32 = 3;
 
 const _: () = assert!(P_GAMMA_TAG_WIDTH == 2 * P_GAMMA_TAG_MAX_M as usize);
 

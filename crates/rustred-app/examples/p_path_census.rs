@@ -13,6 +13,7 @@
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
 //!   P_ORBIT_CANON=off       orbit canonicalisation of Apply and Route keys off (M5 R0 A2; on by default)
 //!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
+//!   P_ORBIT_REP=min         the least exact image represents an orbit (default: the greatest)
 //!   P_CENSUS_WARMUP=1       run the request once without census first (per-process setup warm), then measure
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
@@ -332,6 +333,8 @@ fn main() {
     library.set_orbit_canonicalization(orbit_canon);
     let route_canon = std::env::var("P_ORBIT_CANON_ROUTES").map_or(true, |v| v != "off");
     library.set_route_canonicalization(route_canon);
+    let prefer_high = std::env::var("P_ORBIT_REP").as_deref() != Ok("min");
+    library.set_orbit_prefer_high(prefer_high);
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -474,7 +477,7 @@ fn main() {
 
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
-        "census": census_on, "orbit_canonicalization": orbit_canon, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
+        "census": census_on, "orbit_canonicalization": orbit_canon, "orbit_prefer_high": prefer_high, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
         "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "warmup_seconds": warmup_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
     });

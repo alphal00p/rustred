@@ -44,6 +44,9 @@ pub(crate) type SlotImage = Option<(u16, bool)>;
 #[derive(Debug, Default)]
 pub(crate) struct OwnerOrbit {
     pub(crate) actions: Vec<Box<[SlotImage]>>,
+    /// For each action, the slot sent onto each slot (`u16::MAX`: none), so
+    /// an image can be compared slot by slot without being built.
+    pub(crate) inverses: Vec<Box<[u16]>>,
     /// Candidate maps found by the enumeration, the identity included.
     pub(crate) candidates: usize,
     /// Generators that `verify` authenticated (unit Jacobian, monomial rows
@@ -51,15 +54,81 @@ pub(crate) struct OwnerOrbit {
     pub(crate) verified: usize,
     /// Order of the group they generate (the identity and `-1` included).
     pub(crate) group_order: usize,
-    /// The owner's order key is a symmetric function of the powers (every
-    /// lane but Custom and Triangle roles), so only the powers decide.
-    pub(crate) symmetric_order: bool,
     /// The group: `n x n` integer matrices (`n = L + 1`, row-vector
     /// convention `v -> v T`), each a product of verified maps.
     pub(crate) group: Vec<Vec<i128>>,
 }
 
 impl OwnerOrbit {
+    /// Add one slot action and its inverse.
+    pub(crate) fn push(&mut self, action: Box<[SlotImage]>) {
+        let mut inverse = vec![u16::MAX; action.len()];
+        for (slot, image) in action.iter().enumerate() {
+            if let Some((target, _)) = image
+                && let Some(entry) = inverse.get_mut(usize::from(*target))
+            {
+                *entry = u16::try_from(slot).unwrap_or(u16::MAX);
+            }
+        }
+        self.inverses.push(inverse.into_boxed_slice());
+        self.actions.push(action);
+    }
+
+    /// The least exact image of `powers` strictly below it whose support
+    /// passes `keep`, with its sign (the first action that reaches it decides
+    /// the sign); `None` when the key is its own representative. Each action
+    /// is compared slot by slot through its inverse and dropped at the first
+    /// slot that decides; only an image below the best so far is built.
+    pub(crate) fn least_image(
+        &self,
+        powers: &[i64],
+        high: bool,
+        keep: impl Fn(&[i64]) -> bool,
+    ) -> Option<(Vec<i64>, bool)> {
+        let n = powers.len();
+        let mut scratch: smallvec::SmallVec<[i64; 32]> = smallvec::SmallVec::from_elem(0, n);
+        let mut best: Option<(smallvec::SmallVec<[i64; 32]>, bool)> = None;
+        for (action, inverse) in self.actions.iter().zip(&self.inverses) {
+            if action.len() < n || inverse.len() < n {
+                continue;
+            }
+            // Exact on this key: every slot with a power maps onto a slot.
+            if powers
+                .iter()
+                .zip(action.iter())
+                .any(|(&power, image)| power != 0 && image.is_none())
+            {
+                continue;
+            }
+            let bound = best.as_ref().map_or(powers, |(image, _)| image.as_slice());
+            let mut below = false;
+            for (target, &bound) in bound.iter().enumerate() {
+                let source = inverse[target];
+                let value = if source == u16::MAX {
+                    0
+                } else {
+                    powers[usize::from(source)]
+                };
+                if value != bound {
+                    // `high`: the greatest image instead (an experiment on
+                    // which orientation the lanes step best).
+                    below = if high { value > bound } else { value < bound };
+                    break;
+                }
+            }
+            if !below {
+                continue;
+            }
+            let Some(negative) = Self::image_into(action, powers, &mut scratch) else {
+                continue;
+            };
+            if keep(&scratch) {
+                best = Some((scratch.clone(), negative));
+            }
+        }
+        best.map(|(image, negative)| (image.into_vec(), negative))
+    }
+
     /// [`Self::image`] written into `out` (resized to `powers.len()`), without
     /// allocating: the sign, or `None` when the action is not exact on the key.
     pub(crate) fn image_into(
@@ -173,6 +242,37 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
         .collect();
     let mut maps: BTreeSet<Vec<i128>> = BTreeSet::new();
     let mut images: Vec<Vec<i128>> = Vec::with_capacity(n);
+    // An invariant every automorphism keeps: the number of pairs of other
+    // support lines a line is a signed sum of (`v_i = +-v_j +-v_k`, one vertex
+    // of momentum conservation). Basis images are only tried among lines with
+    // the same invariant, which prunes the search without losing a map.
+    let mut degree = vec![0_usize; presentation.slots.len()];
+    for &i in &lines {
+        let vi = vec_of(i);
+        for (a, &j) in lines.iter().enumerate() {
+            if j == i {
+                continue;
+            }
+            let vj = vec_of(j);
+            for &k in &lines[a + 1..] {
+                if k == i {
+                    continue;
+                }
+                let vk = vec_of(k);
+                let hit = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+                    .iter()
+                    .any(|&(sj, sk)| {
+                        vi.iter()
+                            .zip(&vj)
+                            .zip(&vk)
+                            .all(|((&x, &y), &z)| x == sj * y + sk * z)
+                    });
+                if hit {
+                    degree[i] += 1;
+                }
+            }
+        }
+    }
     let search = Search {
         n,
         lines: &lines,
@@ -183,6 +283,7 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
         det,
         adj: &adj,
         eps: &eps,
+        degree: &degree,
         vec_of: &vec_of,
     };
     search.extend(0, &mut images, &mut maps);
@@ -237,7 +338,7 @@ pub(crate) fn owner_orbit(presentation: &Presentation, support: u64) -> Result<O
             continue;
         }
         if seen.insert(action.clone()) {
-            orbit.actions.push(action);
+            orbit.push(action);
         }
     }
     orbit.group_order = group.len();
@@ -268,11 +369,14 @@ pub(crate) fn routed_orbit(
         return orbit;
     }
     let mut m = vec![vec![0_i128; n]; n];
-    for row in 0..loops {
-        for column in 0..loops {
-            m[row][column] = i128::from(map.loop_linear[row * loops + column]);
+    for (row, (linear, &external)) in m
+        .iter_mut()
+        .zip(map.loop_linear.chunks(loops.max(1)).zip(&map.loop_external))
+    {
+        for (entry, &value) in row.iter_mut().zip(linear) {
+            *entry = i128::from(value);
         }
-        m[row][loops] = i128::from(map.loop_external[row]);
+        row[loops] = i128::from(external);
     }
     m[loops][loops] = i128::from(map.external_sign);
     let (det, adj) = determinant_and_adjugate(&m);
@@ -310,7 +414,7 @@ pub(crate) fn routed_orbit(
             continue;
         }
         if seen.insert(action.clone()) {
-            orbit.actions.push(action);
+            orbit.push(action);
         }
     }
     orbit.group_order = owner.group_order;
@@ -494,6 +598,7 @@ struct Search<'a, E: Fn(usize) -> u8, V: Fn(usize) -> Vec<i128>> {
     det: i128,
     adj: &'a [Vec<i128>],
     eps: &'a E,
+    degree: &'a [usize],
     vec_of: &'a V,
 }
 
@@ -510,7 +615,9 @@ impl<E: Fn(usize) -> u8, V: Fn(usize) -> Vec<i128>> Search<'_, E, V> {
         }
         let source = self.basis[k];
         for &target in self.lines {
-            if (self.eps)(target) != (self.eps)(source) {
+            if (self.eps)(target) != (self.eps)(source)
+                || self.degree[target] != self.degree[source]
+            {
                 continue;
             }
             let signs: &[i128] = if k == 0 { &[1] } else { &[1, -1] };

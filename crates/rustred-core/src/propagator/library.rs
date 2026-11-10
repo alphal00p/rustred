@@ -206,6 +206,8 @@ pub struct PLibrary {
     orbit_canonicalization: AtomicBool,
     /// With it, the Route keys of routed sectors too; on by default.
     route_canonicalization: AtomicBool,
+    /// The greatest exact image represents an orbit (the default), or the least.
+    orbit_prefer_high: AtomicBool,
 }
 
 impl fmt::Debug for PLibrary {
@@ -260,10 +262,11 @@ impl PLibrary {
     pub fn step_identity(&self) -> String {
         let mut identity = self.identity();
         if self.orbit_canonicalization() {
-            let scope = if self.route_canonicalization() {
-                ""
-            } else {
-                "-apply"
+            let scope = match (self.route_canonicalization(), self.orbit_prefer_high()) {
+                (true, true) => "",
+                (false, true) => "-apply",
+                (true, false) => "-least",
+                (false, false) => "-apply-least",
             };
             identity.push_str(&format!(
                 ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
@@ -295,6 +298,21 @@ impl PLibrary {
     /// route); on by default. Off, only Apply keys are canonicalised.
     pub fn set_route_canonicalization(&self, on: bool) {
         self.route_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Represent an orbit by its greatest exact image (the default) or by its
+    /// least (M5 R0 A2). The lanes are not covariant under the automorphisms,
+    /// so the representative changes the reduction path: the greatest image
+    /// measured fewer keys and edges than the least on every 4L cell (NO2
+    /// d2_r6: -17 % keys against -6 %). For a Custom or Triangle owner the
+    /// order key still decides first.
+    pub fn set_orbit_prefer_high(&self, on: bool) {
+        self.orbit_prefer_high.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether the greatest exact image represents an orbit.
+    pub fn orbit_prefer_high(&self) -> bool {
+        self.orbit_prefer_high.load(Ordering::Relaxed)
     }
 
     /// Whether canonicalisation, when on, reaches the Route keys.
@@ -762,6 +780,7 @@ impl PLibraryBuilder {
             engine: OnceLock::new(),
             orbit_canonicalization: AtomicBool::new(true),
             route_canonicalization: AtomicBool::new(true),
+            orbit_prefer_high: AtomicBool::new(true),
         })
     }
 

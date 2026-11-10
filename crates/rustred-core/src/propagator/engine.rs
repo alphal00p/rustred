@@ -57,7 +57,6 @@ use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, d
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
-use smallvec::SmallVec;
 
 /// One scheduled identity of a p reduction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -165,6 +164,9 @@ enum Sector<'e> {
 
 /// Scheduling tables of one library and its lazily compiled routes; pure
 /// functions of the library, built on its first reduction.
+/// A lazily searched and authenticated automorphism group (M5 R0 A2).
+type OrbitCell = OnceLock<Result<Arc<OwnerOrbit>, PError>>;
+
 pub(crate) struct PEngine {
     shapes: Vec<Shape>,
     /// Slots of every view and terminal key of this library.
@@ -177,14 +179,14 @@ pub(crate) struct PEngine {
     routes: BTreeMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
     /// The verified automorphisms of each owner sector, found on the owner's
     /// first canonicalised key (M5 R0 A2).
-    orbits: BTreeMap<OwnerClassId, OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
+    orbits: BTreeMap<OwnerClassId, OrbitCell>,
     /// The same for every routed sector, carried over from its owner.
-    route_orbits: BTreeMap<(PresentationId, u64), OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
+    route_orbits: BTreeMap<(PresentationId, u64), OrbitCell>,
     /// The verified automorphisms of the whole line set of each presentation
     /// (indexed by presentation id): they move a Route key across the
     /// subsectors of its presentation, as the vacuum reducer's one family
     /// group does for every key.
-    presentation_orbits: Vec<OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
+    presentation_orbits: Vec<OrbitCell>,
 }
 
 impl PEngine {
@@ -472,6 +474,7 @@ impl PEngine {
                 canonical: library.orbit_canonicalization(),
                 canonical_routes: library.orbit_canonicalization()
                     && library.route_canonicalization(),
+                prefer_high: library.orbit_prefer_high(),
             },
             inspector,
         };
@@ -582,6 +585,9 @@ pub(crate) struct PStepper<'l> {
     canonical: bool,
     /// And of the Route keys of routed sectors ([`PLibrary::route_canonicalization`]).
     canonical_routes: bool,
+    /// The greatest exact image stands for an orbit (the default), else the
+    /// least ([`PLibrary::set_orbit_prefer_high`]).
+    prefer_high: bool,
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -950,14 +956,9 @@ impl<'l> PStepper<'l> {
         if self.canonical
             && let Some((image, negative)) = self.canonical_powers(class, powers)?
         {
-            let coefficient = if negative {
-                self.library
-                    .coefficient_context()
-                    .try_neg(&coefficient, self.limits.exact_algebra)
-                    .map_err(algebra)?
-            } else {
-                coefficient
-            };
+            // A sign flip of a coefficient the library already sealed: same
+            // variables, degrees and sizes, so no new authentication (M5 R0 A2).
+            let coefficient = if negative { -coefficient } else { coefficient };
             return Ok((
                 PKey::Apply {
                     class,
@@ -1004,14 +1005,9 @@ impl<'l> PStepper<'l> {
                 (Some((_, first)), Some((image, second))) => Some((image, first != second)),
             };
             if let Some((image, negative)) = image {
-                let coefficient = if negative {
-                    self.library
-                        .coefficient_context()
-                        .try_neg(&coefficient, self.limits.exact_algebra)
-                        .map_err(algebra)?
-                } else {
-                    coefficient
-                };
+                // A sign flip of a coefficient the library already sealed: same
+                // variables, degrees and sizes, so no new authentication (M5 R0 A2).
+                let coefficient = if negative { -coefficient } else { coefficient };
                 return Ok((
                     self.engine.route_key(presentation, &image, tag)?,
                     coefficient,
@@ -1034,24 +1030,34 @@ impl<'l> PStepper<'l> {
         presentation: PresentationId,
         powers: &[i64],
     ) -> Result<Option<(Vec<i64>, bool)>, PError> {
-        let engine = self.engine;
-        let shape = engine.shape(presentation)?;
-        let Some(cell) = engine.presentation_orbits.get(presentation.0 as usize) else {
-            return Ok(None);
-        };
-        let orbit = cell
-            .get_or_init(|| {
-                owner_orbit(self.library.presentation(presentation), shape.lines).map(Arc::new)
-            })
-            .as_ref()
-            .map_err(Clone::clone)?;
+        let shape = self.engine.shape(presentation)?;
+        let orbit = self.presentation_orbit(presentation)?;
         if orbit.actions.is_empty() {
             return Ok(None);
         }
         let sectors = &self.library.census().sectors;
-        Ok(least_image(&orbit.actions, powers, |image| {
+        Ok(orbit.least_image(powers, self.prefer_high, |image| {
             sectors.contains_key(&(presentation, shape.support(image)))
         }))
+    }
+
+    /// The verified automorphisms of the whole line set of `presentation`.
+    fn presentation_orbit(&self, presentation: PresentationId) -> Result<&Arc<OwnerOrbit>, PError> {
+        let shape = self.engine.shape(presentation)?;
+        self.engine
+            .presentation_orbits
+            .get(presentation.0 as usize)
+            .ok_or_else(|| {
+                PError::MalformedLibrary(format!(
+                    "presentation {} has no orbit cell",
+                    presentation.0
+                ))
+            })?
+            .get_or_init(|| {
+                owner_orbit(self.library.presentation(presentation), shape.lines).map(Arc::new)
+            })
+            .as_ref()
+            .map_err(Clone::clone)
     }
 
     fn canonical_route(
@@ -1095,7 +1101,7 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(least_image(&orbit.actions, powers, |image| {
+        Ok(orbit.least_image(powers, self.prefer_high, |image| {
             shape.support(image) == support
         }))
     }
@@ -1110,15 +1116,14 @@ impl<'l> PStepper<'l> {
                 PError::MalformedLibrary(format!("owner class {:016x} has no orbit cell", class.0))
             })?
             .get_or_init(|| {
-                let owner = self.owner(class)?;
-                let mut orbit =
-                    owner_orbit(self.library.presentation(slot.presentation), slot.support)?;
-                // The default order key (every lane but Custom; Triangle owners
-                // weigh their role slots) is a symmetric function of the powers,
-                // so every image ties with the key and only the powers decide.
-                orbit.symmetric_order = owner.spec.lane != OwnerLane::Custom
-                    && !matches!(owner.spec.roles, LaneRoles::Triangle(_));
-                Ok(Arc::new(orbit))
+                // An owner on every line of its presentation has the
+                // presentation's group: search and authenticate it once.
+                let lines = self.engine.shape(slot.presentation)?.lines;
+                if slot.support & lines == lines {
+                    return self.presentation_orbit(slot.presentation).map(Arc::clone);
+                }
+                owner_orbit(self.library.presentation(slot.presentation), slot.support)
+                    .map(Arc::new)
             })
             .as_ref()
             .map_err(Clone::clone)
@@ -1139,8 +1144,12 @@ impl<'l> PStepper<'l> {
         }
         let slot = self.engine.owner(class)?;
         let shape = self.engine.shape(slot.presentation)?;
-        if orbit.symmetric_order {
-            return Ok(least_image(&orbit.actions, powers, |image| {
+        // The default order key (every lane but Custom; Triangle owners weigh
+        // their role slots) is a symmetric function of the powers, so every
+        // image ties with the key and only the powers decide.
+        let spec = &self.owner(class)?.spec;
+        if spec.lane != OwnerLane::Custom && !matches!(spec.roles, LaneRoles::Triangle(_)) {
+            return Ok(orbit.least_image(powers, self.prefer_high, |image| {
                 shape.support(image) == slot.support
             }));
         }
@@ -1177,7 +1186,12 @@ impl<'l> PStepper<'l> {
                 std::cmp::Ordering::Less => true,
                 std::cmp::Ordering::Greater => false,
                 std::cmp::Ordering::Equal => {
-                    image.as_slice() < best.as_ref().map_or(powers, |(b, _)| b.as_slice())
+                    let bound = best.as_ref().map_or(powers, |(b, _)| b.as_slice());
+                    if self.prefer_high {
+                        image.as_slice() > bound
+                    } else {
+                        image.as_slice() < bound
+                    }
                 }
             };
             if below {
@@ -1557,29 +1571,6 @@ impl ConcurrentStepCacheKernel for PKernel<'_, '_> {
     }
 }
 
-/// The least exact image of `powers` strictly below it under `actions`
-/// whose support passes `keep`, with its sign (the first action that reaches
-/// it decides the sign); `None` when the key is its own representative. One
-/// scratch buffer, no allocation per action (M5 R0 A2 hot path).
-fn least_image(
-    actions: &[Box<[super::orbit::SlotImage]>],
-    powers: &[i64],
-    keep: impl Fn(&[i64]) -> bool,
-) -> Option<(Vec<i64>, bool)> {
-    let mut scratch: SmallVec<[i64; 32]> = SmallVec::from_elem(0, powers.len());
-    let mut best: Option<(SmallVec<[i64; 32]>, bool)> = None;
-    for action in actions {
-        let Some(negative) = OwnerOrbit::image_into(action, powers, &mut scratch) else {
-            continue;
-        };
-        let bound = best.as_ref().map_or(powers, |(image, _)| image.as_slice());
-        if scratch.as_slice() < bound && keep(&scratch) {
-            best = Some((scratch.clone(), negative));
-        }
-    }
-    best.map(|(image, negative)| (image.into_vec(), negative))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1711,6 +1702,7 @@ mod tests {
             census: PCensusMode::OFF,
             canonical: true,
             canonical_routes: true,
+            prefer_high: false,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -1783,6 +1775,7 @@ mod tests {
             census: PCensusMode::OFF,
             canonical: true,
             canonical_routes: true,
+            prefer_high: false,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(

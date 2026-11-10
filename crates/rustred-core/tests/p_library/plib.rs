@@ -560,7 +560,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         ),
         (
             true,
-            format!("{BASE},P_ORBIT_CANON_VERSION=2"),
+            format!("{BASE},P_ORBIT_CANON_VERSION=3"),
             ORBIT_CANON_RECORDS_DIGEST,
         ),
     ] {
@@ -597,7 +597,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
 
 /// The records of the reference program with orbit canonicalisation on.
 const ORBIT_CANON_RECORDS_DIGEST: &str =
-    "4da1a8f4ee3fca307ee183f0051e5d24217b89b9d3ed5397bf497c1517ec0233";
+    "f8c04985502236c51ac223573077ca72a1bf4106d05e237cddd0be17aad273a0";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {
