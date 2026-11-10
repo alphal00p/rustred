@@ -4,6 +4,7 @@
 //! rustred p-generate --families <json> --max-loops <k> --out <dir>
 //!                    [--owner <class label>]... [--threads <n>] [--force]
 //!                    [--max-seconds <s>] [--max-rss <bytes>] [--lp-from <dir>]
+//!                    [--integral-order <json>] [--discovery <json>]
 //! ```
 //!
 //! Generates the Custom owners of the library program of the tops with at most
@@ -25,6 +26,13 @@
 //! not counted again; a missing record is an error. The record says where its
 //! count came from (`lp_count_source`: `counted` or `given`, with
 //! `lp_given_from`) and the budget it ran under.
+//!
+//! `--integral-order <json>` (a `CandidateIntegralOrder` descriptor) and
+//! `--discovery <json>` (a `CandidateDiscoveryStrategy`, with its optional
+//! bounded rule portfolio) set the generation recipe of every selected owner
+//! (`CustomOwnerOptions::integral_order` and `discovery`, M5-R0 WP3); the
+//! record keeps both descriptors verbatim. Without them the default recipe is
+//! used, as before.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -42,6 +50,7 @@ use crate::application::propagator::generate::{
     CustomOwnerNode, CustomOwnerOptions, GenerationBudget, custom_owner_nodes,
     generate_custom_owner_with_report,
 };
+use crate::application::{CandidateDiscoveryStrategy, CandidateIntegralOrder};
 use crate::cli::args::{ArgError, StreamPath, next_utf8_value, next_value, parse_positive_integer};
 use crate::cli::error::CliError;
 use crate::cli::io::{preflight_output_destination, read_input, write_output};
@@ -59,6 +68,8 @@ struct Arguments {
     force: bool,
     budget: GenerationBudget,
     lp_from: Option<PathBuf>,
+    integral_order: Option<PathBuf>,
+    discovery: Option<PathBuf>,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -66,6 +77,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut families, mut max_loops, mut out) = (None, None, None);
     let (mut owners, mut threads, mut force) = (BTreeSet::new(), 1, false);
     let (mut budget, mut lp_from) = (GenerationBudget::default(), None);
+    let (mut integral_order, mut discovery) = (None, None);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -79,6 +91,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--max-seconds" => "--max-seconds",
             "--max-rss" => "--max-rss",
             "--lp-from" => "--lp-from",
+            "--integral-order" => "--integral-order",
+            "--discovery" => "--discovery",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if option != "--owner" && !seen.insert(option) {
@@ -134,6 +148,10 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                 );
             }
             "--lp-from" => lp_from = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--integral-order" => {
+                integral_order = Some(PathBuf::from(next_value(&mut arguments, option)?))
+            }
+            "--discovery" => discovery = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             _ => force = true,
         }
     }
@@ -146,6 +164,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         force,
         budget,
         lp_from,
+        integral_order,
+        discovery,
     })
 }
 
@@ -241,6 +261,26 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         });
     }
+    let recipe = |path: &Option<PathBuf>| -> Result<Option<String>, CliError> {
+        path.as_ref()
+            .map(|path| read_input(&StreamPath::File(path.clone())))
+            .transpose()
+    };
+    let integral_order_text = recipe(&arguments.integral_order)?;
+    let discovery_text = recipe(&arguments.discovery)?;
+    let integral_order = (integral_order_text.as_deref())
+        .map(CandidateIntegralOrder::from_json)
+        .transpose()
+        .map_err(CliError::Application)?;
+    let discovery = (discovery_text.as_deref())
+        .map(CandidateDiscoveryStrategy::from_json)
+        .transpose()
+        .map_err(CliError::Application)?;
+    let json_or_null = |text: &Option<String>| {
+        (text.as_deref())
+            .map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null)
+    };
     let mut stdout = std::io::stdout().lock();
     let report_error = |error: std::io::Error| CliError::OutputIo(error.to_string());
     for ((label, node), lp_given) in selected.iter().zip(given) {
@@ -252,6 +292,8 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             budget: arguments.budget,
             lp_given,
             fallthrough: None,
+            integral_order: integral_order.clone(),
+            discovery: discovery.clone(),
         };
         let (payload, report) =
             generate_custom_owner_with_report(presentation, &options).map_err(failed)?;
@@ -287,7 +329,13 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "rules": report.rules,
             "residual_keys": report.residual_keys,
             "ordering": report.ordering,
-            "rule_selection": "request default (FirstValid), all-rank, finite cases searched",
+            "rule_selection": if discovery_text.is_some() || integral_order_text.is_some() {
+                "recipe (integral_order_recipe, discovery_recipe), all-rank, finite cases searched"
+            } else {
+                "request default (FirstValid), all-rank, finite cases searched"
+            },
+            "integral_order_recipe": json_or_null(&integral_order_text),
+            "discovery_recipe": json_or_null(&discovery_text),
             "payload_bytes": report.payload_bytes,
             "lp_seconds": report.lp_seconds,
             "generation_seconds": report.generation_seconds,
@@ -360,6 +408,8 @@ mod tests {
                 force: false,
                 budget: GenerationBudget::default(),
                 lp_from: None,
+                integral_order: None,
+                discovery: None,
             }
         );
         let all = [

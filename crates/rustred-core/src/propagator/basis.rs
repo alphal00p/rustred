@@ -33,8 +33,19 @@
 //! the `Unit` part); for a square invertible `A` the rows are
 //! `T = A^-1 (X - S)`, provenance `rustred`. The rows are checked at fresh `d`
 //! modulo `2^61 - 1` against an independent re-reduction in `Z_p(d)`
-//! arithmetic. More terminals than masters, a tag on a residual or a singular
-//! `A` fail closed.
+//! arithmetic. A tag on a residual or a singular `A` fail closed.
+//!
+//! Relations between residuals (AD section 6 step 3; M5 B2): an owner whose
+//! rule set leaves more residual terminals on its node than reference masters
+//! sit there (a rank-gated owner can: `descent::is_rank_gated`) closes the
+//! system with relations from RustRed's own ordinary IBP rows of the owner's
+//! family, seeded at its residual keys and at those keys with one dot less:
+//! each row reduced through the library onto the terminals is
+//! `0 = Sum_j r_j T_j + s` ([`PResidualRelation`]). Rows that raise the rank of
+//! the system (tested modulo `2^61 - 1`) join `A`; [`RELATION_CHECKS`] further
+//! nonzero rows are kept as checks and must hold at every fresh `d`. Owners
+//! without a master on their node add no relation, so more terminals than the
+//! masters and relations close still fail closed.
 //!
 //! Format `layer/p-layer.json` (schema [`P_BASIS_LAYER_SCHEMA`]): the base is
 //! bound to `P_OWNER_LIBRARY_SEMANTICS`, `P_CENSUS_VERSION`,
@@ -55,8 +66,11 @@ use serde::{Deserialize, Serialize};
 use symbolica::prelude::*;
 use symbolica::try_parse;
 
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+use crate::algebra::{
+    Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits, IndexedAlgebraLimits,
+};
 use crate::family::IntegralKey;
+use crate::identity::ParametricIbpGenerator;
 use crate::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
     ReductionError, ReductionLimits,
@@ -75,7 +89,7 @@ use super::presentation::{Presentation, PresentationKind, Slot};
 use super::tag::GammaTag;
 use super::topology::{Action, Fate, GraphKey, Normalised, PTopo, canonical, normalise};
 use super::{
-    NodeIndex, P_BASIS_LAYER_SCHEMA, P_CENSUS_VERSION, P_CLASS_KEY_VERSION,
+    NodeIndex, OwnerClassId, P_BASIS_LAYER_SCHEMA, P_CENSUS_VERSION, P_CLASS_KEY_VERSION,
     P_OWNER_LIBRARY_SEMANTICS, PTerminalId, PresentationId,
 };
 
@@ -1041,10 +1055,30 @@ pub struct PFreshCheck {
 pub struct PBasisDerivation {
     pub layer: PBasisLayer,
     pub sites: Vec<PMasterSite>,
+    /// The relations between residuals that close the system, then the check
+    /// relations (empty when the masters alone are square).
+    pub relations: Vec<PResidualRelation>,
     /// Reference masters whose topology is not a node of the library.
     pub absent: Vec<&'static str>,
     pub checks: Vec<PFreshCheck>,
 }
+
+/// One relation between residual terminals: the ordinary IBP row `ibp_row` of
+/// the family of `presentation`, specialised at `seed`, reduced through the
+/// library onto the terminals (`ModularPolynomial`, exact in `Q(d)` by
+/// reconstruction): `0 = Sum_j r_j T_j + s`.
+#[derive(Clone, Debug)]
+pub struct PResidualRelation {
+    pub presentation: PresentationId,
+    pub seed: Vec<i64>,
+    pub ibp_row: usize,
+    pub reduction: Vec<PTerm>,
+    /// Part of the system (`true`) or a check (`false`).
+    pub selected: bool,
+}
+
+/// Check relations kept beyond the ones that close the system.
+pub const RELATION_CHECKS: usize = 2;
 
 /// SplitMix64: the deterministic draw of the fresh check points.
 fn split_mix(state: &mut u64) -> u64 {
@@ -1160,6 +1194,19 @@ fn split_reduction(
     reduction: &[PTerm],
     residuals: &BTreeMap<PTerminalId, usize>,
 ) -> Result<(Vec<Option<Coefficient>>, Vec<PTerm>), PError> {
+    split_terms(
+        &format!("master {}", site.master.name),
+        reduction,
+        residuals,
+    )
+}
+
+/// [`split_reduction`] of the reduction of `what`.
+fn split_terms(
+    what: &str,
+    reduction: &[PTerm],
+    residuals: &BTreeMap<PTerminalId, usize>,
+) -> Result<(Vec<Option<Coefficient>>, Vec<PTerm>), PError> {
     let mut row = vec![None; residuals.len()];
     let mut unit = Vec::new();
     for term in reduction {
@@ -1168,17 +1215,16 @@ fn split_reduction(
             PBasis::Residual(id) => {
                 if !term.tag.is_one() {
                     return Err(PError::Unsupported(format!(
-                        "master {} reduces onto terminal {} with the Gamma tag {:?}: \
+                        "{what} reduces onto terminal {} with the Gamma tag {:?}: \
                          tagged residual systems are not supported",
-                        site.master.name,
                         id.0,
                         term.tag.exponents()
                     )));
                 }
                 let column = residuals.get(id).ok_or_else(|| {
                     malformed(format!(
-                        "master {} reduces onto terminal {}, which is not a residual",
-                        site.master.name, id.0
+                        "{what} reduces onto terminal {}, which is not a residual",
+                        id.0
                     ))
                 })?;
                 row[*column] = Some(term.coefficient.clone());
@@ -1191,6 +1237,342 @@ fn split_reduction(
         }
     }
     Ok((row, unit))
+}
+
+/// A relation with its `A` row and `S` part.
+type Relation = (PResidualRelation, Vec<Option<Coefficient>>, Vec<PTerm>);
+
+/// An owner with more residual terminals on its node than reference masters
+/// sit there, and at least one master there.
+struct Deficit {
+    presentation: PresentationId,
+    /// Residual terminals minus masters on the node.
+    deficit: usize,
+    /// The owner's residual keys, in terminal order.
+    keys: Vec<Vec<i64>>,
+    /// Their columns in the system.
+    columns: Vec<usize>,
+}
+
+fn residual_deficits(library: &PLibrary, found: &[Found]) -> Vec<Deficit> {
+    let node_of = |presentation: PresentationId| {
+        (library.presentation(presentation).node.as_ref()).map(|node| node.index.0)
+    };
+    let mut owners: BTreeMap<OwnerClassId, Deficit> = BTreeMap::new();
+    let mut column = 0;
+    for terminal in library.terminals() {
+        let PTerminal::Residual { owner, key } = terminal else {
+            continue;
+        };
+        if let Some(record) = library.census().classes.get(owner) {
+            let entry = owners.entry(*owner).or_insert_with(|| Deficit {
+                presentation: record.owner.0,
+                deficit: 0,
+                keys: Vec::new(),
+                columns: Vec::new(),
+            });
+            entry.keys.push(key.powers().to_vec());
+            entry.columns.push(column);
+        }
+        column += 1;
+    }
+    (owners.into_values())
+        .filter_map(|mut owner| {
+            let node = node_of(owner.presentation)?;
+            let masters = (found.iter())
+                .filter(|site| node_of(site.presentation) == Some(node))
+                .count();
+            (masters > 0 && owner.keys.len() > masters).then(|| {
+                owner.deficit = owner.keys.len() - masters;
+                owner
+            })
+        })
+        .collect()
+}
+
+/// The seeds of an owner's relations, in order and without repeats: each
+/// residual key; each with one dot less; each with one dot moved to another
+/// line of the support; each with one numerator more on a slot off the
+/// support (an ISP or a line at power <= 0); each with one dot less and one
+/// numerator more. An IBP row at a seed holds keys at most one step away, so
+/// these reach every row that holds a residual key or its first neighbours.
+fn relation_seeds(presentation: &Presentation, keys: &[Vec<i64>]) -> Vec<Vec<i64>> {
+    let mut seeds: Vec<Vec<i64>> = Vec::new();
+    let mut push = |seed: Vec<i64>| {
+        if !seeds.contains(&seed) {
+            seeds.push(seed);
+        }
+    };
+    let line = |slot: usize| matches!(presentation.slots.get(slot), Some(Slot::Line(_)));
+    let dotted = |key: &[i64]| -> Vec<usize> {
+        (0..key.len())
+            .filter(|&slot| line(slot) && key[slot] >= 2)
+            .collect()
+    };
+    let off =
+        |key: &[i64]| -> Vec<usize> { (0..key.len()).filter(|&slot| key[slot] <= 0).collect() };
+    for key in keys {
+        push(key.clone());
+    }
+    for key in keys {
+        for i in dotted(key) {
+            let mut seed = key.clone();
+            seed[i] -= 1;
+            push(seed);
+        }
+    }
+    for key in keys {
+        for i in dotted(key) {
+            for j in (0..key.len()).filter(|&j| j != i && line(j) && key[j] >= 1) {
+                let mut seed = key.clone();
+                seed[i] -= 1;
+                seed[j] += 1;
+                push(seed);
+            }
+        }
+    }
+    for key in keys {
+        for s in off(key) {
+            let mut seed = key.clone();
+            seed[s] -= 1;
+            push(seed);
+        }
+    }
+    for key in keys {
+        for i in dotted(key) {
+            for s in off(key) {
+                let mut seed = key.clone();
+                seed[i] -= 1;
+                seed[s] -= 1;
+                push(seed);
+            }
+        }
+    }
+    seeds
+}
+
+/// Rows over `Z_p` in echelon form: whether a row raises the rank.
+struct Echelon {
+    field: PrimeField,
+    rows: Vec<(usize, Vec<u64>)>,
+}
+
+impl Echelon {
+    fn try_add(&mut self, mut row: Vec<u64>) -> bool {
+        for (pivot, held) in &self.rows {
+            let factor = row[*pivot];
+            if factor == 0 {
+                continue;
+            }
+            for (value, &h) in row.iter_mut().zip(held) {
+                *value = self.field.sub(*value, self.field.mul(factor, h));
+            }
+        }
+        let Some(pivot) = row.iter().position(|&value| value != 0) else {
+            return false;
+        };
+        let Some(scale) = self.field.inv(row[pivot]) else {
+            return false;
+        };
+        for value in &mut row {
+            *value = self.field.mul(*value, scale);
+        }
+        self.rows.push((pivot, row));
+        true
+    }
+}
+
+/// The relations between residuals that close the system of `deficits`
+/// (module docs): ordinary IBP rows of each owner's family at
+/// [`relation_seeds`], reduced onto the terminals; a row with a residual of
+/// the owner joins the system when it raises the rank modulo `2^61 - 1` at a
+/// point of the seed's draw, otherwise (and once the system is square, up to
+/// [`RELATION_CHECKS`]) it is kept as a check. Fails closed when the rows run
+/// out first.
+fn residual_relations(
+    library: &PLibrary,
+    options: &PBasisOptions,
+    deficits: &[Deficit],
+    residuals: &BTreeMap<PTerminalId, usize>,
+    matrix: &[Vec<Option<Coefficient>>],
+) -> Result<Vec<Relation>, PError> {
+    if deficits.is_empty() {
+        return Ok(Vec::new());
+    }
+    let failed = |detail: String| PError::Generation(format!("p-basis relations: {detail}"));
+    let context = library.coefficient_context();
+    let field = PrimeField::new(DEFAULT_PRIME)
+        .map_err(|error| PError::Unsupported(format!("prime field: {error}")))?;
+    let mut state = options.seed ^ 0x0e1a_7105;
+    let images = |sample: &ZpSample, row: &[Option<Coefficient>]| -> Option<Vec<u64>> {
+        row.iter()
+            .map(|c| c.as_ref().map_or(Some(0), |c| image(sample, c).ok()))
+            .collect()
+    };
+    let (sample, mut echelon) = (0..64)
+        .find_map(|_| {
+            let sample = ZpSample::new(field.clone(), vec![split_mix(&mut state) % DEFAULT_PRIME]);
+            let mut echelon = Echelon {
+                field: field.clone(),
+                rows: Vec::new(),
+            };
+            for row in matrix {
+                echelon.try_add(images(&sample, row)?);
+            }
+            Some((sample, echelon))
+        })
+        .ok_or_else(|| failed("no rank-test point without a pole".to_owned()))?;
+    let arithmetic = OrderedWeightArithmetic::ModularPolynomial(
+        ModularCommon {
+            threads: 1,
+            ..Default::default()
+        },
+        PolynomialOptions::default(),
+    );
+    let mut relations = Vec::new();
+    for owner in deficits {
+        let presentation = library.presentation(owner.presentation);
+        let generator = ParametricIbpGenerator::try_new(&presentation.family)
+            .map_err(|error| failed(format!("IBP generator: {error}")))?;
+        let batch = (generator.prepare_ordinary_ibp())
+            .map_err(|error| failed(format!("IBP rows: {error}")))?;
+        let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
+        let ibp = (batch.complete(rows))
+            .map_err(|error| failed(format!("IBP rows: {error}")))?
+            .into_relations();
+        let (mut selected, mut checks) = (0, 0);
+        let (mut tried, mut nonzero, mut with_owner) = (0, 0, 0);
+        let seeds = relation_seeds(presentation, &owner.keys);
+        'seeds: for seed in &seeds {
+            for (ordinal, relation) in ibp.iter().enumerate() {
+                if selected == owner.deficit && checks == RELATION_CHECKS {
+                    break 'seeds;
+                }
+                let mut sum: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
+                let mut isp = false;
+                for (shift, value) in relation.terms() {
+                    let (value, _) = (generator.context())
+                        .specialize(value, &seed, IndexedAlgebraLimits::default())
+                        .map_err(|error| {
+                            failed(format!("specialising IBP row {ordinal}: {error}"))
+                        })?;
+                    if value.is_zero() {
+                        continue;
+                    }
+                    let powers: Vec<i64> = seed
+                        .iter()
+                        .zip(shift.values())
+                        .map(|(a, b)| a + b)
+                        .collect();
+                    isp |= (presentation.slots.iter().zip(&powers))
+                        .any(|(slot, &n)| n > 0 && !matches!(slot, Slot::Line(_)));
+                    let entry = sum.entry(powers).or_insert_with(|| context.zero());
+                    *entry = (context.try_add(entry, &value, options.limits.exact_algebra))
+                        .map_err(algebra)?;
+                }
+                sum.retain(|_, c| !c.is_zero());
+                if isp || sum.is_empty() {
+                    continue;
+                }
+                tried += 1;
+                let inputs = (sum.into_iter())
+                    .map(|(powers, c)| {
+                        IntegralKey::try_new(powers.iter().copied())
+                            .map(|key| (owner.presentation, key, c))
+                            .map_err(|error| failed(format!("row key {powers:?}: {error:?}")))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let reduction = library
+                    .reduce(PReductionRequest {
+                        inputs,
+                        arithmetic,
+                        scheduler: OrderedSchedulerOptions::default(),
+                        step_cache: None,
+                        uncovered: PUncoveredPolicy::Reject,
+                        onto_masters: false,
+                        limits: options.limits,
+                        inspector: None,
+                    })?
+                    .terms;
+                let what = format!("IBP row {ordinal} at {seed:?}");
+                let (row, unit) = split_terms(&what, &reduction, residuals)?;
+                nonzero += usize::from(reduction.iter().any(|term| !term.coefficient.is_zero()));
+                if (owner.columns.iter())
+                    .all(|&column| row[column].as_ref().is_none_or(Coefficient::is_zero))
+                {
+                    continue;
+                }
+                with_owner += 1;
+                let joins = selected < owner.deficit
+                    && images(&sample, &row).is_some_and(|image| echelon.try_add(image));
+                if !joins && checks == RELATION_CHECKS {
+                    continue;
+                }
+                if joins {
+                    selected += 1;
+                } else {
+                    checks += 1;
+                }
+                relations.push((
+                    PResidualRelation {
+                        presentation: owner.presentation,
+                        seed: seed.clone(),
+                        ibp_row: ordinal,
+                        reduction,
+                        selected: joins,
+                    },
+                    row,
+                    unit,
+                ));
+            }
+        }
+        if selected < owner.deficit {
+            return Err(failed(format!(
+                "presentation {}: {selected} of {} relations from the IBP rows at the {} seeds of \
+                 the residual keys {:?} ({tried} rows reduced, {nonzero} nonzero, {with_owner} on \
+                 the owner's residuals)",
+                owner.presentation.0,
+                owner.deficit,
+                seeds.len(),
+                owner.keys
+            )));
+        }
+    }
+    Ok(relations)
+}
+
+/// `Sum_j r_j row_j + s` of a relation modulo the sample's prime, its nonzero
+/// components (`None` at a pole).
+fn relation_image(
+    field: &PrimeField,
+    sample: &ZpSample,
+    rows: &[PRowImage],
+    residuals: &BTreeMap<PTerminalId, usize>,
+    row: &[Option<Coefficient>],
+    unit: &[PTerm],
+) -> Result<Option<BTreeMap<(BasisKey, GammaTag), u64>>, PError> {
+    let mut lhs = BTreeMap::<(BasisKey, GammaTag), u64>::new();
+    for (id, column) in residuals {
+        let Some(weight) = &row[*column] else {
+            continue;
+        };
+        let Ok(weight) = image(sample, weight) else {
+            return Ok(None);
+        };
+        for (basis, tag, value) in &rows[id.0 as usize] {
+            let entry = lhs.entry((BasisKey::of(basis)?, tag.clone())).or_insert(0);
+            *entry = field.add(*entry, field.mul(weight, *value));
+        }
+    }
+    for term in unit {
+        let Ok(value) = image(sample, &term.coefficient) else {
+            return Ok(None);
+        };
+        let entry = lhs.entry((BasisKey::Unit, term.tag.clone())).or_insert(0);
+        *entry = field.add(*entry, value);
+    }
+    lhs.retain(|_, value| *value != 0);
+    Ok(Some(lhs))
 }
 
 /// `A^-1` of a square matrix over `Q(d)` (Gauss-Jordan); `None` entries are 0.
@@ -1292,11 +1674,13 @@ pub fn derive_basis_layer(
             names.push(format!("{index} ({label} {:?})", key.powers()));
         }
     }
-    if found.len() != residuals.len() {
+    let deficits = residual_deficits(library, &found);
+    let deficit: usize = deficits.iter().map(|owner| owner.deficit).sum();
+    if found.len() + deficit != residuals.len() {
         let sites: Vec<_> = found.iter().map(|site| site.master.name).collect();
         return Err(PError::Unsupported(format!(
-            "{} reference masters {sites:?} for {} residual terminals {names:?}: \
-             p-basis needs a square system (relations between residuals are M3, AD section 6 step 3)",
+            "{} reference masters {sites:?} and {deficit} relations between residuals for {} \
+             residual terminals {names:?}: p-basis needs a square system",
             found.len(),
             residuals.len()
         )));
@@ -1332,9 +1716,16 @@ pub fn derive_basis_layer(
         units.push(unit);
         sites.push(site);
     }
+    let relations = residual_relations(library, options, &deficits, &residuals, &matrix)?;
+    for (relation, row, unit) in &relations {
+        if relation.selected {
+            matrix.push(row.clone());
+            units.push(unit.clone());
+        }
+    }
     let inverse = invert(context, exact, matrix, &names)?;
 
-    // Row j: T_j = Sum_i inverse[j][i] (X_i - S_i).
+    // Row j: T_j = Sum_i inverse[j][i] (X_i - S_i), X_i = 0 on a relation.
     let mut rows = vec![PBasisRow {
         terminal: library_terminal(library, PTerminalId(0), &PTerminal::Unit)?,
         terms: vec![PTerm {
@@ -1350,22 +1741,24 @@ pub fn derive_basis_layer(
             .get(&id)
             .ok_or_else(|| malformed(format!("terminal {index} is a second Unit")))?;
         let mut sum = TermSum::new();
-        for (i, site) in sites.iter().enumerate() {
+        for (i, unit) in units.iter().enumerate() {
             let weight = &inverse[column][i];
             if weight.is_zero() {
                 continue;
             }
-            let value = context
-                .try_mul(weight, &site.value.coefficient, exact)
-                .map_err(algebra)?;
-            add_term(
-                context,
-                exact,
-                &mut sum,
-                (BasisKey::of(&site.value.basis)?, site.value.tag.clone()),
-                &value,
-            )?;
-            for term in &units[i] {
+            if let Some(site) = sites.get(i) {
+                let value = context
+                    .try_mul(weight, &site.value.coefficient, exact)
+                    .map_err(algebra)?;
+                add_term(
+                    context,
+                    exact,
+                    &mut sum,
+                    (BasisKey::of(&site.value.basis)?, site.value.tag.clone()),
+                    &value,
+                )?;
+            }
+            for term in unit {
                 let value = context
                     .try_mul(weight, &term.coefficient, exact)
                     .map_err(algebra)?;
@@ -1398,10 +1791,14 @@ pub fn derive_basis_layer(
         });
     }
     let layer = PBasisLayer::new(context, rows)?;
-    let checks = fresh_checks(library, options, &layer, &sites, &residuals)?;
+    let checks = fresh_checks(library, options, &layer, &sites, &residuals, &relations)?;
     Ok(PBasisDerivation {
         layer,
         sites,
+        relations: relations
+            .into_iter()
+            .map(|(relation, ..)| relation)
+            .collect(),
         absent,
         checks,
     })
@@ -1417,6 +1814,7 @@ fn fresh_checks(
     layer: &PBasisLayer,
     sites: &[PMasterSite],
     residuals: &BTreeMap<PTerminalId, usize>,
+    relations: &[Relation],
 ) -> Result<Vec<PFreshCheck>, PError> {
     let failed = |detail: String| PError::Generation(format!("p-basis fresh-d check: {detail}"));
     let modular = OrderedWeightArithmetic::ModularPolynomial(
@@ -1503,6 +1901,19 @@ fn fresh_checks(
                     "master {} at d = {d} modulo {DEFAULT_PRIME}: {lhs:?} != {rhs:?}",
                     site.master.name
                 )));
+            }
+        }
+        for (relation, row, unit) in relations {
+            match relation_image(&field, &sample, &rows, residuals, row, unit)? {
+                None => pole = true,
+                Some(lhs) if lhs.is_empty() => components += 1,
+                Some(lhs) => {
+                    return Err(failed(format!(
+                        "the relation of IBP row {} at {:?} (presentation {}) at d = {d} modulo \
+                         {DEFAULT_PRIME}: {lhs:?} != 0",
+                        relation.ibp_row, relation.seed, relation.presentation.0
+                    )));
+                }
             }
         }
         if pole {

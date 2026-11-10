@@ -70,8 +70,10 @@ pub const P_CARPET_KERNEL_VERSION: u32 = 1;
 pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
 /// The Diamond template and its lane (M3-T5b).
 pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
-/// Custom-owner generation options and the false-knock-out guard.
-pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
+/// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
+/// a payload order may be rank-gated (an ISP-rank row before the support,
+/// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
+pub const P_CUSTOM_OWNER_VERSION: u32 = 2;
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
 pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
