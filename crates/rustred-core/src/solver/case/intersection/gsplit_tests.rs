@@ -19,15 +19,15 @@ use crate::algebra::{CoefficientContext, CoefficientPolynomial};
 
 use super::super::Case;
 use super::defer_tests::{
-    Lcg, T167, check_points, coordinate, equations, grid, in_region, on_chart, planted,
-    row_through, value, vanishes,
+    Lcg, T167, assert_checks, check_points, coordinate, core, equations, grid, in_region, on_chart,
+    planted, row_through, value, vanishes,
 };
 use super::t167_captured_inputs::{CapturedT167, T167_ORIG, T167_P1_PF0};
 use super::t167_gsplit_captured::{T167_P1_BOX_POINTS, T167_P9_B5, T167_P16_B5};
 use super::t167_p1_b5_captured::T167_P1_B5;
 use super::{
-    CaseIntersectionError, CaseIntersectionLimits, CaseIntersectionResult, CaseIntersectionStats,
-    CaseRefinement, UnsupportedBranchPolicy, native,
+    CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
+    CaseIntersectionStats, CaseRefinement, UnsupportedBranchPolicy, native,
 };
 
 const ALL: CaseRefinement = CaseRefinement::all();
@@ -590,4 +590,92 @@ fn refinement_never_loses_or_invents_a_point() {
     );
     assert_eq!(ok + refused + timeouts, 240);
     assert!(ok > 200 && splits > 0 && graph > 0 && saturations > 0);
+}
+
+/// Refinement under `Defer` skips the unbounded Lex F4 fallback (stage 3). A
+/// branch that the established engine sends into Lex F4 (two irreducible
+/// Pell quadrics in disjoint variables: no factor, no linear coordinate, no
+/// exact step applies) is then deferred, and its region is the same full
+/// record as the established S4 deferral: reason, parent, chart,
+/// conjunction, S1/S2 checks, no exclusions, no dependents. Conservative:
+/// its points lie in no resolved case (never claimed covered).
+#[test]
+fn a_skipped_lex_branch_is_deferred_with_the_full_record() {
+    let context = CoefficientContext::new(["x", "y", "z", "w"]);
+    let indices = [0, 1, 2, 3];
+    let sector = [true; 4];
+    let generic = Case::<4>::generic();
+    let conjunction = equations(&context, &["x^2-2*y^2-1", "z^2-3*w^2-1"]);
+    let solve = |refinement| {
+        generic
+            .intersect_many_refined(
+                &conjunction,
+                &indices,
+                &sector,
+                CaseIntersectionLimits::default(),
+                None,
+                DEFER,
+                refinement,
+            )
+            .unwrap()
+    };
+    native::take_lex_calls();
+    let established = solve(OFF);
+    assert!(
+        native::take_lex_calls() > 0,
+        "the established engine must enter Lex F4 on this branch"
+    );
+    assert_eq!(established.refinement.lex_skipped, 0);
+    let refined = solve(ALL);
+    assert_eq!(
+        native::take_lex_calls(),
+        0,
+        "refinement under Defer never enters Lex F4"
+    );
+    assert!(
+        refined.refinement.lex_skipped >= 1,
+        "{:?}",
+        refined.refinement
+    );
+    assert!(refined.cases.is_empty() && established.cases.is_empty());
+    assert_eq!(refined.deferred.len(), 1);
+    let region = &refined.deferred[0];
+    assert_eq!(
+        core(region),
+        (
+            CaseIntersectionFailure::UnsupportedGeometry,
+            generic.clone(),
+            generic.clone(),
+            native::restrict(&generic, &conjunction, &indices).unwrap(),
+            Vec::new(),
+            Vec::new(),
+        )
+    );
+    assert_checks(region);
+    // The same record as the established deferral (B7), checks included.
+    assert_eq!(refined.deferred, established.deferred);
+    // Nothing lost or invented; every locus point is only in the region.
+    for point in [[3, 2, 2, 1], [17, 12, 7, 4], [99, 70, 26, 15]] {
+        assert!(in_region(region, &indices, &point), "{point:?}");
+    }
+    for point in [[3, 2, 2, 2], [4, 2, 2, 1]] {
+        assert!(!in_region(region, &indices, &point), "{point:?}");
+    }
+    for result in [&refined, &established] {
+        let count = check_points(
+            &generic,
+            &conjunction,
+            result,
+            &indices,
+            &sector,
+            grid([1; 4], [20, 15, 10, 6]),
+        );
+        assert_eq!(count.locus, 2 * 2); // (3,2), (17,12) x (2,1), (7,4)
+        assert_eq!(count.only_in_regions, count.locus);
+        assert_eq!(count.in_cases, 0);
+    }
+    println!(
+        "LEX_SKIP_DEFER refined {:?} established checks {:?}",
+        refined.refinement, established.deferred[0].checks
+    );
 }

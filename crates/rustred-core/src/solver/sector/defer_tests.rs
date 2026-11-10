@@ -409,3 +409,114 @@ fn the_exit_scan_excludes_only_by_proof() {
     assert_eq!(scan.excluded, 1);
     assert_eq!(scan.candidates, vec![(0, 1)]);
 }
+
+/// Stage 3 at the sector level: with the opt-in refinement
+/// (`CaseRefinement::all()`), a rule's exceptional branch that no exact step
+/// resolves is deferred WITHOUT entering the Lex F4 fallback (two nonlinear
+/// equations: Lex-eligible on the established path). The deferring solve
+/// returns it as a [`SectorDeferredRegion`] with the full provenance that
+/// table_dump writes into every `deferred_region` record (rule, branch,
+/// region with its S1/S2 checks, rule parents, complete parent chain, exit
+/// scan), the same as the established deferring solve (B7) except possibly
+/// the generators of the same conjunction; and its points are never
+/// dispatched to a rule.
+#[test]
+fn a_refined_solve_defers_the_skipped_lex_branch_with_the_full_record() {
+    let context = CoefficientContext::new(["a", "b", "c", "d"]);
+    let indices = [0, 1, 2];
+    // Exceptional branch {a^2-2b^2-1 = 0, c^2-3b^2-1 = 0}: two irreducible
+    // quadrics, no affine factor, no linear coordinate.
+    let sources = source(&context, "d*(a^2-2*b^2-1)+(c^2-3*b^2-1)");
+    let solver = SectorSolver::new(&sources, [true; 3], SectorConfig::default()).unwrap();
+    let established = solver.solve_sector_deferring(Default::default()).unwrap();
+    let refined = solver
+        .solve_sector_deferring_refined(Default::default(), CaseRefinement::all())
+        .unwrap();
+    println!("LEX_SKIP_SECTOR established {:?}", established.deferred);
+    println!("LEX_SKIP_SECTOR refined {:?}", refined.deferred);
+    let shape = |solved: &DeferredSectorSolution<3>| {
+        solved
+            .solution
+            .rules
+            .iter()
+            .map(|rule| {
+                format!(
+                    "{:?} {} {:?}",
+                    rule.candidate.case, rule.candidate.target, rule.exceptions.branches
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shape(&refined), shape(&established));
+    assert_eq!(refined.rule_parents, established.rule_parents);
+    assert_eq!(refined.deferred.len(), 1);
+    assert_eq!(established.deferred.len(), 1);
+    let (left, right) = (&refined.deferred[0], &established.deferred[0]);
+    assert_eq!((left.rule, left.branch), (right.rule, right.branch));
+    assert_eq!(
+        left.region.reason,
+        CaseIntersectionFailure::UnsupportedGeometry
+    );
+    assert_eq!(left.region.reason, right.region.reason);
+    assert_eq!(left.region.parent, right.region.parent);
+    assert_eq!(left.region.chart, right.region.chart);
+    assert!(left.region.exclusions.is_empty() && left.region.dependents.is_empty());
+    assert_eq!(
+        left.region.parent,
+        refined.solution.rules[left.rule].candidate.case
+    );
+    // The S1/S2 record is filled exactly as on the established path.
+    for region in [&left.region, &right.region] {
+        let checks = &region.checks;
+        assert!(
+            checks.chart_in_original_parent && checks.failure.is_none(),
+            "{checks:?}"
+        );
+        assert_eq!(checks.original_restricts_to_zero, Some(false));
+        assert_eq!(
+            checks
+                .modular
+                .iter()
+                .map(|(prime, _)| *prime)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 5, 7]
+        );
+    }
+    assert_eq!(refined.parent_chain(0), established.parent_chain(0));
+    assert!(refined.parent_chain(0).1, "complete parent chain");
+    // Same zero set as the established region (same ideal, possibly other
+    // generators), and the exit scan of the record is computed on it.
+    let left_predicates = left.region.predicates(&indices).unwrap();
+    let right_predicates = right.region.predicates(&indices).unwrap();
+    let branch = &refined.solution.rules[left.rule].exceptions.branches[left.branch];
+    let mut region_points = 0;
+    for a in 1..=40 {
+        for b in 1..=30 {
+            for c in 1..=50 {
+                let point = [a, b, c];
+                let inside = vanishes(&left_predicates, &indices, &point);
+                assert_eq!(
+                    inside,
+                    vanishes(&right_predicates, &indices, &point),
+                    "{point:?}"
+                );
+                assert_eq!(inside, vanishes(branch, &indices, &point), "{point:?}");
+                if inside {
+                    region_points += 1;
+                    assert_eq!(dispatch(&refined, &indices, &point), Dispatch::Deferred(0));
+                } else {
+                    assert_eq!(dispatch(&refined, &indices, &point), Dispatch::Rule(0));
+                }
+            }
+        }
+    }
+    let scan = deferred_exit_scan(
+        &left_predicates,
+        &refined.solution.rules,
+        &indices,
+        &[true; 3],
+    );
+    assert_eq!(scan.pairs, refined.solution.rules[0].candidate.rhs.len());
+    assert_eq!(scan.candidates.len() + scan.excluded, scan.pairs);
+    println!("LEX_SKIP_SECTOR region_points={region_points} scan {scan:?}");
+}
