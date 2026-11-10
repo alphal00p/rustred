@@ -29,16 +29,17 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use rustred::algebra::Coefficient;
+use rustred::algebra::{Coefficient, ExactAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::propagator::basis::anchors::{ForcerCase, PInput, parse_fixture};
-use rustred::propagator::diamond::DiamondError;
+use rustred::propagator::diamond::{DiamondError, DiamondStep};
 use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile};
 use rustred::propagator::lane::OwnerLane;
 use rustred::propagator::library::{
     PBasis, PLibrary, PReduction, PReductionRequest, PTerminal, PUncoveredPolicy,
 };
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot};
+use rustred::propagator::step::{PKeyView, PStage};
 use rustred::propagator::tag::GammaTag;
 use rustred::propagator::triangle::TriangleTemplate;
 use rustred::propagator::{NodeIndex, PresentationId};
@@ -450,6 +451,107 @@ fn the_diamond_lane_equals_spired_on_d399() {
 #[ignore = "slow: two scope 1-4 assemblies and 4L reductions (RUSTRED_P_REUSE_1_4)"]
 fn the_diamond_lane_equals_spired_on_no3() {
     template_equals_spired("no3", 0x0003);
+}
+
+/// G3 has teeth (review of M3-T5b): on d384's corner (every line at power 1, no
+/// numerator) one Diamond step by hand, its `2 (L + 1)` children (Route keys, a
+/// `b` or `c` at 0) reduced by the Diamond-lane library, whose owners below the
+/// diamond are the reference's, rebuilds the SpIRed owner's value; with one
+/// coefficient of the template mutated (`X_i + 1` on path `i`, or `E + 1`) it
+/// does not, so G3 fails on a mutated template.
+#[test]
+#[ignore = "slow: two scope 1-4 assemblies (RUSTRED_P_REUSE_1_4)"]
+fn a_mutated_diamond_coefficient_fails_g3() {
+    let Pair { reference, diamond } = pair();
+    let label = DIAMONDS[0].1;
+    let (top, mask, _) = diamond_sector(reference, label);
+    let arity = reference.library.presentation(top).slots.len();
+    let corner: Vec<i64> = (0..arity).map(|s| i64::from(mask >> s & 1 == 1)).collect();
+    let exact = OrderedWeightArithmetic::Exact;
+    let expected = named_terms(
+        &reference.library,
+        &reduce(&reference.library, top, &corner, exact),
+    );
+    assert!(!expected.is_empty(), "d384's corner vanished");
+
+    let library = &diamond.library;
+    let census = library.census();
+    let owner = (library.owners())
+        .find(|owner| census.classes[&owner.spec.class].key.label() == label)
+        .unwrap();
+    let step = DiamondStep::from_owner(library, &owner.spec).unwrap();
+    let p = step.presentation();
+    let lines = (p.slots.iter())
+        .filter(|slot| matches!(slot, Slot::Line(_)))
+        .count();
+    let powers: Vec<i64> = (0..p.slots.len()).map(|s| i64::from(s < lines)).collect();
+    assert_eq!(
+        named_terms(library, &reduce(library, p.id, &powers, exact)),
+        expected,
+        "the corner of the owner presentation against the corner of the top"
+    );
+    let tag = GammaTag::one();
+    let key = PKeyView {
+        presentation: p.id,
+        powers: &powers,
+        tag: &tag,
+    };
+    let output = step.apply(&key, &ReductionLimits::default()).unwrap();
+    let paths = step.template().roles().paths();
+    assert_eq!(output.children.len(), 2 * paths);
+    assert!(output.children.iter().all(|c| c.stage == PStage::Route));
+    let children: Vec<Terms> = (output.children.iter())
+        .map(|child| named_terms(library, &reduce(library, p.id, &child.powers, exact)))
+        .collect();
+    let context = library.coefficient_context();
+    let combine = |weights: &[Coefficient]| -> Terms {
+        let mut terms = Terms::new();
+        for (weight, child) in weights.iter().zip(&children) {
+            for (name, value) in child {
+                let value = context.try_mul(weight, value, Default::default()).unwrap();
+                let entry = terms.entry(name.clone()).or_insert_with(|| context.zero());
+                *entry = context.try_add(entry, &value, Default::default()).unwrap();
+            }
+        }
+        terms.retain(|_, value| !value.is_zero());
+        terms
+    };
+    let weights: Vec<Coefficient> = (output.children.iter())
+        .map(|child| child.coefficient.clone())
+        .collect();
+    assert_eq!(
+        combine(&weights),
+        expected,
+        "one Diamond step, true template"
+    );
+
+    let limits = ExactAlgebraLimits::default();
+    let template = step.template();
+    let pivot = template.pivot().at(context, &powers, limits).unwrap();
+    let one = context.one();
+    let plus_one = |value: &Coefficient| context.try_add(value, &one, limits).unwrap();
+    let over =
+        |value: &Coefficient, pivot: &Coefficient| context.try_div(value, pivot, limits).unwrap();
+    let mut caught = Vec::new();
+    for path in 0..paths {
+        let apex = template.apex()[path].at(context, &powers, limits).unwrap();
+        let weight = over(&plus_one(&apex), &pivot);
+        let mut mutated = weights.clone();
+        mutated[2 * path] = weight.clone();
+        mutated[2 * path + 1] = context.try_neg(&weight, limits).unwrap();
+        caught.push((format!("X_{path} + 1"), combine(&mutated) != expected));
+    }
+    let shifted = plus_one(&pivot);
+    let rescaled: Vec<Coefficient> = (weights.iter())
+        .map(|weight| over(&context.try_mul(weight, &pivot, limits).unwrap(), &shifted))
+        .collect();
+    caught.push(("E + 1".to_owned(), combine(&rescaled) != expected));
+    println!(
+        "G3 mutation on d384's corner ({} children, {} terms): caught {caught:?}",
+        children.len(),
+        expected.len()
+    );
+    assert!(caught.iter().all(|(_, caught)| *caught), "{caught:?}");
 }
 
 // ---------------------------------------------------------------------------

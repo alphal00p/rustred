@@ -236,8 +236,9 @@ fn a_diamond_step_lowers_one_lower_or_outer_line() {
 
 /// Fails closed: the roles of a diamond on a presentation that is not that
 /// diamond (a 4L triangle node, and d384 with `b` and `c` of a path swapped)
-/// are a mismatch, never a template; a summed row of another pivot is
-/// one too; the step refuses a key that is not an Apply key of its owner.
+/// are a mismatch, never a template; a summed row of another pivot, or with a
+/// mutated coefficient `X_0 + 1`, is one too; the step refuses a key that is
+/// not an Apply key of its owner.
 #[test]
 fn the_template_refuses_what_is_not_a_diamond() {
     let mismatch = |result: Result<DiamondTemplate, DiamondError>, what: &str| match result {
@@ -300,6 +301,21 @@ fn the_template_refuses_what_is_not_a_diamond() {
     mismatch(
         DiamondTemplate::from_forms(&d384.presentation, roles, forms),
         "a pivot of slope L + S + 1",
+    );
+    // The true row of d384 with one coefficient mutated, X_0 + 1 in both entries
+    // of path 0 (the row keeps the form X (A+ B- - A+ C-)).
+    let mut apex = template.apex().to_vec();
+    apex[0].constant = context
+        .try_add(&apex[0].constant, &context.one(), Default::default())
+        .unwrap();
+    let forms = DiamondRowForms {
+        pivot: template.pivot().clone(),
+        lower_b: apex.iter().map(negate).collect(),
+        lower_c: apex,
+    };
+    mismatch(
+        DiamondTemplate::from_forms(&d384.presentation, roles, forms),
+        "a mutated coefficient, X_0 + 1",
     );
 
     // A line of the diamond at power 0 is a Route key, never stepped.
