@@ -68,7 +68,7 @@ use rustred::sector::{Mask, MasterCount, MasterCountOptions, MasterCounter};
 use crate::application::{
     CandidateDiscoveryStrategy, CandidateExactBackend, CandidateGenerationSession,
     CandidateRowFeature, CandidateRowPriority, CandidateSourcePriority, FamilyCandidatesRequest,
-    SectorFailurePolicy,
+    FamilyCloseProgress, SectorFailurePolicy,
 };
 
 /// How a Custom owner is generated.
@@ -499,14 +499,38 @@ pub fn generate_custom_owner_with_report(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    generate_custom_owner_observed(presentation, options, None)
+}
+
+/// Generate once through the ordinary owner path, observing native progress
+/// before bounded session retention. Callbacks may overlap on chart workers;
+/// diagnostics do not change the generated payload or grant rule authority.
+pub fn generate_custom_owner_with_report_and_progress(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    progress: impl Fn(&FamilyCloseProgress) + Send + Sync,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
+    generate_custom_owner_observed(presentation, options, Some(&progress))
+}
+
+type OwnerProgress<'a> = Option<&'a (dyn Fn(&FamilyCloseProgress) + Send + Sync)>;
+
+fn generate_custom_owner_observed(
+    presentation: &Presentation,
+    options: &CustomOwnerOptions,
+    progress: OwnerProgress<'_>,
+) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     match &options.fallthrough {
         None => attempt(
             presentation,
             options,
             &FallthroughOrder::Default,
             &mut AttemptTrace::default(),
+            progress,
         ),
-        Some(fallthrough) => generate_with_fallthrough(presentation, options, fallthrough),
+        Some(fallthrough) => {
+            generate_with_fallthrough(presentation, options, fallthrough, progress)
+        }
     }
 }
 
@@ -521,7 +545,13 @@ pub fn generate_custom_owner_on_order(
         fallthrough: None,
         ..options.clone()
     };
-    attempt(presentation, &options, order, &mut AttemptTrace::default())
+    attempt(
+        presentation,
+        &options,
+        order,
+        &mut AttemptTrace::default(),
+        None,
+    )
 }
 
 /// One generation under the budget of `options` and `order`.
@@ -530,11 +560,12 @@ fn attempt(
     options: &CustomOwnerOptions,
     order: &FallthroughOrder,
     trace: &mut AttemptTrace,
+    progress: OwnerProgress<'_>,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     match Budget::new(&options.budget)? {
-        None => generate(presentation, options, None, order, trace),
+        None => generate(presentation, options, None, order, trace, progress),
         Some(budget) => (budget.resources)
-            .run(|| generate(presentation, options, Some(&budget), order, trace))
+            .run(|| generate(presentation, options, Some(&budget), order, trace, progress))
             .map_err(|error| budget.attribute(error)),
     }
 }
@@ -718,6 +749,7 @@ fn generate_with_fallthrough(
     presentation: &Presentation,
     options: &CustomOwnerOptions,
     fallthrough: &CustomOwnerFallthrough,
+    progress: OwnerProgress<'_>,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     let started = Instant::now();
     let mut orders = fallthrough_orders(presentation, fallthrough)?;
@@ -733,7 +765,7 @@ fn generate_with_fallthrough(
         next += 1;
         let mut trace = AttemptTrace::default();
         let begun = Instant::now();
-        let outcome = attempt(presentation, &options, &order, &mut trace);
+        let outcome = attempt(presentation, &options, &order, &mut trace, progress);
         let seconds = begun.elapsed().as_secs_f64();
         match outcome {
             Ok((payload, mut report)) => {
@@ -799,6 +831,7 @@ fn generate(
     budget: Option<&Budget>,
     order: &FallthroughOrder,
     trace: &mut AttemptTrace,
+    progress: OwnerProgress<'_>,
 ) -> Result<(CustomOwnerPayload, CustomOwnerReport), PError> {
     let check = || budget.map_or(Ok(()), Budget::check);
     check()?;
@@ -872,7 +905,10 @@ fn generate(
             request,
             1024,
         )?;
-        job.run();
+        match progress {
+            Some(progress) => job.run_with_progress(progress),
+            None => job.run(),
+        }
         session.result()
     })()
     .map_err(|error| {
