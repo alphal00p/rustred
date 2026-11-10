@@ -38,7 +38,7 @@ pub mod triangle;
 // Diamond lane (M3-T5b).
 pub mod diamond;
 
-// Scheme lane (M5-R0 A1 spike, not merged): Forcer hand schemes as templates.
+// Scheme lane (M5 A1 schemes): Forcer's hand schemes as data-driven templates.
 pub mod scheme;
 
 // Custom owners (M2-T7c).
@@ -73,8 +73,9 @@ pub const P_CARPET_KERNEL_VERSION: u32 = 1;
 pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
 /// The Diamond template and its lane (M3-T5b).
 pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
-/// The Scheme lane (M5-R0 A1 spike). NOT yet in `p_versions()`: the spike keeps
-/// the identity so that one binary loads both packages; enters at a merge.
+/// The Scheme lane (M5 A1 schemes): the meaning of the embedded scheme set
+/// (`scheme::EMBEDDED_SCHEMES`: rules, their stored order, order key and
+/// verification). Bump it with every change of an embedded scheme file.
 pub const P_SCHEME_TEMPLATE_VERSION: u32 = 1;
 /// Custom-owner generation options and the false-knock-out guard.
 pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
@@ -115,6 +116,10 @@ pub fn p_versions() -> Vec<(&'static str, String)> {
         (
             "P_DIAMOND_TEMPLATE_VERSION",
             P_DIAMOND_TEMPLATE_VERSION.to_string(),
+        ),
+        (
+            "P_SCHEME_TEMPLATE_VERSION",
+            P_SCHEME_TEMPLATE_VERSION.to_string(),
         ),
         ("P_CUSTOM_OWNER_VERSION", P_CUSTOM_OWNER_VERSION.to_string()),
         ("P_LIBRARY_SCHEMA", P_LIBRARY_SCHEMA.to_owned()),

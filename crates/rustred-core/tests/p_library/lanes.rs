@@ -191,6 +191,7 @@ fn lane_name(decision: &LaneDecision) -> &'static str {
         OwnerLane::Diamond => "Diamond",
         OwnerLane::Custom => "Custom",
         OwnerLane::Product => "Product",
+        OwnerLane::Scheme => "Scheme",
     }
 }
 
@@ -319,6 +320,9 @@ fn check_contract(presentation: &Presentation, decision: &LaneDecision) {
         LaneRoles::Carpet(roles) => check_carpet_contract(presentation, &roles).unwrap(),
         LaneRoles::Triangle(roles) => check_triangle_contract(presentation, &roles).unwrap(),
         LaneRoles::Diamond(roles) => check_diamond_contract(presentation, &roles).unwrap(),
+        // M5 A1 schemes: the scheme-adapted presentation is checked on the graph
+        // by `Presentation::from_slots` and the template by its descent witness.
+        LaneRoles::Scheme(_) => {}
     }
 }
 

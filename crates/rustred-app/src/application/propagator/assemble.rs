@@ -457,14 +457,20 @@ fn assemble(
             terminals: Vec::new(),
         };
         if spec.lane == OwnerLane::Scheme {
-            // M5-R0 A1: the node's corner is its one residual terminal, as the
-            // Custom owner it replaces has it (same class, same powers).
-            let presentation = &presentations[owner_presentation.0 as usize];
-            let corner = rustred::propagator::basis::node_corner(presentation);
-            let key = IntegralKey::try_new(corner).map_err(|error| {
-                PError::MalformedLibrary(format!("the corner of the Scheme owner {label}: {error}"))
+            // M5 A1 schemes: a scheme with a master rule has the node's corner as
+            // its one residual terminal, as the Custom owner it replaces has it
+            // (same class, same powers); a scheme without one (bubu) has none.
+            let info = dag.nodes.get(node_index.0 as usize).ok_or_else(|| {
+                PError::MalformedLibrary(format!("class {label} names node {}", node_index.0))
             })?;
-            spec.terminals.push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
+            if rustred::propagator::scheme::scheme_has_corner(info)? {
+                let presentation = &presentations[owner_presentation.0 as usize];
+                let corner = rustred::propagator::basis::node_corner(presentation);
+                let key = IntegralKey::try_new(corner).map_err(|error| {
+                    PError::MalformedLibrary(format!("the corner of the Scheme owner {label}: {error}"))
+                })?;
+                spec.terminals.push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
+            }
         } else if spec.lane == OwnerLane::Custom {
             let payload = custom_payload(
                 &custom,
