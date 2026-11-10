@@ -166,6 +166,12 @@ impl Cond {
     fn fixed(self) -> Option<i64> {
         (self.lo == self.hi).then_some(self.lo)
     }
+
+    /// `self + t` lies inside `outer` (infinite bounds stay infinite).
+    fn shifted_inside(self, t: i64, outer: Self) -> bool {
+        let move_bound = |b: i64| if b == i64::MIN || b == i64::MAX { b } else { b.saturating_add(t) };
+        outer.lo <= move_bound(self.lo) && move_bound(self.hi) <= outer.hi
+    }
 }
 
 /// A Forcer-convention polynomial in `(d, n_1..n_14)`.
@@ -288,7 +294,13 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
 fn scheme_no1() -> Result<&'static Scheme, PError> {
     static SCHEME: OnceLock<Result<Scheme, String>> = OnceLock::new();
     SCHEME
-        .get_or_init(|| parse_scheme(SCHEME_NO1_V1_JSON))
+        .get_or_init(|| match std::env::var("RUSTRED_P_SCHEME_JSON") {
+            // Spike only: a mutated copy for the verification's mutation test.
+            Ok(path) => std::fs::read_to_string(&path)
+                .map_err(|error| format!("{path}: {error}"))
+                .and_then(|json| parse_scheme(&json)),
+            Err(_) => parse_scheme(SCHEME_NO1_V1_JSON),
+        })
         .as_ref()
         .map_err(|error| PError::MalformedLibrary(format!("embedded scheme no1: {error}")))
 }
@@ -563,7 +575,15 @@ impl SchemeTemplate {
                         }
                     },
                     Generator::Rule(other) => {
-                        if verified.get(other) != Some(&true) {
+                        // A verified rule, used only where its own domain holds:
+                        // the rule's domain shifted by `t` lies inside it.
+                        let inside = (scheme.rules.iter())
+                            .find(|g| &g.name == other)
+                            .is_some_and(|g| {
+                                (rule.pattern.iter().zip(&g.pattern).zip(offset))
+                                    .all(|((&mine, &theirs), &t)| mine.shifted_inside(t, theirs))
+                            });
+                        if verified.get(other) != Some(&true) || !inside {
                             ok = false;
                             break;
                         }
