@@ -28,7 +28,6 @@
 //! (an automorphism may send an ISP to a combination of slots; it then acts
 //! only on keys without a power on that ISP) and carries signs.
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use crate::sector::symmetry::{self, CoefficientMatrix, DenominatorAction, Jacobian, MomentumMap};
 

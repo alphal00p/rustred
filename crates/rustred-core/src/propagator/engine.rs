@@ -180,6 +180,11 @@ pub(crate) struct PEngine {
     orbits: BTreeMap<OwnerClassId, OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
     /// The same for every routed sector, carried over from its owner.
     route_orbits: BTreeMap<(PresentationId, u64), OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
+    /// The verified automorphisms of the whole line set of each presentation
+    /// (indexed by presentation id): they move a Route key across the
+    /// subsectors of its presentation, as the vacuum reducer's one family
+    /// group does for every key.
+    presentation_orbits: Vec<OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
 }
 
 impl PEngine {
@@ -241,9 +246,11 @@ impl PEngine {
             })
             .map(|(&sector, _)| (sector, OnceLock::new()))
             .collect();
+        let presentation_orbits = shapes.iter().map(|_| OnceLock::new()).collect();
         Ok(Self {
             orbits,
             route_orbits,
+            presentation_orbits,
             shapes,
             width: (max_arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS),
             terminals: library.terminals().len(),
@@ -981,26 +988,70 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
-        if self.canonical_routes
-            && let Some((image, negative)) = self.canonical_route(presentation, powers)?
-        {
-            let coefficient = if negative {
-                self.library
-                    .coefficient_context()
-                    .try_neg(&coefficient, self.limits.exact_algebra)
-                    .map_err(algebra)?
-            } else {
-                coefficient
+        if self.canonical_routes {
+            // First across the subsectors of the presentation, then inside the
+            // sector reached (its own automorphisms can be more than the
+            // presentation's); each step is exact, the signs compose.
+            let across = self.canonical_in_presentation(presentation, powers)?;
+            let base = across
+                .as_ref()
+                .map_or(powers, |(image, _)| image.as_slice());
+            let inside = self.canonical_route(presentation, base)?;
+            let image = match (across, inside) {
+                (None, None) => None,
+                (Some(across), None) => Some(across),
+                (None, Some(inside)) => Some(inside),
+                (Some((_, first)), Some((image, second))) => Some((image, first != second)),
             };
-            return Ok((
-                self.engine.route_key(presentation, &image, tag)?,
-                coefficient,
-            ));
+            if let Some((image, negative)) = image {
+                let coefficient = if negative {
+                    self.library
+                        .coefficient_context()
+                        .try_neg(&coefficient, self.limits.exact_algebra)
+                        .map_err(algebra)?
+                } else {
+                    coefficient
+                };
+                return Ok((
+                    self.engine.route_key(presentation, &image, tag)?,
+                    coefficient,
+                ));
+            }
         }
         Ok((
             self.engine.route_key(presentation, powers, tag)?,
             coefficient,
         ))
+    }
+
+    /// The least exact image of a Route key of `presentation` under the
+    /// automorphisms of the presentation's whole line set, on any sector the
+    /// census knows (the image of a sector is a sector with the same number
+    /// of lines, so the key keeps its phase); `None` when the key is its own
+    /// representative.
+    fn canonical_in_presentation(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<Option<(Vec<i64>, bool)>, PError> {
+        let engine = self.engine;
+        let shape = engine.shape(presentation)?;
+        let Some(cell) = engine.presentation_orbits.get(presentation.0 as usize) else {
+            return Ok(None);
+        };
+        let orbit = cell
+            .get_or_init(|| {
+                owner_orbit(self.library.presentation(presentation), shape.lines).map(Arc::new)
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
+        if orbit.actions.is_empty() {
+            return Ok(None);
+        }
+        let sectors = &self.library.census().sectors;
+        Ok(least_image(&orbit.actions, powers, |image| {
+            sectors.contains_key(&(presentation, shape.support(image)))
+        }))
     }
 
     fn canonical_route(

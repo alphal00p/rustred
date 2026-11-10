@@ -13,6 +13,7 @@
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
 //!   P_ORBIT_CANON=off       orbit canonicalisation of Apply and Route keys off (M5 R0 A2; on by default)
 //!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
+//!   P_CENSUS_WARMUP=1       run the request once without census first (per-process setup warm), then measure
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
 //!
@@ -418,6 +419,26 @@ fn main() {
         .max()
         .unwrap_or(0);
     probe.last_phase = 2 * max_lines + 1;
+    // P_CENSUS_WARMUP=1: one plain request first (no inspector, no step cache), so the measured request
+    // finds the per-process setup (compiled routes, orbit groups) done, as in a long-lived vakint process.
+    let warmup_seconds = (std::env::var("P_CENSUS_WARMUP").as_deref() == Ok("1")).then(|| {
+        let t_warm = Instant::now();
+        library
+            .reduce(PReductionRequest {
+                inputs: inputs.clone(),
+                arithmetic: arithmetic(arith, threads),
+                scheduler: OrderedSchedulerOptions::with_threads(threads),
+                step_cache: None,
+                uncovered: PUncoveredPolicy::Reject,
+                onto_masters: true,
+                limits: ReductionLimits::default(),
+                inspector: None,
+            })
+            .unwrap();
+        let seconds = t_warm.elapsed().as_secs_f64();
+        eprintln!("[census] warm-up request {seconds:.2} s");
+        seconds
+    });
     let t_reduce = Instant::now();
     let result = library.reduce(PReductionRequest {
         inputs: inputs.clone(),
@@ -454,7 +475,7 @@ fn main() {
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
         "census": census_on, "orbit_canonicalization": orbit_canon, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
-        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
+        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "warmup_seconds": warmup_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
     });
     if let Some(p) = progress {

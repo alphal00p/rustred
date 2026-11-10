@@ -409,7 +409,7 @@ fn a_warm_run_replays_every_step_with_the_same_result() {
     let context = library.coefficient_context();
     let binding = library.step_cache_binding().unwrap();
     assert_eq!(binding.adapter, OrderedStepCacheAdapter::PropagatorLibrary);
-    assert_eq!(binding.family_fingerprint, library.identity());
+    assert_eq!(binding.family_fingerprint, library.step_identity());
     assert_eq!(binding.context_variables, ["d"]);
     assert_eq!(binding.unresolved_policy, Some(UnresolvedPolicy::Reject));
 
@@ -508,7 +508,11 @@ fn a_stale_record_of_an_unknown_terminal_is_refused() {
         .unwrap();
     let old = builder.build().unwrap();
     let (new, _) = one_owner_library(Arc::new(EchoLane));
+    // Same reduction settings (the fake lanes keep canonicalisation off), so
+    // the two share one step cache binding.
+    old.set_orbit_canonicalization(new.orbit_canonicalization());
     assert_eq!(new.identity(), old.identity());
+    assert_eq!(new.step_identity(), old.step_identity());
     assert_eq!(new.terminals().len(), 1);
 
     for scheduler in [no_tail(), OrderedSchedulerOptions::default()] {
@@ -556,7 +560,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         ),
         (
             true,
-            format!("{BASE},P_ORBIT_CANON_VERSION=1"),
+            format!("{BASE},P_ORBIT_CANON_VERSION=2"),
             ORBIT_CANON_RECORDS_DIGEST,
         ),
     ] {
@@ -592,7 +596,8 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
 }
 
 /// The records of the reference program with orbit canonicalisation on.
-const ORBIT_CANON_RECORDS_DIGEST: &str = "TO-BE-PINNED";
+const ORBIT_CANON_RECORDS_DIGEST: &str =
+    "4da1a8f4ee3fca307ee183f0051e5d24217b89b9d3ed5397bf497c1517ec0233";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {
