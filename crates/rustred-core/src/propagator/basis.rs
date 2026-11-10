@@ -1627,7 +1627,7 @@ pub fn largest_gamma_m(library: &PLibrary) -> Result<i8, PError> {
                     LinePower::new(1, units(&parent, roles.r)?),
                 )?
             }
-            LaneRoles::None | LaneRoles::Triangle(_) => continue,
+            LaneRoles::None | LaneRoles::Triangle(_) | LaneRoles::Diamond(_) => continue,
         };
         for &(m, _) in tag.exponents() {
             largest = largest.max(m.abs());

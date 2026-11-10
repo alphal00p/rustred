@@ -6,6 +6,7 @@ mod basis;
 mod basis4;
 mod cli;
 mod custom;
+mod diamond;
 mod eps;
 mod iface4;
 mod package;

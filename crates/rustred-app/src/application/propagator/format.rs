@@ -39,7 +39,9 @@ use rustred::persistence::{
 use rustred::propagator::census::{PCensus, PClassRecord, PSectorFate, SignedAffineLoopMap};
 use rustred::propagator::class::OwnerClassKey;
 use rustred::propagator::error::PError;
-use rustred::propagator::lane::{BubbleRoles, CarpetRoles, LaneRoles, OwnerLane, TriangleRoles};
+use rustred::propagator::lane::{
+    BubbleRoles, CarpetRoles, DiamondRoles, LaneRoles, OwnerLane, TriangleRoles,
+};
 use rustred::propagator::library::{CustomOwnerMeta, PTerminal};
 use rustred::propagator::presentation::{
     EdgeKind, EdgeMap, NodeRef, Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
@@ -735,6 +737,7 @@ pub enum KindRecord {
     InsertionAdapted,
     CarpetAdapted,
     TriangleAdapted,
+    DiamondAdapted,
     EpsNode,
     Caller,
 }
@@ -795,6 +798,13 @@ pub enum RolesRecord {
         a: [u16; 2],
         c: [u16; 2],
         k_loop: u8,
+    },
+    /// M3-T5b: path `i` is `a[i]`, `b[i]`, `c[i]`.
+    Diamond {
+        a: Vec<u16>,
+        b: Vec<u16>,
+        c: Vec<u16>,
+        spectator: Option<u16>,
     },
 }
 
@@ -925,6 +935,12 @@ impl RolesRecord {
             LaneRoles::Triangle(TriangleRoles { b, a, c, k_loop }) => {
                 Self::Triangle { b, a, c, k_loop }
             }
+            LaneRoles::Diamond(roles) => Self::Diamond {
+                a: roles.a().to_vec(),
+                b: roles.b().to_vec(),
+                c: roles.c().to_vec(),
+                spectator: roles.spectator,
+            },
         }
     }
 
@@ -946,6 +962,15 @@ impl RolesRecord {
             Self::Triangle { b, a, c, k_loop } => {
                 LaneRoles::Triangle(TriangleRoles { b, a, c, k_loop })
             }
+            // A diamond record of no diamond (path counts differ, too few or too
+            // many paths) reads as no roles: its owner then has no program and
+            // the library is refused.
+            Self::Diamond {
+                ref a,
+                ref b,
+                ref c,
+                spectator,
+            } => DiamondRoles::new(a, b, c, spectator).map_or(LaneRoles::None, LaneRoles::Diamond),
         }
     }
 }
@@ -961,6 +986,7 @@ impl KindRecord {
             PresentationKind::InsertionAdapted => Self::InsertionAdapted,
             PresentationKind::CarpetAdapted => Self::CarpetAdapted,
             PresentationKind::TriangleAdapted => Self::TriangleAdapted,
+            PresentationKind::DiamondAdapted => Self::DiamondAdapted,
             PresentationKind::EpsNode => Self::EpsNode,
             PresentationKind::Caller => Self::Caller,
         }
@@ -976,6 +1002,7 @@ impl KindRecord {
             Self::InsertionAdapted => PresentationKind::InsertionAdapted,
             Self::CarpetAdapted => PresentationKind::CarpetAdapted,
             Self::TriangleAdapted => PresentationKind::TriangleAdapted,
+            Self::DiamondAdapted => PresentationKind::DiamondAdapted,
             Self::EpsNode => PresentationKind::EpsNode,
             Self::Caller => PresentationKind::Caller,
         }

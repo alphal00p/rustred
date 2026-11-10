@@ -40,6 +40,8 @@ pub enum PresentationKind {
     InsertionAdapted,
     CarpetAdapted,
     TriangleAdapted,
+    /// M3-T5b.
+    DiamondAdapted,
     EpsNode,
     /// M3.
     Caller,

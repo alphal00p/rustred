@@ -1,5 +1,5 @@
 # The scope 1-4 p library program (M3-T8c). Counts are compared by name; RUSTRED_P_BLESS=1 rewrites this file.
-identity p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1
+identity p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1
 count forcer_tree_nodes 438  # nodes of the ForcerTree DAG of the tops with 1-4 loops, the trivial node included
 count forcer_action_L0_Trivial 1  # DAG nodes of that loop count whose Forcer action (rustred-topology matcher) is that one
 count forcer_action_L1_Insertion 6  # DAG nodes of that loop count whose Forcer action (rustred-topology matcher) is that one
@@ -26,11 +26,12 @@ count node_lane_L3_Insertion 33  # DAG nodes of that loop count presented on tha
 count node_lane_L3_SeriesParallel 56  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L3_Triangle 16  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_Carpet 14  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
-count node_lane_L4_Custom 13  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
+count node_lane_L4_Custom 9  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
+count node_lane_L4_Diamond 4  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_Insertion 141  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_SeriesParallel 79  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
 count node_lane_L4_Triangle 33  # DAG nodes of that loop count presented on that lane (Zero = the trivial node)
-count diamond_nodes_on_custom 4  # DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2, Diamond -> Custom; C-D kept it)
+count diamond_nodes_on_custom 0  # DAG nodes with the Forcer action Diamond presented on the Custom lane (D-M3-2; 0 since the Diamond lane of M3-T5b)
 count triangle_fallbacks 0  # Triangle nodes presented as Custom because their IBP row is not Forcer's
 count presentations 453  # presentations of the program: the tops, then one per DAG node with a presentation
 count census_nodes 437  # DAG nodes with a presentation in the census (every node but the trivial one)
@@ -51,15 +52,16 @@ count census_L3_zero_sectors 6794  # of them proved zero
 count census_L3_nonzero_sectors 1422  # of them sent to a class (owner sector or route)
 count census_L3_classes 92  # classes of that loop count (a class counts at its own loop order)
 count census_L4_presentations 291  # presentations of that loop count
-count census_L4_sectors 176608  # census sectors (presentation, support) of that loop count
-count census_L4_zero_sectors 156045  # of them proved zero
-count census_L4_nonzero_sectors 20563  # of them sent to a class (owner sector or route)
+count census_L4_sectors 173024  # census sectors (presentation, support) of that loop count
+count census_L4_zero_sectors 153475  # of them proved zero
+count census_L4_nonzero_sectors 19549  # of them sent to a class (owner sector or route)
 count census_L4_classes 183  # classes of that loop count (a class counts at its own loop order)
 count l4_tops 11  # top presentations with 4 loops (the families' 4L tops)
 count l4_top_nonzero_sectors 4519  # sectors of the 4L top presentations the census sends to a class (M2 G3: nonzero labelled 4L sectors)
 count l4_top_classes 183  # distinct classes of those sectors (M2 G3: 4L classes)
 count owners_Carpet 21  # owners (one per class) on that lane
-count owners_Custom 25  # owners (one per class) on that lane
+count owners_Custom 21  # owners (one per class) on that lane
+count owners_Diamond 4  # owners (one per class) on that lane
 count owners_Insertion 113  # owners (one per class) on that lane
 count owners_SeriesParallel 99  # owners (one per class) on that lane
 count owners_Triangle 52  # owners (one per class) on that lane
@@ -68,15 +70,15 @@ count terminals 17  # terminals: Unit, then one residual per residual key of a C
 count layer_rows 17  # rows of the basis layer, one per terminal (M3-T17: Unit, then each residual onto Forcer's masters)
 count layer_masters 16  # distinct masters named by the layer's rows (of P_BASIS_MASTERS_1_TO_4 at scope 1-4)
 count layer_rows_one_master_term 16  # residual rows that are a single master term (a square system whose matrix is a permutation)
-count certificate_zero_sectors 163059  # certificate: census sectors proved zero
+count certificate_zero_sectors 160489  # certificate: census sectors proved zero
 count certificate_owner_sectors 310  # certificate: census sectors that are their class's owner sector
-count certificate_routes 21769  # certificate: census routes verified and compiled
+count certificate_routes 20755  # certificate: census routes verified and compiled
 count certificate_edge_maps 227  # certificate: edge maps verified, each named by one owner
-count certificate_guarded_owners 25  # certificate: Custom owners through the hard guard
-count certificate_custom_rules 3242  # certificate: rules of the Custom payloads
-count certificate_witness_keys 16551  # certificate: Custom witness-box keys stepped (dots <= 2, rank <= 2)
-count certificate_witnesses_SameSectorStrict 68432  # certificate: children of the witness steps by witness
-count certificate_witnesses_Subsector 179242  # certificate: children of the witness steps by witness
+count certificate_guarded_owners 21  # certificate: Custom owners through the hard guard
+count certificate_custom_rules 2661  # certificate: rules of the Custom payloads
+count certificate_witness_keys 12636  # certificate: Custom witness-box keys stepped (dots <= 2, rank <= 2)
+count certificate_witnesses_SameSectorStrict 51031  # certificate: children of the witness steps by witness
+count certificate_witnesses_Subsector 127562  # certificate: children of the witness steps by witness
 custom L2T05-6171f2eb63223e2e t1star34 node 403 L2 lines 5 eps 2 arity 5 lp 0 residuals 0 two-sided 0x18 charts [7, f, 17, 1f] rules 42 residual keys [] order rustred.programmed-uncut-sector-order.v1 dump 366 lines blake3 07b0d4da26cb260cdf741601babfb92a4b5d4bdef7a96433272e826c0a1e2848
 custom L2T05-810c5f0ff11c4c40 t1star05 node 406 L2 lines 5 eps 1 arity 5 lp 1 residuals 1 two-sided 0x1 charts [1e, 1f] rules 18 residual keys [[1, 1, 1, 1, 1]] order rustred.programmed-uncut-sector-order.v1 dump 144 lines blake3 b89d0e623dc8c4320246b235ea6bac7ce7f3cf36daf15a775e14713c11e14a73
 custom L2T05-ae7e6d53b1956fd5 t1star24 node 405 L2 lines 5 eps 2 arity 5 lp 1 residuals 1 two-sided 0xc charts [13, 17, 1b, 1f] rules 79 residual keys [[1, 1, 1, 1, 1]] order rustred.programmed-uncut-sector-order.v1 dump 753 lines blake3 b05a9355fa0295ff8e5b76bb3d62ea00fa86a7dee99d0e66042bde55b5a09be3
@@ -94,13 +96,9 @@ custom L4T08-d261f9c2d25e2dac bebe node 151 L4 lines 8 eps 0 arity 14 lp 1 resid
 custom L4T09-1c8abad2243e10bc lala node 96 L4 lines 9 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [5ef] rules 220 residual keys [[1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 4260 lines blake3 f08bebc9403ae1436db216967369f7910c02bc75f20a3960711a010d7b8685f6
 custom L4T09-bb81f2828d54b056 nono node 104 L4 lines 9 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7f9] rules 193 residual keys [[1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 4774 lines blake3 26e428d845f8731b5535bdbac3fc27143156a005cb86a9dc281a4b17d955e83f
 custom L4T09-f394f8b540203dbf bubu node 107 L4 lines 9 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [7bb] rules 179 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 4149 lines blake3 4c7fd764f9260cb09d7ac8d98bce98b71b2f49e5ae415ddb5da29307e06afde2
-custom L4T09-fcbb654a0b4296f8 d384 node 132 L4 lines 9 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [3fe] rules 169 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 3977 lines blake3 249eb235a9d4436181bdb7bc751882f6e75529987f830c27886ad6e46e5e4d63
 custom L4T10-9f80d1b9bedb371e no6 node 33 L4 lines 10 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [6ff] rules 132 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 4823 lines blake3 85f895883336396e09d23156719edc645de481dfeaf638a02c1e8adcc21f6499
-custom L4T10-d07d0fffbe48f1f2 d399 node 34 L4 lines 10 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [5ff] rules 173 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 5379 lines blake3 0e1a26551870ca894420004c9c5283db3a3af983649cca6d394a06f8fc8b3cb6
-custom L4T10-d1f7ffcd2b2f3614 d394 node 48 L4 lines 10 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [3ff] rules 196 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 5669 lines blake3 7cc94040ff92c5d927763c6effedd9ed88947cb09d384246cce68c0f34e37064
 custom L4T11-23719591fd40fdf4 no1 node 6 L4 lines 11 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7ff] rules 308 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 7625 lines blake3 09ff638cb819c4d8007a8b01ac260e2a440a36854e82ff4f48f76d59db4c6168
 custom L4T11-44b602110b8577dd haha node 3 L4 lines 11 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7ff] rules 220 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 4853 lines blake3 0510817815719dbb800a7f2c2fd84e1be8b7cb1cf3d7b7fb9fe49c9aae9bb824
-custom L4T11-b08ea0232a8b1503 no3 node 9 L4 lines 11 eps 0 arity 14 lp 0 residuals 0 two-sided 0x0 charts [7ff] rules 43 residual keys [] order rustred.spired-uncut-sector-order.v1 dump 1069 lines blake3 8115f4b029beb58d72203fb1570fbb5084173a0fdb05ad786d33bacb1d8eb21a
 custom L4T11-f1d077dbbd38929d no2 node 2 L4 lines 11 eps 0 arity 14 lp 1 residuals 1 two-sided 0x0 charts [7ff] rules 303 residual keys [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]] order rustred.spired-uncut-sector-order.v1 dump 7311 lines blake3 855aded5c1a525bab71db12af912ad67b14094f6f5cec65a11b303c9d87ff3df
 layer 0 unit node 437 key [] = (1) tag [] Unit
 layer 1 L4T09-1c8abad2243e10bc node 96 key [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0] = (-1/(81-108*d+54*d^2-12*d^3+d^4)) tag [(-2, -4), (-1, 8), (1, 4)] lala
