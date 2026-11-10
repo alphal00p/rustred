@@ -510,12 +510,14 @@ fn restored_route(
     library: &PLibrary,
     source: &Presentation,
     target: &Presentation,
+    map: &SignedAffineLoopMap,
     source_support: u64,
     target_support: u64,
 ) -> Option<Result<Prepared, PError>> {
-    let verified = library
-        .saved_routes()?
-        .restore(source, target, source_support)?;
+    let verified =
+        library
+            .saved_routes()?
+            .restore(source, target, source_support, target_support, map)?;
     Some(transport_of(
         source,
         target,
@@ -908,7 +910,7 @@ impl<'l> PStepper<'l> {
                 ))
             })?
             .get_or_init(|| {
-                restored_route(self.library, source, target, support, owner.support)
+                restored_route(self.library, source, target, map, support, owner.support)
                     .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
             })
             .as_ref()

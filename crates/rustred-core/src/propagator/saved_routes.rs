@@ -24,13 +24,14 @@ use crate::sector::symmetry::saved::{
 };
 
 use super::PresentationId;
+use super::census::SignedAffineLoopMap;
 use super::engine::{routed_sectors, verify_route};
 use super::error::PError;
 use super::library::PLibrary;
 use super::presentation::Presentation;
 
 /// Schema of `routes.rrbin`; bump it when its record layout changes.
-pub const P_SAVED_ROUTES_SCHEMA: &str = "rustred.p-saved-routes.v1";
+pub const P_SAVED_ROUTES_SCHEMA: &str = "rustred.p-saved-routes.v2";
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct RoutesFile {
@@ -43,7 +44,41 @@ struct RoutesFile {
 struct RouteEntry {
     presentation: u32,
     support: u64,
+    /// What the record was verified for: the owner's presentation and
+    /// support and the census map. A record is restored only for exactly
+    /// these (a package whose census routes the sector otherwise verifies it).
+    target: u32,
+    target_support: u64,
+    map: SavedLoopMap,
     /// `RouteBlob`, decoded on the sector's first use.
+    blob: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+struct SavedLoopMap {
+    loops_in: u8,
+    loops_out: u8,
+    loop_linear: Vec<i64>,
+    loop_external: Vec<i64>,
+    external_sign: i8,
+}
+
+impl SavedLoopMap {
+    fn of(map: &SignedAffineLoopMap) -> Self {
+        Self {
+            loops_in: map.loops_in,
+            loops_out: map.loops_out,
+            loop_linear: map.loop_linear.to_vec(),
+            loop_external: map.loop_external.to_vec(),
+            external_sign: map.external_sign,
+        }
+    }
+}
+
+/// A record restorable for one routed sector.
+struct SavedRoute {
+    target: (PresentationId, u64),
+    map: SavedLoopMap,
     blob: Vec<u8>,
 }
 
@@ -56,7 +91,7 @@ struct RouteBlob {
 /// The saved route verifications of a library, by routed sector.
 #[derive(Default)]
 pub struct PSavedRoutes {
-    routes: BTreeMap<(PresentationId, u64), Vec<u8>>,
+    routes: BTreeMap<(PresentationId, u64), SavedRoute>,
 }
 
 impl std::fmt::Debug for PSavedRoutes {
@@ -95,11 +130,13 @@ impl PSavedRoutes {
         }
         let mut routes = BTreeMap::new();
         for entry in file.entries {
+            let route = SavedRoute {
+                target: (PresentationId(entry.target), entry.target_support),
+                map: entry.map,
+                blob: entry.blob,
+            };
             if routes
-                .insert(
-                    (PresentationId(entry.presentation), entry.support),
-                    entry.blob,
-                )
+                .insert((PresentationId(entry.presentation), entry.support), route)
                 .is_some()
             {
                 return Err(malformed(format!(
@@ -119,17 +156,23 @@ impl PSavedRoutes {
         self.routes.is_empty()
     }
 
-    /// The saved map of sector `support` of `source` onto `target`, restored;
-    /// `None` without a record or when it does not restore.
+    /// The saved map of sector `support` of `source` onto sector
+    /// `target_support` of `target` through `map`, restored; `None` without a
+    /// record for exactly these, or when it does not restore.
     pub(crate) fn restore(
         &self,
         source: &Presentation,
         target: &Presentation,
         support: u64,
+        target_support: u64,
+        map: &SignedAffineLoopMap,
     ) -> Option<VerifiedMap> {
-        let blob = self.routes.get(&(source.id, support))?;
+        let route = self.routes.get(&(source.id, support))?;
+        if route.target != (target.id, target_support) || route.map != SavedLoopMap::of(map) {
+            return None;
+        }
         let (blob, _): (RouteBlob, usize) =
-            bincode::decode_from_slice(blob, bincode::config::standard()).ok()?;
+            bincode::decode_from_slice(&route.blob, bincode::config::standard()).ok()?;
         let values = blob
             .table
             .materialize(source.family.coefficient_context())
@@ -149,9 +192,9 @@ pub fn export_saved_routes(library: &PLibrary) -> Result<(Vec<u8>, usize, usize)
     // order (the file does not depend on the thread count).
     let records: Vec<Result<Option<RouteEntry>, PError>> = routed_sectors(library)
         .into_par_iter()
-        .map(|(presentation, support, target, _, map)| {
+        .map(|(presentation, support, target_id, target_support, map)| {
             let source = library.presentation(presentation);
-            let target = library.presentation(target);
+            let target = library.presentation(target_id);
             let verified = verify_route(source, target, map, support)?;
             let mut table = SavedValueTableBuilder::new();
             let Ok(saved) = SavedVerifiedMap::capture(&verified, &mut table) else {
@@ -164,6 +207,9 @@ pub fn export_saved_routes(library: &PLibrary) -> Result<(Vec<u8>, usize, usize)
             Ok(Some(RouteEntry {
                 presentation: presentation.0,
                 support,
+                target: target_id.0,
+                target_support,
+                map: SavedLoopMap::of(map),
                 blob: bincode::encode_to_vec(&blob, bincode::config::standard())
                     .map_err(malformed)?,
             }))
