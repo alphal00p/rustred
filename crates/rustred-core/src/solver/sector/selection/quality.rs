@@ -4,7 +4,7 @@ use super::{Admitted, model::*};
 use crate::solver::{Power, SolverError};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Features([u64; 12]);
+pub(super) struct Features([u64; 14]);
 
 impl Features {
     pub(super) fn read<const N: usize>(
@@ -13,17 +13,23 @@ impl Features {
     ) -> Result<Self, SolverError> {
         let mut values = Self::default();
         let rule = &candidate.rule;
+        let mut raised_lines = [false; N];
         for term in &rule.candidate.rhs {
             let mut numerator = 0u64;
             let mut positive = 0u64;
+            let mut net_inactive = 0i64;
             for (axis, &active) in sector.iter().enumerate() {
                 let target = rule.candidate.target[axis];
                 let rhs = term.integral[axis];
                 let excursion = excursion(target, rhs, active)?;
                 if active {
                     add(&mut positive, excursion)?;
+                    raised_lines[axis] |= excursion > 0;
                 } else {
                     add(&mut numerator, excursion)?;
+                    net_inactive = net_inactive
+                        .checked_add(signed_degree_change(target, rhs, false)?)
+                        .ok_or_else(|| invalid("signed inactive degree overflow"))?;
                 }
             }
             values.0[RuleQualityFeature::MaxNumeratorShiftExcursion as usize] = values
@@ -40,6 +46,9 @@ impl Features {
                 &mut values.0[RuleQualityFeature::TotalPositiveShiftExcursion as usize],
                 positive,
             )?;
+            values.0[RuleQualityFeature::PositiveMaxNetInactiveDegreeShift as usize] = values
+                .get(RuleQualityFeature::PositiveMaxNetInactiveDegreeShift)
+                .max(net_inactive.max(0) as u64);
             add(
                 &mut values.0[RuleQualityFeature::CoefficientMonomials as usize],
                 count(term.coefficient.numerator.nterms())?,
@@ -49,6 +58,8 @@ impl Features {
                 count(term.coefficient.denominator.nterms())?,
             )?;
         }
+        values.0[RuleQualityFeature::DistinctRaisedSupportLines as usize] =
+            count(raised_lines.iter().filter(|&&raised| raised).count())?;
         values.0[RuleQualityFeature::ExceptionalCases as usize] = count(candidate.children.len())?;
         values.0[RuleQualityFeature::AffineExceptionalCases as usize] = count(
             candidate
@@ -73,6 +84,10 @@ impl Features {
 
     pub(super) fn get(&self, feature: RuleQualityFeature) -> u64 {
         self.0[feature as usize]
+    }
+
+    pub(super) fn snapshot(self) -> [u64; 14] {
+        self.0
     }
 
     pub(super) fn triggered(&self, trigger: &RulePortfolioTrigger) -> bool {
@@ -103,6 +118,10 @@ impl Features {
 // Offset proxies, not affine rank optimization or route prediction. Numeric
 // coordinates use exact differences of the corresponding one-axis degrees.
 pub(super) fn excursion(target: Power, rhs: Power, active: bool) -> Result<u64, SolverError> {
+    Ok(signed_degree_change(target, rhs, active)?.max(0) as u64)
+}
+
+fn signed_degree_change(target: Power, rhs: Power, active: bool) -> Result<i64, SolverError> {
     if target.is_symbolic() != rhs.is_symbolic() {
         return Err(invalid(
             "rule quality received mismatched symbolic target/RHS coordinates",
@@ -121,7 +140,7 @@ pub(super) fn excursion(target: Power, rhs: Power, active: bool) -> Result<u64, 
     } else {
         (-rhs_value).max(0) - (-target).max(0)
     };
-    Ok(amount.max(0) as u64)
+    Ok(amount)
 }
 
 fn count(value: usize) -> Result<u64, SolverError> {

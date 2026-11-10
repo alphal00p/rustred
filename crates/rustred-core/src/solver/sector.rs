@@ -18,8 +18,8 @@ pub use domains::SectorDomainSolution;
 pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
 pub use selection::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
-    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
-    RuleTrialStats, RuleTrialSummary,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
+    RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
 
 /// Saved dispatch semantics, independent of a rule's algebraic identity.

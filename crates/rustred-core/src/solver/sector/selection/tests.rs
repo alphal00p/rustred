@@ -10,14 +10,17 @@ fn limits() -> RuleTrialLimits {
         max_rows: 32,
         max_exact_trace_rows: 32,
         max_exact_trace_terms: 128,
+        max_alternatives: 2,
+        max_case_elapsed: None,
     }
 }
 
 fn policy() -> RuleSelectionPolicy {
     RuleSelectionPolicy::BoundedPortfolio {
-        alternatives: vec![SourceDiscoveryStrategy::Materialized(
-            SourceVisitOrder::new(vec![1, 0], 2).unwrap(),
-        )],
+        alternatives: vec![
+            SourceDiscoveryStrategy::Materialized(SourceVisitOrder::new(vec![1, 0], 2).unwrap())
+                .into(),
+        ],
         limits: limits(),
         quality: vec![RuleQualityPriority {
             feature: RuleQualityFeature::RhsTerms,
@@ -148,9 +151,10 @@ fn bounded_rule_portfolio_trigger_and_duplicate_skip_without_optional_search() {
     let RuleSelectionPolicy::BoundedPortfolio { alternatives, .. } = &mut duplicate else {
         unreachable!()
     };
-    *alternatives = vec![SourceDiscoveryStrategy::InputOrder];
+    *alternatives = vec![SourceDiscoveryStrategy::InputOrder.into()];
     let (_, stats, trials) = select(&solver(&system, duplicate));
-    assert_eq!(trials.len(), 1);
+    assert_eq!(trials.len(), 2);
+    assert_eq!(trials[1].outcome, RuleTrialOutcome::DuplicateDescriptor);
     assert_eq!(stats.rule_selection.unwrap().duplicate_skips, 1);
 }
 
@@ -715,7 +719,7 @@ fn bounded_rule_portfolio_retains_exact_admitted_or_order_without_geometry_repla
     let RuleSelectionPolicy::BoundedPortfolio { alternatives, .. } = &mut policy else {
         unreachable!()
     };
-    *alternatives = vec![SourceDiscoveryStrategy::InputOrder];
+    *alternatives = vec![SourceDiscoveryStrategy::InputOrder.into()];
     let solver = solver(&system, policy);
     let candidate = solver
         .solve_case(Case::generic(), SearchOptions::default())
@@ -728,7 +732,8 @@ fn bounded_rule_portfolio_retains_exact_admitted_or_order_without_geometry_repla
     assert!(!expected.0.is_empty());
     assert_eq!(selected.children, expected.0);
     assert_eq!(selected.discarded, expected.1);
-    assert_eq!(trials.len(), 1);
+    assert_eq!(trials.len(), 2);
+    assert_eq!(trials[1].outcome, RuleTrialOutcome::DuplicateDescriptor);
     assert_eq!(
         trials[0].stats.geometry_calls,
         selected.rule.exceptions.branches.len()
@@ -784,10 +789,13 @@ fn bounded_rule_portfolio_constructor_materializes_alternatives_on_the_same_basi
         [true],
         SectorConfig {
             rule_selection: RuleSelectionPolicy::BoundedPortfolio {
-                alternatives: vec![SourceDiscoveryStrategy::Features(vec![SourceRowPriority {
-                    feature: SourceRowFeature::Terms,
-                    descending: false,
-                }])],
+                alternatives: vec![
+                    SourceDiscoveryStrategy::Features(vec![SourceRowPriority {
+                        feature: SourceRowFeature::Terms,
+                        descending: false,
+                    }])
+                    .into(),
+                ],
                 limits: limits(),
                 quality: vec![RuleQualityPriority {
                     feature: RuleQualityFeature::RhsTerms,
@@ -806,7 +814,7 @@ fn bounded_rule_portfolio_constructor_materializes_alternatives_on_the_same_basi
     else {
         unreachable!()
     };
-    let SourceDiscoveryStrategy::Materialized(plan) = &alternatives[0] else {
+    let SourceDiscoveryStrategy::Materialized(plan) = &alternatives[0].source_discovery else {
         panic!("materialize once, not per case")
     };
     assert_eq!(plan.ordinals().len(), configured.basis().len());
@@ -814,4 +822,136 @@ fn bounded_rule_portfolio_constructor_materializes_alternatives_on_the_same_basi
         .solve_sector(SectorSolveOptions::default())
         .unwrap();
     assert!(result.stats.rule_selection.is_some());
+}
+
+#[test]
+fn literal_quality_counts_distinct_support_axes_and_signed_inactive_cancellation() {
+    let candidate = quality_candidate(
+        Integral::symbolic([0, 0, 0, 0]).unwrap(),
+        vec![
+            Integral::symbolic([1, 0, -3, 2]).unwrap(),
+            Integral::symbolic([1, 0, -1, 1]).unwrap(),
+        ],
+    );
+    let f = Features::read(&candidate, &[true, true, false, false]).unwrap();
+    assert_eq!(f.get(RuleQualityFeature::RhsTerms), 2);
+    assert_eq!(f.get(RuleQualityFeature::TotalPositiveShiftExcursion), 2);
+    assert_eq!(f.get(RuleQualityFeature::DistinctRaisedSupportLines), 1);
+    assert_eq!(f.get(RuleQualityFeature::MaxNumeratorShiftExcursion), 3);
+    assert_eq!(
+        f.get(RuleQualityFeature::PositiveMaxNetInactiveDegreeShift),
+        1,
+        "inactive changes +3 and -2 cancel before clipping, unlike excursion"
+    );
+    let numeric = quality_candidate(
+        Integral::numeric([2, -2, -4]).unwrap(),
+        vec![Integral::numeric([3, -3, -2]).unwrap()],
+    );
+    let f = Features::read(&numeric, &[true, false, false]).unwrap();
+    assert_eq!(f.get(RuleQualityFeature::DistinctRaisedSupportLines), 1);
+    assert_eq!(
+        f.get(RuleQualityFeature::PositiveMaxNetInactiveDegreeShift),
+        0,
+        "actual negative degrees change +1-2=-1, then clip once"
+    );
+}
+
+#[test]
+fn explicit_8_and_32_budgets_preserve_baseline_and_deduplicate_descriptor_searches() {
+    let system = system();
+    for count in [2, 8, 32] {
+        let mut policy = policy();
+        let RuleSelectionPolicy::BoundedPortfolio {
+            alternatives,
+            limits,
+            ..
+        } = &mut policy
+        else {
+            unreachable!()
+        };
+        limits.max_alternatives = count;
+        *alternatives = vec![SourceDiscoveryStrategy::InputOrder.into(); count];
+        policy.validate(1).unwrap();
+        let (selected, stats, trials) = select(&solver(&system, policy));
+        assert_eq!(selected.rule.candidate.sources[0].basis_row, 0);
+        assert_eq!(trials.len(), count + 1);
+        assert_eq!(stats.rule_selection.unwrap().attempted, 1);
+        assert_eq!(stats.rule_selection.unwrap().duplicate_skips, count);
+    }
+    let mut policy = policy();
+    let RuleSelectionPolicy::BoundedPortfolio { alternatives, .. } = &mut policy else {
+        unreachable!()
+    };
+    *alternatives = vec![SourceDiscoveryStrategy::InputOrder.into(); 3];
+    assert!(
+        policy.validate(1).is_err(),
+        "old default budget is still two"
+    );
+}
+
+#[test]
+fn cooperative_zero_case_budget_keeps_baseline_and_runs_no_optional_lift() {
+    let system = system();
+    let mut policy = policy();
+    let RuleSelectionPolicy::BoundedPortfolio { limits, .. } = &mut policy else {
+        unreachable!()
+    };
+    limits.max_case_elapsed = Some(std::time::Duration::ZERO);
+    let (selected, stats, trials) = select(&solver(&system, policy));
+    assert_eq!(selected.rule.candidate.sources[0].basis_row, 0);
+    assert_eq!(trials.len(), 2);
+    assert_eq!(trials[1].outcome, RuleTrialOutcome::CaseTimeBudget);
+    assert_eq!(trials[1].stats.search.rows, 0);
+    assert_eq!(trials[1].stats.exact_lifts, 0);
+    assert_eq!(stats.rule_selection.unwrap().attempted, 1);
+    assert_eq!(stats.rule_selection.unwrap().case_time_skips, 1);
+}
+
+#[test]
+fn canonical_candidate_dedup_is_separate_from_descriptor_and_retains_native_cost() {
+    let context = CoefficientContext::new(["n"]);
+    let system = SourceSystem::new(
+        vec![
+            row(&context, &[(0, "1"), (-1, "n-1")]),
+            row(&context, &[(0, "1"), (-1, "n-1")]),
+        ],
+        [0],
+    )
+    .unwrap();
+    let (selected, stats, trials) = select(&solver(&system, policy()));
+    assert_eq!(selected.rule.candidate.sources[0].basis_row, 0);
+    assert_eq!(trials.len(), 2);
+    assert_eq!(trials[1].outcome, RuleTrialOutcome::DuplicateCandidate);
+    assert_eq!(trials[1].stats.duplicate_of_trial, Some(0));
+    assert_eq!(trials[1].stats.target_matches_baseline, Some(true));
+    assert!(trials[1].stats.score.is_some());
+    let stats = stats.rule_selection.unwrap();
+    assert_eq!(stats.attempted, 2);
+    assert_eq!(stats.duplicate_skips, 0);
+    assert_eq!(stats.candidate_duplicates, 1);
+    assert_eq!(stats.completed_admissions, 2);
+    assert_eq!(stats.canonical_distinct_completed, 1);
+    assert_eq!(stats.total.search.rows, 2);
+    assert_eq!(stats.total.exact_trace_terms, 4);
+}
+
+#[test]
+fn canonical_identity_rejects_changed_target_rhs_or_exception_even_when_scores_tie() {
+    let target = Integral::symbolic([0]).unwrap();
+    let original = quality_candidate(target, vec![Integral::symbolic([-1]).unwrap()]);
+    let identity = CandidateIdentity::read(&original);
+    let mut altered = quality_candidate(target, vec![Integral::symbolic([-1]).unwrap()]);
+    assert!(identity.matches(&altered));
+    altered.rule.candidate.target = Integral::symbolic([1]).unwrap();
+    assert!(!identity.matches(&altered));
+    altered.rule.candidate.target = target;
+    altered.rule.candidate.rhs[0].integral = Integral::symbolic([-2]).unwrap();
+    assert!(!identity.matches(&altered));
+    altered.rule.candidate.rhs[0].integral = Integral::symbolic([-1]).unwrap();
+    altered.rule.exceptions.branches.push(vec![
+        CoefficientContext::new(["n"])
+            .coefficient_fixture("n-1")
+            .numerator,
+    ]);
+    assert!(!identity.matches(&altered));
 }

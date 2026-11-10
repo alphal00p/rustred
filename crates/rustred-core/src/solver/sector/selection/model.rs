@@ -2,14 +2,29 @@
 
 use std::time::Duration;
 
-use crate::solver::{SearchStats, SolverError, SourceDiscoveryStrategy};
+use crate::solver::{CaseSeedSchedule, SearchStats, SolverError, SourceDiscoveryStrategy};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleTrialDescriptor {
+    pub source_discovery: SourceDiscoveryStrategy,
+    pub seed_schedule: CaseSeedSchedule,
+}
+
+impl From<SourceDiscoveryStrategy> for RuleTrialDescriptor {
+    fn from(source_discovery: SourceDiscoveryStrategy) -> Self {
+        Self {
+            source_discovery,
+            seed_schedule: CaseSeedSchedule::Reference,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum RuleSelectionPolicy {
     #[default]
     FirstValid,
     BoundedPortfolio {
-        alternatives: Vec<SourceDiscoveryStrategy>,
+        alternatives: Vec<RuleTrialDescriptor>,
         limits: RuleTrialLimits,
         quality: Vec<RuleQualityPriority>,
         trigger: RulePortfolioTrigger,
@@ -23,6 +38,11 @@ pub struct RuleTrialLimits {
     pub max_rows: usize,
     pub max_exact_trace_rows: usize,
     pub max_exact_trace_terms: usize,
+    /// Explicit optional-trial budget: 2 (old behavior), 8, or 32.
+    pub max_alternatives: usize,
+    /// Cooperative case budget including the mandatory baseline. Checked at
+    /// optional-trial boundaries; no individual native lift is preempted.
+    pub max_case_elapsed: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +66,14 @@ pub enum RuleQualityFeature {
     /// Unlike the maximum, this distinguishes repeated active-power increases
     /// across children. It is neither net descent nor a physical power bound.
     TotalPositiveShiftExcursion,
+    /// Number of DISTINCT original-support axes whose positive degree is
+    /// increased in at least one RHS term. Repeated increases count once.
+    DistinctRaisedSupportLines,
+    /// Positive part of the maximum SIGNED net inactive-degree change of one
+    /// RHS term. Negative and positive axis changes cancel before clipping.
+    /// Symbolic coordinates use relative shifts; numeric coordinates use the
+    /// actual max(-n,0) degree. This is a score, not a domain-wide rank bound.
+    PositiveMaxNetInactiveDegreeShift,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,11 +105,17 @@ impl RuleSelectionPolicy {
         else {
             return Ok(());
         };
-        if !(1..=2).contains(&alternatives.len()) {
-            return Err(invalid("rule portfolio requires one or two alternatives"));
+        if ![2, 8, 32].contains(&limits.max_alternatives)
+            || alternatives.is_empty()
+            || alternatives.len() > limits.max_alternatives
+        {
+            return Err(invalid(
+                "rule portfolio alternatives must fit an explicit 2, 8 or 32 trial budget",
+            ));
         }
         for alternative in alternatives {
-            alternative.validate(arity)?;
+            alternative.source_discovery.validate(arity)?;
+            alternative.seed_schedule.validate(arity)?;
         }
         if limits.max_rows == 0
             || limits.max_exact_trace_rows == 0
@@ -104,8 +138,8 @@ impl RuleSelectionPolicy {
     ) -> Result<(), SolverError> {
         if let Self::BoundedPortfolio { alternatives, .. } = self {
             for alternative in alternatives {
-                if let Some(plan) = alternative.materialize(basis)? {
-                    *alternative = SourceDiscoveryStrategy::Materialized(plan);
+                if let Some(plan) = alternative.source_discovery.materialize(basis)? {
+                    alternative.source_discovery = SourceDiscoveryStrategy::Materialized(plan);
                 }
             }
         }
@@ -116,7 +150,7 @@ impl RuleSelectionPolicy {
 fn validate_features(
     features: impl Iterator<Item = RuleQualityFeature>,
 ) -> Result<(), SolverError> {
-    let mut seen = [false; 12];
+    let mut seen = [false; 14];
     let mut count = 0;
     for feature in features {
         let slot = &mut seen[feature as usize];
@@ -127,7 +161,7 @@ fn validate_features(
     }
     if count == 0 || count > seen.len() {
         return Err(invalid(
-            "rule portfolio requires one through twelve features",
+            "rule portfolio requires one through fourteen features",
         ));
     }
     Ok(())
@@ -154,6 +188,14 @@ pub enum RuleTrialOutcome {
     GeometryBudget,
     NonProgress,
     Fatal,
+    /// Same actual source order AND seed schedule as an earlier descriptor.
+    DuplicateDescriptor,
+    /// Same canonical case/target/RHS/exceptions as an earlier admitted trial.
+    DuplicateCandidate,
+    /// The optional trial did not have the baseline's fully recentred target.
+    DifferentTarget,
+    /// Cooperative case budget stopped this optional trial or its admission.
+    CaseTimeBudget,
 }
 
 /// Work of one trial, including rejected/fatal trials. `search.elapsed`
@@ -167,6 +209,15 @@ pub struct RuleTrialStats {
     pub geometry_calls: usize,
     pub guard_extraction: Duration,
     pub geometry: Duration,
+    pub elapsed: Duration,
+    pub case_elapsed: Duration,
+    /// All 14 literal features, indexed by RuleQualityFeature discriminant.
+    pub score: Option<[u64; 14]>,
+    pub target_matches_baseline: Option<bool>,
+    pub duplicate_of_trial: Option<usize>,
+    /// Actual seed displacement shells visited, not just the configured cap.
+    pub seed_first_depth: Option<u32>,
+    pub seed_last_depth: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -192,11 +243,35 @@ pub struct RuleSelectionStats {
     pub geometry_budget: usize,
     pub non_progress: usize,
     pub fatal: usize,
+    /// Every trial that completed exact rule and domain admission, including
+    /// duplicate candidates and valid results discarded by the cooperative cap.
+    pub completed_admissions: usize,
+    pub canonical_distinct_completed: usize,
+    pub candidate_duplicates: usize,
+    pub different_targets: usize,
+    pub case_time_skips: usize,
     pub total: RuleTrialStats,
 }
 
 impl RuleSelectionStats {
     pub(super) fn record(&mut self, summary: RuleTrialSummary) {
+        if summary.outcome == RuleTrialOutcome::DuplicateDescriptor {
+            self.duplicate_skips += 1;
+            return;
+        }
+        if summary.outcome == RuleTrialOutcome::CaseTimeBudget
+            && summary.stats.search.rows == 0
+            && summary.stats.exact_lifts == 0
+        {
+            self.case_time_skips += 1;
+            return;
+        }
+        if summary.stats.score.is_some() {
+            self.completed_admissions += 1;
+            if summary.stats.duplicate_of_trial.is_none() {
+                self.canonical_distinct_completed += 1;
+            }
+        }
         self.attempted += 1;
         match summary.outcome {
             RuleTrialOutcome::Admitted => self.admitted += 1,
@@ -210,6 +285,10 @@ impl RuleSelectionStats {
                     RuleTrialOutcome::GeometryBudget => self.geometry_budget += 1,
                     RuleTrialOutcome::NonProgress => self.non_progress += 1,
                     RuleTrialOutcome::Fatal => self.fatal += 1,
+                    RuleTrialOutcome::DuplicateCandidate => self.candidate_duplicates += 1,
+                    RuleTrialOutcome::DifferentTarget => self.different_targets += 1,
+                    RuleTrialOutcome::CaseTimeBudget => self.case_time_skips += 1,
+                    RuleTrialOutcome::DuplicateDescriptor => unreachable!(),
                     RuleTrialOutcome::Admitted => unreachable!(),
                 }
             }
@@ -229,5 +308,12 @@ impl RuleSelectionStats {
         to.geometry_calls += from.geometry_calls;
         to.guard_extraction += from.guard_extraction;
         to.geometry += from.geometry;
+        to.elapsed += from.elapsed;
+        if let Some(first) = from.seed_first_depth {
+            to.seed_first_depth = Some(to.seed_first_depth.map_or(first, |prior| prior.min(first)));
+        }
+        if let Some(last) = from.seed_last_depth {
+            to.seed_last_depth = Some(to.seed_last_depth.map_or(last, |prior| prior.max(last)));
+        }
     }
 }

@@ -126,10 +126,10 @@ pub use sector::{
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
-    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
-    RuleTrialStats, RuleTrialSummary,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
+    RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{Seed, Seeds};
+pub use seed::{CaseSeedSchedule, Seed, Seeds};
 pub use source::SourceSystem;
 
 /// Aggregate diagnostics returned by the topology-neutral family solver.
