@@ -11,6 +11,8 @@
 //!   P_CENSUS_MAX_KEYS=N     stop once N keys were popped (sizing)
 //!   P_CENSUS_FORWARD_ONLY=1 stop at the end of the forward pass (the inspector errs at the last phase
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
+//!   P_ORBIT_CANON=off       orbit canonicalisation of Apply and Route keys off (M5 R0 A2; on by default)
+//!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
 //!
@@ -325,6 +327,10 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    let orbit_canon = std::env::var("P_ORBIT_CANON").map_or(true, |v| v != "off");
+    library.set_orbit_canonicalization(orbit_canon);
+    let route_canon = std::env::var("P_ORBIT_CANON_ROUTES").map_or(true, |v| v != "off");
+    library.set_route_canonicalization(route_canon);
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -344,7 +350,7 @@ fn main() {
         });
     }
     eprintln!(
-        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}",
+        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}; orbit canonicalisation {orbit_canon}",
         cell.tops,
         inputs.len()
     );
@@ -447,7 +453,7 @@ fn main() {
 
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
-        "census": census_on, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
+        "census": census_on, "orbit_canonicalization": orbit_canon, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
         "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
     });

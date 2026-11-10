@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::RangeInclusive;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::algebra::{Coefficient, CoefficientContext};
@@ -25,7 +26,7 @@ use super::step::PLaneStep;
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::topology::{Dag, NodeInfo};
-use super::{NodeIndex, OwnerClassId, PTerminalId, PresentationId, p_versions};
+use super::{NodeIndex, OwnerClassId, P_ORBIT_CANON_VERSION, PTerminalId, PresentationId, p_versions};
 
 #[derive(Clone)]
 pub enum OwnerProgram {
@@ -199,6 +200,10 @@ pub struct PLibrary {
     terminals: Vec<PTerminal>,
     basis_map: Option<Arc<dyn PBasisMap>>,
     engine: OnceLock<Result<PEngine, PError>>,
+    /// Orbit canonicalisation of Apply keys (M5 R0 A2); on by default.
+    orbit_canonicalization: AtomicBool,
+    /// With it, the Route keys of routed sectors too; on by default.
+    route_canonicalization: AtomicBool,
 }
 
 impl fmt::Debug for PLibrary {
@@ -230,18 +235,56 @@ impl PLibrary {
     }
 
     /// The cache identity of this program: `"p-library:scope=<a>-<b>:"` plus
-    /// every `name=value` of [`p_versions`]. No loop count, no digest.
+    /// every `name=value` of [`p_versions`], and `P_ORBIT_CANON_VERSION` while
+    /// orbit canonicalisation is on (it changes the recorded steps). No loop
+    /// count, no digest.
     pub fn identity(&self) -> String {
-        let versions: Vec<String> = p_versions()
+        let mut versions: Vec<String> = p_versions()
             .into_iter()
             .map(|(name, value)| format!("{name}={value}"))
             .collect();
+        if self.orbit_canonicalization() {
+            let scope = if self.route_canonicalization() { "" } else { "-apply" };
+            versions.push(format!(
+                "P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
+            ));
+        }
         format!(
             "p-library:scope={}-{}:{}",
             self.scope.start(),
             self.scope.end(),
             versions.join(",")
         )
+    }
+
+    /// Switch the orbit canonicalisation of Apply keys (M5 R0 A2) on or off
+    /// for the requests that start after this call; it is on by default.
+    /// Canonicalisation replaces an Apply key by the least of its exact images
+    /// under the verified automorphisms of its owner sector (one key times
+    /// `+-1`, module [`super::orbit`]), so symmetric copies merge. The values
+    /// do not depend on it: each replacement is an exact identity and the
+    /// decomposition onto the fixed terminals is unique. The setting changes
+    /// the recorded steps, so it is part of [`Self::identity`] and of the step
+    /// cache binding: set it before the first request that uses a cache.
+    pub fn set_orbit_canonicalization(&self, on: bool) {
+        self.orbit_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether requests canonicalise Apply keys under owner automorphisms.
+    pub fn orbit_canonicalization(&self) -> bool {
+        self.orbit_canonicalization.load(Ordering::Relaxed)
+    }
+
+    /// With orbit canonicalisation on, canonicalise the Route keys of routed
+    /// sectors as well (under the owner's automorphisms carried over by the
+    /// route); on by default. Off, only Apply keys are canonicalised.
+    pub fn set_route_canonicalization(&self, on: bool) {
+        self.route_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether canonicalisation, when on, reaches the Route keys.
+    pub fn route_canonicalization(&self) -> bool {
+        self.route_canonicalization.load(Ordering::Relaxed)
     }
 
     pub fn scope(&self) -> RangeInclusive<u8> {
@@ -702,6 +745,8 @@ impl PLibraryBuilder {
             terminals: self.terminals,
             basis_map: self.basis_map,
             engine: OnceLock::new(),
+            orbit_canonicalization: AtomicBool::new(true),
+            route_canonicalization: AtomicBool::new(true),
         })
     }
 

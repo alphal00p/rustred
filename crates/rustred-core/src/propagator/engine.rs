@@ -48,7 +48,9 @@ use crate::solver::{CandidateOrderedPhaseKind, CandidateOrderedReductionProgress
 
 use super::census::{PSectorFate, SignedAffineLoopMap};
 use super::error::PError;
+use super::lane::{LaneRoles, OwnerLane};
 use super::library::{OwnerProgram, PInspector, PLibrary, POwner};
+use super::orbit::{OwnerOrbit, owner_orbit, routed_orbit};
 use super::path_census::{PCensusAgg, PCensusKind, PCensusOwner, PPathCensus, PStepRecord};
 use super::presentation::Presentation;
 use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, default_order_key};
@@ -172,6 +174,11 @@ pub(crate) struct PEngine {
     owners: BTreeMap<OwnerClassId, OwnerSlot>,
     owner_sectors: BTreeMap<(PresentationId, u64), OwnerClassId>,
     routes: BTreeMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
+    /// The verified automorphisms of each owner sector, found on the owner's
+    /// first canonicalised key (M5 R0 A2).
+    orbits: BTreeMap<OwnerClassId, OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
+    /// The same for every routed sector, carried over from its owner.
+    route_orbits: BTreeMap<(PresentationId, u64), OnceLock<Result<Arc<OwnerOrbit>, PError>>>,
 }
 
 impl PEngine {
@@ -221,7 +228,18 @@ impl PEngine {
             .filter(|(_, fate)| matches!(fate, PSectorFate::Owner { .. }))
             .map(|(&sector, _)| (sector, OnceLock::new()))
             .collect();
+        let orbits = owners.keys().map(|&class| (class, OnceLock::new())).collect();
+        let route_orbits = census
+            .sectors
+            .iter()
+            .filter(|(sector, fate)| {
+                matches!(fate, PSectorFate::Owner { .. }) && !owner_sectors.contains_key(*sector)
+            })
+            .map(|(&sector, _)| (sector, OnceLock::new()))
+            .collect();
         Ok(Self {
+            orbits,
+            route_orbits,
             shapes,
             width: (max_arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS),
             terminals: library.terminals().len(),
@@ -440,6 +458,9 @@ impl PEngine {
                 engine: self,
                 limits,
                 census,
+                canonical: library.orbit_canonicalization(),
+                canonical_routes: library.orbit_canonicalization()
+                    && library.route_canonicalization(),
             },
             inspector,
         };
@@ -546,6 +567,10 @@ pub(crate) struct PStepper<'l> {
     engine: &'l PEngine,
     limits: ReductionLimits,
     census: PCensusMode,
+    /// Orbit canonicalisation of Apply keys ([`PLibrary::orbit_canonicalization`]).
+    canonical: bool,
+    /// And of the Route keys of routed sectors ([`PLibrary::route_canonicalization`]).
+    canonical_routes: bool,
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -804,12 +829,20 @@ impl<'l> PStepper<'l> {
         let (class, map) = match engine.sector(self.library, presentation, support)? {
             Sector::Zero => return Ok(step),
             Sector::Owner(class) => {
-                let key = PKey::Apply {
-                    class,
-                    view: view.clone(),
+                let one = self.library.coefficient_context().one();
+                let (key, coefficient) = if self.canonical {
+                    let tag = GammaTag::decode_dense(tag_slots)?;
+                    self.apply_key(class, powers, &tag, one)?
+                } else {
+                    (
+                        PKey::Apply {
+                            class,
+                            view: view.clone(),
+                        },
+                        one,
+                    )
                 };
-                step.terms
-                    .insert(key, self.library.coefficient_context().one());
+                step.terms.insert(key, coefficient);
                 return Ok(step);
             }
             Sector::Routed { class, map } => (class, map),
@@ -844,21 +877,12 @@ impl<'l> PStepper<'l> {
             let powers = endpoint.key().powers();
             // A numerator can pinch a line of the owner: that is a subsector
             // of its presentation, routed by the census in a later phase.
-            let child = if shape.support(powers) == owner.support {
-                PKey::Apply {
-                    class,
-                    view: engine.view(powers, &tag)?,
-                }
+            let (child, coefficient) = if shape.support(powers) == owner.support {
+                self.apply_key(class, powers, &tag, endpoint.coefficient().clone())?
             } else {
-                engine.route_key(owner.presentation, powers, &tag)?
+                self.route_child(owner.presentation, powers, &tag, endpoint.coefficient().clone())?
             };
-            merge(
-                context,
-                &self.limits,
-                &mut step.terms,
-                child,
-                endpoint.coefficient().clone(),
-            )?;
+            merge(context, &self.limits, &mut step.terms, child, coefficient)?;
         }
         Ok(step)
     }
@@ -896,8 +920,212 @@ impl<'l> PStepper<'l> {
         self.ordered_step(output)
     }
 
+    /// The Apply key of `powers` with `tag` on the sector of `class`, and the
+    /// weight `coefficient` carries onto it: with canonicalisation on, the
+    /// least exact image of the key under the owner's automorphisms
+    /// ([`super::orbit`]), the weight times its sign.
+    fn apply_key(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: Coefficient,
+    ) -> Result<(PKey, Coefficient), PError> {
+        if self.canonical
+            && let Some((image, negative)) = self.canonical_powers(class, powers)?
+        {
+            let coefficient = if negative {
+                self.library
+                    .coefficient_context()
+                    .try_neg(&coefficient, self.limits.exact_algebra)
+                    .map_err(algebra)?
+            } else {
+                coefficient
+            };
+            return Ok((
+                PKey::Apply {
+                    class,
+                    view: self.engine.view(&image, tag)?,
+                },
+                coefficient,
+            ));
+        }
+        Ok((
+            PKey::Apply {
+                class,
+                view: self.engine.view(powers, tag)?,
+            },
+            coefficient,
+        ))
+    }
+
+    /// The Route key of `powers` with `tag` on `presentation`, and the weight
+    /// `coefficient` carries onto it: with canonicalisation on and on a routed
+    /// sector, the least exact image of the key under the sector's
+    /// automorphisms ([`super::orbit::routed_orbit`]), the weight times its
+    /// sign. A Route key has no order inside its phase, and every image has
+    /// the same lines, so any image may stand for the key.
+    fn route_child(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: Coefficient,
+    ) -> Result<(PKey, Coefficient), PError> {
+        if self.canonical_routes
+            && let Some((image, negative)) = self.canonical_route(presentation, powers)?
+        {
+            let coefficient = if negative {
+                self.library
+                    .coefficient_context()
+                    .try_neg(&coefficient, self.limits.exact_algebra)
+                    .map_err(algebra)?
+            } else {
+                coefficient
+            };
+            return Ok((self.engine.route_key(presentation, &image, tag)?, coefficient));
+        }
+        Ok((self.engine.route_key(presentation, powers, tag)?, coefficient))
+    }
+
+    fn canonical_route(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<Option<(Vec<i64>, bool)>, PError> {
+        let engine = self.engine;
+        let shape = engine.shape(presentation)?;
+        let support = shape.support(powers);
+        let Some(cell) = engine.route_orbits.get(&(presentation, support)) else {
+            return Ok(None);
+        };
+        let orbit = cell
+            .get_or_init(|| {
+                let Ok(Sector::Routed { class, map }) =
+                    engine.sector(self.library, presentation, support)
+                else {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                };
+                let owner = engine.owner(class)?;
+                // The route must compile (and so be verified) before it is used.
+                let source = self.library.presentation(presentation);
+                let target = self.library.presentation(owner.presentation);
+                let compiled = engine
+                    .routes
+                    .get(&(presentation, support))
+                    .map(|route| {
+                        route
+                            .get_or_init(|| {
+                                compile_route(source, target, map, support, owner.support)
+                            })
+                            .is_ok()
+                    })
+                    .unwrap_or(false);
+                if !compiled {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
+                let owner_orbit = self.orbit(class)?;
+                Ok(Arc::new(routed_orbit(source, support, map, owner_orbit)))
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
+        Ok(orbit
+            .actions
+            .iter()
+            .filter_map(|action| OwnerOrbit::image(action, powers))
+            .filter(|(image, _)| image.as_slice() < powers && shape.support(image) == support)
+            .min())
+    }
+
+    /// The verified automorphisms of the sector of `class`.
+    fn orbit(&self, class: OwnerClassId) -> Result<&Arc<OwnerOrbit>, PError> {
+        let slot = self.engine.owner(class)?;
+        self.engine
+            .orbits
+            .get(&class)
+            .ok_or_else(|| {
+                PError::MalformedLibrary(format!("owner class {:016x} has no orbit cell", class.0))
+            })?
+            .get_or_init(|| {
+                owner_orbit(self.library.presentation(slot.presentation), slot.support).map(Arc::new)
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The least exact image of `powers` other than itself, in the owner's
+    /// order and then by powers, with its sign; `None` when the key is its own
+    /// representative. Images the owner cannot order, or off its support, are
+    /// not used.
+    fn canonical_powers(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+    ) -> Result<Option<(Vec<i64>, bool)>, PError> {
+        let orbit = self.orbit(class)?;
+        if orbit.actions.is_empty() {
+            return Ok(None);
+        }
+        let mut images: BTreeMap<Vec<i64>, bool> = BTreeMap::new();
+        for action in &orbit.actions {
+            if let Some((image, negative)) = OwnerOrbit::image(action, powers)
+                && image.as_slice() != powers
+            {
+                images.entry(image).or_insert(negative);
+            }
+        }
+        if images.is_empty() {
+            return Ok(None);
+        }
+        let slot = self.engine.owner(class)?;
+        let shape = self.engine.shape(slot.presentation)?;
+        let owner = self.owner(class)?;
+        let context = self.context(owner);
+        // The default order key (every lane but Custom; Triangle owners weigh
+        // their role slots) is a symmetric function of the powers, so every
+        // image ties with the key and only the powers decide.
+        if owner.spec.lane != OwnerLane::Custom
+            && !matches!(owner.spec.roles, LaneRoles::Triangle(_))
+        {
+            return Ok(images
+                .into_iter()
+                .filter(|(image, _)| shape.support(image) == slot.support)
+                .min()
+                .filter(|(image, _)| image.as_slice() < powers));
+        }
+        let order = |powers: &[i64]| match owner.program(self.library) {
+            Ok(OwnerProgram::Lane(lane)) => lane.order_key(&context, powers).ok(),
+            Ok(OwnerProgram::Missing { .. }) => default_order_key(&owner.spec, powers).ok(),
+            Err(_) => None,
+        };
+        let Some(mut best_order) = order(powers) else {
+            return Ok(None);
+        };
+        let mut best: Option<(Vec<i64>, bool)> = None;
+        for (image, negative) in images {
+            if shape.support(&image) != slot.support {
+                continue;
+            }
+            let Some(image_order) = order(&image) else {
+                continue;
+            };
+            let below = match image_order.cmp(&best_order) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Greater => false,
+                std::cmp::Ordering::Equal => {
+                    image.as_slice() < best.as_ref().map_or(powers, |(b, _)| b.as_slice())
+                }
+            };
+            if below {
+                best_order = image_order;
+                best = Some((image, negative));
+            }
+        }
+        Ok(best)
+    }
+
     /// The Apply key of `child`: its sector must be an owner sector.
-    fn apply_child(&self, child: &PChild) -> Result<PKey, PError> {
+    fn apply_child(&self, child: &PChild) -> Result<(PKey, Coefficient), PError> {
         let support = self
             .engine
             .shape(child.presentation)?
@@ -912,10 +1140,7 @@ impl<'l> PStepper<'l> {
                     child.presentation.0
                 ))
             })?;
-        Ok(PKey::Apply {
-            class: *class,
-            view: self.engine.view(&child.powers, &child.tag)?,
-        })
+        self.apply_key(*class, &child.powers, &child.tag, child.coefficient.clone())
     }
 
     fn ordered_step(&self, output: PStepOut) -> Result<OrderedStep<PKey>, PError> {
@@ -933,20 +1158,16 @@ impl<'l> PStepper<'l> {
                     child.powers.len()
                 )));
             }
-            let key = match child.stage {
-                PStage::Route => {
-                    self.engine
-                        .route_key(child.presentation, &child.powers, &child.tag)?
-                }
+            let (key, coefficient) = match child.stage {
+                PStage::Route => self.route_child(
+                    child.presentation,
+                    &child.powers,
+                    &child.tag,
+                    child.coefficient,
+                )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
-            merge(
-                context,
-                &self.limits,
-                &mut step.terms,
-                key,
-                child.coefficient,
-            )?;
+            merge(context, &self.limits, &mut step.terms, key, coefficient)?;
         }
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
@@ -1401,6 +1622,8 @@ mod tests {
             engine: &engine,
             limits: ReductionLimits::default(),
             census: PCensusMode::OFF,
+            canonical: true,
+            canonical_routes: true,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -1471,6 +1694,8 @@ mod tests {
             engine: &engine,
             limits: ReductionLimits::default(),
             census: PCensusMode::OFF,
+            canonical: true,
+            canonical_routes: true,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
