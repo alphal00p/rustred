@@ -785,3 +785,116 @@ impl<K: FrontierKey, P: Clone + Ord, W> Frontier<K, P, W> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::OrderedPosition;
+    use super::*;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    fn powers(rng: &mut StdRng) -> Vec<i64> {
+        let len = rng.random_range(1..=23);
+        (0..len)
+            .map(|_| match rng.random_range(0..20) {
+                0 => rng.random_range(-1000..1000),
+                1 => i64::from(i8::MIN) - rng.random_range(0..3),
+                2 => i64::from(i8::MAX) + rng.random_range(0..3),
+                _ => rng.random_range(-3..4),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn compact_powers_round_trip_and_order_as_vectors() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let keys: Vec<Vec<i64>> = (0..400).map(|_| powers(&mut rng)).collect();
+        for a in &keys {
+            let pa = CompactPowers::new(a, false);
+            assert_eq!(pa.to_vec(), *a);
+            assert_eq!(
+                matches!(pa, CompactPowers::Inline { .. }),
+                a.len() <= INLINE_POWERS && a.iter().all(|&p| i8::try_from(p).is_ok())
+            );
+            for b in &keys {
+                let pb = CompactPowers::new(b, false);
+                assert_eq!(pa.cmp_powers(&pb), a.cmp(b));
+                assert_eq!(pa == pb, a == b);
+            }
+        }
+        assert_eq!(std::mem::size_of::<CompactPowers>(), 24);
+    }
+
+    /// The packed frontiers pop what the classic one pops, in its order,
+    /// through inserts, merges, cancellations, returns and removals.
+    #[test]
+    fn packed_frontiers_pop_the_classic_sequence() {
+        for (seed, mode) in [(1, FrontierMode::Compact), (2, FrontierMode::Phased), (3, FrontierMode::Phased)] {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut classic: Frontier<IntegralKey, i64, i64> = Frontier::new(FrontierMode::Classic);
+            let mut packed: Frontier<IntegralKey, i64, i64> = Frontier::new(mode);
+            let phases = 6;
+            let position = |key: &IntegralKey| -> (usize, i64) {
+                let p = key.powers();
+                ((p[0].unsigned_abs() as usize) % phases, p.iter().sum::<i64>() % 5)
+            };
+            let random_key = |rng: &mut StdRng| {
+                let len = rng.random_range(1..=4);
+                let v: Vec<i64> = (0..len).map(|_| rng.random_range(-3..4)).collect();
+                IntegralKey::try_new(v).unwrap()
+            };
+            for _ in 0..200 {
+                let key = random_key(&mut rng);
+                let (phase, priority) = position(&key);
+                let pending = || Pending {
+                    position: OrderedPosition { phase, priority },
+                    weight: 1,
+                };
+                if classic.remove(&key).is_none() {
+                    classic.insert(key.clone(), pending());
+                    packed.insert(key, pending());
+                } else {
+                    packed.remove(&key).unwrap();
+                    classic.insert(key.clone(), pending());
+                    packed.insert(key, pending());
+                }
+            }
+            for phase in 0..phases {
+                let order_c: Vec<_> = classic.iter().map(|(s, w)| (s.into_owned(), *w)).collect();
+                let order_p: Vec<_> = packed.iter().map(|(s, w)| (s.into_owned(), *w)).collect();
+                assert_eq!(order_c, order_p);
+                loop {
+                    let (a, b) = (classic.pop_in_phase(phase), packed.pop_in_phase(phase));
+                    assert_eq!(a, b);
+                    let Some((node, _)) = a else { break };
+                    for _ in 0..rng.random_range(0..6) {
+                        let key = random_key(&mut rng);
+                        let (p, priority) = position(&key);
+                        if p < phase || (p == phase && priority >= node.priority) {
+                            continue;
+                        }
+                        let w = rng.random_range(-2..3);
+                        let mut decide = |found: Child<'_, IntegralKey, i64, i64>| {
+                            Ok::<_, ()>(match found {
+                                Child::Occupied { weight, .. } => {
+                                    *weight += w;
+                                    if *weight == 0 { ChildAction::Remove } else { ChildAction::Keep }
+                                }
+                                Child::Vacant(_) if w == 0 => ChildAction::Keep,
+                                Child::Vacant(_) => ChildAction::Insert(Pending {
+                                    position: OrderedPosition { phase: p, priority },
+                                    weight: w,
+                                }),
+                            })
+                        };
+                        let rc = classic.child(key.clone(), &mut decide).unwrap();
+                        let rp = packed.child(key, &mut decide).unwrap();
+                        assert_eq!(rc, rp);
+                        assert_eq!(classic.len(), packed.len());
+                    }
+                }
+                assert_eq!(classic.earlier_than(phase + 1), packed.earlier_than(phase + 1));
+            }
+            assert!(classic.is_empty() && packed.is_empty());
+        }
+    }
+}
