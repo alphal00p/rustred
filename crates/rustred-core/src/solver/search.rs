@@ -47,6 +47,8 @@ pub struct SectorConfig<const N: usize> {
     pub source_discovery: SourceDiscoveryStrategy,
     /// Optional exact candidate selection; the default retains first-valid search.
     pub rule_selection: RuleSelectionPolicy,
+    /// Seed order inside each L1 shell of the symbolic case search (opt-in; default SpIRed chronology).
+    pub seed_schedule: super::SeedSchedule,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -62,6 +64,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             coefficient_variable_order: CoefficientVariableOrder::Original,
             source_discovery: SourceDiscoveryStrategy::default(),
             rule_selection: RuleSelectionPolicy::default(),
+            seed_schedule: super::SeedSchedule::default(),
         }
     }
 }
@@ -452,11 +455,14 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        let mut seeds = Seeds::new_two_sided(
-            initial,
-            *self.order.sector(),
-            self.seed_frozen(),
-            self.order.two_sided_axes(),
+        let mut seeds = super::ScheduledSeeds::new(
+            Seeds::new_two_sided(
+                initial,
+                *self.order.sector(),
+                self.seed_frozen(),
+                self.order.two_sided_axes(),
+            ),
+            self.config.seed_schedule,
         );
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The

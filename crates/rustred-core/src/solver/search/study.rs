@@ -81,7 +81,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     ) -> Result<TraceStudy<N>, SolverError> {
         self.validate_search(case, options)?;
         let initial = case.integral();
-        let mut stream = Seeds::new_two_sided(initial, *self.order.sector(), self.seed_frozen(), self.order.two_sided_axes());
+        let mut stream = super::super::ScheduledSeeds::new(
+            Seeds::new_two_sided(initial, *self.order.sector(), self.seed_frozen(), self.order.two_sided_axes()),
+            self.config.seed_schedule,
+        );
         let probe = Probe::new(self.order.clone(), self.system.variable_count, options);
         let point: Vec<u64> = probe.point.iter().map(|x| probe.field.from_element(x)).collect();
         let mut probe = Some(probe);

@@ -134,7 +134,7 @@ pub use sector::{
     RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
     RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{Seed, Seeds};
+pub use seed::{ScheduledSeeds, Seed, SeedSchedule, Seeds};
 pub use source::SourceSystem;
 pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
 
