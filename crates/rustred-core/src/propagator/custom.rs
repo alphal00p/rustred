@@ -56,9 +56,9 @@ use crate::solver::{
 
 use super::bundle_wire::{
     BundleWireError, CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS,
-    DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, StoredProgram,
-    candidate_sections, decode_family_record, decode_program_record, import_coefficients,
-    storage_variables, validate_dispatch, validate_sectors,
+    DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, RuleRecord,
+    StoredProgram, candidate_sections, decode_family_record, decode_program_record,
+    import_coefficients, storage_variables, validate_dispatch, validate_sectors,
 };
 use super::error::PError;
 use super::lane::OwnerLane;
@@ -510,6 +510,8 @@ pub struct CustomRule {
     pub exclusions: Vec<Vec<String>>,
     /// Dispatched after the baseline partition (a schema v3 dispatch entry).
     pub dispatched: bool,
+    /// Provenance: the seed rows (IBP row x seed) the rule was solved from.
+    pub sources: usize,
 }
 
 fn custom_powers(record: &IntegralRecord) -> Vec<CustomPower> {
@@ -587,6 +589,7 @@ pub fn custom_payload_rules(payload: &[u8]) -> Result<Vec<CustomRule>, PError> {
                         (entry.sector, entry.rule)
                     })
                     .is_ok(),
+                sources: rule.sources.len(),
             });
         }
     }
@@ -795,7 +798,7 @@ impl<const N: usize> CustomStep<N> {
                 &ReductionLimits::default(),
             );
             match applied {
-                Ok(AppliedOwnerStep::Terminal | AppliedOwnerStep::Applied(_)) => {}
+                Ok(AppliedOwnerStep::Terminal | AppliedOwnerStep::Applied(..)) => {}
                 Ok(AppliedOwnerStep::Uncovered) => return Err(failed("uncovered".to_owned())),
                 Err(CandidateReductionError::Application(error)) => {
                     return Err(PError::Engine(error));
@@ -877,7 +880,8 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
                     key: integral,
                 });
             }
-            AppliedOwnerStep::Applied(terms) => {
+            AppliedOwnerStep::Applied(terms, position) => {
+                record_rule_hit(mask(&chart), position);
                 for (child, coefficient) in terms {
                     let powers = child.powers();
                     if powers.len() != self.arity {
@@ -918,6 +922,24 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
     }
 }
 
+thread_local! {
+    /// The rule the last Custom step of this thread applied, `(chart, position
+    /// in the chart's rule list)`: the p path census reads and clears it right
+    /// after the step, on the same thread (M5 artefact v2, spec item 8).
+    static LAST_RULE: std::cell::Cell<Option<(u64, u32)>> = const { std::cell::Cell::new(None) };
+}
+
+fn record_rule_hit(chart: u64, position: usize) {
+    let position = u32::try_from(position).unwrap_or(u32::MAX);
+    LAST_RULE.with(|cell| cell.set(Some((chart, position))));
+}
+
+/// The rule the last Custom step of this thread applied, cleared: `(chart,
+/// position in the chart's rule list)`. `None` after any other step.
+pub(crate) fn take_rule_hit() -> Option<(u64, u32)> {
+    LAST_RULE.with(std::cell::Cell::take)
+}
+
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
 fn zero_certificates(
@@ -953,13 +975,90 @@ fn zero_certificates(
     Ok(proofs)
 }
 
+/// The explicit application order of a Custom owner's rules (p artefact v2,
+/// notes/artifact-ordering.SPEC.md item 1): per chart (raw sector mask), the
+/// payload's rule indices in the order the owner's FirstValid dispatch tries
+/// them. Every chart of the payload must be listed, each with a permutation of
+/// its rules; anything else is refused. Two rules with the same case are two
+/// entries (rules are never keyed by case).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PRuleOrder {
+    pub charts: BTreeMap<u64, Vec<u32>>,
+}
+
+/// Put the rules of every chart of `program` in the order `order` gives, and
+/// move the whole-piece dispatch entries with their rules.
+fn apply_rule_order(program: &mut ProgramRecord, order: &PRuleOrder) -> Result<(), PError> {
+    let held: BTreeSet<u64> = program.sectors.iter().map(|s| mask(&s.sector)).collect();
+    let listed: BTreeSet<u64> = order.charts.keys().copied().collect();
+    if held != listed {
+        return Err(PError::MalformedLibrary(format!(
+            "rule order: charts {listed:x?}, the payload has {held:x?}"
+        )));
+    }
+    let mut moved = Vec::with_capacity(program.rule_dispatch.len());
+    for (sector_index, sector) in program.sectors.iter_mut().enumerate() {
+        let chart = mask(&sector.sector);
+        let permutation = &order.charts[&chart];
+        let count = sector.rules.len();
+        let mut seen = vec![false; count];
+        for &index in permutation {
+            match seen.get_mut(index as usize) {
+                Some(slot) if !*slot => *slot = true,
+                _ => {
+                    return Err(PError::MalformedLibrary(format!(
+                        "rule order of chart {chart:#x}: {permutation:?} is no permutation of {count} rules"
+                    )));
+                }
+            }
+        }
+        if permutation.len() != count {
+            return Err(PError::MalformedLibrary(format!(
+                "rule order of chart {chart:#x}: {} entries for {count} rules",
+                permutation.len()
+            )));
+        }
+        let mut position_of = vec![0_usize; count];
+        for (position, &index) in permutation.iter().enumerate() {
+            position_of[index as usize] = position;
+        }
+        let rules = std::mem::take(&mut sector.rules);
+        let mut slots: Vec<Option<RuleRecord>> = rules.into_iter().map(Some).collect();
+        sector.rules = permutation
+            .iter()
+            .map(|&index| slots[index as usize].take().expect("a permutation"))
+            .collect();
+        for entry in program
+            .rule_dispatch
+            .iter()
+            .filter(|entry| entry.sector == sector_index)
+        {
+            let mut entry = entry.clone();
+            entry.rule = *position_of.get(entry.rule).ok_or_else(|| {
+                payload_error(format!("a dispatch entry names rule {}", entry.rule))
+            })?;
+            moved.push(entry);
+        }
+    }
+    if moved.len() != program.rule_dispatch.len() {
+        return Err(payload_error("a dispatch entry names an unknown chart"));
+    }
+    moved.sort_by_key(|entry| (entry.sector, entry.rule));
+    program.rule_dispatch = moved;
+    Ok(())
+}
+
 fn build<const N: usize>(
     presentation: &Presentation,
     payload: &[u8],
     meta: &CustomOwnerMeta,
     prepare: bool,
+    order: Option<&PRuleOrder>,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
-    let decoded = decode(Some(presentation), payload)?;
+    let mut decoded = decode(Some(presentation), payload)?;
+    if let Some(order) = order {
+        apply_rule_order(&mut decoded.program, order)?;
+    }
     let program = &decoded.program;
     let arity = presentation.slots.len();
     let support = mask(&program.root_sector);
@@ -1079,7 +1178,18 @@ pub fn build_custom_step(
     payload: &[u8],
     meta: &CustomOwnerMeta,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
-    build_custom_step_with(presentation, payload, meta, false)
+    build_custom_step_with(presentation, payload, meta, false, None)
+}
+
+/// [`build_custom_step`] whose FirstValid dispatch tries every chart's rules
+/// in the explicit order `order` (p artefact v2) instead of the payload's.
+pub fn build_custom_step_ordered(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    order: Option<&PRuleOrder>,
+) -> Result<Arc<dyn PLaneStep>, PError> {
+    build_custom_step_with(presentation, payload, meta, false, order)
 }
 
 /// [`build_custom_step`] with every chart prepared now: a rule that does not
@@ -1090,7 +1200,7 @@ pub fn build_custom_step_prepared(
     payload: &[u8],
     meta: &CustomOwnerMeta,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
-    build_custom_step_with(presentation, payload, meta, true)
+    build_custom_step_with(presentation, payload, meta, true, None)
 }
 
 fn build_custom_step_with(
@@ -1098,6 +1208,7 @@ fn build_custom_step_with(
     payload: &[u8],
     meta: &CustomOwnerMeta,
     prepare: bool,
+    order: Option<&PRuleOrder>,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
     let arity = presentation.slots.len();
     if !crate::compiled_runtime_arities().contains(&arity) {
@@ -1111,7 +1222,7 @@ fn build_custom_step_with(
     macro_rules! dispatch {
         ($($n:literal),*) => {
             match crate::campaign_storage_arity(arity) {
-                $($n => build::<$n>(presentation, payload, meta, prepare),)*
+                $($n => build::<$n>(presentation, payload, meta, prepare, order),)*
                 storage => Err(PError::Unsupported(format!(
                     "custom owner arity {arity} has no compiled storage (width {storage}); \
                      rebuild with RUSTRED_RUNTIME_ARITIES including {arity}"

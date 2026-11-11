@@ -8,6 +8,7 @@ pub mod assemble;
 pub mod format;
 pub mod generate;
 pub mod loader;
+pub mod ordering;
 pub mod package;
 
 pub use assemble::{AssembleOptions, AssembledLibrary, assemble_library};

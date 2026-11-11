@@ -699,6 +699,15 @@ pub struct FilesRecord {
     pub census: String,
     pub census_json: String,
     pub layer: Option<String>,
+    /// p artefact v2: the rule ordering file (`ordering.json`), if any
+    /// (`super::ordering`); absent in older packages and in `rustred
+    /// p-package` output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordering: Option<String>,
+    /// p artefact v2: saved route verifications (`routes.rrbin`,
+    /// `rustred::propagator::saved_routes`), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routes: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

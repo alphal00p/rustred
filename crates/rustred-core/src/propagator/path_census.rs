@@ -20,6 +20,8 @@
 //!   per owner (Apply) or presentation (Route), and the Apply inflow by
 //!   (lines, dots, rank);
 //! - at every phase boundary, the driver's progress counters;
+//! - per Custom owner, the hit count of every rule per phase
+//!   ([`PPathCensus::rule_hits`]);
 //! - optionally ([`PPathCensusOptions::keep_apply_keys`]) every stepped Apply
 //!   key (owner class, powers and tag slots), for orbit counts;
 //! - optionally ([`PPathCensusOptions::max_keys`]) a cap on popped keys: the
@@ -107,6 +109,9 @@ pub(crate) struct PStepRecord {
     pub(crate) agg: PCensusAgg,
     /// The Apply key's view (powers, tag slots), when kept.
     pub(crate) apply_view: Option<Box<[i64]>>,
+    /// The rule a Custom step applied: `(chart, position in the chart's rule
+    /// list)` (M5 artefact v2, spec item 8).
+    pub(crate) rule: Option<(u64, u32)>,
 }
 
 /// An owner seen by the census.
@@ -183,6 +188,10 @@ pub struct PPathCensus {
     pub repeats: u64,
     pub phase_regressions: u64,
     pub cache_hits: u64,
+    /// Per-rule hit counts of Custom owners (M5 artefact v2, spec item 8):
+    /// `(owner class, chart, rule position in the chart's application order,
+    /// phase)` -> steps that applied it.
+    pub rule_hits: BTreeMap<(u64, u64, u32, u32), u64>,
     seen: HashSet<u128>,
     last_phase: Option<usize>,
     started: Option<Instant>,
@@ -204,6 +213,7 @@ impl PPathCensus {
             repeats: 0,
             phase_regressions: 0,
             cache_hits: 0,
+            rule_hits: BTreeMap::new(),
             seen: HashSet::new(),
             last_phase: None,
             started: None,
@@ -253,6 +263,11 @@ impl PPathCensus {
 
     pub(crate) fn stepped(&mut self, record: PStepRecord) {
         self.steps.entry(record.key).or_default().add(&record.agg);
+        if let Some((chart, rule)) = record.rule {
+            *(self.rule_hits)
+                .entry((record.key.2, chart, rule, record.key.0))
+                .or_default() += 1;
+        }
         if let Some(view) = record.apply_view {
             self.apply_keys.push((record.key.2, view));
         }
