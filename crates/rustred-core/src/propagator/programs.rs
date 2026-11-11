@@ -73,6 +73,7 @@ pub fn lane_program(library: &PLibrary, owner: &POwnerSpec) -> Result<OwnerProgr
         OwnerLane::Carpet => Arc::new(CarpetStep::from_owner(library, owner)?),
         OwnerLane::Triangle => Arc::new(TriangleStep::from_owner(library, owner)?),
         OwnerLane::Diamond => Arc::new(DiamondStep::from_owner(library, owner)?),
+        OwnerLane::Scheme => Arc::new(super::scheme::SchemeStep::from_owner(library, owner)?),
         OwnerLane::Custom => custom_step(library, owner)?,
         lane @ (OwnerLane::Zero | OwnerLane::Product) => {
             return Err(malformed(format!("the lane {lane:?} has no program")));

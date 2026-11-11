@@ -355,6 +355,16 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
             }
             OwnerLane::Triangle => check_triangle_owner(spec, parent, support)?,
             OwnerLane::Diamond => check_diamond_owner(spec, parent, support)?,
+            OwnerLane::Scheme => {
+                if !spec.edge_maps.is_empty() || spec.terminals.len() > 1 {
+                    return Err(malformed(format!(
+                        "Scheme owner {:016x} with {} edge maps and {} terminals",
+                        spec.class.0,
+                        spec.edge_maps.len(),
+                        spec.terminals.len()
+                    )));
+                }
+            }
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
                 report.guarded_owners += 1;

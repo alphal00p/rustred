@@ -370,6 +370,7 @@ fn role_lines(roles: LaneRoles) -> Vec<u16> {
             .chain(&roles.spectator)
             .copied()
             .collect(),
+        LaneRoles::Scheme(_) => Vec::new(),
     }
 }
 
@@ -581,6 +582,15 @@ pub fn present(
         | OwnerLane::Carpet
         | OwnerLane::Triangle
         | OwnerLane::Diamond => adapted(node, decision, id, context),
+        OwnerLane::Scheme => match decision.roles {
+            LaneRoles::Scheme(roles) => {
+                super::scheme::scheme_presentation(node, &roles, id, context)
+            }
+            roles => Err(broken(format!(
+                "node {}: the lane Scheme with roles {roles:?}",
+                node.index
+            ))),
+        },
         lane @ (OwnerLane::Zero | OwnerLane::Product) => Err(broken(format!(
             "node {}: the lane {lane:?} has no presentation",
             node.index

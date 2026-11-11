@@ -747,6 +747,7 @@ pub enum KindRecord {
     CarpetAdapted,
     TriangleAdapted,
     DiamondAdapted,
+    SchemeAdapted,
     EpsNode,
     Caller,
 }
@@ -785,6 +786,7 @@ pub enum LaneRecord {
     Carpet,
     Triangle,
     Diamond,
+    Scheme,
     Custom,
     Product,
 }
@@ -815,6 +817,8 @@ pub enum RolesRecord {
         c: Vec<u16>,
         spectator: Option<u16>,
     },
+    /// M5-R0 A1.
+    Scheme { scheme: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -906,6 +910,7 @@ impl LaneRecord {
             OwnerLane::Carpet => Self::Carpet,
             OwnerLane::Triangle => Self::Triangle,
             OwnerLane::Diamond => Self::Diamond,
+            OwnerLane::Scheme => Self::Scheme,
             OwnerLane::Custom => Self::Custom,
             OwnerLane::Product => Self::Product,
         }
@@ -919,6 +924,7 @@ impl LaneRecord {
             Self::Carpet => OwnerLane::Carpet,
             Self::Triangle => OwnerLane::Triangle,
             Self::Diamond => OwnerLane::Diamond,
+            Self::Scheme => OwnerLane::Scheme,
             Self::Custom => OwnerLane::Custom,
             Self::Product => OwnerLane::Product,
         }
@@ -950,6 +956,9 @@ impl RolesRecord {
                 c: roles.c().to_vec(),
                 spectator: roles.spectator,
             },
+            LaneRoles::Scheme(roles) => Self::Scheme {
+                scheme: roles.scheme,
+            },
         }
     }
 
@@ -980,6 +989,9 @@ impl RolesRecord {
                 ref c,
                 spectator,
             } => DiamondRoles::new(a, b, c, spectator).map_or(LaneRoles::None, LaneRoles::Diamond),
+            Self::Scheme { scheme } => {
+                LaneRoles::Scheme(rustred::propagator::lane::SchemeRoles { scheme })
+            }
         }
     }
 }
@@ -996,6 +1008,7 @@ impl KindRecord {
             PresentationKind::CarpetAdapted => Self::CarpetAdapted,
             PresentationKind::TriangleAdapted => Self::TriangleAdapted,
             PresentationKind::DiamondAdapted => Self::DiamondAdapted,
+            PresentationKind::SchemeAdapted => Self::SchemeAdapted,
             PresentationKind::EpsNode => Self::EpsNode,
             PresentationKind::Caller => Self::Caller,
         }
@@ -1012,6 +1025,7 @@ impl KindRecord {
             Self::CarpetAdapted => PresentationKind::CarpetAdapted,
             Self::TriangleAdapted => PresentationKind::TriangleAdapted,
             Self::DiamondAdapted => PresentationKind::DiamondAdapted,
+            Self::SchemeAdapted => PresentationKind::SchemeAdapted,
             Self::EpsNode => PresentationKind::EpsNode,
             Self::Caller => PresentationKind::Caller,
         }
