@@ -111,7 +111,11 @@ impl Prepared {
     /// caller that reuses a factor expansion keyed by the non-positive powers
     /// of `source` (which carry every other check) gets exactly the endpoints
     /// of [`Self::transport`] as base plus relative endpoint.
-    pub(crate) fn layered_base_powers(&self, source: &[i64], out: &mut Vec<i64>) -> Result<(), Error> {
+    pub(crate) fn layered_base_powers(
+        &self,
+        source: &[i64],
+        out: &mut Vec<i64>,
+    ) -> Result<(), Error> {
         let arity = self.source_root.arity();
         if source.len() != arity {
             return Err(Error::WrongInputArity {

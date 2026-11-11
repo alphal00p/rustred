@@ -156,7 +156,9 @@ const POOL: usize = 1024;
 /// rr-alloc: an empty power vector for a child of a step, from this thread's
 /// pool of spent ones (no allocation in the steady state of a reduction).
 pub(crate) fn take_powers() -> Vec<i64> {
-    POWERS.with(|pool| pool.borrow_mut().pop()).unwrap_or_default()
+    POWERS
+        .with(|pool| pool.borrow_mut().pop())
+        .unwrap_or_default()
 }
 
 /// rr-alloc: return the power vector of a consumed child to this thread's pool.
@@ -266,7 +268,10 @@ pub(crate) fn insertion(
             .map(|weight| weight.as_ref().map(|w| state.coefficients.intern(w)))
             .collect();
         let value = Rc::new(InsertionWeights { table, weights });
-        state.insertion.entries.insert(key.into(), Rc::clone(&value));
+        state
+            .insertion
+            .entries
+            .insert(key.into(), Rc::clone(&value));
         Ok(value)
     })
 }
@@ -418,7 +423,11 @@ mod tests {
         assert_eq!(calls, 1);
         // An offset outside i8 is not memoised.
         let wide = [next_uid() as i64];
-        assert!(route(&wide, limits, || Ok((1, vec![300], vec![value.clone()]))).unwrap().is_none());
+        assert!(
+            route(&wide, limits, || Ok((1, vec![300], vec![value.clone()])))
+                .unwrap()
+                .is_none()
+        );
         clear();
         route(&key, limits, || {
             calls += 1;

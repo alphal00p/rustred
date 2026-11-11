@@ -165,7 +165,11 @@ impl CompactPowers {
         let meta = match &mut packed {
             Self::Inline { meta, .. } | Self::Wide { meta, .. } => meta,
         };
-        *meta = if tag { *meta | TAG_BIT } else { *meta & !TAG_BIT };
+        *meta = if tag {
+            *meta | TAG_BIT
+        } else {
+            *meta & !TAG_BIT
+        };
         packed
     }
 
@@ -290,7 +294,9 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
         let hash = hasher.hash_one(&priority);
         let values = &self.values;
         if let Some(&id) = self.index.find(hash, |&id| {
-            values[id as usize].as_ref().is_some_and(|(p, _)| *p == priority)
+            values[id as usize]
+                .as_ref()
+                .is_some_and(|(p, _)| *p == priority)
         }) {
             self.values[id as usize].as_mut().expect("live priority").1 += 1;
             return id;
@@ -988,14 +994,21 @@ mod tests {
     /// through inserts, merges, cancellations, returns and removals.
     #[test]
     fn packed_frontiers_pop_the_classic_sequence() {
-        for (seed, mode) in [(1, FrontierMode::Compact), (2, FrontierMode::Phased), (3, FrontierMode::Phased)] {
+        for (seed, mode) in [
+            (1, FrontierMode::Compact),
+            (2, FrontierMode::Phased),
+            (3, FrontierMode::Phased),
+        ] {
             let mut rng = StdRng::seed_from_u64(seed);
             let mut classic: Frontier<IntegralKey, i64, i64> = Frontier::new(FrontierMode::Classic);
             let mut packed: Frontier<IntegralKey, i64, i64> = Frontier::new(mode);
             let phases = 6;
             let position = |key: &IntegralKey| -> (usize, i64) {
                 let p = key.powers();
-                ((p[0].unsigned_abs() as usize) % phases, p.iter().sum::<i64>() % 5)
+                (
+                    (p[0].unsigned_abs() as usize) % phases,
+                    p.iter().sum::<i64>() % 5,
+                )
             };
             let random_key = |rng: &mut StdRng| {
                 let len = rng.random_range(1..=4);
@@ -1037,7 +1050,11 @@ mod tests {
                             Ok::<_, ()>(match found {
                                 Child::Occupied { weight, .. } => {
                                     *weight += w;
-                                    if *weight == 0 { ChildAction::Remove } else { ChildAction::Keep }
+                                    if *weight == 0 {
+                                        ChildAction::Remove
+                                    } else {
+                                        ChildAction::Keep
+                                    }
                                 }
                                 Child::Vacant(_) if w == 0 => ChildAction::Keep,
                                 Child::Vacant(_) => ChildAction::Insert(Pending {
@@ -1052,7 +1069,10 @@ mod tests {
                         assert_eq!(classic.len(), packed.len());
                     }
                 }
-                assert_eq!(classic.earlier_than(phase + 1), packed.earlier_than(phase + 1));
+                assert_eq!(
+                    classic.earlier_than(phase + 1),
+                    packed.earlier_than(phase + 1)
+                );
             }
             assert!(classic.is_empty() && packed.is_empty());
         }

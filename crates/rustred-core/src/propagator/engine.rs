@@ -36,8 +36,8 @@ use crate::reduction::ordered_reduction::step_cache::kernel::{
 };
 use crate::reduction::ordered_reduction::{
     CompactPowers, ConcurrentOrderedKernel, FrontierKey, OrderedKernel, OrderedKeyStage,
-    OrderedOutput, OrderedPhaseBoundary,
-    OrderedPhaseDescriptor, OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
+    OrderedOutput, OrderedPhaseBoundary, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedPosition, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{
     OrderedSchedulerOptions, OrderedStepCache, OrderedStepShard, OrderedStepStage,
@@ -602,7 +602,11 @@ impl PEngine {
         if let Ok(path) = std::env::var("RUSTRED_P_STEP_MEMO_STATS") {
             use std::io::Write;
             let [ih, im, ie, rh, rm, re, distinct] = super::step_memo::counters();
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
                 let _ = writeln!(
                     file,
                     "{{\"insertion\":{{\"hits\":{ih},\"misses\":{im},\"entries\":{ie}}},\"route\":{{\"hits\":{rh},\"misses\":{rm},\"entries\":{re}}},\"coefficients\":{distinct}}}"
@@ -1227,11 +1231,7 @@ impl<'l> PStepper<'l> {
         Ok(step)
     }
 
-    fn apply_step(
-        &self,
-        class: OwnerClassId,
-        view: &PView,
-    ) -> Result<OrderedStep<PKey>, PError> {
+    fn apply_step(&self, class: OwnerClassId, view: &PView) -> Result<OrderedStep<PKey>, PError> {
         let slot = self.engine.owner(class)?;
         let slots = view.slots();
         let (powers, tag_slots) = self.engine.split(slot.presentation, &slots)?;

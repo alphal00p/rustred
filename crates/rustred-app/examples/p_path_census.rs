@@ -602,7 +602,10 @@ fn main() {
     #[cfg(feature = "alloc-sites")]
     {
         if let Ok(period) = std::env::var("P_ALLOC_SAMPLE") {
-            alloc_sites::PERIOD.store(period.parse().unwrap(), std::sync::atomic::Ordering::Relaxed);
+            alloc_sites::PERIOD.store(
+                period.parse().unwrap(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
         alloc_sites::ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
