@@ -49,8 +49,8 @@ use crate::algebra::{
 };
 use crate::family::IntegralKey;
 use crate::identity::{ParametricIbpGenerator, RowId};
-use crate::sector::symmetry::integral_transport::{ExpansionLimits, Prepared};
 use crate::reduction::{ReductionError, ReductionLimits};
+use crate::sector::symmetry::integral_transport::{ExpansionLimits, Prepared};
 
 use super::census::{PSectorFate, SignedAffineLoopMap};
 use super::custom::{PCustomFallback, PFallbackApplied, build_custom_fallback};
@@ -1607,11 +1607,18 @@ fn inverse_map(map: &SignedAffineLoopMap) -> Result<SignedAffineLoopMap, PError>
         )));
     }
     let a = unimodular_inverse(&map.loop_linear, n).ok_or_else(|| {
-        PError::Contract(format!("the loop map {:?} is not unimodular", map.loop_linear))
+        PError::Contract(format!(
+            "the loop map {:?} is not unimodular",
+            map.loop_linear
+        ))
     })?;
     let s = i64::from(map.external_sign);
     let b: Vec<i64> = (0..n)
-        .map(|i| -s * (0..n).map(|j| a[i * n + j] * map.loop_external[j]).sum::<i64>())
+        .map(|i| {
+            -s * (0..n)
+                .map(|j| a[i * n + j] * map.loop_external[j])
+                .sum::<i64>()
+        })
         .collect();
     Ok(SignedAffineLoopMap {
         loops_in: map.loops_out,
@@ -1687,7 +1694,8 @@ fn build_fallback(
     let (target, mask) = fallback_top(library, node)?;
     let presentation = library.presentation(target);
     let bytes = payload.bytes()?;
-    let program = build_custom_fallback(presentation, &bytes, meta, library.rule_order(owner.class))?;
+    let program =
+        build_custom_fallback(presentation, &bytes, meta, library.rule_order(owner.class))?;
     let support = program.support();
     if support != mask {
         return Err(PError::MalformedLibrary(format!(
@@ -1721,7 +1729,10 @@ fn build_fallback(
     if !exact {
         return Err(PError::MalformedLibrary(format!(
             "the fallback residuals {:?} of {:016x} are not this owner's corner {:?}",
-            residuals.iter().map(IntegralKey::powers).collect::<Vec<_>>(),
+            residuals
+                .iter()
+                .map(IntegralKey::powers)
+                .collect::<Vec<_>>(),
             owner.class.0,
             corner.powers()
         )));
@@ -1750,7 +1761,12 @@ pub fn scheme_fallback_program(
         .nodes
         .get(index.0 as usize)
         .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
-    build_fallback(library, owner, node, library.presentation(owner.presentation))
+    build_fallback(
+        library,
+        owner,
+        node,
+        library.presentation(owner.presentation),
+    )
 }
 
 /// Distinct keys the fallback closed in this process (diagnostics,
@@ -1764,7 +1780,10 @@ fn log_fallback(scheme: &str, powers: &[i64], states: usize, routes: usize) {
         return;
     }
     let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
-    if seen.lock().is_ok_and(|mut seen| seen.insert(powers.to_vec())) {
+    if seen
+        .lock()
+        .is_ok_and(|mut seen| seen.insert(powers.to_vec()))
+    {
         eprintln!("[scheme-fallback] {scheme} {powers:?} states={states} routes={routes}");
     }
 }
@@ -1852,7 +1871,9 @@ impl SchemeStep {
                     entry.insert(value);
                 }
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    let sum = base.try_add(entry.get(), &value, exact).map_err(exact_error)?;
+                    let sum = base
+                        .try_add(entry.get(), &value, exact)
+                        .map_err(exact_error)?;
                     *entry.get_mut() = sum;
                 }
             }
@@ -1872,7 +1893,13 @@ impl SchemeStep {
             let powers = endpoint.key().powers().to_vec();
             let value = endpoint.coefficient().clone();
             if support_of(&powers) == fallback.support {
-                add(base, exact, &mut frontier, (fallback.program.order(&powers)?, powers), value)?;
+                add(
+                    base,
+                    exact,
+                    &mut frontier,
+                    (fallback.program.order(&powers)?, powers),
+                    value,
+                )?;
             } else {
                 add(base, exact, &mut routes, powers, value)?;
             }
@@ -1887,7 +1914,9 @@ impl SchemeStep {
             states += 1;
             match fallback.program.apply(class, &powers, limits)? {
                 PFallbackApplied::Residual => {
-                    residual = base.try_add(&residual, &value, exact).map_err(exact_error)?;
+                    residual = base
+                        .try_add(&residual, &value, exact)
+                        .map_err(exact_error)?;
                 }
                 PFallbackApplied::Children {
                     children,
@@ -2014,7 +2043,10 @@ impl SchemeStep {
     /// Diagnostics (M5 no6 coverage census): the rule the dispatch takes at
     /// `powers` (an Apply key of this owner), with the image of a permutation
     /// rule; `None` where no rule applies (the fallback's keys).
-    pub fn dispatch_rule(&self, powers: &[i64]) -> Result<Option<(String, Option<Vec<i64>>)>, PError> {
+    pub fn dispatch_rule(
+        &self,
+        powers: &[i64],
+    ) -> Result<Option<(String, Option<Vec<i64>>)>, PError> {
         let ilimits = IndexedAlgebraLimits::default();
         Ok(self.choose(powers, ilimits)?.map(|rule| {
             let image = (rule.permutation.as_ref())

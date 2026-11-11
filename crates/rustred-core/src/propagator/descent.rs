@@ -632,7 +632,10 @@ fn check_fallback_witnesses(
         let order = program.order(key)?;
         match program.apply(spec.class, key, &limits)? {
             super::custom::PFallbackApplied::Residual => {
-                if !residuals.iter().any(|residual| residual.powers() == key.as_slice()) {
+                if !residuals
+                    .iter()
+                    .any(|residual| residual.powers() == key.as_slice())
+                {
                     return Err(fail(key, "a terminal that is no residual".to_owned()));
                 }
             }
