@@ -51,6 +51,71 @@ fn main() {
         for rule in rules {
             println!("  {:<22} {:?}", rule.name, rule.verification);
         }
+        // M5 no6 coverage census: SCHEME_COVER=<dots>:<rank> enumerates every Apply key with at most
+        // <dots> total dots and <rank> total numerator rank, follows the dispatch (permutation images)
+        // and lists the keys no rule takes, in presentation and in Forcer slot order.
+        if let Ok(cover) = std::env::var("SCHEME_COVER") {
+            let (dots, rank) = cover.split_once(':').expect("SCHEME_COVER=<dots>:<rank>");
+            let (dots, rank): (i64, i64) = (dots.parse().unwrap(), rank.parse().unwrap());
+            let presentation = library.presentation(owner.spec.presentation);
+            let lines = presentation.lines().count();
+            let arity = presentation.slots.len();
+            let perm = template.forcer_slots().to_vec();
+            let mut keys: Vec<Vec<i64>> = vec![Vec::new()];
+            for slot in 0..arity {
+                let mut next = Vec::new();
+                for key in &keys {
+                    let used_dots: i64 = key.iter().take(lines).map(|p| p - 1).sum();
+                    let used_rank: i64 = key.iter().skip(lines).map(|p| -p).sum();
+                    if slot < lines {
+                        for p in 1..=1 + dots - used_dots {
+                            let mut k = key.clone();
+                            k.push(p);
+                            next.push(k);
+                        }
+                    } else {
+                        for r in 0..=rank - used_rank {
+                            let mut k = key.clone();
+                            k.push(-r);
+                            next.push(k);
+                        }
+                    }
+                }
+                keys = next;
+            }
+            let (mut covered, mut uncovered, mut via) = (0usize, Vec::new(), 0usize);
+            for key in &keys {
+                let mut at = key.clone();
+                let mut hops = 0;
+                loop {
+                    match step.dispatch_rule(&at).unwrap() {
+                        Some((_, Some(image))) if hops < 32 => {
+                            at = image;
+                            hops += 1;
+                        }
+                        Some(_) => {
+                            covered += 1;
+                            via += usize::from(hops > 0);
+                            break;
+                        }
+                        None => {
+                            uncovered.push((key.clone(), at.clone()));
+                            break;
+                        }
+                    }
+                }
+            }
+            println!(
+                "cover {}: {} keys (dots <= {dots}, rank <= {rank}): {covered} covered ({via} through a permutation image), {} uncovered",
+                template.name(),
+                keys.len(),
+                uncovered.len()
+            );
+            for (key, at) in &uncovered {
+                let forcer: Vec<i64> = perm.iter().map(|&slot| at[slot]).collect();
+                println!("  uncovered {key:?} -> {at:?} Forcer Z{forcer:?}");
+            }
+        }
         report.push(serde_json::json!({
             "scheme": template.name(), "class": format!("{:016x}", owner.spec.class.0),
             "descent_witness_shifts": witness,

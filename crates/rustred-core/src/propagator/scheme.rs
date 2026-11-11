@@ -843,7 +843,7 @@ pub struct SchemeTemplate {
     name: String,
     presentation: PresentationId,
     context: IndexedCoefficientContext,
-    #[allow(dead_code)] // the Forcer -> presentation slot map, kept with the template (Debug)
+    /// The Forcer -> presentation slot map.
     perm: Vec<usize>,
     lines: usize,
     order: Vec<Row>,
@@ -1260,6 +1260,11 @@ impl SchemeTemplate {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Forcer slot `a` (0-based) -> presentation slot.
+    pub fn forcer_slots(&self) -> &[usize] {
+        &self.perm
     }
 
     pub fn rules(&self) -> &[SchemeRule] {
@@ -1973,6 +1978,45 @@ impl SchemeStep {
         self.template.order(powers)
     }
 
+    /// FirstValid in the stored order: the first rule whose pattern holds
+    /// and whose pivot (or Forcer denominators) does not vanish at `powers`;
+    /// a permutation rule where its image is strictly lower in the order.
+    fn choose(
+        &self,
+        powers: &[i64],
+        ilimits: IndexedAlgebraLimits,
+    ) -> Result<Option<&SchemeRule>, PError> {
+        let mine = self.order(powers);
+        for rule in &self.template.rules {
+            if rule.pattern.iter().zip(powers).all(|(c, &n)| c.holds(n))
+                && rule.distinct.iter().all(|&(a, b)| powers[a] != powers[b])
+                && rule.equal.iter().all(|&(a, b)| powers[a] == powers[b])
+            {
+                if let Some(permutation) = &rule.permutation {
+                    let image: Vec<i64> = permutation.source.iter().map(|&a| powers[a]).collect();
+                    if self.order(&image) < mine {
+                        return Ok(Some(rule));
+                    }
+                } else if self.regular(rule, powers, ilimits)? {
+                    return Ok(Some(rule));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Diagnostics (M5 no6 coverage census): the rule the dispatch takes at
+    /// `powers` (an Apply key of this owner), with the image of a permutation
+    /// rule; `None` where no rule applies (the fallback's keys).
+    pub fn dispatch_rule(&self, powers: &[i64]) -> Result<Option<(String, Option<Vec<i64>>)>, PError> {
+        let ilimits = IndexedAlgebraLimits::default();
+        Ok(self.choose(powers, ilimits)?.map(|rule| {
+            let image = (rule.permutation.as_ref())
+                .map(|permutation| permutation.source.iter().map(|&a| powers[a]).collect());
+            (rule.name.clone(), image)
+        }))
+    }
+
     pub fn apply(
         &self,
         cx: Option<&PStepContext<'_>>,
@@ -1990,35 +2034,7 @@ impl SchemeStep {
         // A permutation rule fires where its image is strictly lower in the
         // stored order (the tie-break rows decide between representatives).
         let mine = self.order(key.powers);
-        let mut chosen = None;
-        for rule in &self.template.rules {
-            if rule
-                .pattern
-                .iter()
-                .zip(key.powers)
-                .all(|(c, &n)| c.holds(n))
-                && rule
-                    .distinct
-                    .iter()
-                    .all(|&(a, b)| key.powers[a] != key.powers[b])
-                && rule
-                    .equal
-                    .iter()
-                    .all(|&(a, b)| key.powers[a] == key.powers[b])
-            {
-                if let Some(permutation) = &rule.permutation {
-                    let image: Vec<i64> =
-                        permutation.source.iter().map(|&a| key.powers[a]).collect();
-                    if self.order(&image) < mine {
-                        chosen = Some(rule);
-                        break;
-                    }
-                } else if self.regular(rule, key.powers, ilimits)? {
-                    chosen = Some(rule);
-                    break;
-                }
-            }
-        }
+        let chosen = self.choose(key.powers, ilimits)?;
         let Some(rule) = chosen else {
             if let Some(fallback) = &self.fallback {
                 return self.close(fallback, cx, key, limits);
