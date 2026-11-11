@@ -579,6 +579,7 @@ impl PEngine {
             },
             None => PCensusMode::OFF,
         };
+        super::step_memo::begin();
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -1216,7 +1217,7 @@ impl<'l> PStepper<'l> {
                     &self.limits,
                     &mut step.terms,
                     child,
-                    values[coefficient as usize].clone(),
+                    values(coefficient),
                 )?;
             }
             Ok(())
@@ -1612,14 +1613,19 @@ impl OrderedKernel for PKernel<'_, '_> {
     }
 }
 
-impl ConcurrentOrderedKernel for PKernel<'_, '_> {
+impl<'l> ConcurrentOrderedKernel for PKernel<'l, '_> {
     type Account = PAccount;
+    type Detached = PStepper<'l>;
     type Stepper<'s>
         = PStepper<'s>
     where
         Self: 's;
 
     fn stepper(&self) -> Option<PStepper<'_>> {
+        Some(self.stepper)
+    }
+
+    fn detached_stepper(&self) -> Option<PStepper<'l>> {
         Some(self.stepper)
     }
 

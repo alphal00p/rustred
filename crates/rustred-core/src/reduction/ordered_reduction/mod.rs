@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, btree_map};
 pub(crate) mod arithmetic;
 mod frontier;
 pub(crate) mod memstats;
+pub(crate) mod parstats;
 pub mod composition;
 mod modular;
 mod parallel;
@@ -27,8 +28,8 @@ use modular::{Lifter, ModularRecorder};
 pub use parallel::OrderedSchedulerOptions;
 pub(crate) use frontier::{CompactPowers, FrontierKey};
 use frontier::{Child, ChildAction, Frontier, FrontierMode};
-pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
-use parallel::{ConcurrentWeights, Prefetched, Workers};
+pub(crate) use parallel::{ConcurrentOrderedKernel, NoDetached, OrderedStepper};
+use parallel::{ConcurrentWeights, Pipelined, Prefetched, Workers};
 pub use tail::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
 };
@@ -1028,16 +1029,40 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         // their sequential journal; their steps are computed ahead of time by
         // the workers.
         OrderedWeightArithmetic::ModularSampled(..)
-        | OrderedWeightArithmetic::ModularPolynomial(..) => run_modular(
-            kernel,
-            request,
-            initial,
-            nonzero_conditions,
-            arithmetic,
-            &mut work,
-            &mut Prefetched::new(&workers, scheduler.window_keys),
-            tail,
-        ),
+        | OrderedWeightArithmetic::ModularPolynomial(..) => {
+            match parallel::pipeline_enabled()
+                .then(|| kernel.detached_stepper())
+                .flatten()
+            {
+                // rr-par: the next window is computed while this one is
+                // merged and recorded.
+                Some(stepper) => {
+                    let (stepper, workers) = (&stepper, &workers);
+                    workers.in_place_scope(|scope| {
+                        run_modular(
+                            kernel,
+                            request,
+                            initial,
+                            nonzero_conditions,
+                            arithmetic,
+                            &mut work,
+                            &mut Pipelined::new(scope, workers, stepper, scheduler.window_keys),
+                            tail,
+                        )
+                    })
+                }
+                None => run_modular(
+                    kernel,
+                    request,
+                    initial,
+                    nonzero_conditions,
+                    arithmetic,
+                    &mut work,
+                    &mut Prefetched::new(&workers, scheduler.window_keys),
+                    tail,
+                ),
+            }
+        }
     };
     kernel.record_work(work);
     result
@@ -1214,6 +1239,11 @@ trait StepSource<K: OrderedKernel> {
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<K::Key>, K::Error>;
+
+    /// Worker threads behind this source (diagnostics).
+    fn threads(&self) -> usize {
+        1
+    }
 }
 
 /// The adapter's own step, computed when the key is popped.
@@ -1456,7 +1486,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     };
     let context = kernel.context().clone();
     let mut mem_probe = memstats::Probe::new();
+    let mut par_clock = parstats::ForwardClock::new();
     for phase in 0..state.progress.total_phases {
+        let phase_started = par_clock.now();
+        let (mut par_pops, mut par_source) = (0u64, 0.0f64);
         // Phase marker first: a tail closed at this phase records its
         // products after the marker, so the replay attributes them here.
         weights.phase_started(phase);
@@ -1480,7 +1513,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             )?;
             progress.frontier_keys = frontier.len();
             kernel.observe(progress, Some(&node.key))?;
+            let source_started = par_clock.now();
             let checked = steps.step(kernel, frontier, &node, request, work)?;
+            if let Some(started) = source_started {
+                par_pops += 1;
+                par_source += started.elapsed().as_secs_f64();
+            }
             if let Some(tail) = &mut tail {
                 tail.observe_step(&node, &checked, &context, limits.exact_algebra)?;
             }
@@ -1598,6 +1636,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 probe.taken(frontier.len(), snapshot);
             }
         }
+        if let Some(started) = phase_started {
+            let wall = started.elapsed().as_secs_f64();
+            par_clock.phase(phase, par_pops, wall, par_source, wall - par_source);
+        }
         if let Some(tail) = &mut tail {
             tail.phase_finished(phase);
         }
@@ -1606,6 +1648,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     if let Some(tail) = tail {
         tail.finish(kernel, weights, request, work, &mut state)?;
     }
+    par_clock.report(steps.threads());
     if let Some(probe) = &mem_probe {
         probe.write(serde_json::json!({
             "rss_bytes": memstats::rss_bytes(),

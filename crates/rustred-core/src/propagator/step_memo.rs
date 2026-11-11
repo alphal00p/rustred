@@ -85,6 +85,22 @@ pub(crate) struct RouteExpansion {
     pub coefficients: Vec<u32>,
 }
 
+/// A memo value: this thread's (`Rc`) or the shared memo's (`Arc`).
+pub(crate) enum Held<V> {
+    Local(Rc<V>),
+    Shared(std::sync::Arc<V>),
+}
+
+impl<V> std::ops::Deref for Held<V> {
+    type Target = V;
+    fn deref(&self) -> &V {
+        match self {
+            Held::Local(value) => value,
+            Held::Shared(value) => value,
+        }
+    }
+}
+
 struct Memo<V> {
     entries: HashMap<Box<[i64]>, Rc<V>>,
     hits: u64,
@@ -175,10 +191,18 @@ pub(crate) fn put_powers(mut powers: Vec<i64>) {
     });
 }
 
-/// `f` on this thread's memo coefficients (the values the indices of
-/// [`InsertionWeights`] and [`RouteExpansion`] name).
-pub(crate) fn coefficients<R>(f: impl FnOnce(&[Coefficient]) -> R) -> R {
-    STATE.with(|state| f(&state.borrow().coefficients.values))
+/// `f` on the memo coefficients (the values the indices of
+/// [`InsertionWeights`] and [`RouteExpansion`] name): `get(i)` is a copy of
+/// coefficient `i` (on this thread's polynomial context, [`rehome`]).
+pub(crate) fn coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) -> R {
+    if shared_enabled() {
+        return with_shared(|memo| f(&|index| rehome(memo.coefficient(index))));
+    }
+    STATE.with(|state| {
+        let state = state.borrow();
+        let values = &state.coefficients.values;
+        f(&|index| values[index as usize].clone())
+    })
 }
 
 /// Whether memo values move to a polynomial context of their thread
@@ -249,14 +273,35 @@ pub(crate) fn insertion(
         ),
         PError,
     >,
-) -> Result<Rc<InsertionWeights>, PError> {
+) -> Result<Option<Held<InsertionWeights>>, PError> {
+    if shared_enabled() {
+        return with_shared(|memo| {
+            if let Some(value) = memo.get(key, true, limits, |shard| &shard.insertion) {
+                return Ok(Some(Held::Shared(value)));
+            }
+            let (table, weights) = compute()?;
+            let Some(weights) = weights
+                .iter()
+                .map(|weight| match weight {
+                    None => Some(None),
+                    Some(w) => memo.intern(w).map(Some),
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
+                return Ok(None);
+            };
+            let value = std::sync::Arc::new(InsertionWeights { table, weights });
+            memo.put(key, limits, |shard| &mut shard.insertion, &value);
+            Ok(Some(Held::Shared(value)))
+        });
+    }
     STATE.with(|state| {
         {
             let mut state = state.borrow_mut();
             state.admit(limits);
             if let Some(value) = state.insertion.entries.get(key).cloned() {
                 state.insertion.hits += 1;
-                return Ok(value);
+                return Ok(Some(Held::Local(value)));
             }
             state.insertion.misses += 1;
         }
@@ -272,7 +317,7 @@ pub(crate) fn insertion(
             .insertion
             .entries
             .insert(key.into(), Rc::clone(&value));
-        Ok(value)
+        Ok(Some(Held::Local(value)))
     })
 }
 
@@ -284,14 +329,43 @@ pub(crate) fn route(
     key: &[i64],
     limits: ExactAlgebraLimits,
     compute: impl FnOnce() -> Result<(usize, Vec<i64>, Vec<Coefficient>), PError>,
-) -> Result<Option<Rc<RouteExpansion>>, PError> {
+) -> Result<Option<Held<RouteExpansion>>, PError> {
+    if shared_enabled() {
+        return with_shared(|memo| {
+            if let Some(value) = memo.get(key, false, limits, |shard| &shard.route) {
+                return Ok(Some(Held::Shared(value)));
+            }
+            let (arity, offsets, coefficients) = compute()?;
+            let Ok(offsets) = offsets
+                .iter()
+                .map(|&o| i8::try_from(o))
+                .collect::<Result<Vec<i8>, _>>()
+            else {
+                return Ok(None);
+            };
+            let Some(coefficients) = coefficients
+                .iter()
+                .map(|c| memo.intern(c))
+                .collect::<Option<Vec<_>>>()
+            else {
+                return Ok(None);
+            };
+            let value = std::sync::Arc::new(RouteExpansion {
+                arity,
+                offsets,
+                coefficients,
+            });
+            memo.put(key, limits, |shard| &mut shard.route, &value);
+            Ok(Some(Held::Shared(value)))
+        });
+    }
     STATE.with(|state| {
         {
             let mut state = state.borrow_mut();
             state.admit(limits);
             if let Some(value) = state.route.entries.get(key).cloned() {
                 state.route.hits += 1;
-                return Ok(Some(value));
+                return Ok(Some(Held::Local(value)));
             }
             state.route.misses += 1;
         }
@@ -314,12 +388,16 @@ pub(crate) fn route(
             coefficients,
         });
         state.route.entries.insert(key.into(), Rc::clone(&value));
-        Ok(Some(value))
+        Ok(Some(Held::Local(value)))
     })
 }
 
-/// Drop this thread's memo entries (end of a request).
+/// Drop this thread's memo entries (end of a request); the shared memo is
+/// dropped when no request uses it any more ([`begin`]).
 pub(crate) fn clear() {
+    if shared_enabled() {
+        end_shared();
+    }
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         let (insertion, route) = (
@@ -335,6 +413,9 @@ pub(crate) fn clear() {
 /// `(insertion hits, misses, entries, route hits, misses, entries,
 /// distinct coefficients)` of this thread's memos (diagnostics and tests).
 pub(crate) fn counters() -> [u64; 7] {
+    if shared_enabled() {
+        return with_shared(SharedMemo::counters);
+    }
     STATE.with(|state| {
         let state = state.borrow();
         [
@@ -347,6 +428,225 @@ pub(crate) fn counters() -> [u64; 7] {
             state.coefficients.values.len() as u64,
         ]
     })
+}
+
+/// `RUSTRED_P_STEP_MEMO_SHARED=1` (rr-par, switch; unset = off): with the
+/// memo on, ONE memo shared by every thread of the process instead of one
+/// per thread (16 copies at 16 threads). Entries are sharded under
+/// read-write locks; the distinct coefficients are stored once in an
+/// append-only table read without a lock, and copied onto the reading
+/// thread's polynomial context ([`rehome`]). The memo is bounded
+/// ([`MEMO_ENTRIES`] entries, [`SHARED_COEFFICIENTS`] coefficients): beyond
+/// that a step computes directly. It lives while requests use it (a count
+/// of active requests, [`begin`] / [`clear`]) and is dropped after the last
+/// one. Values are those of the per-thread memo (same keys, same
+/// computations).
+pub(crate) fn shared_enabled() -> bool {
+    static SHARED: OnceLock<bool> = OnceLock::new();
+    *SHARED.get_or_init(|| {
+        mode() != MemoMode::Off
+            && matches!(
+                std::env::var("RUSTRED_P_STEP_MEMO_SHARED").as_deref(),
+                Ok("1" | "on")
+            )
+    })
+}
+
+/// Distinct coefficients of the shared memo.
+pub(crate) const SHARED_COEFFICIENTS: usize = 1 << 20;
+const CHUNK: usize = 1 << 12;
+const SHARDS: usize = 64;
+
+#[derive(Default)]
+struct Shard {
+    insertion: HashMap<Box<[i64]>, std::sync::Arc<InsertionWeights>>,
+    route: HashMap<Box<[i64]>, std::sync::Arc<RouteExpansion>>,
+}
+
+pub(crate) struct SharedMemo {
+    limits: std::sync::Mutex<Option<ExactAlgebraLimits>>,
+    shards: Box<[std::sync::RwLock<Shard>]>,
+    entries: AtomicU64,
+    chunks: Box<[OnceLock<Box<[OnceLock<Coefficient>]>>]>,
+    index: std::sync::Mutex<HashMap<Coefficient, u32>>,
+    stats: [AtomicU64; 4],
+}
+
+impl SharedMemo {
+    fn new() -> Self {
+        Self {
+            limits: std::sync::Mutex::new(None),
+            shards: (0..SHARDS).map(|_| Default::default()).collect(),
+            entries: AtomicU64::new(0),
+            chunks: (0..SHARED_COEFFICIENTS / CHUNK)
+                .map(|_| OnceLock::new())
+                .collect(),
+            index: std::sync::Mutex::new(HashMap::new()),
+            stats: Default::default(),
+        }
+    }
+
+    fn shard(&self, key: &[i64]) -> &std::sync::RwLock<Shard> {
+        use std::hash::{Hash, Hasher};
+        let mut h = FxLite(0);
+        key.hash(&mut h);
+        &self.shards[(h.finish() as usize) % SHARDS]
+    }
+
+    /// The memo applies to requests with the limits of its first request.
+    fn admits(&self, limits: ExactAlgebraLimits) -> bool {
+        let mut held = self.limits.lock().unwrap_or_else(|e| e.into_inner());
+        *held.get_or_insert(limits) == limits
+    }
+
+    fn get<V>(
+        &self,
+        key: &[i64],
+        insertion: bool,
+        limits: ExactAlgebraLimits,
+        map: impl Fn(&Shard) -> &HashMap<Box<[i64]>, std::sync::Arc<V>>,
+    ) -> Option<std::sync::Arc<V>> {
+        let stat = if insertion { 0 } else { 2 };
+        if !self.admits(limits) {
+            return None;
+        }
+        let shard = self.shard(key).read().unwrap_or_else(|e| e.into_inner());
+        let found = map(&shard).get(key).cloned();
+        self.stats[stat + usize::from(found.is_none())].fetch_add(1, Ordering::Relaxed);
+        found
+    }
+
+    fn put<V>(
+        &self,
+        key: &[i64],
+        limits: ExactAlgebraLimits,
+        map: impl Fn(&mut Shard) -> &mut HashMap<Box<[i64]>, std::sync::Arc<V>>,
+        value: &std::sync::Arc<V>,
+    ) {
+        if !self.admits(limits) || self.entries.load(Ordering::Relaxed) >= MEMO_ENTRIES as u64 {
+            return;
+        }
+        let mut shard = self.shard(key).write().unwrap_or_else(|e| e.into_inner());
+        if map(&mut shard)
+            .insert(key.into(), std::sync::Arc::clone(value))
+            .is_none()
+        {
+            self.entries.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// The index of `coefficient` in the table; `None` when it is full.
+    fn intern(&self, coefficient: &Coefficient) -> Option<u32> {
+        let mut index = self.index.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(&found) = index.get(coefficient) {
+            return Some(found);
+        }
+        let next = index.len();
+        if next >= SHARED_COEFFICIENTS {
+            return None;
+        }
+        let value = rehome(coefficient);
+        let chunk = self.chunks[next / CHUNK]
+            .get_or_init(|| (0..CHUNK).map(|_| OnceLock::new()).collect());
+        let _ = chunk[next % CHUNK].set(value.clone());
+        index.insert(value, next as u32);
+        Some(next as u32)
+    }
+
+    fn coefficient(&self, index: u32) -> &Coefficient {
+        let index = index as usize;
+        self.chunks[index / CHUNK]
+            .get()
+            .and_then(|chunk| chunk[index % CHUNK].get())
+            .expect("an interned shared memo coefficient")
+    }
+
+    fn counters(&self) -> [u64; 7] {
+        let (mut insertion, mut route) = (0u64, 0u64);
+        for shard in self.shards.iter() {
+            let shard = shard.read().unwrap_or_else(|e| e.into_inner());
+            insertion += shard.insertion.len() as u64;
+            route += shard.route.len() as u64;
+        }
+        let stat = |i: usize| self.stats[i].load(Ordering::Relaxed);
+        let distinct = self.index.lock().unwrap_or_else(|e| e.into_inner()).len() as u64;
+        [stat(0), stat(1), insertion, stat(2), stat(3), route, distinct]
+    }
+}
+
+/// A small fixed hasher for shard selection.
+struct FxLite(u64);
+
+impl std::hash::Hasher for FxLite {
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
+        }
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// The process-wide shared memo, its generation and its active requests.
+static SHARED_MEMO: std::sync::Mutex<Option<std::sync::Arc<SharedMemo>>> =
+    std::sync::Mutex::new(None);
+static SHARED_GENERATION: AtomicU64 = AtomicU64::new(1);
+static SHARED_ACTIVE: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// This thread's handle on the shared memo and its generation.
+    static SHARED_LOCAL: RefCell<Option<(u64, std::sync::Arc<SharedMemo>)>> = const { RefCell::new(None) };
+}
+
+/// `f` on the current shared memo (created on first use).
+fn with_shared<R>(f: impl FnOnce(&SharedMemo) -> R) -> R {
+    let generation = SHARED_GENERATION.load(Ordering::Acquire);
+    let memo = SHARED_LOCAL.with(|local| {
+        let mut local = local.borrow_mut();
+        match &*local {
+            Some((held, memo)) if *held == generation => std::sync::Arc::clone(memo),
+            _ => {
+                let memo = std::sync::Arc::clone(
+                    SHARED_MEMO
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_or_insert_with(|| std::sync::Arc::new(SharedMemo::new())),
+                );
+                *local = Some((generation, std::sync::Arc::clone(&memo)));
+                memo
+            }
+        }
+    });
+    f(&memo)
+}
+
+/// A request starts using the memos (the shared one lives while any does).
+pub(crate) fn begin() {
+    if shared_enabled() {
+        SHARED_ACTIVE.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+fn end_shared() {
+    let before = SHARED_ACTIVE
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)))
+        .unwrap_or(0);
+    if before <= 1 {
+        let mut memo = SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner());
+        SHARED_GENERATION.fetch_add(1, Ordering::AcqRel);
+        *memo = None;
+        SHARED_LOCAL.with(|local| *local.borrow_mut() = None);
+    }
 }
 
 /// The error of a `check` step whose memo value differs from the direct one.
@@ -418,7 +718,7 @@ mod tests {
             .unwrap();
             assert_eq!(got.offsets, [0, -1, 1, 0]);
             assert_eq!(got.coefficients[0], got.coefficients[1]);
-            coefficients(|values| assert_eq!(values[got.coefficients[0] as usize], value));
+            coefficients(|values| assert_eq!(values(got.coefficients[0]), value));
         }
         assert_eq!(calls, 1);
         // An offset outside i8 is not memoised.

@@ -501,6 +501,12 @@ impl<'s, K: ConcurrentStepCacheKernel + 's> OrderedStepper for CachedStepper<'s,
 
 impl<'k, 'c, K: ConcurrentStepCacheKernel> ConcurrentOrderedKernel for CachedKernel<'k, 'c, K> {
     type Account = CachedAccount<K::Account>;
+    type Detached = crate::reduction::ordered_reduction::NoDetached<
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Key,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Priority,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Error,
+        Self::Account,
+    >;
     type Stepper<'s>
         = CachedStepper<'s, K>
     where

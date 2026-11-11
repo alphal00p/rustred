@@ -325,9 +325,13 @@ impl InsertionStep {
                         let weights = keys.weights(&table, &weights, limits)?;
                         Ok((table, weights))
                     })?;
-                    step_memo::coefficients(|values| {
-                        keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
-                    });
+                    match memo {
+                        Some(memo) => step_memo::coefficients(|values| {
+                            keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
+                        }),
+                        // The shared memo is full: compute directly.
+                        None => direct(&mut output)?,
+                    }
                     if mode == MemoMode::Check {
                         let mut reference = PStepOut::default();
                         direct(&mut reference)?;

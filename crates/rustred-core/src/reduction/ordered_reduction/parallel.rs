@@ -214,8 +214,23 @@ pub(crate) trait ConcurrentOrderedKernel:
     where
         Self: 's;
 
+    /// rr-par: a stepper that does not borrow the kernel, for computing
+    /// steps on the workers while the scheduler keeps using the kernel
+    /// (`Pipelined`). Adapters without one name [`NoDetached`].
+    type Detached: OrderedStepper<
+            Key = Self::Key,
+            Priority = Self::Priority,
+            Error = Self::Error,
+            Account = Self::Account,
+        > + Sync;
+
     /// The shared stepper, or `None` to keep this request sequential.
     fn stepper(&self) -> Option<Self::Stepper<'_>>;
+
+    /// The detached stepper (`None`: the pipelined source is not used).
+    fn detached_stepper(&self) -> Option<Self::Detached> {
+        None
+    }
 
     /// Apply the account of one detached step exactly where the sequential
     /// scheduler would have performed the step: `request` and `work` are the
@@ -227,6 +242,32 @@ pub(crate) trait ConcurrentOrderedKernel:
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<(), Self::Error>;
+}
+
+/// The detached stepper of an adapter that has none (never constructed).
+pub(crate) struct NoDetached<K, P, E, A>(
+    std::convert::Infallible,
+    std::marker::PhantomData<fn() -> (K, P, E, A)>,
+);
+
+impl<K, P, E, A> OrderedStepper for NoDetached<K, P, E, A>
+where
+    K: Clone + Ord + Hash + Send + Sync,
+    P: Clone + Ord + Send + Sync,
+    E: From<ReductionError> + Send,
+    A: Send,
+{
+    type Key = K;
+    type Priority = P;
+    type Error = E;
+    type Account = A;
+
+    fn position(&self, _: &K) -> Result<OrderedPosition<P>, E> {
+        match self.0 {}
+    }
+    fn step(&self, _: &K) -> (Result<OrderedStep<K>, E>, A) {
+        match self.0 {}
+    }
 }
 
 /// Weight arithmetic whose products and merges are pure functions of their
@@ -325,6 +366,15 @@ impl Workers {
             pool,
             budget: ResourceBudget::capture_current(),
         })
+    }
+
+    /// rr-par: run `op` on the calling thread inside a scope whose spawned
+    /// jobs run on the workers (`Pipelined`).
+    pub(super) fn in_place_scope<'scope, R>(
+        &self,
+        op: impl FnOnce(&rayon::Scope<'scope>) -> R,
+    ) -> R {
+        self.pool.in_place_scope(op)
     }
 
     /// `f` on every item on the workers. Item costs are very uneven (merges
@@ -538,11 +588,14 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
         let stepper = kernel
             .stepper()
             .ok_or_else(|| invariant("concurrent ordered adapter lost its stepper"))?;
+        let stats = super::parstats::enabled();
+        let counters = stats.then(WindowCounters::default);
+        let started = stats.then(std::time::Instant::now);
         let detached = close_window(
             self.workers,
             &stepper,
             roots,
-            None,
+            counters.as_ref(),
             |parent, _, step, found| {
                 for child in step.terms.keys() {
                     if stepper.later_phase(parent, child) {
@@ -557,6 +610,20 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
                 step
             },
         );
+        if let (Some(started), Some(counters)) = (started, &counters) {
+            use super::parstats::{SOURCE, nanos};
+            SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+            SOURCE
+                .window_nanos
+                .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+            SOURCE
+                .computed
+                .fetch_add(detached.len() as u64, Ordering::Relaxed);
+            SOURCE.step_nanos.fetch_add(
+                counters.step_nanos.load(Ordering::Relaxed),
+                Ordering::Relaxed,
+            );
+        }
         for step in detached {
             self.steps.insert(step.key, (step.result, step.account));
         }
@@ -582,6 +649,320 @@ impl<K: ConcurrentOrderedKernel> StepSource<K> for Prefetched<'_, K> {
             .ok_or_else(|| invariant("a prefetched ordered step is missing"))?;
         kernel.absorb(&node.key, account, request, work)?;
         result
+    }
+
+    fn threads(&self) -> usize {
+        self.workers.pool.current_num_threads()
+    }
+}
+
+/// `RUSTRED_ORDERED_PIPELINE=1` (rr-par, switch; unset = off): recorded
+/// arithmetics compute the next window of steps on the workers while the
+/// scheduler merges and records the current one ([`Pipelined`]).
+pub(super) fn pipeline_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_ORDERED_PIPELINE").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
+type StepOf<S> = (
+    Result<OrderedStep<<S as OrderedStepper>::Key>, <S as OrderedStepper>::Error>,
+    <S as OrderedStepper>::Account,
+);
+
+type Candidate<S> = (
+    <S as OrderedStepper>::Key,
+    OrderedPosition<<S as OrderedStepper>::Priority>,
+);
+
+/// A window computed by the workers: its steps, its threshold, and the
+/// same-phase children of its steps below the threshold (the candidates of
+/// the next window).
+struct Computed<S: OrderedStepper> {
+    steps: Vec<(S::Key, StepOf<S>)>,
+    threshold: Scheduled<S::Key, S::Priority>,
+    below: Vec<Candidate<S>>,
+}
+
+/// The steps of `roots` and of their same-phase descendants at or above
+/// `threshold` (`close_window`), with the same-phase children below it.
+fn compute_window<S: OrderedStepper>(
+    workers: &Workers,
+    stepper: &S,
+    roots: Vec<Candidate<S>>,
+    threshold: Scheduled<S::Key, S::Priority>,
+) -> Computed<S> {
+    let stats = super::parstats::enabled();
+    let counters = stats.then(WindowCounters::default);
+    let started = stats.then(std::time::Instant::now);
+    let detached = close_window(
+        workers,
+        stepper,
+        roots,
+        counters.as_ref(),
+        |parent, _, step, found| {
+            let mut below = Vec::new();
+            for child in step.terms.keys() {
+                if stepper.later_phase(parent, child) {
+                    continue;
+                }
+                if let Ok(position) = stepper.position(child) {
+                    if at_or_above(&position, child, &threshold) {
+                        found.push((child.clone(), position));
+                    } else if position.phase == threshold.phase.0 {
+                        below.push((child.clone(), position));
+                    }
+                }
+            }
+            (step, below)
+        },
+    );
+    if let (Some(started), Some(counters)) = (started, &counters) {
+        use super::parstats::{SOURCE, nanos};
+        SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+        SOURCE
+            .window_nanos
+            .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+        SOURCE
+            .computed
+            .fetch_add(detached.len() as u64, Ordering::Relaxed);
+        SOURCE.step_nanos.fetch_add(
+            counters.step_nanos.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+    let mut below = Vec::new();
+    let steps = detached
+        .into_iter()
+        .map(|step| {
+            let result = step.result.map(|(step, mut children)| {
+                below.append(&mut children);
+                step
+            });
+            (step.key, (result, step.account))
+        })
+        .collect();
+    Computed {
+        steps,
+        threshold,
+        below,
+    }
+}
+
+/// The next window from its candidates: the greatest `window_keys` of them
+/// (deduplicated), closed under same-phase descent above the last.
+fn speculate<S: OrderedStepper>(
+    workers: &Workers,
+    stepper: &S,
+    mut candidates: Vec<Candidate<S>>,
+    window_keys: usize,
+) -> Option<Computed<S>> {
+    use rayon::slice::ParallelSliceMut;
+    workers.pool.install(|| {
+        candidates.par_sort_unstable_by(|a, b| (&b.1.priority, &b.0).cmp(&(&a.1.priority, &a.0)))
+    });
+    candidates.dedup_by(|a, b| a.0 == b.0);
+    candidates.truncate(window_keys);
+    let (key, position) = candidates.last()?.clone();
+    let threshold = Scheduled {
+        phase: std::cmp::Reverse(position.phase),
+        priority: position.priority,
+        key,
+    };
+    Some(compute_window(workers, stepper, candidates, threshold))
+}
+
+/// Steps computed ahead by the workers for the sequential scheduler, in a
+/// pipeline (rr-par): while the scheduler merges and records the steps of
+/// one window, the workers compute the next one.
+///
+/// A window is closed as in [`Prefetched`]. When the scheduler starts on a
+/// window with threshold `t`, the next window is speculated from the
+/// greatest pending keys of the phase below `t` and the same-phase children
+/// below `t` of the window's steps: every key the sequential scheduler can
+/// pop after the window is one of those or a descendant of one. The greatest
+/// `window_keys` of them, closed under descent above the last (`t'`), hold
+/// every key popped between `t` and `t'`; a popped key that is not computed
+/// (below `t'`, or a new phase) starts a window synchronously. Steps are pure
+/// functions of their key (see the module docs), so this changes only which
+/// thread computes a step and when; the scheduler applies exactly the
+/// accounts of the keys it expands, in its order.
+pub(super) struct Pipelined<'scope, 'p, S: OrderedStepper> {
+    scope: &'p rayon::Scope<'scope>,
+    workers: &'scope Workers,
+    stepper: &'scope S,
+    window_keys: usize,
+    steps: HashMap<S::Key, StepOf<S>>,
+    /// The phase and the receiver of the window being computed ahead.
+    ahead: Option<(usize, std::sync::mpsc::Receiver<Option<Computed<S>>>)>,
+}
+
+impl<'scope, 'p, S> Pipelined<'scope, 'p, S>
+where
+    S: OrderedStepper + Sync,
+    S::Key: super::FrontierKey,
+    S::Priority: Hash,
+{
+    pub(super) fn new(
+        scope: &'p rayon::Scope<'scope>,
+        workers: &'scope Workers,
+        stepper: &'scope S,
+        window_keys: usize,
+    ) -> Self {
+        Self {
+            scope,
+            workers,
+            stepper,
+            window_keys,
+            steps: HashMap::new(),
+            ahead: None,
+        }
+    }
+
+    /// Adopt a computed window and start computing the next one.
+    fn adopt<W>(
+        &mut self,
+        computed: Computed<S>,
+        frontier: &Frontier<S::Key, S::Priority, W>,
+    ) {
+        let Computed {
+            steps,
+            threshold,
+            below,
+        } = computed;
+        self.steps.clear();
+        self.steps.reserve(steps.len());
+        for (key, step) in steps {
+            self.steps.insert(key, step);
+        }
+        let phase = threshold.phase.0;
+        let mut candidates = below;
+        candidates.extend(
+            frontier
+                .iter()
+                .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+                .skip_while(|(scheduled, _)| **scheduled >= threshold)
+                .take(self.window_keys)
+                .map(|(scheduled, _)| {
+                    (
+                        scheduled.key.clone(),
+                        OrderedPosition {
+                            phase,
+                            priority: scheduled.priority.clone(),
+                        },
+                    )
+                }),
+        );
+        if candidates.is_empty() {
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (workers, stepper, window_keys) = (self.workers, self.stepper, self.window_keys);
+        self.scope.spawn(move |_| {
+            let computed = workers
+                .budget
+                .run_captured(|| speculate(workers, stepper, candidates, window_keys));
+            let _ = sender.send(computed);
+        });
+        self.ahead = Some((phase, receiver));
+    }
+
+    /// Ensure that the step of `node` is computed.
+    fn obtain<W>(
+        &mut self,
+        frontier: &Frontier<S::Key, S::Priority, W>,
+        node: &Scheduled<S::Key, S::Priority>,
+    ) {
+        if self.steps.contains_key(&node.key) {
+            return;
+        }
+        let stats = super::parstats::enabled();
+        if let Some((phase, receiver)) = self.ahead.take()
+            && phase == node.phase.0
+        {
+            let waited = stats.then(std::time::Instant::now);
+            let computed = receiver.recv().ok().flatten();
+            if let Some(waited) = waited {
+                super::parstats::SOURCE
+                    .wait_nanos
+                    .fetch_add(super::parstats::nanos(waited.elapsed()), Ordering::Relaxed);
+            }
+            if let Some(computed) = computed {
+                let hit = computed.steps.iter().any(|(key, _)| *key == node.key);
+                if hit {
+                    if stats {
+                        super::parstats::SOURCE
+                            .speculative_hits
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    self.adopt(computed, frontier);
+                    return;
+                }
+            }
+        }
+        // A window from the popped key and the greatest pending keys after
+        // it, computed now (as `Prefetched::refill`).
+        let phase = node.phase.0;
+        let mut roots = vec![(
+            node.key.clone(),
+            OrderedPosition {
+                phase,
+                priority: node.priority.clone(),
+            },
+        )];
+        let mut threshold = node.clone();
+        for (scheduled, _) in frontier
+            .iter()
+            .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+            .take(self.window_keys.saturating_sub(1))
+        {
+            roots.push((
+                scheduled.key.clone(),
+                OrderedPosition {
+                    phase,
+                    priority: scheduled.priority.clone(),
+                },
+            ));
+            threshold = scheduled.into_owned();
+        }
+        let computed = compute_window(self.workers, self.stepper, roots, threshold);
+        self.adopt(computed, frontier);
+    }
+}
+
+impl<'scope, 'p, K, S> StepSource<K> for Pipelined<'scope, 'p, S>
+where
+    K: ConcurrentOrderedKernel,
+    S: OrderedStepper<
+            Key = K::Key,
+            Priority = K::Priority,
+            Error = K::Error,
+            Account = K::Account,
+        > + Sync,
+{
+    fn step<W>(
+        &mut self,
+        kernel: &mut K,
+        frontier: &Frontier<K::Key, K::Priority, W>,
+        node: &Scheduled<K::Key, K::Priority>,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<OrderedStep<K::Key>, K::Error> {
+        self.obtain(frontier, node);
+        let (result, account) = self
+            .steps
+            .remove(&node.key)
+            .ok_or_else(|| invariant("a pipelined ordered step is missing"))?;
+        kernel.absorb(&node.key, account, request, work)?;
+        result
+    }
+
+    fn threads(&self) -> usize {
+        self.workers.pool.current_num_threads()
     }
 }
 
@@ -2507,8 +2888,17 @@ mod tests {
         }
     }
 
-    impl ConcurrentOrderedKernel for LatticeKernel<'_> {
+    impl<'a> ConcurrentOrderedKernel for LatticeKernel<'a> {
         type Account = ReductionStatistics;
+        type Detached = LatticeStepper<'a>;
+
+        fn detached_stepper(&self) -> Option<LatticeStepper<'a>> {
+            Some(LatticeStepper {
+                lattice: self.lattice,
+                threads: self.threads,
+                stepped: self.stepped,
+            })
+        }
         type Stepper<'s>
             = LatticeStepper<'s>
         where

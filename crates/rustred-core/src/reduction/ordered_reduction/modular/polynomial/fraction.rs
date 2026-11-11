@@ -102,6 +102,8 @@ pub(super) struct Factorized<'a> {
     scratch: Scratch,
     /// rr-alloc: the chain block being divided (reused).
     chain_block: Raw,
+    /// rr-par: spent weight buffers for reuse (`RUSTRED_MODULAR_REPLAY_POOL`).
+    pool: Option<std::cell::RefCell<Pools>>,
     /// Scalars of every constant coefficient, lanes adjacent.
     constant_scalars: Vec<Scalar>,
     /// `(start, length)` in `numerator_table` of every polynomial
@@ -111,7 +113,76 @@ pub(super) struct Factorized<'a> {
     zero_scalars: Vec<Scalar>,
 }
 
+/// Spent coefficient and chain buffers of one replay arithmetic.
+#[derive(Default)]
+struct Pools {
+    data: Vec<Vec<u64>>,
+    chains: Vec<Vec<Chain>>,
+}
+
+/// Buffers kept per pool, and the largest buffer kept (words).
+const POOL_BUFFERS: usize = 256;
+const POOL_WORDS: usize = 1 << 16;
+
+/// `RUSTRED_MODULAR_REPLAY_POOL=1` (rr-par, switch; unset = off): the replay
+/// arithmetic reuses the coefficient and chain buffers of spent weights
+/// (popped weights, cached powers, replaced layouts, product temporaries)
+/// instead of allocating new ones for every operation. A reused buffer is
+/// cleared and zero-filled exactly as a new one: values are unchanged.
+fn replay_pool_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_MODULAR_REPLAY_POOL").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
 impl<'a> Factorized<'a> {
+    /// A zero-filled coefficient buffer of `len` words.
+    fn zeroed(&self, len: usize) -> Vec<u64> {
+        match &self.pool {
+            Some(pool) => {
+                let mut data = pool.borrow_mut().data.pop().unwrap_or_default();
+                data.clear();
+                data.resize(len, 0);
+                data
+            }
+            None => vec![0; len],
+        }
+    }
+
+    /// An empty chain list.
+    fn chain_list(&self, capacity: usize) -> Vec<Chain> {
+        match &self.pool {
+            Some(pool) => {
+                let mut chains = pool.borrow_mut().chains.pop().unwrap_or_default();
+                chains.clear();
+                chains.reserve(capacity);
+                chains
+            }
+            None => Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Keep the buffers of a spent weight for reuse.
+    pub(super) fn recycle_fraction(&self, weight: Fraction) {
+        let Some(pool) = &self.pool else {
+            return;
+        };
+        let mut pool = pool.borrow_mut();
+        if weight.data.capacity() > 0
+            && weight.data.capacity() <= POOL_WORDS
+            && pool.data.len() < POOL_BUFFERS
+        {
+            pool.data.push(weight.data);
+        }
+        if weight.chains.capacity() > 0 && pool.chains.len() < POOL_BUFFERS {
+            pool.chains.push(weight.chains);
+        }
+    }
+
     pub fn new(lanes: &'a [LaneTables], basis: &'a Basis, max_degree: usize) -> Self {
         assert!(!lanes.is_empty());
         let width = lanes.len();
@@ -148,6 +219,7 @@ impl<'a> Factorized<'a> {
             inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
             scratch: Scratch::default(),
             chain_block: vec![],
+            pool: replay_pool_enabled().then(Default::default),
             constant_scalars,
             numerator_scalars,
             numerator_table,
@@ -185,7 +257,7 @@ impl<'a> Factorized<'a> {
             poly,
             chains,
             positions: offset,
-            data: vec![0; offset * self.width()],
+            data: self.zeroed(offset * self.width()),
         })
     }
 
@@ -330,11 +402,13 @@ impl<'a> Factorized<'a> {
 
     /// `scale * source` with the layout of `source`.
     fn scaled(&self, source: &Fraction, scale: Scale) -> Fraction {
+        let mut chains = self.chain_list(source.chains.len());
+        chains.extend_from_slice(&source.chains);
         let mut result = Fraction {
             poly: source.poly,
-            chains: source.chains.clone(),
+            chains,
             positions: source.positions,
-            data: vec![0; source.data.len()],
+            data: self.zeroed(source.data.len()),
         };
         self.kernel(&mut result.data, &source.data, self.scalars(scale), true);
         result
@@ -359,7 +433,9 @@ impl<'a> Factorized<'a> {
         if !self.segments(destination, source, &mut segments) {
             let (poly, chains) = self.union(destination, source);
             self.segments = segments;
-            *destination = self.relayout(destination, poly, chains)?;
+            let widened = self.relayout(destination, poly, chains)?;
+            let spent = std::mem::replace(destination, widened);
+            self.recycle_fraction(spent);
             segments = std::mem::take(&mut self.segments);
             let covered = self.segments(destination, source, &mut segments);
             debug_assert!(covered);
@@ -380,7 +456,7 @@ impl<'a> Factorized<'a> {
 
     /// The smallest layout covering both weights.
     fn union(&self, a: &Fraction, b: &Fraction) -> (usize, Vec<Chain>) {
-        let mut chains = Vec::with_capacity(a.chains.len() + b.chains.len());
+        let mut chains = self.chain_list(a.chains.len() + b.chains.len());
         let (mut i, mut j) = (0, 0);
         while i < a.chains.len() || j < b.chains.len() {
             match (a.chains.get(i), b.chains.get(j)) {
@@ -439,7 +515,8 @@ impl<'a> Factorized<'a> {
         if !changed {
             return;
         }
-        let chains = kept.iter().map(|(c, e)| Chain::new(c.factor, *e)).collect();
+        let mut chains = self.chain_list(kept.len());
+        chains.extend(kept.iter().map(|(c, e)| Chain::new(c.factor, *e)));
         let mut trimmed = self
             .layout(poly, chains)
             .expect("a trimmed layout is within the bounds of the original");
@@ -449,7 +526,8 @@ impl<'a> Factorized<'a> {
             let (f, t) = (old.offset as usize * width, new.offset as usize * width);
             trimmed.data[t..t + len].copy_from_slice(&weight.data[f..f + len]);
         }
-        *weight = trimmed;
+        let spent = std::mem::replace(weight, trimmed);
+        self.recycle_fraction(spent);
     }
 
     /// `d * source`.
@@ -458,11 +536,8 @@ impl<'a> Factorized<'a> {
             return Ok(Fraction::default());
         }
         let width = self.width();
-        let chains = source
-            .chains
-            .iter()
-            .map(|c| Chain::new(c.factor, c.exponent))
-            .collect();
+        let mut chains = self.chain_list(source.chains.len());
+        chains.extend(source.chains.iter().map(|c| Chain::new(c.factor, c.exponent)));
         // The result's layout is the source's shifted by one position.
         let mut result = self.layout(source.poly + 1, chains)?;
         let from = &source.data;
@@ -524,7 +599,7 @@ impl<'a> Factorized<'a> {
         index: usize,
     ) -> Result<Fraction, ReductionError> {
         let factors = &self.basis.coefficients[index].factors;
-        let mut merged = Vec::with_capacity(chains.len() + factors.len());
+        let mut merged = self.chain_list(chains.len() + factors.len());
         let (mut i, mut j) = (0, 0);
         while i < chains.len() || j < factors.len() {
             match (chains.get(i), factors.get(j)) {
@@ -843,6 +918,16 @@ fn expand_into(
     debug_assert!(b.is_empty());
 }
 
+impl super::parallel::Summable for Factorized<'_> {
+    fn add_weight(
+        &mut self,
+        destination: &mut Fraction,
+        source: &Fraction,
+    ) -> Result<(), ReductionError> {
+        self.axpy(destination, source, Scale::One)
+    }
+}
+
 impl Representation for Factorized<'_> {
     type Weight = Fraction;
 
@@ -881,7 +966,17 @@ impl Representation for Factorized<'_> {
 
     fn activate(&mut self, active: &mut Fraction) {
         self.trim(active);
-        self.powers.clear();
+        if self.pool.is_some() {
+            for power in std::mem::take(&mut self.powers) {
+                self.recycle_fraction(power);
+            }
+        } else {
+            self.powers.clear();
+        }
+    }
+
+    fn recycle(&mut self, weight: Fraction) {
+        self.recycle_fraction(weight);
     }
 
     fn product(&mut self, active: &Fraction, c: CoefRef) -> Result<Fraction, ReductionError> {
@@ -903,10 +998,13 @@ impl Representation for Factorized<'_> {
         }
         let product = self.polynomial_product(active, c.index())?;
         if destination.positions == 0 {
-            *destination = product;
+            let spent = std::mem::replace(destination, product);
+            self.recycle_fraction(spent);
             Ok(())
         } else {
-            self.axpy(destination, &product, Scale::One)
+            let added = self.axpy(destination, &product, Scale::One);
+            self.recycle_fraction(product);
+            added
         }
     }
 

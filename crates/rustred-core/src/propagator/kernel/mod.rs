@@ -545,12 +545,12 @@ impl ChildKeys<'_> {
         &self,
         table: &NumeratorTable,
         weights: &[Option<u32>],
-        values: &[Coefficient],
+        values: &dyn Fn(u32) -> Coefficient,
         output: &mut PStepOut,
     ) {
         for (monomial, weight) in table.monomials.iter().zip(weights) {
             let Some(weight) = weight else { continue };
-            let weight = &values[*weight as usize];
+            let weight = values(*weight);
             let mut powers = super::step_memo::take_powers();
             powers.extend(
                 self.base
@@ -563,7 +563,7 @@ impl ChildKeys<'_> {
                 presentation: self.child.id,
                 powers,
                 tag: self.tag.clone(),
-                coefficient: weight.clone(),
+                coefficient: weight,
             });
         }
     }
