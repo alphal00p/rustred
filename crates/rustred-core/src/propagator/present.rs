@@ -281,13 +281,33 @@ fn completion_error(node: &NodeInfo, error: IspCompletionError) -> PError {
     }
 }
 
-/// Environment variable of the experimental generation-time ISP choice (M5
-/// maps): a JSON file `{"<node family name>": [coordinate ordinals], ..}`.
-/// The listed scalar-product coordinates (LoopLoop by `(left, right)`, then
-/// LoopExternal) are scanned first by [`IspCompletion`]. Unset, every
-/// presentation is the default one. A package generated with it has other
-/// presentations for the same [`P_PRESENTATION_VERSION`]: experimental only;
-/// adopting it means a version bump.
+/// The generation-time ISP choice (M5 maps, choice (b); P_PRESENTATION_VERSION
+/// 2): per node family name, the scalar-product coordinate ordinals
+/// (LoopLoop by `(left, right)`, then LoopExternal) that [`IspCompletion`]
+/// scans first. The three scope 1-4 Insertion owners listed here (nodes 248,
+/// 253 and 263 of the Diamond census) take unit-row ISPs chosen for the fewest
+/// routed terms of their inbound routes (SCRATCHPAD/m5-maps/data/bprefs.json);
+/// every other node keeps the default scan. The lane contract is unchanged.
+pub const P_ISP_PREFERENCES: &[(&str, &[usize])] = &[
+    (
+        "p_node_01040000010100010100000201000003010001020100010302000002030100",
+        &[13, 2, 1, 11, 3, 12, 10],
+    ),
+    (
+        "p_node_01040000010100010100000201000003020000010201000103020000",
+        &[1, 13, 3, 5, 6, 10, 12],
+    ),
+    (
+        "p_node_01040000010100010200000002010000030100010201000103020000",
+        &[1, 13, 3, 5, 6, 10, 8],
+    ),
+];
+
+/// Environment variable of the development override of
+/// [`P_ISP_PREFERENCES`]: a JSON file `{"<node family name>": [ordinals], ..}`
+/// that REPLACES the embedded table (`{}` gives the default scan everywhere).
+/// A package generated with it has other presentations for the same
+/// [`P_PRESENTATION_VERSION`]: development only.
 ///
 /// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
 pub const P_ISP_PREFERENCE_ENV: &str = "RUSTRED_P_ISP_PREFERENCE";
@@ -295,7 +315,10 @@ pub const P_ISP_PREFERENCE_ENV: &str = "RUSTRED_P_ISP_PREFERENCE";
 fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
     static TABLE: OnceLock<Result<BTreeMap<String, Vec<usize>>, String>> = OnceLock::new();
     let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
-        Err(_) => Ok(BTreeMap::new()),
+        Err(_) => Ok(P_ISP_PREFERENCES
+            .iter()
+            .map(|&(name, ordinals)| (name.to_owned(), ordinals.to_vec()))
+            .collect()),
         Ok(path) => std::fs::read_to_string(&path)
             .map_err(|error| format!("{path}: {error}"))
             .and_then(|text| {

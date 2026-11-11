@@ -61,9 +61,16 @@ pub use rustred_topology::P_TOPOLOGY_VERSION;
 /// Generated content and the meaning of a recorded step.
 pub const P_OWNER_LIBRARY_SEMANTICS: &str = "rustred-p-owner-library-2026-11-05";
 pub const P_CLASS_KEY_VERSION: u32 = 1;
-pub const P_CENSUS_VERSION: u32 = 1;
-/// The `present` and `edge_map` algorithms.
-pub const P_PRESENTATION_VERSION: u32 = 1;
+/// 2 (M5 combined 4L package, route maps (a)): the routed sectors of a
+/// package may carry generation-time route maps `T M` (the census map composed
+/// with an automorphism of the owner sector, chosen for the fewest routed terms
+/// by a traffic-free static score, each verified by `class::verify_route`;
+/// examples/p_route_maps.rs); the engine follows the stored maps strictly.
+pub const P_CENSUS_VERSION: u32 = 2;
+/// The `present` and `edge_map` algorithms. 2 (M5 combined 4L package, ISP
+/// choice (b)): the embedded `present::P_ISP_PREFERENCES` re-complete the ISPs
+/// of three scope 1-4 Insertion owners.
+pub const P_PRESENTATION_VERSION: u32 = 2;
 /// The content of `data/p/p-families.v1.json`.
 pub const P_FAMILIES_VERSION: u32 = 1;
 pub const P_GAMMA_TAG_VERSION: u32 = 1;
