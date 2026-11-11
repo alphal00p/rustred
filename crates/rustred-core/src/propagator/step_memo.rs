@@ -312,10 +312,7 @@ pub(crate) fn with_home_context<R>(
     }
     HOME_CONTEXT.with(|home| {
         let fits = |home: &Option<CoefficientContext>| {
-            home.as_ref().is_some_and(|home| {
-                std::sync::Arc::ptr_eq(home.variables(), context.variables())
-                    && home.parameter_names() == context.parameter_names()
-            })
+            home.as_ref().is_some_and(|home| home.shares_maps(context))
         };
         if !fits(&home.borrow())
             && let Ok(mut slot) = home.try_borrow_mut()

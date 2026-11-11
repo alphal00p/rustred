@@ -126,6 +126,12 @@ impl CoefficientContext {
         &self.template
     }
 
+    /// rr-par2: whether `other` shares this context's label and variable map
+    /// allocations (a clone, or a [`Self::with_template`] copy).
+    pub(crate) fn shares_maps(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.names, &other.names) && Arc::ptr_eq(&self.variables, &other.variables)
+    }
+
     /// rr-par2: this context with another template of the same ring and
     /// variable map (e.g. on a polynomial context owned by one thread).
     pub(crate) fn with_template(&self, template: Coefficient) -> Self {
