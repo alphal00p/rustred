@@ -58,7 +58,9 @@ fn main() {
             let (dots, rank) = cover.split_once(':').expect("SCHEME_COVER=<dots>:<rank>");
             let (dots, rank): (i64, i64) = (dots.parse().unwrap(), rank.parse().unwrap());
             let presentation = library.presentation(owner.spec.presentation);
-            let lines = presentation.lines().count();
+            let lines = (presentation.slots.iter())
+                .filter(|slot| matches!(slot, rustred::propagator::presentation::Slot::Line(_)))
+                .count();
             let arity = presentation.slots.len();
             let perm = template.forcer_slots().to_vec();
             let mut keys: Vec<Vec<i64>> = vec![Vec::new()];
