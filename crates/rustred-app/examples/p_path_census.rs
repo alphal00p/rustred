@@ -221,6 +221,18 @@ fn arithmetic(name: &str, threads: usize) -> OrderedWeightArithmetic {
     }
 }
 
+/// CPU seconds (user + system) of this process so far (/proc/self/stat):
+/// with floating foreign load on a shared CPU, the 1-thread comparison
+/// that wall time cannot give (M5 batch 2).
+fn cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| fields.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    (ticks(11) + ticks(12)) / 100.0
+}
+
 fn rss() -> (u64, u64) {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
@@ -330,6 +342,7 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    let load_cpu_seconds = cpu_seconds();
     let (_, load_vmhwm) = rss();
     let orbit_canon = match std::env::var("P_ORBIT_CANON").as_deref() {
         Ok("off") => false,
@@ -449,6 +462,7 @@ fn main() {
         seconds
     });
     let t_reduce = Instant::now();
+    let cpu_before_reduce = cpu_seconds();
     let result = library.reduce(PReductionRequest {
         inputs: inputs.clone(),
         arithmetic: arithmetic(arith, threads),
@@ -460,12 +474,15 @@ fn main() {
         inspector: Some(&mut probe),
     });
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
+    let reduce_cpu_seconds = cpu_seconds() - cpu_before_reduce;
     let (vmrss, vmhwm) = rss();
     // P_WARM=1 (M5 1L-3L): the same request again in this process, without
     // inspector or census, after the cold one prepared routes and owner
     // programs: the warm time of a long-lived process (vakint).
+    let mut warm_cpu_seconds = None;
     let warm_seconds = flag("P_WARM").then(|| {
         let t_warm = Instant::now();
+        let cpu_before_warm = cpu_seconds();
         let warm = library.reduce(PReductionRequest {
             inputs: inputs.clone(),
             arithmetic: arithmetic(arith, threads),
@@ -477,6 +494,7 @@ fn main() {
             inspector: None,
         });
         let seconds = t_warm.elapsed().as_secs_f64();
+        warm_cpu_seconds = Some(cpu_seconds() - cpu_before_warm);
         if let (Ok(cold), Ok(warm)) = (&result, &warm) {
             assert_eq!(
                 canonical::canonical_text(cold),
@@ -513,6 +531,8 @@ fn main() {
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
         "load_vmhwm_kb": load_vmhwm, "warm_seconds": warm_seconds,
         "process_seconds": t_main.elapsed().as_secs_f64(),
+        "reduce_cpu_seconds": reduce_cpu_seconds, "warm_cpu_seconds": warm_cpu_seconds,
+        "process_cpu_seconds": cpu_seconds(), "load_cpu_seconds": load_cpu_seconds,
     });
     if let Some(p) = progress {
         summary["processed"] = p.processed_keys.into();

@@ -363,12 +363,13 @@ pub(crate) fn orbit_of_group(
         verified,
         ..OwnerOrbit::default()
     };
+    let forms = SlotForms::new(presentation, n);
     let mut seen: BTreeSet<Box<[SlotImage]>> = BTreeSet::new();
     for t in &group {
         if t.len() != n * n {
             return OwnerOrbit::default();
         }
-        let action = slot_action(presentation, t, n);
+        let action = forms.action(t);
         let onto_support = lines
             .iter()
             .all(|&slot| action[slot].is_some_and(|(target, _)| support >> target & 1 == 1));
@@ -435,6 +436,7 @@ pub(crate) fn routed_orbit(
     let identity: Box<[SlotImage]> = (0..arity)
         .map(|slot| Some((u16::try_from(slot).unwrap_or(u16::MAX), false)))
         .collect();
+    let forms = SlotForms::new(presentation, n);
     let mut seen: BTreeSet<Box<[SlotImage]>> = BTreeSet::new();
     for t in &owner.group {
         if t.len() != n * n {
@@ -444,7 +446,7 @@ pub(crate) fn routed_orbit(
         else {
             continue;
         };
-        let action = slot_action(presentation, &conjugate, n);
+        let action = forms.action(&conjugate);
         let onto_support = lines
             .iter()
             .all(|&slot| action[slot].is_some_and(|(target, _)| support >> target & 1 == 1));
@@ -491,17 +493,47 @@ fn multiply(left: &[i128], right: &[i128], n: usize) -> Option<Vec<i128>> {
 /// A slot maps onto slot `j` when its image form is `+-` the form of `j`, with
 /// the same eps units.
 fn slot_action(presentation: &Presentation, t: &[i128], n: usize) -> Box<[SlotImage]> {
-    let factors = |slot: &Slot| -> (Vec<i128>, Vec<i128>) {
-        let (l, r) = match slot {
-            Slot::Line(line) => (&line.momentum, &line.momentum),
-            Slot::Isp(isp) => (&isp.left, &isp.right),
-        };
-        (
-            l.iter().map(|&c| i128::from(c)).collect(),
-            r.iter().map(|&c| i128::from(c)).collect(),
-        )
-    };
-    let form = |l: &[i128], r: &[i128]| -> Vec<i128> {
+    SlotForms::new(presentation, n).action(t)
+}
+
+/// The slot factors, eps units and the form lookup of one presentation,
+/// built once for the many group elements of one sector (M5 batch 2: the
+/// lookup was rebuilt for every element).
+pub(crate) struct SlotForms {
+    n: usize,
+    factors: Vec<(Vec<i128>, Vec<i128>, u8)>,
+    lookup: std::collections::HashMap<Vec<i128>, (u16, bool)>,
+}
+
+impl SlotForms {
+    pub(crate) fn new(presentation: &Presentation, n: usize) -> Self {
+        let factors: Vec<(Vec<i128>, Vec<i128>, u8)> = presentation
+            .slots
+            .iter()
+            .map(|slot| {
+                let (l, r, eps) = match slot {
+                    Slot::Line(line) => (&line.momentum, &line.momentum, line.eps_units),
+                    Slot::Isp(isp) => (&isp.left, &isp.right, 0),
+                };
+                (
+                    l.iter().map(|&c| i128::from(c)).collect(),
+                    r.iter().map(|&c| i128::from(c)).collect(),
+                    eps,
+                )
+            })
+            .collect();
+        let mut lookup = std::collections::HashMap::with_capacity(2 * factors.len());
+        for (index, (l, r, _)) in factors.iter().enumerate() {
+            let f = Self::form(n, l, r);
+            let minus: Vec<i128> = f.iter().map(|c| -c).collect();
+            let index = u16::try_from(index).unwrap_or(u16::MAX);
+            lookup.entry(f).or_insert((index, false));
+            lookup.entry(minus).or_insert((index, true));
+        }
+        Self { n, factors, lookup }
+    }
+
+    fn form(n: usize, l: &[i128], r: &[i128]) -> Vec<i128> {
         let mut m = vec![0_i128; n * n];
         for i in 0..n {
             for j in 0..n {
@@ -509,35 +541,24 @@ fn slot_action(presentation: &Presentation, t: &[i128], n: usize) -> Box<[SlotIm
             }
         }
         m
-    };
-    let mapped = |v: &[i128]| -> Vec<i128> {
-        (0..n)
-            .map(|column| (0..n).map(|row| v[row] * t[row * n + column]).sum())
-            .collect()
-    };
-    let eps = |slot: &Slot| match slot {
-        Slot::Line(line) => line.eps_units,
-        Slot::Isp(_) => 0,
-    };
-    let mut lookup: std::collections::BTreeMap<Vec<i128>, (u16, bool)> = Default::default();
-    for (index, slot) in presentation.slots.iter().enumerate() {
-        let (l, r) = factors(slot);
-        let f = form(&l, &r);
-        let minus: Vec<i128> = f.iter().map(|c| -c).collect();
-        let index = u16::try_from(index).unwrap_or(u16::MAX);
-        lookup.entry(f).or_insert((index, false));
-        lookup.entry(minus).or_insert((index, true));
     }
-    presentation
-        .slots
-        .iter()
-        .map(|slot| {
-            let (l, r) = factors(slot);
-            let image = form(&mapped(&l), &mapped(&r));
-            let (target, flip) = *lookup.get(&image)?;
-            (eps(&presentation.slots[usize::from(target)]) == eps(slot)).then_some((target, flip))
-        })
-        .collect()
+
+    pub(crate) fn action(&self, t: &[i128]) -> Box<[SlotImage]> {
+        let n = self.n;
+        let mapped = |v: &[i128]| -> Vec<i128> {
+            (0..n)
+                .map(|column| (0..n).map(|row| v[row] * t[row * n + column]).sum())
+                .collect()
+        };
+        self.factors
+            .iter()
+            .map(|(l, r, eps)| {
+                let image = Self::form(n, &mapped(l), &mapped(r));
+                let (target, flip) = *self.lookup.get(&image)?;
+                (self.factors[usize::from(target)].2 == *eps).then_some((target, flip))
+            })
+            .collect()
+    }
 }
 
 /// `verify` proves `t` a family isomorphism with a unit Jacobian and its
