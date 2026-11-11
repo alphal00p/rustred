@@ -77,7 +77,11 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// The Scheme lane (M5 A1 schemes): the meaning of the embedded scheme set
 /// (`scheme::EMBEDDED_SCHEMES`: rules, their stored order, order key and
 /// verification). Bump it with every change of an embedded scheme file.
-pub const P_SCHEME_TEMPLATE_VERSION: u32 = 1;
+/// 2 (M5 combined 4L package, user decision 1): no1, haha and bubu are on by
+/// default (`"default": true`), so a library assembled without
+/// `RUSTRED_P_SCHEMES` puts these three owners on the Scheme lane; the
+/// rank-gated Custom no1 of B2 is the fallback (`RUSTRED_P_SCHEMES=none`).
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 2;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
 /// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
