@@ -249,8 +249,8 @@ fn lane_tables_are_the_plans() {
             ("Carpet", 24),
             ("Triangle", 53),
             ("Diamond", 4),
-            ("Scheme", 3),
-            ("Custom", 18),
+            ("Scheme", 4),
+            ("Custom", 17),
             ("Trivial", 1),
         ])
     );
@@ -258,8 +258,12 @@ fn lane_tables_are_the_plans() {
         four.names("Diamond"),
         sorted_names(&["d384", "d394", "d399", "no3"])
     );
-    // Forcer's schemes, on by default (P_SCHEME_TEMPLATE_VERSION 2, M5 combined).
-    assert_eq!(four.names("Scheme"), sorted_names(&["bubu", "haha", "no1"]));
+    // Forcer's schemes, on by default (P_SCHEME_TEMPLATE_VERSION 2, M5 combined;
+    // no2 since P_SCHEME_TEMPLATE_VERSION 3, M5 batch 2).
+    assert_eq!(
+        four.names("Scheme"),
+        sorted_names(&["bubu", "haha", "no1", "no2"])
+    );
 }
 
 /// `(L, action)` and the SP split of the 4L DAG agree with the independent
@@ -615,8 +619,8 @@ fn custom_presentations_are_induced_or_eps_nodes() {
         }
     }
     // The 4 diamond nodes (d384, d394, d399, no3) are Diamond owners (M3-T5b);
-    // no1, haha and bubu are Scheme owners (M5 combined).
-    assert_eq!((integer, eps), (7, 11));
+    // no1, haha and bubu are Scheme owners (M5 combined), no2 too (M5 batch 2).
+    assert_eq!((integer, eps), (6, 11));
 }
 
 #[test]

@@ -549,7 +549,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
          P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
-         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=2,P_CUSTOM_OWNER_VERSION=2,\
+         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=3,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
          P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1";
     for (on, identity, digest) in [
@@ -2280,7 +2280,12 @@ fn keys_of_mixed_length_pass_every_path() {
     let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
     let mut run = request(inputs.clone());
     run.arithmetic = modular_polynomial(4);
-    run.scheduler = OrderedSchedulerOptions::with_threads(4);
+    // Generic: the p profile turns the adjoint tail off, and with it the tail
+    // table this chain tests (M5 batch 2).
+    run.scheduler = OrderedSchedulerOptions {
+        profile: OrderedProfile::Generic,
+        ..OrderedSchedulerOptions::with_threads(4)
+    };
     run.step_cache = Some(Arc::clone(&cold));
     let first = library.reduce(run).unwrap();
     assert_eq!(first.terms, expected);
@@ -2301,6 +2306,7 @@ fn keys_of_mixed_length_pass_every_path() {
         run.scheduler = OrderedSchedulerOptions {
             threads: 4,
             adjoint_tail,
+            profile: OrderedProfile::Generic,
             ..Default::default()
         };
         run.step_cache = Some(Arc::clone(&warm));

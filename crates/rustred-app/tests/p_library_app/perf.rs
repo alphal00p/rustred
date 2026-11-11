@@ -16,8 +16,9 @@ use rustred::propagator::PresentationId;
 use rustred::propagator::error::PError;
 use rustred::propagator::library::{PLibrary, PReduction, PReductionRequest, PUncoveredPolicy};
 use rustred::reduction::{
-    ModularCommon, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheOptions,
-    OrderedWeightArithmetic, PolynomialOptions, ReductionLimits, SampledOptions,
+    ModularCommon, OrderedProfile, OrderedSchedulerOptions, OrderedStepCache,
+    OrderedStepCacheOptions, OrderedWeightArithmetic, PolynomialOptions, ReductionLimits,
+    SampledOptions,
 };
 use symbolica::domains::rational::Rational;
 use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
@@ -100,10 +101,31 @@ fn reduce(
     arithmetic: OrderedWeightArithmetic,
     step_cache: Option<Arc<OrderedStepCache>>,
 ) -> Result<PReduction, PError> {
+    reduce_with(
+        library,
+        inputs,
+        arithmetic,
+        step_cache,
+        OrderedProfile::Auto,
+    )
+}
+
+/// [`reduce`] under `profile` (`Generic` keeps the adjoint tail and its
+/// table, which the p profile turns off since M5 batch 2).
+fn reduce_with(
+    library: &PLibrary,
+    inputs: &Inputs,
+    arithmetic: OrderedWeightArithmetic,
+    step_cache: Option<Arc<OrderedStepCache>>,
+    profile: OrderedProfile,
+) -> Result<PReduction, PError> {
     library.reduce(PReductionRequest {
         inputs: inputs.clone(),
         arithmetic,
-        scheduler: OrderedSchedulerOptions::with_threads(THREADS),
+        scheduler: OrderedSchedulerOptions {
+            profile,
+            ..OrderedSchedulerOptions::with_threads(THREADS)
+        },
         step_cache,
         uncovered: PUncoveredPolicy::Reject,
         onto_masters: true,
@@ -125,7 +147,8 @@ fn open(library: &PLibrary, directory: &std::path::Path, populate: bool) -> Arc<
 /// adjoint tail, whose completion steps the modular replays then missed. The
 /// exact-prepared cache now replays read-only without a miss under the three
 /// arithmetics, closing the tail from its table; without the table every
-/// record is a step a modular replay takes.
+/// record is a step a modular replay takes. The tail runs under the Generic
+/// profile (the p profile has no tail since M5 batch 2).
 #[test]
 fn an_exact_prepared_step_cache_replays_without_a_miss_under_every_arithmetic() {
     let library = &scope_two().library;
@@ -135,11 +158,12 @@ fn an_exact_prepared_step_cache_replays_without_a_miss_under_every_arithmetic() 
         let off = reduce(library, &inputs, OrderedWeightArithmetic::Exact, None).unwrap();
         let directory = scratch.join(cell);
         let cache = open(library, &directory, true);
-        let prepared = reduce(
+        let prepared = reduce_with(
             library,
             &inputs,
             OrderedWeightArithmetic::Exact,
             Some(cache.clone()),
+            OrderedProfile::Generic,
         );
         assert_eq!(prepared.unwrap().terms, off.terms, "{cell}");
         cache.save().unwrap();
@@ -150,7 +174,14 @@ fn an_exact_prepared_step_cache_replays_without_a_miss_under_every_arithmetic() 
             }
             for arithmetic in arithmetics() {
                 let cache = open(library, &directory, false);
-                let replay = reduce(library, &inputs, arithmetic, Some(cache)).unwrap();
+                let replay = reduce_with(
+                    library,
+                    &inputs,
+                    arithmetic,
+                    Some(cache),
+                    OrderedProfile::Generic,
+                )
+                .unwrap();
                 let progress = replay.statistics.progress;
                 let label = format!("{cell} {arithmetic} tail table {table}");
                 assert_eq!(replay.terms, off.terms, "{label}");
