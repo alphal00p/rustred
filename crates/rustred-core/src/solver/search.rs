@@ -660,9 +660,21 @@ impl<const N: usize> Probe<N> {
     pub(super) fn new(order: IntegralOrder<N>, nvars: usize, options: SearchOptions) -> Self {
         let field = Zp64::new(options.prime);
         let mut random = StdRng::seed_from_u64(options.sample_seed);
-        let point = (0..nvars)
+        let mut point: Vec<FiniteFieldElement<u64>> = (0..nvars)
             .map(|_| Integer::from(random.random_range(1..options.prime)).to_finite_field(&field))
             .collect();
+        // [p-integral round6 native-S1c, diagnostic only] RUSTRED_PROBE_POINT = comma-separated decimal residues, one per
+        // coefficient variable (the source system's coefficient order), replaces the random modular discovery point.
+        // Unset (the default): the established engine, byte-identical behaviour. The exact lift is unchanged.
+        if let Ok(spec) = std::env::var("RUSTRED_PROBE_POINT") {
+            let values: Vec<&str> = spec.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+            assert_eq!(values.len(), nvars, "RUSTRED_PROBE_POINT needs one residue per coefficient variable");
+            point = values
+                .iter()
+                .map(|v| Integer::from(v.parse::<u64>().expect("RUSTRED_PROBE_POINT residue") % options.prime).to_finite_field(&field))
+                .collect();
+            eprintln!("[probe-point] modular discovery point overridden ({nvars} residues)");
+        }
         Self {
             discovery: Discovery::new(order, field.clone()),
             field,
