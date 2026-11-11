@@ -2235,18 +2235,20 @@ fn the_four_loop_dag_is_complete() {
         census.counts(&library.presentations).unwrap()
     );
 
-    // All 10,938 pairs take five minutes: the twins and a sample stay. (10,654
+    // All 10,989 pairs take five minutes: the twins and a sample stay. (10,654
     // before the Diamond lane: the 4 diamond-adapted presentations add pairs;
-    // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones.)
+    // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones;
+    // 10,938 before no2 and no6 joined the Scheme lane in M5 batch 2.)
     assert_eq!(
         assert_traded_nodes_are_refused(&library, &census, 64),
-        (10_938, 172)
+        (10_989, 172)
     );
 
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
     // are the 183 of the tops. The 4L sectors are those of the Diamond- and
     // Scheme-lane presentations (176,608 / 156,045 / 20,563 with the diamonds
-    // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane), as
+    // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane;
+    // 171,488 / 152,304 / 19,184 before no2 and no6 joined it), as
     // in golden/inventory_1-4.txt.
     assert_eq!(
         count_rows(&census.counts(&library.presentations).unwrap()),
@@ -2254,7 +2256,7 @@ fn the_four_loop_dag_is_complete() {
             (1, 7, 16, 9, 7, 6),
             (2, 30, 298, 211, 87, 29),
             (3, 125, 8_216, 6_794, 1_422, 92),
-            (4, 291, 171_488, 152_304, 19_184, 183),
+            (4, 291, 170_464, 151_608, 18_856, 183),
         ]
     );
 }

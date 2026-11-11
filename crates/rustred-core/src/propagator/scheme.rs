@@ -2043,6 +2043,7 @@ impl SchemeStep {
     /// Diagnostics (M5 no6 coverage census): the rule the dispatch takes at
     /// `powers` (an Apply key of this owner), with the image of a permutation
     /// rule; `None` where no rule applies (the fallback's keys).
+    #[allow(clippy::type_complexity)] // (rule name, permutation image) of a diagnostic
     pub fn dispatch_rule(
         &self,
         powers: &[i64],
