@@ -34,7 +34,7 @@ use crate::sector::{Mask, zero};
 use crate::solver::{
     Case, CaseIntersectionLimits, CaseRefinement, CoordinateCase, ExceptionalConditions, Integral, RuleCandidate,
     SearchEvent, SearchOptions, SectorConfig, SectorRule, SectorSolveOptions, SectorSolver, SolverError, SourceSystem,
-    SymbolicExactBackend, UnsupportedBranchPolicy, extract_exceptions,
+    SymbolicExactBackend, UnsupportedBranchPolicy, extract_exceptions, GuardRoute, GuardRouteTaken, extract_exceptions_routed,
 };
 
 /// Table schema of node tables: table_dump.v1 records plus node fields (header `node_order`, rule `recenter`, ...).
@@ -53,8 +53,11 @@ pub struct NodeOptions {
     pub max_depth: Option<u32>,
     pub max_cases: Option<usize>,
     pub gsplit: bool,
-    /// Fork-timed native guard extraction (seconds); a timeout stops the node with `GuardTimeout`.
+    /// Fork-timed native guard extraction (seconds); on a timeout the exact content route (rr-5l-api) is used
+    /// if `guard_content_fallback`, else the node stops with `GuardTimeout`.
     pub native_try: Option<u64>,
+    #[serde(default = "yes")]
+    pub guard_content_fallback: bool,
     /// Fork-timed admission of nonlinear exceptional branches (seconds); a timeout defers the region.
     pub admit_try: Option<u64>,
     pub screen: Option<LiftScreen>,
@@ -69,6 +72,10 @@ pub struct NodeOptions {
     pub numeric_depth: u32,
 }
 
+fn yes() -> bool {
+    true
+}
+
 impl Default for NodeOptions {
     fn default() -> Self {
         Self {
@@ -80,6 +87,7 @@ impl Default for NodeOptions {
             max_cases: None,
             gsplit: true,
             native_try: Some(60),
+            guard_content_fallback: true,
             admit_try: Some(120),
             screen: None,
             retry_source_orders: vec![SourceOrder::Reverse],
@@ -141,6 +149,8 @@ pub struct NodeOutcome {
     pub screened_lifts: usize,
     pub refused_lifts: usize,
     pub source_order_retries: usize,
+    #[serde(default)]
+    pub content_routes: usize,
     pub not_lower: Vec<String>,
     pub stop: Option<StopReason>,
     pub seconds: f64,
@@ -881,26 +891,52 @@ fn run<const N: usize>(
             outcome.not_lower.extend(nl);
             break;
         }
-        // native guard extraction, optionally fork-timed
+        // guard extraction: native, or a fork-timed native try that falls back to the exact content route
+        // (rr-5l-api GuardRoute::NativeThenContent); without the fallback a native timeout stops the node
         let te = Instant::now();
-        if let Some(secs) = opts.native_try {
+        let exceptions: ExceptionalConditions = if let Some(secs) = opts.native_try {
             out.flush().map_err(|e| e.to_string())?;
             qlog.flush().map_err(|e| e.to_string())?;
-            let r = forked(out_dir, &format!("guard_r{}", rules.len()), secs, || match extract_exceptions(&candidate, &idx, &sector) {
-                Ok(_) => "ok".to_string(),
-                Err(e) => format!("err {e:?}"),
-            });
-            if !matches!(r, Forked::Done(..)) {
-                writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len(), case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
-                stop = Some(StopReason::GuardTimeout { case: spec.clone(), rhs: candidate.rhs.len() });
-                break;
+            if opts.guard_content_fallback {
+                let route = GuardRoute::NativeThenContent { native_timeout: std::time::Duration::from_secs(secs) };
+                match extract_exceptions_routed(&candidate, &idx, &sector, &[false; N], route) {
+                    Ok((x, report)) => {
+                        if report.route == GuardRouteTaken::Content {
+                            outcome.content_routes += 1;
+                        }
+                        writeln!(qlog, "{{\"type\":\"guard\",\"rule\":{},\"report\":{}}}", rules.len(), q(&format!("{report:?}"))).map_err(|e| e.to_string())?;
+                        x
+                    }
+                    Err(e) => {
+                        error = Some(format!("exception extraction on {current:?}: {e:?}"));
+                        break;
+                    }
+                }
+            } else {
+                let r = forked(out_dir, &format!("guard_r{}", rules.len()), secs, || match extract_exceptions(&candidate, &idx, &sector) {
+                    Ok(_) => "ok".to_string(),
+                    Err(e) => format!("err {e:?}"),
+                });
+                if !matches!(r, Forked::Done(..)) {
+                    writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len(), case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
+                    stop = Some(StopReason::GuardTimeout { case: spec.clone(), rhs: candidate.rhs.len() });
+                    break;
+                }
+                match extract_exceptions(&candidate, &idx, &sector) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error = Some(format!("exception extraction on {current:?}: {e:?}"));
+                        break;
+                    }
+                }
             }
-        }
-        let exceptions: ExceptionalConditions = match extract_exceptions(&candidate, &idx, &sector) {
-            Ok(x) => x,
-            Err(e) => {
-                error = Some(format!("exception extraction on {current:?}: {e:?}"));
-                break;
+        } else {
+            match extract_exceptions(&candidate, &idx, &sector) {
+                Ok(x) => x,
+                Err(e) => {
+                    error = Some(format!("exception extraction on {current:?}: {e:?}"));
+                    break;
+                }
             }
         };
         let rule = SectorRule { candidate, exceptions, dispatch_policy: Default::default() };

@@ -3,7 +3,7 @@
 //! ```text
 //! rr_node generate --family F.sym --out DIR [--order auto|id|NAME|JSON] [--chart MASK] [--initial 'SPEC [EQS]']...
 //!                  [--backend targetonlyfactorized|factorized|sparse|targetonly|sampled] [--max-depth K] [--max-cases K]
-//!                  [--native-try S] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
+//!                  [--native-try S] [--no-content-fallback] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
 //!                  [--on-heavy refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--cover PATH:UPTO]... [--cand-dump]
@@ -113,6 +113,9 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     }
     if let Some(s) = a.take("--admit-try") {
         o.admit_try = if s == "none" { None } else { Some(s.parse().unwrap_or_else(|_| die("--admit-try"))) };
+    }
+    if a.flag("--no-content-fallback") {
+        o.guard_content_fallback = false;
     }
     if a.flag("--no-gsplit") {
         o.gsplit = false;
