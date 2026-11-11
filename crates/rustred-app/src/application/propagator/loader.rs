@@ -862,6 +862,14 @@ pub fn load_p_library(
         }
     }
     let library = builder.build()?;
+    // A package that carries orbits.rrbin runs with orbit canonicalisation on
+    // whatever the load (M5 batch 2): the verified load searches the same
+    // groups at run time instead of trusting the file, so both loads have one
+    // step identity and share step caches (the saved groups are the searched
+    // ones: package::saved_orbits_restore_the_searched_groups_and_change_no_value).
+    if manifest.files.orbits.is_some() && options.verify_descent {
+        library.set_orbit_canonicalization(rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS);
+    }
 
     if library.identity() != manifest.identity {
         return Err(malformed(format!(

@@ -1658,12 +1658,19 @@ fn saved_orbits_restore_the_searched_groups_and_change_no_value() {
             .any(|(on, off)| on.statistics != off.statistics),
         "canonicalisation changed no path: the test exercises no group"
     );
+    // The verified load does not trust the saved groups but searches them:
+    // canonicalisation is on as in the fast load, with the same step identity,
+    // so both loads share one step cache (vakint's built-in, listed and
+    // unlisted external-data routes; M5 batch 2).
     let verified = load(&directory).unwrap();
     assert!(verified.saved_orbits().is_none());
     assert_eq!(
         verified.orbit_canonicalization(),
-        rustred::propagator::P_ORBIT_CANON_DEFAULT
+        rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS
     );
+    let fresh = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    assert_eq!(verified.step_identity(), fresh.step_identity());
+    assert_eq!(reductions(&verified, &requests, false), restored);
 }
 
 /// p artefact v2 (M5 m5-1l3l, notes/artifact-ordering.SPEC.md): an ordering
