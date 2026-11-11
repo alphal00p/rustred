@@ -26,7 +26,7 @@ def table_of(node):
               os.path.join(rd, 'assembled', 'F.table.jsonl')):
         if os.path.exists(p):
             return p
-    raise SystemExit('no table for %s in %s' % (node['id'], rd))
+    return None
 
 
 def seeds_of(table):
@@ -69,6 +69,10 @@ def main():
     for tid in tids:
         node, row = ledger[tid], rows[tid]
         table = table_of(node)
+        if table is None:
+            # Package owners (artefacts/m3/owners-1-4) and non-table KO closures: nothing to convert.
+            print(json.dumps(dict(tid=tid, step='skip', rc=0, reason='no table in ' + node['run_dir'])), flush=True)
+            continue
         seeds, N = seeds_of(table)
         seeds_path = os.path.join(out, tid + '.seeds.json')
         json.dump(seeds, open(seeds_path, 'w'))
