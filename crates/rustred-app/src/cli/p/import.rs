@@ -3,7 +3,7 @@
 //! ```text
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
-//!                        [--replay <seeds.json>]
+//!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
 //! ```
 //!
 //! Converts one `table_dump.v1` rule table of a 5L-campaign node into a Custom
@@ -23,6 +23,14 @@
 //! `<dir>/<label>.replay.json`: per seed the residual and boundary keys in the
 //! table's slot order with their coefficients in the presentation's
 //! convention (`q.q = -1`), exact in `Q(d)`, and the sign rule to go back.
+//!
+//! The payload records the table's SLOT ORDER (`table_import::SlotOrderRecord`:
+//! the header's order in table slots, the table -> presentation slot map, the
+//! descent order they give) and every payload read enforces it.
+//! `--census-family` relates the table family to the node's census family
+//! (slot permutation + unimodular loop map, recorded; a table that is no
+//! relabelling of it is refused); `--order-map` checks an ORDER-MAP.json of
+//! the table (Astra imports) against the header and takes its slot map.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -56,12 +64,15 @@ struct Arguments {
     out: PathBuf,
     force: bool,
     replay: Option<PathBuf>,
+    census_family: Option<PathBuf>,
+    order_map: Option<PathBuf>,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let mut arguments = arguments.into_iter();
     let (mut table, mut graph, mut ext, mut label) = (None, None, None, None);
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
+    let (mut census_family, mut order_map) = (None, None);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -74,6 +85,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--out" => "--out",
             "--force" => "--force",
             "--replay" => "--replay",
+            "--census-family" => "--census-family",
+            "--order-map" => "--order-map",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -83,6 +96,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--table" => table = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--out" => out = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--replay" => replay = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--census-family" => census_family = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--order-map" => order_map = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--graph" => graph = Some(next_utf8_value(&mut arguments, option)?),
             "--label" => label = Some(next_utf8_value(&mut arguments, option)?),
             "--ext" => {
@@ -118,6 +133,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
         force,
         replay,
+        census_family,
+        order_map,
     })
 }
 
@@ -158,6 +175,17 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         id: PresentationId(0),
         node: None,
         lp_count: arguments.lp,
+        census_family: match &arguments.census_family {
+            Some(path) => Some(read_input(&StreamPath::File(path.clone()))?),
+            None => None,
+        },
+        order_map: match &arguments.order_map {
+            Some(path) => Some(
+                serde_json::from_str(&read_input(&StreamPath::File(path.clone()))?)
+                    .map_err(|error| CliError::Input(format!("{}: {error}", path.display())))?,
+            ),
+            None => None,
+        },
     };
     let imported = import_table(&text, &graph, &options).map_err(failed)?;
     let import_seconds = started.elapsed().as_secs_f64();
@@ -231,6 +259,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "P_OWNER_LIBRARY_SEMANTICS": P_OWNER_LIBRARY_SEMANTICS,
         },
     });
+    record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
+    record["census_family"] = serde_json::json!(arguments.census_family.as_ref().map(|p| p.display().to_string()));
+    record["order_map"] = serde_json::json!(arguments.order_map.as_ref().map(|p| p.display().to_string()));
 
     if let Some(seeds_path) = &arguments.replay {
         let seeds_text = read_input(&StreamPath::File(seeds_path.clone()))?;
@@ -293,7 +324,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     write_output(&destination("json"), format!("{json}\n").as_bytes(), arguments.force)?;
     writeln!(
         std::io::stdout().lock(),
-        "{}: {} rules over {} charts, {} residuals (LP {}), {} bytes; slot map {:?}{}; verify {} witness keys ({} same-sector, {} subsector children) in {:.3} s; import {:.3} s",
+        "{}: {} rules over {} charts, {} residuals (LP {}), {} bytes; slot map {:?}{}; order {}{}; verify {} witness keys ({} same-sector, {} subsector children) in {:.3} s; import {:.3} s",
         arguments.label,
         imported.rules,
         imported.summary.charts.len(),
@@ -302,6 +333,16 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         imported.payload.len(),
         imported.slot_map,
         if imported.q_flipped { ", q flipped" } else { "" },
+        imported.order_name,
+        match &imported.slot_order.census {
+            Some(census) => format!(
+                " (census map {:?} by {}, loop map {})",
+                census.census_to_table,
+                census.source,
+                if census.loop_map.iter().enumerate().all(|(r, row)| row.iter().enumerate().all(|(c, &v)| v == i64::from(r == c))) { "1" } else { "nontrivial" }
+            ),
+            None => String::new(),
+        },
         check.witness_keys,
         check.same_sector_children,
         check.subsector_children,

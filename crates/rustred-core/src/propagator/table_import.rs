@@ -72,7 +72,8 @@ use super::PresentationId;
 /// the campaign (`-defer-gsplit`) keeps the v1 records.
 pub const TABLE_IMPORT_SCHEMA_PREFIX: &str = "table_dump.v1";
 /// Version of the import rules above; recorded in every import report.
-pub const P_TABLE_IMPORT_VERSION: u32 = 1;
+/// v2: the payload records the table's slot order ([`SlotOrderRecord`]).
+pub const P_TABLE_IMPORT_VERSION: u32 = 2;
 /// The solver policy of an imported payload: the table's numerical depth 2 is
 /// the default all-rank policy of generated Custom payloads.
 const IMPORT_SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
@@ -152,6 +153,8 @@ pub struct ImportedOwner {
     pub affine_rules: usize,
     pub rules_with_exceptions: usize,
     pub order_name: String,
+    /// The slot order the payload records and enforces.
+    pub slot_order: SlotOrderRecord,
 }
 
 // ----- the family -----
@@ -653,6 +656,437 @@ fn permuted_order(order: &Value, slot_map: &[usize]) -> Result<rustred_order::Or
     })
 }
 
+/// `descriptor` with every slot-indexed field moved by `slot_map`
+/// (slot `j` becomes slot `slot_map[j]`).
+pub fn permute_descriptor(
+    descriptor: &rustred_order::OrderDescriptor,
+    slot_map: &[usize],
+) -> rustred_order::OrderDescriptor {
+    use rustred_order::DegreeRow;
+    let rows = |rows: &[DegreeRow]| -> Vec<DegreeRow> {
+        rows.iter()
+            .map(|row| DegreeRow {
+                active: permuted(&row.active, slot_map),
+                inactive: permuted(&row.inactive, slot_map),
+            })
+            .collect()
+    };
+    let priority = |list: &[usize]| list.iter().map(|&slot| slot_map[slot]).collect();
+    rustred_order::OrderDescriptor {
+        pre_support_degree_rows: rows(&descriptor.pre_support_degree_rows),
+        support_weights: permuted(&descriptor.support_weights, slot_map),
+        support_priority: priority(&descriptor.support_priority),
+        degree_rows: rows(&descriptor.degree_rows),
+        coordinate_priority: priority(&descriptor.coordinate_priority),
+        coordinate_groups: descriptor.coordinate_groups,
+        active_direction: descriptor.active_direction,
+        inactive_direction: descriptor.inactive_direction,
+        two_sided: if descriptor.two_sided.is_empty() {
+            Vec::new()
+        } else {
+            permuted(&descriptor.two_sided, slot_map)
+        },
+    }
+}
+
+// ----- the slot order -----
+
+/// Schema of the slot-order record of an imported payload.
+pub const SLOT_ORDER_SCHEMA: &str = "rustred.p-table-slot-order.v1";
+/// The record is the last line of the payload's provenance text (the program
+/// record's `family_source`), after this marker.
+pub const SLOT_ORDER_MARKER: &str = "\nslot_order ";
+
+/// How the table family relates to the census family of the node: table slot
+/// `census_to_table[i]` carries census slot `i`, its momentum
+/// `signs[i] * loop_map * (census momentum)` over `(k_1, .., k_L, q)`
+/// (`loop_map` unimodular, `q -> +-q`). Order variants of the 5L repair
+/// (`ops/p5l_orders.py`: slot permutations of the same family) have
+/// `loop_map = 1`; Astra's D1/D9 swap of T206 re-routes the loops.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CensusRelation {
+    /// `momenta` (found from the two families) or `order-map` (the map of an
+    /// ORDER-MAP.json, checked against the two families).
+    pub source: String,
+    pub census_to_table: Vec<usize>,
+    /// Row `r`: table coordinate `r` as a combination of census coordinates.
+    pub loop_map: Vec<Vec<i64>>,
+    pub signs: Vec<i8>,
+}
+
+/// The slot order the table was generated in, as the payload records it.
+/// Load-time rule ([`enforce_slot_order`]): the payload's runtime descent
+/// order (`integral_order`) is exactly `table_order` moved by
+/// `table_to_presentation` (`SpiredUncutV1` for a `legacy` table whose slots
+/// are already the presentation's).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlotOrderRecord {
+    pub schema: String,
+    /// The table header's `order_name` (`legacy`, `two_sided`, `isp_reverse`, ..).
+    pub order_name: String,
+    pub order_is_program: bool,
+    /// The table header's `family_file` (variant files carry the variant name).
+    pub table_family_file: String,
+    /// Canonical bytes (hex) of the header's order in TABLE slots.
+    pub table_order: String,
+    /// Table slot `j` is presentation slot `table_to_presentation[j]`.
+    pub table_to_presentation: Vec<usize>,
+    /// Stable id of the payload's descent order (= `integral_order`).
+    pub presentation_order: String,
+    /// Relation to the census family, when the import was given it.
+    pub census: Option<CensusRelation>,
+}
+
+fn is_permutation(map: &[usize], arity: usize) -> bool {
+    let mut seen = vec![false; arity];
+    map.len() == arity
+        && map
+            .iter()
+            .all(|&image| image < arity && !std::mem::replace(&mut seen[image], true))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    (text.len() % 2 == 0)
+        .then(|| {
+            (0..text.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+                .collect()
+        })
+        .flatten()
+}
+
+/// The descent order a payload must carry for `record` (its stable id).
+fn expected_order(record: &SlotOrderRecord, arity: usize) -> Result<String, PError> {
+    let fail = |detail: String| malformed(format!("slot order: {detail}"));
+    if !is_permutation(&record.table_to_presentation, arity) {
+        return Err(fail("table_to_presentation is no permutation of the slots".into()));
+    }
+    let bytes = unhex(&record.table_order).ok_or_else(|| fail("table_order is no hex".into()))?;
+    let table = rustred_order::CompiledOrder::from_canonical_bytes(&bytes, rustred_order::Limits::default())
+        .map_err(|error| fail(format!("table_order: {error}")))?;
+    if table.arity() != arity {
+        return Err(fail("table_order has another arity".into()));
+    }
+    let identity = record.table_to_presentation.iter().enumerate().all(|(slot, &image)| slot == image);
+    let policy = if record.order_name == "legacy" && identity {
+        OrderingPolicy::SpiredUncutV1
+    } else {
+        let moved = permute_descriptor(table.descriptor(), &record.table_to_presentation);
+        let compiled = rustred_order::CompiledOrder::compile(moved, rustred_order::Limits::default())
+            .map_err(|error| fail(format!("moved order: {error}")))?;
+        OrderingPolicy::try_programmed(compiled).map_err(|error| fail(format!("moved order: {error}")))?
+    };
+    Ok(policy.stable_id().to_string())
+}
+
+/// The load-time rule of an imported payload (called on every payload read,
+/// [`super::custom`]): if its provenance carries a slot-order record, the
+/// payload's descent order `integral_order` must be the table's order moved
+/// onto the presentation slots, and the census relation (if any) well formed.
+/// Payloads without a record (generated by `p-generate`) pass unchanged.
+pub fn enforce_slot_order(
+    family_source: &str,
+    integral_order: &str,
+    arity: usize,
+) -> Result<Option<SlotOrderRecord>, PError> {
+    let Some(at) = family_source.rfind(SLOT_ORDER_MARKER) else {
+        return Ok(None);
+    };
+    let text = &family_source[at + SLOT_ORDER_MARKER.len()..];
+    let record: SlotOrderRecord = serde_json::from_str(text.trim())
+        .map_err(|error| malformed(format!("slot order record: {error}")))?;
+    if record.schema != SLOT_ORDER_SCHEMA {
+        return Err(malformed(format!("slot order schema {:?}", record.schema)));
+    }
+    if record.presentation_order != integral_order {
+        return Err(malformed(format!(
+            "slot order: the payload descends in {integral_order}, the record says {}",
+            record.presentation_order
+        )));
+    }
+    let expected = expected_order(&record, arity)?;
+    if expected != integral_order {
+        return Err(malformed(format!(
+            "slot order: the table's {} order moved onto the presentation is {expected}, the payload descends in {integral_order}",
+            record.order_name
+        )));
+    }
+    if let Some(census) = &record.census {
+        let columns = census.loop_map.len();
+        if !is_permutation(&census.census_to_table, arity)
+            || census.signs.len() != arity
+            || census.signs.iter().any(|&s| s != 1 && s != -1)
+            || census.loop_map.iter().any(|row| row.len() != columns)
+        {
+            return Err(malformed("slot order: malformed census relation"));
+        }
+    }
+    Ok(Some(record))
+}
+
+/// Integer determinant (Bareiss).
+fn determinant(matrix: &[Vec<i64>]) -> Option<i128> {
+    let n = matrix.len();
+    let mut a: Vec<Vec<i128>> = matrix.iter().map(|row| row.iter().map(|&x| i128::from(x)).collect()).collect();
+    let (mut sign, mut previous) = (1_i128, 1_i128);
+    for k in 0..n {
+        if a[k][k] == 0 {
+            let swap = (k + 1..n).find(|&r| a[r][k] != 0)?;
+            a.swap(k, swap);
+            sign = -sign;
+        }
+        for i in k + 1..n {
+            for j in k + 1..n {
+                a[i][j] = (a[i][j].checked_mul(a[k][k])? - a[i][k].checked_mul(a[k][j])?) / previous;
+            }
+        }
+        previous = a[k][k];
+    }
+    Some(sign * a[n - 1][n - 1])
+}
+
+/// `x` with `basis * x = rhs` (square, f64 Gauss with pivoting).
+fn solve(basis: &[Vec<f64>], rhs: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+    let n = basis.len();
+    let m = rhs[0].len();
+    let mut a: Vec<Vec<f64>> = basis
+        .iter()
+        .zip(rhs)
+        .map(|(row, r)| row.iter().chain(r).copied().collect())
+        .collect();
+    for k in 0..n {
+        let pivot = (k..n).max_by(|&x, &y| a[x][k].abs().total_cmp(&a[y][k].abs()))?;
+        if a[pivot][k].abs() < 1e-9 {
+            return None;
+        }
+        a.swap(k, pivot);
+        for i in 0..n {
+            if i != k {
+                let factor = a[i][k] / a[k][k];
+                for j in k..n + m {
+                    a[i][j] -= factor * a[k][j];
+                }
+            }
+        }
+    }
+    Some((0..n).map(|i| (0..m).map(|j| a[i][n + j] / a[i][i]).collect()).collect())
+}
+
+/// The relation of `table` to `census` (see [`CensusRelation`]): the slot
+/// map from `order_map` (an ORDER-MAP.json) or, without one, the unique
+/// match of equal momenta up to sign; then the loop map, found from a basis
+/// of census momenta under every sign choice and checked exactly on every
+/// slot (integer, unimodular, `q -> +-q`, lines to lines, ISPs to ISPs).
+pub fn census_relation(
+    census: &TableFamily,
+    table: &TableFamily,
+    order_map: Option<&Value>,
+) -> Result<CensusRelation, PError> {
+    let fail = |detail: String| gap("slot_order", detail);
+    let arity = table.slots.len();
+    if census.slots.len() != arity || census.loops != table.loops {
+        return Err(fail(format!(
+            "the census family {} has {} slots / {} loops, the table {} / {}",
+            census.name,
+            census.slots.len(),
+            census.loops,
+            arity,
+            table.loops
+        )));
+    }
+    let (census_to_table, source) = match order_map.and_then(|map| {
+        map.get("original_slot_to_new_order_slot")
+            .or_else(|| map.get("original_family_slot_to_table_slot_0based"))
+    }) {
+        Some(list) => {
+            let map: Vec<usize> = list
+                .as_array()
+                .ok_or_else(|| fail("ORDER-MAP slot map is no list".into()))?
+                .iter()
+                .map(|v| v.as_u64().map(|v| v as usize))
+                .collect::<Option<_>>()
+                .ok_or_else(|| fail("ORDER-MAP slot map entries".into()))?;
+            (map, "order-map")
+        }
+        None => {
+            let mut map = Vec::with_capacity(arity);
+            for slot in &census.slots {
+                let negated: Vec<i64> = slot.momentum.iter().map(|c| -c).collect();
+                let hits: Vec<usize> = (0..arity)
+                    .filter(|&j| {
+                        table.slots[j].line == slot.line
+                            && (table.slots[j].momentum == slot.momentum || table.slots[j].momentum == negated)
+                    })
+                    .collect();
+                match hits.as_slice() {
+                    [j] => map.push(*j),
+                    _ => {
+                        return Err(fail(format!(
+                            "census slot {} matches {} table slots by momentum: an ORDER-MAP is needed",
+                            slot.name,
+                            hits.len()
+                        )));
+                    }
+                }
+            }
+            (map, "momenta")
+        }
+    };
+    if !is_permutation(&census_to_table, arity) {
+        return Err(fail("the census -> table slot map is no permutation".into()));
+    }
+    for (i, &j) in census_to_table.iter().enumerate() {
+        if census.slots[i].line != table.slots[j].line {
+            return Err(fail(format!(
+                "census slot {} and table slot {} differ in kind (line / ISP)",
+                census.slots[i].name, table.slots[j].name
+            )));
+        }
+    }
+    let width = usize::from(table.loops) + 1;
+    let u: Vec<Vec<f64>> = census.slots.iter().map(|s| s.momentum.iter().map(|&c| c as f64).collect()).collect();
+    let w: Vec<&Vec<i64>> = census_to_table.iter().map(|&j| &table.slots[j].momentum).collect();
+    // A basis of census momenta (the rows of `u`); q joins as a unit row
+    // if no census momentum is needed for it (it always is: q flows).
+    let mut basis: Vec<usize> = Vec::new();
+    for i in 0..arity {
+        let mut candidate = basis.clone();
+        candidate.push(i);
+        let rows: Vec<Vec<f64>> = candidate.iter().map(|&b| u[b].clone()).collect();
+        // rank test: Gram matrix of the candidate rows is invertible
+        let gram: Vec<Vec<f64>> = rows
+            .iter()
+            .map(|a| rows.iter().map(|b| a.iter().zip(b).map(|(x, y)| x * y).sum()).collect())
+            .collect();
+        let identity: Vec<Vec<f64>> = (0..rows.len()).map(|r| (0..rows.len()).map(|c| f64::from(u8::from(r == c))).collect()).collect();
+        if solve(&gram, &identity).is_some() {
+            basis = candidate;
+            if basis.len() == width {
+                break;
+            }
+        }
+    }
+    if basis.len() != width {
+        return Err(fail("the census momenta do not span the loop momenta and q".into()));
+    }
+    let ub: Vec<Vec<f64>> = basis.iter().map(|&b| u[b].clone()).collect();
+    for signs_mask in 0_u32..(1 << width) {
+        let rhs: Vec<Vec<f64>> = basis
+            .iter()
+            .enumerate()
+            .map(|(k, &b)| {
+                let sign = if signs_mask >> k & 1 == 1 { -1.0 } else { 1.0 };
+                w[b].iter().map(|&c| sign * c as f64).collect()
+            })
+            .collect();
+        // Row form: w_i = s_i u_i X, X = loop_map^T.
+        let Some(x) = solve(&ub, &rhs) else { continue };
+        if x.iter().flatten().any(|v| (v - v.round()).abs() > 1e-6) {
+            continue;
+        }
+        let x: Vec<Vec<i64>> = x.iter().map(|row| row.iter().map(|v| v.round() as i64).collect()).collect();
+        let q_row = &x[width - 1];
+        if q_row[..width - 1].iter().any(|&c| c != 0) || q_row[width - 1].abs() != 1 {
+            continue;
+        }
+        if determinant(&x).map(i128::abs) != Some(1) {
+            continue;
+        }
+        let mut signs = Vec::with_capacity(arity);
+        for i in 0..arity {
+            let image: Vec<i64> = (0..width)
+                .map(|c| (0..width).map(|r| census.slots[i].momentum[r] * x[r][c]).sum())
+                .collect();
+            let negated: Vec<i64> = image.iter().map(|c| -c).collect();
+            if *w[i] == image {
+                signs.push(1);
+            } else if *w[i] == negated {
+                signs.push(-1);
+            } else {
+                break;
+            }
+        }
+        if signs.len() == arity {
+            let loop_map = (0..width).map(|r| (0..width).map(|c| x[c][r]).collect()).collect();
+            return Ok(CensusRelation {
+                source: source.to_owned(),
+                census_to_table,
+                loop_map,
+                signs,
+            });
+        }
+    }
+    Err(fail(format!(
+        "no unimodular loop map carries the census family {} onto the table family under the {source} slot map",
+        census.name
+    )))
+}
+
+/// Checks of an ORDER-MAP.json against the table header: family, order name,
+/// order descriptor and family text where the map records them, and its
+/// descriptor in census slots if given.
+fn check_order_map(map: &Value, header: &Value, table_descriptor: &rustred_order::OrderDescriptor, relation: Option<&CensusRelation>) -> Result<(), PError> {
+    let fail = |detail: String| gap("order_map", detail);
+    if let Some(family) = map.get("family").and_then(Value::as_str) {
+        if family != str_field(header, "family")? {
+            return Err(fail(format!("family {family} vs the table's {}", header["family"])));
+        }
+    }
+    if let Some(source) = map.get("family_source").and_then(Value::as_str) {
+        if source != str_field(header, "family_source")? {
+            return Err(fail("family_source differs from the table header's".into()));
+        }
+    }
+    let name = map.get("order_name").or_else(|| map.get("native_order_name")).and_then(Value::as_str);
+    match name {
+        Some(name) if name == str_field(header, "order_name")? => {}
+        other => return Err(fail(format!("order name {other:?} vs the table's {}", header["order_name"]))),
+    }
+    match map.get("order").or_else(|| map.get("native_order_descriptor_in_new_slots")) {
+        Some(order) if *order == header["order"] => {}
+        Some(_) => return Err(fail("the order descriptor differs from the table header's".into())),
+        None => return Err(fail("no order descriptor".into())),
+    }
+    if let (Some(original), Some(relation)) = (map.get("equivalent_descriptor_in_original_slots"), relation) {
+        let arity = relation.census_to_table.len();
+        let mut table_to_census = vec![0; arity];
+        for (census, &table) in relation.census_to_table.iter().enumerate() {
+            table_to_census[table] = census;
+        }
+        let ours = rustred_order::CompiledOrder::compile(
+            permute_descriptor(table_descriptor, &table_to_census),
+            rustred_order::Limits::default(),
+        )
+        .map_err(|error| fail(format!("order in census slots: {error}")))?;
+        let theirs = rustred_order::CompiledOrder::compile(
+            permuted_order(original, &(0..arity).collect::<Vec<_>>())?,
+            rustred_order::Limits::default(),
+        )
+        .map_err(|error| fail(format!("ORDER-MAP order in census slots: {error}")))?;
+        if ours.canonical_bytes() != theirs.canonical_bytes() {
+            return Err(fail("its descriptor in census slots is not the table order moved back".into()));
+        }
+    }
+    if let (Some(inverse), Some(relation)) = (map.get("new_order_slot_to_original_slot"), relation) {
+        let inverse: Vec<u64> = u64_list(inverse, "new_order_slot_to_original_slot")?;
+        let consistent = inverse.len() == relation.census_to_table.len()
+            && relation
+                .census_to_table
+                .iter()
+                .enumerate()
+                .all(|(census, &table)| inverse[table] == census as u64);
+        if !consistent {
+            return Err(fail("its two slot maps are not inverse".into()));
+        }
+    }
+    Ok(())
+}
+
 /// Options of one import.
 #[derive(Clone, Debug)]
 pub struct TableImportOptions {
@@ -662,6 +1096,13 @@ pub struct TableImportOptions {
     pub node: Option<NodeRef>,
     /// The node's LP master count (the false-knock-out guard).
     pub lp_count: u32,
+    /// The census family text of the node (`rules_study/classify/families/T*.sym`):
+    /// the table's slot order is then related to it ([`census_relation`]) and
+    /// the relation recorded; a table that is no relabelling of it is refused.
+    pub census_family: Option<String>,
+    /// An ORDER-MAP.json of the table (Astra imports): checked against the
+    /// header; its slot map is the census relation's.
+    pub order_map: Option<Value>,
 }
 
 /// One table (`table_dump.v1` JSONL text) as the Custom payload of `graph`,
@@ -696,6 +1137,8 @@ pub fn import_table(
         let kind = record["type"].as_str().unwrap_or("");
         match kind {
             "header" | "zero_sectors" | "chart" | "rule" | "residual" | "chart_end" | "end" => {}
+            // Provenance only (Astra's same-order cover-prefix assembly, T206).
+            "assembly_provenance" => {}
             "chart_error" => return Err(gap("chart_error", record["error"].to_string())),
             other => return Err(gap("record", format!("record type {other:?}"))),
         }
@@ -796,24 +1239,50 @@ pub fn import_table(
     // 3. The order.
     let order_name = str_field(header, "order_name")?.to_owned();
     let identity = slot_map.iter().enumerate().all(|(slot, &image)| slot == image);
+    // The header's order in TABLE slots; its canonical bytes are recorded.
+    let table_descriptor = permuted_order(&header["order"], &(0..arity).collect::<Vec<_>>())?;
+    let table_order = rustred_order::CompiledOrder::compile(table_descriptor.clone(), rustred_order::Limits::default())
+        .map_err(|error| malformed(format!("order: {error}")))?;
+    let table_order_hex = hex(table_order.canonical_bytes());
+    if order_name != "legacy"
+        && header["order_bytes"]
+            .as_str()
+            .is_some_and(|recorded| !recorded.is_empty() && recorded != table_order_hex)
+    {
+        return Err(malformed("the header's order fields differ from its order_bytes"));
+    }
     let policy = if order_name == "legacy" && identity {
         OrderingPolicy::SpiredUncutV1
     } else {
-        let descriptor = permuted_order(&header["order"], &slot_map)?;
+        let descriptor = permute_descriptor(&table_descriptor, &slot_map);
+        debug_assert_eq!(descriptor, permuted_order(&header["order"], &slot_map)?);
         let compiled = rustred_order::CompiledOrder::compile(descriptor, rustred_order::Limits::default())
             .map_err(|error| malformed(format!("order: {error}")))?;
-        if order_name != "legacy" {
-            // The header's canonical bytes must be the unpermuted descriptor.
-            let unpermuted = permuted_order(&header["order"], &(0..arity).collect::<Vec<_>>())?;
-            let bytes = rustred_order::CompiledOrder::compile(unpermuted, rustred_order::Limits::default())
-                .map_err(|error| malformed(format!("order: {error}")))?;
-            let hex: String = bytes.canonical_bytes().iter().map(|b| format!("{b:02x}")).collect();
-            if header["order_bytes"].as_str().is_some_and(|recorded| !recorded.is_empty() && recorded != hex) {
-                return Err(malformed("the header's order fields differ from its order_bytes"));
-            }
-        }
         OrderingPolicy::try_programmed(compiled).map_err(|error| malformed(format!("order: {error}")))?
     };
+    // The slot order: relation to the census family, ORDER-MAP checks.
+    let census = match &options.census_family {
+        Some(source) => {
+            let zero_shifts = vec!["0".to_owned(); arity];
+            let census_family = parse_table_family(source, &zero_shifts)?;
+            Some(census_relation(&census_family, &family, options.order_map.as_ref())?)
+        }
+        None => None,
+    };
+    if let Some(map) = &options.order_map {
+        check_order_map(map, header, &table_descriptor, census.as_ref())?;
+    }
+    let slot_order = SlotOrderRecord {
+        schema: SLOT_ORDER_SCHEMA.to_owned(),
+        order_name: order_name.clone(),
+        order_is_program: header["order_is_program"].as_bool().unwrap_or(false),
+        table_family_file: header["family_file"].as_str().unwrap_or("?").to_owned(),
+        table_order: table_order_hex,
+        table_to_presentation: slot_map.clone(),
+        presentation_order: policy.stable_id().to_string(),
+        census,
+    };
+    let slot_order_json = serde_json::to_string(&slot_order).map_err(|error| malformed(error))?;
 
     // 2. The rules, chart by chart in the header's order.
     let indexed = IndexedCoefficientContext::try_new(&context, "p-table-import", arity)
@@ -988,7 +1457,7 @@ pub fn import_table(
         status: CANDIDATE_BUNDLE_STATUS.to_owned(),
         solver_policy: IMPORT_SOLVER_POLICY.to_owned(),
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name
@@ -1052,6 +1521,7 @@ pub fn import_table(
         affine_rules,
         rules_with_exceptions: excepted,
         order_name,
+        slot_order,
     })
 }
 
@@ -1086,6 +1556,70 @@ mod tests {
             rename_indices("n10/(n1-2*n0+d)", &[2, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10]).unwrap(),
             format!("{INDEX_SYMBOL}10/({INDEX_SYMBOL}0-2*{INDEX_SYMBOL}2+d)")
         );
+    }
+
+    fn family(props: &[(&str, u8)]) -> TableFamily {
+        let mut source = String::from("I(\n  name(T),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
+        for (i, (momentum, power)) in props.iter().enumerate() {
+            source.push_str(&format!("  prop(D{},{momentum},{power}),\n", i + 1));
+        }
+        source.push_str("  gram(q,q,1)\n)\n");
+        parse_table_family(&source, &vec!["0".to_owned(); props.len()]).unwrap()
+    }
+
+    #[test]
+    fn census_relations_of_order_variants() {
+        let census = family(&[("(k1)^2", 1), ("(-k1-k2)^2", 1), ("(k2)^2", 1), ("(k1+k2-q)^2", 1), ("(-k2+q)^2", 1), ("(k1+q)^2", 0)]);
+        // A physical-slot permutation of the same family (p5l_orders phys_swap_0_2).
+        let swapped = family(&[("(k2)^2", 1), ("(-k1-k2)^2", 1), ("(k1)^2", 1), ("(k1+k2-q)^2", 1), ("(-k2+q)^2", 1), ("(k1+q)^2", 0)]);
+        let relation = census_relation(&census, &swapped, None).unwrap();
+        assert_eq!(relation.census_to_table, vec![2, 1, 0, 3, 4, 5]);
+        assert_eq!(relation.loop_map, vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]]);
+        // A re-routed family (k1 <-> k2, Astra's D1/D9 kind): momenta alone do
+        // not match, an ORDER-MAP slot map does, with a nontrivial loop map.
+        let rerouted = family(&[("(k2)^2", 1), ("(-k1-k2)^2", 1), ("(k1)^2", 1), ("(k1+k2-q)^2", 1), ("(-k1+q)^2", 1), ("(k2+q)^2", 0)]);
+        assert!(census_relation(&census, &rerouted, None).is_err());
+        let map = serde_json::json!({"original_slot_to_new_order_slot": [0, 1, 2, 3, 4, 5]});
+        let relation = census_relation(&census, &rerouted, Some(&map)).unwrap();
+        assert_eq!(relation.loop_map, vec![vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]);
+        // A map that sends a line onto an ISP is refused.
+        let bad = serde_json::json!({"original_slot_to_new_order_slot": [5, 1, 2, 3, 4, 0]});
+        assert!(census_relation(&census, &rerouted, Some(&bad)).is_err());
+    }
+
+    #[test]
+    fn the_slot_order_is_enforced() {
+        let order = serde_json::json!({
+            "pre_support_degree_rows": [], "support_weights": [0, 0, 0],
+            "support_priority": [0, 1, 2],
+            "degree_rows": [{"active": [1, 1, 1], "inactive": [1, 1, 1]}, {"active": [0, 0, 0], "inactive": [1, 1, 1]}],
+            "coordinate_priority": [2, 1, 0], "coordinate_groups": "ActiveFirst",
+            "active_direction": "Descending", "inactive_direction": "Descending", "two_sided": []
+        });
+        let table = permuted_order(&order, &[0, 1, 2]).unwrap();
+        let bytes = rustred_order::CompiledOrder::compile(table, rustred_order::Limits::default()).unwrap();
+        let mut record = SlotOrderRecord {
+            schema: SLOT_ORDER_SCHEMA.to_owned(),
+            order_name: "isp_reverse".to_owned(),
+            order_is_program: true,
+            table_family_file: "T.sym".to_owned(),
+            table_order: hex(bytes.canonical_bytes()),
+            table_to_presentation: vec![1, 0, 2],
+            presentation_order: String::new(),
+            census: None,
+        };
+        record.presentation_order = expected_order(&record, 3).unwrap();
+        let source = |record: &SlotOrderRecord| format!("imported{SLOT_ORDER_MARKER}{}", serde_json::to_string(record).unwrap());
+        let id = record.presentation_order.clone();
+        assert!(enforce_slot_order(&source(&record), &id, 3).unwrap().is_some());
+        assert!(enforce_slot_order("generated by p-generate", &id, 3).unwrap().is_none());
+        // The payload descending in another order than the record's: refused.
+        let identity = expected_order(&SlotOrderRecord { table_to_presentation: vec![0, 1, 2], ..record.clone() }, 3).unwrap();
+        assert_ne!(identity, id);
+        assert!(enforce_slot_order(&source(&record), &identity, 3).is_err());
+        // A record whose map does not give its stated order: refused.
+        let tampered = SlotOrderRecord { table_to_presentation: vec![0, 1, 2], ..record.clone() };
+        assert!(enforce_slot_order(&source(&tampered), &id, 3).is_err());
     }
 
     #[test]

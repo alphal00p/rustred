@@ -184,6 +184,8 @@ fn validate(program: &ProgramRecord) -> Result<OrderingPolicy, PError> {
         }
         _ => {}
     }
+    // An imported table's payload descends in the table's own slot order.
+    super::table_import::enforce_slot_order(&program.family_source, &program.integral_order, arity)?;
     validate_dispatch(program).map_err(wire_error)?;
     validate_sectors(program, |_| Ok::<_, BundleWireError>(())).map_err(wire_error)?;
     if program.sectors.is_empty() {

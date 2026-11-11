@@ -6,6 +6,8 @@ For each node: table = the ledger's run_dir (assembled/ for repaired nodes), gra
 seeds (table slot order) = the corner of every chart, one dot on each line, one unit of numerator on each ISP, and on
 each eps line the powers 0 and 2; `rustred p-import-table --replay` converts, verifies and replays; laporta_check.py
 compares at d = 37/7, -11/5, 9/13 (mod 2^61-1; exact over Q for arity <= 9).
+Slot order: the census family rules_study/classify/families/<TID>.sym and the run's ORDER-MAP.json (if any) are passed,
+so the payload records the table's slot order relative to the census node and every payload read enforces it.
 """
 import csv
 import json
@@ -20,7 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def table_of(node):
     rd = node['run_dir']
-    for p in (os.path.join(rd, 'F.table.jsonl'), os.path.join(rd, 'assembled', 'F.table.jsonl')):
+    for p in (os.path.join(rd, 'F.table.jsonl'), os.path.join(rd, 'ASSEMBLED.table.jsonl'),
+              os.path.join(rd, 'assembled', 'F.table.jsonl')):
         if os.path.exists(p):
             return p
     raise SystemExit('no table for %s in %s' % (node['id'], rd))
@@ -71,7 +74,11 @@ def main():
         json.dump(seeds, open(seeds_path, 'w'))
         cmd = [binary, 'p-import-table', '--table', table, '--graph', row['edges'], '--ext',
                '%s,%s' % (row['S'], row['T']), '--label', tid, '--lp', str(node.get('lp') or row['masters_lp_nosym']),
-               '--out', out, '--force', '--replay', seeds_path]
+               '--out', out, '--force', '--replay', seeds_path,
+               '--census-family', os.path.join(WS, 'rules_study/classify/families/%s.sym' % tid)]
+        order_map = os.path.join(node['run_dir'], 'ORDER-MAP.json')
+        if os.path.exists(order_map):
+            cmd += ['--order-map', order_map]
         t0 = time.time()
         r = subprocess.run(cmd, capture_output=True, text=True)
         print(json.dumps(dict(tid=tid, step='import', rc=r.returncode, seconds=round(time.time() - t0, 2),
