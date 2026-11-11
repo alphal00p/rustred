@@ -20,6 +20,8 @@ use super::{
 
 mod observation;
 pub use observation::SearchEvent;
+mod study;
+pub use study::{StudyRow, TraceStudy};
 
 #[derive(Clone, Debug)]
 pub struct SectorConfig<const N: usize> {

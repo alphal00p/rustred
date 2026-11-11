@@ -121,6 +121,7 @@ pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
+    StudyRow, TraceStudy,
 };
 pub use sector::{
     DeferredExitScan, DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy,
