@@ -99,6 +99,8 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// by default (Forcer's SchemeZno2 with its three relabelling rules); haha and
 /// bubu carry their parametric certificates (45/51, 36/99). no6 is not embedded
 /// (keys outside Forcer's reach need a fallback): its Custom owner stays.
+/// M5 no6: no6 is embedded, off by default, with the shipped Custom no6 rules
+/// as the fallback of the keys outside its reach (`"fallback": "custom"`).
 pub const P_SCHEME_TEMPLATE_VERSION: u32 = 3;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
