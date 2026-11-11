@@ -11,6 +11,10 @@
 //!   P_CENSUS_MAX_KEYS=N     stop once N keys were popped (sizing)
 //!   P_CENSUS_FORWARD_ONLY=1 stop at the end of the forward pass (the inspector errs at the last phase
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
+//!   P_ORBIT_CANON=on|off    orbit canonicalisation of Apply and Route keys (M5 R0 A2; unset: the library default)
+//!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
+//!   P_ORBIT_REP=min         the least exact image represents an orbit (default: the greatest)
+//!   P_CENSUS_WARMUP=1       run the request once without census first (per-process setup warm), then measure
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
 //!   P_RSS_LIMIT_GB=x        run the request inside a Symbolica ResourceBudget with that RSS ceiling (as vakint)
@@ -268,6 +272,23 @@ fn arithmetic(name: &str, threads: usize) -> OrderedWeightArithmetic {
     }
 }
 
+/// CPU seconds (user + system) of this process so far (/proc/self/stat):
+/// with floating foreign load on a shared CPU, the 1-thread comparison
+/// that wall time cannot give (M5 batch 2).
+fn cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    (ticks(11) + ticks(12)) / 100.0
+}
+
 fn rss() -> (u64, u64) {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
@@ -377,9 +398,20 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    let load_cpu_seconds = cpu_seconds();
     #[cfg(feature = "alloc-count")]
     let alloc_after_load = alloc_count::snapshot();
     let (_, load_vmhwm) = rss();
+    let orbit_canon = match std::env::var("P_ORBIT_CANON").as_deref() {
+        Ok("off") => false,
+        Ok("on") => true,
+        _ => library.orbit_canonicalization(),
+    };
+    library.set_orbit_canonicalization(orbit_canon);
+    let route_canon = std::env::var("P_ORBIT_CANON_ROUTES").map_or(true, |v| v != "off");
+    library.set_route_canonicalization(route_canon);
+    let prefer_high = std::env::var("P_ORBIT_REP").as_deref() != Ok("min");
+    library.set_orbit_prefer_high(prefer_high);
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -399,7 +431,7 @@ fn main() {
         });
     }
     eprintln!(
-        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}",
+        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}; orbit canonicalisation {orbit_canon}",
         cell.tops,
         inputs.len()
     );
@@ -467,6 +499,26 @@ fn main() {
         .max()
         .unwrap_or(0);
     probe.last_phase = 2 * max_lines + 1;
+    // P_CENSUS_WARMUP=1: one plain request first (no inspector, no step cache), so the measured request
+    // finds the per-process setup (compiled routes, orbit groups) done, as in a long-lived vakint process.
+    let warmup_seconds = (std::env::var("P_CENSUS_WARMUP").as_deref() == Ok("1")).then(|| {
+        let t_warm = Instant::now();
+        library
+            .reduce(PReductionRequest {
+                inputs: inputs.clone(),
+                arithmetic: arithmetic(arith, threads),
+                scheduler: OrderedSchedulerOptions::with_threads(threads),
+                step_cache: None,
+                uncovered: PUncoveredPolicy::Reject,
+                onto_masters: true,
+                limits: ReductionLimits::default(),
+                inspector: None,
+            })
+            .unwrap();
+        let seconds = t_warm.elapsed().as_secs_f64();
+        eprintln!("[census] warm-up request {seconds:.2} s");
+        seconds
+    });
     // P_RSS_LIMIT_GB=x (rr-prof): run the request inside a Symbolica
     // ResourceBudget with that process-RSS ceiling, as vakint does with
     // VAKINT_TEST_P4L_CASE_RSS_GB: measures the cost of the cooperative RSS
@@ -481,6 +533,7 @@ fn main() {
         )
     });
     let t_reduce = Instant::now();
+    let cpu_before_reduce = cpu_seconds();
     let request = PReductionRequest {
         inputs: inputs.clone(),
         arithmetic: arithmetic(arith, threads),
@@ -496,12 +549,15 @@ fn main() {
         None => library.reduce(request),
     };
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
+    let reduce_cpu_seconds = cpu_seconds() - cpu_before_reduce;
     let (vmrss, vmhwm) = rss();
     // P_WARM=1 (M5 1L-3L): the same request again in this process, without
     // inspector or census, after the cold one prepared routes and owner
     // programs: the warm time of a long-lived process (vakint).
+    let mut warm_cpu_seconds = None;
     let warm_seconds = flag("P_WARM").then(|| {
         let t_warm = Instant::now();
+        let cpu_before_warm = cpu_seconds();
         let warm = library.reduce(PReductionRequest {
             inputs: inputs.clone(),
             arithmetic: arithmetic(arith, threads),
@@ -513,6 +569,7 @@ fn main() {
             inspector: None,
         });
         let seconds = t_warm.elapsed().as_secs_f64();
+        warm_cpu_seconds = Some(cpu_seconds() - cpu_before_warm);
         if let (Ok(cold), Ok(warm)) = (&result, &warm) {
             assert_eq!(
                 canonical::canonical_text(cold),
@@ -544,11 +601,13 @@ fn main() {
 
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
-        "census": census_on, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
-        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
+        "census": census_on, "orbit_canonicalization": orbit_canon, "orbit_prefer_high": prefer_high, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
+        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "warmup_seconds": warmup_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
         "load_vmhwm_kb": load_vmhwm, "warm_seconds": warm_seconds,
         "process_seconds": t_main.elapsed().as_secs_f64(),
+        "reduce_cpu_seconds": reduce_cpu_seconds, "warm_cpu_seconds": warm_cpu_seconds,
+        "process_cpu_seconds": cpu_seconds(), "load_cpu_seconds": load_cpu_seconds,
     });
     if let Some(p) = progress {
         summary["processed"] = p.processed_keys.into();

@@ -74,9 +74,10 @@ use super::format::{
     owner_file,
 };
 use super::generate::CustomOwnerPayload;
-use super::ordering::{ORDERING_FILE, ROUTES_FILE, read_ordering};
+use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
 use super::package::payload_save_format;
 use super::{PLibraryOptions, PLibrarySource};
+use rustred::propagator::saved_orbits::PSavedOrbits;
 use rustred::propagator::saved_routes::PSavedRoutes;
 
 /// The files of one package.
@@ -849,6 +850,15 @@ pub fn load_p_library(
         // The verified load proves every route itself (descent certificate).
         if !options.verify_descent {
             builder.set_saved_routes(PSavedRoutes::decode(&files.read(ROUTES_FILE)?)?);
+        }
+    }
+    if let Some(file) = &manifest.files.orbits {
+        if file != ORBITS_FILE {
+            return Err(malformed(format!("{LIBRARY_FILE}: orbits file {file}")));
+        }
+        // The verified load searches and authenticates every group itself.
+        if !options.verify_descent {
+            builder.set_saved_orbits(PSavedOrbits::decode(&files.read(ORBITS_FILE)?)?);
         }
     }
     let library = builder.build()?;
