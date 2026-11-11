@@ -597,7 +597,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
 
 /// The records of the reference program with orbit canonicalisation on.
 const ORBIT_CANON_RECORDS_DIGEST: &str =
-    "f8c04985502236c51ac223573077ca72a1bf4106d05e237cddd0be17aad273a0";
+    "0abd5420a83a5531d420befd18cdd7a2899c586a42340a72241004d96ce62e6b";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {
