@@ -1,7 +1,7 @@
 //! Strict-descent check of an assembled rule set under its ONE declared node order.
 //!
 //! Every rule `target -> sum c_k I_k` of a node table must satisfy `I_k < target` in the node order (the engine's
-//! [`IntegralOrder`] for the chart, with the order's tie priority). The check is independent of how the rules were
+//! harder-first [`IntegralOrder`] for the chart, with the order's tie priority: `compare(target, I_k) == Less`). The check is independent of how the rules were
 //! found: a set that joins rules found under different orders is rejected as soon as one rule is not descending
 //! under the declared order. Regression: the T212 reciprocal 2-cycle (Astra): a cheap slice rule of the legacy order
 //! and the reversed-ISP corner rules each descend under their own order, and none of the two orders accepts both.
@@ -99,7 +99,9 @@ pub fn check<const N: usize>(order: &IntegralOrder<N>, rules: &[KeyRule<N>]) -> 
     for rule in rules {
         for term in &rule.rhs {
             report.terms += 1;
-            if order.compare(term, &rule.target) != Ordering::Less {
+            // the engine order is harder-first: a lower term compares Greater than its target
+            // (the engine's own check: `compare(target, term) != Less` = not lower)
+            if order.compare(&rule.target, term) != Ordering::Less {
                 report.not_lower.push(NotLower { rule: rule.label.clone(), target: rule.target.to_string(), term: term.to_string() });
             }
         }
