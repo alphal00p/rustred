@@ -33,7 +33,8 @@ use crate::reduction::ordered_reduction::step_cache::kernel::{
     ConcurrentStepCacheKernel, OrderedStepCacheKernel, run_with_step_cache_and_options,
 };
 use crate::reduction::ordered_reduction::{
-    ConcurrentOrderedKernel, OrderedKernel, OrderedKeyStage, OrderedOutput, OrderedPhaseBoundary,
+    CompactPowers, ConcurrentOrderedKernel, FrontierKey, OrderedKernel, OrderedKeyStage,
+    OrderedOutput, OrderedPhaseBoundary,
     OrderedPhaseDescriptor, OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{
@@ -69,6 +70,59 @@ pub(crate) enum PKey {
         class: OwnerClassId,
         view: IntegralKey,
     },
+}
+
+/// `PKey` packed in a `Packed` frontier (rr-frontier): the presentation or
+/// class id, and the powers inline with the variant as the tag (`Apply`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct PackedPKey {
+    id: u64,
+    view: CompactPowers,
+}
+
+impl FrontierKey for PKey {
+    type Packed = PackedPKey;
+    fn pack(&self) -> PackedPKey {
+        match self {
+            PKey::Route { presentation, view } => PackedPKey {
+                id: u64::from(presentation.0),
+                view: CompactPowers::new(view.powers(), false),
+            },
+            PKey::Apply { class, view } => PackedPKey {
+                id: class.0,
+                view: CompactPowers::new(view.powers(), true),
+            },
+        }
+    }
+    fn unpack(packed: &PackedPKey) -> PKey {
+        let view = IntegralKey::try_from_preallocated(packed.view.to_vec())
+            .expect("a packed key is nonempty");
+        if packed.view.tag() {
+            PKey::Apply {
+                class: OwnerClassId(packed.id),
+                view,
+            }
+        } else {
+            PKey::Route {
+                presentation: PresentationId(
+                    u32::try_from(packed.id).expect("a packed presentation id is a u32"),
+                ),
+                view,
+            }
+        }
+    }
+    /// The derived order of `PKey`: `Route` before `Apply`, then the id, then
+    /// the powers.
+    fn cmp_packed(a: &PackedPKey, b: &PackedPKey) -> std::cmp::Ordering {
+        a.view
+            .tag()
+            .cmp(&b.view.tag())
+            .then(a.id.cmp(&b.id))
+            .then_with(|| a.view.cmp_powers(&b.view))
+    }
+    fn packed_heap_bytes(packed: &PackedPKey) -> usize {
+        packed.view.heap_bytes()
+    }
 }
 
 /// Position inside one phase, larger first: the node rank of the owner, then

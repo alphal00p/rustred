@@ -4,11 +4,10 @@
 //! existing checked mathematical operations and supply a certified descending
 //! position; this module only schedules and combines their weighted results.
 use std::cmp::Reverse;
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
-use std::hash::Hash;
+use std::collections::{BTreeMap, btree_map};
 
 pub(crate) mod arithmetic;
+mod frontier;
 pub(crate) mod memstats;
 pub mod composition;
 mod modular;
@@ -26,6 +25,8 @@ pub use composition::{
 };
 use modular::{Lifter, ModularRecorder};
 pub use parallel::OrderedSchedulerOptions;
+pub(crate) use frontier::{CompactPowers, FrontierKey};
+use frontier::{Child, ChildAction, Frontier, FrontierMode};
 pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
 use parallel::{ConcurrentWeights, Prefetched, Workers};
 pub use tail::{
@@ -73,7 +74,7 @@ impl<K> Default for OrderedStep<K> {
 }
 
 pub(crate) trait OrderedKernel {
-    type Key: Clone + Ord + Hash;
+    type Key: FrontierKey;
     type Priority: Clone + Ord;
     type Error: From<ReductionError>;
 
@@ -182,19 +183,54 @@ struct SchedulerState<'a, K: OrderedKernel, A: OrderedWeights> {
     frontier: &'a FrontierOf<K, A>,
     terminals: &'a BTreeMap<IntegralKey, A::Weight>,
     nonzero_conditions: &'a [Coefficient],
+    /// A packed frontier holds no unpacked keys to borrow: the entries are
+    /// unpacked once, on the first iteration.
+    unpacked: std::cell::OnceCell<Vec<(Scheduled<K::Key, K::Priority>, &'a A::Weight)>>,
+}
+
+impl<'a, K: OrderedKernel, A: OrderedWeights> SchedulerState<'a, K, A> {
+    fn new(
+        frontier: &'a FrontierOf<K, A>,
+        terminals: &'a BTreeMap<IntegralKey, A::Weight>,
+        nonzero_conditions: &'a [Coefficient],
+    ) -> Self {
+        Self {
+            frontier,
+            terminals,
+            nonzero_conditions,
+            unpacked: std::cell::OnceCell::new(),
+        }
+    }
 }
 
 impl<K: OrderedKernel, A: OrderedWeights> OrderedStateView for SchedulerState<'_, K, A> {
     fn frontier(&self) -> Box<dyn Iterator<Item = OrderedFrontierEntry<'_>> + '_> {
-        Box::new(self.frontier.iter().filter_map(|(scheduled, weight)| {
-            let (stage, integral) = K::key_view(&scheduled.key)?;
-            Some(OrderedFrontierEntry {
-                phase: scheduled.phase.0,
-                stage,
-                integral,
-                weight: A::exact(weight),
-            })
-        }))
+        let entry = frontier_entry::<K, A>;
+        match self.frontier {
+            Frontier::Classic(classic) => Box::new(classic.order.iter().rev().filter_map(
+                move |scheduled| {
+                    let pending = classic.pending.get(&scheduled.key)?;
+                    (pending.position.phase == scheduled.phase.0
+                        && pending.position.priority == scheduled.priority)
+                        .then_some(())?;
+                    entry(scheduled, &pending.weight)
+                },
+            )),
+            Frontier::Packed(_) => {
+                let unpacked = self.unpacked.get_or_init(|| {
+                    let frontier: &FrontierOf<K, A> = self.frontier;
+                    frontier
+                        .iter()
+                        .map(|(scheduled, weight)| (scheduled.into_owned(), weight))
+                        .collect()
+                });
+                Box::new(
+                    unpacked
+                        .iter()
+                        .filter_map(move |(scheduled, weight)| entry(scheduled, weight)),
+                )
+            }
+        }
     }
     fn terminals(
         &self,
@@ -208,6 +244,19 @@ impl<K: OrderedKernel, A: OrderedWeights> OrderedStateView for SchedulerState<'_
     fn nonzero_conditions(&self) -> &[Coefficient] {
         self.nonzero_conditions
     }
+}
+
+fn frontier_entry<'e, K: OrderedKernel, A: OrderedWeights>(
+    scheduled: &'e Scheduled<K::Key, K::Priority>,
+    weight: &'e A::Weight,
+) -> Option<OrderedFrontierEntry<'e>> {
+    let (stage, integral) = K::key_view(&scheduled.key)?;
+    Some(OrderedFrontierEntry {
+        phase: scheduled.phase.0,
+        stage,
+        integral,
+        weight: A::exact(weight),
+    })
 }
 
 fn inspect<K: OrderedKernel, A: OrderedWeights>(
@@ -253,17 +302,6 @@ fn replace_monomials(total: &mut usize, old: usize, new: usize) -> Result<(), Re
 struct Pending<P, W> {
     position: OrderedPosition<P>,
     weight: W,
-}
-
-/// Pending weights indexed by key, together with their execution order.
-///
-/// A merge into a pending key reuses the stored position, so it needs neither
-/// `position` nor an ordered-tree descent. An exact cancellation removes only
-/// the weight; its order entry stays behind and is discarded when reached. If
-/// the key returns before then, the equal order entry is reused.
-struct Frontier<K, P, W> {
-    pending: HashMap<K, Pending<P, W>, FrontierHash>,
-    order: BTreeSet<Scheduled<K, P>>,
 }
 
 /// Hasher of the frontier's pending map. `RUSTRED_ORDERED_FRONTIER_HASH=fx`
@@ -366,49 +404,6 @@ impl std::hash::BuildHasher for FrontierHash {
     }
 }
 
-impl<K: Clone + Ord + Hash, P: Clone + Ord, W> Frontier<K, P, W> {
-    fn new() -> Self {
-        Self {
-            pending: HashMap::with_hasher(FrontierHash::from_environment()),
-            order: BTreeSet::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.pending.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.pending.is_empty()
-    }
-
-    /// Pending entries in pop order. A cancelled key leaves its order entry
-    /// behind until it is reached; such entries are skipped.
-    fn iter(&self) -> impl Iterator<Item = (&Scheduled<K, P>, &W)> {
-        self.order.iter().rev().filter_map(|scheduled| {
-            let pending = self.pending.get(&scheduled.key)?;
-            (pending.position.phase == scheduled.phase.0
-                && pending.position.priority == scheduled.priority)
-                .then_some((scheduled, &pending.weight))
-        })
-    }
-
-    /// Pop the greatest pending key of `phase`, discarding cancelled entries.
-    fn pop_in_phase(&mut self, phase: usize) -> Option<(Scheduled<K, P>, W)> {
-        while self
-            .order
-            .last()
-            .is_some_and(|scheduled| scheduled.phase.0 == phase)
-        {
-            let scheduled = self.order.pop_last().expect("nonempty checked frontier");
-            if let Some(pending) = self.pending.remove(&scheduled.key) {
-                return Some((scheduled, pending.weight));
-            }
-        }
-        None
-    }
-}
-
 /// Children must enter a later phase, or the current phase strictly below
 /// their parent.
 fn check_descent<P: Ord>(
@@ -417,10 +412,17 @@ fn check_descent<P: Ord>(
     parent: &P,
     total_phases: usize,
 ) -> Result<(), ReductionError> {
-    if position.phase >= total_phases
-        || position.phase < phase
-        || (position.phase == phase && position.priority >= *parent)
-    {
+    check_descent_parts(position.phase, &position.priority, phase, parent, total_phases)
+}
+
+fn check_descent_parts<P: Ord>(
+    entered: usize,
+    priority: &P,
+    phase: usize,
+    parent: &P,
+    total_phases: usize,
+) -> Result<(), ReductionError> {
+    if entered >= total_phases || entered < phase || (entered == phase && *priority >= *parent) {
         return Err(invariant(
             "ordered checked action does not strictly decrease its certified position",
         ));
@@ -1245,6 +1247,7 @@ fn admit<K: OrderedKernel, A: OrderedWeights>(
     request: &mut ReductionRequest,
     initial: BTreeMap<K::Key, Coefficient>,
     mut nonzero_conditions: Vec<Coefficient>,
+    mode: FrontierMode,
 ) -> Result<Admitted<K, A>, K::Error> {
     let limits = kernel.limits();
     let mut guards = GuardIndex::new();
@@ -1253,7 +1256,7 @@ fn admit<K: OrderedKernel, A: OrderedWeights>(
     for condition in &initial_conditions {
         guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
     }
-    let mut frontier = Frontier::new();
+    let mut frontier = Frontier::new(mode);
     let mut progress = CandidateOrderedReductionProgress {
         total_phases: kernel.phase_count(),
         input_keys: initial.len(),
@@ -1274,12 +1277,7 @@ fn admit<K: OrderedKernel, A: OrderedWeights>(
             0,
             weights.monomials(&weight)?,
         )?;
-        frontier.order.insert(Scheduled {
-            phase: Reverse(position.phase),
-            priority: position.priority.clone(),
-            key: key.clone(),
-        });
-        frontier.pending.insert(key, Pending { position, weight });
+        frontier.insert(key, Pending { position, weight });
     }
     progress.frontier_keys = frontier.len();
     progress.peak_frontier_keys = frontier.len();
@@ -1306,22 +1304,13 @@ impl<K: OrderedKernel, A: OrderedWeights> Admitted<K, A> {
             boundary,
             phase,
             &self.progress,
-            SchedulerState {
-                frontier: &self.frontier,
-                terminals: &self.output,
-                nonzero_conditions: &self.nonzero_conditions,
-            },
+            SchedulerState::new(&self.frontier, &self.output, &self.nonzero_conditions),
         )
     }
 
     /// Check that `phase` has drained, then report and inspect its end.
     fn finish_phase(&mut self, kernel: &mut K, phase: usize) -> Result<(), K::Error> {
-        if self
-            .frontier
-            .order
-            .last()
-            .is_some_and(|node| node.phase.0 < phase)
-        {
+        if self.frontier.earlier_than(phase) {
             return Err(invariant("ordered phase was regenerated after completion").into());
         }
         self.progress.completed_phases = phase + 1;
@@ -1357,22 +1346,38 @@ fn memstats_snapshot<K: OrderedKernel, A: OrderedWeights>(
     let in_use = memstats::in_use();
     let (arena, free) = memstats::arena();
     let [mut p_key, mut p_prio, mut p_shared, mut p_weight] = [0usize; 4];
-    for (key, pending) in &frontier.pending {
-        let [u, s] = K::priority_heap_bytes(&pending.position.priority);
-        p_key += K::key_heap_bytes(key);
-        p_prio += u;
-        p_shared += s;
-        p_weight += A::weight_heap_bytes(&pending.weight);
-    }
     let [mut o_key, mut o_prio] = [0usize; 2];
-    for scheduled in &frontier.order {
-        o_key += K::key_heap_bytes(&scheduled.key);
-        o_prio += K::priority_heap_bytes(&scheduled.priority)[0];
+    let (mut pending_clone, mut order_clone, mut capacity, mut order_len) = (0, 0, 0, 0);
+    let mut packed = serde_json::Value::Null;
+    match frontier {
+        Frontier::Classic(classic) => {
+            for (key, pending) in &classic.pending {
+                let [u, s] = K::priority_heap_bytes(&pending.position.priority);
+                p_key += K::key_heap_bytes(key);
+                p_prio += u;
+                p_shared += s;
+                p_weight += A::weight_heap_bytes(&pending.weight);
+            }
+            for scheduled in &classic.order {
+                o_key += K::key_heap_bytes(&scheduled.key);
+                o_prio += K::priority_heap_bytes(&scheduled.priority)[0];
+            }
+            pending_clone = memstats::measure_clone(|| classic.pending.clone());
+            order_clone = memstats::measure_clone(|| classic.order.clone());
+            capacity = classic.pending.capacity();
+            order_len = classic.order.len();
+        }
+        Frontier::Packed(p) => {
+            for (priority, weight) in p.live() {
+                let [u, s] = K::priority_heap_bytes(priority);
+                p_prio += u;
+                p_shared += s;
+                p_weight += A::weight_heap_bytes(weight);
+            }
+            packed = p.memstats();
+        }
     }
-    let pending_clone = memstats::measure_clone(|| frontier.pending.clone());
-    let order_clone = memstats::measure_clone(|| frontier.order.clone());
     let terminals_clone = memstats::measure_clone(|| output.clone());
-    let capacity = frontier.pending.capacity();
     let buckets = if capacity < 8 {
         capacity + 1
     } else {
@@ -1381,8 +1386,9 @@ fn memstats_snapshot<K: OrderedKernel, A: OrderedWeights>(
     let bucket = size_of::<(K::Key, Pending<K::Priority, A::Weight>)>();
     serde_json::json!({
         "phase": phase,
-        "pending_keys": frontier.pending.len(),
-        "order_entries": frontier.order.len(),
+        "pending_keys": frontier.len(),
+        "order_entries": order_len,
+        "packed": packed,
         "processed_keys": progress.processed_keys,
         "emitted_terms": progress.emitted_terms,
         "terminal_keys": output.len(),
@@ -1434,7 +1440,14 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let limits = kernel.limits();
-    let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    let mut state = admit(
+        kernel,
+        weights,
+        request,
+        initial,
+        nonzero_conditions,
+        FrontierMode::from_environment(),
+    )?;
     let mut tail = if tail.enabled {
         TailRun::new(kernel, weights, tail.threads, true)?
     } else {
@@ -1479,66 +1492,76 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     continue;
                 }
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
-                match frontier.pending.entry(child) {
-                    Entry::Occupied(mut entry) => {
-                        // A pending key keeps the position certified at entry.
-                        check_descent(
-                            &entry.get().position,
-                            phase,
-                            &node.priority,
-                            progress.total_phases,
-                        )?;
-                        let contribution = weights.scale(&weight, &coefficient)?;
-                        work.record_coalescing_additions(1);
-                        request.record_coalescing_additions(
-                            1,
-                            limits.diagnostic_limit(limits.max_coalescing_additions),
-                        )?;
-                        let existing = &mut entry.get_mut().weight;
-                        let old = weights.monomials(existing)?;
-                        let zero = weights.merge(existing, contribution)?;
-                        let new = if zero {
-                            0
-                        } else {
-                            weights.monomials(existing)?
-                        };
-                        replace_monomials(&mut progress.frontier_coefficient_monomials, old, new)?;
-                        if zero {
-                            weights.cancel(entry.remove().weight)?;
-                            request.release_pending_frame()?;
-                            progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
-                        } else {
-                            progress.merged_terms = progress.merged_terms.saturating_add(1);
-                        }
-                    }
-                    Entry::Vacant(entry) => {
-                        let position = kernel.position(entry.key())?;
-                        check_descent(&position, phase, &node.priority, progress.total_phases)?;
-                        let contribution = weights.scale(&weight, &coefficient)?;
-                        if !weights.contribution_is_zero(&contribution) {
-                            request.retain_pending_frame(
-                                limits.diagnostic_limit(limits.max_pending_frames),
+                let removed = frontier.child(child, |found| {
+                    Ok::<_, K::Error>(match found {
+                        Child::Occupied {
+                            phase: entered,
+                            priority,
+                            weight: existing,
+                        } => {
+                            // A pending key keeps the position certified at entry.
+                            check_descent_parts(
+                                entered,
+                                priority,
+                                phase,
+                                &node.priority,
+                                progress.total_phases,
                             )?;
-                            let inserted = weights.insert(contribution)?;
+                            let contribution = weights.scale(&weight, &coefficient)?;
+                            work.record_coalescing_additions(1);
+                            request.record_coalescing_additions(
+                                1,
+                                limits.diagnostic_limit(limits.max_coalescing_additions),
+                            )?;
+                            let old = weights.monomials(existing)?;
+                            let zero = weights.merge(existing, contribution)?;
+                            let new = if zero {
+                                0
+                            } else {
+                                weights.monomials(existing)?
+                            };
                             replace_monomials(
                                 &mut progress.frontier_coefficient_monomials,
-                                0,
-                                weights.monomials(&inserted)?,
+                                old,
+                                new,
                             )?;
-                            frontier.order.insert(Scheduled {
-                                phase: Reverse(position.phase),
-                                priority: position.priority.clone(),
-                                key: entry.key().clone(),
-                            });
-                            entry.insert(Pending {
-                                position,
-                                weight: inserted,
-                            });
-                            progress.peak_frontier_keys =
-                                progress.peak_frontier_keys.max(frontier.pending.len());
+                            if zero {
+                                ChildAction::Remove
+                            } else {
+                                progress.merged_terms = progress.merged_terms.saturating_add(1);
+                                ChildAction::Keep
+                            }
                         }
-                    }
+                        Child::Vacant(key) => {
+                            let position = kernel.position(key)?;
+                            check_descent(&position, phase, &node.priority, progress.total_phases)?;
+                            let contribution = weights.scale(&weight, &coefficient)?;
+                            if weights.contribution_is_zero(&contribution) {
+                                ChildAction::Keep
+                            } else {
+                                request.retain_pending_frame(
+                                    limits.diagnostic_limit(limits.max_pending_frames),
+                                )?;
+                                let inserted = weights.insert(contribution)?;
+                                replace_monomials(
+                                    &mut progress.frontier_coefficient_monomials,
+                                    0,
+                                    weights.monomials(&inserted)?,
+                                )?;
+                                ChildAction::Insert(Pending {
+                                    position,
+                                    weight: inserted,
+                                })
+                            }
+                        }
+                    })
+                })?;
+                if let Some(removed) = removed {
+                    weights.cancel(removed)?;
+                    request.release_pending_frame()?;
+                    progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                 }
+                progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
                 progress.peak_frontier_coefficient_monomials = progress
                     .peak_frontier_coefficient_monomials
                     .max(progress.frontier_coefficient_monomials);

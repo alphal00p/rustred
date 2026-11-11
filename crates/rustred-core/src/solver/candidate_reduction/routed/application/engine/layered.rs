@@ -68,6 +68,19 @@ pub(super) enum OrderedNode<const N: usize> {
     Partial(PartialRoute<N>),
 }
 
+impl<const N: usize> crate::reduction::ordered_reduction::FrontierKey for OrderedNode<N> {
+    type Packed = Self;
+    fn pack(&self) -> Self {
+        self.clone()
+    }
+    fn unpack(packed: &Self) -> Self {
+        packed.clone()
+    }
+    fn cmp_packed(a: &Self, b: &Self) -> std::cmp::Ordering {
+        a.cmp(b)
+    }
+}
+
 /// Scheduling priority of [`OrderedNode`] inside its phase.
 ///
 /// Without layering every `group` is zero and the order is the historical
