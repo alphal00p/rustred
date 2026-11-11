@@ -813,6 +813,9 @@ impl PLibraryBuilder {
         for class in orders.keys() {
             match self.owners.get(class) {
                 Some(owner) if owner.spec.lane == OwnerLane::Custom => {}
+                // M5 no6: the Custom fallback payload of a Scheme owner.
+                Some(owner)
+                    if owner.spec.lane == OwnerLane::Scheme && owner.spec.payload.is_some() => {}
                 _ => {
                     return Err(malformed(format!(
                         "a rule order for {:016x}, which is no Custom owner",

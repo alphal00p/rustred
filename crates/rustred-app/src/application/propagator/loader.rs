@@ -269,6 +269,13 @@ fn check_payload(
             owner.class
         )));
     }
+    // M5 no6: a Scheme owner's payload is its Custom fallback, bound to the
+    // node's Custom (induced) presentation, not to the owner's; its family
+    // and its residual (the owner's corner) are checked when the Scheme
+    // program is built (`SchemeStep::from_owner`).
+    if matches!(owner.lane, LaneRecord::Scheme) {
+        return Ok(());
+    }
     if let Some(fingerprint) = fingerprint
         && summary.family_fingerprint != fingerprint
     {

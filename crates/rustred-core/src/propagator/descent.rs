@@ -364,6 +364,17 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
                         spec.terminals.len()
                     )));
                 }
+                // M5 no6: the Custom fallback (payload) of a Scheme owner:
+                // its guard, its residual (= the owner's corner) and its
+                // transport are checked by the build; here the item-2
+                // witness box: every child of a fallback step is strictly
+                // lower in the Custom order on the fallback's sector, or on
+                // a strict subsector of it. The Scheme step closes the
+                // fallback's sector locally, so it never returns a key of
+                // its own sector: scheme and fallback cannot cycle.
+                if let Some(fallback) = super::scheme::scheme_fallback_program(library, spec)? {
+                    check_fallback_witnesses(library, spec, &fallback, &mut report)?;
+                }
             }
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
@@ -591,6 +602,58 @@ fn check_custom_witnesses(
             );
             if !residual || !spec.terminals.contains(terminal) || *terminal_tag != tag {
                 return Err(fail(key, format!("the terminal {}", terminal.0)));
+            }
+        }
+    }
+    report.witness_keys += keys.len();
+    Ok(())
+}
+
+/// Item 2 on the Custom fallback of a Scheme owner (M5 no6), on the same
+/// witness box as a Custom owner of the fallback's presentation and support.
+fn check_fallback_witnesses(
+    library: &PLibrary,
+    spec: &POwnerSpec,
+    fallback: &super::scheme::SchemeFallback,
+    report: &mut DescentReport,
+) -> Result<(), PError> {
+    let (program, target, support) = fallback.program();
+    let presentation = library.presentation(target);
+    let limits = ReductionLimits::default();
+    let residuals = program.residual_keys();
+    let fail = |key: &[i64], detail: String| {
+        malformed(format!(
+            "Scheme owner {:016x}, fallback key {key:?}: {detail}",
+            spec.class.0
+        ))
+    };
+    let keys = custom_witness_keys(presentation.slots.len(), support, 0);
+    for key in &keys {
+        let order = program.order(key)?;
+        match program.apply(spec.class, key, &limits)? {
+            super::custom::PFallbackApplied::Residual => {
+                if !residuals.iter().any(|residual| residual.powers() == key.as_slice()) {
+                    return Err(fail(key, "a terminal that is no residual".to_owned()));
+                }
+            }
+            super::custom::PFallbackApplied::Children { children, .. } => {
+                for (child, _) in &children {
+                    let child_support = support_of(presentation, child);
+                    let witness = if child_support == support {
+                        if program.order(child)? >= order {
+                            return Err(fail(key, format!("the child {child:?} does not descend")));
+                        }
+                        DescentWitness::SameSectorStrict
+                    } else if child_support & !support == 0 {
+                        DescentWitness::Subsector
+                    } else {
+                        return Err(fail(
+                            key,
+                            format!("the child {child:?} on support {child_support:#x}"),
+                        ));
+                    };
+                    *report.witnesses.entry(witness).or_default() += 1;
+                }
             }
         }
     }

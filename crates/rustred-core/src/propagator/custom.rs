@@ -40,6 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
+use crate::algebra::Coefficient;
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
     BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
@@ -1054,7 +1055,7 @@ fn build<const N: usize>(
     meta: &CustomOwnerMeta,
     prepare: bool,
     order: Option<&PRuleOrder>,
-) -> Result<Arc<dyn PLaneStep>, PError> {
+) -> Result<CustomStep<N>, PError> {
     let mut decoded = decode(Some(presentation), payload)?;
     if let Some(order) = order {
         apply_rule_order(&mut decoded.program, order)?;
@@ -1164,7 +1165,7 @@ fn build<const N: usize>(
     if prepare {
         step.prepare_charts()?;
     }
-    Ok(Arc::new(step))
+    Ok(step)
 }
 
 /// The lane step of a Custom owner of `presentation` from its payload and
@@ -1222,10 +1223,144 @@ fn build_custom_step_with(
     macro_rules! dispatch {
         ($($n:literal),*) => {
             match crate::campaign_storage_arity(arity) {
-                $($n => build::<$n>(presentation, payload, meta, prepare, order),)*
+                $($n => build::<$n>(presentation, payload, meta, prepare, order)
+                    .map(|step| Arc::new(step) as Arc<dyn PLaneStep>),)*
                 storage => Err(PError::Unsupported(format!(
                     "custom owner arity {arity} has no compiled storage (width {storage}); \
                      rebuild with RUSTRED_RUNTIME_ARITIES including {arity}"
+                ))),
+            }
+        };
+    }
+    with_candidate_runtime_arities!(dispatch)
+}
+
+/// What one rule application of a Custom fallback program does to a key
+/// (M5 no6): the key is the program's residual, or the rule's children with the
+/// nonzero conditions the step met.
+#[derive(Debug)]
+pub enum PFallbackApplied {
+    Residual,
+    Children {
+        children: Vec<(Vec<i64>, Coefficient)>,
+        conditions: Vec<Coefficient>,
+    },
+}
+
+/// A Custom owner's program used as the FALLBACK of another owner of the same
+/// node (M5 no6: the Scheme owner of no6 closes the keys its Forcer rules do
+/// not take with the shipped Custom rules). The program is bound to
+/// `presentation` (the presentation the payload was generated on, or one with
+/// the same family and slots); it never names terminals: the residual is
+/// reported as [`PFallbackApplied::Residual`] and the calling owner maps it.
+pub trait PCustomFallback: Send + Sync + fmt::Debug {
+    /// The owner support of the payload (its generation root).
+    fn support(&self) -> u64;
+    /// The payload's residual keys.
+    fn residual_keys(&self) -> Vec<IntegralKey>;
+    /// One rule application at `powers` (a key of the support).
+    fn apply(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        limits: &ReductionLimits,
+    ) -> Result<PFallbackApplied, PError>;
+    /// The order the rules were generated in (as [`PLaneStep::order_key`]).
+    fn order(&self, powers: &[i64]) -> Result<POrderKey, PError>;
+}
+
+impl<const N: usize> PCustomFallback for CustomStep<N> {
+    fn support(&self) -> u64 {
+        self.support
+    }
+
+    fn residual_keys(&self) -> Vec<IntegralKey> {
+        self.residuals.iter().cloned().collect()
+    }
+
+    fn apply(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        limits: &ReductionLimits,
+    ) -> Result<PFallbackApplied, PError> {
+        self.check_key(self.presentation, powers)?;
+        let integral = IntegralKey::try_new(powers.iter().copied())
+            .map_err(|error| PError::Contract(error.to_string()))?;
+        let mut conditions = Vec::new();
+        let applied = apply_prepared_owner(
+            &self.programs,
+            &self.chart(powers),
+            &integral,
+            &mut conditions,
+            &mut ReductionRequest::default(),
+            &mut ReductionStatistics::default(),
+            limits,
+        )
+        .map_err(|error| step_error(class, error))?;
+        match applied {
+            AppliedOwnerStep::Terminal => Ok(PFallbackApplied::Residual),
+            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
+                class,
+                key: integral,
+            }),
+            AppliedOwnerStep::Applied(terms, _) => {
+                let mut children = Vec::with_capacity(terms.len());
+                for (child, coefficient) in terms {
+                    if child.powers().len() != self.arity {
+                        return Err(PError::MalformedLibrary(format!(
+                            "custom fallback of {:016x}: a child {:?} of another arity",
+                            class.0,
+                            child.powers()
+                        )));
+                    }
+                    children.push((child.powers().to_vec(), coefficient));
+                }
+                Ok(PFallbackApplied::Children {
+                    children,
+                    conditions,
+                })
+            }
+        }
+    }
+
+    fn order(&self, powers: &[i64]) -> Result<POrderKey, PError> {
+        self.check_key(self.presentation, powers)?;
+        let ordering = owner_ordering(&self.programs, &self.chart(powers)).ok_or_else(|| {
+            PError::Contract(format!("no chart of the custom fallback holds {powers:?}"))
+        })?;
+        let key = ordering
+            .complexity_key(powers)
+            .map_err(|error| PError::Contract(format!("custom fallback order: {error}")))?;
+        Ok(POrderKey::Complexity(key))
+    }
+}
+
+/// The Custom program of `payload` as a fallback ([`PCustomFallback`]) on
+/// `presentation`, with the explicit rule order `order` if given: the same
+/// checks as [`build_custom_step_ordered`] (guard, arity registry, payload
+/// bound to the presentation's family and described by `meta`).
+pub fn build_custom_fallback(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    order: Option<&PRuleOrder>,
+) -> Result<Arc<dyn PCustomFallback>, PError> {
+    let arity = presentation.slots.len();
+    if !crate::compiled_runtime_arities().contains(&arity) {
+        return Err(PError::Unsupported(format!(
+            "custom fallback arity {arity} is not compiled into this RustRed (registered: {:?})",
+            crate::compiled_runtime_arities()
+        )));
+    }
+    check_custom_owner(presentation, meta)?;
+    macro_rules! dispatch {
+        ($($n:literal),*) => {
+            match crate::campaign_storage_arity(arity) {
+                $($n => build::<$n>(presentation, payload, meta, false, order)
+                    .map(|step| Arc::new(step) as Arc<dyn PCustomFallback>),)*
+                storage => Err(PError::Unsupported(format!(
+                    "custom fallback arity {arity} has no compiled storage (width {storage})"
                 ))),
             }
         };

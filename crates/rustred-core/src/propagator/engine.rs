@@ -620,7 +620,7 @@ fn restored_route(
     ))
 }
 
-fn transport_of(
+pub(crate) fn transport_of(
     source: &Presentation,
     target: &Presentation,
     verified: symmetry::VerifiedMap,

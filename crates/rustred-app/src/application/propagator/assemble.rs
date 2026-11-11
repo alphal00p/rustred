@@ -476,6 +476,29 @@ fn assemble(
                 spec.terminals
                     .push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
             }
+            // M5 no6: a scheme with `"fallback": "custom"` carries the node's
+            // Custom payload (generated on its induced Custom presentation);
+            // the Scheme program closes the keys its rules do not take with it.
+            if rustred::propagator::scheme::scheme_fallback(info)? {
+                let induced = present(
+                    info,
+                    &CUSTOM,
+                    &tops,
+                    PresentationId(u32::MAX),
+                    tops[0].family.coefficient_context(),
+                )?;
+                let payload = custom_payload(
+                    &custom,
+                    &label,
+                    &induced,
+                    recount
+                        .as_mut()
+                        .map(|(filter, recounts)| (*filter, &mut **recounts)),
+                )?;
+                spec.payload = Some(CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)));
+                spec.custom = Some(payload.meta.clone());
+                payloads.insert(label, payload);
+            }
         } else if spec.lane == OwnerLane::Custom {
             let payload = custom_payload(
                 &custom,

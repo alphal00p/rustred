@@ -47,11 +47,15 @@ use crate::algebra::{
     Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits,
     IndexedCoefficient, IndexedCoefficientContext,
 };
+use crate::family::IntegralKey;
 use crate::identity::{ParametricIbpGenerator, RowId};
+use crate::sector::symmetry::integral_transport::{ExpansionLimits, Prepared};
 use crate::reduction::{ReductionError, ReductionLimits};
 
+use super::census::{PSectorFate, SignedAffineLoopMap};
+use super::custom::{PCustomFallback, PFallbackApplied, build_custom_fallback};
 use super::error::PError;
-use super::lane::{LaneRoles, OwnerLane, SchemeRoles};
+use super::lane::{LaneDecision, LaneRoles, OwnerLane, SchemeRoles};
 use super::library::{PLibrary, POwnerSpec};
 use super::presentation::{NodeRef, Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut};
@@ -64,6 +68,10 @@ pub const EMBEDDED_SCHEMES: &[(&str, &str)] = &[
     ("haha", include_str!("schemes/haha.json")),
     ("bubu", include_str!("schemes/bubu.json")),
     ("no2", include_str!("schemes/no2.json")),
+    // M5 no6: Forcer's no6 scheme with the shipped Custom no6 rules as the
+    // fallback of the keys outside its reach; off by default
+    // (`RUSTRED_P_SCHEMES=...,no6` puts it on the lane).
+    ("no6", include_str!("schemes/no6.json")),
 ];
 
 #[derive(Debug)]
@@ -102,6 +110,10 @@ fn indexed(error: IndexedAlgebraError) -> PError {
 
 fn exact(error: crate::algebra::ExactAlgebraError) -> PError {
     ReductionError::ExactAlgebra(error).into()
+}
+
+fn exact_error(error: crate::algebra::ExactAlgebraError) -> PError {
+    exact(error)
 }
 
 type PolyRecord = Vec<(Vec<u32>, String)>;
@@ -222,6 +234,10 @@ struct SchemeFile {
     /// (a scheme with permutation rules needs it).
     #[serde(default)]
     tiebreak: Vec<usize>,
+    /// M5 no6: `"custom"` = keys no rule takes are closed by the node's
+    /// Custom payload (the assembly attaches it to the Scheme owner).
+    #[serde(default)]
+    fallback: Option<String>,
 }
 
 /// One slot condition of a Forcer pattern, `lo <= n <= hi`.
@@ -341,6 +357,8 @@ struct Scheme {
     rules: Vec<ParsedRule>,
     /// 0-based Forcer slots of the tie-break rows.
     tiebreak: Vec<usize>,
+    /// M5 no6: the owner carries the node's Custom payload as its fallback.
+    fallback: bool,
 }
 
 fn parse_scheme(json: &str) -> Result<Scheme, String> {
@@ -526,6 +544,11 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
     if tiebreak.is_empty() && rules.iter().any(|rule| rule.permutation.is_some()) {
         return Err("permutation rules without tiebreak rows".to_owned());
     }
+    let fallback = match file.fallback.as_deref() {
+        None => false,
+        Some("custom") => true,
+        Some(other) => return Err(format!("fallback {other:?}")),
+    };
     Ok(Scheme {
         name: file.scheme,
         loops: file.loops,
@@ -538,6 +561,7 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         verify_order: file.verify_order,
         rules,
         tiebreak,
+        fallback,
     })
 }
 
@@ -629,6 +653,12 @@ pub fn scheme_names() -> Result<Vec<(String, bool)>, PError> {
         .iter()
         .map(|s| (s.name.clone(), enabled(s)))
         .collect())
+}
+
+/// Whether the scheme of `node` closes the keys no rule takes with the node's
+/// Custom payload (M5 no6, `"fallback": "custom"`).
+pub fn scheme_fallback(node: &NodeInfo) -> Result<bool, PError> {
+    Ok(scheme_at(node)?.fallback)
 }
 
 /// Whether the scheme of `node` ends in a master (the corner terminal).
@@ -1490,6 +1520,248 @@ pub struct SchemeStep {
     template: SchemeTemplate,
     lines: usize,
     allow_unverified: bool,
+    fallback: Option<SchemeFallback>,
+}
+
+/// M5 no6: the node's Custom program closing the keys no scheme rule takes.
+///
+/// The payload was generated on the Custom presentation of the node, an
+/// induced presentation whose slots are those of a top (`target`): its keys
+/// are keys of that top. A key of the scheme presentation is transported onto
+/// `(target, support)` by the inverse of the census map of that sector (onto
+/// this owner, verified exactly), then closed by the Custom rules INSIDE the
+/// step: same-sector children stay in the closure (each strictly lower in the
+/// Custom order), subsector children leave as Route keys of `target`, the
+/// residual (the node corner, checked at build to be the scheme's corner) is
+/// the owner's corner terminal. The step never hands a same-sector key back,
+/// so no cycle between the two rule sets can form.
+#[derive(Debug)]
+pub struct SchemeFallback {
+    program: Arc<dyn PCustomFallback>,
+    target: PresentationId,
+    support: u64,
+    into: Prepared,
+}
+
+impl SchemeFallback {
+    /// The Custom program, its presentation and its owner support.
+    pub fn program(&self) -> (&Arc<dyn PCustomFallback>, PresentationId, u64) {
+        (&self.program, self.target, self.support)
+    }
+}
+
+/// `A^-1` of a unimodular integer matrix (`n x n`, row major), by cofactors.
+fn unimodular_inverse(matrix: &[i64], n: usize) -> Option<Vec<i64>> {
+    fn det(m: &[i64], n: usize) -> i128 {
+        if n == 1 {
+            return i128::from(m[0]);
+        }
+        let mut total = 0_i128;
+        for column in 0..n {
+            let minor: Vec<i64> = (1..n)
+                .flat_map(|r| (0..n).filter(move |&c| c != column).map(move |c| (r, c)))
+                .map(|(r, c)| m[r * n + c])
+                .collect();
+            let sign = if column % 2 == 0 { 1 } else { -1 };
+            total += sign * i128::from(m[column]) * det(&minor, n - 1);
+        }
+        total
+    }
+    if matrix.len() != n * n || n == 0 {
+        return None;
+    }
+    let d = det(matrix, n);
+    if d != 1 && d != -1 {
+        return None;
+    }
+    let mut inverse = vec![0_i64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            // inverse[i][j] = d * (-1)^(i+j) * det(minor without row j, column i)
+            let minor: Vec<i64> = (0..n)
+                .filter(|&r| r != j)
+                .flat_map(|r| (0..n).filter(move |&c| c != i).map(move |c| (r, c)))
+                .map(|(r, c)| matrix[r * n + c])
+                .collect();
+            let cofactor = if n == 1 { 1 } else { det(&minor, n - 1) };
+            let sign = if (i + j) % 2 == 0 { 1 } else { -1 };
+            inverse[i * n + j] = i64::try_from(d * sign * cofactor).ok()?;
+        }
+    }
+    Some(inverse)
+}
+
+/// The inverse of a census map: `k_in = A k_out + b q_out`, `q_in = s q_out`
+/// gives `k_out = A^-1 k_in - s A^-1 b q_in`, `q_out = s q_in`.
+fn inverse_map(map: &SignedAffineLoopMap) -> Result<SignedAffineLoopMap, PError> {
+    let n = usize::from(map.loops_in);
+    if map.loops_out != map.loops_in {
+        return Err(PError::Contract(format!(
+            "a {}->{} loop map has no inverse",
+            map.loops_in, map.loops_out
+        )));
+    }
+    let a = unimodular_inverse(&map.loop_linear, n).ok_or_else(|| {
+        PError::Contract(format!("the loop map {:?} is not unimodular", map.loop_linear))
+    })?;
+    let s = i64::from(map.external_sign);
+    let b: Vec<i64> = (0..n)
+        .map(|i| -s * (0..n).map(|j| a[i * n + j] * map.loop_external[j]).sum::<i64>())
+        .collect();
+    Ok(SignedAffineLoopMap {
+        loops_in: map.loops_out,
+        loops_out: map.loops_in,
+        loop_linear: a.into(),
+        loop_external: b.into(),
+        external_sign: map.external_sign,
+    })
+}
+
+const CUSTOM_DECISION: LaneDecision = LaneDecision {
+    lane: OwnerLane::Custom,
+    roles: LaneRoles::None,
+    trivial: false,
+};
+
+/// The top presentation whose slots are those of `node`'s Custom (induced)
+/// presentation, and the induced mask.
+fn fallback_top(library: &PLibrary, node: &NodeInfo) -> Result<(PresentationId, u64), PError> {
+    let tops: Vec<Arc<Presentation>> = (library.presentations().iter())
+        .take_while(|p| matches!(p.kind, PresentationKind::Top { .. }))
+        .cloned()
+        .collect();
+    let induced = super::present::present(
+        node,
+        &CUSTOM_DECISION,
+        &tops,
+        PresentationId(u32::MAX),
+        library.coefficient_context(),
+    )?;
+    let PresentationKind::Induced { top, mask } = induced.kind else {
+        return Err(PError::Contract(format!(
+            "the Custom presentation of node {} is not induced",
+            node.index
+        )));
+    };
+    let held = library
+        .presentations()
+        .get(top.0 as usize)
+        .ok_or_else(|| PError::Contract(format!("the fallback top {} is unknown", top.0)))?;
+    if held.slots != induced.slots || held.loops != induced.loops {
+        return Err(PError::Contract(format!(
+            "the Custom presentation of node {} is not top {}'s slots",
+            node.index, top.0
+        )));
+    }
+    Ok((top, mask))
+}
+
+/// The Custom fallback of a Scheme owner that carries a payload (M5 no6).
+fn build_fallback(
+    library: &PLibrary,
+    owner: &POwnerSpec,
+    node: &NodeInfo,
+    own: &Presentation,
+) -> Result<Option<SchemeFallback>, PError> {
+    let (payload, meta) = match (&owner.payload, &owner.custom) {
+        (None, None) => return Ok(None),
+        (Some(payload), Some(meta)) => (payload, meta),
+        _ => {
+            return Err(PError::MalformedLibrary(format!(
+                "the Scheme owner {:016x} has a payload without meta or meta without payload",
+                owner.class.0
+            )));
+        }
+    };
+    if !scheme_fallback(node)? {
+        return Err(PError::MalformedLibrary(format!(
+            "the Scheme owner {:016x} carries a Custom payload, its scheme has no fallback",
+            owner.class.0
+        )));
+    }
+    let (target, mask) = fallback_top(library, node)?;
+    let presentation = library.presentation(target);
+    let bytes = payload.bytes()?;
+    let program = build_custom_fallback(presentation, &bytes, meta, library.rule_order(owner.class))?;
+    let support = program.support();
+    if support != mask {
+        return Err(PError::MalformedLibrary(format!(
+            "the fallback payload of {:016x} is on support {support:#x}, the node's Custom sector is {mask:#x}",
+            owner.class.0
+        )));
+    }
+    let map = match library.census().sectors.get(&(target, support)) {
+        Some(PSectorFate::Owner { class, map }) if *class == owner.class => map,
+        _ => {
+            return Err(PError::MalformedLibrary(format!(
+                "sector ({}, {support:#x}) is not routed onto the Scheme owner {:016x}",
+                target.0, owner.class.0
+            )));
+        }
+    };
+    let own_support = own.lines().fold(0_u64, |m, (slot, _)| m | 1 << slot);
+    let inverse = inverse_map(map)?;
+    let verified = super::engine::verify_route(own, presentation, &inverse, own_support)?;
+    let into = super::engine::transport_of(own, presentation, verified, own_support, support)?;
+    // The residuals: exactly one, the node corner, equal to this owner's corner.
+    let residuals = program.residual_keys();
+    let corner = IntegralKey::try_new(super::basis::node_corner(own))
+        .map_err(|error| PError::Contract(error.to_string()))?;
+    let mapped = into.transport(&corner, ExpansionLimits::default())?;
+    let one = own.family.coefficient_context().one();
+    let exact = matches!(mapped.terms(), [endpoint]
+        if residuals.len() == 1
+            && endpoint.key() == &residuals[0]
+            && endpoint.coefficient() == &one);
+    if !exact {
+        return Err(PError::MalformedLibrary(format!(
+            "the fallback residuals {:?} of {:016x} are not this owner's corner {:?}",
+            residuals.iter().map(IntegralKey::powers).collect::<Vec<_>>(),
+            owner.class.0,
+            corner.powers()
+        )));
+    }
+    Ok(Some(SchemeFallback {
+        program,
+        target,
+        support,
+        into,
+    }))
+}
+
+/// The Custom fallback program of a Scheme `owner` (M5 no6), for the descent
+/// certificate: `None` for an owner without a payload.
+pub fn scheme_fallback_program(
+    library: &PLibrary,
+    owner: &POwnerSpec,
+) -> Result<Option<SchemeFallback>, PError> {
+    let index = owner
+        .node
+        .ok_or_else(|| PError::Contract("a scheme owner without a node".to_owned()))?;
+    let dag = library
+        .topology()
+        .ok_or_else(|| PError::Contract("a scheme owner without a topology".to_owned()))?;
+    let node = dag
+        .nodes
+        .get(index.0 as usize)
+        .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
+    build_fallback(library, owner, node, library.presentation(owner.presentation))
+}
+
+/// Distinct keys the fallback closed in this process (diagnostics,
+/// `RUSTRED_P_SCHEME_FALLBACK_LOG=1`: one stderr line per distinct key).
+fn log_fallback(scheme: &str, powers: &[i64], states: usize, routes: usize) {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    static ON: OnceLock<bool> = OnceLock::new();
+    static SEEN: OnceLock<Mutex<HashSet<Vec<i64>>>> = OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var("RUSTRED_P_SCHEME_FALLBACK_LOG").is_ok_and(|v| v == "1")) {
+        return;
+    }
+    let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    if seen.lock().is_ok_and(|mut seen| seen.insert(powers.to_vec())) {
+        eprintln!("[scheme-fallback] {scheme} {powers:?} states={states} routes={routes}");
+    }
 }
 
 impl SchemeStep {
@@ -1503,6 +1775,7 @@ impl SchemeStep {
             template,
             lines,
             allow_unverified,
+            fallback: None,
         })
     }
 
@@ -1534,10 +1807,133 @@ impl SchemeStep {
             .nodes
             .get(index.0 as usize)
             .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
-        Ok(Self::new(
-            Arc::clone(library.presentation(owner.presentation)),
-            node,
-        )?)
+        let presentation = Arc::clone(library.presentation(owner.presentation));
+        let fallback = build_fallback(library, owner, node, &presentation)?;
+        let mut step = Self::new(presentation, node)?;
+        step.fallback = fallback;
+        Ok(step)
+    }
+
+    /// The Custom fallback, if the owner carries one (M5 no6).
+    pub fn fallback(&self) -> Option<&SchemeFallback> {
+        self.fallback.as_ref()
+    }
+
+    /// Close `key` (no scheme rule takes it) with the Custom fallback.
+    fn close(
+        &self,
+        fallback: &SchemeFallback,
+        cx: Option<&PStepContext<'_>>,
+        key: &PKeyView<'_>,
+        limits: &ReductionLimits,
+    ) -> Result<PStepOut, PError> {
+        let base = self.presentation.family.coefficient_context();
+        let exact = limits.exact_algebra;
+        let class = cx.map_or(super::OwnerClassId(0), |cx| cx.owner.spec.class);
+        let support_of = |powers: &[i64]| {
+            (powers.iter().enumerate())
+                .filter(|&(_, &p)| p > 0)
+                .fold(0_u64, |m, (slot, _)| m | 1 << slot)
+        };
+        let add = |map: &mut BTreeMap<_, Coefficient>, at, value: Coefficient| -> Result<(), PError> {
+            match map.entry(at) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let sum = base.try_add(entry.get(), &value, exact).map_err(exact_error)?;
+                    *entry.get_mut() = sum;
+                }
+            }
+            Ok(())
+        };
+        let source = IntegralKey::try_new(key.powers.iter().copied())
+            .map_err(|error| PError::Contract(error.to_string()))?;
+        let expansion = ExpansionLimits {
+            diagnostics_enabled: limits.diagnostics_enabled,
+            exact_algebra: limits.exact_algebra,
+            ..Default::default()
+        };
+        let mapped = fallback.into.transport(&source, expansion)?;
+        let mut routes: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
+        let mut frontier: BTreeMap<(POrderKey, Vec<i64>), Coefficient> = BTreeMap::new();
+        for endpoint in mapped.terms() {
+            let powers = endpoint.key().powers().to_vec();
+            let value = endpoint.coefficient().clone();
+            if support_of(&powers) == fallback.support {
+                add(&mut frontier, (fallback.program.order(&powers)?, powers), value)?;
+            } else {
+                add(&mut routes, powers, value)?;
+            }
+        }
+        let mut residual = base.zero();
+        let mut conditions: Vec<Coefficient> = Vec::new();
+        let mut states = 0_usize;
+        while let Some(((order, powers), value)) = frontier.pop_last() {
+            if value.is_zero() {
+                continue;
+            }
+            states += 1;
+            match fallback.program.apply(class, &powers, limits)? {
+                PFallbackApplied::Residual => {
+                    residual = base.try_add(&residual, &value, exact).map_err(exact_error)?;
+                }
+                PFallbackApplied::Children {
+                    children,
+                    conditions: met,
+                } => {
+                    for condition in met {
+                        if !conditions.contains(&condition) {
+                            conditions.push(condition);
+                        }
+                    }
+                    for (child, weight) in children {
+                        let weight = base.try_mul(&value, &weight, exact).map_err(exact_error)?;
+                        if support_of(&child) == fallback.support {
+                            let below = fallback.program.order(&child)?;
+                            if below >= order {
+                                return Err(PError::Contract(format!(
+                                    "the Custom fallback of scheme {} does not descend: {powers:?} -> {child:?}",
+                                    self.template.name
+                                )));
+                            }
+                            add(&mut frontier, (below, child), weight)?;
+                        } else {
+                            add(&mut routes, child, weight)?;
+                        }
+                    }
+                }
+            }
+        }
+        // A Custom step inside the closure records its rule hit on this thread;
+        // the path census must not read it as the Scheme owner's.
+        let _ = super::custom::take_rule_hit();
+        log_fallback(&self.template.name, key.powers, states, routes.len());
+        let mut out = PStepOut {
+            conditions,
+            ..PStepOut::default()
+        };
+        for (powers, coefficient) in routes {
+            if coefficient.is_zero() {
+                continue;
+            }
+            out.children.push(PChild {
+                stage: PStage::Route,
+                presentation: fallback.target,
+                powers,
+                tag: key.tag.clone(),
+                coefficient,
+            });
+        }
+        if !residual.is_zero() {
+            let terminal = cx
+                .and_then(|cx| cx.owner.spec.terminals.first().copied())
+                .ok_or_else(|| {
+                    PError::Contract("the scheme corner without a terminal".to_owned())
+                })?;
+            out.terminals.push((terminal, key.tag.clone(), residual));
+        }
+        Ok(out)
     }
 
     pub fn template(&self) -> &SchemeTemplate {
@@ -1623,8 +2019,15 @@ impl SchemeStep {
                 }
             }
         }
-        let rule = chosen
-            .ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
+        let Some(rule) = chosen else {
+            if let Some(fallback) = &self.fallback {
+                return self.close(fallback, cx, key, limits);
+            }
+            return Err(PError::Unsupported(format!(
+                "no scheme rule for {:?}",
+                key.powers
+            )));
+        };
         if let Some(permutation) = &rule.permutation {
             let powers: Vec<i64> = permutation.source.iter().map(|&a| key.powers[a]).collect();
             let base = self.presentation.family.coefficient_context();
