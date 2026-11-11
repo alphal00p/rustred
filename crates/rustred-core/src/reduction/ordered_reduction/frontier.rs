@@ -68,11 +68,13 @@ macro_rules! identity_frontier_key {
 }
 identity_frontier_key!(usize, i64, u64);
 
-/// Inline capacity of [`CompactPowers`]: covers the 5-loop families.
-pub(crate) const INLINE_POWERS: usize = 20;
+/// Inline capacity of [`CompactPowers`]: covers the 5-loop families, also
+/// as p-library views (20 powers + the 16 dense Gamma-tag slots = 36; the
+/// 4-loop views have 14 + 16 = 30).
+pub(crate) const INLINE_POWERS: usize = 38;
 const TAG_BIT: u8 = 0x80;
 
-/// Integer powers packed in 24 bytes: up to [`INLINE_POWERS`] powers in
+/// Integer powers packed in 40 bytes: up to [`INLINE_POWERS`] powers in
 /// `i8` inline, otherwise (a longer key or a power outside `i8`) the wide
 /// form on the heap. The form is canonical (inline whenever it fits), so the
 /// derived equality and hash are those of the power sequence and the tag.
@@ -793,7 +795,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     fn powers(rng: &mut StdRng) -> Vec<i64> {
-        let len = rng.random_range(1..=23);
+        let len = rng.random_range(1..=41);
         (0..len)
             .map(|_| match rng.random_range(0..20) {
                 0 => rng.random_range(-1000..1000),
@@ -821,7 +823,7 @@ mod tests {
                 assert_eq!(pa == pb, a == b);
             }
         }
-        assert_eq!(std::mem::size_of::<CompactPowers>(), 24);
+        assert_eq!(std::mem::size_of::<CompactPowers>(), 40);
     }
 
     /// The packed frontiers pop what the classic one pops, in its order,
