@@ -34,8 +34,8 @@ use crate::reduction::ordered_reduction::step_cache::kernel::{
 };
 use crate::reduction::ordered_reduction::{
     CompactPowers, ConcurrentOrderedKernel, FrontierKey, OrderedKernel, OrderedKeyStage,
-    OrderedOutput, OrderedPhaseBoundary,
-    OrderedPhaseDescriptor, OrderedPhaseEvent, OrderedPosition, OrderedStep, OrderedStepper,
+    OrderedOutput, OrderedPhaseBoundary, OrderedPhaseDescriptor, OrderedPhaseEvent,
+    OrderedPosition, OrderedProfile, OrderedStep, OrderedStepper,
 };
 use crate::reduction::{
     OrderedSchedulerOptions, OrderedStepCache, OrderedStepShard, OrderedStepStage,
@@ -514,6 +514,8 @@ impl PEngine {
         limits: ReductionLimits,
         mut inspector: Option<&mut dyn PInspector>,
     ) -> Result<OrderedOutput, PError> {
+        // p requests run the p profile (M5 batch 2) unless the caller chose one.
+        let scheduler = scheduler.resolve_profile(OrderedProfile::P);
         let census = match inspector.as_deref_mut().and_then(PInspector::path_census) {
             Some(census) => PCensusMode {
                 on: true,

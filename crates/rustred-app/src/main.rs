@@ -1,6 +1,6 @@
 // N3 (opt-in `mimalloc` feature): mimalloc serves Rust allocations directly;
 // its `override` feature also replaces the C malloc family for the whole
-// process (GMP/MPFR included). Off by default.
+// process (GMP/MPFR included). On by default since M5 batch 2.
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

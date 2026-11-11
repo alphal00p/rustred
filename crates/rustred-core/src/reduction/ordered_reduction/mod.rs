@@ -7,9 +7,9 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, btree_map};
 
 pub(crate) mod arithmetic;
+pub mod composition;
 mod frontier;
 pub(crate) mod memstats;
-pub mod composition;
 mod modular;
 mod parallel;
 pub(crate) mod step_cache;
@@ -23,12 +23,12 @@ pub use composition::{
     ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
     OrderedTerminalComposerSlot,
 };
-use modular::{Lifter, ModularRecorder};
-pub use parallel::OrderedSchedulerOptions;
+use frontier::{Child, ChildAction, Frontier, FrontierLayout};
 pub(crate) use frontier::{CompactPowers, FrontierKey};
-use frontier::{Child, ChildAction, Frontier, FrontierMode};
+use modular::{Lifter, ModularRecorder};
 pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
 use parallel::{ConcurrentWeights, Prefetched, Workers};
+pub use parallel::{OrderedProfile, OrderedSchedulerOptions};
 pub use tail::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
 };
@@ -208,15 +208,15 @@ impl<K: OrderedKernel, A: OrderedWeights> OrderedStateView for SchedulerState<'_
     fn frontier(&self) -> Box<dyn Iterator<Item = OrderedFrontierEntry<'_>> + '_> {
         let entry = frontier_entry::<K, A>;
         match self.frontier {
-            Frontier::Classic(classic) => Box::new(classic.order.iter().rev().filter_map(
-                move |scheduled| {
+            Frontier::Classic(classic) => {
+                Box::new(classic.order.iter().rev().filter_map(move |scheduled| {
                     let pending = classic.pending.get(&scheduled.key)?;
                     (pending.position.phase == scheduled.phase.0
                         && pending.position.priority == scheduled.priority)
                         .then_some(())?;
                     entry(scheduled, &pending.weight)
-                },
-            )),
+                }))
+            }
             Frontier::Packed(_) => {
                 let unpacked = self.unpacked.get_or_init(|| {
                     let frontier: &FrontierOf<K, A> = self.frontier;
@@ -305,8 +305,9 @@ struct Pending<P, W> {
     weight: W,
 }
 
-/// Hasher of the frontier's pending map. `RUSTRED_ORDERED_FRONTIER_HASH=fx`
-/// (rr-prof, switch, unset = SipHash as before) selects an Fx hash: the map
+/// Hasher of the frontier's pending map. Fx for p requests
+/// (`OrderedProfile::P`), SipHash otherwise; `RUSTRED_ORDERED_FRONTIER_HASH`
+/// overrides (rr-prof). The map
 /// is only probed (insert, entry, get, remove, len), never iterated, so the
 /// hash function changes no order, value or counter, only the time of a
 /// probe (SipHash of every child key was ~4 % of a 4L run).
@@ -317,16 +318,43 @@ enum FrontierHash {
 }
 
 impl FrontierHash {
-    fn from_environment() -> Self {
-        static FX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *FX.get_or_init(|| {
-            std::env::var("RUSTRED_ORDERED_FRONTIER_HASH").as_deref() == Ok("fx")
-        }) {
+    fn new(fx: bool) -> Self {
+        if fx {
             Self::Fx
         } else {
             Self::Sip(std::hash::RandomState::new())
         }
     }
+}
+
+/// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip` overrides the profile's frontier
+/// hash; unset or another value: `None`.
+pub(crate) fn frontier_hash_environment() -> Option<bool> {
+    static FX: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *FX.get_or_init(
+        || match std::env::var("RUSTRED_ORDERED_FRONTIER_HASH").as_deref() {
+            Ok("fx") => Some(true),
+            Ok("sip") => Some(false),
+            _ => None,
+        },
+    )
+}
+
+/// `RUSTRED_MODULAR_POLY_ROUND=n` overrides the profile's first modular
+/// polynomial round (`Some(Some(n))`; `0`/`off`: `Some(None)`, one prime per
+/// thread); unset or unparsable: `None`.
+pub(crate) fn modular_round_environment() -> Option<Option<usize>> {
+    static ROUND: std::sync::OnceLock<Option<Option<usize>>> = std::sync::OnceLock::new();
+    *ROUND.get_or_init(|| {
+        let value = std::env::var("RUSTRED_MODULAR_POLY_ROUND").ok()?;
+        if value == "off" {
+            return Some(None);
+        }
+        value
+            .parse::<usize>()
+            .ok()
+            .map(|round| (round > 0).then_some(round))
+    })
 }
 
 enum FrontierHasher {
@@ -349,13 +377,19 @@ impl std::hash::Hasher for FrontierHasher {
             Self::Fx(state) => {
                 let mut chunks = bytes.chunks_exact(8);
                 for chunk in &mut chunks {
-                    Self::fx(state, u64::from_le_bytes(chunk.try_into().expect("8 bytes")));
+                    Self::fx(
+                        state,
+                        u64::from_le_bytes(chunk.try_into().expect("8 bytes")),
+                    );
                 }
                 let rest = chunks.remainder();
                 if !rest.is_empty() {
                     let mut word = [0u8; 8];
                     word[..rest.len()].copy_from_slice(rest);
-                    Self::fx(state, u64::from_le_bytes(word) ^ ((rest.len() as u64) << 56));
+                    Self::fx(
+                        state,
+                        u64::from_le_bytes(word) ^ ((rest.len() as u64) << 56),
+                    );
                 }
             }
         }
@@ -413,7 +447,13 @@ fn check_descent<P: Ord>(
     parent: &P,
     total_phases: usize,
 ) -> Result<(), ReductionError> {
-    check_descent_parts(position.phase, &position.priority, phase, parent, total_phases)
+    check_descent_parts(
+        position.phase,
+        &position.priority,
+        phase,
+        parent,
+        total_phases,
+    )
 }
 
 fn check_descent_parts<P: Ord>(
@@ -915,13 +955,33 @@ struct TailOptions {
     enabled: bool,
     /// Threads for evaluating independent tail values (1: inline).
     threads: usize,
+    /// The frontier of the sequential journal (M5 batch 2 profile).
+    frontier: FrontierLayout,
+    /// The first round of a modular polynomial lift (`None`: one prime
+    /// per thread).
+    modular_round: Option<usize>,
 }
 
 impl TailOptions {
     fn sequential(enabled: bool) -> Self {
+        let scheduler = OrderedSchedulerOptions {
+            adjoint_tail: enabled,
+            ..OrderedSchedulerOptions::default()
+        }
+        .resolve_profile(OrderedProfile::Generic);
+        Self::of(&scheduler, 1)
+    }
+
+    fn of(scheduler: &OrderedSchedulerOptions, threads: usize) -> Self {
+        let tuning = scheduler.tuning();
         Self {
-            enabled: tail::environment().unwrap_or(enabled),
-            threads: 1,
+            enabled: tuning.adjoint_tail,
+            threads,
+            frontier: FrontierLayout {
+                mode: tuning.frontier,
+                fx_hash: tuning.fx_hash,
+            },
+            modular_round: tuning.modular_round,
         }
     }
 }
@@ -992,10 +1052,8 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         parallel::test_threads_override(scheduler),
     );
     scheduler.validate()?;
-    let tail = TailOptions {
-        enabled: tail::environment().unwrap_or(scheduler.adjoint_tail),
-        threads: scheduler.threads,
-    };
+    let scheduler = scheduler.resolve_profile(OrderedProfile::Generic);
+    let tail = TailOptions::of(&scheduler, scheduler.threads);
     if scheduler.threads == 1 || kernel.limits().diagnostics_enabled || kernel.stepper().is_none() {
         return run_sequential(
             kernel,
@@ -1021,6 +1079,7 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
                 &workers,
                 scheduler.window_keys,
                 tail.enabled,
+                tail.frontier.fx_hash,
             )
             .map(exact_output)
         }
@@ -1059,7 +1118,8 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<OrderedOutput, K::Error> {
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
-    let recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
+    let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
+    recorder.set_modular_round(tail.modular_round);
     // A cross-checked request compares the exact terminal map itself, so it
     // never composes.
     let composer = (!common.cross_check_exact)
@@ -1248,7 +1308,7 @@ fn admit<K: OrderedKernel, A: OrderedWeights>(
     request: &mut ReductionRequest,
     initial: BTreeMap<K::Key, Coefficient>,
     mut nonzero_conditions: Vec<Coefficient>,
-    mode: FrontierMode,
+    layout: FrontierLayout,
 ) -> Result<Admitted<K, A>, K::Error> {
     let limits = kernel.limits();
     let mut guards = GuardIndex::new();
@@ -1257,7 +1317,7 @@ fn admit<K: OrderedKernel, A: OrderedWeights>(
     for condition in &initial_conditions {
         guards.intern(&mut nonzero_conditions, condition, |_| Ok(()))?;
     }
-    let mut frontier = Frontier::new(mode);
+    let mut frontier = Frontier::new(layout);
     let mut progress = CandidateOrderedReductionProgress {
         total_phases: kernel.phase_count(),
         input_keys: initial.len(),
@@ -1447,7 +1507,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         request,
         initial,
         nonzero_conditions,
-        FrontierMode::from_environment(),
+        tail.frontier,
     )?;
     let mut tail = if tail.enabled {
         TailRun::new(kernel, weights, tail.threads, true)?

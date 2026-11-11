@@ -382,7 +382,9 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         for (a, value) in record.pattern.iter().enumerate() {
             for (prefix, out) in [("ne:", &mut distinct), ("eq:", &mut equal)] {
                 if let Some(other) = value.as_str().and_then(|text| text.strip_prefix(prefix)) {
-                    let k: usize = other.parse().map_err(|_| format!("pattern entry {value}"))?;
+                    let k: usize = other
+                        .parse()
+                        .map_err(|_| format!("pattern entry {value}"))?;
                     if k == 0 || k > slots || k - 1 == a {
                         return Err(format!("pattern entry {value}"));
                     }
@@ -399,27 +401,50 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         let permutation = match record.kind.as_deref() {
             None => None,
             Some("permutation") => {
-                let source = record.source.as_ref().ok_or("a permutation rule without a source")?;
-                let map = record.momentum_map.clone().ok_or("a permutation rule without a momentum map")?;
+                let source = record
+                    .source
+                    .as_ref()
+                    .ok_or("a permutation rule without a source")?;
+                let map = record
+                    .momentum_map
+                    .clone()
+                    .ok_or("a permutation rule without a momentum map")?;
                 let lines = file.lines.len();
                 let mut seen = vec![false; slots];
                 if source.len() != slots {
-                    return Err(format!("rule {}: {} source entries for {slots} slots", record.name, source.len()));
+                    return Err(format!(
+                        "rule {}: {} source entries for {slots} slots",
+                        record.name,
+                        source.len()
+                    ));
                 }
                 let mut zero_based = Vec::with_capacity(slots);
                 for (b, &a) in source.iter().enumerate() {
                     if a == 0 || a > slots || seen[a - 1] || ((a - 1) < lines) != (b < lines) {
-                        return Err(format!("rule {}: source {source:?} is not a permutation of lines and ISPs", record.name));
+                        return Err(format!(
+                            "rule {}: source {source:?} is not a permutation of lines and ISPs",
+                            record.name
+                        ));
                     }
                     seen[a - 1] = true;
                     zero_based.push(a - 1);
                 }
                 let width = usize::from(file.loops) + 1;
                 if map.len() != width || map.iter().any(|row| row.len() != width) {
-                    return Err(format!("rule {}: a momentum map that is not {width} x {width}", record.name));
+                    return Err(format!(
+                        "rule {}: a momentum map that is not {width} x {width}",
+                        record.name
+                    ));
                 }
-                if record.master || record.relation.is_some() || record.terms.is_some() || record.certificate.is_some() {
-                    return Err(format!("rule {}: a permutation rule with terms", record.name));
+                if record.master
+                    || record.relation.is_some()
+                    || record.terms.is_some()
+                    || record.certificate.is_some()
+                {
+                    return Err(format!(
+                        "rule {}: a permutation rule with terms",
+                        record.name
+                    ));
                 }
                 Some((zero_based, map))
             }
@@ -1026,7 +1051,14 @@ impl SchemeTemplate {
                         factors,
                     ));
                 }
-                if on_terms && !terms_match_relation(&context, &raw, &converted[&rule.name], layout.perm.len())? {
+                if on_terms
+                    && !terms_match_relation(
+                        &context,
+                        &raw,
+                        &converted[&rule.name],
+                        layout.perm.len(),
+                    )?
+                {
                     // The certificate proves the relation, not these terms.
                     verified.insert(rule.name.clone(), false);
                 }
@@ -1060,7 +1092,10 @@ impl SchemeTemplate {
                         true,
                     )),
                     Err(reason) => {
-                        return Err(SchemeError::Mismatch(format!("rule {}: {reason}", rule.name)));
+                        return Err(SchemeError::Mismatch(format!(
+                            "rule {}: {reason}",
+                            rule.name
+                        )));
                     }
                 },
             };
@@ -1292,7 +1327,11 @@ fn symmetry_flips(
     let lines = scheme.lines.len();
     let form = |slot: usize| -> Vec<Vec<i128>> {
         let (l, r): (Vec<i128>, Vec<i128>) = if slot < lines {
-            let m: Vec<i128> = scheme.lines[slot].momentum.iter().map(|&x| i128::from(x)).collect();
+            let m: Vec<i128> = scheme.lines[slot]
+                .momentum
+                .iter()
+                .map(|&x| i128::from(x))
+                .collect();
             (m.clone(), m)
         } else {
             let isp = &scheme.isps[slot - lines];
@@ -1305,7 +1344,10 @@ fn symmetry_flips(
             .map(|i| (0..width).map(|j| l[i] * r[j] + r[i] * l[j]).collect())
             .collect()
     };
-    let a: Vec<Vec<i128>> = map.iter().map(|row| row.iter().map(|&x| i128::from(x)).collect()).collect();
+    let a: Vec<Vec<i128>> = map
+        .iter()
+        .map(|row| row.iter().map(|&x| i128::from(x)).collect())
+        .collect();
     let transform = |q: &[Vec<i128>]| -> Vec<Vec<i128>> {
         // A^T Q A
         (0..width)
@@ -1334,12 +1376,19 @@ fn symmetry_flips(
         if image == target {
             continue;
         }
-        let negated: Vec<Vec<i128>> = target.iter().map(|row| row.iter().map(|x| -x).collect()).collect();
+        let negated: Vec<Vec<i128>> = target
+            .iter()
+            .map(|row| row.iter().map(|x| -x).collect())
+            .collect();
         if b >= lines && image == negated {
             flips.push(b);
             continue;
         }
-        return Err(format!("the momentum map does not carry slot {} onto slot {}", src + 1, b + 1));
+        return Err(format!(
+            "the momentum map does not carry slot {} onto slot {}",
+            src + 1,
+            b + 1
+        ));
     }
     Ok(flips)
 }
@@ -1546,12 +1595,23 @@ impl SchemeStep {
         let mine = self.order(key.powers);
         let mut chosen = None;
         for rule in &self.template.rules {
-            if rule.pattern.iter().zip(key.powers).all(|(c, &n)| c.holds(n))
-                && rule.distinct.iter().all(|&(a, b)| key.powers[a] != key.powers[b])
-                && rule.equal.iter().all(|&(a, b)| key.powers[a] == key.powers[b])
+            if rule
+                .pattern
+                .iter()
+                .zip(key.powers)
+                .all(|(c, &n)| c.holds(n))
+                && rule
+                    .distinct
+                    .iter()
+                    .all(|&(a, b)| key.powers[a] != key.powers[b])
+                && rule
+                    .equal
+                    .iter()
+                    .all(|&(a, b)| key.powers[a] == key.powers[b])
             {
                 if let Some(permutation) = &rule.permutation {
-                    let image: Vec<i64> = permutation.source.iter().map(|&a| key.powers[a]).collect();
+                    let image: Vec<i64> =
+                        permutation.source.iter().map(|&a| key.powers[a]).collect();
                     if self.order(&image) < mine {
                         chosen = Some(rule);
                         break;
@@ -1562,12 +1622,16 @@ impl SchemeStep {
                 }
             }
         }
-        let rule =
-            chosen.ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
+        let rule = chosen
+            .ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
         if let Some(permutation) = &rule.permutation {
             let powers: Vec<i64> = permutation.source.iter().map(|&a| key.powers[a]).collect();
             let base = self.presentation.family.coefficient_context();
-            let odd = (permutation.flips.iter()).filter(|&&b| powers[b].rem_euclid(2) == 1).count() % 2 == 1;
+            let odd = (permutation.flips.iter())
+                .filter(|&&b| powers[b].rem_euclid(2) == 1)
+                .count()
+                % 2
+                == 1;
             let coefficient = if odd { base.integer(-1) } else { base.one() };
             return Ok(PStepOut {
                 children: vec![PChild {
@@ -1920,8 +1984,14 @@ mod tests {
     #[test]
     fn integer_determinants() {
         assert_eq!(integer_det(&[vec![1, 2], vec![3, 4]]), -2);
-        assert_eq!(integer_det(&[vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]), -1);
-        assert_eq!(integer_det(&[vec![2, 0, 1], vec![1, 1, 0], vec![0, 3, 1]]), 5);
+        assert_eq!(
+            integer_det(&[vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]),
+            -1
+        );
+        assert_eq!(
+            integer_det(&[vec![2, 0, 1], vec![1, 1, 0], vec![0, 3, 1]]),
+            5
+        );
         assert_eq!(integer_det(&[vec![1, 2], vec![2, 4]]), 0);
     }
 
@@ -1937,14 +2007,23 @@ mod tests {
                     continue;
                 };
                 seen += 1;
-                symmetry_flips(&scheme, rule, source, map).unwrap_or_else(|e| panic!("{name} {}: {e}", rule.name));
+                symmetry_flips(&scheme, rule, source, map)
+                    .unwrap_or_else(|e| panic!("{name} {}: {e}", rule.name));
                 // A wrong map (two loop momenta exchanged) or a wrong source fails.
                 let mut wrong = map.clone();
                 wrong.swap(0, 1);
-                assert!(symmetry_flips(&scheme, rule, source, &wrong).is_err(), "{name} {}", rule.name);
+                assert!(
+                    symmetry_flips(&scheme, rule, source, &wrong).is_err(),
+                    "{name} {}",
+                    rule.name
+                );
                 let mut other = source.clone();
                 other.swap(0, 1);
-                assert!(symmetry_flips(&scheme, rule, &other, map).is_err(), "{name} {}", rule.name);
+                assert!(
+                    symmetry_flips(&scheme, rule, &other, map).is_err(),
+                    "{name} {}",
+                    rule.name
+                );
             }
             assert!(seen > 0, "{name}: no permutation rule");
             // The ordinary rules still descend in the stored order.
@@ -1981,11 +2060,20 @@ mod tests {
         ];
         for (name, powers) in cases {
             let rule = scheme.rules.iter().find(|rule| rule.name == name).unwrap();
-            assert!(rule.pattern.iter().zip(powers).all(|(c, n)| c.holds(n)), "{name} pattern");
+            assert!(
+                rule.pattern.iter().zip(powers).all(|(c, n)| c.holds(n)),
+                "{name} pattern"
+            );
             let (source, _) = rule.permutation.as_ref().unwrap();
             let image: Vec<i64> = source.iter().map(|&a| powers[a]).collect();
-            assert!(key(&image) < key(&powers), "{name}: {image:?} is not below {powers:?}");
-            assert!(!rule.pattern.iter().zip(&image).all(|(c, &n)| c.holds(n)), "{name} fires again on its image");
+            assert!(
+                key(&image) < key(&powers),
+                "{name}: {image:?} is not below {powers:?}"
+            );
+            assert!(
+                !rule.pattern.iter().zip(&image).all(|(c, &n)| c.holds(n)),
+                "{name} fires again on its image"
+            );
         }
     }
 

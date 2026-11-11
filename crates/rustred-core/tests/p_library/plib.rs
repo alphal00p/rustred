@@ -27,7 +27,7 @@ use rustred::propagator::testing::{
 };
 use rustred::propagator::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
 use rustred::reduction::{
-    ModularCommon, OrderedKeyStage, OrderedSchedulerOptions, OrderedStepCache,
+    ModularCommon, OrderedKeyStage, OrderedProfile, OrderedSchedulerOptions, OrderedStepCache,
     OrderedStepCacheAdapter, OrderedStepCacheBinding, OrderedWeightArithmetic, PolynomialOptions,
     ReductionError, ReductionLimits, SampledOptions,
 };
@@ -968,6 +968,8 @@ fn a_route_keeps_its_tag_and_pinches_onto_another_owner() {
             threads,
             window_keys: 8,
             adjoint_tail: true,
+            // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+            profile: OrderedProfile::Generic,
         };
         assert_eq!(library.reduce(run).unwrap().terms, expected);
     }
@@ -1557,6 +1559,8 @@ fn conditions_reach_the_output_on_every_path() {
                     threads,
                     window_keys: 8,
                     adjoint_tail,
+                    // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+                    profile: OrderedProfile::Generic,
                 };
                 same_result(&library.reduce(run).unwrap(), &base);
             }
@@ -2251,6 +2255,8 @@ fn keys_of_mixed_length_pass_every_path() {
                     threads,
                     window_keys: 8,
                     adjoint_tail,
+                    // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+                    profile: OrderedProfile::Generic,
                 };
                 let reduced = library.reduce(run).unwrap();
                 assert_eq!(reduced.terms, expected, "{arithmetic:?} {threads}");

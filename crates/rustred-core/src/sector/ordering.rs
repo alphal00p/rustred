@@ -229,8 +229,7 @@ impl ComplexityKey {
         // words before the data.
         let inner = (Arc::as_ptr(&self.index_excess) as *const u8)
             .wrapping_sub(2 * std::mem::size_of::<usize>());
-        block(inner, 1)
-            + block(self.index_excess.as_ptr(), self.index_excess.capacity())
+        block(inner, 1) + block(self.index_excess.as_ptr(), self.index_excess.capacity())
     }
 
     pub fn policy(&self) -> OrderingPolicy {

@@ -910,6 +910,7 @@ mod tests {
             threads: 1,
             window_keys: 1,
             adjoint_tail: false,
+            profile: Default::default(),
         };
         for arithmetic in [
             OrderedWeightArithmetic::Exact,
@@ -931,6 +932,7 @@ mod tests {
                     threads,
                     window_keys,
                     adjoint_tail: false,
+                    profile: Default::default(),
                 };
                 let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
                 reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();

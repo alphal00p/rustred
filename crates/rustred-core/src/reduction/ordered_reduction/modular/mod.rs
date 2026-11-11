@@ -498,9 +498,17 @@ pub(crate) struct ModularRecorder {
     terminal_slots: u32,
     lookups: usize,
     started: Instant,
+    /// First round of a polynomial lift (`OrderedTuning::modular_round`).
+    modular_round: Option<usize>,
 }
 
 impl ModularRecorder {
+    /// The first round of a polynomial lift: `Some(n)` requests at least `n`
+    /// primes (one pass of up to `lanes` lanes) whatever the thread count.
+    pub(crate) fn set_modular_round(&mut self, round: Option<usize>) {
+        self.modular_round = round;
+    }
+
     pub(crate) fn try_new(
         context: &CoefficientContext,
         limits: ReductionLimits,
@@ -541,6 +549,7 @@ impl ModularRecorder {
             terminal_slots: 0,
             lookups: 0,
             started: Instant::now(),
+            modular_round: None,
         })
     }
 
@@ -830,6 +839,7 @@ impl ModularRecorder {
                         options,
                         program,
                         self.common.seed,
+                        self.modular_round,
                     );
                     let lifted = lift::lift(
                         &mut source,
@@ -923,11 +933,7 @@ impl ModularRecorder {
     pub(crate) fn memstats(&self) -> serde_json::Value {
         use super::memstats::{block, measure_clone};
         use std::mem::size_of;
-        let entries_heap: usize = self
-            .entries
-            .iter()
-            .map(super::coefficient_heap_bytes)
-            .sum();
+        let entries_heap: usize = self.entries.iter().map(super::coefficient_heap_bytes).sum();
         serde_json::json!({
             "ops": self.ops.len(),
             "ops_capacity": self.ops.capacity(),

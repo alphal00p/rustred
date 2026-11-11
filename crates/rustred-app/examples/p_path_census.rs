@@ -48,8 +48,8 @@ mod canonical;
 // rr-prof: with the opt-in `mimalloc` feature of rustred-app, the probe uses
 // mimalloc as its global allocator (and, through the crate's `override`
 // feature, as the process C malloc), as the `rustred` binary does (N3).
-// Off by default.
-#[cfg(feature = "mimalloc")]
+// On by default since M5 batch 2; `alloc-count` replaces it.
+#[cfg(all(feature = "mimalloc", not(feature = "alloc-count")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

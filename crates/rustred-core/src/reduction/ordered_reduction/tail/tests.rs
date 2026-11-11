@@ -447,6 +447,7 @@ fn schedulers(adjoint_tail: bool) -> Vec<OrderedSchedulerOptions> {
             threads,
             window_keys,
             adjoint_tail,
+            profile: Default::default(),
         })
         .collect()
 }

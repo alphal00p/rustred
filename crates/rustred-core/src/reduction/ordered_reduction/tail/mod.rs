@@ -870,7 +870,9 @@ impl<K: OrderedKernel> TailRun<K> {
                 .and_then(|weight| weights.tail_probe(weight));
             let mut entries = Vec::with_capacity(keys.len());
             for (key, value) in keys.iter().zip(&values) {
-                let pending_weight = state.frontier.remove(key)
+                let pending_weight = state
+                    .frontier
+                    .remove(key)
                     .ok_or_else(|| invariant("a pending tail key vanished"))?;
                 request.release_pending_frame()?;
                 replace_monomials(
@@ -929,7 +931,9 @@ impl<K: OrderedKernel> TailRun<K> {
             // emissions.
             let progress = &mut state.progress;
             for (key, value) in keys.iter().zip(values) {
-                let pending_weight = state.frontier.remove(key)
+                let pending_weight = state
+                    .frontier
+                    .remove(key)
                     .ok_or_else(|| invariant("a pending tail key vanished"))?;
                 request.release_pending_frame()?;
                 replace_monomials(

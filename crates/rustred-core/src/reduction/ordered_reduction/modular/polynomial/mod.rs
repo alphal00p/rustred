@@ -226,6 +226,9 @@ pub(super) struct PolynomialSource<'a> {
     /// `Z_p(d)` (inside the replay job) before the lift.
     compose: Option<&'a Program>,
     seed: u64,
+    /// First round (`OrderedTuning::modular_round`; `None`: one prime per
+    /// thread).
+    round: Option<usize>,
 }
 
 impl<'a> PolynomialSource<'a> {
@@ -236,6 +239,7 @@ impl<'a> PolynomialSource<'a> {
         options: PolynomialOptions,
         compose: Option<&'a Program>,
         seed: u64,
+        round: Option<usize>,
     ) -> Self {
         Self {
             trace,
@@ -245,6 +249,7 @@ impl<'a> PolynomialSource<'a> {
             structure: Arc::new(()),
             compose,
             seed,
+            round,
         }
     }
 
@@ -254,24 +259,15 @@ impl<'a> PolynomialSource<'a> {
     }
 }
 
-/// `RUSTRED_MODULAR_POLY_ROUND=n` (rr-prof, diagnostic switch, unset = off):
-/// every image round requests at least `n` primes and at most
-/// `max(n, lanes)`, whatever the thread count, instead of between `threads`
-/// and `max(threads, lanes)`. One thread then replays the first `n` primes
-/// (up to `lanes`) in one pass instead of doubling from one prime; many
-/// threads replay `n` primes instead of one per thread (fewer discarded
-/// images and fewer concurrent weight stores). Images depend only on their
-/// prime and the lift consumes them in prime order, so the result is the
-/// same for every value.
-fn round_override() -> Option<usize> {
-    static ROUND: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
-    *ROUND.get_or_init(|| {
-        std::env::var("RUSTRED_MODULAR_POLY_ROUND")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|&round| round > 0)
-    })
-}
+// The first round (rr-prof's `RUSTRED_MODULAR_POLY_ROUND`, M5 batch 2: 4 for
+// p requests, `OrderedTuning::modular_round`): every image round requests at
+// least `n` primes and at most `max(n, lanes)`, whatever the thread count,
+// instead of between `threads` and `max(threads, lanes)`. One thread then
+// replays the first `n` primes (up to `lanes`) in one pass instead of
+// doubling from one prime; many threads replay `n` primes instead of one per
+// thread (fewer discarded images and fewer concurrent weight stores). Images
+// depend only on their prime and the lift consumes them in prime order, so
+// the result is the same for every value.
 
 impl ImageSource for PolynomialSource<'_> {
     type Structure = ();
@@ -401,7 +397,7 @@ impl ImageSource for PolynomialSource<'_> {
     /// can stop early. Few threads share one replay among up to `lanes`
     /// primes.
     fn round_capacity(&self, threads: usize) -> usize {
-        match round_override() {
+        match self.round {
             Some(round) => round.max(self.options.lanes),
             None => threads.max(self.options.lanes),
         }
@@ -409,7 +405,7 @@ impl ImageSource for PolynomialSource<'_> {
 
     /// The first round already occupies every thread with one prime.
     fn round_minimum(&self, threads: usize) -> usize {
-        round_override().unwrap_or(threads)
+        self.round.unwrap_or(threads)
     }
 
     /// A verification is a full replay: computing it within a

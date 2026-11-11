@@ -12,12 +12,13 @@ publish = false
 [features]
 capacity-dispatch = ["rustred/capacity-dispatch"]
 runtime-arity-selection = ["rustred/runtime-arity-selection"]
-default = ["native", "cli", "reconstruction"]
+default = ["native", "cli", "reconstruction", "mimalloc"]
 native = ["rustred/native"]
 wasm = ["rustred/wasm"]
 reconstruction = ["rustred/reconstruction"]
 cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
-# N3 (opt-in, default off): mimalloc as the `rustred` binary's Rust global
+# N3 (default ON since M5 batch 2, rr-prof: -27..-40 % time at 1 thread, -14..-30 % at 16;
+# `--no-default-features --features native,cli,reconstruction` gives glibc malloc): mimalloc as the `rustred` binary's Rust global
 # allocator and, through its `override` feature, as the process-wide C
 # malloc/free, so GMP/MPFR allocations (statically linked, through C malloc)
 # use it too. Verify a build with `nm -D target/<profile>/rustred`: `malloc`

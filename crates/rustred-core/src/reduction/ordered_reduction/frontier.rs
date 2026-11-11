@@ -3,7 +3,9 @@
 //! `Classic` (default) is the historical layout: a hash map from key to
 //! pending weight plus an ordered set of `(phase, priority, key)` clones.
 //!
-//! `RUSTRED_ORDERED_FRONTIER=compact|phased` (rr-frontier, switch) selects
+//! `phased` is the default of p requests (`OrderedProfile::P`, M5 batch 2);
+//! `RUSTRED_ORDERED_FRONTIER=classic|compact|phased` (rr-frontier) overrides
+//! the profile. `compact` or `phased` selects
 //! `Packed`: every pending key is stored ONCE, packed (`FrontierKey`: small
 //! integer powers inline, no heap allocation in the common case), in a slot
 //! of a slab together with its certified position and weight. A hash table
@@ -192,16 +194,34 @@ pub(crate) enum FrontierMode {
 }
 
 impl FrontierMode {
-    /// `RUSTRED_ORDERED_FRONTIER=compact|phased`; anything else: classic.
-    pub(crate) fn from_environment() -> Self {
-        static MODE: std::sync::OnceLock<FrontierMode> = std::sync::OnceLock::new();
+    /// `RUSTRED_ORDERED_FRONTIER=classic|compact|phased` overrides the
+    /// request's profile (`OrderedProfile`); unset or another value: `None`.
+    pub(crate) fn environment() -> Option<Self> {
+        static MODE: std::sync::OnceLock<Option<FrontierMode>> = std::sync::OnceLock::new();
         *MODE.get_or_init(
             || match std::env::var("RUSTRED_ORDERED_FRONTIER").as_deref() {
-                Ok("compact") => Self::Compact,
-                Ok("phased") => Self::Phased,
-                _ => Self::Classic,
+                Ok("classic") => Some(Self::Classic),
+                Ok("compact") => Some(Self::Compact),
+                Ok("phased") => Some(Self::Phased),
+                _ => None,
             },
         )
+    }
+}
+
+/// The layout and hash of one request's frontier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FrontierLayout {
+    pub mode: FrontierMode,
+    pub fx_hash: bool,
+}
+
+impl From<FrontierMode> for FrontierLayout {
+    fn from(mode: FrontierMode) -> Self {
+        Self {
+            mode,
+            fx_hash: false,
+        }
     }
 }
 
@@ -266,7 +286,9 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
         let hash = hasher.hash_one(&priority);
         let values = &self.values;
         if let Some(&id) = self.index.find(hash, |&id| {
-            values[id as usize].as_ref().is_some_and(|(p, _)| *p == priority)
+            values[id as usize]
+                .as_ref()
+                .is_some_and(|(p, _)| *p == priority)
         }) {
             self.values[id as usize].as_mut().expect("live priority").1 += 1;
             return id;
@@ -378,13 +400,13 @@ fn sift_down<T>(v: &mut [T], mut i: usize, cmp: &impl Fn(&T, &T) -> Ordering) {
 }
 
 impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
-    fn new(lazy: bool) -> Self {
+    fn new(lazy: bool, hasher: FrontierHash) -> Self {
         Self {
             slots: Vec::new(),
             priorities: Priorities::new(),
             free: Vec::new(),
             index: HashTable::new(),
-            hasher: FrontierHash::from_environment(),
+            hasher,
             live: 0,
             buckets: Vec::new(),
             lazy,
@@ -739,14 +761,16 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Iterator for HeapWalk<'_, K, P, W
 }
 
 impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
-    pub(crate) fn new(mode: FrontierMode) -> Self {
-        match mode {
+    pub(crate) fn new(layout: impl Into<FrontierLayout>) -> Self {
+        let layout = layout.into();
+        let hasher = FrontierHash::new(layout.fx_hash);
+        match layout.mode {
             FrontierMode::Classic => Self::Classic(Classic {
-                pending: HashMap::with_hasher(FrontierHash::from_environment()),
+                pending: HashMap::with_hasher(hasher),
                 order: BTreeSet::new(),
             }),
-            FrontierMode::Compact => Self::Packed(Packed::new(false)),
-            FrontierMode::Phased => Self::Packed(Packed::new(true)),
+            FrontierMode::Compact => Self::Packed(Packed::new(false, hasher)),
+            FrontierMode::Phased => Self::Packed(Packed::new(true, hasher)),
         }
     }
 
@@ -964,14 +988,21 @@ mod tests {
     /// through inserts, merges, cancellations, returns and removals.
     #[test]
     fn packed_frontiers_pop_the_classic_sequence() {
-        for (seed, mode) in [(1, FrontierMode::Compact), (2, FrontierMode::Phased), (3, FrontierMode::Phased)] {
+        for (seed, mode) in [
+            (1, FrontierMode::Compact),
+            (2, FrontierMode::Phased),
+            (3, FrontierMode::Phased),
+        ] {
             let mut rng = StdRng::seed_from_u64(seed);
             let mut classic: Frontier<IntegralKey, i64, i64> = Frontier::new(FrontierMode::Classic);
             let mut packed: Frontier<IntegralKey, i64, i64> = Frontier::new(mode);
             let phases = 6;
             let position = |key: &IntegralKey| -> (usize, i64) {
                 let p = key.powers();
-                ((p[0].unsigned_abs() as usize) % phases, p.iter().sum::<i64>() % 5)
+                (
+                    (p[0].unsigned_abs() as usize) % phases,
+                    p.iter().sum::<i64>() % 5,
+                )
             };
             let random_key = |rng: &mut StdRng| {
                 let len = rng.random_range(1..=4);
@@ -1013,7 +1044,11 @@ mod tests {
                             Ok::<_, ()>(match found {
                                 Child::Occupied { weight, .. } => {
                                     *weight += w;
-                                    if *weight == 0 { ChildAction::Remove } else { ChildAction::Keep }
+                                    if *weight == 0 {
+                                        ChildAction::Remove
+                                    } else {
+                                        ChildAction::Keep
+                                    }
                                 }
                                 Child::Vacant(_) if w == 0 => ChildAction::Keep,
                                 Child::Vacant(_) => ChildAction::Insert(Pending {
@@ -1028,7 +1063,10 @@ mod tests {
                         assert_eq!(classic.len(), packed.len());
                     }
                 }
-                assert_eq!(classic.earlier_than(phase + 1), packed.earlier_than(phase + 1));
+                assert_eq!(
+                    classic.earlier_than(phase + 1),
+                    packed.earlier_than(phase + 1)
+                );
             }
             assert!(classic.is_empty() && packed.is_empty());
         }

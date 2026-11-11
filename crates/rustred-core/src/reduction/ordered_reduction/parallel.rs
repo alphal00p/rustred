@@ -69,9 +69,9 @@ use symbolica::license::LicenseManager;
 use symbolica::utils::resources::ResourceBudget;
 
 use super::{
-    Admitted, Frontier, FrontierMode, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
-    OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
-    invariant, replace_monomials,
+    Admitted, Frontier, FrontierLayout, FrontierMode, OrderedKernel, OrderedPhaseBoundary,
+    OrderedPosition, OrderedStep, OrderedWeights, Pending, RawOutput, Scheduled, StepSource,
+    TailRun, admit, check_descent, invariant, replace_monomials,
 };
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
@@ -110,6 +110,70 @@ pub struct OrderedSchedulerOptions {
     /// every request: `0`/`off`/`false` disables it, `1`/`on`/`true`
     /// enables it (callers without the option wired, e.g. Vakint).
     pub adjoint_tail: bool,
+    /// Value-neutral performance profile (M5 batch 2, see
+    /// [`OrderedProfile`]); `Auto` lets the adapter choose.
+    pub profile: OrderedProfile,
+}
+
+/// Value-neutral performance settings of a request (M5 batch 2): the
+/// frontier layout and hash, the adjoint tail and the first round of a
+/// modular polynomial lift. Terms, conditions and counters are identical
+/// under every profile; only time and memory change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OrderedProfile {
+    /// The adapter decides: p library requests (`PLibrary::reduce`) run
+    /// `P`, every other request runs `Generic`.
+    #[default]
+    Auto,
+    /// The historical settings: classic frontier with SipHash, the adjoint
+    /// tail as `adjoint_tail` says, a first modular round of one prime per
+    /// thread.
+    Generic,
+    /// p requests (measured by rr-prof and rr-frontier on the 4L package):
+    /// phased packed frontier (keys stored once, later phases unsorted),
+    /// Fx frontier hash, adjoint tail OFF (it logged every step: -28..-38 %
+    /// peak RSS at 1 thread), a first modular round of 4 primes in one
+    /// replay pass (-20 % cycles at 1 thread, -54..-71 % RSS at 16).
+    P,
+}
+
+/// The settings a request runs with: its profile (with `Auto` resolved by
+/// the caller), then the environment overrides
+/// `RUSTRED_ORDERED_FRONTIER=classic|compact|phased`,
+/// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip`,
+/// `RUSTRED_ORDERED_ADJOINT_TAIL=on|off` and `RUSTRED_MODULAR_POLY_ROUND=n`
+/// (`0`/`off`: one prime per thread).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OrderedTuning {
+    pub frontier: super::frontier::FrontierMode,
+    pub fx_hash: bool,
+    pub adjoint_tail: bool,
+    pub modular_round: Option<usize>,
+}
+
+impl OrderedSchedulerOptions {
+    /// `self` with an `Auto` profile resolved to `profile`.
+    pub fn resolve_profile(mut self, profile: OrderedProfile) -> Self {
+        if self.profile == OrderedProfile::Auto {
+            self.profile = profile;
+        }
+        self
+    }
+
+    pub(crate) fn tuning(&self) -> OrderedTuning {
+        use super::frontier::FrontierMode;
+        let p = self.profile == OrderedProfile::P;
+        OrderedTuning {
+            frontier: FrontierMode::environment().unwrap_or(if p {
+                FrontierMode::Phased
+            } else {
+                FrontierMode::Classic
+            }),
+            fx_hash: super::frontier_hash_environment().unwrap_or(p),
+            adjoint_tail: super::tail::environment().unwrap_or(self.adjoint_tail && !p),
+            modular_round: super::modular_round_environment().unwrap_or(p.then_some(4)),
+        }
+    }
 }
 
 impl Default for OrderedSchedulerOptions {
@@ -118,6 +182,7 @@ impl Default for OrderedSchedulerOptions {
             threads: 1,
             window_keys: 4096,
             adjoint_tail: true,
+            profile: OrderedProfile::Auto,
         }
     }
 }
@@ -1370,6 +1435,7 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     workers: &Workers,
     window_keys: usize,
     adjoint_tail: bool,
+    fx_hash: bool,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let mut state = admit(
         kernel,
@@ -1377,7 +1443,10 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
         request,
         initial,
         nonzero_conditions,
-        FrontierMode::Classic,
+        FrontierLayout {
+            mode: FrontierMode::Classic,
+            fx_hash,
+        },
     )?;
     // Value weights rewrite nothing; a persistent tail table can still
     // close the tail (see `tail`). Kernels that ask for it log the tail as
