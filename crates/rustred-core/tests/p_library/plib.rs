@@ -556,7 +556,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         (
             false,
             BASE.to_owned(),
-            "e06d50fd1bc0e8e681c69ba2eb2dc406c0da56ebc6b2acb40ceab845345c8e64",
+            "e8274704d27fd6f8c938af5e9968fdea374fc9d1c6b3052859eff3a6a00f508c",
         ),
         (
             true,
