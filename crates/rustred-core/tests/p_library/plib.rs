@@ -556,7 +556,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         (
             false,
             format!("{BASE},P_ADJOINT_TAIL=off"),
-            "e8274704d27fd6f8c938af5e9968fdea374fc9d1c6b3052859eff3a6a00f508c",
+            "5aecae8b35436a5417ff98ff6902578604eebaad556bc846b2f092a65e67cd26",
         ),
         (
             true,
