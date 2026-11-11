@@ -546,24 +546,40 @@ struct Shard {
 }
 
 pub(crate) struct SharedMemo {
-    limits: std::sync::Mutex<Option<ExactAlgebraLimits>>,
+    /// The limits of the first request (rr-par2: set once, read lock-free).
+    limits: OnceLock<ExactAlgebraLimits>,
     shards: Box<[std::sync::RwLock<Shard>]>,
     entries: AtomicU64,
     chunks: Box<[OnceLock<Box<[OnceLock<Coefficient>]>>]>,
-    index: std::sync::Mutex<HashMap<Coefficient, u32>>,
+    /// rr-par2: the coefficient index, sharded by value (Fx hash), and the
+    /// next free index. Index numbering follows the arrival order of the
+    /// threads (as with one lock); the values the indices name do not.
+    index: Box<[std::sync::Mutex<HashMap<Coefficient, u32, FxLiteBuild>>]>,
+    next: std::sync::atomic::AtomicUsize,
     stats: [AtomicU64; 4],
+}
+
+#[derive(Clone, Copy, Default)]
+struct FxLiteBuild;
+
+impl std::hash::BuildHasher for FxLiteBuild {
+    type Hasher = FxLite;
+    fn build_hasher(&self) -> FxLite {
+        FxLite(0)
+    }
 }
 
 impl SharedMemo {
     fn new() -> Self {
         Self {
-            limits: std::sync::Mutex::new(None),
+            limits: OnceLock::new(),
             shards: (0..SHARDS).map(|_| Default::default()).collect(),
             entries: AtomicU64::new(0),
             chunks: (0..SHARED_COEFFICIENTS / CHUNK)
                 .map(|_| OnceLock::new())
                 .collect(),
-            index: std::sync::Mutex::new(HashMap::new()),
+            index: (0..SHARDS).map(|_| Default::default()).collect(),
+            next: std::sync::atomic::AtomicUsize::new(0),
             stats: Default::default(),
         }
     }
@@ -577,8 +593,7 @@ impl SharedMemo {
 
     /// The memo applies to requests with the limits of its first request.
     fn admits(&self, limits: ExactAlgebraLimits) -> bool {
-        let mut held = self.limits.lock().unwrap_or_else(|e| e.into_inner());
-        *held.get_or_insert(limits) == limits
+        *self.limits.get_or_init(|| limits) == limits
     }
 
     fn get<V>(
@@ -619,11 +634,16 @@ impl SharedMemo {
 
     /// The index of `coefficient` in the table; `None` when it is full.
     fn intern(&self, coefficient: &Coefficient) -> Option<u32> {
-        let mut index = self.index.lock().unwrap_or_else(|e| e.into_inner());
+        use std::hash::BuildHasher;
+        let shard = (FxLiteBuild.hash_one(coefficient) >> 32) as usize % SHARDS;
+        let mut index = self.index[shard].lock().unwrap_or_else(|e| e.into_inner());
         if let Some(&found) = index.get(coefficient) {
             return Some(found);
         }
-        let next = index.len();
+        if self.next.load(Ordering::Relaxed) >= SHARED_COEFFICIENTS {
+            return None;
+        }
+        let next = self.next.fetch_add(1, Ordering::Relaxed);
         if next >= SHARED_COEFFICIENTS {
             return None;
         }
@@ -651,7 +671,7 @@ impl SharedMemo {
             route += shard.route.len() as u64;
         }
         let stat = |i: usize| self.stats[i].load(Ordering::Relaxed);
-        let distinct = self.index.lock().unwrap_or_else(|e| e.into_inner()).len() as u64;
+        let distinct = (self.next.load(Ordering::Relaxed) as u64).min(SHARED_COEFFICIENTS as u64);
         [
             stat(0),
             stat(1),
