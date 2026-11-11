@@ -626,8 +626,24 @@ pub fn verify_edge_map(
         }
     }
 
+    // An Induced child (a sector of a top, p5l-library: the 5L DAG has Insertion
+    // rule edges into integer Custom nodes when the bubble is absorbed into q)
+    // keeps the top's other lines as slots outside its sector: only the
+    // sector's lines are the node's lines, the others must stay unhit.
+    let sector = match child.kind {
+        PresentationKind::Induced { mask, .. } => mask,
+        _ => u64::MAX,
+    };
     for (index, slot) in child.slots.iter().enumerate() {
         if let Slot::Line(line) = slot {
+            if sector >> index & 1 == 0 {
+                if arriving[index].is_some() {
+                    return Err(fail(format!(
+                        "child line {index} outside the child's sector {sector:#x} is hit"
+                    )));
+                }
+                continue;
+            }
             match arriving[index] {
                 None => return Err(fail(format!("child line {index} is not hit"))),
                 Some(units) if units != u32::from(line.eps_units) => {

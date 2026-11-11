@@ -20,6 +20,17 @@ use super::{P_FAMILIES_SCHEMA, PresentationId};
 /// The file `data/p/p-families.v1.json`.
 pub const P_FAMILIES_V1_JSON: &str = include_str!("../../data/p/p-families.v1.json");
 
+/// The file `data/p/p-families-5L.v1.json` (p5l-converter): the 64 five-loop
+/// tops of the forcer-tricks census (`tools/p_families_5l.py`; Forcer's
+/// `createTree` of these gives the 283 custom nodes of the 5L campaign). Not
+/// part of [`P_FAMILIES_V1_JSON`] nor of [`P_FAMILIES_VERSION`]: no shipped
+/// package reads it. `present` finds a top's graph here when the v1 file does
+/// not hold it, so a families file with these tops (`rustred p-generate
+/// --families`, `--max-loops 5`) presents the 5L DAG.
+///
+/// [`P_FAMILIES_VERSION`]: super::P_FAMILIES_VERSION
+pub const P_FAMILIES_5L_V1_JSON: &str = include_str!("../../data/p/p-families-5L.v1.json");
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PFamiliesFile {
