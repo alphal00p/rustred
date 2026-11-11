@@ -5,6 +5,7 @@
 //!                    [--owner <class label>]... [--threads <n>] [--force]
 //!                    [--max-seconds <s>] [--max-rss <bytes>] [--lp-from <dir>]
 //!                    [--integral-order <json>] [--discovery <json>]
+//! rustred p-generate --families <json> --max-loops <k> --list
 //! ```
 //!
 //! Generates the Custom owners of the library program of the tops with at most
@@ -33,6 +34,14 @@
 //! (`CustomOwnerOptions::integral_order` and `discovery`, M5-R0 WP3); the
 //! record keeps both descriptors verbatim. Without them the default recipe is
 //! used, as before.
+//!
+//! `--list` (p5l-converter) generates nothing: it prints the Custom owner
+//! nodes of the DAG, one TSV row each (node, loops, eps lines, lines,
+//! presentation kind, graph key in hex, canonical graph `u-v*` with `s,t`),
+//! without the class label (no classification). With the 5L tops of
+//! `data/p/p-families-5L.v1.json` in the families file and `--max-loops 5`
+//! these are the 5L Custom owners; their graph keys identify the census nodes
+//! (`T001..T283`) whose tables `p-import-table` converts.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -70,6 +79,7 @@ struct Arguments {
     lp_from: Option<PathBuf>,
     integral_order: Option<PathBuf>,
     discovery: Option<PathBuf>,
+    list: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -77,7 +87,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut families, mut max_loops, mut out) = (None, None, None);
     let (mut owners, mut threads, mut force) = (BTreeSet::new(), 1, false);
     let (mut budget, mut lp_from) = (GenerationBudget::default(), None);
-    let (mut integral_order, mut discovery) = (None, None);
+    let (mut integral_order, mut discovery, mut list) = (None, None, false);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -93,6 +103,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--lp-from" => "--lp-from",
             "--integral-order" => "--integral-order",
             "--discovery" => "--discovery",
+            "--list" => "--list",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if option != "--owner" && !seen.insert(option) {
@@ -152,13 +163,18 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                 integral_order = Some(PathBuf::from(next_value(&mut arguments, option)?))
             }
             "--discovery" => discovery = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--list" => list = true,
             _ => force = true,
         }
     }
     Ok(Arguments {
         families: families.ok_or(ArgError::MissingRequiredOption("--families"))?,
         max_loops: max_loops.ok_or(ArgError::MissingRequiredOption("--max-loops"))?,
-        out: out.ok_or(ArgError::MissingRequiredOption("--out"))?,
+        out: match out {
+            Some(out) => out,
+            None if list => PathBuf::new(),
+            None => return Err(ArgError::MissingRequiredOption("--out")),
+        },
         owners,
         threads,
         force,
@@ -166,7 +182,36 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         lp_from,
         integral_order,
         discovery,
+        list,
     })
+}
+
+/// `--list`: the Custom owner nodes as TSV, nothing generated.
+fn list_nodes(nodes: &[CustomOwnerNode]) -> Result<(), CliError> {
+    let mut stdout = std::io::stdout().lock();
+    let error = |error: std::io::Error| CliError::OutputIo(error.to_string());
+    writeln!(stdout, "node\tloops\teps_lines\tlines\tpresentation\tgraph_key\tgraph\ts,t").map_err(error)?;
+    for node in nodes {
+        let key = node.presentation.node.as_ref().map_or_else(String::new, |reference| {
+            reference.graph_key.iter().map(|b| format!("{b:02x}")).collect()
+        });
+        let lines = node.presentation.slots.iter().filter(|slot| matches!(slot, rustred::propagator::presentation::Slot::Line(_))).count();
+        writeln!(
+            stdout,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{},{}",
+            node.node.0,
+            node.loops,
+            node.eps_lines,
+            lines,
+            kind(node),
+            key,
+            node.graph.lines.iter().map(|&(u, v, e)| format!("{u}-{v}{}", "*".repeat(usize::from(e)))).collect::<Vec<_>>().join(" "),
+            node.graph.s,
+            node.graph.t,
+        )
+        .map_err(error)?;
+    }
+    Ok(())
 }
 
 /// The recorded LP count of the owner `label`: `lp_count` of the owner record
@@ -225,6 +270,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let arguments = parse(arguments).map_err(CliError::Usage)?;
     let text = read_input(&StreamPath::File(arguments.families.clone()))?;
     let nodes = custom_owner_nodes(&text, arguments.max_loops).map_err(failed)?;
+    if arguments.list {
+        return list_nodes(&nodes);
+    }
     let mut selected = Vec::new();
     for node in nodes {
         let label = label(&node).map_err(failed)?;
@@ -410,6 +458,7 @@ mod tests {
                 lp_from: None,
                 integral_order: None,
                 discovery: None,
+                list: false,
             }
         );
         let all = [

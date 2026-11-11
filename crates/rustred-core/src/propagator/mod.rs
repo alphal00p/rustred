@@ -42,6 +42,8 @@ pub mod diamond;
 pub mod custom;
 // The candidate bundle's wire records, reader and restore (M3-T7d).
 pub mod bundle_wire;
+// table_dump.v1 rule tables as Custom payloads (p5l-converter).
+pub mod table_import;
 
 // Descent certificate (M2-T8a).
 pub mod descent;
