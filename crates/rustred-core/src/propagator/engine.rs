@@ -579,7 +579,7 @@ impl PEngine {
             },
             None => PCensusMode::OFF,
         };
-        super::step_memo::begin();
+        let shared_memo = super::step_memo::begin(scheduler.threads);
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -614,7 +614,7 @@ impl PEngine {
                 );
             }
         }
-        super::step_memo::clear();
+        super::step_memo::end(shared_memo);
         output
     }
 }

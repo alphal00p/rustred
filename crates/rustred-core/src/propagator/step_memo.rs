@@ -395,9 +395,6 @@ pub(crate) fn route(
 /// Drop this thread's memo entries (end of a request); the shared memo is
 /// dropped when no request uses it any more ([`begin`]).
 pub(crate) fn clear() {
-    if shared_enabled() {
-        end_shared();
-    }
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         let (insertion, route) = (
@@ -413,7 +410,7 @@ pub(crate) fn clear() {
 /// `(insertion hits, misses, entries, route hits, misses, entries,
 /// distinct coefficients)` of this thread's memos (diagnostics and tests).
 pub(crate) fn counters() -> [u64; 7] {
-    if shared_enabled() {
+    if shared_requested() && SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
         return with_shared(SharedMemo::counters);
     }
     STATE.with(|state| {
@@ -442,6 +439,12 @@ pub(crate) fn counters() -> [u64; 7] {
 /// one. Values are those of the per-thread memo (same keys, same
 /// computations).
 pub(crate) fn shared_enabled() -> bool {
+    // Only while a request on several threads runs: one thread has nothing
+    // to share and keeps the cheaper per-thread memo.
+    shared_requested() && SHARED_ACTIVE.load(Ordering::Relaxed) > 0
+}
+
+fn shared_requested() -> bool {
     static SHARED: OnceLock<bool> = OnceLock::new();
     *SHARED.get_or_init(|| {
         mode() != MemoMode::Off
@@ -630,11 +633,24 @@ fn with_shared<R>(f: impl FnOnce(&SharedMemo) -> R) -> R {
     f(&memo)
 }
 
-/// A request starts using the memos (the shared one lives while any does).
-pub(crate) fn begin() {
-    if shared_enabled() {
+/// A request on `threads` threads starts using the memos: the shared memo
+/// (when requested) serves requests on several threads and lives while any
+/// of them runs. Returns whether this request counts as one ([`end`]).
+pub(crate) fn begin(threads: usize) -> bool {
+    let counted = shared_requested() && threads > 1;
+    if counted {
         SHARED_ACTIVE.fetch_add(1, Ordering::AcqRel);
     }
+    counted
+}
+
+/// The request of [`begin`] ends: drop the calling thread's memo entries,
+/// and the shared memo after the last request that used it.
+pub(crate) fn end(counted: bool) {
+    if counted {
+        end_shared();
+    }
+    clear();
 }
 
 fn end_shared() {
