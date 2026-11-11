@@ -38,7 +38,10 @@ pub fn decide(node: &NodeInfo) -> Result<LaneDecision, PError> {
     }
     let (lane, roles) = match &node.action {
         Action::Trivial => return Ok(terminal(true)),
-        Action::Custom => return Ok(CUSTOM),
+        Action::Custom => match super::scheme::scheme_for(node) {
+            Some(roles) => (OwnerLane::Scheme, LaneRoles::Scheme(roles)),
+            None => return Ok(CUSTOM),
+        },
         Action::Diamond(diamond) => {
             let lines = |lines: &[u8]| {
                 lines

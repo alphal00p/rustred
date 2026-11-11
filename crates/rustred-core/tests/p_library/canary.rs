@@ -855,11 +855,13 @@ fn lanes_5l_counts() {
             .map(|(_, &n)| n)
             .sum()
     };
-    // Custom 283 in the census; decide puts the 42 diamonds on the Custom lane
-    // until M3 (plan decision D11), so the lane count is 325.
+    // Custom 283 in the census; since the Diamond lane (M3-T5b, merged in M5 B1)
+    // decide puts the 42 diamonds on the Diamond lane (before: on the Custom lane,
+    // plan decision D11, lane count 325), so the Custom lane count is 283.
     assert_eq!((count("custom"), count("diamond")), (283, 42));
     assert_eq!(by_lane[&("custom", OwnerLane::Custom)], 283);
-    assert_eq!(by_lane[&("diamond", OwnerLane::Custom)], 42);
+    assert_eq!(by_lane[&("diamond", OwnerLane::Diamond)], 42);
+    assert!(!by_lane.contains_key(&("diamond", OwnerLane::Custom)));
     assert_eq!(by_lane[&("carpet", OwnerLane::Carpet)], count("carpet"));
     assert_eq!(
         by_lane[&("triangle", OwnerLane::Triangle)],

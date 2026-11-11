@@ -21,8 +21,9 @@ use crate::sector::OrderingPolicy;
 pub(crate) enum AppliedOwnerStep {
     /// `key` is a terminal of the owner.
     Terminal,
-    /// The rule's children, strictly below `key` in the owner's order.
-    Applied(BTreeMap<IntegralKey, Coefficient>),
+    /// The rule's children, strictly below `key` in the owner's order, and
+    /// the applied rule's position in its chart's rule list.
+    Applied(BTreeMap<IntegralKey, Coefficient>, usize),
     /// No rule applies and `key` is no terminal.
     Uncovered,
 }
@@ -65,6 +66,7 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
         return Ok(AppliedOwnerStep::Terminal);
     }
     request.record_rule_application(limits.diagnostic_limit(limits.max_rule_applications))?;
+    let mut position = 0;
     let result = owner.evaluate_step::<CandidateReductionError>(key, |batch| {
         let evaluator = CandidateEvaluator {
             context: &shared.context,
@@ -77,8 +79,9 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
             limits,
         };
         Ok(evaluator
-            .apply_with_conditions(key, request, work)
-            .map(|(terms, local)| {
+            .apply_with_conditions_rule(key, request, work)
+            .map(|(terms, local, rule)| {
+                position = rule;
                 for condition in local {
                     if !conditions.contains(&condition) {
                         conditions.push(condition);
@@ -92,7 +95,7 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
         OwnerStep::Uncovered => AppliedOwnerStep::Uncovered,
         OwnerStep::Applied(terms) => {
             work.record_rule_application();
-            AppliedOwnerStep::Applied(terms)
+            AppliedOwnerStep::Applied(terms, position)
         }
     })
 }
@@ -239,7 +242,7 @@ mod tests {
         };
         assert_eq!(
             step([2, 1]),
-            AppliedOwnerStep::Applied(BTreeMap::from([(key([1, 1]), three)]))
+            AppliedOwnerStep::Applied(BTreeMap::from([(key([1, 1]), three)]), 0)
         );
         // A key of another chart is a misuse, not an uncovered key.
         for powers in [[1, 0], [2, -1], [0, 1], [0, 0]] {
@@ -303,7 +306,7 @@ mod tests {
                 &ReductionLimits::default(),
             )
             .unwrap();
-            assert!(matches!(step, AppliedOwnerStep::Applied(_)));
+            assert!(matches!(step, AppliedOwnerStep::Applied(..)));
             assert_eq!(conditions, std::slice::from_ref(&guard));
         }
     }

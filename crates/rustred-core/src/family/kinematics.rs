@@ -127,7 +127,19 @@ impl IntegralFamily {
                 self.loop_count() + index
             }
         };
-        Ok(&self.derivative_contractions[denominator][differentiated_loop][contraction_index])
+        let cache = self.derivative_contractions_cache()?;
+        Ok(&cache[denominator][differentiated_loop][contraction_index])
+    }
+
+    /// The derivative-contraction cache, built once on first use.
+    pub(super) fn derivative_contractions_cache(
+        &self,
+    ) -> Result<&[Vec<Vec<DenominatorExpansion>>], IntegralFamilyError> {
+        self.derivative_contractions
+            .get_or_init(|| self.build_derivative_contractions())
+            .as_ref()
+            .map(Vec::as_slice)
+            .map_err(Clone::clone)
     }
 
     pub(super) fn build_derivative_contractions(

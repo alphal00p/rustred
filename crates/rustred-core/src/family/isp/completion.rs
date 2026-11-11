@@ -76,10 +76,42 @@ impl IspCompletion {
         external_momenta: Vec<String>,
         coefficients: CoefficientContext,
         dimension: Coefficient,
+        denominators: Vec<AffineDenominator>,
+        external_gram: Vec<Vec<Coefficient>>,
+        power_shifts: Vec<Coefficient>,
+        limits: IspCompletionLimits,
+    ) -> Result<Self, IspCompletionError> {
+        Self::try_new_with_preference(
+            name,
+            loop_momenta,
+            external_momenta,
+            coefficients,
+            dimension,
+            denominators,
+            external_gram,
+            power_shifts,
+            limits,
+            &[],
+        )
+    }
+
+    /// [`Self::try_new_with_limits`] with the scalar-product unit rows of
+    /// `preferred` scanned first, in that order, then every other coordinate
+    /// in ascending order (M5 maps: a generation-time ISP choice). An empty
+    /// `preferred` is the default scan; a repeated or out-of-range ordinal is
+    /// refused.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new_with_preference<'name>(
+        name: impl Into<Cow<'name, str>>,
+        loop_momenta: Vec<String>,
+        external_momenta: Vec<String>,
+        coefficients: CoefficientContext,
+        dimension: Coefficient,
         mut denominators: Vec<AffineDenominator>,
         external_gram: Vec<Vec<Coefficient>>,
         mut power_shifts: Vec<Coefficient>,
         limits: IspCompletionLimits,
+        preferred: &[usize],
     ) -> Result<Self, IspCompletionError> {
         checkpoint()?;
         let loops = loop_momenta.len();
@@ -144,7 +176,19 @@ impl IspCompletion {
             Vec::with_capacity(scalar_products.saturating_sub(input_denominator_count));
         let mut rank_progression = vec![input_rank];
         let mut rank = input_rank;
-        for coordinate in 0..scalar_products {
+        let mut order = Vec::with_capacity(scalar_products);
+        for &coordinate in preferred {
+            if coordinate >= scalar_products || order.contains(&coordinate) {
+                return Err(IspCompletionError::InternalVerificationFailure {
+                    detail: format!(
+                        "preferred ISP coordinate {coordinate} repeated or not below {scalar_products}"
+                    ),
+                });
+            }
+            order.push(coordinate);
+        }
+        order.extend((0..scalar_products).filter(|coordinate| !preferred.contains(coordinate)));
+        for coordinate in order {
             if rank == scalar_products {
                 break;
             }

@@ -68,8 +68,8 @@ impl IntegralFamily {
                 for (contraction_index, &contraction) in self.contractions.iter().enumerate() {
                     let direct =
                         self.direct_derivative(denominator, differentiated_loop, contraction)?;
-                    let cached = &self.derivative_contractions[denominator][differentiated_loop]
-                        [contraction_index];
+                    let cached = &self.derivative_contractions_cache()?[denominator]
+                        [differentiated_loop][contraction_index];
                     let replayed = self.replay_denominator_expansion(cached)?;
                     if !affine_forms_are_equal(
                         &self.coefficients,

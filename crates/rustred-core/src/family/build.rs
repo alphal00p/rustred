@@ -16,8 +16,8 @@ use super::kinematics::{
     checked_scalar_product_count,
 };
 use super::model::{
-    AffineDenominator, CoefficientLocation, FamilyDomain, FamilyNonZeroCondition, IntegralFamily,
-    IntegralFamilyLimits,
+    AffineDenominator, CoefficientLocation, DerivativeContractions, FamilyDomain,
+    FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
 };
 
 impl IntegralFamily {
@@ -264,7 +264,7 @@ impl IntegralFamily {
             basis_determinant,
         };
 
-        let mut family = Self {
+        let family = Self {
             name,
             // The full identity already lives in a fallibly reserved String.
             // Arc::new adds only its fixed-size owner without reallocating or
@@ -282,9 +282,8 @@ impl IntegralFamily {
             limits,
             inverse_basis,
             domain,
-            derivative_contractions: Vec::new(),
+            derivative_contractions: DerivativeContractions::new(),
         };
-        family.derivative_contractions = family.build_derivative_contractions()?;
         Ok(family)
     }
 }

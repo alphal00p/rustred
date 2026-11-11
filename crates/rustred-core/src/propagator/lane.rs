@@ -11,6 +11,8 @@ pub enum OwnerLane {
     Triangle,
     /// M3.
     Diamond,
+    /// M5-R0 A1 spike: a Forcer hand scheme re-derived as a template lane.
+    Scheme,
     Custom,
     /// Reserved.
     Product,
@@ -101,6 +103,12 @@ impl DiamondRoles {
     }
 }
 
+/// The embedded scheme of a Scheme owner (M5-R0 A1): 0 = Forcer's no1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SchemeRoles {
+    pub scheme: u8,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LaneRoles {
     None,
@@ -109,6 +117,8 @@ pub enum LaneRoles {
     Triangle(TriangleRoles),
     /// M3-T5b.
     Diamond(DiamondRoles),
+    /// M5-R0 A1.
+    Scheme(SchemeRoles),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

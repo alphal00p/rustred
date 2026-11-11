@@ -42,6 +42,8 @@ pub enum PresentationKind {
     TriangleAdapted,
     /// M3-T5b.
     DiamondAdapted,
+    /// M5-R0 A1: a Forcer scheme's routing and ISPs.
+    SchemeAdapted,
     EpsNode,
     /// M3.
     Caller,

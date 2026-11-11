@@ -631,7 +631,7 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
     ),
     (
         "1-4",
-        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "e22393316fe87ca20ca9b7e94b342a55f27f4555f3f194e290186a31ec22d94f",
     ),
 ];
@@ -712,9 +712,10 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         ("l4_top_classes", 183),
         ("diamond_nodes_on_custom", 0),
         ("triangle_fallbacks", 0),
-        // M3-T17's layer: Unit + 16 residuals, each one master term.
-        ("terminals", 17),
-        ("layer_rows", 17),
+        // M3-T17's layer: Unit + 16 residuals, each one master term; M5 B2: + the
+        // second residual of the rank-gated no1, a row of several terms.
+        ("terminals", 18),
+        ("layer_rows", 18),
         ("layer_masters", 16),
         ("layer_rows_one_master_term", 16),
         ("forcer_action_L0_Trivial", 1),

@@ -281,6 +281,56 @@ fn completion_error(node: &NodeInfo, error: IspCompletionError) -> PError {
     }
 }
 
+/// The generation-time ISP choice (M5 maps, choice (b); P_PRESENTATION_VERSION
+/// 2): per node family name, the scalar-product coordinate ordinals
+/// (LoopLoop by `(left, right)`, then LoopExternal) that [`IspCompletion`]
+/// scans first. The three scope 1-4 Insertion owners listed here (nodes 248,
+/// 253 and 263 of the Diamond census) take unit-row ISPs chosen for the fewest
+/// routed terms of their inbound routes (SCRATCHPAD/m5-maps/data/bprefs.json);
+/// every other node keeps the default scan. The lane contract is unchanged.
+pub const P_ISP_PREFERENCES: &[(&str, &[usize])] = &[
+    (
+        "p_node_01040000010100010100000201000003010001020100010302000002030100",
+        &[13, 2, 1, 11, 3, 12, 10],
+    ),
+    (
+        "p_node_01040000010100010100000201000003020000010201000103020000",
+        &[1, 13, 3, 5, 6, 10, 12],
+    ),
+    (
+        "p_node_01040000010100010200000002010000030100010201000103020000",
+        &[1, 13, 3, 5, 6, 10, 8],
+    ),
+];
+
+/// Environment variable of the development override of
+/// [`P_ISP_PREFERENCES`]: a JSON file `{"<node family name>": [ordinals], ..}`
+/// that REPLACES the embedded table (`{}` gives the default scan everywhere).
+/// A package generated with it has other presentations for the same
+/// [`P_PRESENTATION_VERSION`]: development only.
+///
+/// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
+pub const P_ISP_PREFERENCE_ENV: &str = "RUSTRED_P_ISP_PREFERENCE";
+
+fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
+    static TABLE: OnceLock<Result<BTreeMap<String, Vec<usize>>, String>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
+        Err(_) => Ok(P_ISP_PREFERENCES
+            .iter()
+            .map(|&(name, ordinals)| (name.to_owned(), ordinals.to_vec()))
+            .collect()),
+        Ok(path) => std::fs::read_to_string(&path)
+            .map_err(|error| format!("{path}: {error}"))
+            .and_then(|text| {
+                serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))
+            }),
+    });
+    let table = table
+        .as_ref()
+        .map_err(|error| PError::Generation(format!("{P_ISP_PREFERENCE_ENV}: {error}")))?;
+    Ok(table.get(name).cloned().unwrap_or_default())
+}
+
 /// The presentation of `rows`: line slots, then the ISPs of [`IspCompletion`].
 fn with_isps(
     node: &NodeInfo,
@@ -308,7 +358,8 @@ fn with_isps(
         .iter()
         .map(|&(_, _, eps_units)| eps_power_shift(context, eps_units))
         .collect::<Result<_, _>>()?;
-    let completion = IspCompletion::try_new(
+    let preferred = isp_preference(name.as_str())?;
+    let completion = IspCompletion::try_new_with_preference(
         name.as_str(),
         (1..=loops).map(|l| format!("k{l}")).collect(),
         vec!["q".to_owned()],
@@ -317,6 +368,8 @@ fn with_isps(
         denominators,
         vec![vec![context.integer(P_EXTERNAL_SQUARE)]],
         shifts,
+        Default::default(),
+        &preferred,
     )
     .map_err(|error| completion_error(node, error))?;
     let width = loops + 1;
@@ -370,6 +423,7 @@ fn role_lines(roles: LaneRoles) -> Vec<u16> {
             .chain(&roles.spectator)
             .copied()
             .collect(),
+        LaneRoles::Scheme(_) => Vec::new(),
     }
 }
 
@@ -581,6 +635,15 @@ pub fn present(
         | OwnerLane::Carpet
         | OwnerLane::Triangle
         | OwnerLane::Diamond => adapted(node, decision, id, context),
+        OwnerLane::Scheme => match decision.roles {
+            LaneRoles::Scheme(roles) => {
+                super::scheme::scheme_presentation(node, &roles, id, context)
+            }
+            roles => Err(broken(format!(
+                "node {}: the lane Scheme with roles {roles:?}",
+                node.index
+            ))),
+        },
         lane @ (OwnerLane::Zero | OwnerLane::Product) => Err(broken(format!(
             "node {}: the lane {lane:?} has no presentation",
             node.index
