@@ -328,6 +328,14 @@ impl FrontierHash {
     }
 }
 
+/// Whether p requests (`OrderedProfile::P`) run the adjoint tail in this
+/// process: off unless `RUSTRED_ORDERED_ADJOINT_TAIL=on` (M5 batch 2). The p
+/// library's step identity records it, so caches with and without a tail
+/// table never mix.
+pub(crate) fn p_requests_run_the_adjoint_tail() -> bool {
+    tail::environment().unwrap_or(false)
+}
+
 /// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip` overrides the profile's frontier
 /// hash; unset or another value: `None`.
 pub(crate) fn frontier_hash_environment() -> Option<bool> {

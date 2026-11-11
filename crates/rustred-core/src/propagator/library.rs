@@ -303,8 +303,11 @@ impl PLibrary {
 
     /// The identity the step cache binds to: [`Self::identity`], plus
     /// `P_ORBIT_CANON_VERSION` while orbit canonicalisation is on (it changes
-    /// the recorded steps; `-apply` when it stops at Apply keys). With it off
-    /// this is exactly [`Self::identity`], so caches recorded before stay valid.
+    /// the recorded steps; `-apply` when it stops at Apply keys), plus
+    /// `P_ADJOINT_TAIL=off` while p requests run without the adjoint tail (the
+    /// p profile, M5 batch 2: a cache they write has no tail table, so it is a
+    /// distinct identity that a process whose p requests run the tail,
+    /// `RUSTRED_ORDERED_ADJOINT_TAIL=on`, never reads).
     pub fn step_identity(&self) -> String {
         let mut identity = self.identity();
         if self.orbit_canonicalization() {
@@ -317,6 +320,9 @@ impl PLibrary {
             identity.push_str(&format!(
                 ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
             ));
+        }
+        if !crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail() {
+            identity.push_str(",P_ADJOINT_TAIL=off");
         }
         identity
     }

@@ -549,18 +549,18 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
          P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
-         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=3,P_CUSTOM_OWNER_VERSION=2,\
+         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
          P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1";
     for (on, identity, digest) in [
         (
             false,
-            BASE.to_owned(),
+            format!("{BASE},P_ADJOINT_TAIL=off"),
             "e8274704d27fd6f8c938af5e9968fdea374fc9d1c6b3052859eff3a6a00f508c",
         ),
         (
             true,
-            format!("{BASE},P_ORBIT_CANON_VERSION=3"),
+            format!("{BASE},P_ORBIT_CANON_VERSION=3,P_ADJOINT_TAIL=off"),
             ORBIT_CANON_RECORDS_DIGEST,
         ),
     ] {

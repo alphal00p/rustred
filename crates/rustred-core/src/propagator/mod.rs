@@ -99,9 +99,11 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// by default (Forcer's SchemeZno2 with its three relabelling rules); haha and
 /// bubu carry their parametric certificates (45/51, 36/99). no6 is not embedded
 /// (keys outside Forcer's reach need a fallback): its Custom owner stays.
-/// M5 no6: no6 is embedded, off by default, with the shipped Custom no6 rules
-/// as the fallback of the keys outside its reach (`"fallback": "custom"`).
-pub const P_SCHEME_TEMPLATE_VERSION: u32 = 3;
+/// M5 no6: no6 is embedded with the shipped Custom no6 rules as the fallback
+/// of the keys outside its reach (`"fallback": "custom"`). 4 (M5 batch 2,
+/// coordinator 15:38Z): no6 is on by default (Scheme lane: no1, haha, bubu,
+/// no2, no6).
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 4;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
 /// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
