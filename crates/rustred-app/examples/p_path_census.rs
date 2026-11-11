@@ -13,6 +13,7 @@
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
+//!   P_RSS_LIMIT_GB=x        run the request inside a Symbolica ResourceBudget with that RSS ceiling (as vakint)
 //!
 //! Writes into <out dir>: inputs.tsv, phases.jsonl, preduction.txt (rustred.p-reduction.canonical.v1,
 //! the T-VAL golden format, `p_path_census/canonical.rs`), summary.json, and with the census on:
@@ -39,6 +40,56 @@ use symbolica::prelude::Rational;
 
 #[path = "p_path_census/canonical.rs"]
 mod canonical;
+
+// rr-prof: with the opt-in `mimalloc` feature of rustred-app, the probe uses
+// mimalloc as its global allocator (and, through the crate's `override`
+// feature, as the process C malloc), as the `rustred` binary does (N3).
+// Off by default.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// rr-frontier: with the opt-in `alloc-count` feature, the probe counts its
+// Rust heap allocations over the system allocator (alloc_count.json).
+#[cfg(feature = "alloc-count")]
+mod alloc_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static REALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static BYTES: AtomicU64 = AtomicU64::new(0);
+    pub struct Counting;
+    // SAFETY: forwards every call to the system allocator unchanged.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            REALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(new_size as u64, Relaxed);
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+    pub fn snapshot() -> serde_json::Value {
+        serde_json::json!({
+            "allocs": ALLOCS.load(Relaxed),
+            "reallocs": REALLOCS.load(Relaxed),
+            "bytes": BYTES.load(Relaxed),
+        })
+    }
+}
 
 type Input = (PresentationId, IntegralKey, Coefficient);
 
@@ -326,6 +377,8 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    #[cfg(feature = "alloc-count")]
+    let alloc_after_load = alloc_count::snapshot();
     let (_, load_vmhwm) = rss();
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
@@ -414,8 +467,21 @@ fn main() {
         .max()
         .unwrap_or(0);
     probe.last_phase = 2 * max_lines + 1;
+    // P_RSS_LIMIT_GB=x (rr-prof): run the request inside a Symbolica
+    // ResourceBudget with that process-RSS ceiling, as vakint does with
+    // VAKINT_TEST_P4L_CASE_RSS_GB: measures the cost of the cooperative RSS
+    // checks. Unset = no budget (unchanged).
+    let rss_budget = std::env::var("P_RSS_LIMIT_GB").ok().map(|gb| {
+        let gb: f64 = gb.parse().expect("P_RSS_LIMIT_GB");
+        symbolica::utils::resources::ResourceBudget::new(
+            symbolica::utils::resources::ResourceLimits {
+                max_process_rss_bytes: Some((gb * 1e9) as u64),
+                ..Default::default()
+            },
+        )
+    });
     let t_reduce = Instant::now();
-    let result = library.reduce(PReductionRequest {
+    let request = PReductionRequest {
         inputs: inputs.clone(),
         arithmetic: arithmetic(arith, threads),
         scheduler: OrderedSchedulerOptions::with_threads(threads),
@@ -424,7 +490,11 @@ fn main() {
         onto_masters: true,
         limits: ReductionLimits::default(),
         inspector: Some(&mut probe),
-    });
+    };
+    let result = match &rss_budget {
+        Some(budget) => budget.run(|| library.reduce(request)),
+        None => library.reduce(request),
+    };
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
     let (vmrss, vmhwm) = rss();
     // P_WARM=1 (M5 1L-3L): the same request again in this process, without
@@ -753,6 +823,13 @@ fn main() {
     std::fs::write(
         out.join("summary.json"),
         serde_json::to_string_pretty(&summary).unwrap(),
+    )
+    .unwrap();
+    #[cfg(feature = "alloc-count")]
+    std::fs::write(
+        out.join("alloc_count.json"),
+        serde_json::json!({"after_load": alloc_after_load, "end": alloc_count::snapshot()})
+            .to_string(),
     )
     .unwrap();
     println!("{summary}");

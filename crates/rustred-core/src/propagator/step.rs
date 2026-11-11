@@ -25,7 +25,7 @@ pub trait PLaneStep: Send + Sync {
 }
 
 /// Position of a key among the keys of one owner, larger first.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum POrderKey {
     /// Compared entry by entry.
     Lexicographic(Vec<i64>),

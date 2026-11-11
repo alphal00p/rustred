@@ -68,6 +68,19 @@ pub(super) enum OrderedNode<const N: usize> {
     Partial(PartialRoute<N>),
 }
 
+impl<const N: usize> crate::reduction::ordered_reduction::FrontierKey for OrderedNode<N> {
+    type Packed = Self;
+    fn pack(&self) -> Self {
+        self.clone()
+    }
+    fn unpack(packed: &Self) -> Self {
+        packed.clone()
+    }
+    fn cmp_packed(a: &Self, b: &Self) -> std::cmp::Ordering {
+        a.cmp(b)
+    }
+}
+
 /// Scheduling priority of [`OrderedNode`] inside its phase.
 ///
 /// Without layering every `group` is zero and the order is the historical
@@ -76,13 +89,13 @@ pub(super) enum OrderedNode<const N: usize> {
 /// first): the sector's Route keys, then its partial keys, larger remaining
 /// numerator power first, so a sector's partial keys are created and consumed
 /// together (bounded frontier, locality). Apply keys keep group zero.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct RoutedPriority {
     pub(super) group: u64,
     pub(super) stage: RoutedStage,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum RoutedStage {
     Partial(u64),
     Key(ComplexityKey),

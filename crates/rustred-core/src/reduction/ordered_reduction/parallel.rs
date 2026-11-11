@@ -69,7 +69,7 @@ use symbolica::license::LicenseManager;
 use symbolica::utils::resources::ResourceBudget;
 
 use super::{
-    Admitted, Frontier, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
+    Admitted, Frontier, FrontierMode, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
     OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
     invariant, replace_monomials,
 };
@@ -520,7 +520,7 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
                 priority: node.priority.clone(),
             },
         )];
-        let mut threshold = node;
+        let mut threshold = std::borrow::Cow::Borrowed(node);
         for (scheduled, _) in frontier
             .iter()
             .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
@@ -549,7 +549,7 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
                         continue;
                     }
                     if let Ok(position) = stepper.position(child)
-                        && at_or_above(&position, child, threshold)
+                        && at_or_above(&position, child, &threshold)
                     {
                         found.push((child.clone(), position));
                     }
@@ -1371,7 +1371,14 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     window_keys: usize,
     adjoint_tail: bool,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
-    let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    let mut state = admit(
+        kernel,
+        weights,
+        request,
+        initial,
+        nonzero_conditions,
+        FrontierMode::Classic,
+    )?;
     // Value weights rewrite nothing; a persistent tail table can still
     // close the tail (see `tail`). Kernels that ask for it log the tail as
     // the sequential journal does, so that a populating table completes and
@@ -1761,7 +1768,7 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     }
     let terminal_keys_before = state.output.len();
     for item in &mut items {
-        item.pending = state.frontier.pending.remove(&item.key);
+        item.pending = state.frontier.classic_mut()?.pending.remove(&item.key);
     }
     for item in &mut terminal_items {
         item.existing = state.output.remove(&item.key);
@@ -1909,14 +1916,14 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
                 .map(|pending| &pending.position)
                 .or(position.as_ref())
                 .ok_or_else(|| invariant("an inserted ordered key has no position"))?;
-            state.frontier.order.insert(Scheduled {
+            state.frontier.classic_mut()?.order.insert(Scheduled {
                 phase: std::cmp::Reverse(position.phase),
                 priority: position.priority.clone(),
                 key: key.clone(),
             });
         }
         if let Some(pending) = pending {
-            state.frontier.pending.insert(key, pending);
+            state.frontier.classic_mut()?.pending.insert(key, pending);
         }
     }
     for item in terminal_items {
