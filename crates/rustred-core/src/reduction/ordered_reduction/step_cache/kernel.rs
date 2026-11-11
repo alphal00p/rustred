@@ -85,6 +85,19 @@ pub(crate) trait ConcurrentStepCacheKernel:
     ) -> Result<Self::Key, Self::Error>
     where
         Self: 's;
+    /// rr-par: [`Self::stepper_shard`] through the detached stepper. Only
+    /// called for adapters whose `detached_stepper` returns one.
+    fn detached_shard(_stepper: &Self::Detached, _key: &Self::Key) -> Option<OrderedStepShard> {
+        unreachable!("an adapter with a detached stepper implements detached_shard")
+    }
+    /// rr-par: [`Self::stepper_key`] through the detached stepper.
+    fn detached_key(
+        _stepper: &Self::Detached,
+        _stage: NodeStage,
+        _integral: IntegralKey,
+    ) -> Result<Self::Key, Self::Error> {
+        unreachable!("an adapter with a detached stepper implements detached_key")
+    }
 }
 
 /// Per-request counters of a cached run.
@@ -499,8 +512,108 @@ impl<'s, K: ConcurrentStepCacheKernel + 's> OrderedStepper for CachedStepper<'s,
     }
 }
 
+/// rr-par: [`CachedStepper`] over the adapter's detached stepper, so that the
+/// pipelined scheduler (`Pipelined`) also runs cached requests. The same
+/// lookups, steps and records; every effect is applied by `absorb`.
+pub(crate) struct DetachedCachedStepper<'c, K: ConcurrentStepCacheKernel> {
+    inner: K::Detached,
+    cache: &'c OrderedStepCache,
+    context: CoefficientContext,
+}
+
+impl<'c, K: ConcurrentStepCacheKernel> OrderedStepper for DetachedCachedStepper<'c, K> {
+    type Key = K::Key;
+    type Priority = K::Priority;
+    type Error = K::Error;
+    type Account = CachedAccount<K::Account>;
+
+    fn position(&self, key: &K::Key) -> Result<OrderedPosition<K::Priority>, K::Error> {
+        self.inner.position(key)
+    }
+
+    fn step(
+        &self,
+        key: &K::Key,
+    ) -> (
+        Result<OrderedStep<K::Key>, K::Error>,
+        CachedAccount<K::Account>,
+    ) {
+        let Some(shard) = K::detached_shard(&self.inner, key) else {
+            let (result, account) = self.inner.step(key);
+            return (result, CachedAccount::Uncovered(account));
+        };
+        let mut encoded = Vec::new();
+        if !K::key_view(key)
+            .is_some_and(|(stage, integral)| encode_node(stage, integral, &mut encoded))
+        {
+            let (result, account) = self.inner.step(key);
+            return (result, CachedAccount::Unencoded(shard, account));
+        }
+        let inner = &self.inner;
+        let found = self.cache.probe(shard, &encoded, &self.context, |record| {
+            rebuild(record, |stage, integral| {
+                K::detached_key(inner, stage, integral)
+            })
+        });
+        let found = match found {
+            Ok(found) => found,
+            Err(error) => return (Err(error.into()), CachedAccount::Failed),
+        };
+        let count = found.count();
+        let offer = match found {
+            Lookup::Hit(step) => {
+                let replayed = step.is_ok();
+                return (step, CachedAccount::Hit { shard, replayed });
+            }
+            Lookup::Opaque | Lookup::Unavailable => false,
+            Lookup::Miss => true,
+        };
+        let (result, account) = self.inner.step(key);
+        let record = match &result {
+            Ok(step) if offer => {
+                let mut nodes = Vec::new();
+                match encode_step::<K>(step, &mut nodes) {
+                    None => Recording::Skip,
+                    Some(_) if !self.cache.options().populate => Recording::Nothing,
+                    Some(offsets) => Recording::Insert(PendingRecord {
+                        key: encoded,
+                        nodes,
+                        offsets,
+                        terms: step.terms.values().cloned().collect(),
+                        terminals: step.terminals.values().cloned().collect(),
+                        guards: step.nonzero_conditions.clone(),
+                    }),
+                }
+            }
+            _ => Recording::Nothing,
+        };
+        (
+            result,
+            CachedAccount::Computed {
+                shard,
+                count,
+                account,
+                record,
+            },
+        )
+    }
+
+    fn later_phase(&self, parent: &K::Key, child: &K::Key) -> bool {
+        self.inner.later_phase(parent, child)
+    }
+}
+
 impl<'k, 'c, K: ConcurrentStepCacheKernel> ConcurrentOrderedKernel for CachedKernel<'k, 'c, K> {
     type Account = CachedAccount<K::Account>;
+    type Detached = DetachedCachedStepper<'c, K>;
+
+    fn detached_stepper(&self) -> Option<DetachedCachedStepper<'c, K>> {
+        Some(DetachedCachedStepper {
+            inner: self.inner.detached_stepper()?,
+            cache: self.cache,
+            context: self.inner.context().clone(),
+        })
+    }
     type Stepper<'s>
         = CachedStepper<'s, K>
     where

@@ -557,6 +557,12 @@ impl<const N: usize> OrderedStepper for RoutedStepper<'_, N> {
 
 impl<const N: usize> ConcurrentOrderedKernel for RoutedKernel<'_, '_, '_, '_, N> {
     type Account = RoutedAccount;
+    type Detached = crate::reduction::ordered_reduction::NoDetached<
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Key,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Priority,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Error,
+        Self::Account,
+    >;
     type Stepper<'s>
         = RoutedStepper<'s, N>
     where

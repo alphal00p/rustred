@@ -161,6 +161,34 @@ impl CompactPowers {
         la.cmp(&lb)
     }
 
+    /// rr-alloc: the same powers with the caller bit set to `tag`.
+    pub(crate) fn with_tag(&self, tag: bool) -> Self {
+        let mut packed = self.clone();
+        let meta = match &mut packed {
+            Self::Inline { meta, .. } | Self::Wide { meta, .. } => meta,
+        };
+        *meta = if tag {
+            *meta | TAG_BIT
+        } else {
+            *meta & !TAG_BIT
+        };
+        packed
+    }
+
+    /// rr-alloc: the powers appended to `out` (cleared first).
+    pub(crate) fn decode_into<A: smallvec::Array<Item = i64>>(
+        &self,
+        out: &mut smallvec::SmallVec<A>,
+    ) {
+        out.clear();
+        match self {
+            Self::Inline { powers, .. } => {
+                out.extend(powers[..self.len()].iter().map(|&p| i64::from(p)));
+            }
+            Self::Wide { powers, .. } => out.extend_from_slice(powers),
+        }
+    }
+
     pub(crate) fn heap_bytes(&self) -> usize {
         match self {
             Self::Inline { .. } => 0,

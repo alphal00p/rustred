@@ -41,6 +41,7 @@ use super::presentation::{
     EdgeKind, Presentation, Slot, check_insertion_contract, verify_edge_map,
 };
 use super::step::{PKeyView, PLaneStep, PStepContext, PStepOut};
+use super::step_memo::{self, MemoKey, MemoMode};
 use super::tag::GammaTag;
 
 /// What the step produces: keys of the child, or the Unit terminal at one loop.
@@ -69,6 +70,8 @@ pub struct InsertionStep {
     box_slots: Vec<usize>,
     free_slots: Vec<usize>,
     target: Target,
+    /// rr-alloc: the id of this step in the per-thread memos ([`step_memo`]).
+    uid: u64,
 }
 
 fn line_units(parent: &Presentation, slot: u16) -> Result<i64, PError> {
@@ -212,6 +215,7 @@ impl InsertionStep {
             box_slots,
             free_slots,
             target,
+            uid: step_memo::next_uid(),
         })
     }
 
@@ -280,13 +284,6 @@ impl InsertionStep {
                 output.terminals.push((PTerminalId(0), tag, weight));
             }
             Target::Child(rule) => {
-                let table = rule.rewrite.table(&box_powers, &free_powers)?;
-                let weights = (0..=rank / 2)
-                    .map(|sigma| {
-                        self.kernel
-                            .ratio(alpha, beta, i64::from(rank), i64::from(sigma), limits)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
                 let mut base = vec![0_i64; rule.child.slots.len()];
                 for &(slot, target) in &rule.kept {
                     base[target] += powers[slot];
@@ -305,10 +302,65 @@ impl InsertionStep {
                     negate,
                     tag: &tag,
                 };
-                keys.emit(&table, &weights, limits, &mut output)?;
+                let direct = |output: &mut PStepOut| -> Result<(), PError> {
+                    let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                    let weights = self.kernel_weights(alpha, beta, rank, limits)?;
+                    keys.emit(&table, &weights, limits, output)
+                };
+                let mode = step_memo::mode();
+                if mode == MemoMode::Off {
+                    direct(&mut output)?;
+                } else {
+                    // The weights are a function of the two line powers (the
+                    // sign of `negate` included) and the numerators.
+                    let mut key = MemoKey::new();
+                    key.push(self.uid as i64);
+                    key.push(alpha.integer);
+                    key.push(beta.integer);
+                    key.extend(box_powers.iter().map(|&p| i64::from(p)));
+                    key.extend(free_powers.iter().map(|&p| i64::from(p)));
+                    let memo = step_memo::insertion(&key, limits, || {
+                        let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                        let weights = self.kernel_weights(alpha, beta, rank, limits)?;
+                        let weights = keys.weights(&table, &weights, limits)?;
+                        Ok((table, weights))
+                    })?;
+                    match memo {
+                        Some(memo) => step_memo::coefficients_of(&memo, |values| {
+                            keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
+                        }),
+                        // The shared memo is full: compute directly.
+                        None => direct(&mut output)?,
+                    }
+                    if mode == MemoMode::Check {
+                        let mut reference = PStepOut::default();
+                        direct(&mut reference)?;
+                        if reference != output {
+                            return Err(step_memo::mismatch("insertion step"));
+                        }
+                    }
+                }
             }
         }
         Ok(output)
+    }
+}
+
+impl InsertionStep {
+    /// The bubble weights `W_sigma`, `sigma = 0..=rank/2`.
+    fn kernel_weights(
+        &self,
+        alpha: LinePower,
+        beta: LinePower,
+        rank: u32,
+        limits: crate::algebra::ExactAlgebraLimits,
+    ) -> Result<Vec<crate::algebra::Coefficient>, PError> {
+        (0..=rank / 2)
+            .map(|sigma| {
+                self.kernel
+                    .ratio(alpha, beta, i64::from(rank), i64::from(sigma), limits)
+            })
+            .collect()
     }
 }
 

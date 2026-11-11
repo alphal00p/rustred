@@ -259,6 +259,12 @@ impl<const N: usize> OrderedStepper for Stepper<'_, N> {
 
 impl<const N: usize> ConcurrentOrderedKernel for Kernel<'_, '_, N> {
     type Account = Account;
+    type Detached = crate::reduction::ordered_reduction::NoDetached<
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Key,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Priority,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Error,
+        Self::Account,
+    >;
     type Stepper<'s>
         = Stepper<'s, N>
     where

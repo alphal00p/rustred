@@ -10,6 +10,7 @@ pub(crate) mod arithmetic;
 pub mod composition;
 mod frontier;
 pub(crate) mod memstats;
+pub(crate) mod parstats;
 mod modular;
 mod parallel;
 pub(crate) mod step_cache;
@@ -26,8 +27,8 @@ pub use composition::{
 use frontier::{Child, ChildAction, Frontier, FrontierLayout, FrontierMode};
 pub(crate) use frontier::{CompactPowers, FrontierKey};
 use modular::{Lifter, ModularRecorder};
-pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
-use parallel::{ConcurrentWeights, Prefetched, Workers};
+pub(crate) use parallel::{ConcurrentOrderedKernel, NoDetached, OrderedStepper};
+use parallel::{ConcurrentWeights, Pipelined, Prefetched, Workers};
 pub use parallel::{OrderedProfile, OrderedSchedulerOptions};
 pub use tail::{
     ORDERED_TAIL_SCHEMA, ORDERED_TAIL_SEMANTICS, OrderedTailTable, OrderedTailTableStatistics,
@@ -506,6 +507,16 @@ pub(crate) trait OrderedWeights {
         weight: &Self::Weight,
         coefficient: &Coefficient,
     ) -> Result<Self::Contribution, ReductionError>;
+    /// `scale` with the coefficient's interning hash computed ahead
+    /// (`modular::coefficient_hash`, rr-par; `None`: not computed).
+    fn scale_hashed(
+        &mut self,
+        weight: &Self::Weight,
+        coefficient: &Coefficient,
+        _hash: Option<u64>,
+    ) -> Result<Self::Contribution, ReductionError> {
+        self.scale(weight, coefficient)
+    }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
@@ -1092,16 +1103,40 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         // their sequential journal; their steps are computed ahead of time by
         // the workers.
         OrderedWeightArithmetic::ModularSampled(..)
-        | OrderedWeightArithmetic::ModularPolynomial(..) => run_modular(
-            kernel,
-            request,
-            initial,
-            nonzero_conditions,
-            arithmetic,
-            &mut work,
-            &mut Prefetched::new(&workers, scheduler.window_keys),
-            tail,
-        ),
+        | OrderedWeightArithmetic::ModularPolynomial(..) => {
+            match parallel::pipeline_enabled()
+                .then(|| kernel.detached_stepper())
+                .flatten()
+            {
+                // rr-par: the next window is computed while this one is
+                // merged and recorded.
+                Some(stepper) => {
+                    let (stepper, workers) = (&stepper, &workers);
+                    workers.in_place_scope(|scope| {
+                        run_modular(
+                            kernel,
+                            request,
+                            initial,
+                            nonzero_conditions,
+                            arithmetic,
+                            &mut work,
+                            &mut Pipelined::new(scope, workers, stepper, scheduler.window_keys),
+                            tail,
+                        )
+                    })
+                }
+                None => run_modular(
+                    kernel,
+                    request,
+                    initial,
+                    nonzero_conditions,
+                    arithmetic,
+                    &mut work,
+                    &mut Prefetched::new(&workers, scheduler.window_keys),
+                    tail,
+                ),
+            }
+        }
     };
     kernel.record_work(work);
     result
@@ -1279,6 +1314,28 @@ trait StepSource<K: OrderedKernel> {
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<K::Key>, K::Error>;
+
+    /// Worker threads behind this source (diagnostics).
+    fn threads(&self) -> usize {
+        1
+    }
+
+    /// rr-par: the interning hashes of the coefficients of the step just
+    /// returned (terms in order, then terminals), when computed ahead.
+    fn take_hashes(&mut self) -> Option<Vec<u64>> {
+        None
+    }
+
+    /// rr-par: whether spent step coefficients go to [`StepSource::dispose`]
+    /// instead of being dropped by the scheduler.
+    fn disposes(&self) -> bool {
+        false
+    }
+
+    /// Drop spent step coefficients (on another thread).
+    fn dispose(&mut self, spent: Vec<Coefficient>) {
+        drop(spent);
+    }
 }
 
 /// The adapter's own step, computed when the key is popped.
@@ -1521,7 +1578,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     };
     let context = kernel.context().clone();
     let mut mem_probe = memstats::Probe::new();
+    let mut par_clock = parstats::ForwardClock::new();
+    let disposing = steps.disposes();
+    let mut spent: Vec<Coefficient> = Vec::new();
     for phase in 0..state.progress.total_phases {
+        let phase_started = par_clock.now();
+        let (mut par_pops, mut par_source) = (0u64, 0.0f64);
         // Phase marker first: a tail closed at this phase records its
         // products after the marker, so the replay attributes them here.
         weights.phase_started(phase);
@@ -1545,7 +1607,14 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             )?;
             progress.frontier_keys = frontier.len();
             kernel.observe(progress, Some(&node.key))?;
+            let source_started = par_clock.now();
             let checked = steps.step(kernel, frontier, &node, request, work)?;
+            let hashes = steps.take_hashes();
+            let term_count = checked.terms.len();
+            if let Some(started) = source_started {
+                par_pops += 1;
+                par_source += started.elapsed().as_secs_f64();
+            }
             if let Some(tail) = &mut tail {
                 tail.observe_step(&node, &checked, &context, limits.exact_algebra)?;
             }
@@ -1553,10 +1622,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 guards.intern(nonzero_conditions, condition, |_| Ok(()))?;
             }
             weights.begin_step(&weight)?;
-            for (child, coefficient) in checked.terms {
+            for (index, (child, coefficient)) in checked.terms.into_iter().enumerate() {
                 if coefficient.is_zero() {
                     continue;
                 }
+                let hash = hashes.as_ref().map(|hashes| hashes[index]);
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
                 let removed = frontier.child(child, |found| {
                     Ok::<_, K::Error>(match found {
@@ -1573,7 +1643,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                 &node.priority,
                                 progress.total_phases,
                             )?;
-                            let contribution = weights.scale(&weight, &coefficient)?;
+                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                             work.record_coalescing_additions(1);
                             request.record_coalescing_additions(
                                 1,
@@ -1601,7 +1671,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         Child::Vacant(key) => {
                             let position = kernel.position(key)?;
                             check_descent(&position, phase, &node.priority, progress.total_phases)?;
-                            let contribution = weights.scale(&weight, &coefficient)?;
+                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                             if weights.contribution_is_zero(&contribution) {
                                 ChildAction::Keep
                             } else {
@@ -1622,6 +1692,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         }
                     })
                 })?;
+                if disposing {
+                    spent.push(coefficient);
+                }
                 if let Some(removed) = removed {
                     weights.cancel(removed)?;
                     request.release_pending_frame()?;
@@ -1632,8 +1705,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     .peak_frontier_coefficient_monomials
                     .max(progress.frontier_coefficient_monomials);
             }
-            for (terminal, coefficient) in checked.terminals {
-                let contribution = weights.scale(&weight, &coefficient)?;
+            for (index, (terminal, coefficient)) in checked.terminals.into_iter().enumerate() {
+                let hash = hashes.as_ref().map(|hashes| hashes[term_count + index]);
+                let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                 if weights.contribution_is_zero(&contribution) {
                     continue;
                 }
@@ -1650,6 +1724,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 )?;
             }
             weights.end_step(weight);
+            if spent.len() >= 4096 {
+                steps.dispose(std::mem::take(&mut spent));
+            }
             progress.processed_keys = progress.processed_keys.saturating_add(1);
             progress.frontier_keys = frontier.len();
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
@@ -1663,6 +1740,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 probe.taken(frontier.len(), snapshot);
             }
         }
+        if let Some(started) = phase_started {
+            let wall = started.elapsed().as_secs_f64();
+            par_clock.phase(phase, par_pops, wall, par_source, wall - par_source);
+        }
         if let Some(tail) = &mut tail {
             tail.phase_finished(phase);
         }
@@ -1671,6 +1752,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     if let Some(tail) = tail {
         tail.finish(kernel, weights, request, work, &mut state)?;
     }
+    par_clock.report(steps.threads());
     if let Some(probe) = &mem_probe {
         probe.write(serde_json::json!({
             "rss_bytes": memstats::rss_bytes(),

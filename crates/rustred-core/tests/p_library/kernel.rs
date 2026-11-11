@@ -3093,8 +3093,15 @@ fn memoised_rank_8_step(
     let elapsed = start.elapsed();
     assert_eq!(cold, warm);
     let (weights, tables) = step.memo_counters();
-    assert_eq!((weights.hits, weights.misses), (5, 5));
-    assert_eq!((tables.hits, tables.misses), (1, 1));
+    // rr-alloc: with the per-thread step memo on (RUSTRED_P_STEP_MEMO=1) the
+    // warm step is answered by it and never reaches the kernel memos.
+    if std::env::var("RUSTRED_P_STEP_MEMO").is_ok_and(|mode| mode == "1" || mode == "on") {
+        assert_eq!((weights.hits, weights.misses), (0, 5));
+        assert_eq!((tables.hits, tables.misses), (0, 1));
+    } else {
+        assert_eq!((weights.hits, weights.misses), (5, 5));
+        assert_eq!((tables.hits, tables.misses), (1, 1));
+    }
     elapsed
 }
 

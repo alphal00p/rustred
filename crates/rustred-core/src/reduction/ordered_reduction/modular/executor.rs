@@ -71,6 +71,21 @@ impl Executor {
             .map_or(1, rayon::ThreadPool::current_num_threads)
     }
 
+    /// rr-par: the private pool (None when inline) and the caller's budgets,
+    /// for jobs that spread one job over the pool (`polynomial/parallel.rs`).
+    pub fn pool(&self) -> Option<&rayon::ThreadPool> {
+        self.pool.as_ref()
+    }
+
+    pub fn budget(&self) -> &ResourceBudget {
+        &self.budget
+    }
+
+    /// Note the calling thread as a job thread (statistics).
+    pub fn note_caller(&self) {
+        self.note();
+    }
+
     /// Threads of the private pool (0 when inline).
     pub fn pool_threads(&self) -> usize {
         self.pool

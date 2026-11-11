@@ -113,6 +113,20 @@ impl GammaTag {
     /// Append exactly [`P_GAMMA_TAG_WIDTH`] dense slots, each within `i8`;
     /// `out` is unchanged on [`PError::TagOutOfRange`].
     pub fn encode_dense(&self, out: &mut Vec<i64>) -> Result<(), PError> {
+        out.extend_from_slice(&self.dense()?);
+        Ok(())
+    }
+
+    /// rr-alloc: [`Self::encode_dense`] into any buffer (a stack view).
+    pub(crate) fn encode_dense_into<A: smallvec::Array<Item = i64>>(
+        &self,
+        out: &mut SmallVec<A>,
+    ) -> Result<(), PError> {
+        out.extend_from_slice(&self.dense()?);
+        Ok(())
+    }
+
+    fn dense(&self) -> Result<[i64; P_GAMMA_TAG_WIDTH], PError> {
         let mut dense = [0; P_GAMMA_TAG_WIDTH];
         for &(m, e) in &self.0 {
             if !in_range(m, e) {
@@ -120,8 +134,7 @@ impl GammaTag {
             }
             dense[slot(m)] = i64::from(e);
         }
-        out.extend_from_slice(&dense);
-        Ok(())
+        Ok(dense)
     }
 
     /// The tag of exactly [`P_GAMMA_TAG_WIDTH`] dense slots.

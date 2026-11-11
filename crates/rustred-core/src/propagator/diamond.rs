@@ -822,7 +822,7 @@ impl PLaneStep for DiamondStep {
                 power.saturating_neg()
             })
         });
-        Ok(POrderKey::Lexicographic(vec![
+        Ok(POrderKey::Lexicographic(smallvec::smallvec![
             self.measure(powers)?,
             distance,
         ]))
