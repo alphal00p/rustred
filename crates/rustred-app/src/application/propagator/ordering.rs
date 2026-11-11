@@ -43,6 +43,8 @@ use super::format::{LIBRARY_FILE, LibraryManifest, malformed, owner_file};
 pub const ORDERING_FILE: &str = "ordering.json";
 /// File name of the saved route verifications inside a package.
 pub const ROUTES_FILE: &str = "routes.rrbin";
+/// Saved verified automorphism groups (M5 batch 2, `rustred::propagator::saved_orbits`).
+pub const ORBITS_FILE: &str = "orbits.rrbin";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -424,4 +426,35 @@ pub fn write_routes(directory: &Path) -> Result<(usize, usize), PError> {
     out.push('\n');
     std::fs::write(&path, out).map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
     Ok((saved, skipped))
+}
+
+/// Search and authenticate the automorphism group of every presentation and
+/// owner sector of the package in `directory` (`orbits.rrbin`,
+/// `rustred::propagator::saved_orbits`) and list it in `library.json`:
+/// `(sectors saved, sectors with a nontrivial group)`. Every generator is
+/// proved here by `symmetry::verify`; only the record is trusted when a
+/// package loads, and only by orbit canonicalisation.
+pub fn write_orbits(directory: &Path) -> Result<(usize, usize), PError> {
+    use super::{PLibraryOptions, PLibrarySource, load_p_library};
+    use rustred::propagator::saved_orbits::export_saved_orbits;
+    let library = load_p_library(
+        PLibrarySource::Directory(directory.to_owned()),
+        &PLibraryOptions {
+            verify_descent: false,
+        },
+    )?;
+    let (bytes, saved, nontrivial) = export_saved_orbits(&library)?;
+    std::fs::write(directory.join(ORBITS_FILE), bytes)
+        .map_err(|error| malformed(format!("{ORBITS_FILE}: {error}")))?;
+    let path = directory.join(LIBRARY_FILE);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| malformed(format!("{}: {error}", path.display())))?;
+    let mut manifest: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    manifest["files"]["orbits"] = serde_json::Value::String(ORBITS_FILE.to_owned());
+    let mut out = serde_json::to_string_pretty(&manifest)
+        .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    out.push('\n');
+    std::fs::write(&path, out).map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    Ok((saved, nontrivial))
 }

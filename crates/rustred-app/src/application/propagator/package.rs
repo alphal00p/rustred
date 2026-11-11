@@ -231,6 +231,7 @@ pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<
             layer,
             ordering: None,
             routes: None,
+            orbits: None,
         },
         presentations,
         nodes: (assembled.nodes.iter())

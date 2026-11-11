@@ -11,6 +11,10 @@
 //!   P_CENSUS_MAX_KEYS=N     stop once N keys were popped (sizing)
 //!   P_CENSUS_FORWARD_ONLY=1 stop at the end of the forward pass (the inspector errs at the last phase
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
+//!   P_ORBIT_CANON=on|off    orbit canonicalisation of Apply and Route keys (M5 R0 A2; unset: the library default)
+//!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
+//!   P_ORBIT_REP=min         the least exact image represents an orbit (default: the greatest)
+//!   P_CENSUS_WARMUP=1       run the request once without census first (per-process setup warm), then measure
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
 //!
@@ -327,6 +331,16 @@ fn main() {
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
     let (_, load_vmhwm) = rss();
+    let orbit_canon = match std::env::var("P_ORBIT_CANON").as_deref() {
+        Ok("off") => false,
+        Ok("on") => true,
+        _ => library.orbit_canonicalization(),
+    };
+    library.set_orbit_canonicalization(orbit_canon);
+    let route_canon = std::env::var("P_ORBIT_CANON_ROUTES").map_or(true, |v| v != "off");
+    library.set_route_canonicalization(route_canon);
+    let prefer_high = std::env::var("P_ORBIT_REP").as_deref() != Ok("min");
+    library.set_orbit_prefer_high(prefer_high);
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -346,7 +360,7 @@ fn main() {
         });
     }
     eprintln!(
-        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}",
+        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}; orbit canonicalisation {orbit_canon}",
         cell.tops,
         inputs.len()
     );
@@ -414,6 +428,26 @@ fn main() {
         .max()
         .unwrap_or(0);
     probe.last_phase = 2 * max_lines + 1;
+    // P_CENSUS_WARMUP=1: one plain request first (no inspector, no step cache), so the measured request
+    // finds the per-process setup (compiled routes, orbit groups) done, as in a long-lived vakint process.
+    let warmup_seconds = (std::env::var("P_CENSUS_WARMUP").as_deref() == Ok("1")).then(|| {
+        let t_warm = Instant::now();
+        library
+            .reduce(PReductionRequest {
+                inputs: inputs.clone(),
+                arithmetic: arithmetic(arith, threads),
+                scheduler: OrderedSchedulerOptions::with_threads(threads),
+                step_cache: None,
+                uncovered: PUncoveredPolicy::Reject,
+                onto_masters: true,
+                limits: ReductionLimits::default(),
+                inspector: None,
+            })
+            .unwrap();
+        let seconds = t_warm.elapsed().as_secs_f64();
+        eprintln!("[census] warm-up request {seconds:.2} s");
+        seconds
+    });
     let t_reduce = Instant::now();
     let result = library.reduce(PReductionRequest {
         inputs: inputs.clone(),
@@ -474,8 +508,8 @@ fn main() {
 
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
-        "census": census_on, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
-        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
+        "census": census_on, "orbit_canonicalization": orbit_canon, "orbit_prefer_high": prefer_high, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
+        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "warmup_seconds": warmup_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
         "load_vmhwm_kb": load_vmhwm, "warm_seconds": warm_seconds,
         "process_seconds": t_main.elapsed().as_secs_f64(),

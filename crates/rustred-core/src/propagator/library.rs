@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::RangeInclusive;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::algebra::{Coefficient, CoefficientContext};
@@ -22,12 +23,16 @@ use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
 use super::programs::{CustomPayloadRef, lane_program};
+use super::saved_orbits::PSavedOrbits;
 use super::saved_routes::PSavedRoutes;
 use super::step::PLaneStep;
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::topology::{Dag, NodeInfo};
-use super::{NodeIndex, OwnerClassId, PTerminalId, PresentationId, p_versions};
+use super::{
+    NodeIndex, OwnerClassId, P_ORBIT_CANON_DEFAULT, P_ORBIT_CANON_VERSION, PTerminalId,
+    PresentationId, p_versions,
+};
 
 #[derive(Clone)]
 pub enum OwnerProgram {
@@ -207,7 +212,18 @@ pub struct PLibrary {
     /// p artefact v2: saved route verifications, restored on a sector's first
     /// use instead of verifying its map ([`super::saved_routes`]).
     saved_routes: Option<Arc<PSavedRoutes>>,
+    /// p artefact v2 (M5 batch 2): saved verified automorphism groups,
+    /// restored on a sector's first canonicalised key instead of searching
+    /// and authenticating them ([`super::saved_orbits`]).
+    saved_orbits: Option<Arc<PSavedOrbits>>,
     engine: OnceLock<Result<PEngine, PError>>,
+    /// Orbit canonicalisation of Apply keys (M5 R0 A2); off by default
+    /// (M5 batch 2: opt-in until the coordinator switches it on).
+    orbit_canonicalization: AtomicBool,
+    /// With it, the Route keys of routed sectors too; on by default.
+    route_canonicalization: AtomicBool,
+    /// The greatest exact image represents an orbit (the default), or the least.
+    orbit_prefer_high: AtomicBool,
 }
 
 impl fmt::Debug for PLibrary {
@@ -238,11 +254,14 @@ impl PLibrary {
             rule_orders: BTreeMap::new(),
             ordering: None,
             saved_routes: None,
+            saved_orbits: None,
         }
     }
 
-    /// The cache identity of this program: `"p-library:scope=<a>-<b>:"` plus
-    /// every `name=value` of [`p_versions`]. No loop count, no digest.
+    /// The identity of this program: `"p-library:scope=<a>-<b>:"` plus every
+    /// `name=value` of [`p_versions`]. No loop count, no digest. It names the
+    /// library content (`library.json` records it); reduction settings such as
+    /// orbit canonicalisation are not part of it, see [`Self::step_identity`].
     pub fn identity(&self) -> String {
         let versions: Vec<String> = p_versions()
             .into_iter()
@@ -275,6 +294,77 @@ impl PLibrary {
     /// The saved route verifications of this library (p artefact v2).
     pub fn saved_routes(&self) -> Option<&PSavedRoutes> {
         self.saved_routes.as_deref()
+    }
+
+    /// The saved automorphism groups of this library (p artefact v2).
+    pub fn saved_orbits(&self) -> Option<&PSavedOrbits> {
+        self.saved_orbits.as_deref()
+    }
+
+    /// The identity the step cache binds to: [`Self::identity`], plus
+    /// `P_ORBIT_CANON_VERSION` while orbit canonicalisation is on (it changes
+    /// the recorded steps; `-apply` when it stops at Apply keys). With it off
+    /// this is exactly [`Self::identity`], so caches recorded before stay valid.
+    pub fn step_identity(&self) -> String {
+        let mut identity = self.identity();
+        if self.orbit_canonicalization() {
+            let scope = match (self.route_canonicalization(), self.orbit_prefer_high()) {
+                (true, true) => "",
+                (false, true) => "-apply",
+                (true, false) => "-least",
+                (false, false) => "-apply-least",
+            };
+            identity.push_str(&format!(
+                ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}"
+            ));
+        }
+        identity
+    }
+
+    /// Switch the orbit canonicalisation of Apply keys (M5 R0 A2) on or off
+    /// for the requests that start after this call; the default is
+    /// [`super::P_ORBIT_CANON_DEFAULT`].
+    /// Canonicalisation replaces an Apply key by the least of its exact images
+    /// under the verified automorphisms of its owner sector (one key times
+    /// `+-1`, module [`super::orbit`]), so symmetric copies merge. The values
+    /// do not depend on it: each replacement is an exact identity and the
+    /// decomposition onto the fixed terminals is unique. The setting changes
+    /// the recorded steps, so it is part of [`Self::step_identity`] and of the step
+    /// cache binding: set it before the first request that uses a cache.
+    pub fn set_orbit_canonicalization(&self, on: bool) {
+        self.orbit_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether requests canonicalise Apply keys under owner automorphisms.
+    pub fn orbit_canonicalization(&self) -> bool {
+        self.orbit_canonicalization.load(Ordering::Relaxed)
+    }
+
+    /// With orbit canonicalisation on, canonicalise the Route keys of routed
+    /// sectors as well (under the owner's automorphisms carried over by the
+    /// route); on by default. Off, only Apply keys are canonicalised.
+    pub fn set_route_canonicalization(&self, on: bool) {
+        self.route_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Represent an orbit by its greatest exact image (the default) or by its
+    /// least (M5 R0 A2). The lanes are not covariant under the automorphisms,
+    /// so the representative changes the reduction path: the greatest image
+    /// measured fewer keys and edges than the least on every 4L cell (NO2
+    /// d2_r6: -17 % keys against -6 %). For a Custom or Triangle owner the
+    /// order key still decides first.
+    pub fn set_orbit_prefer_high(&self, on: bool) {
+        self.orbit_prefer_high.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether the greatest exact image represents an orbit.
+    pub fn orbit_prefer_high(&self) -> bool {
+        self.orbit_prefer_high.load(Ordering::Relaxed)
+    }
+
+    /// Whether canonicalisation, when on, reaches the Route keys.
+    pub fn route_canonicalization(&self) -> bool {
+        self.route_canonicalization.load(Ordering::Relaxed)
     }
 
     pub fn scope(&self) -> RangeInclusive<u8> {
@@ -491,7 +581,7 @@ impl PLibrary {
     pub fn step_cache_binding(&self) -> Result<OrderedStepCacheBinding, PError> {
         Ok(OrderedStepCacheBinding::new(
             OrderedStepCacheAdapter::PropagatorLibrary,
-            self.identity(),
+            self.step_identity(),
             &self.context,
             Some(UnresolvedPolicy::Reject),
         ))
@@ -565,6 +655,7 @@ pub struct PLibraryBuilder {
     rule_orders: BTreeMap<OwnerClassId, Arc<PRuleOrder>>,
     ordering: Option<String>,
     saved_routes: Option<Arc<PSavedRoutes>>,
+    saved_orbits: Option<Arc<PSavedOrbits>>,
 }
 
 fn malformed(detail: impl Into<String>) -> PError {
@@ -741,6 +832,13 @@ impl PLibraryBuilder {
         self.saved_routes = Some(Arc::new(routes));
     }
 
+    /// p artefact v2: saved automorphism groups (`orbits.rrbin`). Values do
+    /// not depend on them (they only spare the run-time search of orbit
+    /// canonicalisation), so they are not part of the identity.
+    pub fn set_saved_orbits(&mut self, orbits: PSavedOrbits) {
+        self.saved_orbits = Some(Arc::new(orbits));
+    }
+
     pub fn build(mut self) -> Result<PLibrary, PError> {
         if self.context.parameter_names() != ["d"] {
             return Err(PError::ContextMismatch);
@@ -780,7 +878,11 @@ impl PLibraryBuilder {
             rule_orders: self.rule_orders,
             ordering: self.ordering,
             saved_routes: self.saved_routes,
+            saved_orbits: self.saved_orbits,
             engine: OnceLock::new(),
+            orbit_canonicalization: AtomicBool::new(P_ORBIT_CANON_DEFAULT),
+            route_canonicalization: AtomicBool::new(true),
+            orbit_prefer_high: AtomicBool::new(true),
         })
     }
 

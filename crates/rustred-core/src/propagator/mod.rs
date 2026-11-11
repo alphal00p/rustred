@@ -11,9 +11,11 @@ pub mod error;
 pub mod families;
 pub mod lane;
 pub mod library;
+pub(crate) mod orbit;
 pub mod path_census;
 pub mod presentation;
 pub mod programs;
+pub mod saved_orbits;
 pub mod saved_routes;
 pub mod step;
 pub mod tag;
@@ -103,6 +105,16 @@ pub const P_ORDERING_SCHEMA: &str = "rustred.p-ordering.v1";
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
 pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
+/// Orbit canonicalisation of Apply keys (M5 R0 A2): the automorphism search,
+/// its authentication and the choice of representative. It enters
+/// [`library::PLibrary::step_identity`] only while canonicalisation is on, so a
+/// library with it off keeps the step caches it had before; the library
+/// identity ([`library::PLibrary::identity`]) never carries it.
+pub const P_ORBIT_CANON_VERSION: u32 = 3;
+/// Whether a new [`library::PLibrary`] canonicalises keys under orbits
+/// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction
+/// path, the step identity and the step records are the ones without A2.
+pub const P_ORBIT_CANON_DEFAULT: bool = false;
 
 const _: () = assert!(P_GAMMA_TAG_WIDTH == 2 * P_GAMMA_TAG_MAX_M as usize);
 
