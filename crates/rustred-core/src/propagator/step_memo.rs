@@ -199,6 +199,7 @@ pub(crate) fn put_powers(mut powers: Vec<i64>) {
 /// `f` on the memo coefficients (the values the indices of
 /// [`InsertionWeights`] and [`RouteExpansion`] name): `get(i)` is a copy of
 /// coefficient `i` (on this thread's polynomial context, [`rehome`]).
+#[allow(dead_code)] // memo API kept for the check mode and callers without a memo handle (rr-alloc)
 pub(crate) fn coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) -> R {
     if shared_enabled() {
         return with_shared(|memo| f(&|index| rehome(memo.coefficient(index))));
@@ -506,6 +507,7 @@ pub(crate) struct SharedMemo {
     limits: std::sync::Mutex<Option<ExactAlgebraLimits>>,
     shards: Box<[std::sync::RwLock<Shard>]>,
     entries: AtomicU64,
+    #[allow(clippy::type_complexity)] // chunked append-only coefficient table (rr-par)
     chunks: Box<[OnceLock<Box<[OnceLock<Coefficient>]>>]>,
     index: std::sync::Mutex<HashMap<Coefficient, u32>>,
     stats: [AtomicU64; 4],

@@ -40,9 +40,9 @@
 //! face nor an affine case, a dispatch policy the bundle has no code for, a
 //! power or fixed value outside `i16`, a key whose symbolic slot names
 //! another index, a node graph whose lines do not carry the table's momenta.
+#![allow(clippy::needless_range_loop, clippy::collapsible_if, clippy::redundant_closure)] // p5l-converter table parser: index loops over row/column arrays mirror the table_dump format (M5 batch 3 gate)
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -807,7 +807,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
-    (text.len() % 2 == 0)
+    text.len().is_multiple_of(2)
         .then(|| {
             (0..text.len())
                 .step_by(2)

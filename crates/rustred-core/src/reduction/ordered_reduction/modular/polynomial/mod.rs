@@ -241,6 +241,7 @@ pub(super) struct PolynomialSource<'a> {
 }
 
 impl<'a> PolynomialSource<'a> {
+    #[allow(clippy::too_many_arguments)] // the replay inputs of one lift (trace, outputs, basis, options, composition, seed, round, parallel replay)
     pub fn new(
         trace: &'a Trace,
         outputs: &'a [usize],

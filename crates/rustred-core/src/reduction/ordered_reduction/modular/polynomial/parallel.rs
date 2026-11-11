@@ -80,7 +80,7 @@ impl Dataflow {
             terminal_cancelled: vec![false; trace.terminal_slots],
             cancel_checks: 0,
         };
-        let mut new_value = |flow: &mut Dataflow| -> Result<u32, ReductionError> {
+        let new_value = |flow: &mut Dataflow| -> Result<u32, ReductionError> {
             let value = u32::try_from(flow.writes.len()).map_err(|_| unsupported())?;
             if value >= CANCELLED {
                 return Err(unsupported());
@@ -247,7 +247,7 @@ where
                 match op.tag() {
                     OpTag::New | OpTag::Add => {
                         local.ops += 1;
-                        if local.ops % CHECKPOINT_OPS == 0 {
+                        if local.ops.is_multiple_of(CHECKPOINT_OPS) {
                             resources::checkpoint()?;
                         }
                         let target = self.flow.target[index as usize];

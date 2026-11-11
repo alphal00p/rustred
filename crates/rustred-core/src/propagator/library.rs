@@ -439,6 +439,7 @@ impl PLibrary {
     /// [`PBasis::Residual`]). Terms are sorted by basis and tag;
     /// [`PReduction::dimension`] is the loop count of the request. Every thread
     /// count and arithmetic returns the same terms and conditions.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     pub fn reduce(&self, request: PReductionRequest<'_>) -> Result<PReduction, PError> {
         let PReductionRequest {
             inputs,

@@ -107,6 +107,7 @@ impl ForwardClock {
         }
     }
     #[inline]
+    #[allow(dead_code)] // diagnostics API (rr-par), kept for callers that gate work on RUSTRED_PAR_STATS
     pub(crate) fn on(&self) -> bool {
         self.on
     }

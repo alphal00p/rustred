@@ -179,7 +179,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     }
     let started = Instant::now();
     let text = read_input(&StreamPath::File(arguments.table.clone()))?;
-    let (key, graph) =
+    let (_key, graph) =
         canonical_node_graph(&arguments.graph, arguments.ext.0, arguments.ext.1).map_err(failed)?;
     let options = TableImportOptions {
         id: PresentationId(0),
