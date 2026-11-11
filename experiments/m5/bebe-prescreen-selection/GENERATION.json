@@ -1,0 +1,274 @@
+{
+  "schema": "astra.m5.bebe-prescreen-final.v1",
+  "math_source_commit": "cafebad9a5b47b28e53a6d8c8c5a2f1cc2553f06",
+  "status": "BOTH_NATIVE_OWNERS_COMPLETE; reduction acceptance owned by perf_owner_map",
+  "generation_metrics": {
+    "AC": {
+      "cases": 264,
+      "optional_completed": 2112,
+      "optional_completed_exact_admissions": 1209,
+      "optional_novel_admissions": 131,
+      "optional_novelty": 0.10835401157981803,
+      "prescreened_not_admitted": 639,
+      "trace_refused": 100,
+      "search_exhausted": 164,
+      "completed_trial_lift_seconds": 4.777481,
+      "discovery_phase_seconds": 152.32685250599982,
+      "guard": {
+        "utc": "2026-11-10T23:58:46Z",
+        "returncode": 0,
+        "elapsed_seconds": 165.37,
+        "peak_group_rss_bytes": 48992256,
+        "stopped_by_guard": null
+      },
+      "initial_root": {
+        "progress_identity": {
+          "sector_ordinal": 0,
+          "sector": 1277,
+          "case_ordinal": 1
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "outcome": "admitted",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 460
+          },
+          {
+            "trial": 1,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 327
+          },
+          {
+            "trial": 2,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 317
+          },
+          {
+            "trial": 3,
+            "outcome": "admitted",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 267
+          },
+          {
+            "trial": 4,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 265
+          },
+          {
+            "trial": 5,
+            "outcome": "pre-screened-worse-known-prefix",
+            "admitted_score_AC": null,
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 210
+          },
+          {
+            "trial": 6,
+            "outcome": "pre-screened-worse-known-prefix",
+            "admitted_score_AC": null,
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 193
+          },
+          {
+            "trial": 7,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 263
+          },
+          {
+            "trial": 8,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 259
+          }
+        ],
+        "inferred_winner_trial": 3,
+        "inferred_winner_AC": {
+          "A_rhs_terms": 8,
+          "C_positive_max_net_inactive_degree_shift": 0
+        }
+      }
+    },
+    "CA": {
+      "cases": 263,
+      "optional_completed": 2104,
+      "optional_completed_exact_admissions": 1206,
+      "optional_novel_admissions": 128,
+      "optional_novelty": 0.10613598673300166,
+      "prescreened_not_admitted": 640,
+      "trace_refused": 98,
+      "search_exhausted": 160,
+      "completed_trial_lift_seconds": 5.081679,
+      "discovery_phase_seconds": 155.22782477299987,
+      "guard": {
+        "utc": "2026-11-11T00:04:59Z",
+        "returncode": 0,
+        "elapsed_seconds": 167.83,
+        "peak_group_rss_bytes": 51040256,
+        "stopped_by_guard": null
+      },
+      "initial_root": {
+        "progress_identity": {
+          "sector_ordinal": 0,
+          "sector": 1277,
+          "case_ordinal": 1
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "outcome": "admitted",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 471
+          },
+          {
+            "trial": 1,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 328
+          },
+          {
+            "trial": 2,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 19,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 316
+          },
+          {
+            "trial": 3,
+            "outcome": "admitted",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 276
+          },
+          {
+            "trial": 4,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 266
+          },
+          {
+            "trial": 5,
+            "outcome": "pre-screened-worse-known-prefix",
+            "admitted_score_AC": null,
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 239
+          },
+          {
+            "trial": 6,
+            "outcome": "pre-screened-worse-known-prefix",
+            "admitted_score_AC": null,
+            "cheap_A": 19,
+            "cheap_C": 0,
+            "trial_elapsed_us": 204
+          },
+          {
+            "trial": 7,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 269
+          },
+          {
+            "trial": 8,
+            "outcome": "duplicate-candidate",
+            "admitted_score_AC": {
+              "A_rhs_terms": 8,
+              "C_positive_max_net_inactive_degree_shift": 0
+            },
+            "cheap_A": 8,
+            "cheap_C": 0,
+            "trial_elapsed_us": 277
+          }
+        ],
+        "inferred_winner_trial": 3,
+        "inferred_winner_AC": {
+          "A_rhs_terms": 8,
+          "C_positive_max_net_inactive_degree_shift": 0
+        }
+      }
+    }
+  },
+  "complete_owner_metadata": "COMPLETE-OWNERS.json",
+  "orders": {
+    "AC": "AC.explicit-order.json",
+    "CA": "CA.explicit-order.json"
+  },
+  "per_rule": {
+    "AC": "AC.per-rule.json",
+    "CA": "CA.per-rule.json"
+  },
+  "historical_attempts_preserved": [
+    "native-AC-20261110T2348",
+    "native-CA-20261110T2348",
+    "native-trace256-CA-20261110T2355"
+  ],
+  "further_generation_authorized": false
+}

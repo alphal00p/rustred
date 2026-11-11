@@ -1,0 +1,52 @@
+{
+  "acceptance": "none; phase diagnostic only",
+  "charts": [
+    {
+      "chart": 1277,
+      "residuals": [
+        [
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      ],
+      "rules": 265
+    }
+  ],
+  "generation_seconds": 160.233092549,
+  "logging_error": null,
+  "payload_bytes": 1934685,
+  "residual_keys": [
+    [
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+    ]
+  ],
+  "rules": 265,
+  "status": "COMPLETE_GENERATION",
+  "total_seconds": 160.488600086,
+  "wall_seconds": 160.489916421
+}

@@ -1,0 +1,1100 @@
+{
+  "utc": "2026-11-11T00:12:27.489570+00:00",
+  "status": "COMPLETE_PASS",
+  "axis": "C/A per-case native bounded selection with pre-screen; NOT A/C or pure terms-first",
+  "source_commit": "cafebad9a5b47b28e53a6d8c8c5a2f1cc2553f06",
+  "reducer_commit": "6d53b5a3",
+  "candidate_payload": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/generation/prescreen-diagnostic/native-trace256-CA360-20261111T0002/owner.rrbin",
+  "candidate_library": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+  "rules": 264,
+  "LP": 1,
+  "generation_seconds": 163.481351133,
+  "selection_options": {
+    "kind": "bounded-portfolio",
+    "version": 1,
+    "pre_screen": true,
+    "alternatives": [
+      {
+        "source_discovery": {
+          "kind": "input-order"
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 1,
+          "last_depth": 1,
+          "axis_priority": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ],
+          "positive_first": false
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "input-order"
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 2,
+          "last_depth": 2,
+          "axis_priority": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ],
+          "positive_first": false
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "features",
+          "priorities": [
+            {
+              "descending": false,
+              "feature": {
+                "kind": "terms"
+              }
+            }
+          ]
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 1,
+          "last_depth": 1,
+          "axis_priority": [
+            1,
+            8,
+            9,
+            11,
+            12,
+            13,
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10
+          ],
+          "positive_first": true
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "features",
+          "priorities": [
+            {
+              "descending": false,
+              "feature": {
+                "kind": "terms"
+              }
+            }
+          ]
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 2,
+          "last_depth": 2,
+          "axis_priority": [
+            1,
+            8,
+            9,
+            11,
+            12,
+            13,
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10
+          ],
+          "positive_first": true
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "input-order"
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 1,
+          "last_depth": 1,
+          "axis_priority": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10,
+            1,
+            8,
+            9,
+            11,
+            12,
+            13
+          ],
+          "positive_first": true
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "input-order"
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 2,
+          "last_depth": 2,
+          "axis_priority": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10,
+            1,
+            8,
+            9,
+            11,
+            12,
+            13
+          ],
+          "positive_first": true
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "features",
+          "priorities": [
+            {
+              "descending": false,
+              "feature": {
+                "kind": "terms"
+              }
+            }
+          ]
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 1,
+          "last_depth": 1,
+          "axis_priority": [
+            13,
+            12,
+            11,
+            10,
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1,
+            0
+          ],
+          "positive_first": false
+        }
+      },
+      {
+        "source_discovery": {
+          "kind": "features",
+          "priorities": [
+            {
+              "descending": false,
+              "feature": {
+                "kind": "terms"
+              }
+            }
+          ]
+        },
+        "seed_schedule": {
+          "kind": "shift-shells",
+          "first_depth": 2,
+          "last_depth": 2,
+          "axis_priority": [
+            13,
+            12,
+            11,
+            10,
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1,
+            0
+          ],
+          "positive_first": false
+        }
+      }
+    ],
+    "limits": {
+      "max_depth": 2,
+      "max_rows": 200000,
+      "max_exact_trace_rows": 256,
+      "max_exact_trace_terms": 200000,
+      "max_alternatives": 8,
+      "max_case_millis": 30000
+    },
+    "quality": [
+      {
+        "feature": "positive-max-net-inactive-degree-shift",
+        "descending": false
+      },
+      {
+        "feature": "rhs-terms",
+        "descending": false
+      }
+    ],
+    "trigger": {
+      "kind": "always"
+    }
+  },
+  "generation_counters": {
+    "scope": "newly-solved-sectors-this-invocation; all baseline/alternative attempts",
+    "duration_scope": "summed-worker; exact_materialization_us is included in search_us",
+    "newly_solved_sectors": 1,
+    "attempted": 2367,
+    "admitted": 391,
+    "rejected": 1976,
+    "selected_alternatives": 113,
+    "trigger_skips": 0,
+    "duplicate_skips": 0,
+    "search_exhausted": 160,
+    "work_limited": 98,
+    "unlucky_samples": 0,
+    "unsupported_geometry": 0,
+    "geometry_budget": 0,
+    "non_progress": 0,
+    "fatal": 0,
+    "completed_admissions": 1469,
+    "canonical_distinct_completed": 391,
+    "candidate_duplicates": 1078,
+    "different_targets": 0,
+    "case_time_skips": 0,
+    "pre_screened": 640,
+    "trial_elapsed_us": 161601458,
+    "search_seeds": 45970,
+    "search_rows": 901264,
+    "independent_rows": 891177,
+    "exact_trace_rows": 55080,
+    "exact_trace_terms": 679811,
+    "exact_lifts": 1215,
+    "guard_branches": 2735,
+    "geometry_calls": 2735,
+    "search_us": 161226848,
+    "exact_materialization_us": 5082289,
+    "guard_extraction_us": 97920,
+    "geometry_us": 25333
+  },
+  "baseline_reused_from": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/RESULTS.json",
+  "baseline_scope": "earlier accepted b_static Diamond-only controls; NOT gated bubu",
+  "original_family_support_presentation_maps_insertion_bases_and_17_terminals_unchanged": true,
+  "timing_scope": "one thread, shared host, indicative; accepted earlier controls reused without rerun",
+  "caches": "off; stable probe step_cache=None and zero certificate cache_hits required",
+  "memory_scope": "kernel VmHWM and guard sampled group RSS are reported separately",
+  "completed_jobs": 3,
+  "jobs": [
+    {
+      "cell": "NO3d2r6",
+      "label": "CA-trace256",
+      "cpu": 291,
+      "command": [
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+        "m5-bstatic-ca-trace256-NO3d2r6-0015",
+        "291",
+        "unlimited",
+        "180",
+        "--",
+        "taskset",
+        "-c",
+        "319",
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+        "L4_d2_r6",
+        "P4L_NO3",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+        "291"
+      ],
+      "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+      "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO3d2r6-0015",
+      "completion": {
+        "utc": "2026-11-11T00:08:17Z",
+        "returncode": 0,
+        "elapsed_seconds": 51.42,
+        "peak_group_rss_bytes": 1213317120,
+        "stopped_by_guard": null
+      },
+      "guard_sampled_peak_group_rss_GB": 1.21331712,
+      "status": "PASS",
+      "acceptance": true,
+      "PReduction_value_bytes_identical": true,
+      "value_exclusions": [
+        "condition lines only"
+      ],
+      "T_BFS_and_strict_descent": true,
+      "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO3_L4_d2_r6/preduction.txt",
+      "reference_kind": "exact WP0 golden",
+      "metrics": {
+        "reduce_seconds": 46.130490024,
+        "load_seconds": 4.450008228,
+        "step_seconds": 22.429769349,
+        "kernel_peak_RSS_GB": 1.211088896,
+        "keys": 599472,
+        "edges": 5472564,
+        "peak_frontier": 233832,
+        "primes": 3,
+        "verification_primes": 1,
+        "max_numerator_degree": 19,
+        "max_denominator_degree": 25,
+        "max_coefficient_bits": 73
+      },
+      "certificate": {
+        "apply_phases": 10,
+        "cache_hits": 0,
+        "check_descent": true,
+        "distinct": 599472,
+        "earlier_phase_children": 0,
+        "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+        "foreign_same_phase_children": 0,
+        "holds": true,
+        "phase_regressions": 0,
+        "popped": 599472,
+        "repeats": 0,
+        "split_owner_phases": 0
+      }
+    },
+    {
+      "cell": "NO2d0r6",
+      "label": "CA-trace256",
+      "cpu": 292,
+      "command": [
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+        "m5-bstatic-ca-trace256-NO2d0r6-0015",
+        "292",
+        "unlimited",
+        "180",
+        "--",
+        "taskset",
+        "-c",
+        "319",
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+        "L4_d0_r6",
+        "P4L_NO2",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO2d0r6",
+        "292"
+      ],
+      "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO2d0r6",
+      "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO2d0r6-0015",
+      "completion": {
+        "utc": "2026-11-11T00:07:47Z",
+        "returncode": 0,
+        "elapsed_seconds": 20.91,
+        "peak_group_rss_bytes": 667099136,
+        "stopped_by_guard": null
+      },
+      "guard_sampled_peak_group_rss_GB": 0.667099136,
+      "status": "PASS",
+      "acceptance": true,
+      "PReduction_value_bytes_identical": true,
+      "value_exclusions": [
+        "condition lines only"
+      ],
+      "T_BFS_and_strict_descent": true,
+      "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO2_L4_d0_r6/preduction.txt",
+      "reference_kind": "exact WP0 golden",
+      "metrics": {
+        "reduce_seconds": 15.856579855,
+        "load_seconds": 4.2827477,
+        "step_seconds": 11.017590286,
+        "kernel_peak_RSS_GB": 0.690724864,
+        "keys": 170063,
+        "edges": 1345507,
+        "peak_frontier": 72710,
+        "primes": 3,
+        "verification_primes": 1,
+        "max_numerator_degree": 16,
+        "max_denominator_degree": 24,
+        "max_coefficient_bits": 72
+      },
+      "certificate": {
+        "apply_phases": 9,
+        "cache_hits": 0,
+        "check_descent": true,
+        "distinct": 170063,
+        "earlier_phase_children": 0,
+        "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+        "foreign_same_phase_children": 0,
+        "holds": true,
+        "phase_regressions": 0,
+        "popped": 170063,
+        "repeats": 0,
+        "split_owner_phases": 0
+      }
+    },
+    {
+      "cell": "NO3d2r8",
+      "label": "CA-trace256",
+      "cpu": 293,
+      "command": [
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+        "m5-bstatic-ca-trace256-NO3d2r8-0015",
+        "293",
+        "unlimited",
+        "900",
+        "--",
+        "taskset",
+        "-c",
+        "319",
+        "/home/vhirschi/.nix-profile/bin/bash",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+        "L4_d2_r8",
+        "P4L_NO3",
+        "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r8",
+        "293"
+      ],
+      "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r8",
+      "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO3d2r8-0015",
+      "completion": {
+        "utc": "2026-11-11T00:12:15Z",
+        "returncode": 0,
+        "elapsed_seconds": 288.9,
+        "peak_group_rss_bytes": 3425394688,
+        "stopped_by_guard": null
+      },
+      "guard_sampled_peak_group_rss_GB": 3.425394688,
+      "status": "PASS",
+      "acceptance": true,
+      "PReduction_value_bytes_identical": true,
+      "value_exclusions": [
+        "condition lines only"
+      ],
+      "T_BFS_and_strict_descent": true,
+      "reference": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/rank8/NO3d2r8-shipped-reference/preduction.txt",
+      "reference_kind": "completed shipped B1 RustRed",
+      "metrics": {
+        "reduce_seconds": 283.364859608,
+        "load_seconds": 4.157493649,
+        "step_seconds": 116.743991374,
+        "kernel_peak_RSS_GB": 3.423944704,
+        "keys": 1916576,
+        "edges": 35012436,
+        "peak_frontier": 909263,
+        "primes": 3,
+        "verification_primes": 1,
+        "max_numerator_degree": 21,
+        "max_denominator_degree": 27,
+        "max_coefficient_bits": 79
+      },
+      "certificate": {
+        "apply_phases": 10,
+        "cache_hits": 0,
+        "check_descent": true,
+        "distinct": 1916576,
+        "earlier_phase_children": 0,
+        "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+        "foreign_same_phase_children": 0,
+        "holds": true,
+        "phase_regressions": 0,
+        "popped": 1916576,
+        "repeats": 0,
+        "split_owner_phases": 0
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "cell": "NO3d2r6",
+      "baseline_reused": true,
+      "baseline": {
+        "cell": "NO3d2r6",
+        "label": "baseline",
+        "cpu": 288,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-NO3d2r6-baseline-2350",
+          "288",
+          "unlimited",
+          "180",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-2350",
+          "L4_d2_r6",
+          "P4L_NO3",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO3d2r6-baseline",
+          "288"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO3d2r6-baseline",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-NO3d2r6-baseline-2350",
+        "completion": {
+          "utc": "2026-11-10T23:51:09Z",
+          "returncode": 0,
+          "elapsed_seconds": 80.24,
+          "peak_group_rss_bytes": 1167511552,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 1.167511552,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO3_L4_d2_r6/preduction.txt",
+        "reference_kind": "exact WP0 golden",
+        "metrics": {
+          "reduce_seconds": 72.081311353,
+          "load_seconds": 6.802093684,
+          "step_seconds": 35.573327366,
+          "kernel_peak_RSS_GB": 1.222766592,
+          "keys": 599260,
+          "edges": 5388367,
+          "peak_frontier": 233831,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 19,
+          "max_denominator_degree": 25,
+          "max_coefficient_bits": 73
+        },
+        "certificate": {
+          "apply_phases": 10,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 599260,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 599260,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "candidate": {
+        "cell": "NO3d2r6",
+        "label": "CA-trace256",
+        "cpu": 291,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-ca-trace256-NO3d2r6-0015",
+          "291",
+          "unlimited",
+          "180",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+          "L4_d2_r6",
+          "P4L_NO3",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+          "291"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO3d2r6-0015",
+        "completion": {
+          "utc": "2026-11-11T00:08:17Z",
+          "returncode": 0,
+          "elapsed_seconds": 51.42,
+          "peak_group_rss_bytes": 1213317120,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 1.21331712,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO3_L4_d2_r6/preduction.txt",
+        "reference_kind": "exact WP0 golden",
+        "metrics": {
+          "reduce_seconds": 46.130490024,
+          "load_seconds": 4.450008228,
+          "step_seconds": 22.429769349,
+          "kernel_peak_RSS_GB": 1.211088896,
+          "keys": 599472,
+          "edges": 5472564,
+          "peak_frontier": 233832,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 19,
+          "max_denominator_degree": 25,
+          "max_coefficient_bits": 73
+        },
+        "certificate": {
+          "apply_phases": 10,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 599472,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 599472,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "change_percent": {
+        "reduce_seconds": -36.002149297634745,
+        "kernel_peak_RSS_GB": -0.9550224937777796,
+        "keys": 0.035376964923394816,
+        "edges": 1.5625698843452884,
+        "peak_frontier": 0.0004276592924012945
+      }
+    },
+    {
+      "cell": "NO2d0r6",
+      "baseline_reused": true,
+      "baseline": {
+        "cell": "NO2d0r6",
+        "label": "baseline",
+        "cpu": 292,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-NO2d0r6-baseline-2350",
+          "292",
+          "unlimited",
+          "180",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-2350",
+          "L4_d0_r6",
+          "P4L_NO2",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO2d0r6-baseline",
+          "292"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO2d0r6-baseline",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-NO2d0r6-baseline-2350",
+        "completion": {
+          "utc": "2026-11-10T23:50:14Z",
+          "returncode": 0,
+          "elapsed_seconds": 23.9,
+          "peak_group_rss_bytes": 721072128,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 0.721072128,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO2_L4_d0_r6/preduction.txt",
+        "reference_kind": "exact WP0 golden",
+        "metrics": {
+          "reduce_seconds": 18.967847984,
+          "load_seconds": 4.114970441,
+          "step_seconds": 11.607360024,
+          "kernel_peak_RSS_GB": 0.726552576,
+          "keys": 194530,
+          "edges": 1652835,
+          "peak_frontier": 84491,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 16,
+          "max_denominator_degree": 24,
+          "max_coefficient_bits": 72
+        },
+        "certificate": {
+          "apply_phases": 9,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 194530,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 194530,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "candidate": {
+        "cell": "NO2d0r6",
+        "label": "CA-trace256",
+        "cpu": 292,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-ca-trace256-NO2d0r6-0015",
+          "292",
+          "unlimited",
+          "180",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+          "L4_d0_r6",
+          "P4L_NO2",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO2d0r6",
+          "292"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO2d0r6",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO2d0r6-0015",
+        "completion": {
+          "utc": "2026-11-11T00:07:47Z",
+          "returncode": 0,
+          "elapsed_seconds": 20.91,
+          "peak_group_rss_bytes": 667099136,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 0.667099136,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO2_L4_d0_r6/preduction.txt",
+        "reference_kind": "exact WP0 golden",
+        "metrics": {
+          "reduce_seconds": 15.856579855,
+          "load_seconds": 4.2827477,
+          "step_seconds": 11.017590286,
+          "kernel_peak_RSS_GB": 0.690724864,
+          "keys": 170063,
+          "edges": 1345507,
+          "peak_frontier": 72710,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 16,
+          "max_denominator_degree": 24,
+          "max_coefficient_bits": 72
+        },
+        "certificate": {
+          "apply_phases": 9,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 170063,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 170063,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "change_percent": {
+        "reduce_seconds": -16.40285250928021,
+        "kernel_peak_RSS_GB": -4.931193307062198,
+        "keys": -12.577494473860074,
+        "edges": -18.59399153575523,
+        "peak_frontier": -13.943496940502541
+      }
+    },
+    {
+      "cell": "NO3d2r8",
+      "baseline_reused": true,
+      "baseline": {
+        "cell": "NO3d2r8",
+        "label": "baseline",
+        "cpu": 290,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-NO3d2r8-baseline-2350",
+          "290",
+          "unlimited",
+          "900",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-2350",
+          "L4_d2_r8",
+          "P4L_NO3",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO3d2r8-baseline",
+          "290"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-2350/NO3d2r8-baseline",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-NO3d2r8-baseline-2350",
+        "completion": {
+          "utc": "2026-11-10T23:54:39Z",
+          "returncode": 0,
+          "elapsed_seconds": 289.5,
+          "peak_group_rss_bytes": 3430400000,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 3.4304,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/rank8/NO3d2r8-shipped-reference/preduction.txt",
+        "reference_kind": "completed shipped B1 RustRed",
+        "metrics": {
+          "reduce_seconds": 283.398147364,
+          "load_seconds": 4.870228035,
+          "step_seconds": 115.625975724,
+          "kernel_peak_RSS_GB": 3.435466752,
+          "keys": 1931579,
+          "edges": 34848442,
+          "peak_frontier": 914931,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 21,
+          "max_denominator_degree": 27,
+          "max_coefficient_bits": 79
+        },
+        "certificate": {
+          "apply_phases": 10,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 1931579,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 1931579,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "candidate": {
+        "cell": "NO3d2r8",
+        "label": "CA-trace256",
+        "cpu": 293,
+        "command": [
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+          "m5-bstatic-ca-trace256-NO3d2r8-0015",
+          "293",
+          "unlimited",
+          "900",
+          "--",
+          "taskset",
+          "-c",
+          "319",
+          "/home/vhirschi/.nix-profile/bin/bash",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+          "L4_d2_r8",
+          "P4L_NO3",
+          "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r8",
+          "293"
+        ],
+        "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r8",
+        "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO3d2r8-0015",
+        "completion": {
+          "utc": "2026-11-11T00:12:15Z",
+          "returncode": 0,
+          "elapsed_seconds": 288.9,
+          "peak_group_rss_bytes": 3425394688,
+          "stopped_by_guard": null
+        },
+        "guard_sampled_peak_group_rss_GB": 3.425394688,
+        "status": "PASS",
+        "acceptance": true,
+        "PReduction_value_bytes_identical": true,
+        "value_exclusions": [
+          "condition lines only"
+        ],
+        "T_BFS_and_strict_descent": true,
+        "reference": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/rank8/NO3d2r8-shipped-reference/preduction.txt",
+        "reference_kind": "completed shipped B1 RustRed",
+        "metrics": {
+          "reduce_seconds": 283.364859608,
+          "load_seconds": 4.157493649,
+          "step_seconds": 116.743991374,
+          "kernel_peak_RSS_GB": 3.423944704,
+          "keys": 1916576,
+          "edges": 35012436,
+          "peak_frontier": 909263,
+          "primes": 3,
+          "verification_primes": 1,
+          "max_numerator_degree": 21,
+          "max_denominator_degree": 27,
+          "max_coefficient_bits": 79
+        },
+        "certificate": {
+          "apply_phases": 10,
+          "cache_hits": 0,
+          "check_descent": true,
+          "distinct": 1916576,
+          "earlier_phase_children": 0,
+          "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+          "foreign_same_phase_children": 0,
+          "holds": true,
+          "phase_regressions": 0,
+          "popped": 1916576,
+          "repeats": 0,
+          "split_owner_phases": 0
+        }
+      },
+      "change_percent": {
+        "reduce_seconds": -0.011745932819118288,
+        "kernel_peak_RSS_GB": -0.3353852280273739,
+        "keys": -0.7767220496806004,
+        "edges": 0.470592056884489,
+        "peak_frontier": -0.6195002683262452
+      }
+    }
+  ],
+  "latest_observation": {
+    "utc": "2026-11-11T00:12:27.437790+00:00",
+    "host": {
+      "MemAvailable": 488804847616,
+      "SwapFree": 367658766336
+    },
+    "host_psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=12724196765\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=11990459426",
+    "jobs": [
+      {
+        "cell": "NO3d2r6",
+        "label": "CA-trace256",
+        "cpu": 291,
+        "completion": {
+          "utc": "2026-11-11T00:08:17Z",
+          "returncode": 0,
+          "elapsed_seconds": 51.42,
+          "peak_group_rss_bytes": 1213317120,
+          "stopped_by_guard": null
+        },
+        "existing_guard": {
+          "utc": "2026-11-11T00:08:16Z",
+          "elapsed": 50.4,
+          "rss": 952844288,
+          "MemFree": 302306152448,
+          "MemAvailable": 547894038528,
+          "rss_sampled": true,
+          "rss_sample_age_seconds": 0.0,
+          "rss_sample_interval_seconds": 5,
+          "cgroup_memory_current_bytes": 954298368
+        },
+        "memory_current": null,
+        "swap_current": null,
+        "scope_psi": null
+      },
+      {
+        "cell": "NO2d0r6",
+        "label": "CA-trace256",
+        "cpu": 292,
+        "completion": {
+          "utc": "2026-11-11T00:07:47Z",
+          "returncode": 0,
+          "elapsed_seconds": 20.91,
+          "peak_group_rss_bytes": 667099136,
+          "stopped_by_guard": null
+        },
+        "existing_guard": {
+          "utc": "2026-11-11T00:07:46Z",
+          "elapsed": 19.9,
+          "rss": 667099136,
+          "MemFree": 301130674176,
+          "MemAvailable": 546703269888,
+          "rss_sampled": false,
+          "rss_sample_age_seconds": 2.002,
+          "rss_sample_interval_seconds": 5,
+          "cgroup_memory_current_bytes": 636768256
+        },
+        "memory_current": null,
+        "swap_current": null,
+        "scope_psi": null
+      },
+      {
+        "cell": "NO3d2r8",
+        "label": "CA-trace256",
+        "cpu": 293,
+        "completion": {
+          "utc": "2026-11-11T00:12:15Z",
+          "returncode": 0,
+          "elapsed_seconds": 288.9,
+          "peak_group_rss_bytes": 3425394688,
+          "stopped_by_guard": null
+        },
+        "existing_guard": {
+          "utc": "2026-11-11T00:12:14Z",
+          "elapsed": 287.9,
+          "rss": 1999020032,
+          "MemFree": 242186362880,
+          "MemAvailable": 486631272448,
+          "rss_sampled": true,
+          "rss_sample_age_seconds": 0.0,
+          "rss_sample_interval_seconds": 5,
+          "cgroup_memory_current_bytes": 2252742656
+        },
+        "memory_current": null,
+        "swap_current": null,
+        "scope_psi": null
+      }
+    ]
+  },
+  "promotion": false,
+  "interpretation": "CA preserves exact values on all3 cells and improves NO2 keys/edges/frontier/RSS versus reused b_static. NO3 rank6 has nearly equal keys but1.56% more edges; NO3 rank8 has fewer keys but0.47% more edges and slightly less RSS. Times are indicative; no universal default or promotion. CA is a distinct264-rule per-case C/A selection candidate, not the pure terms-first239-rule source order.",
+  "runtime_ownership": "CA jobs on291,292,293 all actual terminal rc0; AC jobs on288,289,290 already terminal; no assigned reduction remains live",
+  "four_way_comparison": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/FOUR-WAY.json"
+}

@@ -1,0 +1,372 @@
+schema = "rustred.family-candidates-output.toml.v1"
+status = "uncertified-candidates"
+workload = "prepare-solve-save; no source replay or closure certification"
+family_fingerprint = "rustred-integral-family-v2;N6:P4L_J1;L4;2:k1;2:k2;2:k3;2:k4;E1;1:q;P1;1:d;Q4,1,14;M;RY1,1;I+1;X1;Y1,1;I+1;X0;D14;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-1;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-1;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,1;I+2;X0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I+1;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,1;I-2;X0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;G1;RY1,1;I-1;X0;Y1,1;I+1;X0;U14;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;RY1,0;Y1,1;I+1;X0;"
+arity = 14
+root_sector = [
+    true,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+]
+generation_scope = "selected-sectors"
+selected_sectors = [[
+    true,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+]]
+solved_sectors = 1
+zero_sectors = 7978
+generated_rules = 264
+finite_residuals = 1
+workers = 1
+exact_backend = "sparse-target-factorized"
+integral_order = "rustred.spired-uncut-sector-order.v1"
+numerical_depth = 2
+finite_case_policy = "search"
+finite_max_visited_points = 1000000
+finite_max_retained_terminals = 1000000
+case_max_work_items = 4096
+case_max_terms_per_conjunction = 100000
+case_max_normalizations = 1024
+case_max_factorizations = 4096
+bytes = 1858338
+unique_coefficients = 1984
+coefficient_table_bytes = 1455527
+symbolica_state_bytes = 1389
+preparation_us = 791194
+solve_us = 162660802
+bundle_encoding_us = 26618
+total_us = 163478614
+sector_failures = "report"
+
+[discovery_strategy]
+version = 2
+
+[discovery_strategy.sectors]
+kind = "active-first"
+
+[discovery_strategy.rows]
+kind = "input-order"
+
+[discovery_strategy.rule_selection]
+kind = "bounded-portfolio"
+version = 1
+pre_screen = true
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "input-order"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 1
+last_depth = 1
+axis_priority = [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+]
+positive_first = false
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "input-order"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 2
+last_depth = 2
+axis_priority = [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+]
+positive_first = false
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "features"
+
+[[discovery_strategy.rule_selection.alternatives.source_discovery.priorities]]
+descending = false
+
+[discovery_strategy.rule_selection.alternatives.source_discovery.priorities.feature]
+kind = "terms"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 1
+last_depth = 1
+axis_priority = [
+    1,
+    8,
+    9,
+    11,
+    12,
+    13,
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    10,
+]
+positive_first = true
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "features"
+
+[[discovery_strategy.rule_selection.alternatives.source_discovery.priorities]]
+descending = false
+
+[discovery_strategy.rule_selection.alternatives.source_discovery.priorities.feature]
+kind = "terms"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 2
+last_depth = 2
+axis_priority = [
+    1,
+    8,
+    9,
+    11,
+    12,
+    13,
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    10,
+]
+positive_first = true
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "input-order"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 1
+last_depth = 1
+axis_priority = [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    10,
+    1,
+    8,
+    9,
+    11,
+    12,
+    13,
+]
+positive_first = true
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "input-order"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 2
+last_depth = 2
+axis_priority = [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    10,
+    1,
+    8,
+    9,
+    11,
+    12,
+    13,
+]
+positive_first = true
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "features"
+
+[[discovery_strategy.rule_selection.alternatives.source_discovery.priorities]]
+descending = false
+
+[discovery_strategy.rule_selection.alternatives.source_discovery.priorities.feature]
+kind = "terms"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 1
+last_depth = 1
+axis_priority = [
+    13,
+    12,
+    11,
+    10,
+    9,
+    8,
+    7,
+    6,
+    5,
+    4,
+    3,
+    2,
+    1,
+    0,
+]
+positive_first = false
+
+[[discovery_strategy.rule_selection.alternatives]]
+
+[discovery_strategy.rule_selection.alternatives.source_discovery]
+kind = "features"
+
+[[discovery_strategy.rule_selection.alternatives.source_discovery.priorities]]
+descending = false
+
+[discovery_strategy.rule_selection.alternatives.source_discovery.priorities.feature]
+kind = "terms"
+
+[discovery_strategy.rule_selection.alternatives.seed_schedule]
+kind = "shift-shells"
+first_depth = 2
+last_depth = 2
+axis_priority = [
+    13,
+    12,
+    11,
+    10,
+    9,
+    8,
+    7,
+    6,
+    5,
+    4,
+    3,
+    2,
+    1,
+    0,
+]
+positive_first = false
+
+[discovery_strategy.rule_selection.limits]
+max_depth = 2
+max_rows = 200000
+max_exact_trace_rows = 256
+max_exact_trace_terms = 200000
+max_alternatives = 8
+max_case_millis = 30000
+
+[[discovery_strategy.rule_selection.quality]]
+feature = "positive-max-net-inactive-degree-shift"
+descending = false
+
+[[discovery_strategy.rule_selection.quality]]
+feature = "rhs-terms"
+descending = false
+
+[discovery_strategy.rule_selection.trigger]
+kind = "always"
+
+[rule_selection]
+scope = "newly-solved-sectors-this-invocation; all baseline/alternative attempts"
+duration_scope = "summed-worker; exact_materialization_us is included in search_us"
+newly_solved_sectors = 1
+attempted = 2367
+admitted = 391
+rejected = 1976
+selected_alternatives = 113
+trigger_skips = 0
+duplicate_skips = 0
+search_exhausted = 160
+work_limited = 98
+unlucky_samples = 0
+unsupported_geometry = 0
+geometry_budget = 0
+non_progress = 0
+fatal = 0
+completed_admissions = 1469
+canonical_distinct_completed = 391
+candidate_duplicates = 1078
+different_targets = 0
+case_time_skips = 0
+pre_screened = 640
+trial_elapsed_us = 161601458
+search_seeds = 45970
+search_rows = 901264
+independent_rows = 891177
+exact_trace_rows = 55080
+exact_trace_terms = 679811
+exact_lifts = 1215
+guard_branches = 2735
+geometry_calls = 2735
+search_us = 161226848
+exact_materialization_us = 5082289
+guard_extraction_us = 97920
+geometry_us = 25333
