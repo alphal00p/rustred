@@ -299,7 +299,15 @@ impl<const N: usize> ScheduledSeeds<N> {
 impl<const N: usize, I: ShellSeedSource<N>> ScheduledSeeds<N, I> {
     /// Schedule any shell source whose seeds start from `initial`.
     pub fn over(inner: I, initial: Integral<N>, schedule: SeedSchedule) -> Self {
-        Self { inner, schedule, initial, shell: Default::default(), shell_depth: 0, carry: None, error: None }
+        Self {
+            inner,
+            schedule,
+            initial,
+            shell: Default::default(),
+            shell_depth: 0,
+            carry: None,
+            error: None,
+        }
     }
 
     /// L1 shell of the most recently emitted seed.
@@ -824,7 +832,10 @@ mod tests {
             .map(|s| s.unwrap())
             .take(60)
             .collect();
-        let mut sched = ScheduledSeeds::new(Seeds::new(initial, [true, true, false], [false; 3]), SeedSchedule::SymbolicFirst);
+        let mut sched = ScheduledSeeds::new(
+            Seeds::new(initial, [true, true, false], [false; 3]),
+            SeedSchedule::SymbolicFirst,
+        );
         let mut got = Vec::new();
         let mut depths = Vec::new();
         for _ in 0..plain.len() {
@@ -832,22 +843,40 @@ mod tests {
             depths.push(sched.depth());
         }
         // same multiset per shell, symbolic-only first inside every shell, shells in order
-        let l1 = |s: &Seed<3>| (0..3).map(|i| (s.integral[i].value() - initial[i].value()).unsigned_abs() as u32).sum::<u32>();
+        let l1 = |s: &Seed<3>| {
+            (0..3)
+                .map(|i| (s.integral[i].value() - initial[i].value()).unsigned_abs() as u32)
+                .sum::<u32>()
+        };
         assert!(got.windows(2).all(|w| l1(&w[0]) <= l1(&w[1])));
         assert!(depths.windows(2).all(|w| w[0] <= w[1]));
         let shell2: Vec<_> = got.iter().filter(|s| l1(s) == 2).collect();
         assert_eq!(shell2[0].integral[1].value(), 1);
         assert_eq!(shell2[0].integral[2].value(), 0);
-        let mut a: Vec<_> = plain.iter().filter(|s| l1(s) <= 2).map(|s| s.integral).collect();
-        let mut b: Vec<_> = got.iter().filter(|s| l1(s) <= 2).map(|s| s.integral).collect();
+        let mut a: Vec<_> = plain
+            .iter()
+            .filter(|s| l1(s) <= 2)
+            .map(|s| s.integral)
+            .collect();
+        let mut b: Vec<_> = got
+            .iter()
+            .filter(|s| l1(s) <= 2)
+            .map(|s| s.integral)
+            .collect();
         a.sort_by_key(|i| i.powers().map(|p| p.value()));
         b.sort_by_key(|i| i.powers().map(|p| p.value()));
         assert_eq!(a, b);
-        let spired: Vec<_> = ScheduledSeeds::new(Seeds::new(initial, [true; 3], [false; 3]), SeedSchedule::Spired)
+        let spired: Vec<_> = ScheduledSeeds::new(
+            Seeds::new(initial, [true; 3], [false; 3]),
+            SeedSchedule::Spired,
+        )
+        .take(20)
+        .map(|s| s.unwrap().shifts)
+        .collect();
+        let raw: Vec<_> = Seeds::new(initial, [true; 3], [false; 3])
             .take(20)
             .map(|s| s.unwrap().shifts)
             .collect();
-        let raw: Vec<_> = Seeds::new(initial, [true; 3], [false; 3]).take(20).map(|s| s.unwrap().shifts).collect();
         assert_eq!(spired, raw);
     }
 

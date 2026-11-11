@@ -33,8 +33,13 @@ impl SourceOrder {
         match text {
             "input" => Ok(Self::Input),
             "reverse" => Ok(Self::Reverse),
-            s if s.starts_with("rot:") => s[4..].parse().map(Self::Rotate).map_err(|e| format!("source order {s}: {e}")),
-            other => Err(format!("unknown source order {other} (input|reverse|rot:K)")),
+            s if s.starts_with("rot:") => s[4..]
+                .parse()
+                .map(Self::Rotate)
+                .map_err(|e| format!("source order {s}: {e}")),
+            other => Err(format!(
+                "unknown source order {other} (input|reverse|rot:K)"
+            )),
         }
     }
 
@@ -76,16 +81,26 @@ impl Default for NodeOrder {
 
 impl NodeOrder {
     pub fn identity() -> Self {
-        Self { name: "id".into(), slot_permutation: None, coordinate_priority: None, source_order: SourceOrder::Input }
+        Self {
+            name: "id".into(),
+            slot_permutation: None,
+            coordinate_priority: None,
+            source_order: SourceOrder::Input,
+        }
     }
 
     pub fn is_identity_presentation(&self) -> bool {
-        self.slot_permutation.as_ref().is_none_or(|p| p.iter().enumerate().all(|(j, &i)| i == j))
+        self.slot_permutation
+            .as_ref()
+            .is_none_or(|p| p.iter().enumerate().all(|(j, &i)| i == j))
     }
 
     /// Validate against the arity `n`.
     pub fn validate(&self, n: usize) -> Result<(), String> {
-        for (what, v) in [("slot_permutation", &self.slot_permutation), ("coordinate_priority", &self.coordinate_priority)] {
+        for (what, v) in [
+            ("slot_permutation", &self.slot_permutation),
+            ("coordinate_priority", &self.coordinate_priority),
+        ] {
             if let Some(p) = v {
                 let mut seen = vec![false; n];
                 if p.len() != n {
@@ -114,7 +129,9 @@ impl NodeOrder {
 
     /// new slot -> old slot.
     pub fn new_to_old(&self, n: usize) -> Vec<usize> {
-        self.slot_permutation.clone().unwrap_or_else(|| (0..n).collect())
+        self.slot_permutation
+            .clone()
+            .unwrap_or_else(|| (0..n).collect())
     }
 
     /// The family presented in this order (labels positional, expression and flag move together).
@@ -126,24 +143,38 @@ impl NodeOrder {
     }
 
     /// Map a case given in the ORIGINAL slots (fixed values, linear equations in `n<i>`) to the presented slots.
-    pub fn present_case(&self, fixed: &[Option<i64>], equations: &[String]) -> (Vec<Option<i64>>, Vec<String>) {
+    pub fn present_case(
+        &self,
+        fixed: &[Option<i64>],
+        equations: &[String],
+    ) -> (Vec<Option<i64>>, Vec<String>) {
         let n = fixed.len();
         let new_to_old = self.new_to_old(n);
         let old_to_new = self.old_to_new(n);
         let fixed = (0..n).map(|j| fixed[new_to_old[j]]).collect();
-        let equations = equations.iter().map(|e| rename_index_variables(e, &old_to_new)).collect();
+        let equations = equations
+            .iter()
+            .map(|e| rename_index_variables(e, &old_to_new))
+            .collect();
         (fixed, equations)
     }
 
     /// Map a case given in the PRESENTED slots back to the original slots.
-    pub fn original_case(&self, fixed: &[Option<i64>], equations: &[String]) -> (Vec<Option<i64>>, Vec<String>) {
+    pub fn original_case(
+        &self,
+        fixed: &[Option<i64>],
+        equations: &[String],
+    ) -> (Vec<Option<i64>>, Vec<String>) {
         let n = fixed.len();
         let new_to_old = self.new_to_old(n);
         let mut out = vec![None; n];
         for (j, v) in fixed.iter().enumerate() {
             out[new_to_old[j]] = *v;
         }
-        let equations = equations.iter().map(|e| rename_index_variables(e, &new_to_old)).collect();
+        let equations = equations
+            .iter()
+            .map(|e| rename_index_variables(e, &new_to_old))
+            .collect();
         (out, equations)
     }
 
@@ -208,9 +239,18 @@ pub fn family_props(text: &str) -> Vec<PropLine> {
         let indent = t[..t.len() - body.len()].to_string();
         let trailing_comma = body.ends_with(',');
         let inner = body.trim_end_matches(',');
-        let Some(inner) = inner.strip_prefix("prop(").and_then(|s| s.strip_suffix(')')) else { continue };
-        let Some(first) = inner.find(',') else { continue };
-        let Some(last) = inner.rfind(',') else { continue };
+        let Some(inner) = inner
+            .strip_prefix("prop(")
+            .and_then(|s| s.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let Some(first) = inner.find(',') else {
+            continue;
+        };
+        let Some(last) = inner.rfind(',') else {
+            continue;
+        };
         if last <= first {
             continue;
         }
@@ -230,14 +270,28 @@ pub fn family_props(text: &str) -> Vec<PropLine> {
 pub fn permute_family_text(text: &str, perm: &[usize]) -> Result<String, String> {
     let props = family_props(text);
     if props.len() != perm.len() {
-        return Err(format!("permutation arity {} != {} propagators", perm.len(), props.len()));
+        return Err(format!(
+            "permutation arity {} != {} propagators",
+            perm.len(),
+            props.len()
+        ));
     }
-    let order = NodeOrder { slot_permutation: Some(perm.to_vec()), ..NodeOrder::identity() };
+    let order = NodeOrder {
+        slot_permutation: Some(perm.to_vec()),
+        ..NodeOrder::identity()
+    };
     order.validate(props.len())?;
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for (j, p) in props.iter().enumerate() {
         let src = &props[perm[j]];
-        lines[p.line] = format!("{}prop({},{},{}){}", p.indent, p.label, src.expr, src.flag, if p.trailing_comma { "," } else { "" });
+        lines[p.line] = format!(
+            "{}prop({},{},{}){}",
+            p.indent,
+            p.label,
+            src.expr,
+            src.flag,
+            if p.trailing_comma { "," } else { "" }
+        );
     }
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
@@ -248,7 +302,10 @@ pub fn permute_family_text(text: &str, perm: &[usize]) -> Result<String, String>
 
 /// Physical flags (`flag != 0`) of the family slots.
 pub fn physical_slots(text: &str) -> Vec<bool> {
-    family_props(text).iter().map(|p| p.flag.trim() != "0").collect()
+    family_props(text)
+        .iter()
+        .map(|p| p.flag.trim() != "0")
+        .collect()
 }
 
 /// Indices `i` with `n<i>` in a linear equation.
@@ -282,13 +339,25 @@ pub fn equation_variables(expr: &str) -> Vec<usize> {
 /// the lowest/highest priority), `phys_swap_A_B` (two physical slots carrying the case's free, dotted or equation
 /// indices; Astra T206), `phys_rev`. Comparator variants: `tie_isp_rev` (ISP tie priority reversed, presentation
 /// unchanged; Astra T212). Source variant: `src_rev` (reverse source visit; same integral order as `id`).
-pub fn variants(family_text: &str, fixed: &[Option<i64>], equations: &[String], max_phys_pairs: usize) -> Vec<NodeOrder> {
+pub fn variants(
+    family_text: &str,
+    fixed: &[Option<i64>],
+    equations: &[String],
+    max_phys_pairs: usize,
+) -> Vec<NodeOrder> {
     let phys_flags = physical_slots(family_text);
     let n = phys_flags.len();
     let phys: Vec<usize> = (0..n).filter(|&i| phys_flags[i]).collect();
     let isp: Vec<usize> = (0..n).filter(|&i| !phys_flags[i]).collect();
-    let eqvars: Vec<usize> = equations.iter().flat_map(|e| equation_variables(e)).collect();
-    let free_isp: Vec<usize> = isp.iter().copied().filter(|&i| fixed.get(i).copied().flatten().is_none()).collect();
+    let eqvars: Vec<usize> = equations
+        .iter()
+        .flat_map(|e| equation_variables(e))
+        .collect();
+    let free_isp: Vec<usize> = isp
+        .iter()
+        .copied()
+        .filter(|&i| fixed.get(i).copied().flatten().is_none())
+        .collect();
     let carry: Vec<usize> = phys
         .iter()
         .copied()
@@ -304,13 +373,25 @@ pub fn variants(family_text: &str, fixed: &[Option<i64>], equations: &[String], 
         }
         p
     };
-    let pres = |name: String, p: Vec<usize>| NodeOrder { name, slot_permutation: Some(p), ..NodeOrder::identity() };
+    let pres = |name: String, p: Vec<usize>| NodeOrder {
+        name,
+        slot_permutation: Some(p),
+        ..NodeOrder::identity()
+    };
     let mut out = vec![NodeOrder::identity()];
     if isp.len() > 1 {
         let rev: Vec<usize> = isp.iter().rev().copied().collect();
         out.push(pres("isp_rev_all".into(), with_slots(&isp, &rev)));
-        let priority: Vec<usize> = phys.iter().copied().chain(isp.iter().rev().copied()).collect();
-        out.push(NodeOrder { name: "tie_isp_rev".into(), coordinate_priority: Some(priority), ..NodeOrder::identity() });
+        let priority: Vec<usize> = phys
+            .iter()
+            .copied()
+            .chain(isp.iter().rev().copied())
+            .collect();
+        out.push(NodeOrder {
+            name: "tie_isp_rev".into(),
+            coordinate_priority: Some(priority),
+            ..NodeOrder::identity()
+        });
     }
     if free_isp.len() > 1 {
         let rev: Vec<usize> = free_isp.iter().rev().copied().collect();
@@ -339,11 +420,19 @@ pub fn variants(family_text: &str, fixed: &[Option<i64>], equations: &[String], 
         let rev: Vec<usize> = phys.iter().rev().copied().collect();
         out.push(pres("phys_rev".into(), with_slots(&phys, &rev)));
     }
-    out.push(NodeOrder { name: "src_rev".into(), source_order: SourceOrder::Reverse, ..NodeOrder::identity() });
+    out.push(NodeOrder {
+        name: "src_rev".into(),
+        source_order: SourceOrder::Reverse,
+        ..NodeOrder::identity()
+    });
     // dedup identical (presentation, priority, source) triples, keeping the first name
     let mut seen: Vec<(Vec<usize>, Option<Vec<usize>>, SourceOrder)> = Vec::new();
     out.retain(|o| {
-        let key = (o.new_to_old(n), o.coordinate_priority.clone(), o.source_order.clone());
+        let key = (
+            o.new_to_old(n),
+            o.coordinate_priority.clone(),
+            o.source_order.clone(),
+        );
         if seen.contains(&key) {
             false
         } else {
@@ -377,7 +466,10 @@ mod tests {
 
     #[test]
     fn case_mapping_roundtrip_and_equation_renaming() {
-        let o = NodeOrder { slot_permutation: Some(vec![2, 1, 0, 4, 3]), ..NodeOrder::identity() };
+        let o = NodeOrder {
+            slot_permutation: Some(vec![2, 1, 0, 4, 3]),
+            ..NodeOrder::identity()
+        };
         let fixed = vec![None, Some(2), Some(1), Some(0), None];
         let eqs = vec!["n0+n2-n4".to_string()];
         let (f2, e2) = o.present_case(&fixed, &eqs);
@@ -386,14 +478,20 @@ mod tests {
         let (f3, e3) = o.original_case(&f2, &e2);
         assert_eq!(f3, fixed);
         assert_eq!(e3, eqs);
-        assert_eq!(rename_index_variables("n10+n1-dn1", &(0..11).rev().collect::<Vec<_>>()), "n0+n9-dn1");
+        assert_eq!(
+            rename_index_variables("n10+n1-dn1", &(0..11).rev().collect::<Vec<_>>()),
+            "n0+n9-dn1"
+        );
     }
 
     #[test]
     fn variants_cover_the_campaign_rungs_and_dedup() {
         // T206-like case: physical slot 0 and 2 free, slot 1 dotted, ISPs fixed
         let fixed = vec![None, Some(2), None, Some(0), Some(0)];
-        let names: Vec<String> = variants(FAM, &fixed, &["n0+n1-n2".into()], 10).into_iter().map(|o| o.name).collect();
+        let names: Vec<String> = variants(FAM, &fixed, &["n0+n1-n2".into()], 10)
+            .into_iter()
+            .map(|o| o.name)
+            .collect();
         assert!(names.contains(&"id".to_string()));
         assert!(names.contains(&"phys_swap_0_2".to_string()));
         assert!(names.contains(&"phys_swap_1_2".to_string()));
@@ -401,7 +499,10 @@ mod tests {
         assert!(names.contains(&"src_rev".to_string()));
         // isp_rev_all of a 2-ISP family equals isp_rev_free when both are free -> dedup keeps one
         let fixed2 = vec![Some(1), Some(1), Some(1), None, None];
-        let v2: Vec<String> = variants(FAM, &fixed2, &[], 10).into_iter().map(|o| o.name).collect();
+        let v2: Vec<String> = variants(FAM, &fixed2, &[], 10)
+            .into_iter()
+            .map(|o| o.name)
+            .collect();
         assert!(v2.contains(&"isp_rev_all".to_string()));
         assert!(!v2.contains(&"isp_rev_free".to_string()));
         for o in variants(FAM, &fixed2, &[], 10) {
@@ -412,8 +513,14 @@ mod tests {
 
     #[test]
     fn source_order_visits() {
-        assert_eq!(SourceOrder::parse("reverse").unwrap().visit(3), Some(vec![2, 1, 0]));
-        assert_eq!(SourceOrder::parse("rot:1").unwrap().visit(3), Some(vec![1, 2, 0]));
+        assert_eq!(
+            SourceOrder::parse("reverse").unwrap().visit(3),
+            Some(vec![2, 1, 0])
+        );
+        assert_eq!(
+            SourceOrder::parse("rot:1").unwrap().visit(3),
+            Some(vec![1, 2, 0])
+        );
         assert_eq!(SourceOrder::parse("input").unwrap().visit(3), None);
         assert!(SourceOrder::parse("x").is_err());
     }

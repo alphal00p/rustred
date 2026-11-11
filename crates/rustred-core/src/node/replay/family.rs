@@ -39,7 +39,15 @@ fn lin(mom: &str) -> Result<BTreeMap<String, i64>, Unknown> {
         while i < s.len() && s[i].is_ascii_digit() {
             i += 1;
         }
-        let coef: i64 = if i > start { s[start..i].iter().collect::<String>().parse().map_err(|_| "momentum coefficient")? } else { 1 };
+        let coef: i64 = if i > start {
+            s[start..i]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .map_err(|_| "momentum coefficient")?
+        } else {
+            1
+        };
         if i < s.len() && s[i] == '*' {
             i += 1;
         }
@@ -59,9 +67,20 @@ fn lin(mom: &str) -> Result<BTreeMap<String, i64>, Unknown> {
 
 fn inverse(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, Unknown> {
     let n = m.len();
-    let mut a: Vec<Vec<Q>> = m.iter().enumerate().map(|(i, row)| row.iter().copied().chain((0..n).map(|j| if i == j { Q::ONE } else { Q::ZERO })).collect()).collect();
+    let mut a: Vec<Vec<Q>> = m
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .copied()
+                .chain((0..n).map(|j| if i == j { Q::ONE } else { Q::ZERO }))
+                .collect()
+        })
+        .collect();
     for c in 0..n {
-        let p = (c..n).find(|&r| !a[r][c].is_zero()).ok_or("singular scalar-product matrix")?;
+        let p = (c..n)
+            .find(|&r| !a[r][c].is_zero())
+            .ok_or("singular scalar-product matrix")?;
         a.swap(c, p);
         let f = a[c][c];
         a[c] = a[c].iter().map(|x| x.div(f)).collect::<Result<_, _>>()?;
@@ -69,7 +88,11 @@ fn inverse(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, Unknown> {
             if r != c && !a[r][c].is_zero() {
                 let g = a[r][c];
                 let pivot = a[c].clone();
-                a[r] = a[r].iter().zip(&pivot).map(|(x, y)| x.sub(g.mul(*y)?)).collect::<Result<_, _>>()?;
+                a[r] = a[r]
+                    .iter()
+                    .zip(&pivot)
+                    .map(|(x, y)| x.sub(g.mul(*y)?))
+                    .collect::<Result<_, _>>()?;
             }
         }
     }
@@ -98,7 +121,11 @@ fn call_args(src: &str, name: &str) -> Option<String> {
 impl Family {
     pub fn parse(src: &str) -> Result<Self, Unknown> {
         let compact: String = src.chars().filter(|c| !c.is_whitespace()).collect();
-        let loops: Vec<String> = call_args(&compact, "loops").ok_or("family without loops(...)")?.split(',').map(str::to_string).collect();
+        let loops: Vec<String> = call_args(&compact, "loops")
+            .ok_or("family without loops(...)")?
+            .split(',')
+            .map(str::to_string)
+            .collect();
         let mut props: Vec<(String, String)> = Vec::new();
         let mut rest = compact.as_str();
         // prop\(D\d+,\(([^)]*)\)\^2,(\d)\)
@@ -112,7 +139,9 @@ impl Family {
                 let mom = &s3[..close];
                 let s4 = s3[close..].strip_prefix(")^2,")?;
                 let flag = s4.chars().next().filter(char::is_ascii_digit)?;
-                s4[1..].starts_with(')').then(|| (mom.to_string(), flag.to_string()))
+                s4[1..]
+                    .starts_with(')')
+                    .then(|| (mom.to_string(), flag.to_string()))
             })();
             if let (true, Some(p)) = (digits > 0, parsed) {
                 props.push(p);
@@ -127,7 +156,10 @@ impl Family {
             let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
             let j: usize = digits.parse().map_err(|_| "power_shift label")?;
             let expr = call_args(&r[at..], "power_shift").unwrap_or_default();
-            let value = expr.split_once(',').map(|x| x.1.to_string()).unwrap_or_default();
+            let value = expr
+                .split_once(',')
+                .map(|x| x.1.to_string())
+                .unwrap_or_default();
             if value != "0" && !value.is_empty() {
                 // (4-d)/2 multiples: only the plain one-sided families are supported by this port
                 return Err("power shifts (eps axes) are not supported by the replay port".into());
@@ -139,10 +171,21 @@ impl Family {
         }
         let lcount = loops.len();
         let vs: Vec<String> = loops.iter().cloned().chain(["q".to_string()]).collect();
-        let c: Vec<Vec<i64>> = props.iter().map(|(m, _)| lin(m).map(|l| vs.iter().map(|v| l.get(v).copied().unwrap_or(0)).collect())).collect::<Result<_, _>>()?;
-        let pairs: Vec<(usize, usize)> = (0..=lcount).flat_map(|a| (a..=lcount).map(move |b| (a, b))).filter(|&(a, b)| !(a == lcount && b == lcount)).collect();
+        let c: Vec<Vec<i64>> = props
+            .iter()
+            .map(|(m, _)| {
+                lin(m).map(|l| vs.iter().map(|v| l.get(v).copied().unwrap_or(0)).collect())
+            })
+            .collect::<Result<_, _>>()?;
+        let pairs: Vec<(usize, usize)> = (0..=lcount)
+            .flat_map(|a| (a..=lcount).map(move |b| (a, b)))
+            .filter(|&(a, b)| !(a == lcount && b == lcount))
+            .collect();
         if pairs.len() != n {
-            return Err(format!("{} scalar products for {n} propagators: incomplete basis", pairs.len()));
+            return Err(format!(
+                "{} scalar products for {n} propagators: incomplete basis",
+                pairs.len()
+            ));
         }
         let idx = |a: usize, b: usize| pairs.iter().position(|&p| p == (a.min(b), a.max(b)));
         let mut m = vec![vec![Q::ZERO; n]; n];
@@ -164,7 +207,13 @@ impl Family {
             }
         }
         let mi = inverse(&m)?;
-        let sp = |a: usize, b: usize| if a == lcount && b == lcount { None } else { idx(a, b) };
+        let sp = |a: usize, b: usize| {
+            if a == lcount && b == lcount {
+                None
+            } else {
+                idx(a, b)
+            }
+        };
         let mut ops = Vec::new();
         for j in 0..lcount {
             for v in 0..=lcount {
@@ -194,18 +243,37 @@ impl Family {
                             }
                         }
                     }
-                    tab.push((t0, tm.into_iter().enumerate().filter(|(_, x)| !x.is_zero()).collect()));
+                    tab.push((
+                        t0,
+                        tm.into_iter()
+                            .enumerate()
+                            .filter(|(_, x)| !x.is_zero())
+                            .collect(),
+                    ));
                 }
                 ops.push((j == v, tab));
             }
         }
         let eps_axes = (0..n).filter(|&i| kshift[i] != 0).collect();
-        Ok(Self { n, loops: lcount, kshift, eps_axes, c, ops, zero_cache: RefCell::new(HashMap::new()) })
+        Ok(Self {
+            n,
+            loops: lcount,
+            kshift,
+            eps_axes,
+            c,
+            ops,
+            zero_cache: RefCell::new(HashMap::new()),
+        })
     }
 
     /// The L(L+1) IBP rows at base exponents `a` (integers), shift 0, dimension `d` (field element), mod p.
     /// Each row maps an offset (relative to `a`) to its coefficient.
-    pub fn rows_at(&self, a: &[i64], d: u64, p: u64) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
+    pub fn rows_at(
+        &self,
+        a: &[i64],
+        d: u64,
+        p: u64,
+    ) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
         let n = self.n;
         let ai: Vec<u64> = (0..n).map(|i| arith::from_i128(p, a[i] as i128)).collect();
         let mut out = Vec::with_capacity(self.ops.len());
@@ -312,14 +380,24 @@ impl Family {
         }
         let mut piv: Vec<(usize, Vec<Q>)> = Vec::new();
         for k in vecs {
-            let mut r: Vec<Q> = k.iter().map(|&e| Q::int(e as i128)).chain([Q::ONE]).collect();
+            let mut r: Vec<Q> = k
+                .iter()
+                .map(|&e| Q::int(e as i128))
+                .chain([Q::ONE])
+                .collect();
             for (c, pr) in &piv {
                 if !r[*c].is_zero() {
                     let f = r[*c];
-                    r = r.iter().zip(pr).map(|(a, b)| a.sub(f.mul(*b).unwrap()).unwrap()).collect();
+                    r = r
+                        .iter()
+                        .zip(pr)
+                        .map(|(a, b)| a.sub(f.mul(*b).unwrap()).unwrap())
+                        .collect();
                 }
             }
-            let Some(c) = (0..=t).find(|&j| !r[j].is_zero()) else { continue };
+            let Some(c) = (0..=t).find(|&j| !r[j].is_zero()) else {
+                continue;
+            };
             if c == t {
                 return false;
             }
@@ -353,7 +431,13 @@ impl Family {
                 }
             }
         }
-        fn det(mm: &[Vec<Poly>], rows: &[usize], cols: &[usize], memo: &mut HashMap<(Vec<usize>, Vec<usize>), Poly>, t: usize) -> Poly {
+        fn det(
+            mm: &[Vec<Poly>],
+            rows: &[usize],
+            cols: &[usize],
+            memo: &mut HashMap<(Vec<usize>, Vec<usize>), Poly>,
+            t: usize,
+        ) -> Poly {
             if rows.is_empty() {
                 let mut one = Poly::new();
                 one.insert(vec![0u8; t], 1);
@@ -370,7 +454,12 @@ impl Family {
                 if e.is_empty() {
                     continue;
                 }
-                let sub_cols: Vec<usize> = cols.iter().enumerate().filter(|(k, _)| *k != j).map(|(_, &x)| x).collect();
+                let sub_cols: Vec<usize> = cols
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| *k != j)
+                    .map(|(_, &x)| x)
+                    .collect();
                 let sub = det(mm, &rows[1..], &sub_cols, memo, t);
                 if sub.is_empty() {
                     continue;
@@ -424,9 +513,21 @@ mod tests {
                 let a = [1i128, 1, 1, 0, 0];
                 let mut v = form[0].modp(arith::P).unwrap();
                 for i in 0..5 {
-                    v = arith::add(arith::P, v, arith::mul(arith::P, form[i + 1].modp(arith::P).unwrap(), arith::from_i128(arith::P, a[i])));
+                    v = arith::add(
+                        arith::P,
+                        v,
+                        arith::mul(
+                            arith::P,
+                            form[i + 1].modp(arith::P).unwrap(),
+                            arith::from_i128(arith::P, a[i]),
+                        ),
+                    );
                 }
-                v = arith::add(arith::P, v, arith::mul(arith::P, form[6].modp(arith::P).unwrap(), 7));
+                v = arith::add(
+                    arith::P,
+                    v,
+                    arith::mul(arith::P, form[6].modp(arith::P).unwrap(), 7),
+                );
                 assert_eq!(md.get(k).copied().unwrap_or(0), v, "op {op} key {k:?}");
             }
         }

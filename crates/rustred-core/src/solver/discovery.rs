@@ -89,7 +89,11 @@ pub enum SymbolicExactBackend {
     /// Traces with fewer than `min_rows` source rows use the
     /// SparseTargetOnlyFactorized lift instead (`min_rows = 0`: always sampled).
     #[cfg(feature = "reconstruction")]
-    Sampled { threads: usize, seed: u64, min_rows: usize },
+    Sampled {
+        threads: usize,
+        seed: u64,
+        min_rows: usize,
+    },
     /// Reconstruct both target coefficients and source weights with Symbolica.
     /// A native modular harder-prefix rank certificate and a full exact source
     /// product prove equality to the ordinary first-target GPLU row without
@@ -670,9 +674,17 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     #[cfg(feature = "reconstruction")]
     if let Some(screen) = crate::node::screen::active() {
         if screen.screens(rows.len(), target_column + 1) {
-            let measure =
-                sampled::screen(rows, &columns, order, target_column, &variables, screen.max_points, screen.seed)?;
-            let symbolic_first = crate::node::screen::seed_schedule_override() == Some(super::SeedSchedule::SymbolicFirst);
+            let measure = sampled::screen(
+                rows,
+                &columns,
+                order,
+                target_column,
+                &variables,
+                screen.max_points,
+                screen.seed,
+            )?;
+            let symbolic_first = crate::node::screen::seed_schedule_override()
+                == Some(super::SeedSchedule::SymbolicFirst);
             let decision = screen.decide_in(&measure, symbolic_first);
             crate::node::screen::record(measure, decision.clone());
             match decision {
@@ -737,7 +749,12 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         );
     }
     #[cfg(feature = "reconstruction")]
-    if let SymbolicExactBackend::Sampled { threads, seed, min_rows } = backend {
+    if let SymbolicExactBackend::Sampled {
+        threads,
+        seed,
+        min_rows,
+    } = backend
+    {
         if rows.len() < min_rows {
             return target_only::materialize_factorized(
                 rows,

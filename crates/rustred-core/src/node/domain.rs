@@ -92,7 +92,13 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// Decide the integer domain of a case: `fixed[i]` (presented slots, None = free), `equations` (each `= 0`),
 /// `physical[i]` (true: n >= 1, false: n <= 0). Finite domains with more than `cap` points, or whose bounding box
 /// has more than `box_cap` points, are `Unknown`.
-pub fn integer_domain(fixed: &[Option<i64>], equations: &[String], physical: &[bool], cap: usize, box_cap: u64) -> IntegerDomain {
+pub fn integer_domain(
+    fixed: &[Option<i64>],
+    equations: &[String],
+    physical: &[bool],
+    cap: usize,
+    box_cap: u64,
+) -> IntegerDomain {
     let n = fixed.len();
     // fixed values outside the orthant: empty
     for i in 0..n {
@@ -166,7 +172,11 @@ pub fn integer_domain(fixed: &[Option<i64>], equations: &[String], physical: &[b
                     }
                 }
                 // cj > 0: y_j <= hi / cj ; cj < 0: y_j <= -lo / |cj| ... i.e. |cj| y_j <= -lo
-                let bound = if cj > 0 { hi.map(|h| h.div_euclid(cj as i128)) } else { lo.map(|l| (-l).div_euclid(-(cj as i128))) };
+                let bound = if cj > 0 {
+                    hi.map(|h| h.div_euclid(cj as i128))
+                } else {
+                    lo.map(|l| (-l).div_euclid(-(cj as i128)))
+                };
                 if let Some(b) = bound {
                     if b < 0 {
                         return IntegerDomain::Empty;
@@ -205,7 +215,10 @@ pub fn integer_domain(fixed: &[Option<i64>], equations: &[String], physical: &[b
     let mut y = vec![0i64; coupled.len()];
     'outer: loop {
         let ok = rows.iter().all(|(row, r)| {
-            let s: i128 = row.iter().map(|(k, c)| *c as i128 * y[coupled.iter().position(|x| x == k).unwrap()] as i128).sum();
+            let s: i128 = row
+                .iter()
+                .map(|(k, c)| *c as i128 * y[coupled.iter().position(|x| x == k).unwrap()] as i128)
+                .sum();
             s == *r as i128
         });
         if ok {
@@ -250,8 +263,20 @@ mod tests {
 
     #[test]
     fn parses_engine_linear_forms() {
-        assert_eq!(parse_linear("1-n11-n2+n0", 12), Some((1, { let mut v = vec![0; 12]; v[11] = -1; v[2] = -1; v[0] = 1; v })));
-        assert_eq!(parse_linear("2*n3-n4+3", 5), Some((3, vec![0, 0, 0, 2, -1])));
+        assert_eq!(
+            parse_linear("1-n11-n2+n0", 12),
+            Some((1, {
+                let mut v = vec![0; 12];
+                v[11] = -1;
+                v[2] = -1;
+                v[0] = 1;
+                v
+            }))
+        );
+        assert_eq!(
+            parse_linear("2*n3-n4+3", 5),
+            Some((3, vec![0, 0, 0, 2, -1]))
+        );
         assert_eq!(parse_linear("n1*3", 2), Some((0, vec![0, 3])));
         assert_eq!(parse_linear("n1^2", 2), None);
         assert_eq!(parse_linear("d-n1", 2), None);
@@ -261,9 +286,18 @@ mod tests {
     fn t211_two_isp_sum_is_finite_and_a_negative_physical_sum_is_empty() {
         // slots: 0 physical, 1, 2 ISP. n1 + n2 = -1 with n1, n2 <= 0: points (0,-1), (-1,0); n0 free -> infinite
         let phys = [true, false, false];
-        assert_eq!(integer_domain(&[None, None, None], &["n1+n2+1".into()], &phys, 64, 1 << 20), IntegerDomain::Infinite);
+        assert_eq!(
+            integer_domain(&[None, None, None], &["n1+n2+1".into()], &phys, 64, 1 << 20),
+            IntegerDomain::Infinite
+        );
         // n0 fixed: finite, two points
-        match integer_domain(&[Some(1), None, None], &["n1+n2+1".into()], &phys, 64, 1 << 20) {
+        match integer_domain(
+            &[Some(1), None, None],
+            &["n1+n2+1".into()],
+            &phys,
+            64,
+            1 << 20,
+        ) {
             IntegerDomain::Finite(p) => {
                 assert_eq!(p.len(), 2);
                 assert!(p.contains(&vec![1, 0, -1]) && p.contains(&vec![1, -1, 0]));
@@ -271,25 +305,70 @@ mod tests {
             d => panic!("{d:?}"),
         }
         // n1 + n2 = +1 with both ISPs: empty
-        assert_eq!(integer_domain(&[Some(1), None, None], &["n1+n2-1".into()], &phys, 64, 1 << 20), IntegerDomain::Empty);
+        assert_eq!(
+            integer_domain(
+                &[Some(1), None, None],
+                &["n1+n2-1".into()],
+                &phys,
+                64,
+                1 << 20
+            ),
+            IntegerDomain::Empty
+        );
         // physical n0 = 0: empty (fixed outside the orthant through an equation)
-        assert_eq!(integer_domain(&[None, Some(0), Some(0)], &["n0".into()], &phys, 64, 1 << 20), IntegerDomain::Empty);
+        assert_eq!(
+            integer_domain(
+                &[None, Some(0), Some(0)],
+                &["n0".into()],
+                &phys,
+                64,
+                1 << 20
+            ),
+            IntegerDomain::Empty
+        );
         // gcd: 2 n1 - 2 n2 = 1 has no integer solution
-        assert_eq!(integer_domain(&[Some(1), None, None], &["2*n1-2*n2-1".into()], &phys, 64, 1 << 20), IntegerDomain::Empty);
+        assert_eq!(
+            integer_domain(
+                &[Some(1), None, None],
+                &["2*n1-2*n2-1".into()],
+                &phys,
+                64,
+                1 << 20
+            ),
+            IntegerDomain::Empty
+        );
         // a mixed-sign equation leaves the coordinates unbounded: undecided
-        assert_eq!(integer_domain(&[Some(1), None, None], &["n1-n2".into()], &phys, 64, 1 << 20), IntegerDomain::Unknown);
+        assert_eq!(
+            integer_domain(
+                &[Some(1), None, None],
+                &["n1-n2".into()],
+                &phys,
+                64,
+                1 << 20
+            ),
+            IntegerDomain::Unknown
+        );
         // T206 refused case: 1 - n11 - n2 + n0 = 0 with n0, n2, n11 physical (n0 = n2 + n11 - 1): infinite domain
         let phys12 = [true; 12];
         let mut fixed = vec![Some(1i64); 12];
         fixed[0] = None;
         fixed[2] = None;
         fixed[11] = None;
-        assert_eq!(integer_domain(&fixed, &["1-n11-n2+n0".into()], &phys12, 64, 1 << 20), IntegerDomain::Unknown);
+        assert_eq!(
+            integer_domain(&fixed, &["1-n11-n2+n0".into()], &phys12, 64, 1 << 20),
+            IntegerDomain::Unknown
+        );
     }
 
     #[test]
     fn fixed_point_outside_the_orthant_is_empty() {
-        assert_eq!(integer_domain(&[Some(0), None], &[], &[true, false], 64, 1 << 20), IntegerDomain::Empty);
-        assert_eq!(integer_domain(&[Some(1), None], &[], &[true, false], 64, 1 << 20), IntegerDomain::Infinite);
+        assert_eq!(
+            integer_domain(&[Some(0), None], &[], &[true, false], 64, 1 << 20),
+            IntegerDomain::Empty
+        );
+        assert_eq!(
+            integer_domain(&[Some(1), None], &[], &[true, false], 64, 1 << 20),
+            IntegerDomain::Infinite
+        );
     }
 }

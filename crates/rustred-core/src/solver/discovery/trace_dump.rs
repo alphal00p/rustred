@@ -15,7 +15,10 @@ use crate::algebra::Coefficient;
 
 use super::{ExactRow, Integral, IntegralOrder};
 
-fn poly(out: &mut String, p: &symbolica::poly::polynomial::MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>) {
+fn poly(
+    out: &mut String,
+    p: &symbolica::poly::polynomial::MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>,
+) {
     let n = p.nvars();
     for (i, c) in p.coefficients.iter().enumerate() {
         if i > 0 {
@@ -44,12 +47,19 @@ pub(super) fn maybe_dump<const N: usize>(
     order: &IntegralOrder<N>,
     target_column: usize,
 ) {
-    let Ok(path) = std::env::var("RUSTRED_TRACE_DUMP") else { return };
-    let min_rows: usize = std::env::var("RUSTRED_TRACE_DUMP_MIN_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+    let Ok(path) = std::env::var("RUSTRED_TRACE_DUMP") else {
+        return;
+    };
+    let min_rows: usize = std::env::var("RUSTRED_TRACE_DUMP_MIN_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1500);
     if rows.len() < min_rows {
         return;
     }
-    let Some(first) = rows.iter().flatten().next() else { return };
+    let Some(first) = rows.iter().flatten().next() else {
+        return;
+    };
     let vars = first.coefficient.get_variables();
     let mut s = String::new();
     s.push_str("TRACE v1\n");
@@ -80,7 +90,11 @@ pub(super) fn maybe_dump<const N: usize>(
     f.write_all(s.as_bytes()).expect("trace dump write");
     drop(f);
     std::fs::rename(&tmp, &path).expect("trace dump rename");
-    eprintln!("TRACE_DUMP {path} rows={} columns={} target={target_column}", rows.len(), columns.len());
+    eprintln!(
+        "TRACE_DUMP {path} rows={} columns={} target={target_column}",
+        rows.len(),
+        columns.len()
+    );
     if std::env::var("RUSTRED_TRACE_DUMP_EXIT").as_deref() == Ok("1") {
         std::process::exit(42);
     }

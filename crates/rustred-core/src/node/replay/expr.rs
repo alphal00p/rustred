@@ -53,7 +53,11 @@ impl Parser<'_> {
             self.i += 1;
             terms.push((c == b'-', self.term()?));
         }
-        Ok(if terms.len() == 1 && !terms[0].0 { terms.pop().unwrap().1 } else { Node::Sum(terms) })
+        Ok(if terms.len() == 1 && !terms[0].0 {
+            terms.pop().unwrap().1
+        } else {
+            Node::Sum(terms)
+        })
     }
     fn term(&mut self) -> Result<Node, Unknown> {
         let mut factors = vec![('*', self.unary()?)];
@@ -70,7 +74,11 @@ impl Parser<'_> {
                 _ => break,
             }
         }
-        Ok(if factors.len() == 1 { factors.pop().unwrap().1 } else { Node::Prod(factors) })
+        Ok(if factors.len() == 1 {
+            factors.pop().unwrap().1
+        } else {
+            Node::Prod(factors)
+        })
     }
     fn unary(&mut self) -> Result<Node, Unknown> {
         match self.peek() {
@@ -115,37 +123,55 @@ impl Parser<'_> {
                 while self.i < self.s.len() && self.s[self.i].is_ascii_digit() {
                     self.i += 1;
                 }
-                if self.i < self.s.len() && (self.s[self.i] == b'.' || self.s[self.i].is_ascii_alphabetic()) {
+                if self.i < self.s.len()
+                    && (self.s[self.i] == b'.' || self.s[self.i].is_ascii_alphabetic())
+                {
                     return Err("noninteger scalar literal".into());
                 }
-                Ok(Node::Num(String::from_utf8_lossy(&self.s[start..self.i]).into_owned()))
+                Ok(Node::Num(
+                    String::from_utf8_lossy(&self.s[start..self.i]).into_owned(),
+                ))
             }
             Some(c) if c.is_ascii_alphabetic() || c == b'_' => {
                 let start = self.i;
-                while self.i < self.s.len() && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_') {
+                while self.i < self.s.len()
+                    && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_')
+                {
                     self.i += 1;
                 }
                 let name = String::from_utf8_lossy(&self.s[start..self.i]).into_owned();
                 if name == "d" {
                     return Ok(Node::Var(self.n));
                 }
-                let ok = name.len() > 1 && name.starts_with('n') && name[1..].chars().all(|c| c.is_ascii_digit()) && (name == "n0" || !name[1..].starts_with('0'));
+                let ok = name.len() > 1
+                    && name.starts_with('n')
+                    && name[1..].chars().all(|c| c.is_ascii_digit())
+                    && (name == "n0" || !name[1..].starts_with('0'));
                 if ok {
-                    let k: usize = name[1..].parse().map_err(|_| format!("unsupported variable {name}"))?;
+                    let k: usize = name[1..]
+                        .parse()
+                        .map_err(|_| format!("unsupported variable {name}"))?;
                     if k < self.n {
                         return Ok(Node::Var(k));
                     }
                 }
                 Err(format!("unsupported variable {name}"))
             }
-            other => Err(format!("unsupported polynomial syntax at byte {} ({:?})", self.i, other.map(|c| c as char))),
+            other => Err(format!(
+                "unsupported polynomial syntax at byte {} ({:?})",
+                self.i,
+                other.map(|c| c as char)
+            )),
         }
     }
 }
 
 fn const_int(node: &Node) -> Result<Q, Unknown> {
     match node {
-        Node::Num(s) => Ok(Q::int(s.parse::<i128>().map_err(|_| "unsupported exponent".to_string())?)),
+        Node::Num(s) => Ok(Q::int(
+            s.parse::<i128>()
+                .map_err(|_| "unsupported exponent".to_string())?,
+        )),
         Node::Neg(a) => Ok(const_int(a)?.neg()),
         Node::Bin(op, a, b) => {
             let (a, b) = (const_int(a)?, const_int(b)?);
@@ -174,12 +200,23 @@ impl Expr {
         if text.contains("...") || text.contains('…') {
             return Err("truncated/non-string polynomial".into());
         }
-        let mut p = Parser { s: text.as_bytes(), i: 0, n };
+        let mut p = Parser {
+            s: text.as_bytes(),
+            i: 0,
+            n,
+        };
         let root = p.expr()?;
         if p.peek().is_some() {
-            return Err(format!("unsupported polynomial syntax: trailing input at byte {}", p.i));
+            return Err(format!(
+                "unsupported polynomial syntax: trailing input at byte {}",
+                p.i
+            ));
         }
-        let e = Expr { text: text.to_string(), root, n };
+        let e = Expr {
+            text: text.to_string(),
+            root,
+            n,
+        };
         e.check(&e.root)?;
         Ok(e)
     }
@@ -211,7 +248,9 @@ impl Expr {
 
     fn eval(&self, node: &Node, p: u64, point: &[u64], d: u64) -> Result<u64, Unknown> {
         Ok(match node {
-            Node::Num(s) => s.bytes().fold(0u64, |acc, c| arith::add(p, arith::mul(p, acc, 10), (c - b'0') as u64)),
+            Node::Num(s) => s.bytes().fold(0u64, |acc, c| {
+                arith::add(p, arith::mul(p, acc, 10), (c - b'0') as u64)
+            }),
             Node::Var(k) => {
                 if *k == self.n {
                     d
@@ -224,7 +263,11 @@ impl Expr {
                 let mut acc = 0u64;
                 for (neg, t) in ts {
                     let v = self.eval(t, p, point, d)?;
-                    acc = if *neg { arith::sub(p, acc, v) } else { arith::add(p, acc, v) };
+                    acc = if *neg {
+                        arith::sub(p, acc, v)
+                    } else {
+                        arith::add(p, acc, v)
+                    };
                 }
                 acc
             }
@@ -232,7 +275,16 @@ impl Expr {
                 let mut acc = 1u64;
                 for (op, f) in fs {
                     let v = self.eval(f, p, point, d)?;
-                    acc = if *op == '/' { arith::mul(p, acc, arith::inv(p, v).ok_or_else(|| format!("sample pole: {}", short(&self.text)))?) } else { arith::mul(p, acc, v) };
+                    acc = if *op == '/' {
+                        arith::mul(
+                            p,
+                            acc,
+                            arith::inv(p, v)
+                                .ok_or_else(|| format!("sample pole: {}", short(&self.text)))?,
+                        )
+                    } else {
+                        arith::mul(p, acc, v)
+                    };
                 }
                 acc
             }
@@ -243,7 +295,12 @@ impl Expr {
                     if e >= 0 {
                         arith::pow(p, base, e as u64)
                     } else {
-                        arith::pow(p, arith::inv(p, base).ok_or_else(|| format!("sample pole: {}", short(&self.text)))?, (-e) as u64)
+                        arith::pow(
+                            p,
+                            arith::inv(p, base)
+                                .ok_or_else(|| format!("sample pole: {}", short(&self.text)))?,
+                            (-e) as u64,
+                        )
                     }
                 } else {
                     let (x, y) = (self.eval(a, p, point, d)?, self.eval(b, p, point, d)?);
@@ -251,7 +308,12 @@ impl Expr {
                         '+' => arith::add(p, x, y),
                         '-' => arith::sub(p, x, y),
                         '*' => arith::mul(p, x, y),
-                        '/' => arith::mul(p, x, arith::inv(p, y).ok_or_else(|| format!("sample pole: {}", short(&self.text)))?),
+                        '/' => arith::mul(
+                            p,
+                            x,
+                            arith::inv(p, y)
+                                .ok_or_else(|| format!("sample pole: {}", short(&self.text)))?,
+                        ),
                         _ => unreachable!(),
                     }
                 }
@@ -261,7 +323,10 @@ impl Expr {
 
     /// Integer point, rational d: mod p (d = num/den reduced mod p).
     pub fn at_point(&self, p: u64, point: &[i64], d: Q) -> Result<u64, Unknown> {
-        let pt: Vec<u64> = point.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+        let pt: Vec<u64> = point
+            .iter()
+            .map(|&x| arith::from_i128(p, x as i128))
+            .collect();
         let dv = d.modp(p).ok_or("dimension pole")?;
         self.at_mod(p, &pt, dv)
     }
@@ -285,7 +350,10 @@ impl Expr {
         };
         let is_const = |v: &[Q]| v[1..].iter().all(Q::is_zero);
         Ok(match node {
-            Node::Num(s) => constant(Q::int(s.parse::<i128>().map_err(|_| "exact rational overflow".to_string())?)),
+            Node::Num(s) => constant(Q::int(
+                s.parse::<i128>()
+                    .map_err(|_| "exact rational overflow".to_string())?,
+            )),
             Node::Var(k) => {
                 let mut v = vec![Q::ZERO; width];
                 v[k + 1] = Q::ONE;
@@ -296,7 +364,11 @@ impl Expr {
                 let mut acc = vec![Q::ZERO; width];
                 for (neg, t) in ts {
                     let v = self.lin(t)?;
-                    acc = acc.iter().zip(&v).map(|(a, b)| if *neg { a.sub(*b) } else { a.add(*b) }).collect::<Result<_, _>>()?;
+                    acc = acc
+                        .iter()
+                        .zip(&v)
+                        .map(|(a, b)| if *neg { a.sub(*b) } else { a.add(*b) })
+                        .collect::<Result<_, _>>()?;
                 }
                 acc
             }
@@ -305,9 +377,15 @@ impl Expr {
                 for (op, f) in fs {
                     let y = self.lin(f)?;
                     acc = match op {
-                        '*' if is_const(&acc) => y.iter().map(|b| acc[0].mul(*b)).collect::<Result<_, _>>()?,
-                        '*' if is_const(&y) => acc.iter().map(|a| a.mul(y[0])).collect::<Result<_, _>>()?,
-                        '/' if is_const(&y) => acc.iter().map(|a| a.div(y[0])).collect::<Result<_, _>>()?,
+                        '*' if is_const(&acc) => {
+                            y.iter().map(|b| acc[0].mul(*b)).collect::<Result<_, _>>()?
+                        }
+                        '*' if is_const(&y) => {
+                            acc.iter().map(|a| a.mul(y[0])).collect::<Result<_, _>>()?
+                        }
+                        '/' if is_const(&y) => {
+                            acc.iter().map(|a| a.div(y[0])).collect::<Result<_, _>>()?
+                        }
                         _ => return Err("non-affine expression".into()),
                     };
                 }
@@ -316,11 +394,25 @@ impl Expr {
             Node::Bin(op, a, b) => {
                 let (x, y) = (self.lin(a)?, self.lin(b)?);
                 match op {
-                    '+' => x.iter().zip(&y).map(|(a, b)| a.add(*b)).collect::<Result<_, _>>()?,
-                    '-' => x.iter().zip(&y).map(|(a, b)| a.sub(*b)).collect::<Result<_, _>>()?,
-                    '*' if is_const(&x) => y.iter().map(|b| x[0].mul(*b)).collect::<Result<_, _>>()?,
-                    '*' if is_const(&y) => x.iter().map(|a| a.mul(y[0])).collect::<Result<_, _>>()?,
-                    '/' if is_const(&y) => x.iter().map(|a| a.div(y[0])).collect::<Result<_, _>>()?,
+                    '+' => x
+                        .iter()
+                        .zip(&y)
+                        .map(|(a, b)| a.add(*b))
+                        .collect::<Result<_, _>>()?,
+                    '-' => x
+                        .iter()
+                        .zip(&y)
+                        .map(|(a, b)| a.sub(*b))
+                        .collect::<Result<_, _>>()?,
+                    '*' if is_const(&x) => {
+                        y.iter().map(|b| x[0].mul(*b)).collect::<Result<_, _>>()?
+                    }
+                    '*' if is_const(&y) => {
+                        x.iter().map(|a| a.mul(y[0])).collect::<Result<_, _>>()?
+                    }
+                    '/' if is_const(&y) => {
+                        x.iter().map(|a| a.div(y[0])).collect::<Result<_, _>>()?
+                    }
                     '^' => {
                         let e = const_int(b)?.n;
                         if is_const(&x) && e >= 0 {
@@ -350,7 +442,13 @@ impl Expr {
                 Node::Num(_) => 0,
                 Node::Var(_) => 1,
                 Node::Neg(a) => deg(a)?,
-                Node::Sum(ts) => ts.iter().map(|(_, t)| deg(t)).collect::<Result<Vec<_>, _>>()?.into_iter().max().unwrap_or(0),
+                Node::Sum(ts) => ts
+                    .iter()
+                    .map(|(_, t)| deg(t))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .max()
+                    .unwrap_or(0),
                 Node::Prod(fs) => {
                     let mut total = 0;
                     for (op, f) in fs {
@@ -425,19 +523,37 @@ mod tests {
         assert!(Expr::parse("n2", 2).is_err());
         assert!(Expr::parse("x+1", 2).is_err());
         assert!(Expr::parse("1.5", 2).is_err());
-        assert!(Expr::parse("1/(n0-1)", 1).unwrap().at_point(P, &[1], Q::int(3)).is_err());
+        assert!(
+            Expr::parse("1/(n0-1)", 1)
+                .unwrap()
+                .at_point(P, &[1], Q::int(3))
+                .is_err()
+        );
     }
 
     #[test]
     fn linear_degree_and_zero() {
         let e = Expr::parse("1/2*n0-n1+3*d-4", 2).unwrap();
         let l = e.linear().unwrap();
-        assert_eq!(l, vec![Q::int(-4), Q::new(1, 2).unwrap(), Q::int(-1), Q::int(3)]);
+        assert_eq!(
+            l,
+            vec![Q::int(-4), Q::new(1, 2).unwrap(), Q::int(-1), Q::int(3)]
+        );
         assert_eq!(e.degree().unwrap(), 1);
         assert!(Expr::parse("n0*n1", 2).unwrap().linear().is_err());
         assert_eq!(Expr::parse("n0*n1^2", 2).unwrap().degree().unwrap(), 3);
-        assert!(Expr::parse("n0-n1", 2).unwrap().is_zero_at(&[3, 3], Q::int(1)).unwrap());
-        assert!(!Expr::parse("n0-n1", 2).unwrap().is_zero_at(&[3, 4], Q::int(1)).unwrap());
+        assert!(
+            Expr::parse("n0-n1", 2)
+                .unwrap()
+                .is_zero_at(&[3, 3], Q::int(1))
+                .unwrap()
+        );
+        assert!(
+            !Expr::parse("n0-n1", 2)
+                .unwrap()
+                .is_zero_at(&[3, 4], Q::int(1))
+                .unwrap()
+        );
         assert!(Expr::parse("n0+d", 1).unwrap().has_d());
     }
 
@@ -445,12 +561,27 @@ mod tests {
     /// limit, and a 168k-character coefficient; expected values from the accepted modular evaluator.
     #[test]
     fn deep_and_large_scalar_regressions() {
-        for text in [include_str!("../testdata/scalar_deep_T206_r1132.json"), include_str!("../testdata/scalar_large_T211_r2510.json")] {
+        for text in [
+            include_str!("../testdata/scalar_deep_T206_r1132.json"),
+            include_str!("../testdata/scalar_large_T211_r2510.json"),
+        ] {
             let x: serde_json::Value = serde_json::from_str(text).unwrap();
             let e = Expr::parse(x["coefficient"].as_str().unwrap(), 20).unwrap();
-            let point: Vec<i64> = x["point"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
-            for (ds, want) in x["dimensions"].as_array().unwrap().iter().zip(x["expected_values"].as_array().unwrap()) {
-                let got = e.at_point(P, &point, Q::parse(ds.as_str().unwrap()).unwrap()).unwrap();
+            let point: Vec<i64> = x["point"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_i64().unwrap())
+                .collect();
+            for (ds, want) in x["dimensions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(x["expected_values"].as_array().unwrap())
+            {
+                let got = e
+                    .at_point(P, &point, Q::parse(ds.as_str().unwrap()).unwrap())
+                    .unwrap();
                 assert_eq!(got, want.as_u64().unwrap(), "{} at d={ds}", x["integral"]);
             }
         }

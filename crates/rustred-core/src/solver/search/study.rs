@@ -52,7 +52,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 return None;
             }
             let p = initial[i];
-            if !p.is_symbolic() && (i32::from(p.value()) + i32::from(shifts[i]) > 0) != (p.value() > 0) {
+            if !p.is_symbolic()
+                && (i32::from(p.value()) + i32::from(shifts[i]) > 0) != (p.value() > 0)
+            {
                 return None;
             }
             powers[i] = powers[i].shifted(shifts[i]).ok()?;
@@ -60,13 +62,33 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 seed_shifts[i] = shifts[i];
             }
         }
-        Some(Seed { integral: Integral::new(powers), shifts: seed_shifts })
+        Some(Seed {
+            integral: Integral::new(powers),
+            shifts: seed_shifts,
+        })
     }
 
     /// Instantiate one basis row at one seed for `case` (the discovery instantiation).
-    pub fn study_instantiate(&self, case: &Case<N>, basis_row: usize, seed: &Seed<N>) -> Result<ExactRow<N>, SolverError> {
-        let zero: &[[bool; N]] = if case.affine().is_some() { &[] } else { &self.config.zero_sectors };
-        instantiate(&self.basis[basis_row], seed, &self.system.indices, self.system.fixed(), &self.order, zero, case.affine())
+    pub fn study_instantiate(
+        &self,
+        case: &Case<N>,
+        basis_row: usize,
+        seed: &Seed<N>,
+    ) -> Result<ExactRow<N>, SolverError> {
+        let zero: &[[bool; N]] = if case.affine().is_some() {
+            &[]
+        } else {
+            &self.config.zero_sectors
+        };
+        instantiate(
+            &self.basis[basis_row],
+            seed,
+            &self.system.indices,
+            self.system.fixed(),
+            &self.order,
+            zero,
+            case.affine(),
+        )
     }
 
     /// The discovery loop of `solve_case` (default visit order) with an optional explicit seed list in place of the
@@ -82,11 +104,20 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         self.validate_search(case, options)?;
         let initial = case.integral();
         let mut stream = super::super::ScheduledSeeds::new(
-            super::super::Seeds::new_two_sided(initial, *self.order.sector(), self.seed_frozen(), self.order.two_sided_axes()),
+            super::super::Seeds::new_two_sided(
+                initial,
+                *self.order.sector(),
+                self.seed_frozen(),
+                self.order.two_sided_axes(),
+            ),
             self.config.seed_schedule,
         );
         let probe = Probe::new(self.order.clone(), self.system.variable_count, options);
-        let point: Vec<u64> = probe.point.iter().map(|x| probe.field.from_element(x)).collect();
+        let point: Vec<u64> = probe
+            .point
+            .iter()
+            .map(|x| probe.field.from_element(x))
+            .collect();
         let mut probe = Some(probe);
         let mut out = TraceStudy {
             rows: Vec::new(),
@@ -110,7 +141,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 None => match stream.next() {
                     Some(s) => {
                         out.depth = stream.depth();
-                        if options.max_depth.is_some_and(|limit| stream.depth() > limit) {
+                        if options
+                            .max_depth
+                            .is_some_and(|limit| stream.depth() > limit)
+                        {
                             break;
                         }
                         s?
@@ -124,13 +158,22 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             out.seeds += 1;
             for ordinal in 0..self.basis.len() {
                 let row = self.study_instantiate(case, ordinal, &seed)?;
-                let Some(leading) = row.first().map(|t| t.integral) else { continue };
-                let source = SeedSource { basis_row: ordinal, seed };
+                let Some(leading) = row.first().map(|t| t.integral) else {
+                    continue;
+                };
+                let source = SeedSource {
+                    basis_row: ordinal,
+                    seed,
+                };
                 if case.matches(&leading) && stop_at_match {
                     out.direct_hit = true;
                     out.pivot = Some(leading);
                     let index = out.rows.len();
-                    out.rows.push(StudyRow { row, source, pivot: Some(leading) });
+                    out.rows.push(StudyRow {
+                        row,
+                        source,
+                        pivot: Some(leading),
+                    });
                     out.root = Some(index);
                     out.trace = vec![index];
                     return Ok(out);
@@ -184,7 +227,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     }
 
     /// Canonical (target, rhs) of an exact winning row, as the engine publishes candidates.
-    pub fn study_canonicalize(&self, row: ExactRow<N>) -> Result<(Integral<N>, ExactRow<N>), SolverError> {
+    pub fn study_canonicalize(
+        &self,
+        row: ExactRow<N>,
+    ) -> Result<(Integral<N>, ExactRow<N>), SolverError> {
         canonicalize(row, &self.system.indices)
     }
 

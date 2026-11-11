@@ -189,10 +189,16 @@ impl LiftScreen {
         }
         let degree = m.max_num_degree.max(m.max_den_degree);
         if degree > self.max_total_degree {
-            return Some(format!("total coefficient degree {degree} > {}", self.max_total_degree));
+            return Some(format!(
+                "total coefficient degree {degree} > {}",
+                self.max_total_degree
+            ));
         }
         if m.rhs_terms > self.max_rhs_terms {
-            return Some(format!("{} RHS terms > {}", m.rhs_terms, self.max_rhs_terms));
+            return Some(format!(
+                "{} RHS terms > {}",
+                m.rhs_terms, self.max_rhs_terms
+            ));
         }
         None
     }
@@ -203,10 +209,15 @@ impl LiftScreen {
         if b > self.max_box {
             return Err(format!("dense box {b} > {}", self.max_box));
         }
-        let cpu = m.sampled_cpu_seconds(self.est_primes).unwrap_or(f64::INFINITY);
+        let cpu = m
+            .sampled_cpu_seconds(self.est_primes)
+            .unwrap_or(f64::INFINITY);
         let wall = cpu / self.sampled_threads.max(1) as f64;
         if wall > self.sampled_budget_seconds as f64 {
-            return Err(format!("estimated sampled cost {wall:.0} s > {} s (box {b}, replay {:.3} s)", self.sampled_budget_seconds, m.replay_seconds));
+            return Err(format!(
+                "estimated sampled cost {wall:.0} s > {} s (box {b}, replay {:.3} s)",
+                self.sampled_budget_seconds, m.replay_seconds
+            ));
         }
         Ok(())
     }
@@ -222,8 +233,14 @@ impl LiftScreen {
 
     /// [`Self::decide`] knowing whether the search ran under the SymbolicFirst seed schedule.
     pub fn decide_in(&self, m: &ScreenMeasure, symbolic_first: bool) -> ScreenDecision {
-        if self.heavy(m).is_none() && !symbolic_first && self.symbolic_first_from_rows.is_some_and(|r| m.rows >= r) {
-            return ScreenDecision::Refuse(format!("large trace ({} rows) of a small relation: SymbolicFirst rung first", m.rows));
+        if self.heavy(m).is_none()
+            && !symbolic_first
+            && self.symbolic_first_from_rows.is_some_and(|r| m.rows >= r)
+        {
+            return ScreenDecision::Refuse(format!(
+                "large trace ({} rows) of a small relation: SymbolicFirst rung first",
+                m.rows
+            ));
         }
         match self.heavy(m) {
             Some(reason) => match self.on_heavy {
@@ -245,7 +262,10 @@ impl LiftScreen {
                         // a LARGE trace of a relation whose box is beyond the reconstruction: class B, never lifted
                         // (T163/T182/T216 c3: 1882-3087-row exact lifts of degree <= 24 ran into the case budget)
                         Err(why) if m.box_unknowns().is_some_and(|b| b > self.max_box) => {
-                            ScreenDecision::Refuse(format!("large trace ({} rows), class B: {why}", m.rows))
+                            ScreenDecision::Refuse(format!(
+                                "large trace ({} rows), class B: {why}",
+                                m.rows
+                            ))
                         }
                         Err(_) => ScreenDecision::Pass,
                     }
@@ -277,7 +297,10 @@ pub fn with_screen<R>(screen: Option<LiftScreen>, f: impl FnOnce() -> R) -> R {
 
 /// Run `f` with the symbolic case search's in-shell seed schedule overridden on this thread (the lift ladder's first
 /// rung: `SymbolicFirst` keeps the presentation and the seed ball, p5l-lift-trace). Restored afterwards.
-pub fn with_seed_schedule<R>(schedule: Option<crate::solver::SeedSchedule>, f: impl FnOnce() -> R) -> R {
+pub fn with_seed_schedule<R>(
+    schedule: Option<crate::solver::SeedSchedule>,
+    f: impl FnOnce() -> R,
+) -> R {
     struct Restore(Option<crate::solver::SeedSchedule>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -305,7 +328,13 @@ pub(crate) fn active() -> Option<LiftScreen> {
 
 pub(crate) fn record(measure: ScreenMeasure, decision: ScreenDecision) {
     let heavy = active().and_then(|s| s.heavy(&measure));
-    REPORTS.with(|r| r.borrow_mut().push(ScreenReport { measure, decision, heavy }));
+    REPORTS.with(|r| {
+        r.borrow_mut().push(ScreenReport {
+            measure,
+            decision,
+            heavy,
+        })
+    });
 }
 
 #[cfg(test)]
@@ -313,44 +342,133 @@ mod tests {
     use super::*;
 
     fn m(deg: usize, rhs: usize, rows: usize, converged: bool) -> ScreenMeasure {
-        ScreenMeasure { rows, variables: 3, rhs_terms: rhs, max_num_degree: deg, max_den_degree: deg, converged, ..Default::default() }
+        ScreenMeasure {
+            rows,
+            variables: 3,
+            rhs_terms: rhs,
+            max_num_degree: deg,
+            max_den_degree: deg,
+            converged,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn policy_decisions() {
-        let s = LiftScreen { max_total_degree: 10, max_rhs_terms: 100, ..Default::default() };
+        let s = LiftScreen {
+            max_total_degree: 10,
+            max_rhs_terms: 100,
+            ..Default::default()
+        };
         assert_eq!(s.decide(&m(4, 50, 2000, true)), ScreenDecision::Pass);
-        assert!(matches!(s.decide(&m(37, 50, 2000, true)), ScreenDecision::Refuse(r) if r.contains("37")));
-        assert!(matches!(s.decide(&m(4, 4312, 2000, true)), ScreenDecision::Refuse(r) if r.contains("4312")));
-        assert!(matches!(s.decide(&m(0, 0, 2000, false)), ScreenDecision::Refuse(_)));
-        let sampled = LiftScreen { sampled_from_rows: Some(1500), on_heavy: HeavyAction::Sampled, ..s };
-        assert_eq!(sampled.decide(&m(4, 50, 2000, true)), ScreenDecision::Sampled);
+        assert!(
+            matches!(s.decide(&m(37, 50, 2000, true)), ScreenDecision::Refuse(r) if r.contains("37"))
+        );
+        assert!(
+            matches!(s.decide(&m(4, 4312, 2000, true)), ScreenDecision::Refuse(r) if r.contains("4312"))
+        );
+        assert!(matches!(
+            s.decide(&m(0, 0, 2000, false)),
+            ScreenDecision::Refuse(_)
+        ));
+        let sampled = LiftScreen {
+            sampled_from_rows: Some(1500),
+            on_heavy: HeavyAction::Sampled,
+            ..s
+        };
+        assert_eq!(
+            sampled.decide(&m(4, 50, 2000, true)),
+            ScreenDecision::Sampled
+        );
         assert_eq!(sampled.decide(&m(4, 50, 1000, true)), ScreenDecision::Pass);
-        assert_eq!(sampled.decide(&m(40, 50, 1000, true)), ScreenDecision::Sampled);
-        let proceed = LiftScreen { on_heavy: HeavyAction::Proceed, ..s };
+        assert_eq!(
+            sampled.decide(&m(40, 50, 1000, true)),
+            ScreenDecision::Sampled
+        );
+        let proceed = LiftScreen {
+            on_heavy: HeavyAction::Proceed,
+            ..s
+        };
         assert_eq!(proceed.decide(&m(40, 50, 1000, true)), ScreenDecision::Pass);
     }
 
     #[test]
     fn auto_gates_on_box_and_oracle_cost_not_degree_alone() {
-        let s = LiftScreen { on_heavy: HeavyAction::Auto, max_total_degree: 10, sampled_threads: 3, ..Default::default() };
+        let s = LiftScreen {
+            on_heavy: HeavyAction::Auto,
+            max_total_degree: 10,
+            sampled_threads: 3,
+            ..Default::default()
+        };
         // Astra T211 hard-B: 3 variables, degree 16, 9236 terms, ~0.23 s per replay: heavy by degree, sampled feasible
-        let t211 = ScreenMeasure { rows: 3814, variables: 3, rhs_terms: 9236, max_num_degree: 16, max_den_degree: 16, common_den_degree: 16, converged: true, replay_seconds: 0.23, ..Default::default() };
+        let t211 = ScreenMeasure {
+            rows: 3814,
+            variables: 3,
+            rhs_terms: 9236,
+            max_num_degree: 16,
+            max_den_degree: 16,
+            common_den_degree: 16,
+            converged: true,
+            replay_seconds: 0.23,
+            ..Default::default()
+        };
         assert_eq!(t211.box_unknowns(), Some(969 + 969));
         assert_eq!(s.decide(&t211), ScreenDecision::Sampled);
         // T206 slice relation (3 variables, degree 26 common denominator): box beyond the reconstruction -> class B
-        let t206 = ScreenMeasure { rows: 3581, variables: 3, rhs_terms: 2196, max_num_degree: 25, max_den_degree: 24, common_den_degree: 26, converged: true, replay_seconds: 0.046, ..Default::default() };
-        assert!(matches!(s.decide(&t206), ScreenDecision::Refuse(r) if r.contains("class B") && r.contains("dense box")));
+        let t206 = ScreenMeasure {
+            rows: 3581,
+            variables: 3,
+            rhs_terms: 2196,
+            max_num_degree: 25,
+            max_den_degree: 24,
+            common_den_degree: 26,
+            converged: true,
+            replay_seconds: 0.046,
+            ..Default::default()
+        };
+        assert!(
+            matches!(s.decide(&t206), ScreenDecision::Refuse(r) if r.contains("class B") && r.contains("dense box"))
+        );
         // T182: 7 variables, degree 14: huge box -> class B
-        let t182 = ScreenMeasure { rows: 2828, variables: 7, rhs_terms: 8623, max_num_degree: 14, max_den_degree: 14, common_den_degree: 14, converged: true, replay_seconds: 0.32, ..Default::default() };
+        let t182 = ScreenMeasure {
+            rows: 2828,
+            variables: 7,
+            rhs_terms: 8623,
+            max_num_degree: 14,
+            max_den_degree: 14,
+            common_den_degree: 14,
+            converged: true,
+            replay_seconds: 0.32,
+            ..Default::default()
+        };
         assert!(matches!(s.decide(&t182), ScreenDecision::Refuse(_)));
         // a small box with a slow oracle: refused on cost
-        let slow = ScreenMeasure { replay_seconds: 50.0, ..t211.clone() };
-        assert!(matches!(s.decide(&slow), ScreenDecision::Refuse(r) if r.contains("estimated sampled cost")));
+        let slow = ScreenMeasure {
+            replay_seconds: 50.0,
+            ..t211.clone()
+        };
+        assert!(
+            matches!(s.decide(&slow), ScreenDecision::Refuse(r) if r.contains("estimated sampled cost"))
+        );
         // not converged: refused
-        assert!(matches!(s.decide(&ScreenMeasure { converged: false, ..t211.clone() }), ScreenDecision::Refuse(_)));
+        assert!(matches!(
+            s.decide(&ScreenMeasure {
+                converged: false,
+                ..t211.clone()
+            }),
+            ScreenDecision::Refuse(_)
+        ));
         // not heavy: exact
-        assert_eq!(s.decide(&ScreenMeasure { max_num_degree: 4, max_den_degree: 4, common_den_degree: 4, rhs_terms: 50, ..t211 }), ScreenDecision::Pass);
+        assert_eq!(
+            s.decide(&ScreenMeasure {
+                max_num_degree: 4,
+                max_den_degree: 4,
+                common_den_degree: 4,
+                rhs_terms: 50,
+                ..t211
+            }),
+            ScreenDecision::Pass
+        );
         // the target block triggers screening of short traces
         assert!(s.screens(209, 364));
         assert!(!s.screens(209, 100));
@@ -359,18 +477,69 @@ mod tests {
 
     #[test]
     fn large_small_relation_goes_symbolic_first_then_sampled() {
-        let s = LiftScreen { on_heavy: HeavyAction::Auto, symbolic_first_from_rows: Some(1200), sampled_from_rows: Some(1200), ..Default::default() };
-        let corner = ScreenMeasure { rows: 1689, variables: 4, rhs_terms: 300, max_num_degree: 4, max_den_degree: 4, common_den_degree: 4, converged: true, replay_seconds: 0.05, ..Default::default() };
-        assert!(matches!(s.decide_in(&corner, false), ScreenDecision::Refuse(r) if r.contains("SymbolicFirst")));
+        let s = LiftScreen {
+            on_heavy: HeavyAction::Auto,
+            symbolic_first_from_rows: Some(1200),
+            sampled_from_rows: Some(1200),
+            ..Default::default()
+        };
+        let corner = ScreenMeasure {
+            rows: 1689,
+            variables: 4,
+            rhs_terms: 300,
+            max_num_degree: 4,
+            max_den_degree: 4,
+            common_den_degree: 4,
+            converged: true,
+            replay_seconds: 0.05,
+            ..Default::default()
+        };
+        assert!(
+            matches!(s.decide_in(&corner, false), ScreenDecision::Refuse(r) if r.contains("SymbolicFirst"))
+        );
         assert_eq!(s.decide_in(&corner, true), ScreenDecision::Sampled);
-        assert_eq!(s.decide_in(&ScreenMeasure { rows: 400, ..corner.clone() }, false), ScreenDecision::Pass);
+        assert_eq!(
+            s.decide_in(
+                &ScreenMeasure {
+                    rows: 400,
+                    ..corner.clone()
+                },
+                false
+            ),
+            ScreenDecision::Pass
+        );
         // infeasible sampled route under SymbolicFirst: exact lift
-        assert_eq!(s.decide_in(&ScreenMeasure { replay_seconds: 100.0, ..corner.clone() }, true), ScreenDecision::Pass);
+        assert_eq!(
+            s.decide_in(
+                &ScreenMeasure {
+                    replay_seconds: 100.0,
+                    ..corner.clone()
+                },
+                true
+            ),
+            ScreenDecision::Pass
+        );
         // large trace of a large relation under SymbolicFirst: class B, refused (box 15 deg, 5 vars = 15504 + ...)
-        let big = ScreenMeasure { max_num_degree: 15, max_den_degree: 15, common_den_degree: 15, variables: 5, rows: 2085, ..corner.clone() };
-        assert!(matches!(s.decide_in(&big, true), ScreenDecision::Refuse(r) if r.contains("class B")));
+        let big = ScreenMeasure {
+            max_num_degree: 15,
+            max_den_degree: 15,
+            common_den_degree: 15,
+            variables: 5,
+            rows: 2085,
+            ..corner.clone()
+        };
+        assert!(
+            matches!(s.decide_in(&big, true), ScreenDecision::Refuse(r) if r.contains("class B"))
+        );
         // off by default
-        assert_eq!(LiftScreen { on_heavy: HeavyAction::Auto, ..Default::default() }.decide_in(&corner, false), ScreenDecision::Pass);
+        assert_eq!(
+            LiftScreen {
+                on_heavy: HeavyAction::Auto,
+                ..Default::default()
+            }
+            .decide_in(&corner, false),
+            ScreenDecision::Pass
+        );
     }
 
     #[test]

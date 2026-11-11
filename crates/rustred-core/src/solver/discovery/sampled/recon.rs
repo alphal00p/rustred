@@ -32,11 +32,19 @@ impl Fp {
     #[inline]
     pub fn add(&self, a: u64, b: u64) -> u64 {
         let s = a as u128 + b as u128;
-        if s >= self.p as u128 { (s - self.p as u128) as u64 } else { s as u64 }
+        if s >= self.p as u128 {
+            (s - self.p as u128) as u64
+        } else {
+            s as u64
+        }
     }
     #[inline]
     pub fn sub(&self, a: u64, b: u64) -> u64 {
-        if a >= b { a - b } else { (a as u128 + self.p as u128 - b as u128) as u64 }
+        if a >= b {
+            a - b
+        } else {
+            (a as u128 + self.p as u128 - b as u128) as u64
+        }
     }
     pub fn pow(&self, mut a: u64, mut e: u64) -> u64 {
         let mut r = 1u64;
@@ -91,18 +99,26 @@ pub trait Oracle: Sync {
 }
 
 /// Evaluate the oracle at many points with `threads` worker threads.
-pub fn eval_many<O: Oracle>(oracle: &O, p: u64, points: &[Vec<u64>], threads: usize) -> Vec<Option<Vec<u64>>> {
+pub fn eval_many<O: Oracle>(
+    oracle: &O,
+    p: u64,
+    points: &[Vec<u64>],
+    threads: usize,
+) -> Vec<Option<Vec<u64>>> {
     let next = AtomicUsize::new(0);
-    let out: Vec<std::sync::Mutex<Option<Vec<u64>>>> = points.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let out: Vec<std::sync::Mutex<Option<Vec<u64>>>> =
+        points.iter().map(|_| std::sync::Mutex::new(None)).collect();
     std::thread::scope(|scope| {
         for _ in 0..threads.max(1) {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, AtomicOrdering::Relaxed);
-                if i >= points.len() {
-                    break;
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, AtomicOrdering::Relaxed);
+                    if i >= points.len() {
+                        break;
+                    }
+                    let value = oracle.eval(p, &points[i]);
+                    *out[i].lock().unwrap() = value;
                 }
-                let value = oracle.eval(p, &points[i]);
-                *out[i].lock().unwrap() = value;
             });
         }
     });
@@ -120,7 +136,12 @@ struct Thiele {
 
 impl Thiele {
     fn new() -> Self {
-        Thiele { xs: vec![], a: vec![], confirmed: 0, failed: false }
+        Thiele {
+            xs: vec![],
+            a: vec![],
+            confirmed: 0,
+            failed: false,
+        }
     }
     fn matches(&self, f: &Fp, x: u64, y: u64) -> bool {
         if self.a.is_empty() {
@@ -275,12 +296,19 @@ pub fn probe_line<O: Oracle>(
     let mut local = 0usize;
     while th.iter().any(|x| !x.failed && x.confirmed < 3) {
         if local >= max_points {
-            return Err(format!("degree probe: line not converged after {local} points"));
+            return Err(format!(
+                "degree probe: line not converged after {local} points"
+            ));
         }
         let ts: Vec<u64> = (0..batch).map(|_| rng.element(f.p)).collect();
         let points: Vec<Vec<u64>> = ts
             .iter()
-            .map(|&t| base.iter().zip(dir).map(|(&b, &d)| f.add(b, f.mul(d, t))).collect())
+            .map(|&t| {
+                base.iter()
+                    .zip(dir)
+                    .map(|(&b, &d)| f.add(b, f.mul(d, t)))
+                    .collect()
+            })
             .collect();
         let values = eval_many(oracle, f.p, &points, threads);
         for (t, v) in ts.iter().zip(values) {
@@ -307,23 +335,54 @@ pub fn probe_line<O: Oracle>(
     Ok((out, fd))
 }
 
-pub fn probe_degrees<O: Oracle>(oracle: &O, f: &Fp, seed: u64, threads: usize, max_points_per_line: usize) -> Result<DegreeInfo, String> {
+pub fn probe_degrees<O: Oracle>(
+    oracle: &O,
+    f: &Fp,
+    seed: u64,
+    threads: usize,
+    max_points_per_line: usize,
+) -> Result<DegreeInfo, String> {
     let v = oracle.nvars();
     let mut rng = Rng(seed | 1);
     let weights: Vec<u64> = (0..oracle.ncols()).map(|_| rng.element(f.p)).collect();
-    let mut info = DegreeInfo { weights: weights.clone(), ..Default::default() };
+    let mut info = DegreeInfo {
+        weights: weights.clone(),
+        ..Default::default()
+    };
     let (mut used, mut bad) = (0, 0);
     for var in 0..v {
         let base: Vec<u64> = (0..v).map(|_| rng.element(f.p)).collect();
         let mut dir = vec![0u64; v];
         dir[var] = 1;
-        let (cols, fd) = probe_line(oracle, f, &base, &dir, &weights, &mut rng, threads, max_points_per_line, &mut used, &mut bad)?;
+        let (cols, fd) = probe_line(
+            oracle,
+            f,
+            &base,
+            &dir,
+            &weights,
+            &mut rng,
+            threads,
+            max_points_per_line,
+            &mut used,
+            &mut bad,
+        )?;
         info.per_var.push(cols);
         info.f_per_var.push(fd);
     }
     let base: Vec<u64> = (0..v).map(|_| rng.element(f.p)).collect();
     let dir: Vec<u64> = (0..v).map(|_| rng.element(f.p)).collect();
-    let (cols, fd) = probe_line(oracle, f, &base, &dir, &weights, &mut rng, threads, max_points_per_line, &mut used, &mut bad)?;
+    let (cols, fd) = probe_line(
+        oracle,
+        f,
+        &base,
+        &dir,
+        &weights,
+        &mut rng,
+        threads,
+        max_points_per_line,
+        &mut used,
+        &mut bad,
+    )?;
     info.total = cols;
     info.f_total = fd;
     info.points = used;
@@ -373,7 +432,15 @@ fn monomial_values(f: &Fp, mons: &[Vec<u16>], point: &[u64], maxdeg: usize) -> V
         })
         .collect();
     mons.iter()
-        .map(|e| e.iter().enumerate().fold(1u64, |acc, (v, &k)| if k == 0 { acc } else { f.mul(acc, pows[v][k as usize]) }))
+        .map(|e| {
+            e.iter().enumerate().fold(1u64, |acc, (v, &k)| {
+                if k == 0 {
+                    acc
+                } else {
+                    f.mul(acc, pows[v][k as usize])
+                }
+            })
+        })
         .collect()
 }
 
@@ -382,7 +449,9 @@ fn kernel_1(f: &Fp, mut a: Vec<Vec<u64>>, u: usize) -> Option<Vec<u64>> {
     let mut pivcol = Vec::new();
     let mut r = 0;
     for c in 0..u {
-        let Some(k) = (r..a.len()).find(|&k| a[k][c] != 0) else { continue };
+        let Some(k) = (r..a.len()).find(|&k| a[k][c] != 0) else {
+            continue;
+        };
         a.swap(r, k);
         let iv = f.inv(a[r][c]);
         for x in a[r].iter_mut() {
@@ -417,7 +486,12 @@ fn kernel_1(f: &Fp, mut a: Vec<Vec<u64>>, u: usize) -> Option<Vec<u64>> {
 
 /// Solve V X = Y (V: k x u with k >= u, full column rank) for all right-hand sides at once; the k-u extra rows must be
 /// consistent. Returns X (u rows x m columns) or None.
-fn solve_multi(f: &Fp, mut v: Vec<Vec<u64>>, mut y: Vec<Vec<u64>>, u: usize) -> Option<Vec<Vec<u64>>> {
+fn solve_multi(
+    f: &Fp,
+    mut v: Vec<Vec<u64>>,
+    mut y: Vec<Vec<u64>>,
+    u: usize,
+) -> Option<Vec<Vec<u64>>> {
     let k = v.len();
     let mut r = 0;
     for c in 0..u {
@@ -474,15 +548,38 @@ pub fn boxes(info: &DegreeInfo) -> Boxes {
     let v = info.f_per_var.len();
     let l_total = info.f_total.1;
     let l_bound: Vec<usize> = info.f_per_var.iter().map(|x| x.1).collect();
-    let nf_mons = monomials(info.f_total.0, &info.f_per_var.iter().map(|x| x.0).collect::<Vec<_>>());
+    let nf_mons = monomials(
+        info.f_total.0,
+        &info.f_per_var.iter().map(|x| x.0).collect::<Vec<_>>(),
+    );
     let l_mons = monomials(l_total, &l_bound);
     // P_i = N_i * (L / D_i): total <= n_i - m_i + deg L; per variable <= n_iv - m_iv + deg_v L
-    let p_total = info.total.iter().map(|&(n, m)| (n + l_total).saturating_sub(m)).max().unwrap_or(0);
-    let p_bound: Vec<usize> =
-        (0..v).map(|var| info.per_var[var].iter().map(|&(n, m)| (n + l_bound[var]).saturating_sub(m)).max().unwrap_or(0)).collect();
+    let p_total = info
+        .total
+        .iter()
+        .map(|&(n, m)| (n + l_total).saturating_sub(m))
+        .max()
+        .unwrap_or(0);
+    let p_bound: Vec<usize> = (0..v)
+        .map(|var| {
+            info.per_var[var]
+                .iter()
+                .map(|&(n, m)| (n + l_bound[var]).saturating_sub(m))
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
     let p_mons = monomials(p_total, &p_bound);
-    let maxdeg = [info.f_total.0, l_total, p_total].into_iter().max().unwrap();
-    Boxes { l_mons, nf_mons, p_mons, maxdeg }
+    let maxdeg = [info.f_total.0, l_total, p_total]
+        .into_iter()
+        .max()
+        .unwrap();
+    Boxes {
+        l_mons,
+        nf_mons,
+        p_mons,
+        maxdeg,
+    }
 }
 
 /// Dense-ansatz limit (unknowns of one elimination): above it the cubic solve and the sample count are impractical.
@@ -517,7 +614,9 @@ pub fn prime_image<O: Oracle>(
     let mut total = 0usize;
     while pts.len() < need {
         let want = need - pts.len();
-        let cand: Vec<Vec<u64>> = (0..want).map(|_| (0..v).map(|_| rng.element(f.p)).collect()).collect();
+        let cand: Vec<Vec<u64>> = (0..want)
+            .map(|_| (0..v).map(|_| rng.element(f.p)).collect())
+            .collect();
         for (x, y) in cand.iter().zip(eval_many(oracle, f.p, &cand, threads)) {
             total += 1;
             match y {
@@ -537,18 +636,29 @@ pub fn prime_image<O: Oracle>(
         .iter()
         .zip(&vals)
         .map(|(x, y)| {
-            let fv = y.iter().zip(weights).fold(0u64, |acc, (&c, &w)| f.add(acc, f.mul(c, w)));
+            let fv = y
+                .iter()
+                .zip(weights)
+                .fold(0u64, |acc, (&c, &w)| f.add(acc, f.mul(c, w)));
             let mut row = monomial_values(f, &b.nf_mons, x, b.maxdeg);
-            row.extend(monomial_values(f, &b.l_mons, x, b.maxdeg).into_iter().map(|m| f.sub(0, f.mul(fv, m))));
+            row.extend(
+                monomial_values(f, &b.l_mons, x, b.maxdeg)
+                    .into_iter()
+                    .map(|m| f.sub(0, f.mul(fv, m))),
+            );
             row
         })
         .collect();
-    let kernel = kernel_1(f, a, uf).ok_or("common-denominator ansatz: kernel is not one-dimensional")?;
+    let kernel =
+        kernel_1(f, a, uf).ok_or("common-denominator ansatz: kernel is not one-dimensional")?;
     let mut l: Vec<u64> = kernel[b.nf_mons.len()..].to_vec();
     let j = match *norm {
         Some(j) => j,
         None => {
-            let j = l.iter().position(|&c| c != 0).ok_or("zero common denominator")?;
+            let j = l
+                .iter()
+                .position(|&c| c != 0)
+                .ok_or("zero common denominator")?;
             *norm = Some(j);
             j
         }
@@ -561,19 +671,33 @@ pub fn prime_image<O: Oracle>(
         *c = f.mul(*c, iv);
     }
     // (b) P_i = c_i * L in the shared box, all columns at once
-    let vmat: Vec<Vec<u64>> = pts.iter().map(|x| monomial_values(f, &b.p_mons, x, b.maxdeg)).collect();
+    let vmat: Vec<Vec<u64>> = pts
+        .iter()
+        .map(|x| monomial_values(f, &b.p_mons, x, b.maxdeg))
+        .collect();
     let y: Vec<Vec<u64>> = pts
         .iter()
         .zip(&vals)
         .map(|(x, row)| {
-            let lv = monomial_values(f, &b.l_mons, x, b.maxdeg).iter().zip(&l).fold(0u64, |acc, (&m, &c)| f.add(acc, f.mul(m, c)));
+            let lv = monomial_values(f, &b.l_mons, x, b.maxdeg)
+                .iter()
+                .zip(&l)
+                .fold(0u64, |acc, (&m, &c)| f.add(acc, f.mul(m, c)));
             row.iter().map(|&c| f.mul(c, lv)).collect()
         })
         .collect();
-    let sol = solve_multi(f, vmat, y, b.p_mons.len()).ok_or("numerator box: singular or inconsistent sample system")?;
+    let sol = solve_multi(f, vmat, y, b.p_mons.len())
+        .ok_or("numerator box: singular or inconsistent sample system")?;
     // transpose: per column coefficient vector
-    let p: Vec<Vec<u64>> = (0..s).map(|i| sol.iter().map(|row| row[i]).collect()).collect();
-    Ok(PrimeImage { l, p, points: total, bad_points: bad })
+    let p: Vec<Vec<u64>> = (0..s)
+        .map(|i| sol.iter().map(|row| row[i]).collect())
+        .collect();
+    Ok(PrimeImage {
+        l,
+        p,
+        points: total,
+        bad_points: bad,
+    })
 }
 
 /// CRT accumulator over primes with rational reconstruction.
@@ -586,7 +710,12 @@ pub struct Lift {
 
 impl Lift {
     pub fn new() -> Self {
-        Lift { residues: vec![], modulus: Integer::one(), primes: vec![], candidate: None }
+        Lift {
+            residues: vec![],
+            modulus: Integer::one(),
+            primes: vec![],
+            candidate: None,
+        }
     }
     fn flatten(img: &PrimeImage) -> Vec<u64> {
         let mut v = img.l.clone();
@@ -619,13 +748,23 @@ impl Lift {
                 .residues
                 .iter()
                 .zip(&flat)
-                .map(|(a, &r)| Integer::chinese_remainder(Integer::from(r), a.clone(), pi.clone(), self.modulus.clone()))
+                .map(|(a, &r)| {
+                    Integer::chinese_remainder(
+                        Integer::from(r),
+                        a.clone(),
+                        pi.clone(),
+                        self.modulus.clone(),
+                    )
+                })
                 .collect();
         }
         self.modulus = &self.modulus * &pi;
         self.primes.push(p);
-        let rec: Result<Vec<Rational>, _> =
-            self.residues.iter().map(|r| Rational::maximal_quotient_reconstruction(r, &self.modulus, None)).collect();
+        let rec: Result<Vec<Rational>, _> = self
+            .residues
+            .iter()
+            .map(|r| Rational::maximal_quotient_reconstruction(r, &self.modulus, None))
+            .collect();
         self.candidate = rec.ok();
         false
     }
@@ -649,7 +788,12 @@ pub fn primes_below_2_62(count: usize, skip: usize) -> Vec<u64> {
 }
 
 /// Evaluate a reconstructed coefficient vector (rationals) at a point mod p: returns the column values c_i = P_i / L.
-pub fn eval_rational_row(f: &Fp, b: &Boxes, coeffs: &[Rational], point: &[u64]) -> Option<Vec<u64>> {
+pub fn eval_rational_row(
+    f: &Fp,
+    b: &Boxes,
+    coeffs: &[Rational],
+    point: &[u64],
+) -> Option<Vec<u64>> {
     let to = |q: &Rational| -> Option<u64> {
         let d = f.of_integer(&q.denominator());
         if d == 0 {

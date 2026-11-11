@@ -96,7 +96,8 @@ pub use case::{
 pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::{
-    CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend, sampled_max_box,
+    CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend,
+    sampled_max_box,
 };
 #[cfg(feature = "reconstruction")]
 pub use discovery::{

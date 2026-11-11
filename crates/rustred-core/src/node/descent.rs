@@ -20,22 +20,38 @@ pub fn parse_key<const N: usize>(text: &str) -> Result<Integral<N>, String> {
         .ok_or_else(|| format!("not an integral key: {text}"))?;
     let parts: Vec<&str> = inner.split(',').collect();
     if parts.len() != N {
-        return Err(format!("key {text}: {} coordinates, expected {N}", parts.len()));
+        return Err(format!(
+            "key {text}: {} coordinates, expected {N}",
+            parts.len()
+        ));
     }
     let mut powers = [Power::default(); N];
     for (i, p) in parts.iter().enumerate() {
         let p = p.trim();
         let power = if let Some(rest) = p.strip_prefix('n') {
             let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            let axis: usize = digits.parse().map_err(|_| format!("key {text}: bad symbol {p}"))?;
+            let axis: usize = digits
+                .parse()
+                .map_err(|_| format!("key {text}: bad symbol {p}"))?;
             if axis != i {
                 return Err(format!("key {text}: symbol n{axis} at position {i}"));
             }
             let offset = &rest[digits.len()..];
-            let value: i16 = if offset.is_empty() { 0 } else { offset.trim_start_matches('+').parse().map_err(|_| format!("key {text}: bad offset {p}"))? };
+            let value: i16 = if offset.is_empty() {
+                0
+            } else {
+                offset
+                    .trim_start_matches('+')
+                    .parse()
+                    .map_err(|_| format!("key {text}: bad offset {p}"))?
+            };
             Power::new(true, value)
         } else {
-            Power::new(false, p.parse().map_err(|_| format!("key {text}: bad value {p}"))?)
+            Power::new(
+                false,
+                p.parse()
+                    .map_err(|_| format!("key {text}: bad value {p}"))?,
+            )
         };
         powers[i] = power.map_err(|e| format!("key {text}: {e}"))?;
     }
@@ -43,15 +59,22 @@ pub fn parse_key<const N: usize>(text: &str) -> Result<Integral<N>, String> {
 }
 
 /// The engine integral order of a node order on a chart (`sector` = the chart mask).
-pub fn integral_order<const N: usize>(order: &NodeOrder, sector: [bool; N], arity: usize) -> Result<IntegralOrder<N>, String> {
+pub fn integral_order<const N: usize>(
+    order: &NodeOrder,
+    sector: [bool; N],
+    arity: usize,
+) -> Result<IntegralOrder<N>, String> {
     order.validate(arity)?;
-    let base = IntegralOrder::new(sector, [false; N]).with_physical_arity(arity).map_err(|e| format!("{e:?}"))?;
+    let base = IntegralOrder::new(sector, [false; N])
+        .with_physical_arity(arity)
+        .map_err(|e| format!("{e:?}"))?;
     match &order.coordinate_priority {
         None => Ok(base),
         Some(priority) => {
             let mut d = rustred_order::OrderDescriptor::spired_uncut(arity);
             d.coordinate_priority = priority.clone();
-            let program = rustred_order::CompiledOrder::compile(d, Default::default()).map_err(|e| format!("order program: {e:?}"))?;
+            let program = rustred_order::CompiledOrder::compile(d, Default::default())
+                .map_err(|e| format!("order program: {e:?}"))?;
             base.with_program(program).map_err(|e| format!("{e:?}"))
         }
     }
@@ -95,14 +118,21 @@ impl DescentReport {
 
 /// Check every rule of `rules` under `order`.
 pub fn check<const N: usize>(order: &IntegralOrder<N>, rules: &[KeyRule<N>]) -> DescentReport {
-    let mut report = DescentReport { rules: rules.len(), ..Default::default() };
+    let mut report = DescentReport {
+        rules: rules.len(),
+        ..Default::default()
+    };
     for rule in rules {
         for term in &rule.rhs {
             report.terms += 1;
             // the engine order is harder-first: a lower term compares Greater than its target
             // (the engine's own check: `compare(target, term) != Less` = not lower)
             if order.compare(&rule.target, term) != Ordering::Less {
-                report.not_lower.push(NotLower { rule: rule.label.clone(), target: rule.target.to_string(), term: term.to_string() });
+                report.not_lower.push(NotLower {
+                    rule: rule.label.clone(),
+                    target: rule.target.to_string(),
+                    term: term.to_string(),
+                });
             }
         }
     }
@@ -115,7 +145,10 @@ pub fn header_order(header: &serde_json::Value) -> Result<NodeOrder, String> {
     if let Some(v) = header.get("node_order") {
         return serde_json::from_value(v.clone()).map_err(|e| format!("header node_order: {e}"));
     }
-    let is_program = header.get("order_is_program").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_program = header
+        .get("order_is_program")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !is_program {
         return Ok(NodeOrder::identity());
     }
@@ -124,15 +157,30 @@ pub fn header_order(header: &serde_json::Value) -> Result<NodeOrder, String> {
         .and_then(|v| v.as_array())
         .ok_or("header order program without coordinate_priority")?
         .iter()
-        .map(|x| x.as_u64().map(|x| x as usize).ok_or("coordinate_priority entry"))
+        .map(|x| {
+            x.as_u64()
+                .map(|x| x as usize)
+                .ok_or("coordinate_priority entry")
+        })
         .collect::<Result<_, _>>()?;
-    let name = header.get("order_name").and_then(|v| v.as_str()).unwrap_or("program").to_string();
-    Ok(NodeOrder { name, coordinate_priority: Some(priority), ..NodeOrder::identity() })
+    let name = header
+        .get("order_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("program")
+        .to_string();
+    Ok(NodeOrder {
+        name,
+        coordinate_priority: Some(priority),
+        ..NodeOrder::identity()
+    })
 }
 
 /// Check a table file (JSONL, table_dump.v1 records) under `order` (default: the header's declared order).
 /// Returns the order used and the report per chart.
-pub fn check_table_file(path: &str, order: Option<NodeOrder>) -> Result<(NodeOrder, DescentReport), String> {
+pub fn check_table_file(
+    path: &str,
+    order: Option<NodeOrder>,
+) -> Result<(NodeOrder, DescentReport), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     let mut header = None;
     let mut rules: Vec<(String, String, String, Vec<String>)> = Vec::new();
@@ -140,14 +188,20 @@ pub fn check_table_file(path: &str, order: Option<NodeOrder>) -> Result<(NodeOrd
         if line.trim().is_empty() {
             continue;
         }
-        let v: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("{path}: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("{path}: {e}"))?;
         match v.get("type").and_then(|t| t.as_str()) {
             Some("header") => header = Some(v),
             Some("rule") => {
                 let chart = v["chart"].as_str().unwrap_or_default().to_string();
                 let label = format!("{}#{}", chart, v["index"]);
                 let target = v["target"].as_str().ok_or("rule target")?.to_string();
-                let rhs = v["rhs"].as_array().ok_or("rule rhs")?.iter().map(|t| t[0].as_str().unwrap_or_default().to_string()).collect();
+                let rhs = v["rhs"]
+                    .as_array()
+                    .ok_or("rule rhs")?
+                    .iter()
+                    .map(|t| t[0].as_str().unwrap_or_default().to_string())
+                    .collect();
                 rules.push((chart, label, target, rhs));
             }
             _ => {}
@@ -158,7 +212,9 @@ pub fn check_table_file(path: &str, order: Option<NodeOrder>) -> Result<(NodeOrd
         Some(o) => o,
         None => header_order(&header)?,
     };
-    let arity = header["denominators"].as_u64().ok_or("header denominators")? as usize;
+    let arity = header["denominators"]
+        .as_u64()
+        .ok_or("header denominators")? as usize;
     let report = match arity {
         5 => check_keyed::<5>(&order, arity, &rules),
         9 => check_keyed::<9>(&order, arity, &rules),
@@ -171,7 +227,11 @@ pub fn check_table_file(path: &str, order: Option<NodeOrder>) -> Result<(NodeOrd
 }
 
 /// Keyed rules (chart, label, target, rhs keys) under one order; the chart mask is each rule's sector.
-pub fn check_keyed<const N: usize>(order: &NodeOrder, arity: usize, rules: &[(String, String, String, Vec<String>)]) -> Result<DescentReport, String> {
+pub fn check_keyed<const N: usize>(
+    order: &NodeOrder,
+    arity: usize,
+    rules: &[(String, String, String, Vec<String>)],
+) -> Result<DescentReport, String> {
     let mut total = DescentReport::default();
     let mut charts: Vec<&str> = rules.iter().map(|r| r.0.as_str()).collect();
     charts.sort_unstable();
@@ -188,7 +248,14 @@ pub fn check_keyed<const N: usize>(order: &NodeOrder, arity: usize, rules: &[(St
             .iter()
             .filter(|r| r.0 == chart)
             .map(|(_, label, target, rhs)| {
-                Ok(KeyRule { label: label.clone(), target: parse_key(target)?, rhs: rhs.iter().map(|k| parse_key(k)).collect::<Result<_, String>>()? })
+                Ok(KeyRule {
+                    label: label.clone(),
+                    target: parse_key(target)?,
+                    rhs: rhs
+                        .iter()
+                        .map(|k| parse_key(k))
+                        .collect::<Result<_, String>>()?,
+                })
             })
             .collect::<Result<_, String>>()?;
         let r = check(&io, &keyed);
@@ -216,14 +283,23 @@ mod tests {
                     "11111111111100000000".to_string(),
                     format!("{prefix}#{}", r["index"]),
                     r["target"].as_str().unwrap().to_string(),
-                    r["rhs_keys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_string()).collect(),
+                    r["rhs_keys"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|k| k.as_str().unwrap().to_string())
+                        .collect(),
                 )
             })
             .collect()
     }
 
     fn tie_isp_rev() -> NodeOrder {
-        NodeOrder { name: "tie_isp_rev".into(), coordinate_priority: Some((0..12).chain((12..20).rev()).collect()), ..NodeOrder::identity() }
+        NodeOrder {
+            name: "tie_isp_rev".into(),
+            coordinate_priority: Some((0..12).chain((12..20).rev()).collect()),
+            ..NodeOrder::identity()
+        }
     }
 
     #[test]
@@ -243,7 +319,11 @@ mod tests {
         let r1 = check_keyed::<20>(&NodeOrder::identity(), 20, &v1).unwrap();
         assert!(r1.passed() && r1.rules == 1 && r1.terms == 234, "{r1:?}");
         let r3 = check_keyed::<20>(&tie_isp_rev(), 20, &v3).unwrap();
-        assert!(r3.passed() && r3.rules == 3 && r3.terms == 147 + 255 + 172, "{:?}", r3.not_lower.first());
+        assert!(
+            r3.passed() && r3.rules == 3 && r3.terms == 147 + 255 + 172,
+            "{:?}",
+            r3.not_lower.first()
+        );
     }
 
     #[test]
@@ -253,7 +333,11 @@ mod tests {
         mixed.extend(keyed(&f["sets"]["v3_tie_isp_rev"], "v3"));
         let under_id = check_keyed::<20>(&NodeOrder::identity(), 20, &mixed).unwrap();
         assert!(!under_id.passed());
-        assert!(under_id.failing_rules().iter().all(|r| r.starts_with("v3")), "{:?}", under_id.failing_rules());
+        assert!(
+            under_id.failing_rules().iter().all(|r| r.starts_with("v3")),
+            "{:?}",
+            under_id.failing_rules()
+        );
         // Astra's common-order audit: 11 terms of the v3 rules are not lower under the legacy order
         assert_eq!(under_id.not_lower.len(), 11);
         let under_rev = check_keyed::<20>(&tie_isp_rev(), 20, &mixed).unwrap();
@@ -270,6 +354,9 @@ mod tests {
         assert_eq!(o.coordinate_priority, Some(vec![0, 1, 2, 4, 3]));
         let h2 = serde_json::json!({"node_order": serde_json::to_value(tie_isp_rev()).unwrap()});
         assert_eq!(header_order(&h2).unwrap(), tie_isp_rev());
-        assert_eq!(header_order(&serde_json::json!({"order_is_program": false})).unwrap(), NodeOrder::identity());
+        assert_eq!(
+            header_order(&serde_json::json!({"order_is_program": false})).unwrap(),
+            NodeOrder::identity()
+        );
     }
 }

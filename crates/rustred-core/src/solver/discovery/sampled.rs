@@ -40,7 +40,8 @@ impl Frame {
     fn replay(&self, p: u64, point: &[u64]) -> Option<(Vec<(u32, u64)>, Vec<Option<u32>>)> {
         let field = Zp64::new(p);
         let pt: Vec<_> = point.iter().map(|&x| field.to_element(x)).collect();
-        let mut reducer = SparseRowReducer::new(self.columns_with_sentinel, field.clone(), LuLMode::None);
+        let mut reducer =
+            SparseRowReducer::new(self.columns_with_sentinel, field.clone(), LuLMode::None);
         let mut values = Vec::new();
         let mut ids = Vec::new();
         let mut pivots = Vec::new();
@@ -48,8 +49,16 @@ impl Frame {
             values.clear();
             ids.clear();
             for (column, coefficient) in row {
-                let numerator = coefficient.numerator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &pt, &field);
-                let denominator = coefficient.denominator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &pt, &field);
+                let numerator = coefficient.numerator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(&field),
+                    &pt,
+                    &field,
+                );
+                let denominator = coefficient.denominator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(&field),
+                    &pt,
+                    &field,
+                );
                 if field.is_zero(&denominator) {
                     return None;
                 }
@@ -126,7 +135,13 @@ fn integer_poly(
 }
 
 fn lcm_denominators(coeffs: &[Rational]) -> Integer {
-    coeffs.iter().fold(Integer::one(), |acc, q| if q.is_zero() { acc } else { acc.lcm(&q.denominator()) })
+    coeffs.iter().fold(Integer::one(), |acc, q| {
+        if q.is_zero() {
+            acc
+        } else {
+            acc.lcm(&q.denominator())
+        }
+    })
 }
 
 pub(super) fn materialize<const N: usize>(
@@ -144,9 +159,15 @@ pub(super) fn materialize<const N: usize>(
         // a constant frame is cheap for the ordinary sparse authority
         return super::sparse_materialize(rows, columns, order, target_column, variables, observe);
     }
-    observe(MaterializationEvent::SemiNumericalStarted { rows: rows.len(), columns: columns.len(), variables: variables.active_len() });
-    let columns_with_sentinel =
-        u32::try_from(columns.len()).ok().and_then(|n| n.checked_add(1)).ok_or(MaterializationError::TooManyColumns)?;
+    observe(MaterializationEvent::SemiNumericalStarted {
+        rows: rows.len(),
+        columns: columns.len(),
+        variables: variables.active_len(),
+    });
+    let columns_with_sentinel = u32::try_from(columns.len())
+        .ok()
+        .and_then(|n| n.checked_add(1))
+        .ok_or(MaterializationError::TooManyColumns)?;
     let mapped: Vec<Vec<(u32, Coefficient)>> = rows
         .iter()
         .map(|row| {
@@ -160,8 +181,20 @@ pub(super) fn materialize<const N: usize>(
                 .collect::<Result<_, MaterializationError>>()
         })
         .collect::<Result<_, _>>()?;
-    let template = mapped.iter().flatten().next().ok_or(MaterializationError::TargetAbsent)?.1.numerator.clone();
-    let frame = Frame { rows: mapped, columns_with_sentinel, target: target_column as u32, nvars: variables.active_len() };
+    let template = mapped
+        .iter()
+        .flatten()
+        .next()
+        .ok_or(MaterializationError::TargetAbsent)?
+        .1
+        .numerator
+        .clone();
+    let frame = Frame {
+        rows: mapped,
+        columns_with_sentinel,
+        target: target_column as u32,
+        nvars: variables.active_len(),
+    };
     let primes = recon::primes_below_2_62(14, 0);
     let mut rng = Rng(seed | 1);
     // generic support and pivot branch: majority over 5 random points of the first prime
@@ -176,9 +209,16 @@ pub(super) fn materialize<const N: usize>(
             }
         }
     }
-    let ((mut support, pivots), _) = branches.into_iter().max_by_key(|x| x.1).ok_or_else(|| err("no usable generic point"))?;
+    let ((mut support, pivots), _) = branches
+        .into_iter()
+        .max_by_key(|x| x.1)
+        .ok_or_else(|| err("no usable generic point"))?;
     support.sort_unstable();
-    let oracle = FrameOracle { frame: &frame, support: support.clone(), pivots };
+    let oracle = FrameOracle {
+        frame: &frame,
+        support: support.clone(),
+        pivots,
+    };
     let f0 = Fp { p: primes[0] };
     let info = recon::probe_degrees(&oracle, &f0, rng.next(), threads, 4000).map_err(err)?;
     let boxes = recon::boxes(&info);
@@ -201,8 +241,18 @@ pub(super) fn materialize<const N: usize>(
     if unknowns > recon::MAX_BOX {
         // The relation itself is large (dense box beyond the cubic-solve limit): the sampled route cannot help, so the
         // ordinary exact lift keeps its chance (it closes such lifts when the elimination does not swell, e.g. T163 1504 rows).
-        eprintln!("SAMPLED fallback: dense box {unknowns} > {} -> targetonlyfactorized exact lift", recon::MAX_BOX);
-        return super::target_only::materialize_factorized(rows, columns, order, target_column, variables, observe);
+        eprintln!(
+            "SAMPLED fallback: dense box {unknowns} > {} -> targetonlyfactorized exact lift",
+            recon::MAX_BOX
+        );
+        return super::target_only::materialize_factorized(
+            rows,
+            columns,
+            order,
+            target_column,
+            variables,
+            observe,
+        );
     }
     let mut lift = recon::Lift::new();
     let mut norm = None;
@@ -211,10 +261,24 @@ pub(super) fn materialize<const N: usize>(
         symbolica::utils::resources::checkpoint().map_err(MaterializationError::Resources)?;
         let f = Fp { p };
         let weights: Vec<u64> = info.weights.iter().map(|&w| w % p).collect();
-        match recon::prime_image(&oracle, &f, &boxes, &weights, &mut norm, rng.next(), threads) {
+        match recon::prime_image(
+            &oracle,
+            &f,
+            &boxes,
+            &weights,
+            &mut norm,
+            rng.next(),
+            threads,
+        ) {
             Ok(image) => {
                 confirmed = lift.add(p, &image);
-                eprintln!("SAMPLED prime {k} points={} bad={} candidate={} confirmed={confirmed} t={:.1}s", image.points, image.bad_points, lift.candidate.is_some(), start.elapsed().as_secs_f64());
+                eprintln!(
+                    "SAMPLED prime {k} points={} bad={} candidate={} confirmed={confirmed} t={:.1}s",
+                    image.points,
+                    image.bad_points,
+                    lift.candidate.is_some(),
+                    start.elapsed().as_secs_f64()
+                );
             }
             Err(e) => eprintln!("SAMPLED prime {k} error: {e}"),
         }
@@ -223,13 +287,19 @@ pub(super) fn materialize<const N: usize>(
         }
     }
     if !confirmed {
-        return Err(err(format!("no confirmed reconstruction after {} primes", lift.primes.len())));
+        return Err(err(format!(
+            "no confirmed reconstruction after {} primes",
+            lift.primes.len()
+        )));
     }
     let coeffs = lift.candidate.clone().expect("confirmed candidate");
     // authority: fresh prime, 3 values of d, 2 points each; mutation control
     let vp = recon::primes_below_2_62(1, 40)[0];
     let fv = Fp { p: vp };
-    let dpos = variables.active_variables().iter().position(|v| v.to_string() == "d");
+    let dpos = variables
+        .active_variables()
+        .iter()
+        .position(|v| v.to_string() == "d");
     let mut points = Vec::new();
     for _ in 0..3 {
         let dval = rng.element(vp);
@@ -249,19 +319,31 @@ pub(super) fn materialize<const N: usize>(
         .count();
     let nl = boxes.l_mons.len();
     let mut mutated = coeffs.clone();
-    let pos = (nl..mutated.len()).find(|&i| !mutated[i].is_zero()).ok_or_else(|| err("empty row"))?;
+    let pos = (nl..mutated.len())
+        .find(|&i| !mutated[i].is_zero())
+        .ok_or_else(|| err("empty row"))?;
     mutated[pos] = &mutated[pos] + &Rational::from(1);
     let caught = points
         .iter()
         .zip(&replays)
-        .filter(|(x, y)| match (y, recon::eval_rational_row(&fv, &boxes, &mutated, x)) {
-            (Some(y), Some(z)) => *y != z,
-            _ => true,
-        })
+        .filter(
+            |(x, y)| match (y, recon::eval_rational_row(&fv, &boxes, &mutated, x)) {
+                (Some(y), Some(z)) => *y != z,
+                _ => true,
+            },
+        )
         .count();
-    eprintln!("SAMPLED verify prime={vp} points={} pass={pass} mutation_caught={caught} primes_used={} t={:.1}s", points.len(), lift.primes.len(), start.elapsed().as_secs_f64());
+    eprintln!(
+        "SAMPLED verify prime={vp} points={} pass={pass} mutation_caught={caught} primes_used={} t={:.1}s",
+        points.len(),
+        lift.primes.len(),
+        start.elapsed().as_secs_f64()
+    );
     if pass != points.len() || caught != points.len() {
-        return Err(err(format!("verification failed: {pass}/{} pass, mutation caught {caught}", points.len())));
+        return Err(err(format!(
+            "verification failed: {pass}/{} pass, mutation caught {caught}",
+            points.len()
+        )));
     }
     // exact row: c_i = P_i / L over the active variables, then the original variable map
     let l_coeffs = &coeffs[..nl];
@@ -276,16 +358,30 @@ pub(super) fn materialize<const N: usize>(
         }
         let p_scale = lcm_denominators(p_coeffs);
         // c = (P*p_scale / p_scale) / (L*l_scale / l_scale) = (P*p_scale * l_scale) / (L*l_scale * p_scale)
-        let num = integer_poly(&template, &boxes.p_mons, p_coeffs, &p_scale).mul_coeff(l_scale.clone());
+        let num =
+            integer_poly(&template, &boxes.p_mons, p_coeffs, &p_scale).mul_coeff(l_scale.clone());
         let den = l_poly.clone().mul_coeff(p_scale);
         let active = Coefficient::from_num_den(num, den, &Z, true);
-        output.push(Term { integral: columns[column as usize], coefficient: variables.restore_coefficient(&active)? });
+        output.push(Term {
+            integral: columns[column as usize],
+            coefficient: variables.restore_coefficient(&active)?,
+        });
     }
-    if output.iter().find(|t| t.integral == columns[target_column]).is_none_or(|t| !t.coefficient.is_one()) {
+    if output
+        .iter()
+        .find(|t| t.integral == columns[target_column])
+        .is_none_or(|t| !t.coefficient.is_one())
+    {
         return Err(err("reconstructed target coefficient is not one"));
     }
-    observe(MaterializationEvent::SemiNumericalFinished { output_terms: output.len() });
-    eprintln!("SAMPLED done terms={} t={:.1}s", output.len(), start.elapsed().as_secs_f64());
+    observe(MaterializationEvent::SemiNumericalFinished {
+        output_terms: output.len(),
+    });
+    eprintln!(
+        "SAMPLED done terms={} t={:.1}s",
+        output.len(),
+        start.elapsed().as_secs_f64()
+    );
     Ok(output)
 }
 
@@ -313,8 +409,10 @@ pub(crate) fn screen<const N: usize>(
         target_block: target_column + 1,
         ..Default::default()
     };
-    let columns_with_sentinel =
-        u32::try_from(columns.len()).ok().and_then(|n| n.checked_add(1)).ok_or(MaterializationError::TooManyColumns)?;
+    let columns_with_sentinel = u32::try_from(columns.len())
+        .ok()
+        .and_then(|n| n.checked_add(1))
+        .ok_or(MaterializationError::TooManyColumns)?;
     let mapped: Vec<Vec<(u32, Coefficient)>> = rows
         .iter()
         .map(|row| {
@@ -328,7 +426,12 @@ pub(crate) fn screen<const N: usize>(
                 .collect::<Result<_, MaterializationError>>()
         })
         .collect::<Result<_, _>>()?;
-    let frame = Frame { rows: mapped, columns_with_sentinel, target: target_column as u32, nvars: variables.active_len() };
+    let frame = Frame {
+        rows: mapped,
+        columns_with_sentinel,
+        target: target_column as u32,
+        nvars: variables.active_len(),
+    };
     let p = recon::primes_below_2_62(1, 3)[0];
     let mut rng = Rng(seed | 1);
     let mut branches: Vec<((Vec<u32>, Vec<Option<u32>>), usize)> = Vec::new();
@@ -355,13 +458,19 @@ pub(crate) fn screen<const N: usize>(
         measure.seconds = start.elapsed().as_secs_f64();
         return Ok(measure);
     }
-    let oracle = FrameOracle { frame: &frame, support, pivots };
+    let oracle = FrameOracle {
+        frame: &frame,
+        support,
+        pivots,
+    };
     let f = Fp { p };
     let weights: Vec<u64> = (0..oracle.ncols()).map(|_| rng.element(p)).collect();
     let base: Vec<u64> = (0..frame.nvars).map(|_| rng.element(p)).collect();
     let dir: Vec<u64> = (0..frame.nvars).map(|_| rng.element(p)).collect();
     let (mut used, mut bad) = (0usize, 0usize);
-    match recon::probe_line(&oracle, &f, &base, &dir, &weights, &mut rng, 1, max_points, &mut used, &mut bad) {
+    match recon::probe_line(
+        &oracle, &f, &base, &dir, &weights, &mut rng, 1, max_points, &mut used, &mut bad,
+    ) {
         Ok((cols, fd)) => {
             measure.converged = true;
             measure.max_num_degree = cols.iter().map(|x| x.0).max().unwrap_or(0);
