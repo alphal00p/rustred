@@ -60,6 +60,13 @@ pub struct LiftScreen {
     /// [`HeavyAction::Auto`]: primes assumed by the cost estimate (T211 needed 4 for a degree-16 row).
     #[serde(default = "default_est_primes")]
     pub est_primes: usize,
+    /// Ladder rung 1 for LARGE traces of small relations (class A, T159/T211/T212 corners: degree 4, 1689-2745 rows,
+    /// the exact elimination swells): a non-heavy lift with at least this many rows is refused once so that the
+    /// caller searches the case again under the SymbolicFirst seed schedule (10-20x smaller traces); under that
+    /// schedule it is lifted (sampled when `sampled_from_rows` applies and the route is feasible). `None` = off; the
+    /// node driver clears it when its SymbolicFirst rung is off.
+    #[serde(default)]
+    pub symbolic_first_from_rows: Option<usize>,
 }
 
 fn default_min_target_block() -> usize {
@@ -90,6 +97,7 @@ impl Default for LiftScreen {
             max_box: default_max_box(),
             sampled_budget_seconds: default_sampled_budget(),
             est_primes: default_est_primes(),
+            symbolic_first_from_rows: None,
         }
     }
 }
@@ -209,6 +217,14 @@ impl LiftScreen {
     }
 
     pub fn decide(&self, m: &ScreenMeasure) -> ScreenDecision {
+        self.decide_in(m, false)
+    }
+
+    /// [`Self::decide`] knowing whether the search ran under the SymbolicFirst seed schedule.
+    pub fn decide_in(&self, m: &ScreenMeasure, symbolic_first: bool) -> ScreenDecision {
+        if self.heavy(m).is_none() && !symbolic_first && self.symbolic_first_from_rows.is_some_and(|r| m.rows >= r) {
+            return ScreenDecision::Refuse(format!("large trace ({} rows) of a small relation: SymbolicFirst rung first", m.rows));
+        }
         match self.heavy(m) {
             Some(reason) => match self.on_heavy {
                 HeavyAction::Refuse => ScreenDecision::Refuse(reason),
@@ -220,7 +236,21 @@ impl LiftScreen {
                     Err(why) => ScreenDecision::Refuse(format!("{reason}; class B: {why}")),
                 },
             },
-            None if self.sampled_from_rows.is_some_and(|r| m.rows >= r) && m.variables > 0 => ScreenDecision::Sampled,
+            None if self.sampled_from_rows.is_some_and(|r| m.rows >= r) && m.variables > 0 => {
+                if self.on_heavy != HeavyAction::Auto {
+                    ScreenDecision::Sampled
+                } else {
+                    match self.sampled_feasible(m) {
+                        Ok(()) => ScreenDecision::Sampled,
+                        // a LARGE trace of a relation whose box is beyond the reconstruction: class B, never lifted
+                        // (T163/T182/T216 c3: 1882-3087-row exact lifts of degree <= 24 ran into the case budget)
+                        Err(why) if m.box_unknowns().is_some_and(|b| b > self.max_box) => {
+                            ScreenDecision::Refuse(format!("large trace ({} rows), class B: {why}", m.rows))
+                        }
+                        Err(_) => ScreenDecision::Pass,
+                    }
+                }
+            }
             None => ScreenDecision::Pass,
         }
     }
@@ -325,6 +355,22 @@ mod tests {
         assert!(s.screens(209, 364));
         assert!(!s.screens(209, 100));
         assert!(s.screens(700, 1));
+    }
+
+    #[test]
+    fn large_small_relation_goes_symbolic_first_then_sampled() {
+        let s = LiftScreen { on_heavy: HeavyAction::Auto, symbolic_first_from_rows: Some(1200), sampled_from_rows: Some(1200), ..Default::default() };
+        let corner = ScreenMeasure { rows: 1689, variables: 4, rhs_terms: 300, max_num_degree: 4, max_den_degree: 4, common_den_degree: 4, converged: true, replay_seconds: 0.05, ..Default::default() };
+        assert!(matches!(s.decide_in(&corner, false), ScreenDecision::Refuse(r) if r.contains("SymbolicFirst")));
+        assert_eq!(s.decide_in(&corner, true), ScreenDecision::Sampled);
+        assert_eq!(s.decide_in(&ScreenMeasure { rows: 400, ..corner.clone() }, false), ScreenDecision::Pass);
+        // infeasible sampled route under SymbolicFirst: exact lift
+        assert_eq!(s.decide_in(&ScreenMeasure { replay_seconds: 100.0, ..corner.clone() }, true), ScreenDecision::Pass);
+        // large trace of a large relation under SymbolicFirst: class B, refused (box 15 deg, 5 vars = 15504 + ...)
+        let big = ScreenMeasure { max_num_degree: 15, max_den_degree: 15, common_den_degree: 15, variables: 5, rows: 2085, ..corner.clone() };
+        assert!(matches!(s.decide_in(&big, true), ScreenDecision::Refuse(r) if r.contains("class B")));
+        // off by default
+        assert_eq!(LiftScreen { on_heavy: HeavyAction::Auto, ..Default::default() }.decide_in(&corner, false), ScreenDecision::Pass);
     }
 
     #[test]

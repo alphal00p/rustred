@@ -5,8 +5,8 @@
 //!                  [--backend targetonlyfactorized|factorized|sparse|targetonly|sampled] [--max-depth K] [--max-cases K]
 //!                  [--native-try S] [--no-content-fallback] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
 //!                  [--on-heavy auto|refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
-//!                  [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
-//!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
+//!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
+//!                  [--max-rule-monomials K|none] [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--cover PATH:UPTO]... [--cand-dump]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
@@ -123,7 +123,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.gsplit = false;
     }
     // default heavy action: gate on box size and oracle cost (sampled when feasible, else refuse = class B)
-    let mut screen = LiftScreen { on_heavy: HeavyAction::Auto, ..LiftScreen::default() };
+    let mut screen = LiftScreen { on_heavy: HeavyAction::Auto, symbolic_first_from_rows: Some(1200), sampled_from_rows: Some(1200), ..LiftScreen::default() };
     if let Some(s) = a.take("--screen") {
         let v: Vec<usize> = s.split(',').map(|x| x.parse().unwrap_or_else(|_| die("--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS"))).collect();
         if v.len() != 4 {
@@ -162,10 +162,21 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if a.flag("--no-symbolic-first-rung") {
         o.symbolic_first_rung = false;
     }
+    // per-rule size budget (coefficient monomials over the RHS); default 2,000,000, 'none' = off
+    o.max_rule_monomials = match a.take("--max-rule-monomials") {
+        Some(v) if v == "none" => None,
+        Some(v) => Some(v.parse().unwrap_or_else(|_| die("--max-rule-monomials K|none"))),
+        None => Some(2_000_000),
+    };
     if a.flag("--no-empty-domain-check") {
         o.empty_domain_check = false;
     }
-    screen.sampled_from_rows = a.parse("--sampled-from-rows");
+    if let Some(v) = a.take("--sampled-from-rows") {
+        screen.sampled_from_rows = if v == "none" { None } else { Some(v.parse().unwrap_or_else(|_| die("--sampled-from-rows R|none"))) };
+    }
+    if let Some(v) = a.take("--symfirst-from-rows") {
+        screen.symbolic_first_from_rows = if v == "none" { None } else { Some(v.parse().unwrap_or_else(|_| die("--symfirst-from-rows R|none"))) };
+    }
     o.screen = if a.flag("--no-screen") { None } else { Some(screen) };
     if let Some(s) = a.take("--retry-source-orders") {
         o.retry_source_orders = if s == "none" { vec![] } else { s.split(',').map(|x| SourceOrder::parse(x).unwrap_or_else(|e| die(&e))).collect() };

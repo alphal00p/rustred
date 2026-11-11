@@ -672,7 +672,8 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         if screen.screens(rows.len(), target_column + 1) {
             let measure =
                 sampled::screen(rows, &columns, order, target_column, &variables, screen.max_points, screen.seed)?;
-            let decision = screen.decide(&measure);
+            let symbolic_first = crate::node::screen::seed_schedule_override() == Some(super::SeedSchedule::SymbolicFirst);
+            let decision = screen.decide_in(&measure, symbolic_first);
             crate::node::screen::record(measure, decision.clone());
             match decision {
                 crate::node::screen::ScreenDecision::Refuse(reason) => {

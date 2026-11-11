@@ -78,6 +78,11 @@ pub struct NodeOptions {
     /// the order portfolio (node level, [`super::auto`]) is the next rung.
     #[serde(default = "yes")]
     pub symbolic_first_rung: bool,
+    /// Size budget per rule (coefficient monomials over all RHS terms, [`rule_monomials`]): a larger rule is treated
+    /// as a refused lift (the ladder tries SymbolicFirst / other source orders, then the node's order portfolio).
+    /// Coordinator 06:23Z: T211's composite closed with one 6.63M-monomial rule (2.88 GB table): correct but useless.
+    #[serde(default)]
+    pub max_rule_monomials: Option<usize>,
     /// Skip cases whose integer domain is empty (fixed values outside the chart's sign range, or linear equations
     /// without an integer solution in the chart's orthant): they need no rule (T211 lesson).
     #[serde(default = "yes")]
@@ -127,6 +132,7 @@ impl Default for NodeOptions {
             seed_schedule: SeedScheduleName::Spired,
             symbolic_first_rung: true,
             empty_domain_check: true,
+            max_rule_monomials: None,
         }
     }
 }
@@ -187,6 +193,9 @@ pub struct NodeOutcome {
     /// Cases skipped because their integer domain is empty.
     #[serde(default)]
     pub empty_domains: usize,
+    /// Lifted rules discarded by the size budget.
+    #[serde(default)]
+    pub oversized_rules: usize,
     /// Cases with a finite integer domain, replaced by their uncovered points (numeric endpoints).
     #[serde(default)]
     pub finite_domains: usize,
@@ -393,6 +402,11 @@ fn max_total_degree(p: &CoefficientPolynomial) -> usize {
 }
 
 /// Max total degree over numerators and denominators of a rule's RHS coefficients.
+/// Size of a rule: coefficient monomials summed over its RHS terms (numerator + denominator).
+pub fn rule_monomials<const N: usize>(c: &RuleCandidate<N>) -> usize {
+    c.rhs.iter().map(|t| t.coefficient.numerator.nterms() + t.coefficient.denominator.nterms()).sum()
+}
+
 pub fn rule_degree<const N: usize>(c: &RuleCandidate<N>) -> usize {
     c.rhs.iter().map(|t| max_total_degree(&t.coefficient.numerator).max(max_total_degree(&t.coefficient.denominator))).max().unwrap_or(0)
 }
@@ -824,7 +838,13 @@ fn run<const N: usize>(
     let mut error: Option<String> = None;
     let mut stop: Option<StopReason> = None;
     let (mut terms, mut deferred_regions, mut deferred_branches, mut branches_total) = (0usize, 0usize, 0usize, 0usize);
-    let screen = opts.screen;
+    let rung = opts.symbolic_first_rung && opts.seed_schedule != SeedScheduleName::SymbolicFirst;
+    let screen = opts.screen.map(|mut s| {
+        if !rung {
+            s.symbolic_first_from_rows = None;
+        }
+        s
+    });
     // ---- one case search with the node's source order; the screen may refuse the lift
     struct Searched<const N: usize> {
         candidate: RuleCandidate<N>,
@@ -942,6 +962,18 @@ fn run<const N: usize>(
             }
             let refused = reports.iter().any(|r| matches!(r.decision, super::screen::ScreenDecision::Refuse(_)));
             match result {
+                Ok(s) if opts.max_rule_monomials.is_some_and(|b| rule_monomials(&s.candidate) > b) => {
+                    let size = rule_monomials(&s.candidate);
+                    outcome.refused_lifts += 1;
+                    outcome.oversized_rules += 1;
+                    writeln!(qlog, "{{\"type\":\"rule_oversized\",\"source_order\":{},\"monomials\":{size},\"rhs\":{},\"case\":{}}}", q(&label), s.candidate.rhs.len(), case_json(&current, n)).map_err(|e| e.to_string())?;
+                    refusals.push(ScreenReport {
+                        measure: super::screen::ScreenMeasure { rows: s.candidate.sources.len(), rhs_terms: s.candidate.rhs.len(), converged: true, note: format!("lifted rule has {size} coefficient monomials"), ..Default::default() },
+                        decision: super::screen::ScreenDecision::Refuse(format!("rule size {size} monomials > {}", opts.max_rule_monomials.unwrap())),
+                        heavy: Some("rule size budget".into()),
+                    });
+                    continue;
+                }
                 Ok(s) => {
                     found = Some(s);
                     break;
