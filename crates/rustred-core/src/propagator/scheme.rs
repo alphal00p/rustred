@@ -980,7 +980,7 @@ impl SchemeTemplate {
     }
 
     /// The order key of an Apply key (lines >= 1, ISPs <= 0).
-    fn order(&self, powers: &[i64]) -> Vec<i64> {
+    fn order(&self, powers: &[i64]) -> super::step::OrderEntries {
         let rank: i64 = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
         let regime = if rank > 0 {
             Regime::RankPositive
@@ -1229,7 +1229,7 @@ impl SchemeStep {
     }
 
     /// The scheme's stored order key (its `order` rows).
-    fn order(&self, powers: &[i64]) -> Vec<i64> {
+    fn order(&self, powers: &[i64]) -> super::step::OrderEntries {
         self.template.order(powers)
     }
 

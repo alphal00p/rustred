@@ -323,9 +323,11 @@ impl InsertionStep {
                         let table = rule.rewrite.table(&box_powers, &free_powers)?;
                         let weights = self.kernel_weights(alpha, beta, rank, limits)?;
                         let weights = keys.weights(&table, &weights, limits)?;
-                        Ok(step_memo::InsertionWeights { table, weights })
+                        Ok((table, weights))
                     })?;
-                    keys.emit_weights(&memo.table, &memo.weights, &mut output);
+                    step_memo::coefficients(|values| {
+                        keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
+                    });
                     if mode == MemoMode::Check {
                         let mut reference = PStepOut::default();
                         direct(&mut reference)?;

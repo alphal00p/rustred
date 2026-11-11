@@ -98,6 +98,10 @@ pub(super) struct Factorized<'a> {
     /// Per lane: `f^e`, and `(h^e)^-1 mod g`, for the nonlinear paths.
     power_cache: Vec<HashMap<(u32, u32), Raw>>,
     inverse_cache: Vec<HashMap<(u32, u32, u32), Raw>>,
+    /// rr-alloc: reused buffers of the nonlinear division paths.
+    scratch: Scratch,
+    /// rr-alloc: the chain block being divided (reused).
+    chain_block: Raw,
     /// Scalars of every constant coefficient, lanes adjacent.
     constant_scalars: Vec<Scalar>,
     /// `(start, length)` in `numerator_table` of every polynomial
@@ -142,6 +146,8 @@ impl<'a> Factorized<'a> {
             powers: vec![],
             power_cache: lanes.iter().map(|_| HashMap::new()).collect(),
             inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
+            scratch: Scratch::default(),
+            chain_block: vec![],
             constant_scalars,
             numerator_scalars,
             numerator_table,
@@ -664,13 +670,19 @@ impl<'a> Factorized<'a> {
                     w[at(poly - 1)] = 0;
                     w[at(g_offset)] = lane.add(w[at(g_offset)], carry);
                 } else {
-                    let part: Raw = (0..poly).map(|i| w[at(i)]).collect();
-                    let (quotient, remainder) =
-                        lane.divrem_monic(&part, &tables.basis.monic[g as usize]);
+                    let s = &mut self.scratch;
+                    s.part.clear();
+                    s.part.extend((0..poly).map(|i| w[at(i)]));
+                    lane.divrem_monic_into(
+                        &s.part,
+                        &tables.basis.monic[g as usize],
+                        &mut s.q,
+                        &mut s.r,
+                    );
                     for i in 0..poly {
-                        w[at(i)] = quotient.get(i).copied().unwrap_or(0);
+                        w[at(i)] = s.q.get(i).copied().unwrap_or(0);
                     }
-                    for (i, &r) in remainder.iter().enumerate() {
+                    for (i, &r) in s.r.iter().enumerate() {
                         w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
                     }
                 }
@@ -695,20 +707,23 @@ impl<'a> Factorized<'a> {
                     w[at(g_offset)] = lane.sub(w[at(g_offset)], next);
                     continue;
                 }
-                let mut block: Raw = (0..exponent * degree).map(|i| w[at(offset + i)]).collect();
-                let residue = divide_chain(
+                let block = &mut self.chain_block;
+                block.clear();
+                block.extend((0..exponent * degree).map(|i| w[at(offset + i)]));
+                divide_chain(
                     tables,
                     &mut self.power_cache[l],
                     &mut self.inverse_cache[l],
                     chain.factor,
                     exponent,
-                    &mut block,
+                    block,
                     g,
+                    &mut self.scratch,
                 )?;
                 for (i, &value) in block.iter().enumerate() {
                     w[at(offset + i)] = value;
                 }
-                for (i, &r) in residue.iter().enumerate() {
+                for (i, &r) in self.scratch.c.iter().enumerate() {
                     w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
                 }
             }
@@ -719,10 +734,27 @@ impl<'a> Factorized<'a> {
     }
 }
 
+/// rr-alloc: reused buffers of [`divide_chain`] and the nonlinear part
+/// division (the replay allocated a fresh vector for every intermediate).
+#[derive(Default)]
+struct Scratch {
+    dense: Raw,
+    t0: Raw,
+    block: Raw,
+    q: Raw,
+    r: Raw,
+    b: Raw,
+    c: Raw,
+    numerator: Raw,
+    part: Raw,
+}
+
 /// Divide the chain `a = (a_1, ..., a_e)` of `h` (`A / h^e` with
 /// `A = sum_j a_j h^(e-j)`) by a basis factor `g` coprime to `h`:
 /// `A / (h^e g) = B / h^e + C / g` with `C = A (h^e)^-1 mod g` and
-/// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and returns `C`.
+/// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and leaves
+/// `C` in `s.c`.
+#[allow(clippy::too_many_arguments)]
 fn divide_chain(
     tables: &LaneTables,
     powers: &mut HashMap<(u32, u32), Raw>,
@@ -731,11 +763,12 @@ fn divide_chain(
     exponent: usize,
     a: &mut [u64],
     g: u32,
-) -> Result<Raw, ReductionError> {
+    s: &mut Scratch,
+) -> Result<(), ReductionError> {
     let lane = &tables.lane;
     let hm = &tables.basis.monic[h as usize];
     let gm = &tables.basis.monic[g as usize];
-    let dense = to_dense(lane, a, hm, exponent);
+    to_dense_into(lane, a, hm, exponent, &mut s.dense, &mut s.t0, &mut s.block);
     let power = powers
         .entry((h, exponent as u32))
         .or_insert_with(|| lane.poly_pow(hm, exponent));
@@ -746,42 +779,66 @@ fn divide_chain(
                 .ok_or_else(|| error("basis factor images are not coprime"))?,
         ),
     };
-    let c = lane
-        .divrem_monic(
-            &lane.poly_mul(&lane.divrem_monic(&dense, gm).1, inverse),
-            gm,
-        )
-        .1;
-    let numerator = lane.poly_sub(&dense, &lane.poly_mul(&c, power));
-    let (b, remainder) = lane.divrem_monic(&numerator, gm);
-    if !remainder.is_empty() {
+    // C = ((A mod g) inverse) mod g
+    lane.divrem_monic_into(&s.dense, gm, &mut s.q, &mut s.r);
+    lane.poly_mul_into(&s.r, inverse, &mut s.t0);
+    lane.divrem_monic_into(&s.t0, gm, &mut s.q, &mut s.c);
+    // B = (A - C h^e) / g
+    lane.poly_mul_into(&s.c, power, &mut s.t0);
+    lane.poly_sub_into(&s.dense, &s.t0, &mut s.numerator);
+    lane.divrem_monic_into(&s.numerator, gm, &mut s.b, &mut s.r);
+    if !s.r.is_empty() {
         return Err(error("partial-fraction division left a remainder"));
     }
-    expand(lane, b, hm, exponent, a);
-    Ok(c)
+    expand_into(lane, &mut s.b, hm, exponent, a, &mut s.q, &mut s.r);
+    Ok(())
 }
 
 /// `A = sum_j a_j h^(e-j)` from the chain `a_1, ..., a_e`.
 fn to_dense(lane: &Lane, a: &[u64], h: &[u64], exponent: usize) -> Raw {
-    let degree = h.len() - 1;
-    let mut dense: Raw = vec![];
-    for j in 0..exponent {
-        let mut block = a[j * degree..(j + 1) * degree].to_vec();
-        Lane::trim(&mut block);
-        dense = lane.poly_add(&lane.poly_mul(&dense, h), &block);
-    }
+    let (mut dense, mut t0, mut block) = (vec![], vec![], vec![]);
+    to_dense_into(lane, a, h, exponent, &mut dense, &mut t0, &mut block);
     dense
 }
 
+/// rr-alloc: [`to_dense`] into reused buffers.
+fn to_dense_into(
+    lane: &Lane,
+    a: &[u64],
+    h: &[u64],
+    exponent: usize,
+    dense: &mut Raw,
+    t0: &mut Raw,
+    block: &mut Raw,
+) {
+    let degree = h.len() - 1;
+    dense.clear();
+    for j in 0..exponent {
+        block.clear();
+        block.extend_from_slice(&a[j * degree..(j + 1) * degree]);
+        Lane::trim(block);
+        lane.poly_mul_into(dense, h, t0);
+        lane.poly_add_into(t0, block, dense);
+    }
+}
+
 /// Write the chain `a_1, ..., a_e` of `B = sum_j a_j h^(e-j)`
-/// (`deg B < e deg h`) into `chain`.
-fn expand(lane: &Lane, mut b: Raw, h: &[u64], exponent: usize, chain: &mut [u64]) {
+/// (`deg B < e deg h`) into `chain` (`b` is consumed as scratch).
+fn expand_into(
+    lane: &Lane,
+    b: &mut Raw,
+    h: &[u64],
+    exponent: usize,
+    chain: &mut [u64],
+    quotient: &mut Raw,
+    remainder: &mut Raw,
+) {
     let degree = h.len() - 1;
     chain.fill(0);
     for j in (0..exponent).rev() {
-        let (quotient, remainder) = lane.divrem_monic(&b, h);
-        chain[j * degree..j * degree + remainder.len()].copy_from_slice(&remainder);
-        b = quotient;
+        lane.divrem_monic_into(b, h, quotient, remainder);
+        chain[j * degree..j * degree + remainder.len()].copy_from_slice(remainder);
+        std::mem::swap(b, quotient);
     }
     debug_assert!(b.is_empty());
 }

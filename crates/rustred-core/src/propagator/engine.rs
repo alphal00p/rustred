@@ -61,16 +61,91 @@ use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
 
+/// The slots of a view decoded on the stack (no heap for the 4L and 5L
+/// libraries: 30 and 36 slots).
+pub(crate) type ViewSlots = SmallVec<[i64; 64]>;
+
+/// rr-alloc: the view of a p key (`powers ++ dense tag ++ zeros`, see the
+/// module docs) stored inline as `i8` slots ([`CompactPowers`], a heap form
+/// only for a slot outside `i8` or a library wider than its inline
+/// capacity), so building, cloning, packing and unpacking a key allocates
+/// nothing. Equality, order and hash are those of the slot sequence, exactly
+/// as for the `IntegralKey` it replaces (`Vec<i64>` order and hash); the
+/// `IntegralKey` itself is built only on demand ([`Self::integral`]: phase
+/// inspection and the step cache) and kept.
+#[derive(Clone, Debug)]
+pub(crate) struct PView {
+    packed: CompactPowers,
+    integral: OnceLock<IntegralKey>,
+}
+
+impl PView {
+    fn new(slots: &[i64]) -> Self {
+        Self {
+            packed: CompactPowers::new(slots, false),
+            integral: OnceLock::new(),
+        }
+    }
+
+    fn from_integral(key: IntegralKey) -> Self {
+        Self {
+            packed: CompactPowers::new(key.powers(), false),
+            integral: OnceLock::from(key),
+        }
+    }
+
+    /// The slots, decoded.
+    pub(crate) fn slots(&self) -> ViewSlots {
+        let mut slots = ViewSlots::new();
+        self.packed.decode_into(&mut slots);
+        slots
+    }
+
+    /// The view as an `IntegralKey`, built on first use.
+    pub(crate) fn integral(&self) -> &IntegralKey {
+        self.integral.get_or_init(|| {
+            IntegralKey::try_from_preallocated(self.packed.to_vec()).expect("a view is nonempty")
+        })
+    }
+}
+
+impl PartialEq for PView {
+    fn eq(&self, other: &Self) -> bool {
+        self.packed == other.packed
+    }
+}
+
+impl Eq for PView {}
+
+impl PartialOrd for PView {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PView {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.packed.cmp_powers(&other.packed)
+    }
+}
+
+impl std::hash::Hash for PView {
+    /// The hash of the slot slice, as `IntegralKey`'s.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.slots().as_slice().hash(state);
+    }
+}
+
 /// One scheduled identity of a p reduction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum PKey {
     Route {
         presentation: PresentationId,
-        view: IntegralKey,
+        view: PView,
     },
     Apply {
         class: OwnerClassId,
-        view: IntegralKey,
+        view: PView,
     },
 }
 
@@ -88,17 +163,19 @@ impl FrontierKey for PKey {
         match self {
             PKey::Route { presentation, view } => PackedPKey {
                 id: u64::from(presentation.0),
-                view: CompactPowers::new(view.powers(), false),
+                view: view.packed.with_tag(false),
             },
             PKey::Apply { class, view } => PackedPKey {
                 id: class.0,
-                view: CompactPowers::new(view.powers(), true),
+                view: view.packed.with_tag(true),
             },
         }
     }
     fn unpack(packed: &PackedPKey) -> PKey {
-        let view = IntegralKey::try_from_preallocated(packed.view.to_vec())
-            .expect("a packed key is nonempty");
+        let view = PView {
+            packed: packed.view.with_tag(false),
+            integral: OnceLock::new(),
+        };
         if packed.view.tag() {
             PKey::Apply {
                 class: OwnerClassId(packed.id),
@@ -310,10 +387,9 @@ impl PEngine {
     fn split<'v>(
         &self,
         presentation: PresentationId,
-        view: &'v IntegralKey,
+        slots: &'v [i64],
     ) -> Result<(&'v [i64], &'v [i64]), PError> {
         let arity = self.shape(presentation)?.arity;
-        let slots = view.powers();
         if slots.len() != self.width || arity + P_GAMMA_TAG_WIDTH > self.width {
             return Err(PError::MalformedLibrary(format!(
                 "a key of presentation {} has {} slots, not {}",
@@ -335,11 +411,19 @@ impl PEngine {
 
     /// `powers ++ dense tag ++ zeros`; a tag outside the key range is
     /// [`PError::TagOutOfRange`].
-    fn view(&self, powers: &[i64], tag: &GammaTag) -> Result<IntegralKey, PError> {
-        let mut slots = Vec::with_capacity(self.width);
+    fn view(&self, powers: &[i64], tag: &GammaTag) -> Result<PView, PError> {
+        let mut slots = ViewSlots::new();
         slots.extend_from_slice(powers);
-        tag.encode_dense(&mut slots)?;
-        self.padded(slots)
+        tag.encode_dense_into(&mut slots)?;
+        if slots.len() > self.width {
+            return Err(PError::MalformedLibrary(format!(
+                "a key of {} slots in a library of width {}",
+                slots.len(),
+                self.width
+            )));
+        }
+        slots.resize(self.width, 0);
+        Ok(PView::new(&slots))
     }
 
     fn padded(&self, mut slots: Vec<i64>) -> Result<IntegralKey, PError> {
@@ -504,7 +588,7 @@ impl PEngine {
             },
             inspector,
         };
-        run_with_step_cache_and_options(
+        let output = run_with_step_cache_and_options(
             &mut kernel,
             &mut ReductionRequest::default(),
             initial,
@@ -512,7 +596,21 @@ impl PEngine {
             arithmetic,
             scheduler,
             cache,
-        )
+        );
+        // rr-alloc diagnostics: the step memo counters of this thread (all
+        // steps at one thread).
+        if let Ok(path) = std::env::var("RUSTRED_P_STEP_MEMO_STATS") {
+            use std::io::Write;
+            let [ih, im, ie, rh, rm, re, distinct] = super::step_memo::counters();
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(
+                    file,
+                    "{{\"insertion\":{{\"hits\":{ih},\"misses\":{im},\"entries\":{ie}}},\"route\":{{\"hits\":{rh},\"misses\":{rm},\"entries\":{re}}},\"coefficients\":{distinct}}}"
+                );
+            }
+        }
+        super::step_memo::clear();
+        output
     }
 }
 
@@ -745,8 +843,9 @@ impl<'l> PStepper<'l> {
         };
         let parent_phase = self.phase(key).ok();
         let (mut lines, mut dots, mut rank) = (0_u32, 0_i64, 0_i64);
+        let slots = view.slots();
         if let Some(presentation) = presentation
-            && let Ok((powers, _)) = self.engine.split(presentation, view)
+            && let Ok((powers, _)) = self.engine.split(presentation, &slots)
             && let Ok(shape) = self.engine.shape(presentation)
         {
             lines = u32::try_from(shape.line_count(shape.support(powers))).unwrap_or(u32::MAX);
@@ -770,9 +869,10 @@ impl<'l> PStepper<'l> {
                     view: child_view,
                 } => {
                     agg.ch_route += 1;
+                    let child_slots = child_view.slots();
                     let zero = self
                         .engine
-                        .split(*child_presentation, child_view)
+                        .split(*child_presentation, &child_slots)
                         .ok()
                         .and_then(|(child_powers, _)| {
                             let support = self
@@ -810,7 +910,9 @@ impl<'l> PStepper<'l> {
             agg.coeff_terms_max = agg.coeff_terms_max.max(terms);
         }
         let apply_view = match key {
-            PKey::Apply { view, .. } if self.census.keep_apply_keys => Some(view.powers().into()),
+            PKey::Apply { view, .. } if self.census.keep_apply_keys => {
+                Some(view.slots().into_vec().into())
+            }
             _ => None,
         };
         let route = match key {
@@ -831,10 +933,11 @@ impl<'l> PStepper<'l> {
     fn route_record(
         &self,
         presentation: PresentationId,
-        view: &IntegralKey,
+        view: &PView,
         step: &OrderedStep<PKey>,
     ) -> Option<PRouteRecord> {
-        let (powers, _) = self.engine.split(presentation, view).ok()?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(presentation, &slots).ok()?;
         let support = self.engine.shape(presentation).ok()?.support(powers);
         match self.engine.sector(self.library, presentation, support) {
             Ok(Sector::Routed { .. }) => Some(PRouteRecord {
@@ -884,7 +987,7 @@ impl<'l> PStepper<'l> {
             *inflow.entry((kind, id)).or_default() += 1;
             if kind == 1
                 && let Some(presentation) = presentation
-                && let Ok((powers, _)) = self.engine.split(presentation, entry.integral)
+                && let Ok((powers, _)) = self.engine.split(presentation, entry.integral.powers())
                 && let Ok(shape) = self.engine.shape(presentation)
             {
                 let lines =
@@ -924,8 +1027,9 @@ impl<'l> PStepper<'l> {
         }
     }
 
-    fn route_t(&self, presentation: PresentationId, view: &IntegralKey) -> Result<usize, PError> {
-        let (powers, _) = self.engine.split(presentation, view)?;
+    fn route_t(&self, presentation: PresentationId, view: &PView) -> Result<usize, PError> {
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(presentation, &slots)?;
         let shape = self.engine.shape(presentation)?;
         Ok(shape.line_count(shape.support(powers)))
     }
@@ -944,11 +1048,12 @@ impl<'l> PStepper<'l> {
         let PKey::Apply { class, view } = key else {
             return Ok(PPriority {
                 rank: 0,
-                order: POrderKey::Lexicographic(Vec::new()),
+                order: POrderKey::Lexicographic(Default::default()),
             });
         };
         let slot = self.engine.owner(*class)?;
-        let (powers, _) = self.engine.split(slot.presentation, view)?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(slot.presentation, &slots)?;
         let owner = self.owner(*class)?;
         let order = match owner.program(self.library)? {
             OwnerProgram::Lane(lane) => lane.order_key(&self.context(owner), powers)?,
@@ -964,10 +1069,11 @@ impl<'l> PStepper<'l> {
     fn route_step(
         &self,
         presentation: PresentationId,
-        view: &IntegralKey,
+        view: &PView,
     ) -> Result<OrderedStep<PKey>, PError> {
         let engine = self.engine;
-        let (powers, tag_slots) = engine.split(presentation, view)?;
+        let slots = view.slots();
+        let (powers, tag_slots) = engine.split(presentation, &slots)?;
         let support = engine.shape(presentation)?.support(powers);
         let mut step = OrderedStep::default();
         let (class, map) = match engine.sector(self.library, presentation, support)? {
@@ -1061,30 +1167,56 @@ impl<'l> PStepper<'l> {
             let numerator = IntegralKey::try_from_preallocated(numerator)
                 .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
             let mapped = prepared.transport(&numerator, limits)?;
-            Ok(mapped
-                .terms()
-                .iter()
-                .map(|endpoint| {
-                    let relative = endpoint
+            let mut offsets = Vec::with_capacity(mapped.terms().len() * base.len());
+            let mut coefficients = Vec::with_capacity(mapped.terms().len());
+            for endpoint in mapped.terms() {
+                offsets.extend(
+                    endpoint
                         .key()
                         .powers()
                         .iter()
                         .zip(&base)
-                        .map(|(power, base)| power - base)
-                        .collect();
-                    (relative, endpoint.coefficient().clone())
-                })
-                .collect())
+                        .map(|(power, base)| power - base),
+                );
+                coefficients.push(endpoint.coefficient().clone());
+            }
+            Ok((base.len(), offsets, coefficients))
         })?;
+        let Some(expansion) = expansion else {
+            direct(&mut step.terms)?;
+            return Ok(step);
+        };
         let mut base = Vec::with_capacity(engine.width);
         prepared.layered_base_powers(powers, &mut base)?;
-        let mut target: SmallVec<[i64; 24]> = SmallVec::new();
-        for (relative, coefficient) in expansion.iter() {
-            target.clear();
-            target.extend(base.iter().zip(relative).map(|(base, relative)| base + relative));
-            let child = child(&target)?;
-            merge(context, &self.limits, &mut step.terms, child, coefficient.clone())?;
+        if base.len() != expansion.arity {
+            return Err(PError::MalformedLibrary(
+                "a memoised route expansion of another arity".to_owned(),
+            ));
         }
+        let mut target: SmallVec<[i64; 24]> = SmallVec::new();
+        super::step_memo::coefficients(|values| -> Result<(), PError> {
+            for (relative, &coefficient) in expansion
+                .offsets
+                .chunks(expansion.arity.max(1))
+                .zip(&expansion.coefficients)
+            {
+                target.clear();
+                target.extend(
+                    base.iter()
+                        .zip(relative)
+                        .map(|(base, &relative)| base + i64::from(relative)),
+                );
+                let child = child(&target)?;
+                merge(
+                    context,
+                    &self.limits,
+                    &mut step.terms,
+                    child,
+                    values[coefficient as usize].clone(),
+                )?;
+            }
+            Ok(())
+        })?;
         if mode == super::step_memo::MemoMode::Check {
             let mut reference = BTreeMap::new();
             direct(&mut reference)?;
@@ -1098,10 +1230,11 @@ impl<'l> PStepper<'l> {
     fn apply_step(
         &self,
         class: OwnerClassId,
-        view: &IntegralKey,
+        view: &PView,
     ) -> Result<OrderedStep<PKey>, PError> {
         let slot = self.engine.owner(class)?;
-        let (powers, tag_slots) = self.engine.split(slot.presentation, view)?;
+        let slots = view.slots();
+        let (powers, tag_slots) = self.engine.split(slot.presentation, &slots)?;
         if self.engine.shape(slot.presentation)?.support(powers) != slot.support {
             return Err(PError::MalformedLibrary(format!(
                 "Apply key {powers:?} outside the support {:#x} of its owner",
@@ -1179,6 +1312,7 @@ impl<'l> PStepper<'l> {
                 key,
                 child.coefficient,
             )?;
+            super::step_memo::put_powers(child.powers);
         }
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
@@ -1233,7 +1367,7 @@ impl<'l> PStepper<'l> {
     fn recorded_key(&self, stage: NodeStage, view: IntegralKey) -> Result<PKey, PError> {
         let arity = |presentation| {
             self.engine
-                .split(presentation, &view)
+                .split(presentation, view.powers())
                 .map_err(|_| failure("a recorded identity is not a key of this library"))
         };
         match stage {
@@ -1244,7 +1378,10 @@ impl<'l> PStepper<'l> {
                     .map(PresentationId)
                     .ok_or_else(|| failure("a recorded Route identity names no presentation"))?;
                 arity(presentation)?;
-                Ok(PKey::Route { presentation, view })
+                Ok(PKey::Route {
+                    presentation,
+                    view: PView::from_integral(view),
+                })
             }
             NodeStage::ClassApply(class) => {
                 let class = OwnerClassId(class);
@@ -1254,7 +1391,10 @@ impl<'l> PStepper<'l> {
                     .get(&class)
                     .ok_or_else(|| failure("a recorded Apply identity names no owner"))?;
                 arity(slot.presentation)?;
-                Ok(PKey::Apply { class, view })
+                Ok(PKey::Apply {
+                    class,
+                    view: PView::from_integral(view),
+                })
             }
             NodeStage::Integral | NodeStage::Route | NodeStage::Apply(_) => {
                 Err(failure("a recorded identity is not a p-library identity").into())
@@ -1392,17 +1532,18 @@ impl OrderedKernel for PKernel<'_, '_> {
     }
 
     fn key_heap_bytes(key: &PKey) -> usize {
-        use crate::reduction::ordered_reduction::memstats::block;
-        let view = match key {
-            PKey::Route { view, .. } | PKey::Apply { view, .. } => view.powers(),
-        };
-        block(view.as_ptr(), view.len())
+        match key {
+            PKey::Route { view, .. } | PKey::Apply { view, .. } => view.packed.heap_bytes(),
+        }
     }
 
     fn priority_heap_bytes(priority: &PPriority) -> [usize; 2] {
         use crate::reduction::ordered_reduction::memstats::block;
         match &priority.order {
-            POrderKey::Lexicographic(entries) => [block(entries.as_ptr(), entries.capacity()), 0],
+            POrderKey::Lexicographic(entries) if entries.spilled() => {
+                [block(entries.as_ptr(), entries.capacity()), 0]
+            }
+            POrderKey::Lexicographic(_) => [0, 0],
             POrderKey::Complexity(key) => [0, key.shared_heap_bytes()],
         }
     }
@@ -1413,9 +1554,12 @@ impl OrderedKernel for PKernel<'_, '_> {
                 OrderedKeyStage::ClassRoute {
                     class: u64::from(presentation.0),
                 },
-                view,
+                view.integral(),
             ),
-            PKey::Apply { class, view } => (OrderedKeyStage::ClassApply { class: class.0 }, view),
+            PKey::Apply { class, view } => (
+                OrderedKeyStage::ClassApply { class: class.0 },
+                view.integral(),
+            ),
         })
     }
 
@@ -1639,14 +1783,15 @@ mod tests {
         let (library, class) = library();
         let engine = PEngine::new(&library).unwrap();
         let tag = GammaTag::from_pairs([(1, 2)]).unwrap();
-        let view = engine.view(&[1, 1], &tag).unwrap();
+        let packed = engine.view(&[1, 1], &tag).unwrap();
+        let view = packed.integral().clone();
         assert_eq!(view.powers().len(), 21);
-        let (powers, tag_slots) = engine.split(BUBBLE, &view).unwrap();
+        let (powers, tag_slots) = engine.split(BUBBLE, view.powers()).unwrap();
         assert_eq!(powers, [1, 1]);
         assert_eq!(GammaTag::decode_dense(tag_slots).unwrap(), tag);
         for damaged in damaged(&view) {
             assert!(matches!(
-                engine.split(BUBBLE, &damaged),
+                engine.split(BUBBLE, damaged.powers()),
                 Err(PError::MalformedLibrary(_))
             ));
         }
@@ -1661,14 +1806,14 @@ mod tests {
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
             Ok(PKey::Route {
                 presentation: BUBBLE,
-                view: view.clone()
+                view: packed.clone()
             })
         );
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassApply(class.0), view.clone()),
             Ok(PKey::Apply {
                 class,
-                view: view.clone()
+                view: packed.clone()
             })
         );
         let stale = |result: Result<PKey, PError>| {
