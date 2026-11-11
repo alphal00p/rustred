@@ -23,7 +23,7 @@ pub use composition::{
     ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
     OrderedTerminalComposerSlot,
 };
-use frontier::{Child, ChildAction, Frontier, FrontierLayout};
+use frontier::{Child, ChildAction, Frontier, FrontierLayout, FrontierMode};
 pub(crate) use frontier::{CompactPowers, FrontierKey};
 use modular::{Lifter, ModularRecorder};
 pub(crate) use parallel::{ConcurrentOrderedKernel, OrderedStepper};
