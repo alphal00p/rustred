@@ -746,6 +746,30 @@ impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
     }
 }
 
+impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
+    /// rr-par2: the walk of the subtrees under `roots` (heap positions none
+    /// of which is an ancestor of another), in pop order.
+    fn from_roots(
+        heap: &'h [u32],
+        slots: &'h [Option<Slot<K::Packed, W>>],
+        priorities: &'h Priorities<P>,
+        mut roots: Vec<usize>,
+    ) -> Self {
+        let cmp = |&a: &usize, &b: &usize| {
+            Packed::<K, P, W>::cmp_ids(slots, priorities, heap[a], heap[b])
+        };
+        for i in (0..roots.len() / 2).rev() {
+            sift_down(&mut roots, i, &cmp);
+        }
+        Self {
+            heap,
+            slots,
+            priorities,
+            aux: roots,
+        }
+    }
+}
+
 impl<K: FrontierKey, P: Clone + Ord + Hash, W> Iterator for HeapWalk<'_, K, P, W> {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
@@ -916,16 +940,38 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
             return out;
         }
         let bound = threshold.key.pack();
+        let at_or_above = |id: u32| {
+            let slot = p.slot(id);
+            p.priorities
+                .get(slot.priority)
+                .cmp(&threshold.priority)
+                .then_with(|| K::cmp_packed(&slot.key, &bound))
+                != Ordering::Less
+        };
         let ids: Box<dyn Iterator<Item = u32> + '_> = if p.buckets[phase].heap {
-            Box::new(HeapWalk::<K, P, W>::new(
-                &p.buckets[phase].ids,
+            // The entries at or above the threshold form a subtree at the
+            // top of the heap: find the positions just below it (one
+            // comparison per visited entry), then walk best-first from them.
+            let heap = &p.buckets[phase].ids;
+            let mut stack = if heap.is_empty() { vec![] } else { vec![0usize] };
+            let mut roots = Vec::new();
+            while let Some(at) = stack.pop() {
+                if at_or_above(heap[at]) {
+                    stack.extend([2 * at + 1, 2 * at + 2].into_iter().filter(|&c| c < heap.len()));
+                } else {
+                    roots.push(at);
+                }
+            }
+            Box::new(HeapWalk::<K, P, W>::from_roots(
+                heap,
                 &p.slots,
                 &p.priorities,
+                roots,
             ))
         } else {
             Box::new(p.ordered_ids(phase).into_iter())
         };
-        let mut skipping = true;
+        let mut skipping = !p.buckets[phase].heap;
         for id in ids {
             let slot = p.slot(id);
             if slot.weight.is_none() {
@@ -933,11 +979,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
             }
             let priority = p.priorities.get(slot.priority);
             if skipping {
-                let at_or_above = priority
-                    .cmp(&threshold.priority)
-                    .then_with(|| K::cmp_packed(&slot.key, &bound))
-                    != Ordering::Less;
-                if at_or_above {
+                if at_or_above(id) {
                     continue;
                 }
                 skipping = false;
