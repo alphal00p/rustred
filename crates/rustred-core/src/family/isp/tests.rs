@@ -260,3 +260,101 @@ mod tests {
         assert_eq!(completion.stats().appended_isps(), 0);
     }
 }
+
+/// Non-unit ISP rows (p5l-maps-rs): candidates offered before the unit rows.
+#[cfg(test)]
+mod candidate_tests {
+    use super::*;
+    use crate::family::isp::IspSource;
+
+    /// Two loops, one external `q` with `q.q = -1`; coordinates
+    /// `k1.k1, k1.k2, k2.k2, k1.q, k2.q`. Lines `k1^2, k2^2, (k1-q)^2, (k2-q)^2`.
+    fn lines(context: &CoefficientContext) -> Vec<AffineDenominator> {
+        let row = |constant: i64, r: [i64; 5]| {
+            AffineDenominator::new(
+                context.integer(constant),
+                r.iter().map(|&c| context.integer(c)).collect(),
+            )
+        };
+        vec![
+            row(0, [1, 0, 0, 0, 0]),
+            row(0, [0, 0, 1, 0, 0]),
+            row(-1, [1, 0, 0, -2, 0]),
+            row(-1, [0, 0, 1, 0, -2]),
+        ]
+    }
+
+    fn complete(
+        candidates: Vec<AffineDenominator>,
+        preferred: &[usize],
+    ) -> Result<IspCompletion, IspCompletionError> {
+        let context = CoefficientContext::new(["d"]);
+        IspCompletion::try_new_with_candidates(
+            "isp-candidates",
+            vec!["k1".into(), "k2".into()],
+            vec!["q".into()],
+            context.clone(),
+            context.parameter("d").unwrap(),
+            lines(&context),
+            vec![vec![context.integer(-1)]],
+            vec![context.zero(); 4],
+            IspCompletionLimits::default(),
+            candidates,
+            preferred,
+        )
+    }
+
+    #[test]
+    fn an_edge_pair_candidate_is_appended_and_a_dependent_one_skipped() {
+        let context = CoefficientContext::new(["d"]);
+        // (k1 - q).(k2 - q) = k1.k2 - k1.q - k2.q + q.q: constant -1.
+        let pair = AffineDenominator::new(
+            context.integer(-1),
+            [0, 1, 0, -1, -1]
+                .iter()
+                .map(|&c| context.integer(c))
+                .collect(),
+        );
+        // k1^2 again: dependent on the lines, skipped.
+        let dependent = lines(&context).remove(0);
+        let completion = complete(vec![dependent, pair.clone()], &[]).unwrap();
+        assert_eq!(completion.appended_sources(), &[IspSource::Candidate(1)]);
+        assert!(completion.appended_coordinate_ordinals().is_empty());
+        assert_eq!(completion.family().denominator_count(), 5);
+        assert_eq!(completion.family().denominators()[4], pair);
+        assert!(completion.family().power_shifts()[4].is_zero());
+        assert_eq!(completion.rank_progression(), &[4, 5]);
+    }
+
+    #[test]
+    fn no_candidates_is_the_preference_scan() {
+        let context = CoefficientContext::new(["d"]);
+        let plain = IspCompletion::try_new_with_preference(
+            "isp-candidates",
+            vec!["k1".into(), "k2".into()],
+            vec!["q".into()],
+            context.clone(),
+            context.parameter("d").unwrap(),
+            lines(&context),
+            vec![vec![context.integer(-1)]],
+            vec![context.zero(); 4],
+            IspCompletionLimits::default(),
+            &[4],
+        )
+        .unwrap();
+        let empty = complete(Vec::new(), &[4]).unwrap();
+        assert_eq!(empty.appended_sources(), &[IspSource::Unit(1)]);
+        assert_eq!(plain.appended_coordinate_ordinals(), &[1]);
+        assert_eq!(plain.family().denominators(), empty.family().denominators());
+    }
+
+    #[test]
+    fn a_candidate_of_the_wrong_width_is_refused() {
+        let context = CoefficientContext::new(["d"]);
+        let short = AffineDenominator::new(context.zero(), vec![context.one()]);
+        assert!(matches!(
+            complete(vec![short], &[]),
+            Err(IspCompletionError::WrongDenominatorRowSize { .. })
+        ));
+    }
+}

@@ -15,7 +15,9 @@ use rustred::propagator::families::{P_FAMILIES_V1_JSON, PFamiliesFile, load_p_fa
 use rustred::propagator::lane::{
     BubbleRoles, CarpetRoles, LaneDecision, LaneRoles, OwnerLane, TriangleRoles,
 };
-use rustred::propagator::present::{edge_map, present, present_node, top_topology};
+use rustred::propagator::present::{
+    IspPreference, edge_map, present, present_node, present_with_isp_preference, top_topology,
+};
 use rustred::propagator::presentation::{
     EdgeKind, EdgeMap, Presentation, PresentationKind, Slot, SlotIsp, check_carpet_contract,
     check_insertion_contract, check_triangle_contract, verify_edge_map,
@@ -1252,4 +1254,96 @@ fn the_4l_presentations_build_fast() {
     let elapsed = start.elapsed();
     println!("4L decide + present + contract: {elapsed:?}");
     assert!(elapsed.as_secs_f64() < 5.0, "{elapsed:?}");
+}
+
+/// Non-unit ISP slots (p5l-maps-rs): every eps Custom node of 3L and 4L with
+/// ISPs, given Forcer-style edge-pair products `p_a.p_b` (lines and `q`)
+/// first, gets a valid presentation whose ISPs are exactly the first
+/// independent pairs (unit rows only where the pairs do not span), keeps its
+/// line rows, and expresses every pair product; no preference is `present`.
+#[test]
+fn edge_pair_isps_present_eps_nodes() {
+    let mut checked = 0;
+    for loops in [3, 4] {
+        let built = lanes(loops);
+        for (node, decision) in built.dag.nodes.iter().zip(&built.decisions) {
+            let Some(default) = built.presentation(node.index) else {
+                continue;
+            };
+            if default.kind != PresentationKind::EpsNode {
+                continue;
+            }
+            let lines = default
+                .slots
+                .iter()
+                .filter(|s| matches!(s, Slot::Line(_)))
+                .count();
+            if lines == default.slots.len() {
+                continue;
+            }
+            let mut pairs = Vec::new();
+            for a in 0..lines as i64 {
+                for b in (a + 1)..lines as i64 {
+                    pairs.push([a, b]);
+                }
+                pairs.push([a, -1]);
+            }
+            let preference = IspPreference::Pairs {
+                pairs: pairs.clone(),
+                units: Vec::new(),
+            };
+            let given = present_with_isp_preference(
+                node,
+                decision,
+                &tops().1,
+                default.id,
+                context(),
+                Some(&preference),
+            )
+            .unwrap();
+            given.validate().unwrap();
+            assert_eq!(given.slots[..lines], default.slots[..lines]);
+            assert_eq!(given.slots.len(), default.slots.len());
+            let row = |i: i64| -> Vec<i64> {
+                if i < 0 {
+                    let mut q = vec![0; usize::from(node.loops) + 1];
+                    q[usize::from(node.loops)] = 1;
+                    q
+                } else {
+                    let Slot::Line(line) = &given.slots[i as usize] else {
+                        unreachable!()
+                    };
+                    line.momentum.clone()
+                }
+            };
+            // every ISP is one of the pairs, in the order offered
+            let mut last = None;
+            for slot in &given.slots[lines..] {
+                let Slot::Isp(SlotIsp { left, right }) = slot else {
+                    panic!("ISP expected")
+                };
+                let position = pairs
+                    .iter()
+                    .position(|&[a, b]| row(a) == *left && row(b) == *right)
+                    .expect("a pair product");
+                assert!(last.is_none_or(|l| l < position));
+                last = Some(position);
+            }
+            for &[a, b] in &pairs {
+                given.express_scalar_product(&row(a), &row(b)).unwrap();
+            }
+            let again = present_with_isp_preference(
+                node,
+                decision,
+                &tops().1,
+                default.id,
+                context(),
+                Some(&IspPreference::Default),
+            )
+            .unwrap();
+            assert_eq!(again.slots, default.slots);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
 }
