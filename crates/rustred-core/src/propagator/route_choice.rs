@@ -26,6 +26,10 @@ use super::census::SignedAffineLoopMap;
 use super::error::PError;
 use super::presentation::{Presentation, Slot};
 
+/// Opt-in choices for loop-integration edge maps; never called by the default
+/// census or reduction path.
+pub mod outer;
+
 /// An exact fraction over `i128`, always normalised (`den > 0`, coprime).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Frac {
