@@ -541,7 +541,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         library.identity(),
         "p-library:scope=1-1:\
          P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,\
-         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,\
+         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=1,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
          P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,\
@@ -568,7 +568,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     cache.save().unwrap();
     assert_eq!(
         records_digest(&directory),
-        "a203514fa01aa1bcabbab43d51908eeefead8c754fe281cf634854af3580bd77",
+        "ce76954d2aa256d2535aef7dbcba05e54f97363d0ff5ddb807da6d1fc0c85507",
         "the recorded p steps changed: bump the P_* version whose meaning changed"
     );
     std::fs::remove_dir_all(&directory).unwrap();

@@ -20,7 +20,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rustred::propagator::census::{PCensus, PCensusCounts, PCensusOptions, p_census};
+use rustred::propagator::census::{PCensus, PCensusCounts, PCensusOptions, PRouteMaps, p_census};
 use rustred::propagator::error::PError;
 use rustred::propagator::families::load_p_families;
 use rustred::propagator::present::{present_node, top_topology};
@@ -137,8 +137,10 @@ fn census_of(
     dag: Option<&Dag>,
     threads: usize,
 ) -> Result<(PCensus, Vec<PCensusCounts>, String), CliError> {
+    // The census of a package assembly: static-score route maps.
     let options = PCensusOptions {
         threads,
+        route_maps: PRouteMaps::StaticScore,
         ..PCensusOptions::default()
     };
     let census = p_census(presentations, dag, &options).map_err(failed)?;

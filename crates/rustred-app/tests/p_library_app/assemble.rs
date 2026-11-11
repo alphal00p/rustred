@@ -720,7 +720,8 @@ fn p_validate_traces_ten_thousand_distinct_keys_per_loop_count() {
         .collect();
     assert_eq!(
         reached,
-        [(1, 127, 127, 10, 117), (2, 10_000, 22_803, 1_686, 19_364)]
+        // P_CENSUS_VERSION 2 (static-score route maps): 22_803 / 1_686 / 19_364 before.
+        [(1, 127, 127, 10, 117), (2, 10_000, 17_691, 1_520, 14_957)]
     );
 }
 
@@ -1071,6 +1072,11 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "1-3",
         "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "bf8971aa054924315dbca2014d8d89b1bcc368b2d6412d94314ca154cb86f90b",
+    ),
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "031f70572e8752bf96678004512e0da24c63abe5f4f664fd34c765352386a1bc",
     ),
 ];
 
@@ -2856,8 +2862,10 @@ fn p_validate_traces_a_hundred_keys_per_loop_count_at_scope_one_to_three() {
         reached,
         [
             (1, 100, 100, 10, 90),
-            (2, 100, 1_812, 406, 1_490),
-            (3, 100, 409_663, 58_440, 335_988)
+            // P_CENSUS_VERSION 2 (static-score route maps): 2L 1_812 / 406 /
+            // 1_490 and 3L 409_663 / 58_440 / 335_988 before.
+            (2, 100, 1_025, 217, 845),
+            (3, 100, 265_734, 40_322, 210_612)
         ]
     );
 }
