@@ -400,6 +400,11 @@ pub fn parse_backend(name: &str) -> Result<SymbolicExactBackend, String> {
             seed: 0x5eed,
             min_rows: 600,
         },
+        #[cfg(feature = "reconstruction")]
+        "sampled-strict" => SymbolicExactBackend::SampledStrict {
+            threads: 1,
+            seed: 0x5eed,
+        },
         other => return Err(format!("unknown exact backend {other}")),
     })
 }
