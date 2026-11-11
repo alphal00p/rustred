@@ -35,16 +35,18 @@ const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/p_library/g
 
 /// A change of a dump needs a bump of `P_PRESENTATION_VERSION`, a re-bless and
 /// new pins here: `RUSTRED_P_BLESS=1 cargo test -p rustred --test p_library lanes`.
+// P_PRESENTATION_VERSION 2 (M5 combined: the ISP choice of three scope 1-4
+// Insertion owners): the 2L/3L dumps change only in their header line.
 const DUMP_PINS: (u32, [(u8, &str); 2]) = (
-    1,
+    2,
     [
         (
             2,
-            "fc84b576f514b1c305cac77354bc26eb3daa527581e30f20d795230450f80a4c",
+            "4efcc4e9a45ddd5025bf469dc815365d75e3e6329ca152200d889e1e64df8dce",
         ),
         (
             3,
-            "23b5b1c5cddb48fce677d2f0450d5b3fc656764f8a6c7ecb9b3e699d8446950c",
+            "3df92da8abd8828a1ac6f24562347f1ab289c468cf60a263f964b585b3176946",
         ),
     ],
 );
@@ -245,7 +247,8 @@ fn lane_tables_are_the_plans() {
             ("Carpet", 24),
             ("Triangle", 53),
             ("Diamond", 4),
-            ("Custom", 21),
+            ("Scheme", 3),
+            ("Custom", 18),
             ("Trivial", 1),
         ])
     );
@@ -253,6 +256,8 @@ fn lane_tables_are_the_plans() {
         four.names("Diamond"),
         sorted_names(&["d384", "d394", "d399", "no3"])
     );
+    // Forcer's schemes, on by default (P_SCHEME_TEMPLATE_VERSION 2, M5 combined).
+    assert_eq!(four.names("Scheme"), sorted_names(&["bubu", "haha", "no1"]));
 }
 
 /// `(L, action)` and the SP split of the 4L DAG agree with the independent
@@ -301,6 +306,10 @@ fn the_4l_table_equals_the_python_census() {
             ActionKind::Carpet => OwnerLane::Carpet,
             ActionKind::Triangle => OwnerLane::Triangle,
             ActionKind::Diamond => OwnerLane::Diamond,
+            // Forcer's schemes (no1, haha, bubu) are on by default (M5 combined).
+            ActionKind::Custom if rustred::propagator::scheme::scheme_for(node).is_some() => {
+                OwnerLane::Scheme
+            }
             ActionKind::Custom => OwnerLane::Custom,
         };
         assert_eq!(
@@ -327,7 +336,8 @@ fn check_contract(presentation: &Presentation, decision: &LaneDecision) {
 }
 
 /// The rows conserve momentum on the node's graph and the eps units are the
-/// graph's, line by line; the ISPs are unit rows.
+/// graph's, line by line; the ISPs are unit rows (nonzero rows on a
+/// scheme-adapted presentation).
 fn assert_routes_the_graph(node: &NodeInfo, presentation: &Presentation) {
     let name = forcer_name(&node.key);
     let width = usize::from(node.loops) + 1;
@@ -353,7 +363,14 @@ fn assert_routes_the_graph(node: &NodeInfo, presentation: &Presentation) {
             panic!("{name}: an ISP slot is a line");
         };
         for row in [left, right] {
-            assert_eq!(row.iter().map(|c| c.abs()).sum::<i64>(), 1, "{name}");
+            // Forcer's dot-product ISPs of a scheme-adapted presentation (M5
+            // combined) are products of Forcer's own momenta, e.g. (p1+p2).p3:
+            // nonzero rows, not necessarily unit rows.
+            if presentation.kind == PresentationKind::SchemeAdapted {
+                assert!(row.iter().any(|&c| c != 0), "{name}");
+            } else {
+                assert_eq!(row.iter().map(|c| c.abs()).sum::<i64>(), 1, "{name}");
+            }
         }
     }
 }
@@ -381,6 +398,7 @@ fn every_presentation_meets_its_contract() {
                 (OwnerLane::Carpet, _) => Some(PresentationKind::CarpetAdapted),
                 (OwnerLane::Triangle, _) => Some(PresentationKind::TriangleAdapted),
                 (OwnerLane::Diamond, _) => Some(PresentationKind::DiamondAdapted),
+                (OwnerLane::Scheme, _) => Some(PresentationKind::SchemeAdapted),
                 (OwnerLane::Custom, 0) => None,
                 (OwnerLane::Custom, _) => Some(PresentationKind::EpsNode),
                 (lane, _) => panic!("{name}: lane {lane:?}"),
@@ -594,8 +612,9 @@ fn custom_presentations_are_induced_or_eps_nodes() {
             ref kind => panic!("{}: {kind:?}", forcer_name(&node.key)),
         }
     }
-    // The 4 diamond nodes (d384, d394, d399, no3) are Diamond owners (M3-T5b).
-    assert_eq!((integer, eps), (10, 11));
+    // The 4 diamond nodes (d384, d394, d399, no3) are Diamond owners (M3-T5b);
+    // no1, haha and bubu are Scheme owners (M5 combined).
+    assert_eq!((integer, eps), (7, 11));
 }
 
 #[test]

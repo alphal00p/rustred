@@ -1643,12 +1643,15 @@ fn the_census_does_not_depend_on_its_threads() {
 /// digest only together with the versions next to it.
 #[test]
 fn the_census_content_is_pinned_to_its_versions() {
+    // P_CENSUS_VERSION 2 (M5 combined: generation-time route maps may be
+    // stored) and P_PRESENTATION_VERSION 2 (the ISP choice of three scope 1-4
+    // Insertion owners) leave the scope 1-3 content unchanged: same digests.
     const TOPS: ((u32, u32, u32), &str) = (
-        (1, 1, 1),
+        (2, 1, 1),
         "be76ddd3d0a8cceb9f612fbbb18a9dfd8d47eb4eca2eaa9d9b9433ddd49d7d17",
     );
     const LIBRARY: ((u32, u32, u32, u32, u32), &str) = (
-        (1, 1, 1, 1, 1),
+        (2, 1, 1, 2, 1),
         "7c265ca9f34a87b5be2de729167a74eb0ceb26d2dbcc6648ad733b2bce33e69c",
     );
     // The versions recorded in the text are not content: a bump of a kernel version
