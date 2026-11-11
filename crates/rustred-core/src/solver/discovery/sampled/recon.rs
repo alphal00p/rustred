@@ -14,6 +14,16 @@
 //! Self-contained (u64/u128 modular arithmetic + Symbolica Integer/Rational for CRT), shared verbatim by the standalone
 //! trace_probe tool and the engine backend.
 
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::needless_range_loop,
+    clippy::explicit_counter_loop,
+    clippy::collapsible_if,
+    clippy::doc_lazy_continuation,
+    reason = "self-contained numeric kernel (p5l-lift-sampled), kept close to its standalone trace_probe source"
+)]
+
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 use symbolica::domains::integer::Integer;
@@ -158,9 +168,6 @@ impl Thiele {
             qm1 = q;
         }
         qm1 != 0 && pm1 == f.mul(y, qm1)
-    }
-    fn done(&self) -> bool {
-        !self.failed && self.confirmed >= 3
     }
     fn push(&mut self, f: &Fp, x: u64, y: u64) {
         if self.failed || self.confirmed >= 3 {

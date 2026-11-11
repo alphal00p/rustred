@@ -472,6 +472,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         (result, work)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_attempt_inner(
         &self,
         case: Case<N>,

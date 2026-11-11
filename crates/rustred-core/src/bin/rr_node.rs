@@ -20,6 +20,12 @@
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
+#![allow(
+    clippy::field_reassign_with_default,
+    clippy::collapsible_if,
+    reason = "flag-by-flag option parsing"
+)]
+
 use std::path::{Path, PathBuf};
 
 use rustred::node::auto::{AutoOptions, ProbeOptions, generate_auto, probe};

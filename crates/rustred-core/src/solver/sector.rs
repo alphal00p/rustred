@@ -425,6 +425,10 @@ pub struct SectorSolution<const N: usize> {
 
 /// Borrowed progress events; no output, synchronization, or exact-row copies
 /// are introduced when the default no-op observer is used.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "borrowed progress events, never stored"
+)]
 pub enum SectorEvent<'a, const N: usize> {
     /// A trial is admitted only after exact guards and complete geometry pass;
     /// admission is not publication or a family-closure claim.

@@ -255,6 +255,7 @@ fn follow_on_stats(dir: &Path) -> (usize, usize, usize) {
 }
 
 /// Probe `orders` at `case` (ORIGINAL slots) with depth `depth`; one forked child per order.
+#[allow(clippy::too_many_arguments)]
 pub fn probe(
     family_text: &str,
     family_path: &str,

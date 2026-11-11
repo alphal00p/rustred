@@ -34,7 +34,7 @@ pub fn pow(p: u64, mut a: u64, mut e: u64) -> u64 {
     r
 }
 pub fn inv(p: u64, a: u64) -> Option<u64> {
-    if a % p == 0 {
+    if a.is_multiple_of(p) {
         None
     } else {
         Some(pow(p, a, p - 2))
@@ -66,6 +66,10 @@ fn gcd(mut a: i128, mut b: i128) -> i128 {
 pub type QResult = Result<Q, String>;
 const OVF: &str = "exact rational overflow";
 
+#[allow(
+    clippy::should_implement_trait,
+    reason = "checked rational arithmetic returning QResult, not the std operators"
+)]
 impl Q {
     pub const ZERO: Q = Q { n: 0, d: 1 };
     pub const ONE: Q = Q { n: 1, d: 1 };

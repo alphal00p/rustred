@@ -1447,13 +1447,7 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
         family_check(&header, &family_text, &f)?;
         let (cert, auth) = match &args.cert {
             Some(p) => {
-                let (c, a) = source_basis(p, &f).map_err(|e| {
-                    if e.starts_with("native source rows fail") {
-                        e
-                    } else {
-                        e
-                    }
-                })?;
+                let (c, a) = source_basis(p, &f)?;
                 (Some(c), a)
             }
             None => (

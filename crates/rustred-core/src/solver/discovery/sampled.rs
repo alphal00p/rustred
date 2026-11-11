@@ -10,6 +10,12 @@
 //! values of d, and a mutated copy (one numerator coefficient + 1) is rejected at those points. This is a modular
 //! (probabilistic) certificate, the P61 x 3 d numeric-replay standard of the 5L repair ladder, not a char-0 proof.
 
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "oracle plumbing of the sampled backend"
+)]
+
 use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
 use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::Rational;

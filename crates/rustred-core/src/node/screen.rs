@@ -92,7 +92,7 @@ impl Default for LiftScreen {
             sampled_from_rows: None,
             sampled_threads: 1,
             on_heavy: HeavyAction::Refuse,
-            seed: 0x5eed_1f7,
+            seed: 0x05ee_d1f7,
             min_target_block: default_min_target_block(),
             max_box: default_max_box(),
             sampled_budget_seconds: default_sampled_budget(),

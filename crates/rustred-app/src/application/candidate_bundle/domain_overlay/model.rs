@@ -69,6 +69,12 @@ enum BackendRecord {
         max_cached_values: usize,
         max_weight_slots: usize,
     },
+    /// Modular-sampled target-row reconstruction (appended last: older records decode unchanged).
+    Sampled {
+        threads: usize,
+        seed: u64,
+        min_rows: usize,
+    },
 }
 
 impl From<OwnerFeedbackPolicy> for PolicyRecord {
@@ -113,6 +119,16 @@ impl From<OwnerFeedbackPolicy> for PolicyRecord {
                 max_cached_images,
                 max_cached_values,
                 max_weight_slots,
+            },
+            #[cfg(feature = "reconstruction")]
+            S::Sampled {
+                threads,
+                seed,
+                min_rows,
+            } => BackendRecord::Sampled {
+                threads,
+                seed,
+                min_rows,
             },
         };
         Self {
@@ -180,9 +196,20 @@ impl PolicyRecord {
                 max_cached_values,
                 max_weight_slots,
             },
+            #[cfg(feature = "reconstruction")]
+            BackendRecord::Sampled {
+                threads,
+                seed,
+                min_rows,
+            } => S::Sampled {
+                threads,
+                seed,
+                min_rows,
+            },
             #[cfg(not(feature = "reconstruction"))]
             BackendRecord::SemiNumerical { .. }
-            | BackendRecord::SemiNumericalSourceWeights { .. } => {
+            | BackendRecord::SemiNumericalSourceWeights { .. }
+            | BackendRecord::Sampled { .. } => {
                 return Err(crate::AppError::input(
                     "saved overlay backend requires the reconstruction feature",
                 ));

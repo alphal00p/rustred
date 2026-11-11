@@ -232,6 +232,13 @@ pub enum StopReason {
     MaxCases {
         pending: usize,
     },
+    /// Every case closed, but deferred exceptional regions (or failed branch admissions) remain that no rule of
+    /// the node covers: they are open obligations (repair R3 / a piece run on their charts), not a closure.
+    OpenRegions {
+        regions: usize,
+        covered: usize,
+        charts: Vec<CaseSpec>,
+    },
     Error(String),
 }
 
@@ -278,6 +285,9 @@ pub struct NodeOutcome {
     /// Largest coefficient-monomial count of a rule in the table.
     #[serde(default)]
     pub max_rule_monomials: usize,
+    /// Deferred regions / failed branch admissions whose chart no rule (single or union) covers.
+    #[serde(default)]
+    pub open_deferred: usize,
     /// Cases with a finite integer domain, replaced by their uncovered points (numeric endpoints).
     #[serde(default)]
     pub finite_domains: usize,
@@ -1531,6 +1541,8 @@ fn run<const N: usize>(
     let mut rules: Vec<SectorRule<N>> = Vec::new();
     // rules adopted from earlier banks (written to the table, kept as cover entries, not as SectorRule values)
     let mut adopted_rules = 0usize;
+    // charts of deferred regions / failed branch admissions: open obligations unless covered at the end
+    let mut deferred_charts: Vec<Case<N>> = Vec::new();
     let mut discarded = 0usize;
     #[allow(clippy::too_many_arguments)]
     fn enqueue<const N: usize>(
@@ -1865,12 +1877,14 @@ fn run<const N: usize>(
                     Ok(r) => {
                         for (di, d) in r.deferred.iter().enumerate() {
                             deferred_regions += 1;
+                            deferred_charts.push(d.chart.clone());
                             writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                         }
                         children.extend(r.cases);
                     }
                     Err(e) => {
                         deferred_branches += 1;
+                        deferred_charts.push(rc.clone());
                         writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                     }
                 }
@@ -2450,6 +2464,7 @@ fn run<const N: usize>(
                 );
                 if !matches!(r, Forked::Done(..)) {
                     deferred_regions += 1;
+                    deferred_charts.push(rule.candidate.case.clone());
                     writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"reason\":\"AdmissionTimeout({secs} s)\",\"chart\":{},\"conjunction\":{}}}", case_json(&rule.candidate.case, n), strings(branch.iter())).map_err(|e| e.to_string())?;
                     continue;
                 }
@@ -2473,6 +2488,7 @@ fn run<const N: usize>(
                 Ok(r) => {
                     for (di, d) in r.deferred.iter().enumerate() {
                         deferred_regions += 1;
+                        deferred_charts.push(d.chart.clone());
                         writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                     }
                     if r.cases.is_empty() && r.deferred.is_empty() {
@@ -2490,6 +2506,7 @@ fn run<const N: usize>(
                 }
                 Err(e) => {
                     deferred_branches += 1;
+                    deferred_charts.push(rule.candidate.case.clone());
                     writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                 }
             }
@@ -2719,6 +2736,62 @@ fn run<const N: usize>(
                 }
                 Err(e) => error = Some(format!("numerical (shared): {e:?}")),
             }
+        }
+    }
+    // deferred regions are obligations: a region is settled when the final rule set covers its chart
+    if error.is_none() && stop.is_none() && !deferred_charts.is_empty() {
+        let entries: Vec<(&Case<N>, &[Vec<CoefficientPolynomial>])> = cover
+            .iter()
+            .map(|(_, c, b)| (c, b.as_slice()))
+            .chain(
+                rules
+                    .iter()
+                    .map(|r| (&r.candidate.case, r.exceptions.branches.as_slice())),
+            )
+            .collect();
+        // the covering check intersects charts with exceptional branches, which is where these regions came from:
+        // run it in a forked child with a time limit; a timeout leaves every region open (never a silent closure)
+        out.flush().map_err(|e| e.to_string())?;
+        qlog.flush().map_err(|e| e.to_string())?;
+        let checked = forked(out_dir, "deferred_check", 600, || {
+            let flags: Vec<bool> = deferred_charts
+                .iter()
+                .map(|chart| {
+                    let direct = entries
+                        .iter()
+                        .any(|(c, b)| covers(c, b, chart, &idx, &sector, limits));
+                    let mut budget = 400usize;
+                    direct || union_covered(chart, &entries, &idx, &sector, limits, 3, &mut budget)
+                })
+                .collect();
+            serde_json::to_string(&flags).unwrap_or_default()
+        });
+        let flags: Vec<bool> = match checked {
+            Forked::Done(text, _) => {
+                serde_json::from_str(&text).unwrap_or_else(|_| vec![false; deferred_charts.len()])
+            }
+            _ => vec![false; deferred_charts.len()],
+        };
+        let open: Vec<CaseSpec> = deferred_charts
+            .iter()
+            .zip(flags.iter().chain(std::iter::repeat(&false)))
+            .filter(|(_, ok)| !**ok)
+            .map(|(c, _)| case_spec(c, n))
+            .collect();
+        writeln!(
+            qlog,
+            "{{\"type\":\"deferred_check\",\"regions\":{},\"open\":{}}}",
+            deferred_charts.len(),
+            open.len()
+        )
+        .map_err(|e| e.to_string())?;
+        outcome.open_deferred = open.len();
+        if !open.is_empty() {
+            stop = Some(StopReason::OpenRegions {
+                regions: deferred_charts.len(),
+                covered: deferred_charts.len() - open.len(),
+                charts: open,
+            });
         }
     }
     for key in &residual_keys {

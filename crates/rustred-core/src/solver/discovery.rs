@@ -635,6 +635,10 @@ pub fn exact_materialize_with_observer<const N: usize>(
 
 /// Alternative backends change exact elimination scheduling, not the discovery
 /// trace. They are diagnostics and grant no artifact or closure authority.
+#[allow(
+    clippy::collapsible_if,
+    reason = "the pre-screen hook is one cfg-gated block"
+)]
 pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,

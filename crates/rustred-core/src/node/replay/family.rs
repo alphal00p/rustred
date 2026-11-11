@@ -119,6 +119,10 @@ fn call_args(src: &str, name: &str) -> Option<String> {
 }
 
 impl Family {
+    #[allow(
+        clippy::needless_range_loop,
+        reason = "index arithmetic over the contraction matrix"
+    )]
     pub fn parse(src: &str) -> Result<Self, Unknown> {
         let compact: String = src.chars().filter(|c| !c.is_whitespace()).collect();
         let loops: Vec<String> = call_args(&compact, "loops")
@@ -493,6 +497,7 @@ mod tests {
 
     const SUNSET: &str = "I(\n  name(S),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1+k2-q)^2,1),\n  prop(D4,(k1+q)^2,0),\n  prop(D5,(k2+q)^2,0),\n  gram(q,q,1)\n)\n";
 
+    #[allow(clippy::needless_range_loop)]
     #[test]
     fn sunset_family_ibp_and_zero_sectors() {
         let f = Family::parse(SUNSET).unwrap();
