@@ -2987,7 +2987,17 @@ mod tests {
         }
     }
 
-    impl ConcurrentStepCacheKernel for LatticeKernel<'_> {
+    impl<'a> ConcurrentStepCacheKernel for LatticeKernel<'a> {
+        fn detached_shard(_: &LatticeStepper<'a>, key: &IntegralKey) -> Option<OrderedStepShard> {
+            lattice_shard(key)
+        }
+        fn detached_key(
+            _: &LatticeStepper<'a>,
+            stage: NodeStage,
+            integral: IntegralKey,
+        ) -> Result<IntegralKey, ReductionError> {
+            lattice_key(stage, integral)
+        }
         fn stepper_shard<'s>(_: &LatticeStepper<'s>, key: &IntegralKey) -> Option<OrderedStepShard>
         where
             Self: 's,

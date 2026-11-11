@@ -1657,7 +1657,7 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
     }
 }
 
-impl ConcurrentStepCacheKernel for PKernel<'_, '_> {
+impl<'l> ConcurrentStepCacheKernel for PKernel<'l, '_> {
     fn stepper_shard<'s>(stepper: &PStepper<'s>, key: &PKey) -> Option<OrderedStepShard>
     where
         Self: 's,
@@ -1673,6 +1673,14 @@ impl ConcurrentStepCacheKernel for PKernel<'_, '_> {
     where
         Self: 's,
     {
+        stepper.recorded_key(stage, view)
+    }
+
+    fn detached_shard(stepper: &PStepper<'l>, key: &PKey) -> Option<OrderedStepShard> {
+        stepper.shard(key)
+    }
+
+    fn detached_key(stepper: &PStepper<'l>, stage: NodeStage, view: IntegralKey) -> Result<PKey, PError> {
         stepper.recorded_key(stage, view)
     }
 }
