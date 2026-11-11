@@ -90,7 +90,12 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// default (`"default": true`), so a library assembled without
 /// `RUSTRED_P_SCHEMES` puts these three owners on the Scheme lane; the
 /// rank-gated Custom no1 of B2 is the fallback (`RUSTRED_P_SCHEMES=none`).
-pub const P_SCHEME_TEMPLATE_VERSION: u32 = 2;
+/// 3 (M5 batch 2, m5-schemes-2): permutation rules (`"kind": "permutation"`),
+/// `eq:`/`distinct` conditions and `"dispatch": "terms"`; no2 is embedded and on
+/// by default (Forcer's SchemeZno2 with its three relabelling rules); haha and
+/// bubu carry their parametric certificates (45/51, 36/99). no6 is not embedded
+/// (keys outside Forcer's reach need a fallback): its Custom owner stays.
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 3;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
 /// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.

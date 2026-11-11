@@ -35,13 +35,14 @@ fn main() {
         let rules = template.rules();
         let count = |v: Verification| rules.iter().filter(|r| r.verification == v).count();
         println!(
-            "scheme {} owner {:016x} presentation {}: {} rules ({} certificate, {} replay, {} unverified, {} master), descent witness {} shifts, {:.2} s",
+            "scheme {} owner {:016x} presentation {}: {} rules ({} certificate, {} replay, {} symmetry, {} unverified, {} master), descent witness {} shifts, {:.2} s",
             template.name(),
             owner.spec.class.0,
             owner.spec.presentation.0,
             rules.len(),
             count(Verification::Certificate),
             count(Verification::Replay),
+            count(Verification::Symmetry),
             count(Verification::None),
             count(Verification::Master),
             witness,
