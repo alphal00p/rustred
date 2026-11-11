@@ -27,6 +27,9 @@ mimalloc = ["cli", "dep:mimalloc"]
 # heap allocations (calls and requested bytes) over the system allocator and
 # writes them to alloc_count.json. Diagnostics only.
 alloc-count = []
+# rr-alloc (opt-in, default off, diagnostics only): sampled allocation call
+# sites of the reduce call (alloc_sites.tsv), see p_path_census.rs.
+alloc-sites = ["alloc-count"]
 # RR-11: expose the relations-layer test bodies to `tests/saved_application_layer.rs`
 # (the full lib-test target needs > 20 GB to compile on the campaign host).
 layer-test-support = []

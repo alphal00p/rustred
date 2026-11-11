@@ -64,11 +64,15 @@ mod alloc_count {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             ALLOCS.fetch_add(1, Relaxed);
             BYTES.fetch_add(layout.size() as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(0, layout.size());
             unsafe { System.alloc(layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             ALLOCS.fetch_add(1, Relaxed);
             BYTES.fetch_add(layout.size() as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(0, layout.size());
             unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -77,6 +81,8 @@ mod alloc_count {
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
             REALLOCS.fetch_add(1, Relaxed);
             BYTES.fetch_add(new_size as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(1, new_size);
             unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
@@ -88,6 +94,119 @@ mod alloc_count {
             "reallocs": REALLOCS.load(Relaxed),
             "bytes": BYTES.load(Relaxed),
         })
+    }
+}
+
+// rr-alloc: with the opt-in `alloc-sites` feature (implies `alloc-count`),
+// every allocation/reallocation inside the reduce call is sampled with
+// probability 1/P_ALLOC_SAMPLE (default 97, per-thread xorshift) and its
+// return addresses (libgcc `_Unwind_Backtrace`, at most 96 frames) are
+// aggregated; alloc_sites.tsv (count, bytes, kind, PIE-relative addresses)
+// and maps.txt are written at the end for offline symbolisation
+// (addr2line -i -f -C). Diagnostics only: never in a production binary.
+#[cfg(feature = "alloc-sites")]
+mod alloc_sites {
+    use std::cell::Cell;
+    use std::collections::HashMap;
+    use std::ffi::{c_int, c_void};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+
+    const DEPTH: usize = 96;
+    pub static ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static PERIOD: AtomicU64 = AtomicU64::new(97);
+    type Stack = (u8, Vec<usize>);
+    static TABLE: Mutex<Option<HashMap<Stack, (u64, u64)>>> = Mutex::new(None);
+    thread_local! {
+        static BUSY: Cell<bool> = const { Cell::new(false) };
+        static RNG: Cell<u64> = const { Cell::new(0) };
+    }
+    #[repr(C)]
+    struct UnwindContext {
+        _private: [u8; 0],
+    }
+    type TraceFn = extern "C" fn(*mut UnwindContext, *mut c_void) -> c_int;
+    unsafe extern "C" {
+        fn _Unwind_Backtrace(trace: TraceFn, arg: *mut c_void) -> c_int;
+        fn _Unwind_GetIP(context: *mut UnwindContext) -> usize;
+    }
+    struct Frames {
+        ips: [usize; DEPTH],
+        len: usize,
+    }
+    extern "C" fn push(context: *mut UnwindContext, arg: *mut c_void) -> c_int {
+        // SAFETY: arg is the &mut Frames passed below; context is valid during the callback.
+        let frames = unsafe { &mut *(arg as *mut Frames) };
+        let ip = unsafe { _Unwind_GetIP(context) };
+        if ip == 0 || frames.len == DEPTH {
+            return 5;
+        }
+        frames.ips[frames.len] = ip;
+        frames.len += 1;
+        0
+    }
+    #[inline]
+    pub fn sample(kind: u8, bytes: usize) {
+        if !ENABLED.load(Relaxed) {
+            return;
+        }
+        let take = RNG.with(|rng| {
+            let mut x = rng.get();
+            if x == 0 {
+                x = 0x9E37_79B9_7F4A_7C15 ^ (rng as *const _ as u64);
+            }
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            rng.set(x);
+            x % PERIOD.load(Relaxed) == 0
+        });
+        if !take || BUSY.with(|b| b.replace(true)) {
+            return;
+        }
+        let mut frames = Frames {
+            ips: [0; DEPTH],
+            len: 0,
+        };
+        // SAFETY: plain libgcc unwinder call with a callback that only writes into `frames`.
+        unsafe { _Unwind_Backtrace(push, &mut frames as *mut Frames as *mut c_void) };
+        {
+            let key = (kind, frames.ips[..frames.len].to_vec());
+            let mut table = TABLE.lock().unwrap();
+            let entry = table
+                .get_or_insert_with(HashMap::new)
+                .entry(key)
+                .or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += bytes as u64;
+        }
+        BUSY.with(|b| b.set(false));
+    }
+    pub fn dump(out: &std::path::Path) {
+        ENABLED.store(false, Relaxed);
+        BUSY.with(|b| b.set(true));
+        let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+        let exe = std::fs::read_link("/proc/self/exe").unwrap();
+        let exe = exe.to_string_lossy().to_string();
+        let base = maps
+            .lines()
+            .find(|l| l.ends_with(&exe))
+            .map(|l| usize::from_str_radix(l.split('-').next().unwrap(), 16).unwrap())
+            .unwrap_or(0);
+        std::fs::write(out.join("maps.txt"), &maps).unwrap();
+        let table = TABLE.lock().unwrap().take().unwrap_or_default();
+        let mut text = format!(
+            "# period {} exe {exe} base {base:#x}\n",
+            PERIOD.load(Relaxed)
+        );
+        for ((kind, ips), (count, bytes)) in table {
+            let ips: Vec<String> = ips
+                .iter()
+                .map(|&ip| format!("{:x}", ip.wrapping_sub(base).wrapping_sub(1)))
+                .collect();
+            text.push_str(&format!("{count}\t{bytes}\t{kind}\t{}\n", ips.join(",")));
+        }
+        std::fs::write(out.join("alloc_sites.tsv"), text).unwrap();
     }
 }
 
@@ -480,6 +599,13 @@ fn main() {
             },
         )
     });
+    #[cfg(feature = "alloc-sites")]
+    {
+        if let Ok(period) = std::env::var("P_ALLOC_SAMPLE") {
+            alloc_sites::PERIOD.store(period.parse().unwrap(), std::sync::atomic::Ordering::Relaxed);
+        }
+        alloc_sites::ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let t_reduce = Instant::now();
     let request = PReductionRequest {
         inputs: inputs.clone(),
@@ -496,6 +622,10 @@ fn main() {
         None => library.reduce(request),
     };
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
+    #[cfg(feature = "alloc-sites")]
+    alloc_sites::dump(&out);
+    #[cfg(feature = "alloc-count")]
+    let alloc_after_reduce = alloc_count::snapshot();
     let (vmrss, vmhwm) = rss();
     // P_WARM=1 (M5 1L-3L): the same request again in this process, without
     // inspector or census, after the cold one prepared routes and owner
@@ -828,7 +958,7 @@ fn main() {
     #[cfg(feature = "alloc-count")]
     std::fs::write(
         out.join("alloc_count.json"),
-        serde_json::json!({"after_load": alloc_after_load, "end": alloc_count::snapshot()})
+        serde_json::json!({"after_load": alloc_after_load, "after_reduce": alloc_after_reduce, "end": alloc_count::snapshot()})
             .to_string(),
     )
     .unwrap();
