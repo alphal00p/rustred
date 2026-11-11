@@ -852,7 +852,14 @@ fn run<const N: usize>(
         lift_seconds: f64,
         source_order: String,
     }
-    let search = |case: &Case<N>, so: &SourceOrder, seeds: Option<crate::solver::SeedSchedule>, options: SearchOptions| -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
+    let search = |case: &Case<N>, so: &SourceOrder, seeds: Option<crate::solver::SeedSchedule>, large_gate: bool, options: SearchOptions| -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
+        // the large-trace "SymbolicFirst rung first" gate applies to the first rung only; later rungs lift such traces
+        let screen = screen.map(|mut s| {
+            if !large_gate {
+                s.symbolic_first_from_rows = None;
+            }
+            s
+        });
         let mut raw: Option<Integral<N>> = None;
         let mut started: Option<Instant> = None;
         let mut lift = 0.0f64;
@@ -929,21 +936,30 @@ fn run<const N: usize>(
         writeln!(qlog, "{{\"type\":\"case_started\",\"t\":{:.3},\"pending\":{},\"case\":{}}}", t2.elapsed().as_secs_f64(), pending.len(), case_json(&current, n)).map_err(|e| e.to_string())?;
         qlog.flush().map_err(|e| e.to_string())?;
         // lift ladder: node source order; the SymbolicFirst seed schedule (same presentation); other source orders
-        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>)> = vec![(node_source.clone(), None)];
+        // (source order, seed schedule override, large-trace gate)
+        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool)> = vec![(node_source.clone(), None, true)];
         if opts.symbolic_first_rung && screen.is_some() && opts.seed_schedule != SeedScheduleName::SymbolicFirst {
-            orders.push((node_source.clone(), Some(crate::solver::SeedSchedule::SymbolicFirst)));
+            orders.push((node_source.clone(), Some(crate::solver::SeedSchedule::SymbolicFirst), true));
+            // SymbolicFirst did not help (e.g. it found a larger relation): the node's own relation, lifted
+            orders.push((node_source.clone(), None, false));
         }
         for so in &opts.retry_source_orders {
-            if !orders.iter().any(|(o, _)| o == so) {
-                orders.push((so.clone(), None));
+            if !orders.iter().any(|(o, _, _)| o == so) {
+                orders.push((so.clone(), None, false));
             }
         }
         let mut found: Option<Searched<N>> = None;
         let mut refusals: Vec<ScreenReport> = Vec::new();
-        for (k, (so, seeds)) in orders.iter().enumerate() {
-            let label = match seeds {
-                Some(_) => format!("{}+symbolic_first", so.label()),
-                None => so.label(),
+        let mut tried_large: Vec<bool> = Vec::new();
+        for (k, (so, seeds, large_gate)) in orders.iter().enumerate() {
+            // the ungated retry of the node's relation only matters when a large-trace refusal happened
+            if !*large_gate && seeds.is_none() && *so == node_source && !tried_large.iter().any(|x| *x) {
+                continue;
+            }
+            let label = match (seeds, large_gate) {
+                (Some(_), _) => format!("{}+symbolic_first", so.label()),
+                (None, false) if *so == node_source => format!("{}+lift_large", so.label()),
+                _ => so.label(),
             };
             if k > 0 {
                 if seeds.is_some() {
@@ -954,7 +970,8 @@ fn run<const N: usize>(
                 events(&NodeEvent::RelationRetry { case: spec.clone(), source_order: label.clone() });
                 writeln!(qlog, "{{\"type\":\"relation_retry\",\"source_order\":{},\"case\":{}}}", q(&label), case_json(&current, n)).map_err(|e| e.to_string())?;
             }
-            let (result, reports) = search(&current, so, *seeds, symbolic);
+            let (result, reports) = search(&current, so, *seeds, *large_gate, symbolic);
+            tried_large.push(reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first"))));
             for r in &reports {
                 outcome.screened_lifts += 1;
                 events(&NodeEvent::LiftScreened { report: r.clone() });
@@ -1165,7 +1182,7 @@ fn run<const N: usize>(
                 writeln!(qlog, "{{\"type\":\"numerical_covered\",\"by_rule\":{k},\"fixed\":{fixed:?}}}").map_err(|e| e.to_string())?;
                 continue;
             }
-            let (result, reports) = search(&case, &node_source, None, options);
+            let (result, reports) = search(&case, &node_source, None, false, options);
             for r in &reports {
                 outcome.screened_lifts += 1;
                 writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"report\":{}}}", serde_json::to_string(r).unwrap()).map_err(|e| e.to_string())?;
