@@ -690,9 +690,10 @@ fn check_rule_owner(
             // An Induced child's lines are its sector's (p5l-library: 5L Insertion
             // rule edges into integer Custom nodes); the top's other lines are slots.
             let child_lines = match child.kind {
-                PresentationKind::Induced { mask, .. } => {
-                    child.lines().filter(|(index, _)| mask >> index & 1 == 1).count()
-                }
+                PresentationKind::Induced { mask, .. } => child
+                    .lines()
+                    .filter(|(index, _)| mask >> index & 1 == 1)
+                    .count(),
                 _ => child.lines().count(),
             };
             if map.kind != kind || map.parent != parent.id {

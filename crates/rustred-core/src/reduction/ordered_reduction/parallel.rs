@@ -141,14 +141,19 @@ pub enum OrderedProfile {
 /// the caller), then the environment overrides
 /// `RUSTRED_ORDERED_FRONTIER=classic|compact|phased`,
 /// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip`,
-/// `RUSTRED_ORDERED_ADJOINT_TAIL=on|off` and `RUSTRED_MODULAR_POLY_ROUND=n`
-/// (`0`/`off`: one prime per thread).
+/// `RUSTRED_ORDERED_ADJOINT_TAIL=on|off`, `RUSTRED_MODULAR_POLY_ROUND=n`
+/// (`0`/`off`: one prime per thread), `RUSTRED_ORDERED_PIPELINE=on|off` and
+/// `RUSTRED_MODULAR_PAR_REPLAY=on|off`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct OrderedTuning {
     pub frontier: super::frontier::FrontierMode,
     pub fx_hash: bool,
     pub adjoint_tail: bool,
     pub modular_round: Option<usize>,
+    /// rr-par pipelined step source (M5 batch 3: on for p requests).
+    pub pipeline: bool,
+    /// rr-par parallel modular replay (M5 batch 3: on for p requests).
+    pub par_replay: bool,
 }
 
 impl OrderedSchedulerOptions {
@@ -172,6 +177,8 @@ impl OrderedSchedulerOptions {
             fx_hash: super::frontier_hash_environment().unwrap_or(p),
             adjoint_tail: super::tail::environment().unwrap_or(self.adjoint_tail && !p),
             modular_round: super::modular_round_environment().unwrap_or(p.then_some(4)),
+            pipeline: super::pipeline_environment().unwrap_or(p),
+            par_replay: super::par_replay_environment().unwrap_or(p),
         }
     }
 }
@@ -792,19 +799,6 @@ impl<K: ConcurrentOrderedKernel> StepSource<K> for Prefetched<'_, K> {
     }
 }
 
-/// `RUSTRED_ORDERED_PIPELINE=1` (rr-par, switch; unset = off): recorded
-/// arithmetics compute the next window of steps on the workers while the
-/// scheduler merges and records the current one ([`Pipelined`]).
-pub(super) fn pipeline_enabled() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| {
-        matches!(
-            std::env::var("RUSTRED_ORDERED_PIPELINE").as_deref(),
-            Ok("1" | "on")
-        )
-    })
-}
-
 type StepOf<S> = (
     Result<OrderedStep<<S as OrderedStepper>::Key>, <S as OrderedStepper>::Error>,
     <S as OrderedStepper>::Account,
@@ -974,11 +968,7 @@ where
     }
 
     /// Adopt a computed window and start computing the next one.
-    fn adopt<W>(
-        &mut self,
-        computed: Computed<S>,
-        frontier: &Frontier<S::Key, S::Priority, W>,
-    ) {
+    fn adopt<W>(&mut self, computed: Computed<S>, frontier: &Frontier<S::Key, S::Priority, W>) {
         let Computed {
             steps,
             threshold,
@@ -1087,12 +1077,8 @@ where
 impl<'scope, 'p, K, S> StepSource<K> for Pipelined<'scope, 'p, S>
 where
     K: ConcurrentOrderedKernel,
-    S: OrderedStepper<
-            Key = K::Key,
-            Priority = K::Priority,
-            Error = K::Error,
-            Account = K::Account,
-        > + Sync,
+    S: OrderedStepper<Key = K::Key, Priority = K::Priority, Error = K::Error, Account = K::Account>
+        + Sync,
 {
     fn step<W>(
         &mut self,

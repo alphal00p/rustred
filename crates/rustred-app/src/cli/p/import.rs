@@ -96,7 +96,9 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--table" => table = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--out" => out = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--replay" => replay = Some(PathBuf::from(next_value(&mut arguments, option)?)),
-            "--census-family" => census_family = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--census-family" => {
+                census_family = Some(PathBuf::from(next_value(&mut arguments, option)?))
+            }
             "--order-map" => order_map = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--graph" => graph = Some(next_utf8_value(&mut arguments, option)?),
             "--label" => label = Some(next_utf8_value(&mut arguments, option)?),
@@ -155,14 +157,22 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     {
         return Err(CliError::Input(format!("label {:?}", arguments.label)));
     }
-    let destination =
-        |extension: &str| StreamPath::File(arguments.out.join(format!("{}.{extension}", arguments.label)));
+    let destination = |extension: &str| {
+        StreamPath::File(
+            arguments
+                .out
+                .join(format!("{}.{extension}", arguments.label)),
+        )
+    };
     let mut outputs = vec!["rrbin", "json"];
     if arguments.replay.is_some() {
         outputs.push("replay.json");
     }
     std::fs::create_dir_all(&arguments.out).map_err(|error| {
-        CliError::OutputIo(format!("cannot create {}: {error}", arguments.out.display()))
+        CliError::OutputIo(format!(
+            "cannot create {}: {error}",
+            arguments.out.display()
+        ))
     })?;
     for extension in &outputs {
         preflight_output_destination(&destination(extension), arguments.force)?;
@@ -199,7 +209,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         .slots
         .iter()
         .map(|slot| match slot {
-            Slot::Line(line) => serde_json::json!({"line": line.momentum, "eps_units": line.eps_units}),
+            Slot::Line(line) => {
+                serde_json::json!({"line": line.momentum, "eps_units": line.eps_units})
+            }
             Slot::Isp(isp) => serde_json::json!({"isp": [isp.left, isp.right]}),
         })
         .collect();
@@ -260,8 +272,18 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         },
     });
     record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
-    record["census_family"] = serde_json::json!(arguments.census_family.as_ref().map(|p| p.display().to_string()));
-    record["order_map"] = serde_json::json!(arguments.order_map.as_ref().map(|p| p.display().to_string()));
+    record["census_family"] = serde_json::json!(
+        arguments
+            .census_family
+            .as_ref()
+            .map(|p| p.display().to_string())
+    );
+    record["order_map"] = serde_json::json!(
+        arguments
+            .order_map
+            .as_ref()
+            .map(|p| p.display().to_string())
+    );
 
     if let Some(seeds_path) = &arguments.replay {
         let seeds_text = read_input(&StreamPath::File(seeds_path.clone()))?;
@@ -270,7 +292,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         let arity = imported.slot_map.len();
         let to_presentation = |key: &[i64]| -> Result<Vec<i64>, CliError> {
             if key.len() != arity {
-                return Err(CliError::Input(format!("seed {key:?} has not {arity} slots")));
+                return Err(CliError::Input(format!(
+                    "seed {key:?} has not {arity} slots"
+                )));
             }
             let mut out = vec![0; arity];
             for (slot, &power) in key.iter().enumerate() {
@@ -286,15 +310,17 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             .map(|seed| to_presentation(seed))
             .collect::<Result<Vec<_>, _>>()?;
         let replay_started = Instant::now();
-        let replays = replay_custom_payload(presentation, &imported.payload, &imported.meta, &seeds)
-            .map_err(failed)?;
+        let replays =
+            replay_custom_payload(presentation, &imported.payload, &imported.meta, &seeds)
+                .map_err(failed)?;
         let replay_seconds = replay_started.elapsed().as_secs_f64();
-        let terms = |terms: &[(Vec<i64>, rustred::algebra::Coefficient)]| -> Vec<serde_json::Value> {
-            terms
-                .iter()
-                .map(|(key, value)| serde_json::json!([to_table(key), value.to_string()]))
-                .collect()
-        };
+        let terms =
+            |terms: &[(Vec<i64>, rustred::algebra::Coefficient)]| -> Vec<serde_json::Value> {
+                terms
+                    .iter()
+                    .map(|(key, value)| serde_json::json!([to_table(key), value.to_string()]))
+                    .collect()
+            };
         let results: Vec<serde_json::Value> = replays
             .iter()
             .zip(&table_seeds)
@@ -316,12 +342,20 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         });
         record["replay_seconds"] = serde_json::json!(replay_seconds);
         let text = serde_json::to_string(&replay_record).map_err(json_error)?;
-        write_output(&destination("replay.json"), format!("{text}\n").as_bytes(), arguments.force)?;
+        write_output(
+            &destination("replay.json"),
+            format!("{text}\n").as_bytes(),
+            arguments.force,
+        )?;
     }
 
     let json = serde_json::to_string_pretty(&record).map_err(json_error)?;
     write_output(&destination("rrbin"), &imported.payload, arguments.force)?;
-    write_output(&destination("json"), format!("{json}\n").as_bytes(), arguments.force)?;
+    write_output(
+        &destination("json"),
+        format!("{json}\n").as_bytes(),
+        arguments.force,
+    )?;
     writeln!(
         std::io::stdout().lock(),
         "{}: {} rules over {} charts, {} residuals (LP {}), {} bytes; slot map {:?}{}; order {}{}; verify {} witness keys ({} same-sector, {} subsector children) in {:.3} s; import {:.3} s",

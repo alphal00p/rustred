@@ -27,6 +27,7 @@ use std::time::Instant;
 use rustred::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraLimits};
 use rustred::family::IntegralKey;
 use rustred::identity::{ParametricIbpGenerator, ParametricRelation};
+use rustred::propagator::PresentationId;
 use rustred::propagator::census::PSectorFate;
 use rustred::propagator::families::load_p_families;
 use rustred::propagator::library::{
@@ -34,9 +35,8 @@ use rustred::propagator::library::{
 };
 use rustred::propagator::present::top_topology;
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
-use rustred::propagator::topology::{ChildMode, TopologyService, canonical, normalise, Normalised};
 use rustred::propagator::topology::Action;
-use rustred::propagator::PresentationId;
+use rustred::propagator::topology::{ChildMode, Normalised, TopologyService, canonical, normalise};
 use rustred::reduction::{
     ModularCommon, OrderedSchedulerOptions, OrderedWeightArithmetic, PolynomialOptions,
     ReductionLimits,
@@ -81,7 +81,11 @@ fn main() {
             load(&args[2], args[3] == "1");
         }
         Some("check") => check(&args[2..]),
-        Some("edges") => edges(&args[2], args[3].parse().unwrap(), args.get(4).map(String::as_str)),
+        Some("edges") => edges(
+            &args[2],
+            args[3].parse().unwrap(),
+            args.get(4).map(String::as_str),
+        ),
         _ => panic!("usage: see the module documentation"),
     }
 }
@@ -159,7 +163,12 @@ fn unhex(text: &str) -> Vec<u8> {
 }
 
 fn ints(value: &Value) -> Vec<i64> {
-    value.as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect()
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_i64().unwrap())
+        .collect()
 }
 
 /// The import presentation of a `p-import-table` record (`presentation_slots`).
@@ -228,7 +237,10 @@ fn assemble(args: &[String]) {
     let mut imported = BTreeMap::new();
     let mut bytes_total = 0usize;
     let mut labels = BTreeMap::new();
-    for line in imports.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#')) {
+    for line in imports
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+    {
         let fields: Vec<&str> = line.split('\t').collect();
         let record: Value =
             serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
@@ -267,7 +279,10 @@ fn assemble(args: &[String]) {
     let assembled = match assembled {
         Ok(assembled) => assembled,
         Err(error) => {
-            eprintln!("ASSEMBLY FAILED after {:.1} s: {error}", t_assemble.elapsed().as_secs_f64());
+            eprintln!(
+                "ASSEMBLY FAILED after {:.1} s: {error}",
+                t_assemble.elapsed().as_secs_f64()
+            );
             std::process::exit(5);
         }
     };
@@ -290,7 +305,10 @@ fn assemble(args: &[String]) {
         library.census().sectors.len(),
         library.census().classes.len(),
         assembled.timings,
-        assembled.descent.as_ref().map(|d| format!("{d:?}").chars().take(400).collect::<String>()),
+        assembled
+            .descent
+            .as_ref()
+            .map(|d| format!("{d:?}").chars().take(400).collect::<String>()),
     );
     // Which imported nodes became owners (a class owner is its min-GraphKey node).
     let mut used = Vec::new();
@@ -461,13 +479,19 @@ fn line_slots(p: &Presentation) -> Vec<usize> {
 }
 
 /// `numerator * top(powers)` lowered onto keys of the top presentation (exact rationals as `Coefficient`s).
-fn cell_inputs(library: &PLibrary, top: PresentationId, powers: &[i64], dots: &[(usize, usize)]) -> Vec<Input> {
+fn cell_inputs(
+    library: &PLibrary,
+    top: PresentationId,
+    powers: &[i64],
+    dots: &[(usize, usize)],
+) -> Vec<Input> {
     let p = library.presentation(top);
     let context = library.coefficient_context();
     let loops = usize::from(p.loops);
     let arity = p.slots.len();
     // polynomial over slot exponents with Coefficient values
-    let mut product: BTreeMap<Vec<u32>, Coefficient> = BTreeMap::from([(vec![0u32; arity], context.one())]);
+    let mut product: BTreeMap<Vec<u32>, Coefficient> =
+        BTreeMap::from([(vec![0u32; arity], context.one())]);
     for &(a, b) in dots {
         let unit = |i: usize| {
             let mut row = vec![0i64; loops + 1];
@@ -487,12 +511,22 @@ fn cell_inputs(library: &PLibrary, top: PresentationId, powers: &[i64], dots: &[
         };
         for (monomial, coefficient) in &product {
             if !form.constant.is_zero() {
-                put(monomial.clone(), context.try_mul(coefficient, &rational(&form.constant), exact()).unwrap());
+                put(
+                    monomial.clone(),
+                    context
+                        .try_mul(coefficient, &rational(&form.constant), exact())
+                        .unwrap(),
+                );
             }
             for (slot, value) in &form.terms {
                 let mut shifted = monomial.clone();
                 shifted[usize::from(*slot)] += 1;
-                put(shifted, context.try_mul(coefficient, &rational(value), exact()).unwrap());
+                put(
+                    shifted,
+                    context
+                        .try_mul(coefficient, &rational(value), exact())
+                        .unwrap(),
+                );
             }
         }
         product = next.into_iter().filter(|(_, c)| !c.is_zero()).collect();
@@ -501,7 +535,9 @@ fn cell_inputs(library: &PLibrary, top: PresentationId, powers: &[i64], dots: &[
         .into_iter()
         .map(|(monomial, c)| {
             let k: Vec<i64> = (0..arity)
-                .map(|slot| powers.get(slot).copied().unwrap_or(0).max(0) - i64::from(monomial[slot]))
+                .map(|slot| {
+                    powers.get(slot).copied().unwrap_or(0).max(0) - i64::from(monomial[slot])
+                })
                 .collect();
             (top, key(&k), c)
         })
@@ -509,7 +545,12 @@ fn cell_inputs(library: &PLibrary, top: PresentationId, powers: &[i64], dots: &[
 }
 
 /// RustRed's ordinary IBP rows of `p`'s family (indexed).
-fn ibp_rows(p: &Presentation) -> (rustred::algebra::IndexedCoefficientContext, Vec<ParametricRelation>) {
+fn ibp_rows(
+    p: &Presentation,
+) -> (
+    rustred::algebra::IndexedCoefficientContext,
+    Vec<ParametricRelation>,
+) {
     let generator = ParametricIbpGenerator::try_new(&p.family).unwrap();
     let batch = generator.prepare_ordinary_ibp().unwrap();
     let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
@@ -519,7 +560,10 @@ fn ibp_rows(p: &Presentation) -> (rustred::algebra::IndexedCoefficientContext, V
 
 /// The rows at `seed`: per relation, (powers, coefficient in Q(d)).
 fn rows_at(
-    rows: &(rustred::algebra::IndexedCoefficientContext, Vec<ParametricRelation>),
+    rows: &(
+        rustred::algebra::IndexedCoefficientContext,
+        Vec<ParametricRelation>,
+    ),
     seed: &[i64],
 ) -> Vec<Vec<(Vec<i64>, Coefficient)>> {
     let (indexed, relations) = rows;
@@ -534,7 +578,11 @@ fn rows_at(
                 if value.is_zero() {
                     continue;
                 }
-                let powers: Vec<i64> = seed.iter().zip(shift.values()).map(|(a, b)| a + b).collect();
+                let powers: Vec<i64> = seed
+                    .iter()
+                    .zip(shift.values())
+                    .map(|(a, b)| a + b)
+                    .collect();
                 terms.push((powers, value));
             }
             terms
@@ -581,8 +629,12 @@ impl Laporta {
     fn reduce_head(&self, row: Vec<(usize, u64)>) -> Vec<(usize, u64)> {
         let mut row = row;
         loop {
-            let Some(&(head, c)) = row.first() else { return row };
-            let Some(pivot) = self.pivots.get(&head) else { return row };
+            let Some(&(head, c)) = row.first() else {
+                return row;
+            };
+            let Some(pivot) = self.pivots.get(&head) else {
+                return row;
+            };
             let mut map: BTreeMap<usize, u64> = row.iter().copied().collect();
             for &(id, value) in pivot {
                 let entry = map.entry(id).or_insert(0);
@@ -632,7 +684,14 @@ fn top_box(p: &Presentation, sector: &[usize], dots: i64, rank: i64) -> Vec<Vec<
     let on: Vec<bool> = (0..arity).map(|s| sector.contains(&s)).collect();
     let mut out = Vec::new();
     let mut powers = vec![0i64; arity];
-    fn walk(slot: usize, dots: i64, rank: i64, on: &[bool], powers: &mut Vec<i64>, out: &mut Vec<Vec<i64>>) {
+    fn walk(
+        slot: usize,
+        dots: i64,
+        rank: i64,
+        on: &[bool],
+        powers: &mut Vec<i64>,
+        out: &mut Vec<Vec<i64>>,
+    ) {
         if slot == powers.len() {
             out.push(powers.clone());
             return;
@@ -659,7 +718,12 @@ fn in_top(powers: &[i64], lines: &[usize]) -> bool {
 }
 
 /// The top-sector part of a reduction at numeric d: terminal id -> value.
-fn top_part(library: &PLibrary, reduction: &PReduction, class: rustred::propagator::OwnerClassId, d: u64) -> BTreeMap<u32, u64> {
+fn top_part(
+    library: &PLibrary,
+    reduction: &PReduction,
+    class: rustred::propagator::OwnerClassId,
+    d: u64,
+) -> BTreeMap<u32, u64> {
     let mut out = BTreeMap::new();
     for term in &reduction.terms {
         if let PBasis::Residual(id) = &term.basis
@@ -682,7 +746,9 @@ fn check(args: &[String]) {
     let ibp_seeds: usize = args[4].parse().unwrap();
     let lap_dots: i64 = args[5].parse().unwrap();
     let lap_rank: i64 = args[6].parse().unwrap();
-    let top = library.top_presentation(top_name).unwrap_or_else(|| panic!("top {top_name}"));
+    let top = library
+        .top_presentation(top_name)
+        .unwrap_or_else(|| panic!("top {top_name}"));
     let p = Arc::clone(&library.presentations()[top.0 as usize]);
     let all_lines = line_slots(&p);
     let forced = p.forced_axes();
@@ -691,19 +757,28 @@ fn check(args: &[String]) {
     let lines: Vec<usize> = match std::env::var("P5L_SECTOR").as_deref() {
         Ok("custom") => {
             let mut best: Option<(u32, u64)> = None;
-            for (&(presentation, support), fate) in library.census().sectors.range((top, 0)..=(top, u64::MAX)) {
+            for (&(presentation, support), fate) in
+                library.census().sectors.range((top, 0)..=(top, u64::MAX))
+            {
                 debug_assert_eq!(presentation, top);
                 if let PSectorFate::Owner { class, .. } = fate {
                     let owner = library.owner(*class).unwrap();
                     let kind = &library.presentation(owner.spec.presentation).kind;
                     let size = (support & !forced).count_ones();
-                    if matches!(kind, PresentationKind::Caller) && best.is_none_or(|(b, _)| size > b) {
+                    if matches!(kind, PresentationKind::Caller)
+                        && best.is_none_or(|(b, _)| size > b)
+                    {
                         best = Some((size, support));
                     }
                 }
             }
-            let (_, support) = best.expect("no sector of the top is owned by an imported presentation");
-            all_lines.iter().copied().filter(|&s| support >> s & 1 == 1).collect()
+            let (_, support) =
+                best.expect("no sector of the top is owned by an imported presentation");
+            all_lines
+                .iter()
+                .copied()
+                .filter(|&s| support >> s & 1 == 1)
+                .collect()
         }
         _ => all_lines.clone(),
     };
@@ -716,7 +791,12 @@ fn check(args: &[String]) {
     let owner_kind = format!("{:?}", library.presentation(owner.spec.presentation).kind);
     eprintln!(
         "top {top_name}: presentation {}, {} lines; check sector {support:#x} ({} lines), owner lane {:?}, presentation {} {}",
-        top.0, all_lines.len(), lines.len(), owner.spec.lane, owner.spec.presentation.0, owner_kind
+        top.0,
+        all_lines.len(),
+        lines.len(),
+        owner.spec.lane,
+        owner.spec.presentation.0,
+        owner_kind
     );
     let context = library.coefficient_context().clone();
 
@@ -772,13 +852,18 @@ fn check(args: &[String]) {
         .filter(|(_, k, _)| in_top(&k.powers().to_vec(), &lines))
         .map(|(_, k, c)| (k.powers().to_vec(), c.clone()))
         .collect();
-    let max_target_rank = targets.iter().map(|(k, _)| k.iter().map(|&n| (-n).max(0)).sum::<i64>()).max().unwrap_or(0);
+    let max_target_rank = targets
+        .iter()
+        .map(|(k, _)| k.iter().map(|&n| (-n).max(0)).sum::<i64>())
+        .max()
+        .unwrap_or(0);
     let lap_rank = lap_rank.max(max_target_rank);
     let lap_dots = lap_dots.max(dots);
     let seeds = top_box(&p, &lines, lap_dots, lap_rank);
     let t_rows = Instant::now();
     // rows at every seed in Q(d), once
-    let seed_rows: Vec<Vec<Vec<(Vec<i64>, Coefficient)>>> = seeds.iter().map(|seed| rows_at(&rows, seed)).collect();
+    let seed_rows: Vec<Vec<Vec<(Vec<i64>, Coefficient)>>> =
+        seeds.iter().map(|seed| rows_at(&rows, seed)).collect();
     eprintln!(
         "(B) {} top-sector targets, Laporta box dots <= {lap_dots}, ISP rank <= {lap_rank}: {} seeds, {} rows, built in {:.1} s {}",
         targets.len(),
@@ -838,9 +923,9 @@ fn check(args: &[String]) {
         combination.retain(|_, v| *v != 0);
         let mut via = BTreeMap::<u32, u64>::new();
         for (k, c) in &combination {
-            let reduction = master_cache.entry(k.clone()).or_insert_with(|| {
-                reduce(&library, vec![(top, key(k), context.one())])
-            });
+            let reduction = master_cache
+                .entry(k.clone())
+                .or_insert_with(|| reduce(&library, vec![(top, key(k), context.one())]));
             for (id, v) in top_part(&library, reduction, class, d) {
                 let entry = via.entry(id).or_insert(0);
                 *entry = add(*entry, mul(*c, v));
@@ -869,7 +954,11 @@ fn check(args: &[String]) {
     for s in 0..ibp_seeds {
         let mut seed = vec![0i64; p.slots.len()];
         for &l in &lines {
-            seed[l] = if s % 2 == 1 && rng.below(5) == 0 { 0 } else { 1 };
+            seed[l] = if s % 2 == 1 && rng.below(5) == 0 {
+                0
+            } else {
+                1
+            };
         }
         let on: Vec<usize> = lines.iter().copied().filter(|&l| seed[l] == 1).collect();
         if !on.is_empty() {
@@ -888,7 +977,9 @@ fn check(args: &[String]) {
             let w = context.integer(1 + rng.below(97) as i64);
             for (powers, value) in row {
                 let term = context.try_mul(value, &w, exact()).unwrap();
-                let entry = sum.entry(powers.clone()).or_insert_with(|| context.integer(0));
+                let entry = sum
+                    .entry(powers.clone())
+                    .or_insert_with(|| context.integer(0));
                 *entry = context.try_add(entry, &term, exact()).unwrap();
             }
         }
@@ -899,7 +990,11 @@ fn check(args: &[String]) {
             .collect();
         let keys = combination.len();
         let reduction = reduce(&library, combination);
-        let nonzero = reduction.terms.iter().filter(|t| !t.coefficient.is_zero()).count();
+        let nonzero = reduction
+            .terms
+            .iter()
+            .filter(|t| !t.coefficient.is_zero())
+            .count();
         c_ok &= nonzero == 0;
         eprintln!(
             "(C) seed {s} {seed:?}: {} rows, {keys} keys, {nonzero} nonzero terms, {:.2} s {}",
@@ -931,10 +1026,17 @@ fn edges(families: &str, max_loops: u8, imports: Option<&str>) {
     let text = std::fs::read_to_string(families).unwrap();
     let (file, _) = load_p_families(&text).unwrap();
     let context = CoefficientContext::try_new(["d"]).unwrap();
-    let entries: Vec<_> = (file.families.iter()).filter(|e| e.loops <= max_loops).cloned().collect();
+    let entries: Vec<_> = (file.families.iter())
+        .filter(|e| e.loops <= max_loops)
+        .cloned()
+        .collect();
     let mut presentations: Vec<Arc<Presentation>> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
-        presentations.push(Arc::new(entry.presentation(PresentationId(index as u32), &context).unwrap()));
+        presentations.push(Arc::new(
+            entry
+                .presentation(PresentationId(index as u32), &context)
+                .unwrap(),
+        ));
     }
     let tops = presentations.clone();
     let roots: Vec<_> = entries.iter().map(top_topology).collect();
@@ -942,10 +1044,18 @@ fn edges(families: &str, max_loops: u8, imports: Option<&str>) {
     // imported presentations by graph key (as the assembly hook swaps them in)
     let mut imported: HashMap<Vec<u8>, (String, Presentation)> = HashMap::new();
     if let Some(imports) = imports {
-        for line in std::fs::read_to_string(imports).unwrap().lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+        for line in std::fs::read_to_string(imports)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        {
             let fields: Vec<&str> = line.split('\t').collect();
-            let record: Value = serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
-            imported.insert(unhex(record["graph_key"].as_str().unwrap()), (fields[0].to_owned(), record_presentation(&record, &context)));
+            let record: Value =
+                serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
+            imported.insert(
+                unhex(record["graph_key"].as_str().unwrap()),
+                (fields[0].to_owned(), record_presentation(&record, &context)),
+            );
         }
     }
     let mut swapped = 0;
@@ -954,7 +1064,18 @@ fn edges(families: &str, max_loops: u8, imports: Option<&str>) {
     for node in &dag.nodes {
         let id = PresentationId(presentations.len() as u32);
         let made = present_node(node, &tops, id, &context).unwrap();
-        *lanes.entry(format!("L{} {:?}{}", node.loops, made.decision.lane, if made.fallback.is_some() { " (fallback)" } else { "" })).or_default() += 1;
+        *lanes
+            .entry(format!(
+                "L{} {:?}{}",
+                node.loops,
+                made.decision.lane,
+                if made.fallback.is_some() {
+                    " (fallback)"
+                } else {
+                    ""
+                }
+            ))
+            .or_default() += 1;
         let mut presentation = made.presentation;
         if made.decision.lane == rustred::propagator::lane::OwnerLane::Custom
             && let Some((_, import)) = imported.get(node.key.as_bytes())
@@ -975,13 +1096,19 @@ fn edges(families: &str, max_loops: u8, imports: Option<&str>) {
         }
         node_presentation.push(p);
     }
-    eprintln!("dag {} nodes; lanes {lanes:?}; {swapped} imported presentations swapped in", dag.nodes.len());
+    eprintln!(
+        "dag {} nodes; lanes {lanes:?}; {swapped} imported presentations swapped in",
+        dag.nodes.len()
+    );
     let (mut ok, mut failed) = (0, 0);
     for edge in &dag.edges {
         if edge.kind != DagEdgeKind::Rule {
             continue;
         }
-        let (Some(parent), Some(child)) = (&node_presentation[edge.parent as usize], &node_presentation[edge.child as usize]) else {
+        let (Some(parent), Some(child)) = (
+            &node_presentation[edge.parent as usize],
+            &node_presentation[edge.child as usize],
+        ) else {
             continue;
         };
         match edge_map(parent, child, edge) {
@@ -992,12 +1119,37 @@ fn edges(families: &str, max_loops: u8, imports: Option<&str>) {
                 let cn = &dag.nodes[edge.child as usize];
                 println!(
                     "FAIL {} -> {}: {error}\n  parent L{} t{} eps{} {:?} kind {:?} graph {:?}\n  child  L{} t{} eps{} {:?} kind {:?} graph {:?}\n  fates {:?}\n  parent lines {:?}\n  child lines {:?}",
-                    edge.parent, edge.child,
-                    pn.loops, pn.t, pn.eps_lines, pn.action.kind(), parent.kind, pn.topo,
-                    cn.loops, cn.t, cn.eps_lines, cn.action.kind(), child.kind, cn.topo,
+                    edge.parent,
+                    edge.child,
+                    pn.loops,
+                    pn.t,
+                    pn.eps_lines,
+                    pn.action.kind(),
+                    parent.kind,
+                    pn.topo,
+                    cn.loops,
+                    cn.t,
+                    cn.eps_lines,
+                    cn.action.kind(),
+                    child.kind,
+                    cn.topo,
                     edge.fates,
-                    parent.slots.iter().filter_map(|slot| match slot { Slot::Line(l) => Some((l.momentum.clone(), l.eps_units)), _ => None }).collect::<Vec<_>>(),
-                    child.slots.iter().filter_map(|slot| match slot { Slot::Line(l) => Some((l.momentum.clone(), l.eps_units)), _ => None }).collect::<Vec<_>>(),
+                    parent
+                        .slots
+                        .iter()
+                        .filter_map(|slot| match slot {
+                            Slot::Line(l) => Some((l.momentum.clone(), l.eps_units)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                    child
+                        .slots
+                        .iter()
+                        .filter_map(|slot| match slot {
+                            Slot::Line(l) => Some((l.momentum.clone(), l.eps_units)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
                 );
             }
         }

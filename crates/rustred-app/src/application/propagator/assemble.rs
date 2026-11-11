@@ -50,8 +50,8 @@ use rustred::propagator::triangle::{TemplateError, TriangleTemplate};
 use rustred::propagator::{NodeIndex, OwnerClassId, PTerminalId, PresentationId};
 use rustred::reduction::ReductionLimits;
 
-use super::{CustomPayloads, ImportedCustomNode};
 use super::generate::{CustomOwnerPayload, custom_owner_lp_count, generate_custom_owner};
+use super::{CustomPayloads, ImportedCustomNode};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssembleOptions {
@@ -521,13 +521,13 @@ fn assemble(
                 imported.payload.clone()
             } else {
                 custom_payload(
-                &custom,
-                &label,
-                owner,
-                recount
-                    .as_mut()
-                    .map(|(filter, recounts)| (*filter, &mut **recounts)),
-            )?
+                    &custom,
+                    &label,
+                    owner,
+                    recount
+                        .as_mut()
+                        .map(|(filter, recounts)| (*filter, &mut **recounts)),
+                )?
             };
             custom_owner(&mut builder, &mut spec, &payload)?;
             payloads.insert(label, payload);
@@ -587,7 +587,10 @@ fn assemble(
 }
 
 /// The imported Custom node of `graph_key`, if `custom` has one.
-fn imported_node<'a>(custom: &'a CustomPayloads, graph_key: &[u8]) -> Option<&'a ImportedCustomNode> {
+fn imported_node<'a>(
+    custom: &'a CustomPayloads,
+    graph_key: &[u8],
+) -> Option<&'a ImportedCustomNode> {
     match custom {
         CustomPayloads::Imported { imported, .. } => imported.get(graph_key),
         _ => None,
@@ -608,7 +611,10 @@ fn custom_payload(
 ) -> Result<CustomOwnerPayload, PError> {
     match custom {
         CustomPayloads::Generate(options) => generate_custom_owner(presentation, options),
-        CustomPayloads::Provided(payloads) | CustomPayloads::Imported { provided: payloads, .. } => {
+        CustomPayloads::Provided(payloads)
+        | CustomPayloads::Imported {
+            provided: payloads, ..
+        } => {
             let payload = payloads.get(label).cloned().ok_or_else(|| {
                 PError::MalformedLibrary(format!(
                     "no payload is provided for the Custom owner {label}"

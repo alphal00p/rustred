@@ -185,7 +185,11 @@ fn validate(program: &ProgramRecord) -> Result<OrderingPolicy, PError> {
         _ => {}
     }
     // An imported table's payload descends in the table's own slot order.
-    super::table_import::enforce_slot_order(&program.family_source, &program.integral_order, arity)?;
+    super::table_import::enforce_slot_order(
+        &program.family_source,
+        &program.integral_order,
+        arity,
+    )?;
     validate_dispatch(program).map_err(wire_error)?;
     validate_sectors(program, |_| Ok::<_, BundleWireError>(())).map_err(wire_error)?;
     if program.sectors.is_empty() {
@@ -1402,8 +1406,7 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
     }
 
     fn is_residual(&self, powers: &[i64]) -> bool {
-        IntegralKey::try_new(powers.iter().copied())
-            .is_ok_and(|key| self.residuals.contains(&key))
+        IntegralKey::try_new(powers.iter().copied()).is_ok_and(|key| self.residuals.contains(&key))
     }
 
     /// The step of [`PLaneStep::step`] on `powers`, which must be a key of
@@ -1521,7 +1524,9 @@ pub fn verify_custom_payload(
     };
     let policy = OrderingPolicy::try_from_stable_id(&summary.ordering)
         .map_err(|error| fail(format!("order {}: {error}", summary.ordering)))?;
-    let program_axes = policy.program().map_or(0, |program| mask(program.two_sided()));
+    let program_axes = policy
+        .program()
+        .map_or(0, |program| mask(program.two_sided()));
     if program_axes != forced || summary.two_sided_axes != forced {
         return Err(fail(format!(
             "the order is two-sided on {program_axes:#x}, the eps axes are {forced:#x}"
@@ -1612,14 +1617,15 @@ pub fn replay_custom_payload(
             .fold(forced, |mask, (slot, _)| mask | 1 << slot)
     };
     let context = presentation.family.coefficient_context();
-    let add = |map: &mut BTreeMap<Vec<i64>, Coefficient>, key: Vec<i64>, value: Coefficient| {
-        match map.get_mut(&key) {
+    let add =
+        |map: &mut BTreeMap<Vec<i64>, Coefficient>, key: Vec<i64>, value: Coefficient| match map
+            .get_mut(&key)
+        {
             Some(slot) => *slot = &*slot + &value,
             None => {
                 map.insert(key, value);
             }
-        }
-    };
+        };
     let mut replays = Vec::with_capacity(seeds.len());
     for seed in seeds {
         if support_of(seed) != support {
@@ -1663,7 +1669,9 @@ pub fn replay_custom_payload(
             }
         }
         let nonzero = |map: BTreeMap<Vec<i64>, Coefficient>| -> Vec<(Vec<i64>, Coefficient)> {
-            map.into_iter().filter(|(_, value)| !value.is_zero()).collect()
+            map.into_iter()
+                .filter(|(_, value)| !value.is_zero())
+                .collect()
         };
         replays.push(CustomReplay {
             seed: seed.clone(),

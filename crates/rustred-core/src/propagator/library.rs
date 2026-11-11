@@ -259,7 +259,9 @@ impl PLibrary {
     }
 
     /// The identity of this program: `"p-library:scope=<a>-<b>:"` plus every
-    /// `name=value` of [`p_versions`]. No loop count, no digest. It names the
+    /// `name=value` of [`p_versions`], then `,P_FAMILIES_5L_VERSION=<v>` when
+    /// the scope reaches 5 loops (M5 batch 3) and the ordering tag. No loop
+    /// count, no digest. It names the
     /// library content (`library.json` records it); reduction settings such as
     /// orbit canonicalisation are not part of it, see [`Self::step_identity`].
     pub fn identity(&self) -> String {
@@ -271,8 +273,15 @@ impl PLibrary {
             .ordering
             .as_ref()
             .map_or_else(String::new, |tag| format!(",P_ORDERING_VERSION={tag}"));
+        // G9 (M5 batch 3): the 5L families enter only the identity of a
+        // library that reaches 5 loops; scope 1-4 identities are unchanged.
+        let families_5l = if *self.scope.end() >= 5 {
+            format!(",P_FAMILIES_5L_VERSION={}", super::P_FAMILIES_5L_VERSION)
+        } else {
+            String::new()
+        };
         format!(
-            "p-library:scope={}-{}:{}{ordering}",
+            "p-library:scope={}-{}:{}{families_5l}{ordering}",
             self.scope.start(),
             self.scope.end(),
             versions.join(",")

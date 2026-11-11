@@ -537,7 +537,12 @@ impl<'a> Factorized<'a> {
         }
         let width = self.width();
         let mut chains = self.chain_list(source.chains.len());
-        chains.extend(source.chains.iter().map(|c| Chain::new(c.factor, c.exponent)));
+        chains.extend(
+            source
+                .chains
+                .iter()
+                .map(|c| Chain::new(c.factor, c.exponent)),
+        );
         // The result's layout is the source's shifted by one position.
         let mut result = self.layout(source.poly + 1, chains)?;
         let from = &source.data;

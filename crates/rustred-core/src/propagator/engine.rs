@@ -1172,19 +1172,20 @@ impl<'l> PStepper<'l> {
         let tag = GammaTag::decode_dense(tag_slots)?;
         let context = self.library.coefficient_context();
         let shape = engine.shape(owner.presentation)?;
-        let child = |powers: &[i64], coefficient: Coefficient| -> Result<(PKey, Coefficient), PError> {
-            // A numerator can pinch a line of the owner: that is a subsector
-            // of its presentation, routed by the census in a later phase.
-            // With canonicalisation on (M5 R0 A2) the key is the least exact
-            // image under the sector's automorphisms and the weight carries its
-            // sign; the memoised expansion below is taken before this, so the
-            // memo is independent of canonicalisation (M5 batch 3).
-            if shape.support(powers) == owner.support {
-                self.apply_key(class, powers, &tag, coefficient)
-            } else {
-                self.route_child(owner.presentation, powers, &tag, coefficient)
-            }
-        };
+        let child =
+            |powers: &[i64], coefficient: Coefficient| -> Result<(PKey, Coefficient), PError> {
+                // A numerator can pinch a line of the owner: that is a subsector
+                // of its presentation, routed by the census in a later phase.
+                // With canonicalisation on (M5 R0 A2) the key is the least exact
+                // image under the sector's automorphisms and the weight carries its
+                // sign; the memoised expansion below is taken before this, so the
+                // memo is independent of canonicalisation (M5 batch 3).
+                if shape.support(powers) == owner.support {
+                    self.apply_key(class, powers, &tag, coefficient)
+                } else {
+                    self.route_child(owner.presentation, powers, &tag, coefficient)
+                }
+            };
         let direct = |terms: &mut BTreeMap<PKey, Coefficient>| -> Result<(), PError> {
             let key = IntegralKey::try_from_preallocated(powers.to_vec())
                 .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
@@ -2006,7 +2007,11 @@ impl<'l> ConcurrentStepCacheKernel for PKernel<'l, '_> {
         stepper.shard(key)
     }
 
-    fn detached_key(stepper: &PStepper<'l>, stage: NodeStage, view: IntegralKey) -> Result<PKey, PError> {
+    fn detached_key(
+        stepper: &PStepper<'l>,
+        stage: NodeStage,
+        view: IntegralKey,
+    ) -> Result<PKey, PError> {
         stepper.recorded_key(stage, view)
     }
 }

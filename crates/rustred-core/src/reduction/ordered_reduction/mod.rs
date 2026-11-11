@@ -10,9 +10,9 @@ pub(crate) mod arithmetic;
 pub mod composition;
 mod frontier;
 pub(crate) mod memstats;
-pub(crate) mod parstats;
 mod modular;
 mod parallel;
+pub(crate) mod parstats;
 pub(crate) mod step_cache;
 pub(crate) mod tail;
 
@@ -348,6 +348,30 @@ pub(crate) fn frontier_hash_environment() -> Option<bool> {
             _ => None,
         },
     )
+}
+
+/// An on/off switch from the environment: `1`/`on`/`true` is `Some(true)`,
+/// `0`/`off`/`false` is `Some(false)`, unset or another value `None`.
+fn switch_environment(name: &str) -> Option<bool> {
+    match std::env::var(name).as_deref() {
+        Ok("1" | "on" | "true") => Some(true),
+        Ok("0" | "off" | "false") => Some(false),
+        _ => None,
+    }
+}
+
+/// `RUSTRED_ORDERED_PIPELINE=on|off` overrides the profile's pipelined step
+/// source (rr-par; on for p requests since M5 batch 3).
+pub(crate) fn pipeline_environment() -> Option<bool> {
+    static ON: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| switch_environment("RUSTRED_ORDERED_PIPELINE"))
+}
+
+/// `RUSTRED_MODULAR_PAR_REPLAY=on|off` overrides the profile's parallel
+/// modular replay (rr-par; on for p requests since M5 batch 3).
+pub(crate) fn par_replay_environment() -> Option<bool> {
+    static ON: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| switch_environment("RUSTRED_MODULAR_PAR_REPLAY"))
 }
 
 /// `RUSTRED_MODULAR_POLY_ROUND=n` overrides the profile's first modular
@@ -976,6 +1000,11 @@ struct TailOptions {
     /// The first round of a modular polynomial lift (`None`: one prime
     /// per thread).
     modular_round: Option<usize>,
+    /// rr-par: compute the next window of steps while the scheduler merges
+    /// and records the current one (recorded arithmetics, several threads).
+    pipeline: bool,
+    /// rr-par: one replay job on the whole modular pool.
+    par_replay: bool,
 }
 
 impl TailOptions {
@@ -998,6 +1027,8 @@ impl TailOptions {
                 fx_hash: tuning.fx_hash,
             },
             modular_round: tuning.modular_round,
+            pipeline: tuning.pipeline && threads > 1,
+            par_replay: tuning.par_replay,
         }
     }
 }
@@ -1104,10 +1135,7 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         // the workers.
         OrderedWeightArithmetic::ModularSampled(..)
         | OrderedWeightArithmetic::ModularPolynomial(..) => {
-            match parallel::pipeline_enabled()
-                .then(|| kernel.detached_stepper())
-                .flatten()
-            {
+            match tail.pipeline.then(|| kernel.detached_stepper()).flatten() {
                 // rr-par: the next window is computed while this one is
                 // merged and recorded.
                 Some(stepper) => {
@@ -1160,6 +1188,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
     let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
     recorder.set_modular_round(tail.modular_round);
+    recorder.set_par_replay(tail.par_replay);
     // A cross-checked request compares the exact terminal map itself, so it
     // never composes.
     let composer = (!common.cross_check_exact)

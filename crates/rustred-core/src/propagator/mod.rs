@@ -118,6 +118,14 @@ pub const P_CUSTOM_OWNER_VERSION: u32 = 2;
 /// ordering keeps its identity; one with an ordering appends
 /// `,P_ORDERING_VERSION=<v>:<heuristic>` (`PLibrary::identity`).
 pub const P_ORDERING_VERSION: u32 = 1;
+/// The content of `data/p/p-families-5L.v1.json` (the 64 five-loop tops,
+/// [`families::P_FAMILIES_5L_V1_JSON`]) and the 5L families built from it (gap
+/// G9 of p5l-converter, M5 batch 3). Not a `p_versions()` entry, so every
+/// scope 1-4 package (identity, manifest, census versions) is unchanged: a
+/// library whose scope reaches 5 loops appends `,P_FAMILIES_5L_VERSION=<v>`
+/// to its identity (`PLibrary::identity`). Bump it with every change of the
+/// 5L families file or of how its tops are presented.
+pub const P_FAMILIES_5L_VERSION: u32 = 1;
 pub const P_ORDERING_SCHEMA: &str = "rustred.p-ordering.v1";
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";

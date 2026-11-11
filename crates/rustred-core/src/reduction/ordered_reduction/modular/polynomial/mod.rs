@@ -236,6 +236,8 @@ pub(super) struct PolynomialSource<'a> {
     /// First round (`OrderedTuning::modular_round`; `None`: one prime per
     /// thread).
     round: Option<usize>,
+    /// rr-par: one replay job on the whole pool (`OrderedTuning::par_replay`).
+    par_replay: bool,
 }
 
 impl<'a> PolynomialSource<'a> {
@@ -247,6 +249,7 @@ impl<'a> PolynomialSource<'a> {
         compose: Option<&'a Program>,
         seed: u64,
         round: Option<usize>,
+        par_replay: bool,
     ) -> Self {
         Self {
             trace,
@@ -257,6 +260,7 @@ impl<'a> PolynomialSource<'a> {
             compose,
             seed,
             round,
+            par_replay,
         }
     }
 
@@ -298,10 +302,10 @@ impl ImageSource for PolynomialSource<'_> {
             .filter_map(|(index, tables)| tables.map(|tables| (index, tables)))
             .collect();
         // rr-par: one job at a time on the whole pool (factorized weights).
-        let parallel_pool = executor.pool().filter(|_| {
-            parallel::par_replay_enabled()
-                && options.denominators == PolynomialDenominators::Factorized
-        });
+        let par_replay = self.par_replay;
+        let parallel_pool = executor
+            .pool()
+            .filter(|_| par_replay && options.denominators == PolynomialDenominators::Factorized);
         let job_threads = if parallel_pool.is_some() {
             1
         } else {
@@ -321,9 +325,14 @@ impl ImageSource for PolynomialSource<'_> {
             let begun = Instant::now();
             let (indices, tables): (Vec<usize>, Vec<LaneTables>) = job.into_iter().unzip();
             let parallel = parallel_pool.and_then(|pool| {
-                parallel::replay_parallel(trace, outputs, tables.len(), pool, executor.budget(), || {
-                    Factorized::new(&tables, basis, options.max_degree)
-                })
+                parallel::replay_parallel(
+                    trace,
+                    outputs,
+                    tables.len(),
+                    pool,
+                    executor.budget(),
+                    || Factorized::new(&tables, basis, options.max_degree),
+                )
             });
             let replayed = match parallel {
                 Some(replayed) => replayed.map(|replayed| Replayed {
@@ -334,18 +343,18 @@ impl ImageSource for PolynomialSource<'_> {
                     segment_volume: vec![0.0; trace.phase_starts.len() + 1],
                 }),
                 None => match options.denominators {
-                PolynomialDenominators::Factorized => replay(
-                    trace,
-                    outputs,
-                    tables.len(),
-                    &mut Factorized::new(&tables, basis, options.max_degree),
-                ),
-                PolynomialDenominators::Dense => replay(
-                    trace,
-                    outputs,
-                    tables.len(),
-                    &mut Dense::new(&tables, basis, options.max_degree),
-                ),
+                    PolynomialDenominators::Factorized => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Factorized::new(&tables, basis, options.max_degree),
+                    ),
+                    PolynomialDenominators::Dense => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Dense::new(&tables, basis, options.max_degree),
+                    ),
                 },
             };
             let replay_seconds = begun.elapsed().as_secs_f64();
@@ -450,7 +459,7 @@ impl ImageSource for PolynomialSource<'_> {
         match self.round {
             Some(round) => round.max(self.options.lanes),
             // rr-par: a parallel pass replays `lanes` primes on all threads.
-            None if parallel::par_replay_enabled() && threads > 1 => self.options.lanes,
+            None if self.par_replay && threads > 1 => self.options.lanes,
             None => threads.max(self.options.lanes),
         }
     }
@@ -459,7 +468,7 @@ impl ImageSource for PolynomialSource<'_> {
     fn round_minimum(&self, threads: usize) -> usize {
         match self.round {
             Some(round) => round,
-            None if parallel::par_replay_enabled() && threads > 1 => self.options.lanes,
+            None if self.par_replay && threads > 1 => self.options.lanes,
             None => threads,
         }
     }

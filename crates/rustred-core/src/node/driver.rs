@@ -116,8 +116,16 @@ pub struct NodeOptions {
     /// presented family, chart and order only): a case contained in a sibling rule's case is CLAIMED by that sibling
     /// and skipped (the sibling closes its exceptional children), and sibling rules act as cover rules for children.
     /// The node is complete only when every piece completes; its table is the union of the pieces' tables.
+    ///
+    /// DISABLED unless `unsafe_shared_registry` is set (M5 batch 3, coordinator ruling 2026-11-11 17:37Z): pop
+    /// pruning transfers ownership of a case by case containment, not by a valid-domain proof; the final join does
+    /// not yet keep exception-child dependencies, and the registry key does not bind the full source basis and
+    /// certificate provenance. Until that is fixed a node run with `registry` set and the switch off is refused.
     #[serde(default)]
     pub registry: Option<(String, String)>,
+    /// Opt-in for the experimental shared case registry (default off; see `registry`).
+    #[serde(default)]
+    pub unsafe_shared_registry: bool,
 }
 
 fn three() -> usize {
@@ -178,6 +186,7 @@ impl Default for NodeOptions {
             adopt_banks: Vec::new(),
             union_cover_depth: 2,
             registry: None,
+            unsafe_shared_registry: false,
         }
     }
 }
@@ -1460,6 +1469,14 @@ fn run<const N: usize>(
         ])
     );
     let mut registry = match &opts.registry {
+        Some(_) if !opts.unsafe_shared_registry => {
+            return Err(
+                "the shared case registry is disabled (ownership by case containment is not a \
+                        valid-domain proof; M5 batch 3): set unsafe_shared_registry (rr_node \
+                        --unsafe-shared-registry) to run it experimentally"
+                    .to_string(),
+            );
+        }
         Some((dir, piece)) => Some(Registry::open(dir, piece, &key)?),
         None => None,
     };
@@ -3378,14 +3395,31 @@ mod tests {
         // two pieces of the sunset chart through the registry: the second sees the first's rules and both close
         let fam_dir = tmp("registry-node");
         let dir = fam_dir.display().to_string();
+        let refused = NodeOptions {
+            registry: Some((dir.clone(), "p0".into())),
+            ..quiet()
+        };
+        assert!(
+            generate(
+                SUNSET,
+                "sunset.sym",
+                &fam_dir.join("p0"),
+                &refused,
+                &mut |_| {}
+            )
+            .is_err(),
+            "the registry is refused without the experimental switch (M5 batch 3)"
+        );
         let p1 = NodeOptions {
             registry: Some((dir.clone(), "p1".into())),
+            unsafe_shared_registry: true,
             ..quiet()
         };
         let r1 = generate(SUNSET, "sunset.sym", &fam_dir.join("p1"), &p1, &mut |_| {}).unwrap();
         assert!(r1.complete);
         let p2 = NodeOptions {
             registry: Some((dir, "p2".into())),
+            unsafe_shared_registry: true,
             ..quiet()
         };
         let r2 = generate(SUNSET, "sunset.sym", &fam_dir.join("p2"), &p2, &mut |_| {}).unwrap();

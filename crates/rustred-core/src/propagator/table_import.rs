@@ -46,13 +46,16 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedCoefficientContext};
+use crate::algebra::{
+    Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedCoefficientContext,
+};
 use crate::persistence::{
     BinaryIoLimits, BinaryProgramKind, BinarySection, CoefficientTableBuilder, NativeFamilyRecord,
     SectionTag, encode_program,
 };
 use crate::sector::OrderingPolicy;
 
+use super::PresentationId;
 use super::bundle_wire::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS, CaseRecord, DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
     IntegralRecord, ProgramRecord, RuleDispatchRecord, RuleRecord, SectorRecord, TermRecord,
@@ -66,7 +69,6 @@ use super::presentation::{
     eps_power_shift,
 };
 use super::topology::{GraphKey, Normalised, PTopo, canonical, normalise};
-use super::PresentationId;
 
 /// Schemas this importer reads (the header's `schema`); every later variant of
 /// the campaign (`-defer-gsplit`) keeps the v1 records.
@@ -221,7 +223,10 @@ fn arguments(text: &str) -> Vec<String> {
     if !current.trim().is_empty() {
         parts.push(current);
     }
-    parts.into_iter().map(|part| part.trim().to_owned()).collect()
+    parts
+        .into_iter()
+        .map(|part| part.trim().to_owned())
+        .collect()
 }
 
 /// The `I(...)` family text of a table header.
@@ -265,10 +270,15 @@ pub fn parse_table_family(source: &str, power_shifts: &[String]) -> Result<Table
             _ => return Err(gap("family_entry", format!("{entry:?}"))),
         }
     }
-    if externals.len() != 1 || gram.as_deref() != Some(&[externals[0].clone(), externals[0].clone(), "1".to_owned()][..]) {
+    if externals.len() != 1
+        || gram.as_deref()
+            != Some(&[externals[0].clone(), externals[0].clone(), "1".to_owned()][..])
+    {
         return Err(gap(
             "kinematics",
-            format!("externals {externals:?}, gram {gram:?}: one external with q.q = 1 is required"),
+            format!(
+                "externals {externals:?}, gram {gram:?}: one external with q.q = 1 is required"
+            ),
         ));
     }
     if power_shifts.len() != slots.len() {
@@ -295,12 +305,14 @@ pub fn parse_table_family(source: &str, power_shifts: &[String]) -> Result<Table
             })
             .ok_or_else(|| gap("power_shift", format!("{shift:?} is no j (4 - d) / 2")))?;
         if units != 0 && !slot.line {
-            return Err(gap("power_shift", format!("an eps shift on the ISP {}", slot.name)));
+            return Err(gap(
+                "power_shift",
+                format!("an eps shift on the ISP {}", slot.name),
+            ));
         }
         eps_units.push(units);
     }
-    let loops_count =
-        u8::try_from(loops.len()).map_err(|_| malformed("too many loop momenta"))?;
+    let loops_count = u8::try_from(loops.len()).map_err(|_| malformed("too many loop momenta"))?;
     Ok(TableFamily {
         name,
         loops: loops_count,
@@ -325,7 +337,11 @@ pub fn canonical_node_graph(edges: &str, s: u8, t: u8) -> Result<(GraphKey, PTop
             .and_then(|(u, v)| Some((u.parse::<u8>().ok()?, v.parse::<u8>().ok()?)))
             .ok_or_else(|| malformed(format!("graph edge {token:?}")))?;
         n = n.max(u).max(v);
-        lines.push((u, v, u8::try_from(stars).map_err(|_| malformed("eps units"))?));
+        lines.push((
+            u,
+            v,
+            u8::try_from(stars).map_err(|_| malformed("eps units"))?,
+        ));
     }
     let topo = PTopo::new(n + 1, s, t, lines);
     canonical_topology(&topo)
@@ -334,7 +350,9 @@ pub fn canonical_node_graph(edges: &str, s: u8, t: u8) -> Result<(GraphKey, PTop
 /// The normalised, canonically labelled form of `topo` and its key.
 pub fn canonical_topology(topo: &PTopo) -> Result<(GraphKey, PTopo), PError> {
     let Normalised::Topo(normal, _) = normalise(topo) else {
-        return Err(malformed("the node graph normalises to zero or the trivial node"));
+        return Err(malformed(
+            "the node graph normalises to zero or the trivial node",
+        ));
     };
     let (key, canon) = canonical(&normal);
     Ok((key, canon.apply(&normal)))
@@ -393,7 +411,8 @@ fn match_lines(graph: &PTopo, lines: &[(Vec<i64>, u8)]) -> Option<LineMatch> {
                         self.balance[v][column] += value;
                     }
                     let complete = |vertex: usize| self.last[vertex] == Some(index);
-                    let ok = (!complete(u) || self.vertex_ok(u)) && (!complete(v) || self.vertex_ok(v));
+                    let ok =
+                        (!complete(u) || self.vertex_ok(u)) && (!complete(v) || self.vertex_ok(v));
                     if ok {
                         self.used[candidate] = true;
                         self.assignment[index] = candidate;
@@ -448,7 +467,10 @@ fn parse_key(text: &str, arity: usize) -> Result<Vec<(bool, i64)>, PError> {
         .ok_or_else(|| malformed(format!("key {text:?}")))?;
     let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
     if parts.len() != arity {
-        return Err(malformed(format!("key {text:?} has {} slots, not {arity}", parts.len())));
+        return Err(malformed(format!(
+            "key {text:?} has {} slots, not {arity}",
+            parts.len()
+        )));
     }
     parts
         .iter()
@@ -460,7 +482,10 @@ fn parse_key(text: &str, arity: usize) -> Result<Vec<(bool, i64)>, PError> {
                     .parse()
                     .map_err(|_| malformed(format!("key {text:?}")))?;
                 if index != slot {
-                    return Err(gap("key_index", format!("slot {slot} of {text:?} names n{index}")));
+                    return Err(gap(
+                        "key_index",
+                        format!("slot {slot} of {text:?} names n{index}"),
+                    ));
                 }
                 let offset = match &rest[digits..] {
                     "" => 0,
@@ -472,7 +497,11 @@ fn parse_key(text: &str, arity: usize) -> Result<Vec<(bool, i64)>, PError> {
                 };
                 Ok((true, offset))
             } else {
-                Ok((false, part.parse::<i64>().map_err(|_| malformed(format!("key {text:?}")))?))
+                Ok((
+                    false,
+                    part.parse::<i64>()
+                        .map_err(|_| malformed(format!("key {text:?}")))?,
+                ))
             }
         })
         .collect()
@@ -502,10 +531,13 @@ fn rename_indices(text: &str, slot_map: &[usize]) -> Result<String, PError> {
         let c = bytes[i];
         let boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
         if c == b'n' && boundary && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-            let digits = bytes[i + 1..].iter().take_while(|b| b.is_ascii_digit()).count();
+            let digits = bytes[i + 1..]
+                .iter()
+                .take_while(|b| b.is_ascii_digit())
+                .count();
             let after = i + 1 + digits;
-            let identifier_continues =
-                after < bytes.len() && (bytes[after].is_ascii_alphanumeric() || bytes[after] == b'_');
+            let identifier_continues = after < bytes.len()
+                && (bytes[after].is_ascii_alphanumeric() || bytes[after] == b'_');
             if !identifier_continues {
                 let index: usize = text[i + 1..after]
                     .parse()
@@ -587,12 +619,19 @@ fn u64_list(value: &Value, field: &str) -> Result<Vec<u64>, PError> {
         .as_array()
         .ok_or_else(|| malformed(format!("order field {field}")))?
         .iter()
-        .map(|entry| entry.as_u64().ok_or_else(|| malformed(format!("order field {field}"))))
+        .map(|entry| {
+            entry
+                .as_u64()
+                .ok_or_else(|| malformed(format!("order field {field}")))
+        })
         .collect()
 }
 
 /// The header's `order` as an [`OrderDescriptor`] with every slot permuted.
-fn permuted_order(order: &Value, slot_map: &[usize]) -> Result<rustred_order::OrderDescriptor, PError> {
+fn permuted_order(
+    order: &Value,
+    slot_map: &[usize],
+) -> Result<rustred_order::OrderDescriptor, PError> {
     use rustred_order::{CoordinateGroups, DegreeRow, Direction, OrderDescriptor};
     let rows = |field: &str| -> Result<Vec<DegreeRow>, PError> {
         order[field]
@@ -651,7 +690,10 @@ fn permuted_order(order: &Value, slot_map: &[usize]) -> Result<rustred_order::Or
     }
     Ok(OrderDescriptor {
         pre_support_degree_rows: rows("pre_support_degree_rows")?,
-        support_weights: permuted(&u64_list(&order["support_weights"], "support_weights")?, slot_map),
+        support_weights: permuted(
+            &u64_list(&order["support_weights"], "support_weights")?,
+            slot_map,
+        ),
         support_priority: priority("support_priority")?,
         degree_rows: rows("degree_rows")?,
         coordinate_priority: priority("coordinate_priority")?,
@@ -779,22 +821,33 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 fn expected_order(record: &SlotOrderRecord, arity: usize) -> Result<String, PError> {
     let fail = |detail: String| malformed(format!("slot order: {detail}"));
     if !is_permutation(&record.table_to_presentation, arity) {
-        return Err(fail("table_to_presentation is no permutation of the slots".into()));
+        return Err(fail(
+            "table_to_presentation is no permutation of the slots".into(),
+        ));
     }
     let bytes = unhex(&record.table_order).ok_or_else(|| fail("table_order is no hex".into()))?;
-    let table = rustred_order::CompiledOrder::from_canonical_bytes(&bytes, rustred_order::Limits::default())
-        .map_err(|error| fail(format!("table_order: {error}")))?;
+    let table = rustred_order::CompiledOrder::from_canonical_bytes(
+        &bytes,
+        rustred_order::Limits::default(),
+    )
+    .map_err(|error| fail(format!("table_order: {error}")))?;
     if table.arity() != arity {
         return Err(fail("table_order has another arity".into()));
     }
-    let identity = record.table_to_presentation.iter().enumerate().all(|(slot, &image)| slot == image);
+    let identity = record
+        .table_to_presentation
+        .iter()
+        .enumerate()
+        .all(|(slot, &image)| slot == image);
     let policy = if record.order_name == "legacy" && identity {
         OrderingPolicy::SpiredUncutV1
     } else {
         let moved = permute_descriptor(table.descriptor(), &record.table_to_presentation);
-        let compiled = rustred_order::CompiledOrder::compile(moved, rustred_order::Limits::default())
-            .map_err(|error| fail(format!("moved order: {error}")))?;
-        OrderingPolicy::try_programmed(compiled).map_err(|error| fail(format!("moved order: {error}")))?
+        let compiled =
+            rustred_order::CompiledOrder::compile(moved, rustred_order::Limits::default())
+                .map_err(|error| fail(format!("moved order: {error}")))?;
+        OrderingPolicy::try_programmed(compiled)
+            .map_err(|error| fail(format!("moved order: {error}")))?
     };
     Ok(policy.stable_id().to_string())
 }
@@ -847,7 +900,10 @@ pub fn enforce_slot_order(
 /// Integer determinant (Bareiss).
 fn determinant(matrix: &[Vec<i64>]) -> Option<i128> {
     let n = matrix.len();
-    let mut a: Vec<Vec<i128>> = matrix.iter().map(|row| row.iter().map(|&x| i128::from(x)).collect()).collect();
+    let mut a: Vec<Vec<i128>> = matrix
+        .iter()
+        .map(|row| row.iter().map(|&x| i128::from(x)).collect())
+        .collect();
     let (mut sign, mut previous) = (1_i128, 1_i128);
     for k in 0..n {
         if a[k][k] == 0 {
@@ -857,7 +913,8 @@ fn determinant(matrix: &[Vec<i64>]) -> Option<i128> {
         }
         for i in k + 1..n {
             for j in k + 1..n {
-                a[i][j] = (a[i][j].checked_mul(a[k][k])? - a[i][k].checked_mul(a[k][j])?) / previous;
+                a[i][j] =
+                    (a[i][j].checked_mul(a[k][k])? - a[i][k].checked_mul(a[k][j])?) / previous;
             }
         }
         previous = a[k][k];
@@ -889,7 +946,11 @@ fn solve(basis: &[Vec<f64>], rhs: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
             }
         }
     }
-    Some((0..n).map(|i| (0..m).map(|j| a[i][n + j] / a[i][i]).collect()).collect())
+    Some(
+        (0..n)
+            .map(|i| (0..m).map(|j| a[i][n + j] / a[i][i]).collect())
+            .collect(),
+    )
 }
 
 /// The relation of `table` to `census` (see [`CensusRelation`]): the slot
@@ -935,7 +996,8 @@ pub fn census_relation(
                 let hits: Vec<usize> = (0..arity)
                     .filter(|&j| {
                         table.slots[j].line == slot.line
-                            && (table.slots[j].momentum == slot.momentum || table.slots[j].momentum == negated)
+                            && (table.slots[j].momentum == slot.momentum
+                                || table.slots[j].momentum == negated)
                     })
                     .collect();
                 match hits.as_slice() {
@@ -953,7 +1015,9 @@ pub fn census_relation(
         }
     };
     if !is_permutation(&census_to_table, arity) {
-        return Err(fail("the census -> table slot map is no permutation".into()));
+        return Err(fail(
+            "the census -> table slot map is no permutation".into(),
+        ));
     }
     for (i, &j) in census_to_table.iter().enumerate() {
         if census.slots[i].line != table.slots[j].line {
@@ -964,8 +1028,15 @@ pub fn census_relation(
         }
     }
     let width = usize::from(table.loops) + 1;
-    let u: Vec<Vec<f64>> = census.slots.iter().map(|s| s.momentum.iter().map(|&c| c as f64).collect()).collect();
-    let w: Vec<&Vec<i64>> = census_to_table.iter().map(|&j| &table.slots[j].momentum).collect();
+    let u: Vec<Vec<f64>> = census
+        .slots
+        .iter()
+        .map(|s| s.momentum.iter().map(|&c| c as f64).collect())
+        .collect();
+    let w: Vec<&Vec<i64>> = census_to_table
+        .iter()
+        .map(|&j| &table.slots[j].momentum)
+        .collect();
     // A basis of census momenta (the rows of `u`); q joins as a unit row
     // if no census momentum is needed for it (it always is: q flows).
     let mut basis: Vec<usize> = Vec::new();
@@ -976,9 +1047,19 @@ pub fn census_relation(
         // rank test: Gram matrix of the candidate rows is invertible
         let gram: Vec<Vec<f64>> = rows
             .iter()
-            .map(|a| rows.iter().map(|b| a.iter().zip(b).map(|(x, y)| x * y).sum()).collect())
+            .map(|a| {
+                rows.iter()
+                    .map(|b| a.iter().zip(b).map(|(x, y)| x * y).sum())
+                    .collect()
+            })
             .collect();
-        let identity: Vec<Vec<f64>> = (0..rows.len()).map(|r| (0..rows.len()).map(|c| f64::from(u8::from(r == c))).collect()).collect();
+        let identity: Vec<Vec<f64>> = (0..rows.len())
+            .map(|r| {
+                (0..rows.len())
+                    .map(|c| f64::from(u8::from(r == c)))
+                    .collect()
+            })
+            .collect();
         if solve(&gram, &identity).is_some() {
             basis = candidate;
             if basis.len() == width {
@@ -987,7 +1068,9 @@ pub fn census_relation(
         }
     }
     if basis.len() != width {
-        return Err(fail("the census momenta do not span the loop momenta and q".into()));
+        return Err(fail(
+            "the census momenta do not span the loop momenta and q".into(),
+        ));
     }
     let ub: Vec<Vec<f64>> = basis.iter().map(|&b| u[b].clone()).collect();
     for signs_mask in 0_u32..(1 << width) {
@@ -1004,7 +1087,10 @@ pub fn census_relation(
         if x.iter().flatten().any(|v| (v - v.round()).abs() > 1e-6) {
             continue;
         }
-        let x: Vec<Vec<i64>> = x.iter().map(|row| row.iter().map(|v| v.round() as i64).collect()).collect();
+        let x: Vec<Vec<i64>> = x
+            .iter()
+            .map(|row| row.iter().map(|v| v.round() as i64).collect())
+            .collect();
         let q_row = &x[width - 1];
         if q_row[..width - 1].iter().any(|&c| c != 0) || q_row[width - 1].abs() != 1 {
             continue;
@@ -1015,7 +1101,11 @@ pub fn census_relation(
         let mut signs = Vec::with_capacity(arity);
         for i in 0..arity {
             let image: Vec<i64> = (0..width)
-                .map(|c| (0..width).map(|r| census.slots[i].momentum[r] * x[r][c]).sum())
+                .map(|c| {
+                    (0..width)
+                        .map(|r| census.slots[i].momentum[r] * x[r][c])
+                        .sum()
+                })
                 .collect();
             let negated: Vec<i64> = image.iter().map(|c| -c).collect();
             if *w[i] == image {
@@ -1027,7 +1117,9 @@ pub fn census_relation(
             }
         }
         if signs.len() == arity {
-            let loop_map = (0..width).map(|r| (0..width).map(|c| x[c][r]).collect()).collect();
+            let loop_map = (0..width)
+                .map(|r| (0..width).map(|c| x[c][r]).collect())
+                .collect();
             return Ok(CensusRelation {
                 source: source.to_owned(),
                 census_to_table,
@@ -1045,11 +1137,19 @@ pub fn census_relation(
 /// Checks of an ORDER-MAP.json against the table header: family, order name,
 /// order descriptor and family text where the map records them, and its
 /// descriptor in census slots if given.
-fn check_order_map(map: &Value, header: &Value, table_descriptor: &rustred_order::OrderDescriptor, relation: Option<&CensusRelation>) -> Result<(), PError> {
+fn check_order_map(
+    map: &Value,
+    header: &Value,
+    table_descriptor: &rustred_order::OrderDescriptor,
+    relation: Option<&CensusRelation>,
+) -> Result<(), PError> {
     let fail = |detail: String| gap("order_map", detail);
     if let Some(family) = map.get("family").and_then(Value::as_str) {
         if family != str_field(header, "family")? {
-            return Err(fail(format!("family {family} vs the table's {}", header["family"])));
+            return Err(fail(format!(
+                "family {family} vs the table's {}",
+                header["family"]
+            )));
         }
     }
     if let Some(source) = map.get("family_source").and_then(Value::as_str) {
@@ -1057,17 +1157,34 @@ fn check_order_map(map: &Value, header: &Value, table_descriptor: &rustred_order
             return Err(fail("family_source differs from the table header's".into()));
         }
     }
-    let name = map.get("order_name").or_else(|| map.get("native_order_name")).and_then(Value::as_str);
+    let name = map
+        .get("order_name")
+        .or_else(|| map.get("native_order_name"))
+        .and_then(Value::as_str);
     match name {
         Some(name) if name == str_field(header, "order_name")? => {}
-        other => return Err(fail(format!("order name {other:?} vs the table's {}", header["order_name"]))),
+        other => {
+            return Err(fail(format!(
+                "order name {other:?} vs the table's {}",
+                header["order_name"]
+            )));
+        }
     }
-    match map.get("order").or_else(|| map.get("native_order_descriptor_in_new_slots")) {
+    match map
+        .get("order")
+        .or_else(|| map.get("native_order_descriptor_in_new_slots"))
+    {
         Some(order) if *order == header["order"] => {}
-        Some(_) => return Err(fail("the order descriptor differs from the table header's".into())),
+        Some(_) => {
+            return Err(fail(
+                "the order descriptor differs from the table header's".into(),
+            ));
+        }
         None => return Err(fail("no order descriptor".into())),
     }
-    if let (Some(original), Some(relation)) = (map.get("equivalent_descriptor_in_original_slots"), relation) {
+    if let (Some(original), Some(relation)) =
+        (map.get("equivalent_descriptor_in_original_slots"), relation)
+    {
         let arity = relation.census_to_table.len();
         let mut table_to_census = vec![0; arity];
         for (census, &table) in relation.census_to_table.iter().enumerate() {
@@ -1084,10 +1201,13 @@ fn check_order_map(map: &Value, header: &Value, table_descriptor: &rustred_order
         )
         .map_err(|error| fail(format!("ORDER-MAP order in census slots: {error}")))?;
         if ours.canonical_bytes() != theirs.canonical_bytes() {
-            return Err(fail("its descriptor in census slots is not the table order moved back".into()));
+            return Err(fail(
+                "its descriptor in census slots is not the table order moved back".into(),
+            ));
         }
     }
-    if let (Some(inverse), Some(relation)) = (map.get("new_order_slot_to_original_slot"), relation) {
+    if let (Some(inverse), Some(relation)) = (map.get("new_order_slot_to_original_slot"), relation)
+    {
         let inverse: Vec<u64> = u64_list(inverse, "new_order_slot_to_original_slot")?;
         let consistent = inverse.len() == relation.census_to_table.len()
             && relation
@@ -1146,7 +1266,10 @@ pub fn import_table(
         .find(|record| record["type"] == "end")
         .ok_or_else(|| gap("partial", "no end record: a partial run"))?;
     if end["chart_errors"].as_u64().unwrap_or(0) != 0 {
-        return Err(gap("chart_error", format!("{} chart errors", end["chart_errors"])));
+        return Err(gap(
+            "chart_error",
+            format!("{} chart errors", end["chart_errors"]),
+        ));
     }
     for record in &records {
         let kind = record["type"].as_str().unwrap_or("");
@@ -1168,7 +1291,10 @@ pub fn import_table(
             }
         }
         if kind == "chart" && record["zero"] == true {
-            return Err(gap("zero_chart", format!("chart {} is zero", record["chart"])));
+            return Err(gap(
+                "zero_chart",
+                format!("chart {} is zero", record["chart"]),
+            ));
         }
     }
 
@@ -1176,7 +1302,12 @@ pub fn import_table(
         .as_array()
         .ok_or_else(|| malformed("header without power_shifts"))?
         .iter()
-        .map(|shift| shift.as_str().map(str::to_owned).ok_or_else(|| malformed("power shift")))
+        .map(|shift| {
+            shift
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| malformed("power shift"))
+        })
         .collect::<Result<_, _>>()?;
     let family = parse_table_family(str_field(header, "family_source")?, &power_shifts)?;
     let arity = family.slots.len();
@@ -1185,7 +1316,10 @@ pub fn import_table(
     if mask.len() != arity || (0..arity).any(|slot| mask[slot] != family.slots[slot].line) {
         return Err(gap(
             "mask",
-            format!("the table mask {} is not the family's lines", str_field(header, "mask")?),
+            format!(
+                "the table mask {} is not the family's lines",
+                str_field(header, "mask")?
+            ),
         ));
     }
 
@@ -1253,34 +1387,48 @@ pub fn import_table(
 
     // 3. The order.
     let order_name = str_field(header, "order_name")?.to_owned();
-    let identity = slot_map.iter().enumerate().all(|(slot, &image)| slot == image);
+    let identity = slot_map
+        .iter()
+        .enumerate()
+        .all(|(slot, &image)| slot == image);
     // The header's order in TABLE slots; its canonical bytes are recorded.
     let table_descriptor = permuted_order(&header["order"], &(0..arity).collect::<Vec<_>>())?;
-    let table_order = rustred_order::CompiledOrder::compile(table_descriptor.clone(), rustred_order::Limits::default())
-        .map_err(|error| malformed(format!("order: {error}")))?;
+    let table_order = rustred_order::CompiledOrder::compile(
+        table_descriptor.clone(),
+        rustred_order::Limits::default(),
+    )
+    .map_err(|error| malformed(format!("order: {error}")))?;
     let table_order_hex = hex(table_order.canonical_bytes());
     if order_name != "legacy"
         && header["order_bytes"]
             .as_str()
             .is_some_and(|recorded| !recorded.is_empty() && recorded != table_order_hex)
     {
-        return Err(malformed("the header's order fields differ from its order_bytes"));
+        return Err(malformed(
+            "the header's order fields differ from its order_bytes",
+        ));
     }
     let policy = if order_name == "legacy" && identity {
         OrderingPolicy::SpiredUncutV1
     } else {
         let descriptor = permute_descriptor(&table_descriptor, &slot_map);
         debug_assert_eq!(descriptor, permuted_order(&header["order"], &slot_map)?);
-        let compiled = rustred_order::CompiledOrder::compile(descriptor, rustred_order::Limits::default())
-            .map_err(|error| malformed(format!("order: {error}")))?;
-        OrderingPolicy::try_programmed(compiled).map_err(|error| malformed(format!("order: {error}")))?
+        let compiled =
+            rustred_order::CompiledOrder::compile(descriptor, rustred_order::Limits::default())
+                .map_err(|error| malformed(format!("order: {error}")))?;
+        OrderingPolicy::try_programmed(compiled)
+            .map_err(|error| malformed(format!("order: {error}")))?
     };
     // The slot order: relation to the census family, ORDER-MAP checks.
     let census = match &options.census_family {
         Some(source) => {
             let zero_shifts = vec!["0".to_owned(); arity];
             let census_family = parse_table_family(source, &zero_shifts)?;
-            Some(census_relation(&census_family, &family, options.order_map.as_ref())?)
+            Some(census_relation(
+                &census_family,
+                &family,
+                options.order_map.as_ref(),
+            )?)
         }
         None => None,
     };
@@ -1311,7 +1459,12 @@ pub fn import_table(
         .as_array()
         .ok_or_else(|| malformed("header without charts"))?
         .iter()
-        .map(|chart| chart.as_str().map(str::to_owned).ok_or_else(|| malformed("chart")))
+        .map(|chart| {
+            chart
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| malformed("chart"))
+        })
         .collect::<Result<_, _>>()?;
     let mut sectors: Vec<SectorRecord> = charts
         .iter()
@@ -1324,10 +1477,11 @@ pub fn import_table(
         })
         .collect::<Result<_, PError>>()?;
     let ordinal = |chart: &str| {
-        charts
-            .iter()
-            .position(|c| c == chart)
-            .ok_or_else(|| malformed(format!("record on chart {chart} outside the header's charts")))
+        charts.iter().position(|c| c == chart).ok_or_else(|| {
+            malformed(format!(
+                "record on chart {chart} outside the header's charts"
+            ))
+        })
     };
     let mut dispatch = Vec::new();
     let (mut rules, mut rhs_terms, mut negated, mut affine_rules, mut excepted) = (0, 0, 0, 0, 0);
@@ -1339,11 +1493,15 @@ pub fn import_table(
                 if key.iter().any(|&(symbolic, _)| symbolic) {
                     return Err(malformed("a symbolic residual"));
                 }
-                sectors[sector].finite_residuals.push(integral_record(&key, &slot_map)?);
+                sectors[sector]
+                    .finite_residuals
+                    .push(integral_record(&key, &slot_map)?);
             }
             Some("rule") => {
                 let sector = ordinal(str_field(record, "chart")?)?;
-                let index = record["index"].as_u64().ok_or_else(|| malformed("rule index"))? as usize;
+                let index = record["index"]
+                    .as_u64()
+                    .ok_or_else(|| malformed("rule index"))? as usize;
                 if index != sectors[sector].rules.len() {
                     return Err(malformed(format!(
                         "rule {index} of chart {} out of order",
@@ -1366,9 +1524,14 @@ pub fn import_table(
                     affine_rules += 1;
                     "affine"
                 } else {
-                    return Err(gap("case_kind", case_text.chars().take(40).collect::<String>()));
+                    return Err(gap(
+                        "case_kind",
+                        case_text.chars().take(40).collect::<String>(),
+                    ));
                 };
-                let fixed = record["fixed"].as_array().ok_or_else(|| malformed("rule fixed"))?;
+                let fixed = record["fixed"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule fixed"))?;
                 if fixed.len() != arity {
                     return Err(malformed("rule fixed arity"));
                 }
@@ -1388,23 +1551,33 @@ pub fn import_table(
                     equations: equations
                         .iter()
                         .map(|equation| {
-                            coefficients.polynomial(
-                                equation.as_str().ok_or_else(|| malformed("equation"))?,
-                            )
+                            coefficients
+                                .polynomial(equation.as_str().ok_or_else(|| malformed("equation"))?)
                         })
                         .collect::<Result<_, _>>()?,
                 };
                 let target_key = parse_key(str_field(record, "target")?, arity)?;
                 let target_weight: i64 = target_key.iter().map(|&(_, value)| value).sum();
                 let mut rhs = Vec::new();
-                for term in record["rhs"].as_array().ok_or_else(|| malformed("rule rhs"))? {
-                    let pair = term.as_array().filter(|pair| pair.len() == 2).ok_or_else(|| malformed("rhs term"))?;
-                    let key = parse_key(pair[0].as_str().ok_or_else(|| malformed("rhs key"))?, arity)?;
+                for term in record["rhs"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule rhs"))?
+                {
+                    let pair = term
+                        .as_array()
+                        .filter(|pair| pair.len() == 2)
+                        .ok_or_else(|| malformed("rhs term"))?;
+                    let key =
+                        parse_key(pair[0].as_str().ok_or_else(|| malformed("rhs key"))?, arity)?;
                     if key.iter().zip(&target_key).any(|(a, b)| a.0 != b.0) {
                         return Err(malformed("an RHS key with another symbolic layout"));
                     }
                     let weight: i64 = key.iter().map(|&(_, value)| value).sum();
-                    let mut value = coefficients.value(pair[1].as_str().ok_or_else(|| malformed("rhs coefficient"))?)?;
+                    let mut value = coefficients.value(
+                        pair[1]
+                            .as_str()
+                            .ok_or_else(|| malformed("rhs coefficient"))?,
+                    )?;
                     if (target_weight - weight).rem_euclid(2) == 1 {
                         value = -value;
                         negated += 1;
@@ -1559,9 +1732,18 @@ mod tests {
     fn momenta_and_keys_parse() {
         let loops = vec!["k1".to_owned(), "k2".to_owned()];
         let externals = vec!["q".to_owned()];
-        assert_eq!(parse_momentum("(-k1-k2+q)^2", &loops, &externals).unwrap(), vec![-1, -1, 1]);
-        assert_eq!(parse_momentum("(k2)^2", &loops, &externals).unwrap(), vec![0, 1, 0]);
-        assert_eq!(parse_momentum("(2*k1-q)^2", &loops, &externals).unwrap(), vec![2, 0, -1]);
+        assert_eq!(
+            parse_momentum("(-k1-k2+q)^2", &loops, &externals).unwrap(),
+            vec![-1, -1, 1]
+        );
+        assert_eq!(
+            parse_momentum("(k2)^2", &loops, &externals).unwrap(),
+            vec![0, 1, 0]
+        );
+        assert_eq!(
+            parse_momentum("(2*k1-q)^2", &loops, &externals).unwrap(),
+            vec![2, 0, -1]
+        );
         assert_eq!(
             parse_key("I(n0,n1+1,2,n3-12)", 4).unwrap(),
             vec![(true, 0), (true, 1), (false, 2), (true, -12)]
@@ -1574,7 +1756,8 @@ mod tests {
     }
 
     fn family(props: &[(&str, u8)]) -> TableFamily {
-        let mut source = String::from("I(\n  name(T),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
+        let mut source =
+            String::from("I(\n  name(T),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
         for (i, (momentum, power)) in props.iter().enumerate() {
             source.push_str(&format!("  prop(D{},{momentum},{power}),\n", i + 1));
         }
@@ -1584,19 +1767,46 @@ mod tests {
 
     #[test]
     fn census_relations_of_order_variants() {
-        let census = family(&[("(k1)^2", 1), ("(-k1-k2)^2", 1), ("(k2)^2", 1), ("(k1+k2-q)^2", 1), ("(-k2+q)^2", 1), ("(k1+q)^2", 0)]);
+        let census = family(&[
+            ("(k1)^2", 1),
+            ("(-k1-k2)^2", 1),
+            ("(k2)^2", 1),
+            ("(k1+k2-q)^2", 1),
+            ("(-k2+q)^2", 1),
+            ("(k1+q)^2", 0),
+        ]);
         // A physical-slot permutation of the same family (p5l_orders phys_swap_0_2).
-        let swapped = family(&[("(k2)^2", 1), ("(-k1-k2)^2", 1), ("(k1)^2", 1), ("(k1+k2-q)^2", 1), ("(-k2+q)^2", 1), ("(k1+q)^2", 0)]);
+        let swapped = family(&[
+            ("(k2)^2", 1),
+            ("(-k1-k2)^2", 1),
+            ("(k1)^2", 1),
+            ("(k1+k2-q)^2", 1),
+            ("(-k2+q)^2", 1),
+            ("(k1+q)^2", 0),
+        ]);
         let relation = census_relation(&census, &swapped, None).unwrap();
         assert_eq!(relation.census_to_table, vec![2, 1, 0, 3, 4, 5]);
-        assert_eq!(relation.loop_map, vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]]);
+        assert_eq!(
+            relation.loop_map,
+            vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]]
+        );
         // A re-routed family (k1 <-> k2, Astra's D1/D9 kind): momenta alone do
         // not match, an ORDER-MAP slot map does, with a nontrivial loop map.
-        let rerouted = family(&[("(k2)^2", 1), ("(-k1-k2)^2", 1), ("(k1)^2", 1), ("(k1+k2-q)^2", 1), ("(-k1+q)^2", 1), ("(k2+q)^2", 0)]);
+        let rerouted = family(&[
+            ("(k2)^2", 1),
+            ("(-k1-k2)^2", 1),
+            ("(k1)^2", 1),
+            ("(k1+k2-q)^2", 1),
+            ("(-k1+q)^2", 1),
+            ("(k2+q)^2", 0),
+        ]);
         assert!(census_relation(&census, &rerouted, None).is_err());
         let map = serde_json::json!({"original_slot_to_new_order_slot": [0, 1, 2, 3, 4, 5]});
         let relation = census_relation(&census, &rerouted, Some(&map)).unwrap();
-        assert_eq!(relation.loop_map, vec![vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]);
+        assert_eq!(
+            relation.loop_map,
+            vec![vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]
+        );
         // A map that sends a line onto an ISP is refused.
         let bad = serde_json::json!({"original_slot_to_new_order_slot": [5, 1, 2, 3, 4, 0]});
         assert!(census_relation(&census, &rerouted, Some(&bad)).is_err());
@@ -1612,7 +1822,8 @@ mod tests {
             "active_direction": "Descending", "inactive_direction": "Descending", "two_sided": []
         });
         let table = permuted_order(&order, &[0, 1, 2]).unwrap();
-        let bytes = rustred_order::CompiledOrder::compile(table, rustred_order::Limits::default()).unwrap();
+        let bytes =
+            rustred_order::CompiledOrder::compile(table, rustred_order::Limits::default()).unwrap();
         let mut record = SlotOrderRecord {
             schema: SLOT_ORDER_SCHEMA.to_owned(),
             order_name: "isp_reverse".to_owned(),
@@ -1624,23 +1835,48 @@ mod tests {
             census: None,
         };
         record.presentation_order = expected_order(&record, 3).unwrap();
-        let source = |record: &SlotOrderRecord| format!("imported{SLOT_ORDER_MARKER}{}", serde_json::to_string(record).unwrap());
+        let source = |record: &SlotOrderRecord| {
+            format!(
+                "imported{SLOT_ORDER_MARKER}{}",
+                serde_json::to_string(record).unwrap()
+            )
+        };
         let id = record.presentation_order.clone();
-        assert!(enforce_slot_order(&source(&record), &id, 3).unwrap().is_some());
-        assert!(enforce_slot_order("generated by p-generate", &id, 3).unwrap().is_none());
+        assert!(
+            enforce_slot_order(&source(&record), &id, 3)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            enforce_slot_order("generated by p-generate", &id, 3)
+                .unwrap()
+                .is_none()
+        );
         // The payload descending in another order than the record's: refused.
-        let identity = expected_order(&SlotOrderRecord { table_to_presentation: vec![0, 1, 2], ..record.clone() }, 3).unwrap();
+        let identity = expected_order(
+            &SlotOrderRecord {
+                table_to_presentation: vec![0, 1, 2],
+                ..record.clone()
+            },
+            3,
+        )
+        .unwrap();
         assert_ne!(identity, id);
         assert!(enforce_slot_order(&source(&record), &identity, 3).is_err());
         // A record whose map does not give its stated order: refused.
-        let tampered = SlotOrderRecord { table_to_presentation: vec![0, 1, 2], ..record.clone() };
+        let tampered = SlotOrderRecord {
+            table_to_presentation: vec![0, 1, 2],
+            ..record.clone()
+        };
         assert!(enforce_slot_order(&source(&tampered), &id, 3).is_err());
     }
 
     #[test]
     fn a_two_loop_eps_family_is_matched_to_its_graph() {
         let source = "I(\n  name(T012e),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(-k1-k2)^2,1),\n  prop(D3,(k2)^2,1),\n  prop(D4,(k1+k2-q)^2,1),\n  prop(D5,(-k2+q)^2,1),\n  gram(q,q,1)\n  ,power_shift(D1,6-3*d/2)\n)\n";
-        let shifts: Vec<String> = ["(12-3*d)/2", "0", "0", "0", "0"].map(str::to_owned).to_vec();
+        let shifts: Vec<String> = ["(12-3*d)/2", "0", "0", "0", "0"]
+            .map(str::to_owned)
+            .to_vec();
         let family = parse_table_family(source, &shifts).unwrap();
         assert_eq!(family.eps_units, vec![3, 0, 0, 0, 0]);
         // T012 of the census: the kite with three eps units on 0-1.

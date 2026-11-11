@@ -578,6 +578,8 @@ pub(crate) struct ModularRecorder {
     started: Instant,
     /// First round of a polynomial lift (`OrderedTuning::modular_round`).
     modular_round: Option<usize>,
+    /// One replay job on the whole pool (`OrderedTuning::par_replay`).
+    par_replay: bool,
 }
 
 impl ModularRecorder {
@@ -585,6 +587,12 @@ impl ModularRecorder {
     /// primes (one pass of up to `lanes` lanes) whatever the thread count.
     pub(crate) fn set_modular_round(&mut self, round: Option<usize>) {
         self.modular_round = round;
+    }
+
+    /// rr-par: replay jobs run on the whole modular pool
+    /// (`OrderedTuning::par_replay`).
+    pub(crate) fn set_par_replay(&mut self, par_replay: bool) {
+        self.par_replay = par_replay;
     }
 
     pub(crate) fn try_new(
@@ -628,6 +636,7 @@ impl ModularRecorder {
             lookups: 0,
             started: Instant::now(),
             modular_round: None,
+            par_replay: false,
         })
     }
 
@@ -929,6 +938,7 @@ impl ModularRecorder {
                         program,
                         self.common.seed,
                         self.modular_round,
+                        self.par_replay,
                     );
                     let lifted = lift::lift(
                         &mut source,

@@ -7,7 +7,7 @@
 //!                  [--on-heavy auto|refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
-//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE]
+//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
 //!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
@@ -243,6 +243,10 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             .rsplit_once(':')
             .unwrap_or_else(|| die("--registry DIR:PIECE"));
         o.registry = Some((dir.to_string(), piece.to_string()));
+    }
+    // M5 batch 3: the shared case registry is experimental and refused without this flag.
+    if a.flag("--unsafe-shared-registry") {
+        o.unsafe_shared_registry = true;
     }
     if a.flag("--no-empty-domain-check") {
         o.empty_domain_check = false;

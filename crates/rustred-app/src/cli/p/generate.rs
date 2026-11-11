@@ -222,12 +222,29 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
 fn list_nodes(nodes: &[CustomOwnerNode]) -> Result<(), CliError> {
     let mut stdout = std::io::stdout().lock();
     let error = |error: std::io::Error| CliError::OutputIo(error.to_string());
-    writeln!(stdout, "node\tloops\teps_lines\tlines\tpresentation\tgraph_key\tgraph\ts,t").map_err(error)?;
+    writeln!(
+        stdout,
+        "node\tloops\teps_lines\tlines\tpresentation\tgraph_key\tgraph\ts,t"
+    )
+    .map_err(error)?;
     for node in nodes {
-        let key = node.presentation.node.as_ref().map_or_else(String::new, |reference| {
-            reference.graph_key.iter().map(|b| format!("{b:02x}")).collect()
-        });
-        let lines = node.presentation.slots.iter().filter(|slot| matches!(slot, rustred::propagator::presentation::Slot::Line(_))).count();
+        let key = node
+            .presentation
+            .node
+            .as_ref()
+            .map_or_else(String::new, |reference| {
+                reference
+                    .graph_key
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect()
+            });
+        let lines = node
+            .presentation
+            .slots
+            .iter()
+            .filter(|slot| matches!(slot, rustred::propagator::presentation::Slot::Line(_)))
+            .count();
         writeln!(
             stdout,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{},{}",
@@ -237,7 +254,12 @@ fn list_nodes(nodes: &[CustomOwnerNode]) -> Result<(), CliError> {
             lines,
             kind(node),
             key,
-            node.graph.lines.iter().map(|&(u, v, e)| format!("{u}-{v}{}", "*".repeat(usize::from(e)))).collect::<Vec<_>>().join(" "),
+            node.graph
+                .lines
+                .iter()
+                .map(|&(u, v, e)| format!("{u}-{v}{}", "*".repeat(usize::from(e))))
+                .collect::<Vec<_>>()
+                .join(" "),
             node.graph.s,
             node.graph.t,
         )
