@@ -2,13 +2,14 @@
 //!
 //! ```text
 //! rr_node generate --family F.sym --out DIR [--order auto|id|NAME|JSON] [--chart MASK] [--initial 'SPEC [EQS]']...
-//!                  [--backend targetonlyfactorized|factorized|sparse|targetonly|sampled] [--max-depth K] [--max-cases K]
+//!                  [--backend targetonlyfactorized|factorized|sparse|targetonly|sampled|sampled-strict] [--max-depth K] [--max-cases K]
 //!                  [--native-try S] [--no-content-fallback] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
 //!                  [--on-heavy auto|refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
+//!                  [--case-seed-priority symbolic-isp-first]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
 //!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE]
-//!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
+//!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
 //!                  [--cover PATH:UPTO]... [--cand-dump]
@@ -33,7 +34,9 @@ use std::path::{Path, PathBuf};
 
 use rustred::node::auto::{AutoOptions, ProbeOptions, generate_auto, probe};
 use rustred::node::descent::check_table_file;
-use rustred::node::driver::{CaseSpec, NodeOptions, SeedScheduleName, generate};
+use rustred::node::driver::{
+    CaseSeedPriority, CaseSpec, NodeOptions, SeedScheduleName, generate, parse_case_seed_schedule,
+};
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
@@ -209,6 +212,26 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             "symfirst" | "symbolic-first" => SeedScheduleName::SymbolicFirst,
             _ => die("--seed-schedule spired|symfirst"),
         };
+    }
+    if let Some(v) = a.take("--case-seed-schedule") {
+        o.case_seed_schedule = Some(
+            parse_case_seed_schedule(&v, rustred::node::order::family_props(family).len())
+                .unwrap_or_else(|e| die(&format!("--case-seed-schedule: {e}"))),
+        );
+    }
+    if let Some(v) = a.take("--case-seed-priority") {
+        o.case_seed_priority = Some(match v.as_str() {
+            "symbolic-isp-first" => CaseSeedPriority::SymbolicIspFirst,
+            _ => die("--case-seed-priority symbolic-isp-first"),
+        });
+    }
+    if let Some(priority) = o.case_seed_priority {
+        priority
+            .validate_template(
+                o.case_seed_schedule.as_ref(),
+                rustred::node::order::family_props(family).len(),
+            )
+            .unwrap_or_else(|e| die(&format!("--case-seed-priority: {e}")));
     }
     if a.flag("--no-symbolic-first-rung") {
         o.symbolic_first_rung = false;

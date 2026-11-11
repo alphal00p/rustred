@@ -94,6 +94,12 @@ pub enum SymbolicExactBackend {
         seed: u64,
         min_rows: usize,
     },
+    /// Opt-in sampled reconstruction without target-only factorized fallback.
+    /// A dense box beyond the sampler's internal limit is an explicit refusal.
+    /// Unlike Sampled, short symbolic traces also stay sampled; constant
+    /// frames retain the ordinary sparse path (no reconstruction is needed).
+    #[cfg(feature = "reconstruction")]
+    SampledStrict { threads: usize, seed: u64 },
     /// Reconstruct both target coefficients and source weights with Symbolica.
     /// A native modular harder-prefix rank certificate and a full exact source
     /// product prove equality to the ordinary first-target GPLU row without
@@ -706,6 +712,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
                         &variables,
                         screen.sampled_threads.max(1),
                         screen.seed,
+                        matches!(backend, SymbolicExactBackend::SampledStrict { .. }),
                         observe,
                     );
                 }
@@ -756,9 +763,14 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     if let SymbolicExactBackend::Sampled {
         threads,
         seed,
-        min_rows,
-    } = backend
+        min_rows: _,
+    }
+    | SymbolicExactBackend::SampledStrict { threads, seed } = backend
     {
+        let min_rows = match backend {
+            SymbolicExactBackend::Sampled { min_rows, .. } => min_rows,
+            _ => 0,
+        };
         if rows.len() < min_rows {
             return target_only::materialize_factorized(
                 rows,
@@ -777,6 +789,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             &variables,
             threads,
             seed,
+            matches!(backend, SymbolicExactBackend::SampledStrict { .. }),
             observe,
         );
     }
