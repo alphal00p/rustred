@@ -6,6 +6,7 @@
 //!   with the order recorded in the table and enforced on the numeric endpoint cases;
 //! * [`auto`]: bounded depth-1 probes of order variants at a stuck case and the automatic choice of ONE order for a
 //!   whole node;
+//! * [`domain`]: integer domain of a queued case (empty / finite / infinite) before any lift;
 //! * [`descent`]: strict-descent check of an assembled rule set under its one declared order;
 //! * [`replay`]: the independent numeric replay of a table (P61, three values of d, all physical columns, independent
 //!   IBP-span witness, mutation control), semantics of Astra's `p5l-replay.v1`.
@@ -14,6 +15,7 @@
 
 pub mod auto;
 pub mod descent;
+pub mod domain;
 pub mod driver;
 pub mod order;
 pub mod replay;

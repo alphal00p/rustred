@@ -25,6 +25,7 @@ use super::variables::FrameVariables;
 use super::{ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term};
 
 mod recon;
+pub(super) use recon::MAX_BOX;
 use recon::{Fp, Oracle, Rng};
 
 struct Frame {
@@ -309,6 +310,7 @@ pub(crate) fn screen<const N: usize>(
         rows: rows.len(),
         columns: columns.len(),
         variables: variables.active_len(),
+        target_block: target_column + 1,
         ..Default::default()
     };
     let columns_with_sentinel =
@@ -371,5 +373,6 @@ pub(crate) fn screen<const N: usize>(
     measure.points += used;
     measure.bad_points = bad;
     measure.seconds = start.elapsed().as_secs_f64();
+    measure.replay_seconds = measure.seconds / measure.points.max(1) as f64;
     Ok(measure)
 }

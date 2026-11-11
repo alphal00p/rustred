@@ -4,7 +4,9 @@
 //! rr_node generate --family F.sym --out DIR [--order auto|id|NAME|JSON] [--chart MASK] [--initial 'SPEC [EQS]']...
 //!                  [--backend targetonlyfactorized|factorized|sparse|targetonly|sampled] [--max-depth K] [--max-cases K]
 //!                  [--native-try S] [--no-content-fallback] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
-//!                  [--on-heavy refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
+//!                  [--on-heavy auto|refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
+//!                  [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
+//!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--cover PATH:UPTO]... [--cand-dump]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
@@ -19,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use rustred::node::auto::{AutoOptions, ProbeOptions, generate_auto, probe};
 use rustred::node::descent::check_table_file;
-use rustred::node::driver::{CaseSpec, NodeOptions, generate};
+use rustred::node::driver::{CaseSpec, NodeOptions, SeedScheduleName, generate};
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
@@ -120,7 +122,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if a.flag("--no-gsplit") {
         o.gsplit = false;
     }
-    let mut screen = LiftScreen::default();
+    // default heavy action: gate on box size and oracle cost (sampled when feasible, else refuse = class B)
+    let mut screen = LiftScreen { on_heavy: HeavyAction::Auto, ..LiftScreen::default() };
     if let Some(s) = a.take("--screen") {
         let v: Vec<usize> = s.split(',').map(|x| x.parse().unwrap_or_else(|_| die("--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS"))).collect();
         if v.len() != 4 {
@@ -133,8 +136,34 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             "refuse" => HeavyAction::Refuse,
             "sampled" => HeavyAction::Sampled,
             "proceed" => HeavyAction::Proceed,
-            _ => die("--on-heavy refuse|sampled|proceed"),
+            "auto" => HeavyAction::Auto,
+            _ => die("--on-heavy auto|refuse|sampled|proceed"),
         };
+    }
+    if let Some(v) = a.parse("--sampled-budget") {
+        screen.sampled_budget_seconds = v;
+    }
+    if let Some(v) = a.parse("--max-box") {
+        screen.max_box = v;
+    }
+    if let Some(v) = a.parse("--min-target-block") {
+        screen.min_target_block = v;
+    }
+    if let Some(v) = a.parse("--sampled-threads") {
+        screen.sampled_threads = v;
+    }
+    if let Some(v) = a.take("--seed-schedule") {
+        o.seed_schedule = match v.as_str() {
+            "spired" => SeedScheduleName::Spired,
+            "symfirst" | "symbolic-first" => SeedScheduleName::SymbolicFirst,
+            _ => die("--seed-schedule spired|symfirst"),
+        };
+    }
+    if a.flag("--no-symbolic-first-rung") {
+        o.symbolic_first_rung = false;
+    }
+    if a.flag("--no-empty-domain-check") {
+        o.empty_domain_check = false;
     }
     screen.sampled_from_rows = a.parse("--sampled-from-rows");
     o.screen = if a.flag("--no-screen") { None } else { Some(screen) };

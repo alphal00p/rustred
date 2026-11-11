@@ -24,6 +24,18 @@ mod target_only;
 mod trace_dump;
 mod variables;
 
+/// Largest dense box (unknowns of one prime image) the sampled reconstruction accepts (its cubic dense solve).
+pub fn sampled_max_box() -> usize {
+    #[cfg(feature = "reconstruction")]
+    {
+        sampled::MAX_BOX
+    }
+    #[cfg(not(feature = "reconstruction"))]
+    {
+        0
+    }
+}
+
 #[cfg(feature = "reconstruction")]
 pub use semi_numerical::{
     ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
@@ -657,7 +669,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     // (crate::node::screen::with_screen); the default engine path is unchanged.
     #[cfg(feature = "reconstruction")]
     if let Some(screen) = crate::node::screen::active() {
-        if rows.len() >= screen.min_rows {
+        if screen.screens(rows.len(), target_column + 1) {
             let measure =
                 sampled::screen(rows, &columns, order, target_column, &variables, screen.max_points, screen.seed)?;
             let decision = screen.decide(&measure);

@@ -499,7 +499,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             )?
             .with_search_max_depth(options.max_depth),
             initial,
-            self.config.seed_schedule,
+            crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
         );
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The

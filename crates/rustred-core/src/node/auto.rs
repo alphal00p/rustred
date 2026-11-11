@@ -6,8 +6,9 @@
 //!    pre-screen; the child writes `OUTCOME.json` (or `F.spill.json` and exits 9 when one case exceeds the budget);
 //! 2. a complete chart ends the loop; otherwise the case it stopped on (screen refusal, guard timeout or budget) is
 //!    mapped to the original slots and every untried variant of [`super::order::variants`] is probed there: a forked
-//!    child per variant, `max_cases 1`, `max_depth 1` (then 2 if no variant finds a rule), capped in wall time;
-//! 3. the best probe (a rule found; then lowest coefficient degree, fewest RHS terms, shortest lift, fewest trace rows)
+//!    child per variant, `max_depth 1` (then 2 if no variant finds a rule), capped in wall time, over a case PORTFOLIO
+//!    (the stuck case, then its one-step neighbours, each its own `max_cases 1` run; [`portfolio_cases`]);
+//! 3. the best probe (a rule on the whole portfolio; then the WORST coefficient degree, total RHS terms, lift, rows)
 //!    becomes `O_{k+1}` and the WHOLE node is regenerated under it. Rules of different attempts are never joined;
 //! 4. the final table is checked for strict descent under its one order ([`super::descent`]).
 
@@ -28,10 +29,29 @@ pub struct ProbeOptions {
     pub max_phys_pairs: usize,
     /// Probe children running at once.
     pub parallel: usize,
-    /// Cases per probe: the stuck case and the next cases its queue meets (its exceptional children), so that an
+    /// Cases per probe: the stuck case, then its NEIGHBOUR cases ([`portfolio_cases`]: each free ISP at -1, each free
+    /// propagator dotted to 2, equations kept = the affine dotted boundaries), each searched on its own, so that an
     /// order which only moves the cost to the sub-corners is not chosen (coordinator 02:12Z, Astra T211).
     #[serde(default = "default_portfolio")]
     pub portfolio: usize,
+}
+
+/// The case portfolio of a stuck case (ORIGINAL slots): the case itself, then for every free slot the neighbour with
+/// that slot fixed one step into the chart (ISP n = -1, propagator n = 2), keeping the case's equations; at most
+/// `k` cases. Neighbours whose fixed value contradicts an equation are dropped by the driver's empty-domain check.
+pub fn portfolio_cases(case: &CaseSpec, physical: &[bool], k: usize) -> Vec<CaseSpec> {
+    let mut out = vec![case.clone()];
+    let free: Vec<usize> = (0..case.fixed.len()).filter(|&i| case.fixed[i].is_none()).collect();
+    // ISP neighbours first (the T211 sub-corners were one-extra-ISP = -1 faces), then dotted propagators
+    for &i in free.iter().filter(|&&i| !physical.get(i).copied().unwrap_or(true)).chain(free.iter().filter(|&&i| physical.get(i).copied().unwrap_or(true))) {
+        if out.len() >= k.max(1) {
+            break;
+        }
+        let mut c = case.clone();
+        c.fixed[i] = Some(if physical.get(i).copied().unwrap_or(true) { 2 } else { -1 });
+        out.push(c);
+    }
+    out
 }
 
 fn default_portfolio() -> usize {
@@ -156,7 +176,7 @@ pub fn probe(family_text: &str, family_path: &str, case: &CaseSpec, orders: &[No
             let opts = NodeOptions {
                 order: order.clone(),
                 initial: vec![case.clone()],
-                max_cases: Some(popts.portfolio.max(1)),
+                max_cases: Some(1),
                 max_depth: Some(depth),
                 screen: None,
                 retry_source_orders: Vec::new(),
@@ -166,13 +186,25 @@ pub fn probe(family_text: &str, family_path: &str, case: &CaseSpec, orders: &[No
                 ..base.clone()
             };
             let dir = dir.clone();
+            let cases = portfolio_cases(case, &super::order::physical_slots(family_text), popts.portfolio);
             Box::new(move || {
                 let _ = std::fs::create_dir_all(&dir);
-                let result = generate(family_text, family_path, &dir, &opts, &mut |_| {});
-                let _ = match result {
-                    Ok(o) => write_json(&dir.join("OUTCOME.json"), &o),
-                    Err(e) => std::fs::write(dir.join("ERROR.txt"), e).map_err(|e| e.to_string()),
-                };
+                // the stuck case first (its OUTCOME.json is the probe's outcome), then each neighbour in its own
+                // subdirectory (pK/OUTCOME.json); a neighbour run stops the portfolio when it fails
+                for (k, c) in cases.iter().enumerate() {
+                    let sub = if k == 0 { dir.clone() } else { dir.join(format!("p{k}")) };
+                    let _ = std::fs::create_dir_all(&sub);
+                    let o = NodeOptions { initial: vec![c.clone()], ..opts.clone() };
+                    let result = generate(family_text, family_path, &sub, &o, &mut |_| {});
+                    let ok = matches!(&result, Ok(out) if out.first_rule.is_some() || out.complete);
+                    let _ = match result {
+                        Ok(o) => write_json(&sub.join("OUTCOME.json"), &o),
+                        Err(e) => std::fs::write(sub.join("ERROR.txt"), e).map_err(|e| e.to_string()),
+                    };
+                    if !ok {
+                        break;
+                    }
+                }
             }) as Box<dyn FnOnce() + '_>
         })
         .collect();
@@ -189,8 +221,21 @@ pub fn probe(family_text: &str, family_path: &str, case: &CaseSpec, orders: &[No
                 (Some(_), Some(o)) => ("no_rule".to_string(), None, format!("{:?}", o.stop).chars().take(400).collect()),
                 (Some(_), None) => ("failed".to_string(), None, std::fs::read_to_string(dir.join("ERROR.txt")).unwrap_or_else(|_| format!("exit {code}"))),
             };
-            let portfolio = outcome.as_ref().map(|o| o.rule_scores.clone()).unwrap_or_default();
-            let portfolio_incomplete = outcome.as_ref().is_some_and(|o| !o.complete && !matches!(o.stop, Some(StopReason::MaxCases { .. })));
+            // portfolio: the stuck case's first rule, then the first rule of each neighbour run; a neighbour without a
+            // rule (no outcome = capped, or stopped without one) makes the portfolio incomplete
+            let wanted = portfolio_cases(case, &super::order::physical_slots(family_text), popts.portfolio).len();
+            let mut portfolio: Vec<RuleScore> = outcome.as_ref().and_then(|o| o.first_rule.clone()).into_iter().collect();
+            let mut portfolio_incomplete = outcome.as_ref().is_none_or(|o| o.first_rule.is_none() && !o.complete);
+            for k in 1..wanted {
+                match read_outcome(&dir.join(format!("p{k}"))) {
+                    Some(o) if o.first_rule.is_some() => portfolio.push(o.first_rule.clone().unwrap()),
+                    Some(o) if o.complete => {} // empty domain / covered: costs nothing
+                    _ => {
+                        portfolio_incomplete = true;
+                        break;
+                    }
+                }
+            }
             ProbeResult { order: order.clone(), depth, status, score, seconds: secs.unwrap_or(popts.cap_seconds as f64), detail, portfolio, portfolio_incomplete }
         })
         .collect()
@@ -388,6 +433,21 @@ mod tests {
             portfolio: Vec::new(),
             portfolio_incomplete: false,
         }
+    }
+
+    #[test]
+    fn portfolio_is_the_case_and_its_neighbours() {
+        let case = CaseSpec { fixed: vec![Some(1), None, None, Some(0), None], equations: vec!["n1+n4+2".into()] };
+        let phys = [true, true, false, false, false];
+        let p = portfolio_cases(&case, &phys, 4);
+        assert_eq!(p.len(), 4);
+        assert_eq!(p[0], case);
+        // ISPs first: slot 2 -> -1, slot 4 -> -1, then the propagator slot 1 -> 2; equations kept
+        assert_eq!(p[1].fixed, vec![Some(1), None, Some(-1), Some(0), None]);
+        assert_eq!(p[2].fixed, vec![Some(1), None, None, Some(0), Some(-1)]);
+        assert_eq!(p[3].fixed, vec![Some(1), Some(2), None, Some(0), None]);
+        assert!(p.iter().all(|c| c.equations == case.equations));
+        assert_eq!(portfolio_cases(&case, &phys, 1), vec![case.clone()]);
     }
 
     #[test]

@@ -70,6 +70,35 @@ pub struct NodeOptions {
     pub cover_tables: Vec<(String, usize)>,
     pub cand_dump: bool,
     pub numeric_depth: u32,
+    /// Seed schedule of the whole node (`SymbolicFirst` = p5l-lift-trace's in-shell order); default SpIRed.
+    #[serde(default)]
+    pub seed_schedule: SeedScheduleName,
+    /// Lift ladder rung 1 (coordinator ruling 2026-11-11T04:17Z): a case whose lift the screen refused is searched
+    /// again with the `SymbolicFirst` seed schedule (same presentation, same seed ball) before other source orders;
+    /// the order portfolio (node level, [`super::auto`]) is the next rung.
+    #[serde(default = "yes")]
+    pub symbolic_first_rung: bool,
+    /// Skip cases whose integer domain is empty (fixed values outside the chart's sign range, or linear equations
+    /// without an integer solution in the chart's orthant): they need no rule (T211 lesson).
+    #[serde(default = "yes")]
+    pub empty_domain_check: bool,
+}
+
+/// Serializable name of a [`crate::solver::SeedSchedule`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SeedScheduleName {
+    #[default]
+    Spired,
+    SymbolicFirst,
+}
+
+impl SeedScheduleName {
+    pub fn schedule(self) -> crate::solver::SeedSchedule {
+        match self {
+            Self::Spired => crate::solver::SeedSchedule::Spired,
+            Self::SymbolicFirst => crate::solver::SeedSchedule::SymbolicFirst,
+        }
+    }
 }
 
 fn yes() -> bool {
@@ -95,6 +124,9 @@ impl Default for NodeOptions {
             cover_tables: Vec::new(),
             cand_dump: false,
             numeric_depth: 2,
+            seed_schedule: SeedScheduleName::Spired,
+            symbolic_first_rung: true,
+            empty_domain_check: true,
         }
     }
 }
@@ -149,6 +181,15 @@ pub struct NodeOutcome {
     pub screened_lifts: usize,
     pub refused_lifts: usize,
     pub source_order_retries: usize,
+    /// Refused lifts retried with the SymbolicFirst seed schedule (ladder rung 1).
+    #[serde(default)]
+    pub symbolic_first_retries: usize,
+    /// Cases skipped because their integer domain is empty.
+    #[serde(default)]
+    pub empty_domains: usize,
+    /// Cases with a finite integer domain, replaced by their uncovered points (numeric endpoints).
+    #[serde(default)]
+    pub finite_domains: usize,
     #[serde(default)]
     pub content_routes: usize,
     pub not_lower: Vec<String>,
@@ -642,6 +683,7 @@ fn run<const N: usize>(
         zero_sectors: Arc::from(zeros.clone()),
         integral_order: order_program(&opts.order, n)?,
         symbolic_exact_backend: exact_backend,
+        seed_schedule: opts.seed_schedule.schedule(),
         ..Default::default()
     };
     let t1 = Instant::now();
@@ -790,11 +832,11 @@ fn run<const N: usize>(
         lift_seconds: f64,
         source_order: String,
     }
-    let search = |case: &Case<N>, so: &SourceOrder, options: SearchOptions| -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
+    let search = |case: &Case<N>, so: &SourceOrder, seeds: Option<crate::solver::SeedSchedule>, options: SearchOptions| -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
         let mut raw: Option<Integral<N>> = None;
         let mut started: Option<Instant> = None;
         let mut lift = 0.0f64;
-        let result = super::screen::with_screen(screen, || {
+        let result = super::screen::with_seed_schedule(seeds, || super::screen::with_screen(screen, || {
             let observe = |event: SearchEvent<N>| match event {
                 SearchEvent::ExactStarted { pivot, trace_rows, .. } => {
                     raw = Some(pivot);
@@ -812,7 +854,7 @@ fn run<const N: usize>(
                 None => solver.solve_case_with_observer(case.clone(), options, observe),
                 Some(order) => solver.solve_case_with_source_order_and_observer(case.clone(), options, &order, observe),
             }
-        });
+        }));
         let reports = super::screen::take_reports();
         (result.map(|candidate| Searched { candidate, raw_pivot: raw, lift_seconds: lift, source_order: so.label() }), reports)
     };
@@ -834,28 +876,69 @@ fn run<const N: usize>(
             });
         }
         let spec = case_spec(&current, n);
+        // integer domain before any lift: empty -> no rule needed; finite -> point cases (numeric endpoints), each
+        // dropped when an earlier rule covers it (union-aware coverage on finite domains)
+        if opts.empty_domain_check && !current.is_numerical() {
+            let physical: Vec<bool> = base[..n].to_vec();
+            match super::domain::integer_domain(&spec.fixed, &spec.equations, &physical, 64, 1 << 16) {
+                super::domain::IntegerDomain::Empty => {
+                    outcome.empty_domains += 1;
+                    writeln!(qlog, "{{\"type\":\"empty_domain\",\"case\":{}}}", case_json(&current, n)).map_err(|e| e.to_string())?;
+                    continue;
+                }
+                super::domain::IntegerDomain::Finite(points) => {
+                    let mut open = 0usize;
+                    for p in &points {
+                        let ps = CaseSpec { fixed: p.iter().map(|v| Some(*v)).collect(), equations: vec![] };
+                        let Some(pc) = build_case::<N>(&ps, &template, &idx, &sector, n)? else { continue };
+                        let covered = cover.iter().any(|(_, rc, b)| covers(rc, b, &pc, &idx, &sector, limits))
+                            || rules.iter().any(|r| covers(&r.candidate.case, &r.exceptions.branches, &pc, &idx, &sector, limits));
+                        if !covered {
+                            open += 1;
+                            enqueue(pc, None, &mut pending, &mut numerical, &rules, &cover, &idx, &sector, limits, &mut qlog, &mut discarded, n);
+                        }
+                    }
+                    outcome.finite_domains += 1;
+                    writeln!(qlog, "{{\"type\":\"finite_domain\",\"points\":{},\"uncovered\":{open},\"case\":{}}}", points.len(), case_json(&current, n)).map_err(|e| e.to_string())?;
+                    continue;
+                }
+                _ => {}
+            }
+        }
         events(&NodeEvent::CaseStarted { case: spec.clone(), pending: pending.len() });
         writeln!(qlog, "{{\"type\":\"case_started\",\"t\":{:.3},\"pending\":{},\"case\":{}}}", t2.elapsed().as_secs_f64(), pending.len(), case_json(&current, n)).map_err(|e| e.to_string())?;
         qlog.flush().map_err(|e| e.to_string())?;
-        let mut orders: Vec<SourceOrder> = vec![node_source.clone()];
+        // lift ladder: node source order; the SymbolicFirst seed schedule (same presentation); other source orders
+        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>)> = vec![(node_source.clone(), None)];
+        if opts.symbolic_first_rung && screen.is_some() && opts.seed_schedule != SeedScheduleName::SymbolicFirst {
+            orders.push((node_source.clone(), Some(crate::solver::SeedSchedule::SymbolicFirst)));
+        }
         for so in &opts.retry_source_orders {
-            if !orders.contains(so) {
-                orders.push(so.clone());
+            if !orders.iter().any(|(o, _)| o == so) {
+                orders.push((so.clone(), None));
             }
         }
         let mut found: Option<Searched<N>> = None;
         let mut refusals: Vec<ScreenReport> = Vec::new();
-        for (k, so) in orders.iter().enumerate() {
+        for (k, (so, seeds)) in orders.iter().enumerate() {
+            let label = match seeds {
+                Some(_) => format!("{}+symbolic_first", so.label()),
+                None => so.label(),
+            };
             if k > 0 {
-                outcome.source_order_retries += 1;
-                events(&NodeEvent::RelationRetry { case: spec.clone(), source_order: so.label() });
-                writeln!(qlog, "{{\"type\":\"relation_retry\",\"source_order\":{},\"case\":{}}}", q(&so.label()), case_json(&current, n)).map_err(|e| e.to_string())?;
+                if seeds.is_some() {
+                    outcome.symbolic_first_retries += 1;
+                } else {
+                    outcome.source_order_retries += 1;
+                }
+                events(&NodeEvent::RelationRetry { case: spec.clone(), source_order: label.clone() });
+                writeln!(qlog, "{{\"type\":\"relation_retry\",\"source_order\":{},\"case\":{}}}", q(&label), case_json(&current, n)).map_err(|e| e.to_string())?;
             }
-            let (result, reports) = search(&current, so, symbolic);
+            let (result, reports) = search(&current, so, *seeds, symbolic);
             for r in &reports {
                 outcome.screened_lifts += 1;
                 events(&NodeEvent::LiftScreened { report: r.clone() });
-                writeln!(qlog, "{{\"type\":\"lift_screen\",\"source_order\":{},\"report\":{}}}", q(&so.label()), serde_json::to_string(r).unwrap()).map_err(|e| e.to_string())?;
+                writeln!(qlog, "{{\"type\":\"lift_screen\",\"source_order\":{},\"report\":{}}}", q(&label), serde_json::to_string(r).unwrap()).map_err(|e| e.to_string())?;
             }
             let refused = reports.iter().any(|r| matches!(r.decision, super::screen::ScreenDecision::Refuse(_)));
             match result {
@@ -1050,7 +1133,7 @@ fn run<const N: usize>(
                 writeln!(qlog, "{{\"type\":\"numerical_covered\",\"by_rule\":{k},\"fixed\":{fixed:?}}}").map_err(|e| e.to_string())?;
                 continue;
             }
-            let (result, reports) = search(&case, &node_source, options);
+            let (result, reports) = search(&case, &node_source, None, options);
             for r in &reports {
                 outcome.screened_lifts += 1;
                 writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"report\":{}}}", serde_json::to_string(r).unwrap()).map_err(|e| e.to_string())?;
@@ -1311,7 +1394,7 @@ mod tests {
         if out.screened_lifts > 0 {
             assert!(out.refused_lifts > 0);
             assert!(matches!(out.stop, Some(StopReason::LiftRefused { .. })), "{:?}", out.stop);
-            assert!(out.source_order_retries > 0, "a refused lift is retried with another source order first");
+            assert!(out.symbolic_first_retries + out.source_order_retries > 0, "a refused lift is retried (SymbolicFirst, other source orders) first");
         } else {
             assert!(out.complete);
         }
