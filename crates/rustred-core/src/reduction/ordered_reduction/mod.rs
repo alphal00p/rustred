@@ -75,7 +75,8 @@ impl<K> Default for OrderedStep<K> {
 
 pub(crate) trait OrderedKernel {
     type Key: FrontierKey;
-    type Priority: Clone + Ord;
+    /// `Hash` (rr-frontier): a packed frontier interns priorities.
+    type Priority: Clone + Ord + std::hash::Hash;
     type Error: From<ReductionError>;
 
     fn context(&self) -> &CoefficientContext;

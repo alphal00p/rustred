@@ -89,13 +89,13 @@ impl<const N: usize> crate::reduction::ordered_reduction::FrontierKey for Ordere
 /// first): the sector's Route keys, then its partial keys, larger remaining
 /// numerator power first, so a sector's partial keys are created and consumed
 /// together (bounded frontier, locality). Apply keys keep group zero.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct RoutedPriority {
     pub(super) group: u64,
     pub(super) stage: RoutedStage,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum RoutedStage {
     Partial(u64),
     Key(ComplexityKey),

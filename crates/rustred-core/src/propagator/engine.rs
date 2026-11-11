@@ -127,7 +127,7 @@ impl FrontierKey for PKey {
 
 /// Position inside one phase, larger first: the node rank of the owner, then
 /// the owner's order key. Route keys have no descent inside their phase.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct PPriority {
     rank: u32,
     order: POrderKey,

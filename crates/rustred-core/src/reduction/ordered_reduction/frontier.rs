@@ -212,9 +212,10 @@ pub(crate) struct Classic<K, P, W> {
 }
 
 #[derive(Clone)]
-struct Slot<C, P, W> {
+struct Slot<C, W> {
     key: C,
-    priority: P,
+    /// Interned priority (see `Priorities`).
+    priority: u32,
     phase: u32,
     /// `None`: a tombstone (cancelled or removed, its bucket entry pending).
     weight: Option<W>,
@@ -227,9 +228,88 @@ struct Bucket {
     heap: bool,
 }
 
+/// Interned priorities of a `Packed` frontier, reference counted by slots:
+/// many pending keys share one priority (owner rank and order key), and a
+/// slot then holds 4 bytes instead of the value. Interning is by `Eq` (and
+/// `Hash`); comparisons stay `Ord` on the values, so nothing is reordered.
+#[derive(Clone)]
+struct Priorities<P> {
+    values: Vec<Option<(P, u32)>>,
+    free: Vec<u32>,
+    index: HashTable<u32>,
+}
+
+impl<P: Clone + Ord + Hash> Priorities<P> {
+    fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            free: Vec::new(),
+            index: HashTable::new(),
+        }
+    }
+
+    #[inline]
+    fn get(&self, id: u32) -> &P {
+        &self.values[id as usize].as_ref().expect("live priority").0
+    }
+
+    #[inline]
+    fn cmp(&self, a: u32, b: u32) -> Ordering {
+        if a == b {
+            Ordering::Equal
+        } else {
+            self.get(a).cmp(self.get(b))
+        }
+    }
+
+    fn intern(&mut self, hasher: &FrontierHash, priority: P) -> u32 {
+        let hash = hasher.hash_one(&priority);
+        let values = &self.values;
+        if let Some(&id) = self.index.find(hash, |&id| {
+            values[id as usize].as_ref().is_some_and(|(p, _)| *p == priority)
+        }) {
+            self.values[id as usize].as_mut().expect("live priority").1 += 1;
+            return id;
+        }
+        let id = match self.free.pop() {
+            Some(id) => {
+                self.values[id as usize] = Some((priority, 1));
+                id
+            }
+            None => {
+                self.values.push(Some((priority, 1)));
+                (self.values.len() - 1) as u32
+            }
+        };
+        let values = &self.values;
+        self.index.insert_unique(hash, id, |&x| {
+            hasher.hash_one(&values[x as usize].as_ref().expect("live priority").0)
+        });
+        id
+    }
+
+    fn release(&mut self, hasher: &FrontierHash, id: u32) {
+        let entry = self.values[id as usize].as_mut().expect("live priority");
+        entry.1 -= 1;
+        if entry.1 == 0 {
+            let hash = hasher.hash_one(&entry.0);
+            if let Ok(found) = self.index.find_entry(hash, |&x| x == id) {
+                found.remove();
+            }
+            self.values[id as usize] = None;
+            self.free.push(id);
+        }
+    }
+
+    fn live(&self) -> usize {
+        self.values.len() - self.free.len()
+    }
+}
+
 /// The packed layout (see the module docs).
 pub(crate) struct Packed<K: FrontierKey, P, W> {
-    slots: Vec<Option<Slot<K::Packed, P, W>>>,
+    slots: Vec<Option<Slot<K::Packed, W>>>,
+    priorities: Priorities<P>,
     free: Vec<u32>,
     index: HashTable<u32>,
     hasher: FrontierHash,
@@ -297,10 +377,11 @@ fn sift_down<T>(v: &mut [T], mut i: usize, cmp: &impl Fn(&T, &T) -> Ordering) {
     }
 }
 
-impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
+impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
     fn new(lazy: bool) -> Self {
         Self {
             slots: Vec::new(),
+            priorities: Priorities::new(),
             free: Vec::new(),
             index: HashTable::new(),
             hasher: FrontierHash::from_environment(),
@@ -313,19 +394,25 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
         }
     }
 
-    fn slot(&self, id: u32) -> &Slot<K::Packed, P, W> {
+    fn slot(&self, id: u32) -> &Slot<K::Packed, W> {
         self.slots[id as usize]
             .as_ref()
             .expect("a bucket entry refers to a live slot")
     }
 
-    fn cmp_ids(slots: &[Option<Slot<K::Packed, P, W>>], a: u32, b: u32) -> Ordering {
+    #[inline]
+    fn cmp_ids(
+        slots: &[Option<Slot<K::Packed, W>>],
+        priorities: &Priorities<P>,
+        a: u32,
+        b: u32,
+    ) -> Ordering {
         let (a, b) = (
             slots[a as usize].as_ref().expect("live slot"),
             slots[b as usize].as_ref().expect("live slot"),
         );
-        a.priority
-            .cmp(&b.priority)
+        priorities
+            .cmp(a.priority, b.priority)
             .then_with(|| K::cmp_packed(&a.key, &b.key))
     }
 
@@ -352,7 +439,9 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
     }
 
     fn release(&mut self, id: u32) {
-        self.slots[id as usize] = None;
+        if let Some(slot) = self.slots[id as usize].take() {
+            self.priorities.release(&self.hasher, slot.priority);
+        }
         self.free.push(id);
     }
 
@@ -361,7 +450,12 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
         if self.buckets.len() <= phase {
             self.buckets.resize_with(phase + 1, Bucket::default);
         }
-        let Self { slots, buckets, .. } = self;
+        let Self {
+            slots,
+            priorities,
+            buckets,
+            ..
+        } = self;
         let bucket = &mut buckets[phase];
         bucket.ids.push(id);
         if lazy {
@@ -369,16 +463,24 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
         } else if bucket.heap || bucket.ids.len() == 1 {
             bucket.heap = true;
             let last = bucket.ids.len() - 1;
-            sift_up(&mut bucket.ids, last, &|&a, &b| Self::cmp_ids(slots, a, b));
+            sift_up(&mut bucket.ids, last, &|&a, &b| {
+                Self::cmp_ids(slots, priorities, a, b)
+            });
         } else {
-            Self::heapify(slots, bucket);
+            Self::heapify(slots, priorities, bucket);
         }
     }
 
-    fn heapify(slots: &[Option<Slot<K::Packed, P, W>>], bucket: &mut Bucket) {
+    fn heapify(
+        slots: &[Option<Slot<K::Packed, W>>],
+        priorities: &Priorities<P>,
+        bucket: &mut Bucket,
+    ) {
         let n = bucket.ids.len();
         for i in (0..n / 2).rev() {
-            sift_down(&mut bucket.ids, i, &|&a, &b| Self::cmp_ids(slots, a, b));
+            sift_down(&mut bucket.ids, i, &|&a, &b| {
+                Self::cmp_ids(slots, priorities, a, b)
+            });
         }
         bucket.heap = true;
     }
@@ -389,7 +491,9 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
         if let Some(id) = self.find(hash, &packed) {
             let slot = self.slots[id as usize].as_mut().expect("indexed slot");
             debug_assert!(slot.weight.is_none(), "insert into a live key");
-            if slot.phase as usize == phase && slot.priority == pending.position.priority {
+            if slot.phase as usize == phase
+                && *self.priorities.get(slot.priority) == pending.position.priority
+            {
                 // The key returned before its bucket entry was reached.
                 slot.weight = Some(pending.weight);
                 self.live += 1;
@@ -400,9 +504,12 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
             // tombstone.
             self.unindex(id);
         }
+        let priority = self
+            .priorities
+            .intern(&self.hasher, pending.position.priority);
         let slot = Slot {
             key: packed,
-            priority: pending.position.priority,
+            priority,
             phase: phase as u32,
             weight: Some(pending.weight),
         };
@@ -431,28 +538,42 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
             return None;
         }
         if !self.buckets[phase].heap {
-            let Self { slots, buckets, .. } = self;
-            Self::heapify(slots, &mut buckets[phase]);
+            let Self {
+                slots,
+                priorities,
+                buckets,
+                ..
+            } = self;
+            Self::heapify(slots, priorities, &mut buckets[phase]);
         }
         loop {
             let id = {
-                let Self { slots, buckets, .. } = self;
+                let Self {
+                    slots,
+                    priorities,
+                    buckets,
+                    ..
+                } = self;
                 let bucket = &mut buckets[phase];
                 let last = bucket.ids.len().checked_sub(1)?;
                 bucket.ids.swap(0, last);
                 let id = bucket.ids.pop().expect("nonempty bucket");
-                sift_down(&mut bucket.ids, 0, &|&a, &b| Self::cmp_ids(slots, a, b));
+                sift_down(&mut bucket.ids, 0, &|&a, &b| {
+                    Self::cmp_ids(slots, priorities, a, b)
+                });
                 id
             };
             self.unindex(id);
             let slot = self.slots[id as usize].take().expect("live slot");
             self.free.push(id);
+            let priority = self.priorities.get(slot.priority).clone();
+            self.priorities.release(&self.hasher, slot.priority);
             if let Some(weight) = slot.weight {
                 self.live -= 1;
                 return Some((
                     Scheduled {
                         phase: Reverse(phase),
-                        priority: slot.priority,
+                        priority,
                         key: K::unpack(&slot.key),
                     },
                     weight,
@@ -491,16 +612,20 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
     /// Bucket `phase` in pop order (live and tombstone ids).
     fn ordered_ids(&self, phase: usize) -> Vec<u32> {
         let bucket = &self.buckets[phase];
-        let slots = &self.slots;
+        let (slots, priorities) = (&self.slots, &self.priorities);
         let mut ids = bucket.ids.clone();
-        ids.sort_unstable_by(|&a, &b| Self::cmp_ids(slots, b, a));
+        ids.sort_unstable_by(|&a, &b| Self::cmp_ids(slots, priorities, b, a));
         ids
     }
 
     fn iter(&self) -> impl Iterator<Item = (Cow<'_, Scheduled<K, P>>, &W)> + '_ {
         (0..self.buckets.len()).flat_map(move |phase| {
             let ids: Box<dyn Iterator<Item = u32> + '_> = if self.buckets[phase].heap {
-                Box::new(HeapWalk::<K, P, W>::new(&self.buckets[phase].ids, &self.slots))
+                Box::new(HeapWalk::<K, P, W>::new(
+                    &self.buckets[phase].ids,
+                    &self.slots,
+                    &self.priorities,
+                ))
             } else {
                 Box::new(self.ordered_ids(phase).into_iter())
             };
@@ -510,7 +635,7 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
                 Some((
                     Cow::Owned(Scheduled {
                         phase: Reverse(phase),
-                        priority: slot.priority.clone(),
+                        priority: self.priorities.get(slot.priority).clone(),
                         key: K::unpack(&slot.key),
                     }),
                     weight,
@@ -540,7 +665,9 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
             .map(|b| block(b.ids.as_ptr(), b.ids.capacity()))
             .sum();
         serde_json::json!({
-            "slot_size": std::mem::size_of::<Option<Slot<K::Packed, P, W>>>(),
+            "priorities": self.priorities.live(),
+            "priorities_clone_bytes": measure_clone(|| self.priorities.clone()),
+            "slot_size": std::mem::size_of::<Option<Slot<K::Packed, W>>>(),
             "packed_key_size": std::mem::size_of::<K::Packed>(),
             "slots": self.slots.len(),
             "slots_capacity": self.slots.capacity(),
@@ -561,33 +688,40 @@ impl<K: FrontierKey, P: Clone + Ord, W> Packed<K, P, W> {
 
     /// Priority heap bytes and weights of the live slots (diagnostics).
     pub(crate) fn live(&self) -> impl Iterator<Item = (&P, &W)> {
-        (self.slots.iter().flatten()).filter_map(|slot| Some((&slot.priority, slot.weight.as_ref()?)))
+        (self.slots.iter().flatten())
+            .filter_map(|slot| Some((self.priorities.get(slot.priority), slot.weight.as_ref()?)))
     }
 }
 
 /// The ids of a heap in pop order, lazily (an auxiliary heap of positions).
 struct HeapWalk<'h, K: FrontierKey, P, W> {
     heap: &'h [u32],
-    slots: &'h [Option<Slot<K::Packed, P, W>>],
+    slots: &'h [Option<Slot<K::Packed, W>>],
+    priorities: &'h Priorities<P>,
     aux: Vec<usize>,
 }
 
-impl<'h, K: FrontierKey, P: Clone + Ord, W> HeapWalk<'h, K, P, W> {
-    fn new(heap: &'h [u32], slots: &'h [Option<Slot<K::Packed, P, W>>]) -> Self {
+impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
+    fn new(
+        heap: &'h [u32],
+        slots: &'h [Option<Slot<K::Packed, W>>],
+        priorities: &'h Priorities<P>,
+    ) -> Self {
         Self {
             heap,
             slots,
+            priorities,
             aux: if heap.is_empty() { vec![] } else { vec![0] },
         }
     }
 }
 
-impl<K: FrontierKey, P: Clone + Ord, W> Iterator for HeapWalk<'_, K, P, W> {
+impl<K: FrontierKey, P: Clone + Ord + Hash, W> Iterator for HeapWalk<'_, K, P, W> {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
-        let (heap, slots) = (self.heap, self.slots);
+        let (heap, slots, priorities) = (self.heap, self.slots, self.priorities);
         let cmp = |&a: &usize, &b: &usize| {
-            Packed::<K, P, W>::cmp_ids(slots, heap[a], heap[b])
+            Packed::<K, P, W>::cmp_ids(slots, priorities, heap[a], heap[b])
         };
         let last = self.aux.len().checked_sub(1)?;
         self.aux.swap(0, last);
@@ -604,7 +738,7 @@ impl<K: FrontierKey, P: Clone + Ord, W> Iterator for HeapWalk<'_, K, P, W> {
     }
 }
 
-impl<K: FrontierKey, P: Clone + Ord, W> Frontier<K, P, W> {
+impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
     pub(crate) fn new(mode: FrontierMode) -> Self {
         match mode {
             FrontierMode::Classic => Self::Classic(Classic {
@@ -759,7 +893,7 @@ impl<K: FrontierKey, P: Clone + Ord, W> Frontier<K, P, W> {
                     let later = slot.phase as usize > current;
                     let action = f(Child::Occupied {
                         phase: slot.phase as usize,
-                        priority: &slot.priority,
+                        priority: p.priorities.get(slot.priority),
                         weight,
                     })?;
                     return Ok(match action {

@@ -23,6 +23,10 @@ cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hoo
 # use it too. Verify a build with `nm -D target/<profile>/rustred`: `malloc`
 # and `free` must be defined (T), not imported (U).
 mimalloc = ["cli", "dep:mimalloc"]
+# rr-frontier (opt-in, default off): the p_path_census probe counts its Rust
+# heap allocations (calls and requested bytes) over the system allocator and
+# writes them to alloc_count.json. Diagnostics only.
+alloc-count = []
 # RR-11: expose the relations-layer test bodies to `tests/saved_application_layer.rs`
 # (the full lib-test target needs > 20 GB to compile on the campaign host).
 layer-test-support = []

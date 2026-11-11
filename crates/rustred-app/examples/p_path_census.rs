@@ -49,6 +49,48 @@ mod canonical;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+// rr-frontier: with the opt-in `alloc-count` feature, the probe counts its
+// Rust heap allocations over the system allocator (alloc_count.json).
+#[cfg(feature = "alloc-count")]
+mod alloc_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static REALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static BYTES: AtomicU64 = AtomicU64::new(0);
+    pub struct Counting;
+    // SAFETY: forwards every call to the system allocator unchanged.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            REALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(new_size as u64, Relaxed);
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+    pub fn snapshot() -> serde_json::Value {
+        serde_json::json!({
+            "allocs": ALLOCS.load(Relaxed),
+            "reallocs": REALLOCS.load(Relaxed),
+            "bytes": BYTES.load(Relaxed),
+        })
+    }
+}
+
 type Input = (PresentationId, IntegralKey, Coefficient);
 
 const TOP_NAMES: [&str; 32] = [
@@ -335,6 +377,8 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    #[cfg(feature = "alloc-count")]
+    let alloc_after_load = alloc_count::snapshot();
     let (_, load_vmhwm) = rss();
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
@@ -779,6 +823,13 @@ fn main() {
     std::fs::write(
         out.join("summary.json"),
         serde_json::to_string_pretty(&summary).unwrap(),
+    )
+    .unwrap();
+    #[cfg(feature = "alloc-count")]
+    std::fs::write(
+        out.join("alloc_count.json"),
+        serde_json::json!({"after_load": alloc_after_load, "end": alloc_count::snapshot()})
+            .to_string(),
     )
     .unwrap();
     println!("{summary}");
