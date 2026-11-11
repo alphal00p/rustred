@@ -108,7 +108,11 @@ pub use discovery_strategy::{
     SourceRowPriority, SourceVisitOrder,
 };
 pub use error::SolverError;
-pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};
+pub use exception::{
+    ExceptionError, ExceptionalConditions, GuardReport, GuardRoute, GuardRouteTaken,
+    NativeGuardTry, extract_exceptions, extract_exceptions_content, extract_exceptions_routed,
+    extract_exceptions_two_sided,
+};
 pub use execution::{
     SectorCompleted, SectorExecutionError, SectorExecutor, SectorExecutorBuildError,
     SectorScheduling, SharedSectorSnapshot,
@@ -123,9 +127,10 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    DeferredExitScan, DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy,
-    FiniteRetentionError, RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution,
-    SectorEvent, SectorPhase, SectorRule, SectorRuleParent, SectorSolution, SectorSolveError,
+    CaseQueue, CaseQueueEvent, CaseQueueSolution, CaseQueueStats, CoverRule, DeferredExitScan,
+    DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError,
+    NumericEndpoints, RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution, SectorEvent,
+    SectorPhase, SectorRule, SectorRuleParent, SectorSolution, SectorSolveError,
     SectorSolveOptions, SectorStats, deferred_exit_scan,
 };
 pub use sector::{

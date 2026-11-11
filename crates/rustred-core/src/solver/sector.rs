@@ -13,8 +13,8 @@ use super::geometry::{GeometryError, compare_cases};
 use super::{
     AffineGeometryError, Case, CaseIntersectionError, CaseIntersectionFailure,
     CaseIntersectionLimits, CaseRefinement, CoordinateCase, DeferredRegion, ExceptionError,
-    ExceptionalConditions, Integral, RuleCandidate, SearchEvent, SearchOptions, SectorSolver,
-    SolverError, UnsupportedBranchPolicy,
+    ExceptionalConditions, GuardReport, GuardRoute, GuardRouteTaken, Integral, NativeGuardTry,
+    RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError, UnsupportedBranchPolicy,
 };
 
 mod domains;
@@ -529,6 +529,137 @@ impl<const N: usize> std::error::Error for SectorSolveError<N> {
     }
 }
 
+/// An earlier rule used only to prune queued cases (FirstValid order): its
+/// case and exceptional conditions, as a table record stores them. A case it
+/// covers (the rule's case contains it and no exceptional branch meets it) is
+/// never solved, exactly as if the rule had been found earlier in the same
+/// queue. Sound only when every cover rule precedes the solved rules in the
+/// assembled table (FirstValid dispatch then applies the cover rule there).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoverRule<const N: usize> {
+    pub case: Case<N>,
+    pub exceptions: ExceptionalConditions,
+}
+
+impl<const N: usize> From<&SectorRule<N>> for CoverRule<N> {
+    fn from(rule: &SectorRule<N>) -> Self {
+        Self {
+            case: rule.candidate.case.clone(),
+            exceptions: rule.exceptions.clone(),
+        }
+    }
+}
+
+/// Inputs of [`SectorSolver::solve_case_queue_deferring`]: the engine's own
+/// (FirstValid, deferring) case queue, re-entered at case level.
+#[derive(Clone, Debug, Default)]
+pub struct CaseQueue<const N: usize> {
+    /// Initial cases of the queue; `None` = the chart's initial case (the
+    /// whole sector, as [`SectorSolver::solve_sector_deferring`]). The cases
+    /// are admitted through the ordinary queue (subsumption, own and cover
+    /// rules); a case outside the sector is refused.
+    pub initial: Option<Vec<Case<N>>>,
+    /// Earlier rules (FirstValid order) that prune queued cases.
+    pub cover: Vec<CoverRule<N>>,
+    /// How each symbolic rule's exceptions are extracted.
+    pub guard_route: GuardRoute,
+    /// Exact refinement of the deferring admission (as
+    /// [`SectorSolver::solve_sector_deferring_refined`]).
+    pub refinement: CaseRefinement,
+    /// How the fully fixed (numerical) endpoint cases are solved.
+    pub numeric_endpoints: NumericEndpoints,
+}
+
+/// How a queue solves its fully fixed (numerical) endpoint cases.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NumericEndpoints {
+    /// The shared numerical search of all endpoints at depth
+    /// `SectorSolveOptions::numerical_depth`, with
+    /// `SectorConfig::numerical_exact_backend` (the established engine).
+    #[default]
+    Shared,
+    /// Each endpoint through the ordinary case search at the same depth,
+    /// so it honours the solver's source visit order and
+    /// `SectorConfig::symbolic_exact_backend` (e.g. target-only factorized);
+    /// an endpoint whose search is exhausted at that depth is a residual. A
+    /// shared search may find a rule for an endpoint through another
+    /// endpoint's seeds, so this route can leave MORE residuals, never a
+    /// rule the shared route would refuse.
+    PerCase,
+}
+
+/// Progress of [`SectorSolver::solve_case_queue_deferring`], next to the
+/// ordinary [`SectorEvent`]s.
+pub enum CaseQueueEvent<'a, const N: usize> {
+    /// Before each symbolic case: `pending[0]` is the case about to be solved,
+    /// the rest the queue behind it; `numerical` the fully fixed cases kept
+    /// for the final numerical solve; `rules` the rules found so far. Enough
+    /// to re-enter the queue later (initial cases = `pending`, cover = the
+    /// rules found so far plus the original cover).
+    QueueState {
+        pending: &'a [Case<N>],
+        numerical: &'a [CoordinateCase<N>],
+        rules: usize,
+    },
+    /// The guard extraction of the rule about to be found on `case`.
+    Guard {
+        case: &'a Case<N>,
+        report: GuardReport,
+    },
+}
+
+/// Counters of [`SectorSolver::solve_case_queue_deferring`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CaseQueueStats {
+    /// Initial cases admitted to the queue.
+    pub initial_queued: usize,
+    /// Initial cases dropped (subsumed by another initial case or covered).
+    pub initial_dropped: usize,
+    /// Queued cases (initial or children) pruned by a cover rule.
+    pub cover_pruned: usize,
+    /// Rules whose exceptions came from the content route.
+    pub content_routes: usize,
+    /// Timed native tries that timed out or failed.
+    pub native_timeouts: usize,
+}
+
+/// Output of [`SectorSolver::solve_case_queue_deferring`].
+#[derive(Debug)]
+pub struct CaseQueueSolution<const N: usize> {
+    pub solved: DeferredSectorSolution<N>,
+    pub queue: CaseQueueStats,
+}
+
+/// Queue options beyond [`SectorSolveOptions`]; the default is the
+/// established queue (no cover, native guards, no queue observer).
+struct QueueExtras<'a, const N: usize> {
+    cover: &'a [CoverRule<N>],
+    guard_route: GuardRoute,
+    numeric_endpoints: NumericEndpoints,
+    observe: Option<&'a mut dyn FnMut(CaseQueueEvent<'_, N>)>,
+    stats: CaseQueueStats,
+}
+
+impl<const N: usize> Default for QueueExtras<'_, N> {
+    fn default() -> Self {
+        Self {
+            cover: &[],
+            guard_route: GuardRoute::Native,
+            numeric_endpoints: NumericEndpoints::Shared,
+            observe: None,
+            stats: CaseQueueStats::default(),
+        }
+    }
+}
+
+/// Where [`SectorSolver::enqueue_with_cover`] put a case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Enqueued {
+    Queued,
+    Dropped,
+    Covered,
+}
+
 impl<const N: usize> SectorSolver<'_, N> {
     pub fn solve_sector(
         &self,
@@ -621,12 +752,87 @@ impl<const N: usize> SectorSolver<'_, N> {
             options,
             &mut observe,
             Some(&mut log),
+            &mut QueueExtras::default(),
         )?;
         debug_assert_eq!(log.rule_parents.len(), solution.rules.len());
         Ok(DeferredSectorSolution {
             solution,
             deferred: log.regions,
             rule_parents: log.rule_parents,
+        })
+    }
+
+    /// The engine's deferring FirstValid queue (the two-sided path included:
+    /// the order program and the sources carry the eps axes), re-entered at
+    /// case level: it starts from `queue.initial` (default: the chart's
+    /// initial case), prunes queued cases by `queue.cover` (earlier rules of
+    /// the same chart in FirstValid order) as by its own rules, and extracts
+    /// each rule's exceptions by `queue.guard_route`. With
+    /// `CaseQueue::default()` the result is exactly
+    /// [`Self::solve_sector_deferring_refined_with_observer`] with
+    /// `CaseRefinement::default()`.
+    ///
+    /// Splitting a queue: solve a prefix, then solve its pending cases (the
+    /// last [`CaseQueueEvent::QueueState`]) in pieces, each with the cover
+    /// of every rule assembled before it. The assembled table is the prefix
+    /// rules, then each piece's rules in order; rules of a piece may only be
+    /// dispatched after the cover rules it was given.
+    pub fn solve_case_queue_deferring(
+        &self,
+        options: SectorSolveOptions,
+        queue: &CaseQueue<N>,
+        mut observe: impl FnMut(SectorEvent<'_, N>),
+        mut observe_queue: impl FnMut(CaseQueueEvent<'_, N>),
+    ) -> Result<CaseQueueSolution<N>, SectorSolveError<N>> {
+        let initial = match &queue.initial {
+            Some(cases) => cases.clone(),
+            None => vec![self.initial_case()],
+        };
+        let first = initial.first().cloned().unwrap_or_else(Case::generic);
+        if !matches!(self.config.rule_selection, RuleSelectionPolicy::FirstValid) {
+            return Err(SectorSolveError::Search {
+                case: first,
+                source: SolverError::InvalidInput(
+                    "deferred exceptional branches require FirstValid rule selection".into(),
+                ),
+            });
+        }
+        for case in &initial {
+            if !case.is_in_sector(self.order.sector()) {
+                return Err(SectorSolveError::Search {
+                    case: case.clone(),
+                    source: SolverError::InvalidInput(
+                        "an initial case lies outside the solver's sector".into(),
+                    ),
+                });
+            }
+        }
+        let mut log = DeferralLog {
+            refinement: queue.refinement,
+            ..DeferralLog::default()
+        };
+        let mut extras = QueueExtras {
+            cover: &queue.cover,
+            guard_route: queue.guard_route,
+            numeric_endpoints: queue.numeric_endpoints,
+            observe: Some(&mut observe_queue),
+            stats: CaseQueueStats::default(),
+        };
+        let solution = self.solve_case_queue_with_deferral(
+            initial,
+            options,
+            &mut observe,
+            Some(&mut log),
+            &mut extras,
+        )?;
+        debug_assert_eq!(log.rule_parents.len(), solution.rules.len());
+        Ok(CaseQueueSolution {
+            solved: DeferredSectorSolution {
+                solution,
+                deferred: log.regions,
+                rule_parents: log.rule_parents,
+            },
+            queue: extras.stats,
         })
     }
 
@@ -656,7 +862,13 @@ impl<const N: usize> SectorSolver<'_, N> {
         options: SectorSolveOptions,
         observe: &mut dyn FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
-        self.solve_case_queue_with_deferral(initial, options, observe, None)
+        self.solve_case_queue_with_deferral(
+            initial,
+            options,
+            observe,
+            None,
+            &mut QueueExtras::default(),
+        )
     }
 
     /// The queue body. `deferral` is `None` for every ordinary solve (atomic
@@ -669,6 +881,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         options: SectorSolveOptions,
         mut observe: &mut dyn FnMut(SectorEvent<'_, N>),
         mut deferral: Option<&mut DeferralLog<N>>,
+        extras: &mut QueueExtras<'_, N>,
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         // Two-sided eps axes are an opt-in of the sources and must be carried
         // by the order program exactly (plan M2 sec.3.4): generation order and
@@ -697,13 +910,21 @@ impl<const N: usize> SectorSolver<'_, N> {
         let mut pending = Vec::new();
         let mut numerical = Vec::new();
         for case in initial {
-            self.enqueue(
+            match self.enqueue_with_cover(
                 case,
                 &mut pending,
                 &mut numerical,
                 &[],
+                extras.cover,
                 options.case_intersection_limits,
-            )?;
+            )? {
+                Enqueued::Queued => extras.stats.initial_queued += 1,
+                Enqueued::Dropped => extras.stats.initial_dropped += 1,
+                Enqueued::Covered => {
+                    extras.stats.initial_dropped += 1;
+                    extras.stats.cover_pruned += 1;
+                }
+            }
         }
         let mut rules = Vec::new();
         let mut stats = SectorStats::default();
@@ -750,6 +971,13 @@ impl<const N: usize> SectorSolver<'_, N> {
                 return Err(SectorSolveError::CaseBudget {
                     solved: stats.symbolic_cases,
                     pending: pending.len(),
+                });
+            }
+            if let Some(observe_queue) = extras.observe.as_deref_mut() {
+                observe_queue(CaseQueueEvent::QueueState {
+                    pending: &pending,
+                    numerical: &numerical,
+                    rules: rules.len(),
                 });
             }
             let current = pending.remove(0);
@@ -810,9 +1038,24 @@ impl<const N: usize> SectorSolver<'_, N> {
                 case: &current,
                 phase: SectorPhase::GuardExtraction,
             });
-            let rule = self.finish_rule(candidate)?;
-            stats.exception_extraction += rule.1;
-            let rule = rule.0;
+            let (rule, duration, report) =
+                self.finish_rule_routed(candidate, extras.guard_route)?;
+            stats.exception_extraction += duration;
+            if report.route == GuardRouteTaken::Content {
+                extras.stats.content_routes += 1;
+            }
+            if matches!(
+                report.native_try,
+                NativeGuardTry::TimedOut | NativeGuardTry::ChildFailed
+            ) {
+                extras.stats.native_timeouts += 1;
+            }
+            if let Some(observe_queue) = extras.observe.as_deref_mut() {
+                observe_queue(CaseQueueEvent::Guard {
+                    case: &current,
+                    report,
+                });
+            }
             observe(SectorEvent::PhaseStarted {
                 case: &current,
                 phase: SectorPhase::ExceptionalGeometry,
@@ -874,14 +1117,20 @@ impl<const N: usize> SectorSolver<'_, N> {
                 return Err(SectorSolveError::NonProgress { case: current });
             }
             for child in children {
-                if !self.enqueue(
+                match self.enqueue_with_cover(
                     child,
                     &mut pending,
                     &mut numerical,
                     &rules,
+                    extras.cover,
                     options.case_intersection_limits,
                 )? {
-                    stats.discarded_cases += 1;
+                    Enqueued::Queued => {}
+                    Enqueued::Dropped => stats.discarded_cases += 1,
+                    Enqueued::Covered => {
+                        stats.discarded_cases += 1;
+                        extras.stats.cover_pruned += 1;
+                    }
                 }
             }
             stats.geometry += geometry_start.elapsed();
@@ -930,15 +1179,18 @@ impl<const N: usize> SectorSolver<'_, N> {
         stats.numerical_cases = numerical.len();
         observe(SectorEvent::NumericalStarted { cases: &numerical });
         let numeric_start = Instant::now();
-        let result = self
-            .solve_numeric_cases(
-                numerical,
-                SearchOptions {
-                    max_depth: Some(options.numerical_depth),
-                    ..options.symbolic
-                },
-            )
-            .map_err(SectorSolveError::Numeric)?;
+        let search = SearchOptions {
+            max_depth: Some(options.numerical_depth),
+            ..options.symbolic
+        };
+        let result = match extras.numeric_endpoints {
+            NumericEndpoints::Shared => self
+                .solve_numeric_cases(numerical, search)
+                .map_err(SectorSolveError::Numeric)?,
+            NumericEndpoints::PerCase => {
+                self.solve_numeric_cases_per_case(numerical, search, &mut *observe)?
+            }
+        };
         stats.numerical_search = numeric_start.elapsed();
         for candidate in result.rules {
             let (rule, duration) = self.finish_rule(candidate)?;
@@ -974,10 +1226,55 @@ impl<const N: usize> SectorSolver<'_, N> {
         })
     }
 
+    /// [`NumericEndpoints::PerCase`]: every endpoint through the ordinary
+    /// case search (source visit order and symbolic exact backend of the
+    /// solver), in the shared search's case order; exhausted = residual.
+    fn solve_numeric_cases_per_case(
+        &self,
+        mut cases: Vec<CoordinateCase<N>>,
+        search: SearchOptions,
+        observe: &mut dyn FnMut(SectorEvent<'_, N>),
+    ) -> Result<super::NumericResult<N>, SectorSolveError<N>> {
+        let start = Instant::now();
+        cases.sort_unstable_by(|left, right| right.fixed().cmp(left.fixed()));
+        cases.dedup();
+        let mut rules = Vec::new();
+        let mut residuals = Vec::new();
+        let count = cases.len();
+        for point in cases {
+            let case = Case::from(point);
+            match self.solve_case_with_observer(case.clone(), search, |event| {
+                observe(SectorEvent::Search { case: &case, event })
+            }) {
+                Ok(candidate) => rules.push(candidate),
+                Err(SolverError::SearchExhausted { .. }) => residuals.push(point),
+                Err(source) => return Err(SectorSolveError::Search { case, source }),
+            }
+        }
+        Ok(super::NumericResult {
+            rules,
+            residuals,
+            stats: super::NumericStats {
+                cases: count,
+                elapsed: start.elapsed(),
+                ..Default::default()
+            },
+        })
+    }
+
     fn finish_rule(
         &self,
         candidate: RuleCandidate<N>,
     ) -> Result<(SectorRule<N>, Duration), SectorSolveError<N>> {
+        self.finish_rule_routed(candidate, GuardRoute::Native)
+            .map(|(rule, duration, _)| (rule, duration))
+    }
+
+    fn finish_rule_routed(
+        &self,
+        candidate: RuleCandidate<N>,
+        route: GuardRoute,
+    ) -> Result<(SectorRule<N>, Duration, GuardReport), SectorSolveError<N>> {
         if candidate
             .rhs
             .iter()
@@ -989,11 +1286,12 @@ impl<const N: usize> SectorSolver<'_, N> {
             });
         }
         let start = Instant::now();
-        let exceptions = super::exception::extract_exceptions_two_sided(
+        let (exceptions, report) = super::exception::extract_exceptions_routed(
             &candidate,
             &self.system.indices,
             self.order.sector(),
             &self.order.two_sided_axes(),
+            route,
         )
         .map_err(|source| SectorSolveError::Exceptions {
             case: candidate.case.clone(),
@@ -1006,6 +1304,7 @@ impl<const N: usize> SectorSolver<'_, N> {
                 exceptions,
             },
             start.elapsed(),
+            report,
         ))
     }
 
@@ -1017,15 +1316,34 @@ impl<const N: usize> SectorSolver<'_, N> {
         rules: &[SectorRule<N>],
         limits: CaseIntersectionLimits,
     ) -> Result<bool, SectorSolveError<N>> {
+        self.enqueue_with_cover(case, pending, numerical, rules, &[], limits)
+            .map(|outcome| outcome == Enqueued::Queued)
+    }
+
+    /// [`Self::enqueue`] with cover rules checked after the own rules.
+    fn enqueue_with_cover(
+        &self,
+        case: Case<N>,
+        pending: &mut Vec<Case<N>>,
+        numerical: &mut Vec<CoordinateCase<N>>,
+        rules: &[SectorRule<N>],
+        cover: &[CoverRule<N>],
+        limits: CaseIntersectionLimits,
+    ) -> Result<Enqueued, SectorSolveError<N>> {
         if !prune_subsumed(pending, &case).map_err(|source| SectorSolveError::Geometry {
             case: case.clone(),
             source,
         })? {
-            return Ok(false);
+            return Ok(Enqueued::Dropped);
         }
         for rule in rules {
             if self.rule_covers(rule, &case, limits)? {
-                return Ok(false);
+                return Ok(Enqueued::Dropped);
+            }
+        }
+        for rule in cover {
+            if self.case_covers(&rule.case, &rule.exceptions, &case, limits)? {
+                return Ok(Enqueued::Covered);
             }
         }
         if case.is_numerical() {
@@ -1033,18 +1351,18 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Preserve the existing shared numerical search input contract.
             let fixed = *case.face();
             return match numerical.binary_search_by(|queued| compare_cases(queued, &fixed)) {
-                Ok(_) => Ok(false),
+                Ok(_) => Ok(Enqueued::Dropped),
                 Err(position) => {
                     numerical.insert(position, fixed);
-                    Ok(true)
+                    Ok(Enqueued::Queued)
                 }
             };
         }
         match pending.binary_search_by(|queued| queued.queue_cmp(&case)) {
-            Ok(_) => Ok(false),
+            Ok(_) => Ok(Enqueued::Dropped),
             Err(position) => {
                 pending.insert(position, case);
-                Ok(true)
+                Ok(Enqueued::Queued)
             }
         }
     }
@@ -1055,9 +1373,17 @@ impl<const N: usize> SectorSolver<'_, N> {
         case: &Case<N>,
         limits: CaseIntersectionLimits,
     ) -> Result<bool, SectorSolveError<N>> {
-        if !rule
-            .candidate
-            .case
+        self.case_covers(&rule.candidate.case, &rule.exceptions, case, limits)
+    }
+
+    fn case_covers(
+        &self,
+        rule_case: &Case<N>,
+        exceptions: &ExceptionalConditions,
+        case: &Case<N>,
+        limits: CaseIntersectionLimits,
+    ) -> Result<bool, SectorSolveError<N>> {
+        if !rule_case
             .contains(case)
             .map_err(|source| SectorSolveError::Geometry {
                 case: case.clone(),
@@ -1066,7 +1392,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         {
             return Ok(false);
         }
-        for branch in &rule.exceptions.branches {
+        for branch in &exceptions.branches {
             match case.intersect_many(branch, &self.system.indices, self.order.sector(), limits) {
                 Ok(result) if result.cases.is_empty() => (),
                 Ok(_) => return Ok(false),
@@ -1133,3 +1459,7 @@ mod defer_tests;
 #[cfg(test)]
 #[path = "sector/defer_review_tests.rs"]
 mod defer_review_tests;
+
+#[cfg(test)]
+#[path = "sector/queue_tests.rs"]
+mod queue_tests;

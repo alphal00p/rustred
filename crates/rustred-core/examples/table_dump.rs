@@ -25,20 +25,52 @@
 //! carries `exclusions` (the region holds only points where EVERY exclusion is nonzero; points of
 //! the predicates where an exclusion vanishes belong to ordinary cases/rules or to other regions)
 //! and `dependents` (informational: `n_axis = numerator/denominator` on the region, triangular).
+//!
+//! `--exact-backend sparse|factorized|targetonly|targetonlyfactorized` (default sparse): the
+//! symbolic exact backend of the lift (p5l-repair td_r9). With `--case-gsplit` every search event
+//! but ExactProgress is logged on stderr (`[gsplit-progress]`).
+//!
+//! Case-level re-entry of the engine queue (rr-5l-api, all require `--case-gsplit` and are off by
+//! default; the solve is then `SectorSolver::solve_case_queue_deferring`, which with no option is
+//! exactly the `--case-gsplit` solve):
+//! - `--guard-route native|content|native-then-content:SECS`: how GuardExtraction computes each
+//!   rule's exceptions (`solver::GuardRoute`): the native factorization, the exact content route,
+//!   or the native one tried in a forked child for SECS seconds, then the content route. Every
+//!   routed extraction is a line of OUT.guard.jsonl.
+//! - `--initial-cases FILE` (one chart only): the queue starts from these cases instead of the
+//!   chart's initial case. FILE is JSONL; a line with `fixed` (null = free) and `equations`
+//!   (integer-linear polynomials in n0..) is one case (rule records qualify); a `spill` record
+//!   (below) contributes its `pending` cases and its `numerical` points.
+//! - `--cover-table PATH[:UPTO]` (repeatable): the `rule` records of the solved chart (by chart
+//!   label) with index < UPTO (default all) prune queued cases as earlier rules in FirstValid
+//!   order (`solver::CoverRule`). The table of this run must be assembled AFTER those rules.
+//! - `--spill-after SECS`: every found rule is also streamed to OUT.stream.jsonl as a `rule`
+//!   record (index = order found), and when one case has run SECS seconds a `spill` record
+//!   {chart, case_seconds, rules_done, pending (the current case first), numerical} is written
+//!   to OUT.spill.json (the run continues).
+//! - `--numeric-endpoints shared|per-case` (default shared): `per-case` solves every fully fixed
+//!   endpoint through the ordinary case search (`solver::NumericEndpoints::PerCase`), so it uses
+//!   `--exact-backend` and `--source-order`; the shared numerical search uses neither.
+//! - `--source-order input|reverse` (default input): the visit order of the preconditioned basis
+//!   at every seed, for every case (`SectorSolver::with_source_visit_order`). Re-entry: `--initial-cases OUT.spill.json
+//!   --cover-table OUT.stream.jsonl:<rules_done>` plus the cover tables of this run.
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Instant;
 
+use rustred::algebra::CoefficientPolynomial;
 use rustred::family::IntegralFamily;
 use rustred::input::{Compiler, Limits, LoweringLimits};
 use rustred::order::{CompiledOrder, DegreeRow, OrderDescriptor};
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    Case, CaseRefinement, DeferredSectorSolution, Integral, SectorConfig, SectorEvent,
-    SectorExecutionError, SectorExecutor, SectorRule, SectorSolveOptions, SectorSolver,
-    SourceSystem, deferred_exit_scan,
+    Case, CaseQueue, CaseQueueEvent, CaseRefinement, CoordinateCase, CoverRule,
+    DeferredSectorSolution, ExceptionalConditions, GuardRoute, Integral, NumericEndpoints,
+    SectorConfig, SectorEvent, SectorExecutionError, SectorExecutor, SectorRule,
+    SectorSolveOptions, SectorSolver, SourceSystem, SourceVisitOrder, deferred_exit_scan,
 };
+use symbolica::prelude::Integer;
 
 /// Bump on any change of the record layout (FORMAT.md).
 const SCHEMA: &str = "table_dump.v1";
@@ -130,6 +162,24 @@ struct Cli {
     cert_max_rows: usize,
     defer_unsupported: bool,
     case_gsplit: bool,
+    exact_backend: String,
+    guard_route: GuardRoute,
+    initial_cases: Option<String>,
+    cover_tables: Vec<(String, usize)>,
+    spill_after: Option<u64>,
+    numeric_endpoints: NumericEndpoints,
+    source_order: String,
+}
+
+impl Cli {
+    fn queue_options(&self) -> bool {
+        self.guard_route != GuardRoute::Native
+            || self.initial_cases.is_some()
+            || !self.cover_tables.is_empty()
+            || self.spill_after.is_some()
+            || self.numeric_endpoints != NumericEndpoints::Shared
+            || self.source_order != "input"
+    }
 }
 
 fn cli() -> (Cli, IntegralFamily) {
@@ -179,12 +229,25 @@ fn cli() -> (Cli, IntegralFamily) {
         cert_max_rows: usize::MAX,
         defer_unsupported: false,
         case_gsplit: false,
+        exact_backend: "sparse".to_string(),
+        guard_route: GuardRoute::Native,
+        initial_cases: None,
+        cover_tables: Vec::new(),
+        spill_after: None,
+        numeric_endpoints: NumericEndpoints::Shared,
+        source_order: "input".to_string(),
     };
     let mut i = 5;
     while i < args.len() {
         if args[i] == "--defer-unsupported" {
             c.defer_unsupported = true;
             i += 1;
+            continue;
+        }
+        if args[i] == "--exact-backend" {
+            // [p5l-repair td_r9] R1: the symbolic exact backend of the lift (default sparse = B8 unchanged)
+            c.exact_backend = args[i + 1].clone();
+            i += 2;
             continue;
         }
         if args[i] == "--case-gsplit" {
@@ -207,6 +270,44 @@ fn cli() -> (Cli, IntegralFamily) {
                 )
             }
             "--cert-max-rows" => c.cert_max_rows = value.parse().unwrap(),
+            "--guard-route" => {
+                c.guard_route = match value.split_once(':') {
+                    _ if value == "native" => GuardRoute::Native,
+                    _ if value == "content" => GuardRoute::Content,
+                    Some(("native-then-content", secs)) => GuardRoute::NativeThenContent {
+                        native_timeout: std::time::Duration::from_secs_f64(
+                            secs.parse()
+                                .expect("--guard-route native-then-content:SECS"),
+                        ),
+                    },
+                    _ => panic!("--guard-route native|content|native-then-content:SECS"),
+                }
+            }
+            "--initial-cases" => c.initial_cases = Some(value),
+            "--cover-table" => {
+                let (path, upto) = match value.rsplit_once(':') {
+                    Some((path, upto)) if upto.chars().all(|x| x.is_ascii_digit()) => {
+                        (path.to_string(), upto.parse().unwrap())
+                    }
+                    _ => (value.clone(), usize::MAX),
+                };
+                c.cover_tables.push((path, upto));
+            }
+            "--spill-after" => c.spill_after = Some(value.parse().unwrap()),
+            "--numeric-endpoints" => {
+                c.numeric_endpoints = match value.as_str() {
+                    "shared" => NumericEndpoints::Shared,
+                    "per-case" => NumericEndpoints::PerCase,
+                    other => panic!("--numeric-endpoints shared|per-case, not {other}"),
+                }
+            }
+            "--source-order" => {
+                assert!(
+                    value == "input" || value == "reverse",
+                    "--source-order input|reverse"
+                );
+                c.source_order = value;
+            }
             other => panic!("unknown flag {other}"),
         }
         i += 2;
@@ -214,6 +315,14 @@ fn cli() -> (Cli, IntegralFamily) {
     assert!(
         !c.case_gsplit || c.defer_unsupported,
         "--case-gsplit requires --defer-unsupported"
+    );
+    assert!(
+        !c.queue_options() || c.case_gsplit,
+        "--guard-route/--initial-cases/--cover-table/--spill-after/--numeric-endpoints/--source-order require --case-gsplit"
+    );
+    assert!(
+        c.initial_cases.is_none() || c.charts.as_ref().is_some_and(|v| v.len() == 1),
+        "--initial-cases requires exactly one chart (--charts M)"
     );
     (c, family)
 }
@@ -648,6 +757,230 @@ fn write_chart_cert<const N: usize>(
     totals.seconds += t0.elapsed().as_secs_f64();
 }
 
+// ---- rr-5l-api: case records (fixed + equations), cover tables, spills ----
+
+/// `{"fixed":[..],"equations":[..]}` of a case (the fields of `rule` records).
+fn case_json<const N: usize>(case: &Case<N>) -> String {
+    let (fixed, equations) = case_fields(case);
+    format!("{{\"fixed\":[{fixed}],\"equations\":{equations}}}")
+}
+
+/// Integer polynomial in the index variables n<i> (sums of c*n_i^e*.. monomials, as Symbolica
+/// prints exception and case equations) in the variable map of `template`.
+fn parse_index_polynomial<const N: usize>(
+    text: &str,
+    template: &CoefficientPolynomial,
+    indices: &[usize; N],
+) -> Result<CoefficientPolynomial, String> {
+    let variables = template.variables();
+    let s: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut monomials: Vec<(bool, String)> = Vec::new();
+    let mut current = String::new();
+    let mut negative = false;
+    for (k, ch) in s.chars().enumerate() {
+        if (ch == '+' || ch == '-') && k > 0 && !current.ends_with('^') {
+            monomials.push((negative, std::mem::take(&mut current)));
+            negative = ch == '-';
+        } else if (ch == '+' || ch == '-') && k == 0 {
+            negative = ch == '-';
+        } else {
+            current.push(ch);
+        }
+    }
+    monomials.push((negative, current));
+    let mut sum = template.zero();
+    for (negative, body) in monomials {
+        let mut coefficient = Integer::from(1);
+        let mut monomial = template.one();
+        for factor in body.split('*') {
+            if !factor.is_empty() && factor.chars().all(|x| x.is_ascii_digit()) {
+                let value: i64 = factor.parse().map_err(|e| format!("{text}: {e}"))?;
+                coefficient = &coefficient * &Integer::from(value);
+                continue;
+            }
+            let (name, exponent) = match factor.split_once('^') {
+                Some((a, b)) => (a, b.parse::<u32>().map_err(|e| format!("{text}: {e}"))?),
+                None => (factor, 1),
+            };
+            let axis: usize = name
+                .strip_prefix('n')
+                .and_then(|i| i.parse().ok())
+                .filter(|&i: &usize| i < N)
+                .ok_or_else(|| {
+                    format!("{text}: '{factor}' is not an index variable n0..n{}", N - 1)
+                })?;
+            let variable = template
+                .variable(&variables[indices[axis]])
+                .map_err(|e| format!("{e:?}"))?;
+            for _ in 0..exponent {
+                monomial = &monomial * &variable;
+            }
+        }
+        if negative {
+            coefficient = -coefficient;
+        }
+        sum = &sum + &monomial.mul_coeff(coefficient);
+    }
+    Ok(sum)
+}
+
+/// A case from its `fixed` (null = free) and `equations` fields: the coordinate face intersected
+/// with the equations in `sector`. `Ok(None)` if the intersection is empty.
+fn case_from_value<const N: usize>(
+    value: &serde_json::Value,
+    template: &CoefficientPolynomial,
+    indices: &[usize; N],
+    sector: &[bool; N],
+) -> Result<Option<Case<N>>, String> {
+    let fixed = value["fixed"].as_array().ok_or("case without 'fixed'")?;
+    if fixed.len() != N {
+        return Err(format!("case arity {} != {N}", fixed.len()));
+    }
+    let face: [Option<i16>; N] = std::array::from_fn(|i| fixed[i].as_i64().map(|v| v as i16));
+    let face = CoordinateCase::new(face).map_err(|e| format!("{e:?}"))?;
+    let mut equations = Vec::new();
+    for equation in value["equations"].as_array().map_or(&[][..], Vec::as_slice) {
+        let text = equation.as_str().ok_or("equation is not a string")?;
+        equations.push(parse_index_polynomial(text, template, indices)?);
+    }
+    if equations.is_empty() {
+        return Ok(Some(Case::from(face)));
+    }
+    Case::from(face)
+        .intersect(&equations, indices, sector)
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Initial cases of `--initial-cases`.
+fn read_initial_cases<const N: usize>(
+    path: &str,
+    template: &CoefficientPolynomial,
+    indices: &[usize; N],
+    sector: &[bool; N],
+) -> Vec<Case<N>> {
+    let text = std::fs::read_to_string(path).expect("--initial-cases file");
+    let mut cases = Vec::new();
+    let mut empty = 0usize;
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line).expect("initial-cases JSON line");
+        let mut items: Vec<serde_json::Value> = Vec::new();
+        if value["type"] == "spill" {
+            items.extend(value["pending"].as_array().cloned().unwrap_or_default());
+            for point in value["numerical"].as_array().cloned().unwrap_or_default() {
+                items.push(serde_json::json!({"fixed": point, "equations": []}));
+            }
+        } else {
+            items.push(value);
+        }
+        for item in items {
+            match case_from_value::<N>(&item, template, indices, sector).expect("initial case") {
+                Some(case) => cases.push(case),
+                None => empty += 1,
+            }
+        }
+    }
+    eprintln!(
+        "[r10] INITIAL_CASES {path}: {} cases, {empty} empty",
+        cases.len()
+    );
+    cases
+}
+
+/// Cover rules of `--cover-table`: `rule` records of `chart` with index < upto.
+fn read_cover_rules<const N: usize>(
+    tables: &[(String, usize)],
+    chart: &str,
+    template: &CoefficientPolynomial,
+    indices: &[usize; N],
+    sector: &[bool; N],
+) -> Vec<CoverRule<N>> {
+    let mut cover = Vec::new();
+    for (path, upto) in tables {
+        let text = std::fs::read_to_string(path).expect("--cover-table file");
+        let (mut loaded, mut other_chart) = (0usize, 0usize);
+        for line in text.lines().filter(|l| l.starts_with("{\"type\":\"rule\"")) {
+            let value: serde_json::Value = serde_json::from_str(line).expect("cover rule JSON");
+            if value["chart"].as_str() != Some(chart) {
+                other_chart += 1;
+                continue;
+            }
+            if value["index"].as_u64().expect("rule index") as usize >= *upto {
+                continue;
+            }
+            let case = case_from_value::<N>(&value, template, indices, sector)
+                .expect("cover rule case")
+                .expect("a cover rule's case is nonempty");
+            let mut branches = Vec::new();
+            for branch in value["exceptions"].as_array().expect("exceptions") {
+                let mut equations = Vec::new();
+                for equation in branch.as_array().expect("exception branch") {
+                    equations.push(
+                        parse_index_polynomial(
+                            equation.as_str().expect("equation"),
+                            template,
+                            indices,
+                        )
+                        .expect("cover rule exception"),
+                    );
+                }
+                branches.push(equations);
+            }
+            cover.push(CoverRule {
+                case,
+                exceptions: ExceptionalConditions { branches },
+            });
+            loaded += 1;
+        }
+        eprintln!(
+            "[r10] COVER_TABLE {path} upto {upto}: {loaded} rules loaded ({other_chart} of other charts)"
+        );
+    }
+    cover
+}
+
+/// The queue snapshot of `--spill-after`, shared with its watchdog thread.
+#[derive(Default)]
+struct SpillState {
+    chart: String,
+    case_started: Option<Instant>,
+    spilled: bool,
+    rules_done: usize,
+    pending: Vec<String>,
+    numerical: Vec<String>,
+}
+
+fn spill_watchdog(state: Arc<std::sync::Mutex<SpillState>>, after: u64, path: String) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let mut s = state.lock().unwrap();
+            let Some(started) = s.case_started else {
+                continue;
+            };
+            let seconds = started.elapsed().as_secs_f64();
+            if s.spilled || seconds < after as f64 {
+                continue;
+            }
+            let body = format!(
+                "{{\"type\":\"spill\",\"chart\":{},\"after\":{after},\"case_seconds\":{seconds:.3},\"rules_done\":{},\"pending\":[{}],\"numerical\":[{}]}}\n",
+                q(&s.chart),
+                s.rules_done,
+                s.pending.join(","),
+                s.numerical.join(",")
+            );
+            let tmp = format!("{path}.part");
+            std::fs::write(&tmp, body).expect("spill write");
+            std::fs::rename(&tmp, &path).expect("spill rename");
+            eprintln!(
+                "[r10] SPILL after {seconds:.1} s: {} pending, {} rules done -> {path}",
+                s.pending.len(),
+                s.rules_done
+            );
+            s.spilled = true;
+        }
+    });
+}
+
 fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
     let n = fam.denominator_count();
     let t_total = Instant::now();
@@ -757,12 +1090,52 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
         w
     });
 
+    let exact_backend = match cli.exact_backend.as_str() {
+        "sparse" => rustred::solver::SymbolicExactBackend::Sparse,
+        "factorized" => rustred::solver::SymbolicExactBackend::SparseFactorized,
+        "targetonly" => rustred::solver::SymbolicExactBackend::SparseTargetOnly,
+        "targetonlyfactorized" => rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized,
+        other => panic!("exact backend {other}"),
+    };
+    eprintln!("EXACT_BACKEND {exact_backend:?}");
     let config = SectorConfig {
         zero_sectors: Arc::from(zeros.clone()),
         integral_order: program.clone(),
+        symbolic_exact_backend: exact_backend,
         ..Default::default()
     };
     let executor = SectorExecutor::new(cli.workers).expect("executor");
+    let template = sources
+        .rows()
+        .iter()
+        .flat_map(|r| r.iter())
+        .next()
+        .expect("a source term")
+        .coefficient
+        .clone();
+    let indices: [usize; N] = *sources.index_variables();
+    let guard_log = (cli.queue_options()).then(|| {
+        std::sync::Mutex::new(std::io::BufWriter::new(
+            std::fs::File::create(format!(
+                "{}.guard.jsonl",
+                cli.out.trim_end_matches(".jsonl")
+            ))
+            .expect("guard log"),
+        ))
+    });
+    let stream_path = format!("{}.stream.jsonl", cli.out.trim_end_matches(".jsonl"));
+    let mut stream = cli.spill_after.map(|_| {
+        std::io::BufWriter::new(std::fs::File::create(&stream_path).expect("stream file"))
+    });
+    let spill = Arc::new(std::sync::Mutex::new(SpillState::default()));
+    if let Some(after) = cli.spill_after {
+        spill_watchdog(
+            spill.clone(),
+            after,
+            format!("{}.spill.json", cli.out.trim_end_matches(".jsonl")),
+        );
+    }
+    let mut queue_totals = rustred::solver::CaseQueueStats::default();
     let options = SectorSolveOptions {
         numerical_depth: cli.depth,
         ..Default::default()
@@ -814,14 +1187,84 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                             source,
                         }
                     })?;
+                let solver = if cli.source_order == "reverse" {
+                    let rows = solver.basis().len();
+                    solver
+                        .with_source_visit_order(
+                            SourceVisitOrder::new((0..rows).rev().collect(), rows)
+                                .expect("reversed visit order"),
+                        )
+                        .expect("install the reversed visit order")
+                } else {
+                    solver
+                };
                 let solved = if cli.case_gsplit {
                     // Progress on stderr only (the table bytes are unaffected): one line per
                     // started case, exceptional-geometry phase and found rule.
                     let started = Instant::now();
                     let mut found = 0usize;
-                    solver.solve_sector_deferring_refined_with_observer(
+                    let queue = CaseQueue {
+                        initial: cli
+                            .initial_cases
+                            .as_ref()
+                            .map(|p| read_initial_cases::<N>(p, &template, &indices, &sector)),
+                        cover: read_cover_rules::<N>(&cli.cover_tables, &label, &template, &indices, &sector),
+                        guard_route: cli.guard_route,
+                        refinement: CaseRefinement::all(),
+                        numeric_endpoints: cli.numeric_endpoints,
+                    };
+                    spill.lock().unwrap().chart = label.clone();
+                    let stream = &mut stream;
+                    let found_stream = &mut 0usize;
+                    let spill_queue = spill.clone();
+                    let guard_log = &guard_log;
+                    let label_queue = label.clone();
+                    let queue_observer = |event: CaseQueueEvent<'_, N>| match event {
+                        CaseQueueEvent::QueueState { pending, numerical, rules } => {
+                            if cli.spill_after.is_some() {
+                                let mut s = spill_queue.lock().unwrap();
+                                s.case_started = Some(Instant::now());
+                                s.spilled = false;
+                                s.rules_done = rules;
+                                s.pending = pending.iter().map(case_json).collect();
+                                s.numerical = numerical
+                                    .iter()
+                                    .map(|p| {
+                                        let v: Vec<String> = p
+                                            .fixed()
+                                            .iter()
+                                            .map(|x| x.map_or("null".to_string(), |x| x.to_string()))
+                                            .collect();
+                                        format!("[{}]", v.join(","))
+                                    })
+                                    .collect();
+                            }
+                        }
+                        CaseQueueEvent::Guard { case, report } => {
+                            eprintln!(
+                                "[r10] guard {:?} native_try={:?} try={:.1}s extract={:.1}s",
+                                report.route, report.native_try, report.try_seconds, report.seconds
+                            );
+                            if let Some(log) = guard_log {
+                                let mut log = log.lock().unwrap();
+                                writeln!(
+                                    log,
+                                    "{{\"type\":\"guard\",\"chart\":{},\"case\":{},\"route\":{},\"native_try\":{},\"try_seconds\":{:.3},\"seconds\":{:.3}}}",
+                                    q(&label_queue),
+                                    case_json(case),
+                                    q(&format!("{:?}", report.route)),
+                                    q(&format!("{:?}", report.native_try)),
+                                    report.try_seconds,
+                                    report.seconds
+                                )
+                                .unwrap();
+                                log.flush().unwrap();
+                            }
+                        }
+                    };
+                    solver.solve_case_queue_deferring(
                         options,
-                        CaseRefinement::all(),
+                        &queue,
                         |event| match event {
                             SectorEvent::CaseStarted { case, pending } => eprintln!(
                                 "[gsplit-progress] {:.1}s case_started pending={pending} fixed={:?} affine={}",
@@ -833,8 +1276,25 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                                 "[gsplit-progress] {:.1}s phase {phase:?}",
                                 started.elapsed().as_secs_f64()
                             ),
+                            // [p5l-repair td_r9] R0: the search events of the current case (discovery / exact lift /
+                            // canonicalisation), so a stall names its phase; ExactProgress is too chatty.
+                            SectorEvent::Search { event, .. } => {
+                                let s = format!("{event:?}");
+                                if !s.starts_with("ExactProgress") {
+                                    eprintln!(
+                                        "[gsplit-progress] {:.1}s search {}",
+                                        started.elapsed().as_secs_f64(),
+                                        s.chars().take(300).collect::<String>()
+                                    );
+                                }
+                            }
                             SectorEvent::RuleFound { rule, pending } => {
                                 found += 1;
+                                if let Some(w) = stream.as_mut() {
+                                    write_rule(w, &label, *found_stream, rule);
+                                    w.flush().unwrap();
+                                    *found_stream += 1;
+                                }
                                 eprintln!(
                                     "[gsplit-progress] {:.1}s rule_found {found} pending={pending} exception_branches={}",
                                     started.elapsed().as_secs_f64(),
@@ -843,7 +1303,17 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
                             }
                             _ => {}
                         },
+                        queue_observer,
                     )
+                    .map(|solved| {
+                        eprintln!("[r10] QUEUE {:?}", solved.queue);
+                        queue_totals.initial_queued += solved.queue.initial_queued;
+                        queue_totals.initial_dropped += solved.queue.initial_dropped;
+                        queue_totals.cover_pruned += solved.queue.cover_pruned;
+                        queue_totals.content_routes += solved.queue.content_routes;
+                        queue_totals.native_timeouts += solved.queue.native_timeouts;
+                        solved.solved
+                    })
                 } else {
                     solver.solve_sector_deferring(options)
                 };
@@ -991,6 +1461,16 @@ fn run<const N: usize>(cli: &Cli, fam: &IntegralFamily) -> i32 {
             totals.skipped,
             totals.rules_with_weight_poles,
             totals.seconds
+        );
+    }
+    if cli.queue_options() {
+        println!(
+            "{{\"r10_queue\":{{\"initial_queued\":{},\"initial_dropped\":{},\"cover_pruned\":{},\"content_routes\":{},\"native_timeouts\":{}}}}}",
+            queue_totals.initial_queued,
+            queue_totals.initial_dropped,
+            queue_totals.cover_pruned,
+            queue_totals.content_routes,
+            queue_totals.native_timeouts
         );
     }
     let deferred_total_field = if cli.defer_unsupported {

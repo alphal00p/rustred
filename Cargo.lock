@@ -1432,6 +1432,7 @@ dependencies = [
  "bincode",
  "blake3",
  "hashbrown 0.17.1",
+ "libc",
  "once_cell",
  "rand 0.9.5",
  "rayon",

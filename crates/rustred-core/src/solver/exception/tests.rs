@@ -325,3 +325,208 @@ fn a_numeric_activation_is_a_legal_chart_crossing_only_on_a_two_sided_axis() {
         expected(&context, &[&["n1-3"]])
     );
 }
+
+// ---- rr-5l-api: the exact content route and the routed (timed) guard extraction ----
+
+use std::time::Duration;
+
+use super::{
+    GuardRoute, GuardRouteTaken, NativeGuardTry, child, extract_exceptions_content,
+    extract_exceptions_routed,
+};
+
+/// Integer value of a polynomial at an index point (parameters must be absent).
+fn evaluate(
+    polynomial: &crate::algebra::CoefficientPolynomial,
+    indices: &[usize],
+    point: &[i64],
+) -> i128 {
+    let mut value = polynomial.clone();
+    for (axis, &position) in indices.iter().enumerate() {
+        value = value.replace(position, &symbolica::prelude::Integer::from(point[axis]));
+    }
+    assert!(
+        value.is_constant(),
+        "an exception equation is parameter-free"
+    );
+    if value.is_zero() {
+        0
+    } else {
+        value.lcoeff().to_string().parse().unwrap()
+    }
+}
+
+/// The exceptional point set of `conditions` (OR of ANDs) on a box of index points.
+fn zero_set(
+    conditions: &ExceptionalConditions,
+    indices: &[usize],
+    range: std::ops::RangeInclusive<i64>,
+) -> Vec<Vec<i64>> {
+    let mut points = vec![Vec::new()];
+    for _ in indices {
+        points = points
+            .into_iter()
+            .flat_map(|p: Vec<i64>| range.clone().map(move |v| [p.clone(), vec![v]].concat()))
+            .collect();
+    }
+    points
+        .into_iter()
+        .filter(|point| {
+            conditions
+                .branches
+                .iter()
+                .any(|branch| branch.iter().all(|e| evaluate(e, indices, point) == 0))
+        })
+        .collect()
+}
+
+#[test]
+fn content_route_matches_native_on_single_factor_inputs() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    for coefficient in [
+        "1/(d*n0+n1)",
+        "1/((n0-1)*(n0-n1))",
+        "1/((n0-1)*(d*n1+n0))",
+        "1/(d*(n0^2-1)+(n0-1)*n1)",
+        "1/(d-4)",
+        "1/(n0*n1+1)",
+    ] {
+        let rule = candidate(&context, &[([-1, 0], coefficient)]);
+        assert_eq!(
+            extract_exceptions_content(&rule, &[1, 2], &[true; 2], &[false; 2]).unwrap(),
+            extract_exceptions(&rule, &[1, 2], &[true; 2]).unwrap(),
+            "{coefficient}"
+        );
+    }
+}
+
+#[test]
+fn content_route_keeps_the_zero_set_of_several_parameter_dependent_factors() {
+    let context = CoefficientContext::new(["d", "n0", "n1", "n2", "n3"]);
+    let rule = candidate(
+        &context,
+        &[([-1, 0, 0, 0], "1/((d*n0+n1)*(d*n2+n3)*(n0-n3-2))")],
+    );
+    let indices = [1, 2, 3, 4];
+    let native = extract_exceptions(&rule, &indices, &[true; 4]).unwrap();
+    let content = extract_exceptions_content(&rule, &indices, &[true; 4], &[false; 4]).unwrap();
+    // Native: one branch per irreducible factor; content: the d-free factor plus ONE coarse
+    // cofactor branch (the d-coefficients of the product).
+    assert_eq!(
+        native,
+        expected(&context, &[&["n0", "n1"], &["n2", "n3"], &["n0-n3-2"]])
+    );
+    assert_eq!(
+        content,
+        expected(
+            &context,
+            &[&["n0*n2", "n0*n3+n1*n2", "n1*n3"], &["n0-n3-2"]]
+        )
+    );
+    assert_eq!(
+        zero_set(&native, &indices, -2..=2),
+        zero_set(&content, &indices, -2..=2)
+    );
+}
+
+#[test]
+fn content_route_keeps_activation_and_two_sided_mirror_branches() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    let rule = candidate(
+        &context,
+        &[
+            ([2, 0], "1/((d*n0+n1)*(n1+5))"),
+            ([0, -2], "1"),
+            ([-1, 0], "1/(d*n1+1)"),
+        ],
+    );
+    let sector = [false, true];
+    let two_sided = [false, true];
+    let native = extract_exceptions_two_sided(&rule, &[1, 2], &sector, &two_sided).unwrap();
+    let content = extract_exceptions_content(&rule, &[1, 2], &sector, &two_sided).unwrap();
+    assert_eq!(native, content);
+    assert_eq!(
+        native,
+        expected(
+            &context,
+            &[
+                &["n0", "n1"],
+                &["n1+5"],
+                &["n0"],
+                &["n0+1"],
+                &["n1-1"],
+                &["n1-2"]
+            ]
+        )
+    );
+}
+
+#[test]
+fn routed_extraction_reports_its_route() {
+    let context = CoefficientContext::new(["d", "n0", "n1", "n2", "n3"]);
+    let rule = candidate(&context, &[([-1, 0, 0, 0], "1/((d*n0+n1)*(d*n2+n3))")]);
+    let indices = [1, 2, 3, 4];
+    let (sector, two_sided) = ([true; 4], [false; 4]);
+    let native = extract_exceptions(&rule, &indices, &sector).unwrap();
+    let content = extract_exceptions_content(&rule, &indices, &sector, &two_sided).unwrap();
+    assert_ne!(native, content);
+
+    let (got, report) =
+        extract_exceptions_routed(&rule, &indices, &sector, &two_sided, GuardRoute::Native)
+            .unwrap();
+    assert_eq!(
+        (got, report.route, report.native_try),
+        (
+            native.clone(),
+            GuardRouteTaken::Native,
+            NativeGuardTry::NotTried
+        )
+    );
+    let (got, report) =
+        extract_exceptions_routed(&rule, &indices, &sector, &two_sided, GuardRoute::Content)
+            .unwrap();
+    assert_eq!(
+        (got, report.route),
+        (content.clone(), GuardRouteTaken::Content)
+    );
+    let generous = GuardRoute::NativeThenContent {
+        native_timeout: Duration::from_secs(120),
+    };
+    let (got, report) =
+        extract_exceptions_routed(&rule, &indices, &sector, &two_sided, generous).unwrap();
+    if cfg!(unix) {
+        assert_eq!(report.native_try, NativeGuardTry::Finished);
+    }
+    assert_eq!((got, report.route), (native, GuardRouteTaken::Native));
+    // Invalid input fails before any child.
+    let mut invalid = candidate(&context, &[([-1, 0, 0, 0], "1/((d*n0+n1)*(d*n2+n3))")]);
+    invalid.target = Integral::symbolic([1, 0, 0, 0]).unwrap();
+    assert!(matches!(
+        extract_exceptions_routed(&invalid, &indices, &sector, &two_sided, generous),
+        Err(ExceptionError::InvalidInput(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_timed_child_is_killed_at_its_timeout_and_failures_are_reported() {
+    let start = std::time::Instant::now();
+    let outcome = child::finishes_within(Duration::from_millis(200), || {
+        std::thread::sleep(Duration::from_secs(30));
+        true
+    });
+    assert_eq!(outcome, NativeGuardTry::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert_eq!(
+        child::finishes_within(Duration::from_secs(30), || true),
+        NativeGuardTry::Finished
+    );
+    assert_eq!(
+        child::finishes_within(Duration::from_secs(30), || false),
+        NativeGuardTry::ChildFailed
+    );
+    assert_eq!(
+        child::finishes_within(Duration::from_secs(30), || panic!("child panic")),
+        NativeGuardTry::ChildFailed
+    );
+}
