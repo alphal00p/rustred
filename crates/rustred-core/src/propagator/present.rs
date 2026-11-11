@@ -281,6 +281,33 @@ fn completion_error(node: &NodeInfo, error: IspCompletionError) -> PError {
     }
 }
 
+/// Environment variable of the experimental generation-time ISP choice (M5
+/// maps): a JSON file `{"<node family name>": [coordinate ordinals], ..}`.
+/// The listed scalar-product coordinates (LoopLoop by `(left, right)`, then
+/// LoopExternal) are scanned first by [`IspCompletion`]. Unset, every
+/// presentation is the default one. A package generated with it has other
+/// presentations for the same [`P_PRESENTATION_VERSION`]: experimental only;
+/// adopting it means a version bump.
+///
+/// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
+pub const P_ISP_PREFERENCE_ENV: &str = "RUSTRED_P_ISP_PREFERENCE";
+
+fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
+    static TABLE: OnceLock<Result<BTreeMap<String, Vec<usize>>, String>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
+        Err(_) => Ok(BTreeMap::new()),
+        Ok(path) => std::fs::read_to_string(&path)
+            .map_err(|error| format!("{path}: {error}"))
+            .and_then(|text| {
+                serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))
+            }),
+    });
+    let table = table
+        .as_ref()
+        .map_err(|error| PError::Generation(format!("{P_ISP_PREFERENCE_ENV}: {error}")))?;
+    Ok(table.get(name).cloned().unwrap_or_default())
+}
+
 /// The presentation of `rows`: line slots, then the ISPs of [`IspCompletion`].
 fn with_isps(
     node: &NodeInfo,
@@ -308,7 +335,8 @@ fn with_isps(
         .iter()
         .map(|&(_, _, eps_units)| eps_power_shift(context, eps_units))
         .collect::<Result<_, _>>()?;
-    let completion = IspCompletion::try_new(
+    let preferred = isp_preference(name.as_str())?;
+    let completion = IspCompletion::try_new_with_preference(
         name.as_str(),
         (1..=loops).map(|l| format!("k{l}")).collect(),
         vec!["q".to_owned()],
@@ -317,6 +345,8 @@ fn with_isps(
         denominators,
         vec![vec![context.integer(P_EXTERNAL_SQUARE)]],
         shifts,
+        Default::default(),
+        &preferred,
     )
     .map_err(|error| completion_error(node, error))?;
     let width = loops + 1;

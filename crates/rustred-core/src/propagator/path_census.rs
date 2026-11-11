@@ -25,7 +25,10 @@
 //! - optionally ([`PPathCensusOptions::keep_apply_keys`]) every stepped Apply
 //!   key (owner class, powers and tag slots), for orbit counts;
 //! - optionally ([`PPathCensusOptions::max_keys`]) a cap on popped keys: the
-//!   request then stops with [`PError::Unsupported`] (sizing runs).
+//!   request then stops with [`PError::Unsupported`] (sizing runs);
+//! - every routed Route step (a sector with a census map onto another owner):
+//!   per route and numerator part of the key, keys, transport terms and time
+//!   ([`PPathCensus::routes`], M5 maps).
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
 
@@ -112,6 +115,28 @@ pub(crate) struct PStepRecord {
     /// The rule a Custom step applied: `(chart, position in the chart's rule
     /// list)` (M5 artefact v2, spec item 8).
     pub(crate) rule: Option<(u64, u32)>,
+    /// A Route key on a routed (census-mapped) sector: its route and the
+    /// numerator part of its powers (M5 maps).
+    pub(crate) route: Option<PRouteRecord>,
+}
+
+/// One routed Route step (M5 maps): the sector `(presentation, support)`, the
+/// numerator part of the key (`min(power, 0)` per slot) and the terms the
+/// transport gave.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PRouteRecord {
+    pub(crate) presentation: u32,
+    pub(crate) support: u64,
+    pub(crate) numerator: Box<[i64]>,
+    pub(crate) terms: u64,
+}
+
+/// Aggregate of the routed steps of one numerator on one route (M5 maps).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PRouteAgg {
+    pub keys: u64,
+    pub terms: u64,
+    pub nanos: u64,
 }
 
 /// An owner seen by the census.
@@ -184,6 +209,9 @@ pub struct PPathCensus {
     pub phases: Vec<PCensusPhase>,
     /// Stepped Apply keys `(class, view)` when kept, in step order.
     pub apply_keys: Vec<(u64, Box<[i64]>)>,
+    /// Routed Route steps per `(presentation, support)` and numerator part
+    /// (M5 maps): keys, transport terms, step time.
+    pub routes: BTreeMap<(u32, u64), BTreeMap<Box<[i64]>, PRouteAgg>>,
     pub popped: u64,
     pub repeats: u64,
     pub phase_regressions: u64,
@@ -209,6 +237,7 @@ impl PPathCensus {
             owners: BTreeMap::new(),
             phases: Vec::new(),
             apply_keys: Vec::new(),
+            routes: BTreeMap::new(),
             popped: 0,
             repeats: 0,
             phase_regressions: 0,
@@ -270,6 +299,17 @@ impl PPathCensus {
         }
         if let Some(view) = record.apply_view {
             self.apply_keys.push((record.key.2, view));
+        }
+        if let Some(route) = record.route {
+            let agg = self
+                .routes
+                .entry((route.presentation, route.support))
+                .or_default()
+                .entry(route.numerator)
+                .or_default();
+            agg.keys += 1;
+            agg.terms += route.terms;
+            agg.nanos += record.agg.nanos;
         }
     }
 
