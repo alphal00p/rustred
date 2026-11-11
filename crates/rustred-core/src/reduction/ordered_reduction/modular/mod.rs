@@ -917,10 +917,48 @@ pub(crate) enum Finished {
     Composed(ComposedTerminals),
 }
 
+impl ModularRecorder {
+    /// rr-frontier diagnostics: the resident tables of the forward pass
+    /// (trace ops, interned exact coefficients, probes, slots).
+    pub(crate) fn memstats(&self) -> serde_json::Value {
+        use super::memstats::{block, measure_clone};
+        use std::mem::size_of;
+        let entries_heap: usize = self
+            .entries
+            .iter()
+            .map(super::coefficient_heap_bytes)
+            .sum();
+        serde_json::json!({
+            "ops": self.ops.len(),
+            "ops_capacity": self.ops.capacity(),
+            "op_size": size_of::<Op>(),
+            "ops_bytes": block(self.ops.as_ptr(), self.ops.capacity()),
+            "entries": self.entries.len(),
+            "entries_vec_bytes": block(self.entries.as_ptr(), self.entries.capacity()),
+            "entries_heap_bytes": entries_heap,
+            "entries_clone_bytes": measure_clone(|| self.entries.clone()),
+            "entry_refs_bytes": block(self.entry_refs.as_ptr(), self.entry_refs.capacity()),
+            "entry_hashes_bytes": block(self.entry_hashes.as_ptr(), self.entry_hashes.capacity()),
+            "table_capacity": self.table.capacity(),
+            "constant_probe_bytes": block(self.constant_probe.as_ptr(), self.constant_probe.capacity()),
+            "polynomial_probe_bytes": block(self.polynomial_probe.as_ptr(), self.polynomial_probe.capacity()),
+            "free_slots": self.free_slots.len(),
+            "free_slots_bytes": block(self.free_slots.as_ptr(), self.free_slots.capacity()),
+            "next_slot": self.next_slot,
+            "terminal_slots": self.terminal_slots,
+            "weight_size": size_of::<ModularWeight>(),
+        })
+    }
+}
+
 impl OrderedWeights for ModularRecorder {
     type Weight = ModularWeight;
     type Contribution = ModularContribution;
     type Probe = [Fe; PROBES];
+
+    fn memstats(&self) -> serde_json::Value {
+        ModularRecorder::memstats(self)
+    }
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<ModularWeight, ReductionError> {
         let reference = self.intern(&coefficient)?;

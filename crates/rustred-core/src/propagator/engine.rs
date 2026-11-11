@@ -1272,6 +1272,22 @@ impl OrderedKernel for PKernel<'_, '_> {
         result
     }
 
+    fn key_heap_bytes(key: &PKey) -> usize {
+        use crate::reduction::ordered_reduction::memstats::block;
+        let view = match key {
+            PKey::Route { view, .. } | PKey::Apply { view, .. } => view.powers(),
+        };
+        block(view.as_ptr(), view.len())
+    }
+
+    fn priority_heap_bytes(priority: &PPriority) -> [usize; 2] {
+        use crate::reduction::ordered_reduction::memstats::block;
+        match &priority.order {
+            POrderKey::Lexicographic(entries) => [block(entries.as_ptr(), entries.capacity()), 0],
+            POrderKey::Complexity(key) => [0, key.shared_heap_bytes()],
+        }
+    }
+
     fn key_view(key: &PKey) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
         Some(match key {
             PKey::Route { presentation, view } => (

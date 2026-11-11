@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
 use std::hash::Hash;
 
 pub(crate) mod arithmetic;
+pub(crate) mod memstats;
 pub mod composition;
 mod modular;
 mod parallel;
@@ -141,6 +142,16 @@ pub(crate) trait OrderedKernel {
     fn terminal_composer(&self) -> Option<std::sync::Arc<dyn OrderedTerminalComposer>> {
         None
     }
+    /// rr-frontier diagnostics (`memstats`): allocator bytes owned by a key.
+    /// Default: nothing measured.
+    fn key_heap_bytes(_key: &Self::Key) -> usize {
+        0
+    }
+    /// rr-frontier diagnostics: allocator bytes of a priority that a clone
+    /// allocates again, and bytes that clones share (an `Arc`).
+    fn priority_heap_bytes(_priority: &Self::Priority) -> [usize; 2] {
+        [0; 2]
+    }
 }
 
 pub(crate) struct OrderedOutput {
@@ -238,6 +249,7 @@ fn replace_monomials(total: &mut usize, old: usize, new: usize) -> Result<(), Re
 
 /// A frontier weight with the certified position computed when its key
 /// entered the frontier.
+#[derive(Clone)]
 struct Pending<P, W> {
     position: OrderedPosition<P>,
     weight: W,
@@ -428,7 +440,7 @@ fn check_descent<P: Ord>(
 /// context and exact-algebra limits before using them (once per occurrence
 /// or once per distinct value).
 pub(crate) trait OrderedWeights {
-    type Weight;
+    type Weight: Clone;
     /// The product of the active weight and one exact step coefficient.
     type Contribution;
     /// The image of a weight on which recorded arithmetics decide erasures
@@ -525,6 +537,15 @@ pub(crate) trait OrderedWeights {
     /// The erasure decision on a merged probe.
     fn tail_probe_is_zero(&self, _probe: &Self::Probe) -> bool {
         true
+    }
+    /// rr-frontier diagnostics: allocator bytes a clone of `weight`
+    /// allocates (0: nothing on the heap, or not measured).
+    fn weight_heap_bytes(_weight: &Self::Weight) -> usize {
+        0
+    }
+    /// rr-frontier diagnostics: the weights' own resident tables.
+    fn memstats(&self) -> serde_json::Value {
+        serde_json::Value::Null
     }
 }
 
@@ -639,6 +660,21 @@ impl OrderedWeights for ExactWeights {
     fn exact(weight: &Coefficient) -> Option<&Coefficient> {
         Some(weight)
     }
+    fn weight_heap_bytes(weight: &Coefficient) -> usize {
+        coefficient_heap_bytes(weight)
+    }
+}
+
+/// rr-frontier diagnostics: the allocator bytes a clone of `coefficient`
+/// allocates (term vectors; big-integer limbs are not counted).
+pub(crate) fn coefficient_heap_bytes(coefficient: &Coefficient) -> usize {
+    [&coefficient.numerator, &coefficient.denominator]
+        .into_iter()
+        .map(|p| {
+            memstats::block(p.coefficients.as_ptr(), p.coefficients.capacity())
+                + memstats::block(p.exponents.as_ptr(), p.exponents.capacity())
+        })
+        .sum()
 }
 
 /// Exact weights are values: products and sums are pure functions of their
@@ -793,6 +829,12 @@ impl OrderedWeights for CrossChecked {
     }
     fn exact(weight: &Self::Weight) -> Option<&Coefficient> {
         Some(&weight.0)
+    }
+    fn weight_heap_bytes(weight: &Self::Weight) -> usize {
+        coefficient_heap_bytes(&weight.0)
+    }
+    fn memstats(&self) -> serde_json::Value {
+        self.modular.memstats()
     }
     fn phase_started(&mut self, phase: usize) {
         self.modular.phase_started(phase);
@@ -1300,6 +1342,85 @@ impl<K: OrderedKernel, A: OrderedWeights> Admitted<K, A> {
     }
 }
 
+/// rr-frontier diagnostics: one snapshot of the resident scheduler state
+/// (see `memstats`). Reads and clones only.
+fn memstats_snapshot<K: OrderedKernel, A: OrderedWeights>(
+    weights: &A,
+    frontier: &FrontierOf<K, A>,
+    output: &BTreeMap<IntegralKey, A::Weight>,
+    progress: &CandidateOrderedReductionProgress,
+    phase: usize,
+) -> serde_json::Value {
+    use std::mem::size_of;
+    let started = std::time::Instant::now();
+    let rss = memstats::rss_bytes();
+    let in_use = memstats::in_use();
+    let (arena, free) = memstats::arena();
+    let [mut p_key, mut p_prio, mut p_shared, mut p_weight] = [0usize; 4];
+    for (key, pending) in &frontier.pending {
+        let [u, s] = K::priority_heap_bytes(&pending.position.priority);
+        p_key += K::key_heap_bytes(key);
+        p_prio += u;
+        p_shared += s;
+        p_weight += A::weight_heap_bytes(&pending.weight);
+    }
+    let [mut o_key, mut o_prio] = [0usize; 2];
+    for scheduled in &frontier.order {
+        o_key += K::key_heap_bytes(&scheduled.key);
+        o_prio += K::priority_heap_bytes(&scheduled.priority)[0];
+    }
+    let pending_clone = memstats::measure_clone(|| frontier.pending.clone());
+    let order_clone = memstats::measure_clone(|| frontier.order.clone());
+    let terminals_clone = memstats::measure_clone(|| output.clone());
+    let capacity = frontier.pending.capacity();
+    let buckets = if capacity < 8 {
+        capacity + 1
+    } else {
+        (capacity * 8 / 7).next_power_of_two()
+    };
+    let bucket = size_of::<(K::Key, Pending<K::Priority, A::Weight>)>();
+    serde_json::json!({
+        "phase": phase,
+        "pending_keys": frontier.pending.len(),
+        "order_entries": frontier.order.len(),
+        "processed_keys": progress.processed_keys,
+        "emitted_terms": progress.emitted_terms,
+        "terminal_keys": output.len(),
+        "rss_bytes": rss,
+        "malloc_in_use_bytes": in_use,
+        "malloc_arena_bytes": arena,
+        "malloc_free_bytes": free,
+        "sizes": {
+            "key": size_of::<K::Key>(),
+            "priority": size_of::<K::Priority>(),
+            "weight": size_of::<A::Weight>(),
+            "position": size_of::<OrderedPosition<K::Priority>>(),
+            "pending": size_of::<Pending<K::Priority, A::Weight>>(),
+            "scheduled": size_of::<Scheduled<K::Key, K::Priority>>(),
+            "bucket": bucket,
+        },
+        "pending_map": {
+            "capacity": capacity,
+            "buckets": buckets,
+            "table_bytes_formula": buckets * (bucket + 1) + 16 + 8,
+            "clone_bytes": pending_clone,
+            "key_heap_bytes": p_key,
+            "priority_heap_bytes": p_prio,
+            "priority_shared_heap_bytes": p_shared,
+            "weight_heap_bytes": p_weight,
+        },
+        "order_set": {
+            "clone_bytes": order_clone,
+            "key_heap_bytes": o_key,
+            "priority_heap_bytes": o_prio,
+            "node_bytes": order_clone.saturating_sub(o_key + o_prio),
+        },
+        "terminals": { "len": output.len(), "clone_bytes": terminals_clone },
+        "weights": weights.memstats(),
+        "snapshot_seconds": started.elapsed().as_secs_f64(),
+    })
+}
+
 /// The sequential scheduler: pop the greatest pending key, apply its checked
 /// step and merge the weighted children and terminals, one key at a time.
 fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
@@ -1320,6 +1441,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         None
     };
     let context = kernel.context().clone();
+    let mut mem_probe = memstats::Probe::new();
     for phase in 0..state.progress.total_phases {
         // Phase marker first: a tail closed at this phase records its
         // products after the marker, so the replay attributes them here.
@@ -1444,6 +1566,13 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
             progress.terminal_keys = output.len();
             kernel.observe(&progress, Some(&node.key))?;
+            if let Some(probe) = &mut mem_probe
+                && probe.due(frontier.len())
+            {
+                let snapshot =
+                    memstats_snapshot::<K, A>(weights, frontier, output, progress, phase);
+                probe.taken(frontier.len(), snapshot);
+            }
         }
         if let Some(tail) = &mut tail {
             tail.phase_finished(phase);
@@ -1452,6 +1581,16 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     }
     if let Some(tail) = tail {
         tail.finish(kernel, weights, request, work, &mut state)?;
+    }
+    if let Some(probe) = &mem_probe {
+        probe.write(serde_json::json!({
+            "rss_bytes": memstats::rss_bytes(),
+            "malloc_in_use_bytes": memstats::in_use(),
+            "peak_frontier_keys": state.progress.peak_frontier_keys,
+            "terminals": { "len": state.output.len(),
+                "clone_bytes": memstats::measure_clone(|| state.output.clone()) },
+            "weights": weights.memstats(),
+        }));
     }
     state.finish(work)
 }
