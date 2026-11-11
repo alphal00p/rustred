@@ -192,6 +192,115 @@ impl<const N: usize> Iterator for Seeds<N> {
 
 impl<const N: usize> std::iter::FusedIterator for Seeds<N> {}
 
+/// Seed visiting schedule of the symbolic case search. The seed BALL is the same; only the order inside each L1 shell
+/// changes. Opt-in; the default is the SpIRed chronology.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SeedSchedule {
+    #[default]
+    Spired,
+    /// Within each L1 shell: seeds that move only symbolic coordinates first, then by the L1 of the moves on numeric
+    /// coordinates with a positive initial value (dots), then by the L1 on numeric coordinates with a non-positive initial
+    /// value (numerator powers): (dots, numerators) ascending, stable in the SpIRed chronology. p5l-lift-trace (T159, T244):
+    /// the corner pivot is reached with a 10-20x smaller trace whose exact lift is instantaneous.
+    SymbolicFirst,
+}
+
+/// [`Seeds`] under a [`SeedSchedule`]; buffers one shell at a time for the non-default schedules.
+#[derive(Clone, Debug)]
+pub struct ScheduledSeeds<const N: usize> {
+    inner: Seeds<N>,
+    schedule: SeedSchedule,
+    initial: Integral<N>,
+    shell: std::collections::VecDeque<Seed<N>>,
+    shell_depth: u32,
+    carry: Option<(Seed<N>, u32)>,
+    error: Option<PowerError>,
+}
+
+impl<const N: usize> ScheduledSeeds<N> {
+    pub fn new(inner: Seeds<N>, schedule: SeedSchedule) -> Self {
+        let initial = inner.initial;
+        Self { inner, schedule, initial, shell: Default::default(), shell_depth: 0, carry: None, error: None }
+    }
+
+    /// L1 shell of the most recently emitted seed.
+    pub fn depth(&self) -> u32 {
+        match self.schedule {
+            SeedSchedule::Spired => self.inner.depth(),
+            _ => self.shell_depth,
+        }
+    }
+
+    fn key(&self, seed: &Seed<N>) -> (u32, u32) {
+        let (mut dots, mut numerators) = (0u32, 0u32);
+        for i in 0..N {
+            let p = self.initial[i];
+            if p.is_symbolic() {
+                continue;
+            }
+            let delta = (i32::from(seed.integral[i].value()) - i32::from(p.value())).unsigned_abs();
+            if p.value() > 0 {
+                dots += delta;
+            } else {
+                numerators += delta;
+            }
+        }
+        (dots, numerators)
+    }
+
+    fn fill(&mut self) {
+        let (first, depth) = match self.carry.take() {
+            Some(c) => c,
+            None => match self.inner.next() {
+                Some(Ok(seed)) => (seed, self.inner.depth()),
+                Some(Err(e)) => {
+                    self.error = Some(e);
+                    return;
+                }
+                None => return,
+            },
+        };
+        let mut shell = vec![first];
+        loop {
+            match self.inner.next() {
+                Some(Ok(seed)) => {
+                    let d = self.inner.depth();
+                    if d != depth {
+                        self.carry = Some((seed, d));
+                        break;
+                    }
+                    shell.push(seed);
+                }
+                Some(Err(e)) => {
+                    self.error = Some(e);
+                    break;
+                }
+                None => break,
+            }
+        }
+        shell.sort_by_key(|s| self.key(s));
+        self.shell_depth = depth;
+        self.shell = shell.into();
+    }
+}
+
+impl<const N: usize> Iterator for ScheduledSeeds<N> {
+    type Item = Result<Seed<N>, PowerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.schedule == SeedSchedule::Spired {
+            return self.inner.next();
+        }
+        if self.shell.is_empty() && self.error.is_none() {
+            self.fill();
+        }
+        if let Some(seed) = self.shell.pop_front() {
+            return Some(Ok(seed));
+        }
+        self.error.take().map(Err)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Power;
@@ -364,6 +473,46 @@ mod tests {
         ));
         assert!(crossing.iter().any(|power| power[0] <= 0));
         assert!(crossing.iter().all(|power| power[1] >= 1));
+    }
+
+    #[test]
+    fn symbolic_first_schedule_permutes_each_shell_only() {
+        // axis 0 symbolic, axis 1 numeric dot (value 1), axis 2 numeric numerator (value 0)
+        let initial = Integral::new([
+            Power::new(true, 0).unwrap(),
+            Power::new(false, 1).unwrap(),
+            Power::new(false, 0).unwrap(),
+        ]);
+        let plain: Vec<_> = Seeds::new(initial, [true, true, false], [false; 3])
+            .take_while(|s| s.is_ok())
+            .map(|s| s.unwrap())
+            .take(60)
+            .collect();
+        let mut sched = ScheduledSeeds::new(Seeds::new(initial, [true, true, false], [false; 3]), SeedSchedule::SymbolicFirst);
+        let mut got = Vec::new();
+        let mut depths = Vec::new();
+        for _ in 0..plain.len() {
+            got.push(sched.next().unwrap().unwrap());
+            depths.push(sched.depth());
+        }
+        // same multiset per shell, symbolic-only first inside every shell, shells in order
+        let l1 = |s: &Seed<3>| (0..3).map(|i| (s.integral[i].value() - initial[i].value()).unsigned_abs() as u32).sum::<u32>();
+        assert!(got.windows(2).all(|w| l1(&w[0]) <= l1(&w[1])));
+        assert!(depths.windows(2).all(|w| w[0] <= w[1]));
+        let shell2: Vec<_> = got.iter().filter(|s| l1(s) == 2).collect();
+        assert_eq!(shell2[0].integral[1].value(), 1);
+        assert_eq!(shell2[0].integral[2].value(), 0);
+        let mut a: Vec<_> = plain.iter().filter(|s| l1(s) <= 2).map(|s| s.integral).collect();
+        let mut b: Vec<_> = got.iter().filter(|s| l1(s) <= 2).map(|s| s.integral).collect();
+        a.sort_by_key(|i| i.powers().map(|p| p.value()));
+        b.sort_by_key(|i| i.powers().map(|p| p.value()));
+        assert_eq!(a, b);
+        let spired: Vec<_> = ScheduledSeeds::new(Seeds::new(initial, [true; 3], [false; 3]), SeedSchedule::Spired)
+            .take(20)
+            .map(|s| s.unwrap().shifts)
+            .collect();
+        let raw: Vec<_> = Seeds::new(initial, [true; 3], [false; 3]).take(20).map(|s| s.unwrap().shifts).collect();
+        assert_eq!(spired, raw);
     }
 
     #[test]

@@ -483,6 +483,7 @@ fn resized<const N: usize, const K: usize>(
             coefficient_variable_order: solver.config.coefficient_variable_order,
             source_discovery: solver.config.source_discovery.clone(),
             rule_selection: solver.config.rule_selection.clone(),
+            seed_schedule: solver.config.seed_schedule,
         };
         // Already materialized against the unchanged basis; do not rebuild or
         // interpret physical-axis priorities as storage-axis priorities.

@@ -20,6 +20,8 @@ use super::{
 
 mod observation;
 pub use observation::SearchEvent;
+mod study;
+pub use study::{StudyRow, TraceStudy};
 
 #[derive(Clone, Debug)]
 pub struct SectorConfig<const N: usize> {
@@ -45,6 +47,8 @@ pub struct SectorConfig<const N: usize> {
     pub source_discovery: SourceDiscoveryStrategy,
     /// Optional exact candidate selection; the default retains first-valid search.
     pub rule_selection: RuleSelectionPolicy,
+    /// Seed order inside each L1 shell of the symbolic case search (opt-in; default SpIRed chronology).
+    pub seed_schedule: super::SeedSchedule,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -60,6 +64,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             coefficient_variable_order: CoefficientVariableOrder::Original,
             source_discovery: SourceDiscoveryStrategy::default(),
             rule_selection: RuleSelectionPolicy::default(),
+            seed_schedule: super::SeedSchedule::default(),
         }
     }
 }
@@ -450,11 +455,14 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        let mut seeds = Seeds::new_two_sided(
-            initial,
-            *self.order.sector(),
-            self.seed_frozen(),
-            self.order.two_sided_axes(),
+        let mut seeds = super::ScheduledSeeds::new(
+            Seeds::new_two_sided(
+                initial,
+                *self.order.sector(),
+                self.seed_frozen(),
+                self.order.two_sided_axes(),
+            ),
+            self.config.seed_schedule,
         );
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
@@ -660,9 +668,21 @@ impl<const N: usize> Probe<N> {
     pub(super) fn new(order: IntegralOrder<N>, nvars: usize, options: SearchOptions) -> Self {
         let field = Zp64::new(options.prime);
         let mut random = StdRng::seed_from_u64(options.sample_seed);
-        let point = (0..nvars)
+        let mut point: Vec<FiniteFieldElement<u64>> = (0..nvars)
             .map(|_| Integer::from(random.random_range(1..options.prime)).to_finite_field(&field))
             .collect();
+        // [p-integral round6 native-S1c, diagnostic only] RUSTRED_PROBE_POINT = comma-separated decimal residues, one per
+        // coefficient variable (the source system's coefficient order), replaces the random modular discovery point.
+        // Unset (the default): the established engine, byte-identical behaviour. The exact lift is unchanged.
+        if let Ok(spec) = std::env::var("RUSTRED_PROBE_POINT") {
+            let values: Vec<&str> = spec.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+            assert_eq!(values.len(), nvars, "RUSTRED_PROBE_POINT needs one residue per coefficient variable");
+            point = values
+                .iter()
+                .map(|v| Integer::from(v.parse::<u64>().expect("RUSTRED_PROBE_POINT residue") % options.prime).to_finite_field(&field))
+                .collect();
+            eprintln!("[probe-point] modular discovery point overridden ({nvars} residues)");
+        }
         Self {
             discovery: Discovery::new(order, field.clone()),
             field,

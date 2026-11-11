@@ -125,6 +125,7 @@ pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
+    StudyRow, TraceStudy,
 };
 pub use sector::{
     CaseQueue, CaseQueueEvent, CaseQueueSolution, CaseQueueStats, CoverRule, DeferredExitScan,
@@ -138,7 +139,7 @@ pub use sector::{
     RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
     RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{Seed, Seeds};
+pub use seed::{ScheduledSeeds, Seed, SeedSchedule, Seeds};
 pub use source::SourceSystem;
 pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
 
