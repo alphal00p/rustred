@@ -9,6 +9,7 @@ mod basis;
 mod canary;
 mod census;
 mod generate;
+mod import;
 mod package;
 mod validate;
 
@@ -20,6 +21,7 @@ pub(crate) enum PSubcommand {
     Package,
     Validate,
     Canary,
+    ImportTable,
 }
 
 pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(), CliError> {
@@ -30,6 +32,7 @@ pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(
         PSubcommand::Package => package::run(arguments),
         PSubcommand::Validate => validate::run(arguments),
         PSubcommand::Canary => canary::run(arguments),
+        PSubcommand::ImportTable => import::run(arguments),
     }
 }
 

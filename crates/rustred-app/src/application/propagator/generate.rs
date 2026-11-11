@@ -937,6 +937,8 @@ pub struct CustomOwnerNode {
     pub loops: u8,
     pub eps_lines: u8,
     pub presentation: Presentation,
+    /// The node's normalised, canonically labelled graph.
+    pub graph: rustred::propagator::topology::PTopo,
 }
 
 /// The Custom nodes of the reduction DAG (`ChildMode::ForcerTree`) of the
@@ -971,6 +973,7 @@ pub fn custom_owner_nodes(
                 loops: node.loops,
                 eps_lines: node.eps_lines,
                 presentation,
+                graph: node.topo.clone(),
             });
         }
     }

@@ -459,7 +459,7 @@ fn check_custom_order(
 /// subsectors for Route children, which item 2 checks per RHS term; sector-
 /// first induction (the vacuum reducer's `is_support_primary` consumers) is
 /// not used on the p path.
-fn is_rank_gated(policy: &OrderingPolicy, support: u64) -> bool {
+pub(super) fn is_rank_gated(policy: &OrderingPolicy, support: u64) -> bool {
     let Some(program) = policy.program() else {
         return false;
     };

@@ -40,6 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
+use crate::algebra::Coefficient;
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
     BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
@@ -183,6 +184,8 @@ fn validate(program: &ProgramRecord) -> Result<OrderingPolicy, PError> {
         }
         _ => {}
     }
+    // An imported table's payload descends in the table's own slot order.
+    super::table_import::enforce_slot_order(&program.family_source, &program.integral_order, arity)?;
     validate_dispatch(program).map_err(wire_error)?;
     validate_sectors(program, |_| Ok::<_, BundleWireError>(())).map_err(wire_error)?;
     if program.sectors.is_empty() {
@@ -1055,6 +1058,22 @@ fn build<const N: usize>(
     prepare: bool,
     order: Option<&PRuleOrder>,
 ) -> Result<Arc<dyn PLaneStep>, PError> {
+    Ok(Arc::new(build_step::<N>(
+        presentation,
+        payload,
+        meta,
+        prepare,
+        order,
+    )?))
+}
+
+fn build_step<const N: usize>(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    prepare: bool,
+    order: Option<&PRuleOrder>,
+) -> Result<CustomStep<N>, PError> {
     let mut decoded = decode(Some(presentation), payload)?;
     if let Some(order) = order {
         apply_rule_order(&mut decoded.program, order)?;
@@ -1164,7 +1183,7 @@ fn build<const N: usize>(
     if prepare {
         step.prepare_charts()?;
     }
-    Ok(Arc::new(step))
+    Ok(step)
 }
 
 /// The lane step of a Custom owner of `presentation` from its payload and
@@ -1231,6 +1250,311 @@ fn build_custom_step_with(
         };
     }
     with_candidate_runtime_arities!(dispatch)
+}
+
+// ----- import-time verification and replay (p5l-converter) -----
+
+/// One rule application of a Custom owner, without a library around it.
+enum Applied {
+    Terminal,
+    Children(Vec<(Vec<i64>, Coefficient)>),
+}
+
+/// The owner program of one payload, for checks outside a library.
+trait CustomOwnerOps {
+    fn support(&self) -> u64;
+    fn arity(&self) -> usize;
+    fn forced(&self) -> u64;
+    fn is_residual(&self, powers: &[i64]) -> bool;
+    fn apply_powers(&self, powers: &[i64]) -> Result<Applied, PError>;
+    fn order_of(&self, powers: &[i64]) -> Result<crate::sector::ComplexityKey, PError>;
+}
+
+impl<const N: usize> CustomOwnerOps for CustomStep<N> {
+    fn support(&self) -> u64 {
+        self.support
+    }
+
+    fn arity(&self) -> usize {
+        self.arity
+    }
+
+    fn forced(&self) -> u64 {
+        self.forced
+    }
+
+    fn is_residual(&self, powers: &[i64]) -> bool {
+        IntegralKey::try_new(powers.iter().copied())
+            .is_ok_and(|key| self.residuals.contains(&key))
+    }
+
+    /// The step of [`PLaneStep::step`] on `powers`, which must be a key of
+    /// the owner support.
+    fn apply_powers(&self, powers: &[i64]) -> Result<Applied, PError> {
+        if powers.len() != self.arity || self.support_of(powers) != self.support {
+            return Err(PError::Contract(format!(
+                "custom owner support {:#x}: key {powers:?}",
+                self.support
+            )));
+        }
+        let integral = IntegralKey::try_new(powers.iter().copied())
+            .map_err(|error| PError::Contract(error.to_string()))?;
+        let mut conditions = Vec::new();
+        let applied = apply_prepared_owner(
+            &self.programs,
+            &self.chart(powers),
+            &integral,
+            &mut conditions,
+            &mut ReductionRequest::default(),
+            &mut ReductionStatistics::default(),
+            &ReductionLimits::default(),
+        )
+        .map_err(|error| step_error(OwnerClassId(0), error))?;
+        match applied {
+            AppliedOwnerStep::Terminal => Ok(Applied::Terminal),
+            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
+                class: OwnerClassId(0),
+                key: integral,
+            }),
+            AppliedOwnerStep::Applied(terms) => Ok(Applied::Children(
+                terms
+                    .into_iter()
+                    .map(|(child, coefficient)| (child.powers().to_vec(), coefficient))
+                    .collect(),
+            )),
+        }
+    }
+
+    fn order_of(&self, powers: &[i64]) -> Result<crate::sector::ComplexityKey, PError> {
+        let ordering = owner_ordering(&self.programs, &self.chart(powers)).ok_or_else(|| {
+            PError::Contract(format!("no chart of the custom owner holds {powers:?}"))
+        })?;
+        ordering
+            .complexity_key(powers)
+            .map_err(|error| PError::Contract(format!("custom owner order: {error}")))
+    }
+}
+
+fn custom_owner_ops(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<Box<dyn CustomOwnerOps>, PError> {
+    let arity = presentation.slots.len();
+    if !crate::compiled_runtime_arities().contains(&arity) {
+        return Err(PError::Unsupported(format!(
+            "custom owner arity {arity} is not compiled into this RustRed (registered: {:?}); \
+             rebuild with RUSTRED_RUNTIME_ARITIES including {arity} (feature runtime-arity-selection)",
+            crate::compiled_runtime_arities()
+        )));
+    }
+    check_custom_owner(presentation, meta)?;
+    macro_rules! dispatch {
+        ($($n:literal),*) => {
+            match crate::campaign_storage_arity(arity) {
+                $($n => build_step::<$n>(presentation, payload, meta, true, None)
+                    .map(|step| Box::new(step) as Box<dyn CustomOwnerOps>),)*
+                storage => Err(PError::Unsupported(format!(
+                    "custom owner arity {arity} has no compiled storage (width {storage})"
+                ))),
+            }
+        };
+    }
+    with_candidate_runtime_arities!(dispatch)
+}
+
+/// What [`verify_custom_payload`] checked on one payload.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CustomPayloadCheck {
+    pub charts: usize,
+    pub rules: usize,
+    /// The order is support-primary (else rank-gated or two-sided).
+    pub support_primary: bool,
+    pub witness_keys: usize,
+    /// Apply children strictly below their key in the owner order.
+    pub same_sector_children: usize,
+    /// Route children on strict subsectors of the owner support.
+    pub subsector_children: usize,
+    /// Witness keys that are residuals of the owner.
+    pub terminals: usize,
+}
+
+/// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
+/// on one payload and its presentation, without a library: the hard guard
+/// and chart rule ([`check_custom_owner`]); every chart prepared through the
+/// solver's admission; an order that is support-primary or rank-gated for an
+/// integer owner and two-sided exactly on the eps axes of an eps owner; and
+/// the descent witness box ([`super::descent::custom_witness_keys`]): every
+/// child of a step is an Apply key of the support strictly lower in the owner
+/// order or a key of a strict subsector, every terminal a residual.
+pub fn verify_custom_payload(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<CustomPayloadCheck, PError> {
+    let summary = inspect_custom_payload(payload)?;
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let (support, forced, arity) = (ops.support(), ops.forced(), ops.arity());
+    let fail = |detail: String| {
+        PError::MalformedLibrary(format!(
+            "custom payload on presentation {}: {detail}",
+            presentation.id.0
+        ))
+    };
+    let policy = OrderingPolicy::try_from_stable_id(&summary.ordering)
+        .map_err(|error| fail(format!("order {}: {error}", summary.ordering)))?;
+    let program_axes = policy.program().map_or(0, |program| mask(program.two_sided()));
+    if program_axes != forced || summary.two_sided_axes != forced {
+        return Err(fail(format!(
+            "the order is two-sided on {program_axes:#x}, the eps axes are {forced:#x}"
+        )));
+    }
+    let support_primary = policy.is_support_primary();
+    if forced == 0 && !support_primary && !super::descent::is_rank_gated(&policy, support) {
+        return Err(fail(format!(
+            "the order {} is neither support-primary nor rank-gated",
+            summary.ordering
+        )));
+    }
+    let mut check = CustomPayloadCheck {
+        charts: summary.charts.len(),
+        rules: summary.rules(),
+        support_primary,
+        ..CustomPayloadCheck::default()
+    };
+    let support_of = |powers: &[i64]| {
+        (powers.iter().enumerate())
+            .filter(|&(_, &power)| power > 0)
+            .fold(forced, |mask, (slot, _)| mask | 1 << slot)
+    };
+    for key in super::descent::custom_witness_keys(arity, support, forced) {
+        let order = ops.order_of(&key)?;
+        match ops.apply_powers(&key)? {
+            Applied::Terminal => {
+                if !ops.is_residual(&key) {
+                    return Err(fail(format!("the terminal {key:?} is no residual")));
+                }
+                check.terminals += 1;
+            }
+            Applied::Children(children) => {
+                for (child, _) in children {
+                    let child_support = support_of(&child);
+                    if child_support == support {
+                        if ops.order_of(&child)? >= order {
+                            return Err(fail(format!(
+                                "key {key:?}: the child {child:?} does not descend"
+                            )));
+                        }
+                        check.same_sector_children += 1;
+                    } else if child_support & !support == 0 {
+                        check.subsector_children += 1;
+                    } else {
+                        return Err(fail(format!(
+                            "key {key:?}: the child {child:?} leaves the support"
+                        )));
+                    }
+                }
+            }
+        }
+        check.witness_keys += 1;
+    }
+    Ok(check)
+}
+
+/// One seed reduced by the owner's rules alone ([`replay_custom_payload`]).
+#[derive(Clone, Debug)]
+pub struct CustomReplay {
+    pub seed: Vec<i64>,
+    /// Coefficients of the owner's residuals, exact in `Q(d)`.
+    pub residuals: Vec<(Vec<i64>, Coefficient)>,
+    /// Keys of strict subsectors of the owner support (Route keys in a
+    /// library), with their coefficients.
+    pub boundary: Vec<(Vec<i64>, Coefficient)>,
+    /// Rule applications.
+    pub steps: usize,
+}
+
+/// Each seed (a key of the owner support) reduced with the owner's program,
+/// exactly as its library steps do (`apply_prepared_owner` on the prepared
+/// charts, keys in descending owner order, each key expanded once with the
+/// sum of its weights): the result is the seed in terms of the owner's
+/// residuals plus keys of strict subsectors, which a library would route on.
+/// A child that does not descend fails.
+pub fn replay_custom_payload(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    seeds: &[Vec<i64>],
+) -> Result<Vec<CustomReplay>, PError> {
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let (support, forced) = (ops.support(), ops.forced());
+    let support_of = |powers: &[i64]| {
+        (powers.iter().enumerate())
+            .filter(|&(_, &power)| power > 0)
+            .fold(forced, |mask, (slot, _)| mask | 1 << slot)
+    };
+    let context = presentation.family.coefficient_context();
+    let add = |map: &mut BTreeMap<Vec<i64>, Coefficient>, key: Vec<i64>, value: Coefficient| {
+        match map.get_mut(&key) {
+            Some(slot) => *slot = &*slot + &value,
+            None => {
+                map.insert(key, value);
+            }
+        }
+    };
+    let mut replays = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        if support_of(seed) != support {
+            return Err(PError::Contract(format!(
+                "seed {seed:?} is not on the owner support {support:#x}"
+            )));
+        }
+        let mut queue: BTreeMap<(crate::sector::ComplexityKey, Vec<i64>), Coefficient> =
+            BTreeMap::new();
+        queue.insert((ops.order_of(seed)?, seed.clone()), context.one());
+        let (mut residuals, mut boundary) = (BTreeMap::new(), BTreeMap::new());
+        let mut steps = 0;
+        while let Some(((order, key), weight)) = queue.pop_last() {
+            if weight.is_zero() {
+                continue;
+            }
+            steps += 1;
+            match ops.apply_powers(&key)? {
+                Applied::Terminal => add(&mut residuals, key, weight),
+                Applied::Children(children) => {
+                    for (child, coefficient) in children {
+                        let value = &weight * &coefficient;
+                        if support_of(&child) == support {
+                            let child_order = ops.order_of(&child)?;
+                            if child_order >= order {
+                                return Err(PError::MalformedLibrary(format!(
+                                    "replay of {seed:?}: the child {child:?} of {key:?} does not descend"
+                                )));
+                            }
+                            match queue.get_mut(&(child_order.clone(), child.clone())) {
+                                Some(slot) => *slot = &*slot + &value,
+                                None => {
+                                    queue.insert((child_order, child), value);
+                                }
+                            }
+                        } else {
+                            add(&mut boundary, child, value);
+                        }
+                    }
+                }
+            }
+        }
+        let nonzero = |map: BTreeMap<Vec<i64>, Coefficient>| -> Vec<(Vec<i64>, Coefficient)> {
+            map.into_iter().filter(|(_, value)| !value.is_zero()).collect()
+        };
+        replays.push(CustomReplay {
+            seed: seed.clone(),
+            residuals: nonzero(residuals),
+            boundary: nonzero(boundary),
+            steps,
+        });
+    }
+    Ok(replays)
 }
 
 #[cfg(test)]

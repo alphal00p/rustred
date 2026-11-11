@@ -40,7 +40,7 @@ use super::census::SignedAffineLoopMap;
 use super::decide::{ADAPTED_LOOP, CUSTOM, decide};
 use super::diamond::check_diamond_contract;
 use super::error::PError;
-use super::families::{P_FAMILIES_V1_JSON, PFamiliesFile, PFamilyEntry};
+use super::families::{P_FAMILIES_5L_V1_JSON, P_FAMILIES_V1_JSON, PFamiliesFile, PFamilyEntry};
 use super::lane::{DiamondRoles, LaneDecision, LaneRoles, OwnerLane};
 use super::presentation::{
     EdgeKind, EdgeMap, NodeRef, P_EXTERNAL_SQUARE, Presentation, PresentationKind, Slot, SlotIsp,
@@ -501,10 +501,16 @@ pub fn top_topology(entry: &PFamilyEntry) -> PTopo {
 fn embedded_family(name: &str) -> Result<&'static PFamilyEntry, PError> {
     static FAMILIES: OnceLock<Result<BTreeMap<String, PFamilyEntry>, String>> = OnceLock::new();
     let families = FAMILIES.get_or_init(|| {
-        let file: PFamiliesFile =
-            serde_json::from_str(P_FAMILIES_V1_JSON).map_err(|error| error.to_string())?;
-        let entries = file.families.into_iter();
-        Ok(entries.map(|entry| (entry.name.clone(), entry)).collect())
+        let mut families = BTreeMap::new();
+        // v1 first; the 5L tops (p5l-converter) only add names v1 lacks.
+        for json in [P_FAMILIES_V1_JSON, P_FAMILIES_5L_V1_JSON] {
+            let file: PFamiliesFile =
+                serde_json::from_str(json).map_err(|error| error.to_string())?;
+            for entry in file.families {
+                families.entry(entry.name.clone()).or_insert(entry);
+            }
+        }
+        Ok(families)
     });
     let families = families
         .as_ref()
