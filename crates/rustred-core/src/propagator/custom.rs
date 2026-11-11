@@ -1316,7 +1316,7 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
                 class: OwnerClassId(0),
                 key: integral,
             }),
-            AppliedOwnerStep::Applied(terms) => Ok(Applied::Children(
+            AppliedOwnerStep::Applied(terms, _) => Ok(Applied::Children(
                 terms
                     .into_iter()
                     .map(|(child, coefficient)| (child.powers().to_vec(), coefficient))

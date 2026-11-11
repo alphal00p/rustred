@@ -634,6 +634,21 @@ fn permuted_order(order: &Value, slot_map: &[usize]) -> Result<rustred_order::Or
             .collect::<Result<_, _>>()?,
         None => Vec::new(),
     };
+    if order.get("degree_rows").is_none() && order.get("support_weights").is_none() {
+        // The rr_node driver's compact form (rr-consolidate node/driver.rs
+        // `descriptor_json`): `OrderDescriptor::spired_uncut` with the recorded
+        // priorities; its other fields are the same on every slot, so the slot
+        // map moves only the priorities and the two-sided flags (p5l-library).
+        let arity = slot_map.len();
+        let mut descriptor = if two_sided.iter().any(|&b| b) {
+            OrderDescriptor::spired_uncut_two_sided(permuted(&two_sided, slot_map))
+        } else {
+            OrderDescriptor::spired_uncut(arity)
+        };
+        descriptor.support_priority = priority("support_priority")?;
+        descriptor.coordinate_priority = priority("coordinate_priority")?;
+        return Ok(descriptor);
+    }
     Ok(OrderDescriptor {
         pre_support_degree_rows: rows("pre_support_degree_rows")?,
         support_weights: permuted(&u64_list(&order["support_weights"], "support_weights")?, slot_map),

@@ -55,7 +55,7 @@ use super::custom::{CustomPayloadSummary, inspect_custom_payload};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::library::{OwnerProgram, PLibrary, POwner, POwnerSpec, PTerminal};
-use super::presentation::{EdgeKind, Presentation, Slot, verify_edge_map};
+use super::presentation::{EdgeKind, Presentation, PresentationKind, Slot, verify_edge_map};
 use super::step::{PKeyView, PLaneStep, POrderKey, PStage, PStepContext};
 use super::tag::GammaTag;
 use super::{OwnerClassId, PresentationId};
@@ -621,7 +621,14 @@ fn check_rule_owner(
         &[edge] => {
             let map = &library.edge_maps()[edge];
             let child = library.presentation(map.child);
-            let child_lines = child.lines().count();
+            // An Induced child's lines are its sector's (p5l-library: 5L Insertion
+            // rule edges into integer Custom nodes); the top's other lines are slots.
+            let child_lines = match child.kind {
+                PresentationKind::Induced { mask, .. } => {
+                    child.lines().filter(|(index, _)| mask >> index & 1 == 1).count()
+                }
+                _ => child.lines().count(),
+            };
             if map.kind != kind || map.parent != parent.id {
                 return Err(fail(format!("edge map {edge} is {:?}", map.kind)));
             }

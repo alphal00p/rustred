@@ -34,4 +34,21 @@ pub struct PLibraryOptions {
 pub enum CustomPayloads {
     Generate(CustomOwnerOptions),
     Provided(BTreeMap<String, CustomOwnerPayload>),
+    /// `Provided` payloads by class label, plus imported Custom nodes by the
+    /// graph key of their DAG node (p5l-library): a Custom node with an import
+    /// is presented in the import's own presentation (kind `Caller`, the
+    /// table's family, `p-import-table`) instead of `present_node`'s, and its
+    /// owner takes the import's payload.
+    Imported {
+        provided: BTreeMap<String, CustomOwnerPayload>,
+        imported: BTreeMap<Vec<u8>, ImportedCustomNode>,
+    },
+}
+
+/// One imported Custom node: the presentation its payload is bound to (its id
+/// and node reference are set by assembly) and the payload.
+#[derive(Clone, Debug)]
+pub struct ImportedCustomNode {
+    pub presentation: rustred::propagator::presentation::Presentation,
+    pub payload: CustomOwnerPayload,
 }
