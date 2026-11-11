@@ -361,6 +361,22 @@ pub fn parse_equation(e: &str, n: usize) -> Result<(Vec<i64>, i64), String> {
     Ok((c, c0))
 }
 
+fn parse_equations(equations: &[String], n: usize) -> Result<Vec<(Vec<i64>, i64)>, String> {
+    equations.iter().map(|e| parse_equation(e, n)).collect()
+}
+
+/// Free axes that the equations determine (one per equation, first free axis not yet taken).
+fn dependent_axes(fixed: &[Option<i64>], eqs: &[(Vec<i64>, i64)]) -> Vec<bool> {
+    let n = fixed.len();
+    let mut dep = vec![false; n];
+    for (c, _) in eqs {
+        if let Some(i) = (0..n).find(|&i| c[i] != 0 && fixed[i].is_none() && !dep[i]) {
+            dep[i] = true;
+        }
+    }
+    dep
+}
+
 /// A case prepared for the oracle (rows at radius 1 included).
 pub struct OracleCase {
     fixed: Vec<Option<i64>>,
@@ -382,22 +398,40 @@ impl OracleCase {
         if fixed.len() != n {
             return Err(format!("case arity {} != {n}", fixed.len()));
         }
-        let eqs: Vec<(Vec<i64>, i64)> = equations
-            .iter()
-            .map(|e| parse_equation(e, n))
-            .collect::<Result<_, _>>()?;
+        let eqs = parse_equations(equations, n)?;
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+        let dep = dependent_axes(fixed, &eqs);
+        // same draw sequence as before (free independent axes in slot order, then d)
+        let point: Vec<u64> = (0..n)
+            .map(|i| {
+                if fixed[i].is_none() && !dep[i] {
+                    rng.val()
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let d = rng.val();
+        Self::new_at(fam, fixed, &eqs, &point, d)
+    }
+
+    /// The case evaluated at an explicit point: `point[i]` (mod p) on every free axis that the equations do not
+    /// determine, `d` mod p.
+    pub fn new_at(
+        fam: &OracleFamily,
+        fixed: &[Option<i64>],
+        eqs: &[(Vec<i64>, i64)],
+        point: &[u64],
+        d: u64,
+    ) -> Result<Self, String> {
+        let n = fam.n;
+        let eqs = eqs.to_vec();
         let sym: Vec<bool> = fixed.iter().map(|f| f.is_none()).collect();
-        let mut dep = vec![false; n];
-        for (c, _) in &eqs {
-            if let Some(i) = (0..n).find(|&i| c[i] != 0 && sym[i] && !dep[i]) {
-                dep[i] = true;
-            }
-        }
+        let dep = dependent_axes(fixed, &eqs);
         let mut val: Vec<Option<u64>> = (0..n)
             .map(|i| match fixed[i] {
                 Some(v) => Some(smod(v)),
-                None if !dep[i] => Some(rng.val()),
+                None if !dep[i] => Some(point[i] % P),
                 None => None,
             })
             .collect();
@@ -426,7 +460,6 @@ impl OracleCase {
                 None => fam.phys[i],
             })
             .collect();
-        let d = rng.val();
         let mut case = Self {
             fixed: fixed.to_vec(),
             eqs,
@@ -545,8 +578,13 @@ impl OracleCase {
         k
     }
 
-    /// Depth-1 rule of this case under the coordinate priority `prio` (original slot numbers).
-    pub fn depth1(&self, prio: &[usize]) -> Depth1 {
+    /// Echelon form under `prio`: rank of every in-sector key (0 = most complex) and the pivot rows
+    /// (row, rows combined as a bit set).
+    #[allow(clippy::type_complexity)]
+    fn eliminate(
+        &self,
+        prio: &[usize],
+    ) -> (Vec<usize>, HashMap<usize, (Vec<(usize, u64)>, Vec<u64>)>) {
         let sk: Vec<Option<Vec<i64>>> = self
             .keys
             .iter()
@@ -591,21 +629,51 @@ impl OracleCase {
                 }
             }
         }
-        let mut best: Option<(usize, usize, usize)> = None;
-        for (&k, (row, deps)) in &pivots {
-            if self.eligible(&self.keys[k]) {
-                let tr: usize = deps.iter().map(|w| w.count_ones() as usize).sum();
-                let c = (tr, row.len() - 1, rank[k]);
-                if best.is_none_or(|b| c < b) {
-                    best = Some(c);
-                }
-            }
-        }
-        match best {
-            Some((trace, rhs, _)) => Depth1 {
+        (rank, pivots)
+    }
+
+    /// Every eligible pivot of the echelon form under `prio`: offset of the key, trace rows, RHS terms, rank
+    /// (sorted by trace, RHS, rank: the first one is the oracle's choice).
+    pub fn eligible_pivots(&self, prio: &[usize]) -> Vec<Pivot> {
+        let (rank, pivots) = self.eliminate(prio);
+        let mut out: Vec<Pivot> = pivots
+            .iter()
+            .filter(|(k, _)| self.eligible(&self.keys[**k]))
+            .map(|(&k, (row, deps))| Pivot {
+                offset: self.keys[k].clone(),
+                trace: deps.iter().map(|w| w.count_ones() as usize).sum(),
+                rhs: row.len() - 1,
+                rank: rank[k],
+            })
+            .collect();
+        out.sort_by_key(|p| (p.trace, p.rhs, p.rank));
+        out
+    }
+
+    /// The relation led by the pivot key `offset` under `prio`, normalised to lead coefficient 1, as
+    /// (RHS key offset, coefficient mod p); `None` if the key is not a pivot here.
+    pub fn relation(&self, prio: &[usize], offset: &[i32]) -> Option<Vec<(Vec<i32>, u64)>> {
+        let (_, pivots) = self.eliminate(prio);
+        let k = self.keys.iter().position(|x| x.as_slice() == offset)?;
+        let (row, _) = pivots.get(&k)?;
+        let lv = row.iter().find(|(j, _)| *j == k)?.1;
+        let inv = powm(lv, P - 2);
+        let mut out: Vec<(Vec<i32>, u64)> = row
+            .iter()
+            .filter(|(j, _)| *j != k)
+            .map(|&(j, v)| (self.keys[j].clone(), v * inv % P))
+            .collect();
+        out.sort();
+        Some(out)
+    }
+
+    /// Depth-1 rule of this case under the coordinate priority `prio` (original slot numbers).
+    pub fn depth1(&self, prio: &[usize]) -> Depth1 {
+        match self.eligible_pivots(prio).first() {
+            Some(p) => Depth1 {
                 rule: true,
-                trace,
-                rhs,
+                trace: p.trace,
+                rhs: p.rhs,
             },
             None => Depth1 {
                 rule: false,
@@ -616,11 +684,209 @@ impl OracleCase {
     }
 }
 
+/// An eligible pivot of the oracle's echelon form.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pivot {
+    /// key offset from the case point (nonzero only on free axes)
+    pub offset: Vec<i32>,
+    pub trace: usize,
+    pub rhs: usize,
+    pub rank: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Depth1 {
     pub rule: bool,
     pub trace: usize,
     pub rhs: usize,
+}
+
+/// Incremental Thiele interpolation mod p (size = numerator + denominator degree of the reconstructed function).
+struct Thiele {
+    xs: Vec<u64>,
+    a: Vec<u64>,
+    hits: usize,
+}
+
+impl Thiele {
+    fn new() -> Self {
+        Self {
+            xs: Vec::new(),
+            a: Vec::new(),
+            hits: 0,
+        }
+    }
+    fn done(&self) -> bool {
+        self.hits >= 2
+    }
+    fn eval(&self, x: u64) -> Option<u64> {
+        let m = self.a.len();
+        if m == 0 {
+            return None;
+        }
+        let mut r = self.a[m - 1];
+        for j in (0..m - 1).rev() {
+            if r == 0 {
+                return None;
+            }
+            r = (self.a[j] + (x + P - self.xs[j]) % P * powm(r, P - 2)) % P;
+        }
+        Some(r)
+    }
+    fn add(&mut self, x: u64, y: u64) {
+        if self.done() {
+            return;
+        }
+        if self.eval(x) == Some(y) {
+            self.hits += 1;
+            return;
+        }
+        self.hits = 0;
+        let mut r = y;
+        for j in 0..self.a.len() {
+            let diff = (r + P - self.a[j]) % P;
+            if diff == 0 {
+                return;
+            }
+            r = (x + P - self.xs[j]) % P * powm(diff, P - 2) % P;
+        }
+        self.xs.push(x);
+        self.a.push(r);
+    }
+    fn size(&self) -> usize {
+        self.a.len().saturating_sub(1)
+    }
+}
+
+/// Size profile of the relation an order selects for a case (the oracle's rule at depth 1): RHS terms and the degree
+/// of its normalised coefficients as rational functions of the symbols (`d` and the free axes the equations leave
+/// free), measured by Thiele reconstruction mod p along a random line through all symbols (`total_*`) and, when
+/// asked, along each symbol alone (`per_symbol_max`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RelationProfile {
+    pub pivot: Pivot,
+    /// eligible pivots of the case under this order
+    pub eligible: usize,
+    /// "d" then "n<slot>" for every independent free axis
+    pub symbols: Vec<String>,
+    /// largest / summed Thiele size (numerator + denominator degree) over the RHS coefficients along the line
+    pub total_max: usize,
+    pub total_sum: usize,
+    /// largest Thiele size per symbol (empty unless asked)
+    pub per_symbol_max: Vec<usize>,
+    /// sum over RHS coefficients of min(prod_s (deg_s + 1), C(total + V, V)) (V = symbols; per-symbol degrees when
+    /// measured, else the line degree for every symbol)
+    pub est_monomials: f64,
+    /// every coefficient reconstructed within the point cap
+    pub converged: bool,
+}
+
+fn binom(n: usize, k: usize) -> f64 {
+    let mut r = 1.0;
+    for i in 0..k.min(n) {
+        r = r * (n - i) as f64 / (i + 1) as f64;
+    }
+    r
+}
+
+/// Profile of the relation selected for a case under `prio` (the oracle's pivot, or the eligible pivot `pivot`);
+/// `None` without an eligible pivot.
+pub fn relation_profile(
+    fam: &OracleFamily,
+    fixed: &[Option<i64>],
+    equations: &[String],
+    prio: &[usize],
+    pivot: Option<&[i32]>,
+    per_symbol: bool,
+    max_points: usize,
+    seed: u64,
+) -> Result<Option<RelationProfile>, String> {
+    let n = fam.n;
+    let eqs = parse_equations(equations, n)?;
+    let dep = dependent_axes(fixed, &eqs);
+    let free: Vec<usize> = (0..n).filter(|&i| fixed[i].is_none() && !dep[i]).collect();
+    let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+    let base: Vec<u64> = (0..n).map(|_| rng.val()).collect();
+    let d0 = rng.val();
+    let case0 = OracleCase::new_at(fam, fixed, &eqs, &base, d0)?;
+    let piv = case0.eligible_pivots(prio);
+    let eligible = piv.len();
+    let chosen = match pivot {
+        Some(off) => piv.into_iter().find(|p| p.offset == off),
+        None => piv.into_iter().next(),
+    };
+    let Some(chosen) = chosen else {
+        return Ok(None);
+    };
+    let rel0 = case0
+        .relation(prio, &chosen.offset)
+        .ok_or("pivot vanished")?;
+    let keys: Vec<Vec<i32>> = rel0.iter().map(|(k, _)| k.clone()).collect();
+    let nsym = 1 + free.len();
+    // measure along a direction (component 0 = d, then the free axes)
+    let measure = |dir: &[u64], rng: &mut Rng| -> Result<(Vec<usize>, bool), String> {
+        let mut th: Vec<Thiele> = keys.iter().map(|_| Thiele::new()).collect();
+        let mut pts = 0;
+        while pts < max_points && th.iter().any(|t| !t.done()) {
+            let t = rng.val();
+            let mut point = base.clone();
+            for (k, &i) in free.iter().enumerate() {
+                point[i] = (base[i] + dir[1 + k] * t) % P;
+            }
+            let d = (d0 + dir[0] * t) % P;
+            let c = OracleCase::new_at(fam, fixed, &eqs, &point, d)?;
+            pts += 1;
+            let Some(rel) = c.relation(prio, &chosen.offset) else {
+                continue;
+            };
+            let m: HashMap<&Vec<i32>, u64> = rel.iter().map(|(k, v)| (k, *v)).collect();
+            for (j, k) in keys.iter().enumerate() {
+                th[j].add(t, m.get(k).copied().unwrap_or(0));
+            }
+        }
+        let conv = th.iter().all(Thiele::done);
+        Ok((th.iter().map(Thiele::size).collect(), conv))
+    };
+    let line: Vec<u64> = (0..nsym).map(|_| rng.val()).collect();
+    let (tot, mut converged) = measure(&line, &mut rng)?;
+    let mut per: Vec<Vec<usize>> = Vec::new();
+    if per_symbol {
+        for s in 0..nsym {
+            let mut dir = vec![0u64; nsym];
+            dir[s] = 1;
+            let (v, c) = measure(&dir, &mut rng)?;
+            converged &= c;
+            per.push(v);
+        }
+    }
+    let est: f64 = (0..keys.len())
+        .map(|j| {
+            let bound = binom(tot[j] + nsym, nsym);
+            if per.is_empty() {
+                bound
+            } else {
+                per.iter()
+                    .map(|v| (v[j] + 1) as f64)
+                    .product::<f64>()
+                    .min(bound)
+            }
+        })
+        .sum();
+    let mut symbols = vec!["d".to_string()];
+    symbols.extend(free.iter().map(|i| format!("n{i}")));
+    Ok(Some(RelationProfile {
+        pivot: chosen,
+        eligible,
+        symbols,
+        total_max: tot.iter().copied().max().unwrap_or(0),
+        total_sum: tot.iter().sum(),
+        per_symbol_max: per
+            .iter()
+            .map(|v| v.iter().copied().max().unwrap_or(0))
+            .collect(),
+        est_monomials: est,
+        converged,
+    }))
 }
 
 /// A rule case of a node with its weight (record bytes of the shipped rule; 0 if unknown).
@@ -792,6 +1058,12 @@ pub struct PredictOptions {
     pub sample_easy: usize,
     pub rounds: usize,
     pub seed: u64,
+    /// Second-stage ranking (order-study session 2): among orders with the same weighted depth-1 misses, prefer the
+    /// smallest PREDICTED RULE SIZE = summed oracle RHS terms of the selected depth-1 relations of the hard cases,
+    /// weighted like the misses (RHS of the oracle relation ranks native monomials at Spearman ~0.84 on 284 depth-1
+    /// rules of five regenerated tables). Off: the summed trace rows (session-1 behaviour).
+    #[serde(default)]
+    pub size_stage: bool,
 }
 
 impl Default for PredictOptions {
@@ -800,6 +1072,7 @@ impl Default for PredictOptions {
             sample_easy: 300,
             rounds: 8,
             seed: 7,
+            size_stage: false,
         }
     }
 }
@@ -830,14 +1103,44 @@ pub fn predict(
     opts: &PredictOptions,
     log: &mut dyn FnMut(&str),
 ) -> Result<Prediction, String> {
+    predict_with(fam, cases, &[], base, &[], opts, log)
+}
+
+/// [`predict`] with EXTRA cases that must get a depth-1 rule whatever the base order does (the hard cases found by
+/// bounded runs under earlier predictions, each with its weight), and extra START candidates (earlier predictions).
+pub fn predict_with(
+    fam: &OracleFamily,
+    cases: &[WeightedCase],
+    extra: &[(WeightedCase, f64)],
+    base: &[usize],
+    starts: &[(String, Vec<usize>)],
+    opts: &PredictOptions,
+    log: &mut dyn FnMut(&str),
+) -> Result<Prediction, String> {
+    let n0 = cases.len();
+    let cases: Vec<WeightedCase> = cases
+        .iter()
+        .cloned()
+        .chain(extra.iter().map(|(c, _)| c.clone()))
+        .collect();
+    let cases = cases.as_slice();
+    let extra_w: HashMap<usize, f64> = extra
+        .iter()
+        .enumerate()
+        .map(|(k, (_, w))| (n0 + k, *w))
+        .collect();
     let prepared: Vec<OracleCase> = cases
         .iter()
         .enumerate()
         .map(|(i, c)| OracleCase::new(fam, &c.fixed, &c.equations, 1 + i as u64))
         .collect::<Result<_, _>>()?;
     let at_base: Vec<Depth1> = prepared.iter().map(|c| c.depth1(base)).collect();
-    let hard: Vec<usize> = (0..cases.len()).filter(|&i| !at_base[i].rule).collect();
-    let easy_all: Vec<usize> = (0..cases.len()).filter(|&i| at_base[i].rule).collect();
+    let hard: Vec<usize> = (0..cases.len())
+        .filter(|&i| !at_base[i].rule || extra_w.contains_key(&i))
+        .collect();
+    let easy_all: Vec<usize> = (0..cases.len())
+        .filter(|&i| at_base[i].rule && !extra_w.contains_key(&i))
+        .collect();
     let mut rng = Rng(opts.seed.wrapping_mul(0x2545_F491_4F6C_DD1D) | 1);
     let mut easy = easy_all.clone();
     for i in (1..easy.len()).rev() {
@@ -846,14 +1149,23 @@ pub fn predict(
     }
     easy.truncate(opts.sample_easy);
     easy.sort_unstable();
-    let weight = |i: usize| 1.0 + cases[i].bytes as f64 / 1e6;
+    let weight = |i: usize| {
+        extra_w
+            .get(&i)
+            .copied()
+            .unwrap_or(1.0 + cases[i].bytes as f64 / 1e6)
+    };
     let score = |prio: &[usize]| -> (f64, usize) {
         let mut miss = 0.0;
         let mut tr = 0;
         for &i in &hard {
             let d = prepared[i].depth1(prio);
             if d.rule {
-                tr += d.trace;
+                tr += if opts.size_stage {
+                    (d.rhs as f64 * weight(i)).round() as usize
+                } else {
+                    d.trace
+                };
             } else {
                 miss += weight(i);
             }
@@ -869,7 +1181,12 @@ pub fn predict(
         a.0 < b.0 - 1e-9 || ((a.0 - b.0).abs() <= 1e-9 && a.1 < b.1)
     };
     let phys = &fam.phys;
-    let hw: Vec<(&WeightedCase, f64)> = hard.iter().map(|&i| (&cases[i], weight(i))).collect();
+    // the R1 vote: hard cases and the weighted extra ones (extra cases of weight 1 only keep their depth-1 rule)
+    let hw: Vec<(&WeightedCase, f64)> = hard
+        .iter()
+        .filter(|&&i| !at_base[i].rule || weight(i) > 1.0)
+        .map(|&i| (&cases[i], weight(i)))
+        .collect();
     let mut cands: Vec<(String, Vec<usize>)> = vec![
         ("base".into(), base.to_vec()),
         ("bfi_vote".into(), bfi_vote(&hw, phys, base)),
@@ -892,9 +1209,12 @@ pub fn predict(
         ),
     ];
     let mut by_size = hard.clone();
-    by_size.sort_by(|&a, &b| cases[b].bytes.cmp(&cases[a].bytes));
+    by_size.sort_by(|&a, &b| weight(b).total_cmp(&weight(a)));
     for (k, &i) in by_size.iter().take(3).enumerate() {
         cands.push((format!("bfi_case{k}"), bfi_case(&cases[i], phys, base)));
+    }
+    for (name, p) in starts {
+        cands.push((name.clone(), p.clone()));
     }
     let mut scored = Vec::new();
     let mut best: Option<(String, Vec<usize>, (f64, usize))> = None;
@@ -1044,5 +1364,47 @@ mod tests {
             bfi_case(&wc, &f.phys, &[0, 1, 2, 3, 4]),
             vec![1, 0, 2, 4, 3]
         );
+    }
+
+    #[test]
+    fn thiele_sizes() {
+        // (t^2 + 3) / (t + 5): numerator + denominator degree 3; a constant: 0; a cubic polynomial: 3 + 0 = 3 in
+        // Thiele's balanced form needs 2*3 = 6 (the size counts continued-fraction terms - 1)
+        let mut a = Thiele::new();
+        let mut c = Thiele::new();
+        let mut t = 11u64;
+        while !(a.done() && c.done()) {
+            let num = (t * t + 3) % P;
+            let den = (t + 5) % P;
+            a.add(t, num * powm(den, P - 2) % P);
+            c.add(t, 42);
+            t += 7;
+        }
+        assert_eq!(a.size(), 3);
+        assert_eq!(c.size(), 0);
+    }
+
+    #[test]
+    fn relation_profile_of_the_top_case() {
+        let f = OracleFamily::parse(FAM).unwrap();
+        let fixed = [None, None, None, Some(0), Some(0)];
+        let prio = [0, 1, 2, 3, 4];
+        let oc = OracleCase::new(&f, &fixed, &[], 1).unwrap();
+        let piv = oc.eligible_pivots(&prio);
+        assert!(!piv.is_empty());
+        let r = relation_profile(&f, &fixed, &[], &prio, None, true, 60, 3)
+            .unwrap()
+            .unwrap();
+        assert!(r.converged);
+        assert_eq!(r.symbols, vec!["d", "n0", "n1", "n2"]);
+        assert_eq!(r.per_symbol_max.len(), 4);
+        assert!(r.est_monomials >= 1.0);
+        // a second seed sees the same pivot and the same RHS count
+        let r2 = relation_profile(&f, &fixed, &[], &prio, None, false, 60, 9)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r2.pivot.offset, r.pivot.offset);
+        assert_eq!(r2.pivot.rhs, r.pivot.rhs);
+        assert_eq!(r2.total_max, r.total_max);
     }
 }
