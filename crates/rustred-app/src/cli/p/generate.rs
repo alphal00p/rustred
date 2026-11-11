@@ -104,7 +104,6 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut owners, mut threads, mut force) = (BTreeSet::new(), 1, false);
     let (mut budget, mut lp_from) = (GenerationBudget::default(), None);
     let (mut integral_order, mut discovery, mut list) = (None, None, false);
-    let (mut integral_order, mut discovery) = (None, None);
     let mut exact_backend = CandidateExactBackend::default();
     let mut trial_log = None;
     let mut seen = BTreeSet::new();
