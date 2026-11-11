@@ -653,6 +653,37 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         active_variables: variables.active_len(),
     });
     trace_dump::maybe_dump(rows, &columns, order, target_column);
+    // Lift pre-screen (rr-consolidate): only when a caller installed a policy on this thread
+    // (crate::node::screen::with_screen); the default engine path is unchanged.
+    #[cfg(feature = "reconstruction")]
+    if let Some(screen) = crate::node::screen::active() {
+        if rows.len() >= screen.min_rows {
+            let measure =
+                sampled::screen(rows, &columns, order, target_column, &variables, screen.max_points, screen.seed)?;
+            let decision = screen.decide(&measure);
+            crate::node::screen::record(measure, decision.clone());
+            match decision {
+                crate::node::screen::ScreenDecision::Refuse(reason) => {
+                    return Err(MaterializationError::SemiNumericalReconstruction(format!(
+                        "lift pre-screen refused: {reason}"
+                    )));
+                }
+                crate::node::screen::ScreenDecision::Sampled => {
+                    return sampled::materialize(
+                        rows,
+                        &columns,
+                        order,
+                        target_column,
+                        &variables,
+                        screen.sampled_threads.max(1),
+                        screen.seed,
+                        observe,
+                    );
+                }
+                crate::node::screen::ScreenDecision::Pass => {}
+            }
+        }
+    }
     if backend == SymbolicExactBackend::SparseFactorized {
         return factorized::materialize(rows, &columns, order, target_column, &variables, observe);
     }

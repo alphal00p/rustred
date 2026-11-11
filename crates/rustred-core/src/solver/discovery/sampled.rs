@@ -280,3 +280,89 @@ pub(super) fn materialize<const N: usize>(
     eprintln!("SAMPLED done terms={} t={:.1}s", output.len(), start.elapsed().as_secs_f64());
     Ok(output)
 }
+
+/// Lift pre-screen (rr-consolidate): a cheap modular estimate of the target row of a fixed trace BEFORE any exact
+/// lift. Replays the trace mod p (no characteristic-zero arithmetic): the generic support size gives the RHS term
+/// count, one Thiele line through a random point in a random direction gives the total (numerator, denominator)
+/// degree of every column and of a random combination F (whose reduced denominator is the common denominator).
+/// The line is capped at `max_points` replays: no convergence within the cap means a total degree beyond about
+/// `max_points / 2` (`converged = false`). The measurement is diagnostic; the policy belongs to
+/// [`crate::node::screen::LiftScreen`].
+pub(crate) fn screen<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    max_points: usize,
+    seed: u64,
+) -> Result<crate::node::screen::ScreenMeasure, MaterializationError> {
+    let start = std::time::Instant::now();
+    let mut measure = crate::node::screen::ScreenMeasure {
+        rows: rows.len(),
+        columns: columns.len(),
+        variables: variables.active_len(),
+        ..Default::default()
+    };
+    let columns_with_sentinel =
+        u32::try_from(columns.len()).ok().and_then(|n| n.checked_add(1)).ok_or(MaterializationError::TooManyColumns)?;
+    let mapped: Vec<Vec<(u32, Coefficient)>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|term| {
+                    let column = columns
+                        .binary_search_by(|candidate| order.compare(candidate, &term.integral))
+                        .map_err(|_| MaterializationError::TargetAbsent)?;
+                    Ok((column as u32, variables.map_coefficient(&term.coefficient)?))
+                })
+                .collect::<Result<_, MaterializationError>>()
+        })
+        .collect::<Result<_, _>>()?;
+    let frame = Frame { rows: mapped, columns_with_sentinel, target: target_column as u32, nvars: variables.active_len() };
+    let p = recon::primes_below_2_62(1, 3)[0];
+    let mut rng = Rng(seed | 1);
+    let mut branches: Vec<((Vec<u32>, Vec<Option<u32>>), usize)> = Vec::new();
+    for _ in 0..3 {
+        let point: Vec<u64> = (0..frame.nvars).map(|_| rng.element(p)).collect();
+        measure.points += 1;
+        if let Some((row, pivots)) = frame.replay(p, &point) {
+            let key = (row.iter().map(|x| x.0).collect::<Vec<_>>(), pivots);
+            match branches.iter_mut().find(|(k, _)| *k == key) {
+                Some(entry) => entry.1 += 1,
+                None => branches.push((key, 1)),
+            }
+        }
+    }
+    let Some(((mut support, pivots), _)) = branches.into_iter().max_by_key(|x| x.1) else {
+        measure.note = "no usable generic point".into();
+        measure.seconds = start.elapsed().as_secs_f64();
+        return Ok(measure);
+    };
+    support.sort_unstable();
+    measure.rhs_terms = support.len().saturating_sub(1);
+    if frame.nvars == 0 {
+        measure.converged = true;
+        measure.seconds = start.elapsed().as_secs_f64();
+        return Ok(measure);
+    }
+    let oracle = FrameOracle { frame: &frame, support, pivots };
+    let f = Fp { p };
+    let weights: Vec<u64> = (0..oracle.ncols()).map(|_| rng.element(p)).collect();
+    let base: Vec<u64> = (0..frame.nvars).map(|_| rng.element(p)).collect();
+    let dir: Vec<u64> = (0..frame.nvars).map(|_| rng.element(p)).collect();
+    let (mut used, mut bad) = (0usize, 0usize);
+    match recon::probe_line(&oracle, &f, &base, &dir, &weights, &mut rng, 1, max_points, &mut used, &mut bad) {
+        Ok((cols, fd)) => {
+            measure.converged = true;
+            measure.max_num_degree = cols.iter().map(|x| x.0).max().unwrap_or(0);
+            measure.max_den_degree = cols.iter().map(|x| x.1).max().unwrap_or(0);
+            measure.common_den_degree = fd.1;
+        }
+        Err(e) => measure.note = e,
+    }
+    measure.points += used;
+    measure.bad_points = bad;
+    measure.seconds = start.elapsed().as_secs_f64();
+    Ok(measure)
+}

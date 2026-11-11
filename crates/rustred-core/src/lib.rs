@@ -20,6 +20,7 @@ pub mod family;
 pub mod foundry;
 pub mod identity;
 pub mod input;
+pub mod node;
 pub mod persistence;
 mod platform;
 pub mod propagator;

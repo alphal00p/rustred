@@ -257,7 +257,7 @@ pub struct DegreeInfo {
 }
 
 /// Thiele along one line base + t*dir; returns per-column degrees and F's degrees.
-fn probe_line<O: Oracle>(
+pub fn probe_line<O: Oracle>(
     oracle: &O,
     f: &Fp,
     base: &[u64],
