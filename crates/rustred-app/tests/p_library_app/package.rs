@@ -620,8 +620,9 @@ fn a_family_mismatch_is_refused() {
 }
 
 /// The census with one route replaced by another unimodular map: the builder
-/// accepts it (shape and unimodularity), the descent certificate refuses it.
-/// `census.rrbin` alone damaged: the two census files disagree.
+/// accepts it (shape and unimodularity), the descent certificate refuses it,
+/// and the package equality check counts it as a difference (its tolerance of
+/// alternative route maps needs both maps verified). `census.rrbin` alone damaged: the two census files disagree.
 #[test]
 fn a_corrupted_route_fails_the_descent_certificate() {
     fn corrupt(census: &mut PCensus) {
@@ -665,6 +666,13 @@ fn a_corrupted_route_fails_the_descent_certificate() {
         },
     );
     assert!(unchecked.is_ok(), "{unchecked:?}");
+    // The equality check tolerates another stored route map only when both
+    // maps are admissible routes (`class::verify_route`, M5 combined): this
+    // one is not, so it is a difference.
+    assert_eq!(
+        p_library_differences(&scope_two().library, unchecked.as_ref().unwrap()).unwrap(),
+        vec!["census sectors: 1 differ".to_owned()]
+    );
     malformed(load(&directory), "the route of sector");
 
     malformed(
@@ -1600,8 +1608,10 @@ fn scope_one_to_three_payloads_and_layer_fail_closed() {
 #[test]
 fn an_ordering_and_saved_routes_change_no_value() {
     use rustred_app::propagator::ordering::{ORDERING_FILE, write_ordering, write_routes};
-    let assembled = scope_two();
-    let requests = random_requests(assembled, |_| keys(60));
+    // Scope 1-3: the first scope with Custom owners (NO, t1star05), so the
+    // ordering has rule orders to apply (scope 1-2 has none).
+    let assembled = scope_three();
+    let requests = scope_three_requests(assembled);
     let expected = reductions(&assembled.library, &requests, false);
     let fast = PLibraryOptions {
         verify_descent: false,

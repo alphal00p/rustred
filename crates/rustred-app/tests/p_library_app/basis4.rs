@@ -206,6 +206,10 @@ fn residuals_on(library: &PLibrary, node: u32) -> Vec<usize> {
 /// `[2, 1^10, 0, 0, 0]` on the no1 node; one relation from RustRed's IBP rows
 /// of its family closes the system, two more hold as checks, and its row is
 /// a combination of the masters (with Unit), not a single master term.
+/// M5 combined: no1 is on the Scheme lane by default (Forcer's scheme, one
+/// residual), so the layer is M3-T17's square system of 17 rows without
+/// relations; a package assembled with `RUSTRED_P_SCHEMES=none` keeps the
+/// rank-gated no1 and B2's extra residual.
 #[test]
 #[ignore = "slow: needs the scope 1-4 package (RUSTRED_P_LIBRARY_1_4); optimised"]
 fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
@@ -217,8 +221,13 @@ fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
         .filter(|(_, t)| matches!(t, PTerminal::Residual { .. }))
         .map(|(index, _)| index)
         .collect();
-    assert_eq!(residuals.len(), 17);
-    assert_eq!(library.terminals().len(), 18);
+    // B2's extra no1 residual only without the Scheme lane (M5 combined).
+    let scheme_no1 = library
+        .owners()
+        .any(|owner| owner.spec.lane == rustred::propagator::lane::OwnerLane::Scheme);
+    let extras = usize::from(!scheme_no1);
+    assert_eq!(residuals.len(), 16 + extras);
+    assert_eq!(library.terminals().len(), 17 + extras);
 
     let sites: Vec<&str> = derivation.sites.iter().map(|s| s.master.name).collect();
     assert_eq!(sites, FORCER_MASTER_NAMES);
@@ -244,7 +253,11 @@ fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
         );
         let on_node = residuals_on(library, site.node.0);
         assert_eq!(on_node[0], id.0 as usize, "{name}");
-        assert_eq!(on_node.len(), if name == "no1" { 2 } else { 1 }, "{name}");
+        assert_eq!(
+            on_node.len(),
+            if name == "no1" { 1 + extras } else { 1 },
+            "{name}"
+        );
         let presentation = library.presentation(site.presentation);
         let eps_lines = (presentation.slots.iter())
             .filter(|slot| matches!(slot, Slot::Line(line) if line.eps_units > 0))
@@ -269,7 +282,7 @@ fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
     // Rows: Unit, then I_M(master) = sign (eps G)^L Master(name) solved for
     // the residual of the master's topology.
     let layer = &derivation.layer;
-    assert_eq!(layer.rows().len(), 18);
+    assert_eq!(layer.rows().len(), 17 + extras);
     assert_eq!(layer.rows()[0].provenance, PBasisProvenance::Identity);
     for site in &derivation.sites {
         let PBasis::Residual(id) = site.reduction[0].basis else {
@@ -302,51 +315,54 @@ fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
     let extra: Vec<usize> = (residuals.iter().copied())
         .filter(|index| !site_terminals.contains(index))
         .collect();
-    let [extra] = extra.as_slice() else {
-        panic!("extra residuals {extra:?}");
-    };
-    let PTerminal::Residual { key, .. } = &library.terminals()[*extra] else {
-        unreachable!()
-    };
-    assert_eq!(key.powers(), [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]);
-    let row = &layer.rows()[*extra];
-    assert_eq!(row.provenance, PBasisProvenance::Rustred);
-    assert!(
-        row.terms.len() > 1
-            && (row.terms.iter())
-                .any(|term| term.basis == master("no1") && !term.coefficient.is_zero()),
-        "{:?}",
-        row.terms
-    );
-    let selected = derivation.relations.iter().filter(|r| r.selected).count();
-    assert_eq!(
-        (selected, derivation.relations.len()),
-        (1, 1 + RELATION_CHECKS)
-    );
-    for relation in &derivation.relations {
+    if extras == 0 {
+        assert!(extra.is_empty(), "extra residuals {extra:?}");
+        assert!(derivation.relations.is_empty());
+    }
+    for extra in &extra {
+        let PTerminal::Residual { key, .. } = &library.terminals()[*extra] else {
+            unreachable!()
+        };
+        assert_eq!(key.powers(), [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]);
+        let row = &layer.rows()[*extra];
+        assert_eq!(row.provenance, PBasisProvenance::Rustred);
+        assert!(
+            row.terms.len() > 1
+                && (row.terms.iter())
+                    .any(|term| term.basis == master("no1") && !term.coefficient.is_zero()),
+            "{:?}",
+            row.terms
+        );
+        let selected = derivation.relations.iter().filter(|r| r.selected).count();
+        assert_eq!(
+            (selected, derivation.relations.len()),
+            (1, 1 + RELATION_CHECKS)
+        );
+        for relation in &derivation.relations {
+            println!(
+                "relation: IBP row {} at {:?} (presentation {}), {}, {} terms",
+                relation.ibp_row,
+                relation.seed,
+                relation.presentation.0,
+                if relation.selected {
+                    "in the system"
+                } else {
+                    "check"
+                },
+                relation.reduction.len()
+            );
+        }
         println!(
-            "relation: IBP row {} at {:?} (presentation {}), {}, {} terms",
-            relation.ibp_row,
-            relation.seed,
-            relation.presentation.0,
-            if relation.selected {
-                "in the system"
-            } else {
-                "check"
-            },
-            relation.reduction.len()
+            "extra residual {extra} {:?}: {} terms",
+            key.powers(),
+            row.terms.len()
         );
     }
-    println!(
-        "extra residual {extra} {:?}: {} terms",
-        key.powers(),
-        row.terms.len()
-    );
 
     // Fresh d modulo 2^61 - 1, one component per master.
     assert_eq!(derivation.checks.len(), 2);
     for check in &derivation.checks {
-        assert_eq!(check.components, 16 + 1 + RELATION_CHECKS);
+        assert_eq!(check.components, 16 + extras * (1 + RELATION_CHECKS));
         println!(
             "fresh check: d = {} modulo {}: {} components",
             check.d, check.prime, check.components

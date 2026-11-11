@@ -48,13 +48,19 @@ fn integer(context: &CoefficientContext, text: &str) -> Coefficient {
         let part = context.integer(piece.parse::<i64>().unwrap());
         value = context.try_add(&value, &part, limits).unwrap();
     }
-    if negative { context.try_neg(&value, limits).unwrap() } else { value }
+    if negative {
+        context.try_neg(&value, limits).unwrap()
+    } else {
+        value
+    }
 }
 
 fn rational(context: &CoefficientContext, text: &str) -> Coefficient {
     let limits = ReductionLimits::default().exact_algebra;
     let (n, d) = text.split_once('/').unwrap_or((text, "1"));
-    context.try_div(&integer(context, n), &integer(context, d), limits).unwrap()
+    context
+        .try_div(&integer(context, n), &integer(context, d), limits)
+        .unwrap()
 }
 
 fn poly(context: &CoefficientContext, record: &serde_json::Value) -> Coefficient {
@@ -74,7 +80,10 @@ fn poly(context: &CoefficientContext, record: &serde_json::Value) -> Coefficient
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 4, "usage: scheme_replay <oracle lib> <checks.json> <out.json> [threads]");
+    assert!(
+        args.len() >= 4,
+        "usage: scheme_replay <oracle lib> <checks.json> <out.json> [threads]"
+    );
     let threads: usize = args.get(4).map_or(1, |t| t.parse().unwrap());
     let t_load = Instant::now();
     let library = load_p_library(
@@ -84,10 +93,14 @@ fn main() {
         },
     )
     .unwrap();
-    eprintln!("[replay] oracle loaded in {:.2} s", t_load.elapsed().as_secs_f64());
+    eprintln!(
+        "[replay] oracle loaded in {:.2} s",
+        t_load.elapsed().as_secs_f64()
+    );
     let spec: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&args[2]).unwrap()).unwrap();
-    let presentation = PresentationId(u32::try_from(spec["presentation"].as_u64().unwrap()).unwrap());
+    let presentation =
+        PresentationId(u32::try_from(spec["presentation"].as_u64().unwrap()).unwrap());
     let context = library.coefficient_context().clone();
     let limits = ReductionLimits::default().exact_algebra;
     let mut results = Vec::new();
@@ -124,14 +137,22 @@ fn main() {
         let (status, nonzero) = match &result {
             Ok(reduction) => (
                 "ok".to_owned(),
-                reduction.terms.iter().filter(|t| !t.coefficient.is_zero()).count(),
+                reduction
+                    .terms
+                    .iter()
+                    .filter(|t| !t.coefficient.is_zero())
+                    .count(),
             ),
             Err(error) => (format!("error: {error}"), usize::MAX),
         };
         eprintln!(
             "[replay] {name}: {} inputs, {status}, {} nonzero terms, {seconds:.2} s",
             inputs.len(),
-            if nonzero == usize::MAX { -1 } else { nonzero as i64 }
+            if nonzero == usize::MAX {
+                -1
+            } else {
+                nonzero as i64
+            }
         );
         results.push(serde_json::json!({
             "name": name, "inputs": inputs.len(), "status": status,

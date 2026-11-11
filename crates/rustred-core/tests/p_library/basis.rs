@@ -534,7 +534,7 @@ fn the_layer_json_round_trips_and_fails_closed() {
         other => panic!("{other:?}"),
     }
     assert!(matches!(
-        edited("\"P_CENSUS_VERSION\": \"1\"", "\"P_CENSUS_VERSION\": \"2\""),
+        edited("\"P_CENSUS_VERSION\": \"2\"", "\"P_CENSUS_VERSION\": \"3\""),
         Err(PError::VersionMismatch { .. })
     ));
     assert!(matches!(

@@ -1643,12 +1643,15 @@ fn the_census_does_not_depend_on_its_threads() {
 /// digest only together with the versions next to it.
 #[test]
 fn the_census_content_is_pinned_to_its_versions() {
+    // P_CENSUS_VERSION 2 (M5 combined: generation-time route maps may be
+    // stored) and P_PRESENTATION_VERSION 2 (the ISP choice of three scope 1-4
+    // Insertion owners) leave the scope 1-3 content unchanged: same digests.
     const TOPS: ((u32, u32, u32), &str) = (
-        (1, 1, 1),
+        (2, 1, 1),
         "be76ddd3d0a8cceb9f612fbbb18a9dfd8d47eb4eca2eaa9d9b9433ddd49d7d17",
     );
     const LIBRARY: ((u32, u32, u32, u32, u32), &str) = (
-        (1, 1, 1, 1, 1),
+        (2, 1, 1, 2, 1),
         "7c265ca9f34a87b5be2de729167a74eb0ceb26d2dbcc6648ad733b2bce33e69c",
     );
     // The versions recorded in the text are not content: a bump of a kernel version
@@ -2232,24 +2235,26 @@ fn the_four_loop_dag_is_complete() {
         census.counts(&library.presentations).unwrap()
     );
 
-    // All 10,830 pairs take five minutes: the twins and a sample stay. (10,654
-    // before the Diamond lane: the 4 diamond-adapted presentations add pairs.)
+    // All 10,938 pairs take five minutes: the twins and a sample stay. (10,654
+    // before the Diamond lane: the 4 diamond-adapted presentations add pairs;
+    // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones.)
     assert_eq!(
         assert_traded_nodes_are_refused(&library, &census, 64),
-        (10_830, 172)
+        (10_938, 172)
     );
 
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
-    // are the 183 of the tops. The 4L sectors are those of the Diamond-lane
-    // presentations (176,608 / 156,045 / 20,563 with the diamonds as Custom
-    // owners), as in golden/inventory_1-4.txt.
+    // are the 183 of the tops. The 4L sectors are those of the Diamond- and
+    // Scheme-lane presentations (176,608 / 156,045 / 20,563 with the diamonds
+    // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane), as
+    // in golden/inventory_1-4.txt.
     assert_eq!(
         count_rows(&census.counts(&library.presentations).unwrap()),
         [
             (1, 7, 16, 9, 7, 6),
             (2, 30, 298, 211, 87, 29),
             (3, 125, 8_216, 6_794, 1_422, 92),
-            (4, 291, 173_024, 153_475, 19_549, 183),
+            (4, 291, 171_488, 152_304, 19_184, 183),
         ]
     );
 }

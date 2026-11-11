@@ -50,7 +50,13 @@ where
     Row: AsRef<[Coefficient]>,
 {
     let size = matrix.len();
-    if let Some(inverse) = invert_rational_constant_matrix(context, matrix) {
+    // The fast path keeps the general path's contract: never with the
+    // diagnostic count ceilings on (they are the Symbolica session's), and
+    // only for coefficients of `context` (a foreign one is the general path's
+    // VariableMapMismatch).
+    if !limits.diagnostics_enabled
+        && let Some(inverse) = invert_rational_constant_matrix(context, matrix)
+    {
         return inverse;
     }
     let verified =
@@ -85,9 +91,11 @@ fn constant_coefficient(context: &CoefficientContext, value: &Rational) -> Coeff
 /// identity products checked exactly, as the Symbolica path does. `None` when
 /// an entry depends on a parameter or the shape is not square: the caller
 /// then takes the general Symbolica path, which also reports every error
-/// (a singular constant matrix is reported as such here). M5 1L-3L: the
+/// (a singular constant matrix is reported as such here); likewise for an
+/// entry that is not a coefficient of `context`. M5 1L-3L: the
 /// general path over `Q(d)` was a third of a cold 1L-3L vakint request with
 /// the 1-4 library (444 families decoded at load).
+#[allow(clippy::type_complexity)]
 fn invert_rational_constant_matrix<Row>(
     context: &CoefficientContext,
     matrix: &[Row],
@@ -103,6 +111,9 @@ where
     for row in matrix {
         let row = row.as_ref();
         if row.len() != size {
+            return None;
+        }
+        if !row.iter().all(|value| context.contains(value)) {
             return None;
         }
         let values: Option<Vec<Rational>> = row.iter().map(rational_constant).collect();

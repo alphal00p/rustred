@@ -467,9 +467,12 @@ fn assemble(
                 let presentation = &presentations[owner_presentation.0 as usize];
                 let corner = rustred::propagator::basis::node_corner(presentation);
                 let key = IntegralKey::try_new(corner).map_err(|error| {
-                    PError::MalformedLibrary(format!("the corner of the Scheme owner {label}: {error}"))
+                    PError::MalformedLibrary(format!(
+                        "the corner of the Scheme owner {label}: {error}"
+                    ))
                 })?;
-                spec.terminals.push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
+                spec.terminals
+                    .push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
             }
         } else if spec.lane == OwnerLane::Custom {
             let payload = custom_payload(

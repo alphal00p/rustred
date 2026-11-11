@@ -857,9 +857,12 @@ fn lanes_5l_counts() {
     };
     // Custom 283 in the census; since the Diamond lane (M3-T5b, merged in M5 B1)
     // decide puts the 42 diamonds on the Diamond lane (before: on the Custom lane,
-    // plan decision D11, lane count 325), so the Custom lane count is 283.
+    // plan decision D11, lane count 325), so the Custom lane count is 283. M5
+    // combined: the 4L custom nodes no1, haha, bubu of this DAG are on the
+    // Scheme lane by default (Forcer's schemes), 280 stay on the Custom lane.
     assert_eq!((count("custom"), count("diamond")), (283, 42));
-    assert_eq!(by_lane[&("custom", OwnerLane::Custom)], 283);
+    assert_eq!(by_lane[&("custom", OwnerLane::Custom)], 280);
+    assert_eq!(by_lane[&("custom", OwnerLane::Scheme)], 3);
     assert_eq!(by_lane[&("diamond", OwnerLane::Diamond)], 42);
     assert!(!by_lane.contains_key(&("diamond", OwnerLane::Custom)));
     assert_eq!(by_lane[&("carpet", OwnerLane::Carpet)], count("carpet"));

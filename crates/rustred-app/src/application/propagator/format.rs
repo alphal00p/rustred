@@ -818,7 +818,9 @@ pub enum RolesRecord {
         spectator: Option<u16>,
     },
     /// M5-R0 A1.
-    Scheme { scheme: u8 },
+    Scheme {
+        scheme: u8,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

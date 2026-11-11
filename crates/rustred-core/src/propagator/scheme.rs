@@ -44,8 +44,8 @@ use std::sync::{Arc, OnceLock};
 use serde::Deserialize;
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraError,
-    IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
+    Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits,
+    IndexedCoefficient, IndexedCoefficientContext,
 };
 use crate::identity::{ParametricIbpGenerator, RowId};
 use crate::reduction::{ReductionError, ReductionLimits};
@@ -123,6 +123,7 @@ struct IspRecord {
 }
 
 #[derive(Deserialize)]
+#[allow(clippy::type_complexity)]
 struct RuleRecord {
     name: String,
     pattern: Vec<serde_json::Value>,
@@ -219,7 +220,9 @@ impl Cond {
             Some(text) if text.starts_with("ne:") => (i64::MIN, i64::MAX),
             // FORM `n?{>=K}`.
             Some(text) if text.starts_with("ge:") => {
-                let k: i64 = text[3..].parse().map_err(|_| format!("pattern entry {value}"))?;
+                let k: i64 = text[3..]
+                    .parse()
+                    .map_err(|_| format!("pattern entry {value}"))?;
                 (k, i64::MAX)
             }
             _ => return Err(format!("pattern entry {value}")),
@@ -237,7 +240,13 @@ impl Cond {
 
     /// `self + t` lies inside `outer` (infinite bounds stay infinite).
     fn shifted_inside(self, t: i64, outer: Self) -> bool {
-        let move_bound = |b: i64| if b == i64::MIN || b == i64::MAX { b } else { b.saturating_add(t) };
+        let move_bound = |b: i64| {
+            if b == i64::MIN || b == i64::MAX {
+                b
+            } else {
+                b.saturating_add(t)
+            }
+        };
         outer.lo <= move_bound(self.lo) && move_bound(self.hi) <= outer.hi
     }
 }
@@ -253,13 +262,17 @@ impl Poly {
                 Some((n, d)) => (n.parse::<i64>(), d.parse::<i64>()),
                 None => (value.parse::<i64>(), Ok(1)),
             };
-            let (num, den) = (num.map_err(|e| e.to_string())?, den.map_err(|e| e.to_string())?);
+            let (num, den) = (
+                num.map_err(|e| e.to_string())?,
+                den.map_err(|e| e.to_string())?,
+            );
             terms.push((exponents.clone(), num, den));
         }
         Ok(Self(terms))
     }
 }
 
+#[allow(clippy::type_complexity)]
 struct ParsedRule {
     name: String,
     /// Forcer slot order.
@@ -305,7 +318,10 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
     for row in &file.order {
         if let OrderRow::Linear { weights, when } = row {
             if weights.len() != slots {
-                return Err(format!("an order row with {} weights for {slots} slots", weights.len()));
+                return Err(format!(
+                    "an order row with {} weights for {slots} slots",
+                    weights.len()
+                ));
             }
             if when.is_some() && !matches!(file.order.first(), Some(OrderRow::Rank)) {
                 return Err("a regime row needs the rank as the first order row".to_owned());
@@ -327,7 +343,9 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         let mut distinct = Vec::new();
         for (a, value) in record.pattern.iter().enumerate() {
             if let Some(other) = value.as_str().and_then(|text| text.strip_prefix("ne:")) {
-                let k: usize = other.parse().map_err(|_| format!("pattern entry {value}"))?;
+                let k: usize = other
+                    .parse()
+                    .map_err(|_| format!("pattern entry {value}"))?;
                 if k == 0 || k > slots {
                     return Err(format!("pattern entry {value}"));
                 }
@@ -350,9 +368,9 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
                             let j = pair.get(1).and_then(|v| v.as_u64()).ok_or("row j")? as usize;
                             Generator::Row(i, j)
                         }
-                        "rule" => Generator::Rule(
-                            reference.as_str().ok_or("rule reference")?.to_owned(),
-                        ),
+                        "rule" => {
+                            Generator::Rule(reference.as_str().ok_or("rule reference")?.to_owned())
+                        }
                         other => return Err(format!("generator kind {other}")),
                     };
                     out.push((generator, shift.clone(), Poly::parse(poly)?));
@@ -369,9 +387,16 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             raw.push((shift.clone(), Poly::parse(num)?, factors));
         }
         if pattern.len() != slots {
-            return Err(format!("rule {}: {} pattern entries for {slots} slots", record.name, pattern.len()));
+            return Err(format!(
+                "rule {}: {} pattern entries for {slots} slots",
+                record.name,
+                pattern.len()
+            ));
         }
-        if rules.iter().any(|rule: &ParsedRule| rule.name == record.name) {
+        if rules
+            .iter()
+            .any(|rule: &ParsedRule| rule.name == record.name)
+        {
             return Err(format!("rule {} twice", record.name));
         }
         rules.push(ParsedRule {
@@ -408,7 +433,8 @@ fn registry() -> Result<&'static [Scheme], PError> {
         .get_or_init(|| {
             let mut schemes: Vec<Scheme> = Vec::new();
             for (name, json) in EMBEDDED_SCHEMES {
-                let scheme = parse_scheme(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
+                let scheme =
+                    parse_scheme(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
                 if scheme.name != *name {
                     return Err(format!("embedded scheme {name} is named {}", scheme.name));
                 }
@@ -422,14 +448,19 @@ fn registry() -> Result<&'static [Scheme], PError> {
                     .collect();
                 paths.sort();
                 for path in paths {
-                    let json = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-                    let scheme = parse_scheme(&json).map_err(|e| format!("{}: {e}", path.display()))?;
+                    let json = std::fs::read_to_string(&path)
+                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                    let scheme =
+                        parse_scheme(&json).map_err(|e| format!("{}: {e}", path.display()))?;
                     schemes.retain(|other| other.name != scheme.name);
                     schemes.push(scheme);
                 }
             }
             for (i, a) in schemes.iter().enumerate() {
-                if schemes[i + 1..].iter().any(|b| b.loops == a.loops && b.key == a.key) {
+                if schemes[i + 1..]
+                    .iter()
+                    .any(|b| b.loops == a.loops && b.key == a.key)
+                {
                     return Err(format!("two schemes for the graph of {}", a.name));
                 }
             }
@@ -478,7 +509,10 @@ pub fn scheme_for(node: &NodeInfo) -> Option<SchemeRoles> {
 
 /// The names of every known scheme, with whether the assembly uses it.
 pub fn scheme_names() -> Result<Vec<(String, bool)>, PError> {
-    Ok(registry()?.iter().map(|s| (s.name.clone(), enabled(s))).collect())
+    Ok(registry()?
+        .iter()
+        .map(|s| (s.name.clone(), enabled(s)))
+        .collect())
 }
 
 /// Whether the scheme of `node` ends in a master (the corner terminal).
@@ -488,7 +522,11 @@ pub fn scheme_has_corner(node: &NodeInfo) -> Result<bool, PError> {
 
 fn scheme_at(node: &NodeInfo) -> Result<&'static Scheme, PError> {
     scheme_of(node)?.map(|(_, scheme)| scheme).ok_or_else(|| {
-        PError::Contract(format!("no scheme for node {} ({})", node.index, node.key.to_hex()))
+        PError::Contract(format!(
+            "no scheme for node {} ({})",
+            node.index,
+            node.key.to_hex()
+        ))
     })
 }
 
@@ -506,8 +544,12 @@ fn layout(scheme: &Scheme, graph: &PTopo) -> Result<Layout, PError> {
         return Err(fail("the node is not the scheme's graph".to_owned()));
     }
     let mapped = canon.apply(&scheme.topo);
-    if mapped.lines != graph.lines || (mapped.s, mapped.t) != (graph.s.min(graph.t), graph.s.max(graph.t)) {
-        return Err(fail("the canonical labelling differs from the node's".to_owned()));
+    if mapped.lines != graph.lines
+        || (mapped.s, mapped.t) != (graph.s.min(graph.t), graph.s.max(graph.t))
+    {
+        return Err(fail(
+            "the canonical labelling differs from the node's".to_owned(),
+        ));
     }
     let vm = &canon.vertex_map;
     let eps = if vm[usize::from(scheme.topo.s)] == graph.s {
@@ -533,7 +575,10 @@ fn layout(scheme: &Scheme, graph: &PTopo) -> Result<Layout, PError> {
             return Err(fail(format!("line {a} does not map onto line {c}")));
         };
         if line.momentum.len() != width {
-            return Err(fail(format!("line {a} has {} momentum entries", line.momentum.len())));
+            return Err(fail(format!(
+                "line {a} has {} momentum entries",
+                line.momentum.len()
+            )));
         }
         let mut momentum: Vec<i64> = line.momentum.iter().map(|x| sign * x).collect();
         momentum[width - 1] *= eps;
@@ -588,6 +633,7 @@ pub fn scheme_presentation(
 
 /// One rule in presentation coordinates.
 #[derive(Clone, Debug)]
+#[allow(clippy::type_complexity)]
 pub struct SchemeRule {
     pub name: String,
     /// Presentation slot order.
@@ -633,6 +679,7 @@ pub struct SchemeTemplate {
     name: String,
     presentation: PresentationId,
     context: IndexedCoefficientContext,
+    #[allow(dead_code)] // the Forcer -> presentation slot map, kept with the template (Debug)
     perm: Vec<usize>,
     lines: usize,
     order: Vec<Row>,
@@ -641,7 +688,11 @@ pub struct SchemeTemplate {
 
 /// `(-1)^(Sum s)`.
 fn parity(shift: &[i64]) -> i64 {
-    if shift.iter().sum::<i64>().rem_euclid(2) == 0 { 1 } else { -1 }
+    if shift.iter().sum::<i64>().rem_euclid(2) == 0 {
+        1
+    } else {
+        -1
+    }
 }
 
 struct Builder<'a> {
@@ -669,14 +720,20 @@ impl Builder<'_> {
         for (exponents, num, den) in &poly.0 {
             let mut constant = self.rational(sign * num, *den)?;
             for _ in 0..exponents[0] {
-                constant = self.base.try_mul(&constant, &self.d, limits).map_err(exact)?;
+                constant = self
+                    .base
+                    .try_mul(&constant, &self.d, limits)
+                    .map_err(exact)?;
             }
             let mut term = self.context.lift(&constant).map_err(indexed)?;
             for (variable, &power) in exponents.iter().enumerate().skip(1) {
                 if power == 0 {
                     continue;
                 }
-                let index = self.context.index(self.perm[variable - 1]).map_err(indexed)?;
+                let index = self
+                    .context
+                    .index(self.perm[variable - 1])
+                    .map_err(indexed)?;
                 for _ in 0..power {
                     term = self.context.mul(&term, &index).map_err(indexed)?;
                 }
@@ -700,19 +757,26 @@ impl SchemeTemplate {
     /// `node`), each relation checked against its certificate.
     pub fn extract(p: &Presentation, node: &NodeInfo) -> Result<Self, SchemeError> {
         let scheme = scheme_at(node)?;
-        let layout = layout(scheme, &node.topo).map_err(|e| SchemeError::Mismatch(e.to_string()))?;
+        let layout =
+            layout(scheme, &node.topo).map_err(|e| SchemeError::Mismatch(e.to_string()))?;
         if layout.slots != p.slots {
             return Err(SchemeError::Mismatch(format!(
                 "presentation {} is not the scheme's layout",
                 p.id.0
             )));
         }
-        let generation =
-            |error: &dyn fmt::Display| PError::Generation(format!("the IBP rows of presentation {}: {error}", p.id.0));
+        let generation = |error: &dyn fmt::Display| {
+            PError::Generation(format!("the IBP rows of presentation {}: {error}", p.id.0))
+        };
         let generator = ParametricIbpGenerator::try_new(&p.family).map_err(|e| generation(&e))?;
-        let batch = generator.prepare_ordinary_ibp().map_err(|e| generation(&e))?;
+        let batch = generator
+            .prepare_ordinary_ibp()
+            .map_err(|e| generation(&e))?;
         let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
-        let relations = batch.complete(rows).map_err(|e| generation(&e))?.into_relations();
+        let relations = batch
+            .complete(rows)
+            .map_err(|e| generation(&e))?
+            .into_relations();
         let context = generator.context().clone();
         let base = p.family.coefficient_context().clone();
         let d = base.parameter("d").ok_or(PError::ContextMismatch)?;
@@ -724,8 +788,13 @@ impl SchemeTemplate {
         };
         let limits = IndexedAlgebraLimits::default();
         // Relations in presentation coordinates and RustRed's sign.
-        let mut converted: BTreeMap<String, BTreeMap<Vec<i64>, IndexedCoefficient>> = BTreeMap::new();
-        for rule in scheme.rules.iter().filter(|rule| !rule.master && !rule.relation.is_empty()) {
+        let mut converted: BTreeMap<String, BTreeMap<Vec<i64>, IndexedCoefficient>> =
+            BTreeMap::new();
+        for rule in scheme
+            .rules
+            .iter()
+            .filter(|rule| !rule.master && !rule.relation.is_empty())
+        {
             let mut map = BTreeMap::new();
             for (shift, poly) in &rule.relation {
                 map.insert(builder.shift(shift), builder.poly(poly, parity(shift))?);
@@ -737,7 +806,9 @@ impl SchemeTemplate {
                 contraction_momentum: j,
                 differentiated_loop: i,
             };
-            relations.iter().find(|relation| *relation.row_id() == wanted)
+            relations
+                .iter()
+                .find(|relation| *relation.row_id() == wanted)
         };
         let mut verified: BTreeMap<String, bool> = BTreeMap::new();
         for name in &scheme.verify_order {
@@ -821,7 +892,13 @@ impl SchemeTemplate {
         }
         let mut rules = Vec::with_capacity(scheme.rules.len());
         for rule in &scheme.rules {
-            let mut pattern = vec![Cond { lo: i64::MIN, hi: i64::MAX }; layout.perm.len()];
+            let mut pattern = vec![
+                Cond {
+                    lo: i64::MIN,
+                    hi: i64::MAX
+                };
+                layout.perm.len()
+            ];
             for (a, &cond) in rule.pattern.iter().enumerate() {
                 pattern[layout.perm[a]] = cond;
             }
@@ -833,7 +910,11 @@ impl SchemeTemplate {
                     for (den, power) in dens {
                         factors.push((builder.poly(den, 1)?, *power));
                     }
-                    raw.push((builder.shift(shift), builder.poly(num, parity(shift))?, factors));
+                    raw.push((
+                        builder.shift(shift),
+                        builder.poly(num, parity(shift))?,
+                        factors,
+                    ));
                 }
             } else if !rule.master {
                 let map = &converted[&rule.name];
@@ -852,7 +933,11 @@ impl SchemeTemplate {
                 Verification::Master
             } else if verified.get(&rule.name) == Some(&true) {
                 Verification::Certificate
-            } else if rule.replay.as_ref().is_some_and(|r| r.result == "PASS" && r.mutants_rejected > 0) {
+            } else if rule
+                .replay
+                .as_ref()
+                .is_some_and(|r| r.result == "PASS" && r.mutants_rejected > 0)
+            {
                 Verification::Replay
             } else {
                 Verification::None
@@ -901,7 +986,11 @@ impl SchemeTemplate {
     /// The order key of an Apply key (lines >= 1, ISPs <= 0).
     fn order(&self, powers: &[i64]) -> Vec<i64> {
         let rank: i64 = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
-        let regime = if rank > 0 { Regime::RankPositive } else { Regime::RankZero };
+        let regime = if rank > 0 {
+            Regime::RankPositive
+        } else {
+            Regime::RankZero
+        };
         (self.order.iter())
             .map(|row| match row {
                 Row::Rank => rank,
@@ -933,16 +1022,26 @@ impl SchemeTemplate {
                 },
             })
             .collect();
-        static_descent(&self.name, self.lines, &self.order, &rules, |r, t, slot, v| {
-            let rule = &self.rules[r];
-            let value = if rule.terms.is_empty() { &rule.raw[t].1 } else { &rule.terms[t + 1].1 };
-            Ok(self
-                .context
-                .specialize_fixed_indices(value, &[(slot, v)], limits)
-                .map_err(|e| e.to_string())?
-                .0
-                .is_zero())
-        })
+        static_descent(
+            &self.name,
+            self.lines,
+            &self.order,
+            &rules,
+            |r, t, slot, v| {
+                let rule = &self.rules[r];
+                let value = if rule.terms.is_empty() {
+                    &rule.raw[t].1
+                } else {
+                    &rule.terms[t + 1].1
+                };
+                Ok(self
+                    .context
+                    .specialize_fixed_indices(value, &[(slot, v)], limits)
+                    .map_err(|e| e.to_string())?
+                    .0
+                    .is_zero())
+            },
+        )
     }
 
     pub fn name(&self) -> &str {
@@ -1013,7 +1112,9 @@ fn static_descent(
                     continue;
                 }
                 for v in cond.lo.max(1 - s)..=top {
-                    if !vanishes(r, t, slot, v).map_err(|e| format!("scheme {scheme} rule {}: {e}", rule.name))? {
+                    if !vanishes(r, t, slot, v)
+                        .map_err(|e| format!("scheme {scheme} rule {}: {e}", rule.name))?
+                    {
                         return Err(format!(
                             "scheme {scheme} rule {}: ISP slot {slot} reaches the positive power {} ({s:+} at {v})",
                             rule.name,
@@ -1067,9 +1168,15 @@ impl SchemeStep {
 
     pub fn from_owner(library: &PLibrary, owner: &POwnerSpec) -> Result<Self, PError> {
         let LaneRoles::Scheme(_) = owner.roles else {
-            return Err(PError::Contract(format!("a scheme step with roles {:?}", owner.roles)));
+            return Err(PError::Contract(format!(
+                "a scheme step with roles {:?}",
+                owner.roles
+            )));
         };
-        if owner.lane != OwnerLane::Scheme || !owner.edge_maps.is_empty() || owner.terminals.len() > 1 {
+        if owner.lane != OwnerLane::Scheme
+            || !owner.edge_maps.is_empty()
+            || owner.terminals.len() > 1
+        {
             return Err(PError::Contract(format!(
                 "a scheme step on lane {:?} with {} edge maps and {} terminals",
                 owner.lane,
@@ -1087,7 +1194,10 @@ impl SchemeStep {
             .nodes
             .get(index.0 as usize)
             .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
-        Ok(Self::new(Arc::clone(library.presentation(owner.presentation)), node)?)
+        Ok(Self::new(
+            Arc::clone(library.presentation(owner.presentation)),
+            node,
+        )?)
     }
 
     pub fn template(&self) -> &SchemeTemplate {
@@ -1095,7 +1205,9 @@ impl SchemeStep {
     }
 
     fn check_key(&self, key: &PKeyView<'_>) -> Result<(), PError> {
-        if key.presentation != self.presentation.id || key.powers.len() != self.presentation.slots.len() {
+        if key.presentation != self.presentation.id
+            || key.powers.len() != self.presentation.slots.len()
+        {
             return Err(PError::Contract(format!(
                 "key of presentation {} with {} powers on scheme step {}",
                 key.presentation.0,
@@ -1106,7 +1218,9 @@ impl SchemeStep {
         for (slot, &power) in key.powers.iter().enumerate() {
             if slot >= self.lines {
                 if power > 0 {
-                    return Err(PError::Unsupported(format!("ISP slot {slot} at the positive power {power}")));
+                    return Err(PError::Unsupported(format!(
+                        "ISP slot {slot} at the positive power {power}"
+                    )));
                 }
             } else if power < 1 {
                 return Err(PError::Contract(format!(
@@ -1139,20 +1253,29 @@ impl SchemeStep {
         // as RustRed's own FirstValid skips a rule with a vanishing denominator.
         let mut chosen = None;
         for rule in &self.template.rules {
-            if rule.pattern.iter().zip(key.powers).all(|(c, &n)| c.holds(n))
-                && rule.distinct.iter().all(|&(a, b)| key.powers[a] != key.powers[b])
+            if rule
+                .pattern
+                .iter()
+                .zip(key.powers)
+                .all(|(c, &n)| c.holds(n))
+                && rule
+                    .distinct
+                    .iter()
+                    .all(|&(a, b)| key.powers[a] != key.powers[b])
                 && self.regular(rule, key.powers, ilimits)?
             {
                 chosen = Some(rule);
                 break;
             }
         }
-        let rule =
-            chosen.ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
+        let rule = chosen
+            .ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
         if rule.master {
             let terminal = cx
                 .and_then(|cx| cx.owner.spec.terminals.first().copied())
-                .ok_or_else(|| PError::Contract("the scheme corner without a terminal".to_owned()))?;
+                .ok_or_else(|| {
+                    PError::Contract("the scheme corner without a terminal".to_owned())
+                })?;
             let one = self.presentation.family.coefficient_context().one();
             return Ok(PStepOut {
                 terminals: vec![(terminal, key.tag.clone(), one)],
@@ -1182,7 +1305,9 @@ impl SchemeStep {
         let mine = self.order(key.powers);
         let mut children = Vec::with_capacity(rule.terms.len());
         for (shift, value) in &rule.terms[1..] {
-            let (value, _) = context.specialize(value, key.powers, ilimits).map_err(indexed)?;
+            let (value, _) = context
+                .specialize(value, key.powers, ilimits)
+                .map_err(indexed)?;
             if value.is_zero() {
                 continue;
             }
@@ -1226,17 +1351,31 @@ impl SchemeStep {
 impl SchemeStep {
     /// The rule's pivot (relation) or every Forcer denominator (raw) is nonzero
     /// at `powers`; a master is always regular.
-    fn regular(&self, rule: &SchemeRule, powers: &[i64], ilimits: IndexedAlgebraLimits) -> Result<bool, PError> {
+    fn regular(
+        &self,
+        rule: &SchemeRule,
+        powers: &[i64],
+        ilimits: IndexedAlgebraLimits,
+    ) -> Result<bool, PError> {
         if rule.master {
             return Ok(true);
         }
         let context = &self.template.context;
         if let Some((_, pivot)) = rule.terms.first() {
-            return Ok(!context.specialize(pivot, powers, ilimits).map_err(indexed)?.0.is_zero());
+            return Ok(!context
+                .specialize(pivot, powers, ilimits)
+                .map_err(indexed)?
+                .0
+                .is_zero());
         }
         for (_, _, dens) in &rule.raw {
             for (den, _) in dens {
-                if context.specialize(den, powers, ilimits).map_err(indexed)?.0.is_zero() {
+                if context
+                    .specialize(den, powers, ilimits)
+                    .map_err(indexed)?
+                    .0
+                    .is_zero()
+                {
                     return Ok(false);
                 }
             }
@@ -1257,12 +1396,16 @@ impl SchemeStep {
         let mine = self.order(key.powers);
         let mut children = Vec::with_capacity(rule.raw.len());
         for (shift, num, dens) in &rule.raw {
-            let (mut weight, _) = context.specialize(num, key.powers, ilimits).map_err(indexed)?;
+            let (mut weight, _) = context
+                .specialize(num, key.powers, ilimits)
+                .map_err(indexed)?;
             if weight.is_zero() {
                 continue;
             }
             for (den, power) in dens {
-                let (value, _) = context.specialize(den, key.powers, ilimits).map_err(indexed)?;
+                let (value, _) = context
+                    .specialize(den, key.powers, ilimits)
+                    .map_err(indexed)?;
                 if value.is_zero() {
                     return Err(PError::Contract(format!(
                         "scheme rule {} divides by zero at {:?}",
@@ -1270,7 +1413,9 @@ impl SchemeStep {
                     )));
                 }
                 for _ in 0..*power {
-                    weight = base.try_div(&weight, &value, limits.exact_algebra).map_err(exact)?;
+                    weight = base
+                        .try_div(&weight, &value, limits.exact_algebra)
+                        .map_err(exact)?;
                 }
             }
             let powers: Vec<i64> = key.powers.iter().zip(shift).map(|(n, s)| n + s).collect();
@@ -1368,18 +1513,24 @@ mod tests {
             })
             .collect();
         let live: Vec<&ParsedRule> = scheme.rules.iter().filter(|rule| !rule.master).collect();
-        static_descent(&scheme.name, scheme.lines.len(), order, &rules, |r, t, slot, v| {
-            let rule = live[r];
-            Ok(if rule.relation.is_empty() {
-                vanishes(&rule.raw[t].1, slot, v)
-            } else {
-                let nonzero: Vec<&Poly> = (rule.relation.iter())
-                    .filter(|(s, _)| s.iter().any(|&x| x != 0))
-                    .map(|(_, p)| p)
-                    .collect();
-                vanishes(nonzero[t], slot, v)
-            })
-        })
+        static_descent(
+            &scheme.name,
+            scheme.lines.len(),
+            order,
+            &rules,
+            |r, t, slot, v| {
+                let rule = live[r];
+                Ok(if rule.relation.is_empty() {
+                    vanishes(&rule.raw[t].1, slot, v)
+                } else {
+                    let nonzero: Vec<&Poly> = (rule.relation.iter())
+                        .filter(|(s, _)| s.iter().any(|&x| x != 0))
+                        .map(|(_, p)| p)
+                        .collect();
+                    vanishes(nonzero[t], slot, v)
+                })
+            },
+        )
     }
 
     #[test]
@@ -1399,21 +1550,54 @@ mod tests {
         let mut order = rows(&scheme);
         let first = order.remove(0);
         order.push(first);
-        assert!(witness(&scheme, &order).is_err(), "the rank row moved last must break descent");
+        assert!(
+            witness(&scheme, &order).is_err(),
+            "the rank row moved last must break descent"
+        );
         let mut order = rows(&scheme);
         order.truncate(1);
-        assert!(witness(&scheme, &order).is_err(), "the rank row alone cannot order the scheme");
+        assert!(
+            witness(&scheme, &order).is_err(),
+            "the rank row alone cannot order the scheme"
+        );
     }
 
     #[test]
     fn pattern_conditions_parse() {
         let parse = |text: &str| Cond::parse(&serde_json::Value::String(text.to_owned())).unwrap();
-        assert_eq!(parse("lt-1"), Cond { lo: i64::MIN, hi: -2 });
-        assert_eq!(parse("ne:12"), Cond { lo: i64::MIN, hi: i64::MAX });
-        assert_eq!(parse("gt1"), Cond { lo: 2, hi: i64::MAX });
-        assert_eq!(parse("ge:3"), Cond { lo: 3, hi: i64::MAX });
+        assert_eq!(
+            parse("lt-1"),
+            Cond {
+                lo: i64::MIN,
+                hi: -2
+            }
+        );
+        assert_eq!(
+            parse("ne:12"),
+            Cond {
+                lo: i64::MIN,
+                hi: i64::MAX
+            }
+        );
+        assert_eq!(
+            parse("gt1"),
+            Cond {
+                lo: 2,
+                hi: i64::MAX
+            }
+        );
+        assert_eq!(
+            parse("ge:3"),
+            Cond {
+                lo: 3,
+                hi: i64::MAX
+            }
+        );
         assert!(Cond::parse(&serde_json::Value::String("ge7".to_owned())).is_err());
-        assert_eq!(Cond::parse(&serde_json::json!(0)).unwrap(), Cond { lo: 0, hi: 0 });
+        assert_eq!(
+            Cond::parse(&serde_json::json!(0)).unwrap(),
+            Cond { lo: 0, hi: 0 }
+        );
     }
 
     #[test]

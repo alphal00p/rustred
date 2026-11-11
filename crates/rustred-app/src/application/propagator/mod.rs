@@ -30,6 +30,7 @@ pub struct PLibraryOptions {
 
 /// The Custom owners of an assembly: generated, or reused verbatim by class label.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)] // one value per assembly
 pub enum CustomPayloads {
     Generate(CustomOwnerOptions),
     Provided(BTreeMap<String, CustomOwnerPayload>),

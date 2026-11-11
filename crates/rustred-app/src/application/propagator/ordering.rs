@@ -222,7 +222,7 @@ pub fn compute_ordering(directory: &Path, heuristic: &str) -> Result<OrderingFil
     let mut owners = Vec::with_capacity(manifest.owners.len());
     let parameters = BTreeMap::new();
     for record in &manifest.owners {
-        let lane = serde_json::to_value(&record.lane)
+        let lane = serde_json::to_value(record.lane)
             .ok()
             .and_then(|value| value.as_str().map(str::to_owned))
             .unwrap_or_else(|| format!("{:?}", record.lane));

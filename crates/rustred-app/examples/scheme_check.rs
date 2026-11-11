@@ -12,7 +12,10 @@ use rustred_app::propagator::{PLibraryOptions, PLibrarySource, load_p_library};
 fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).expect("library dir"));
     let out = std::env::args().nth(2);
-    println!("schemes (name, enabled at assembly): {:?}", scheme_names().unwrap());
+    println!(
+        "schemes (name, enabled at assembly): {:?}",
+        scheme_names().unwrap()
+    );
     let library = load_p_library(
         PLibrarySource::Directory(dir),
         &PLibraryOptions {
