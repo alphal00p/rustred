@@ -1,8 +1,10 @@
 //! Narrow adapters to native exact equation operations, not coefficient values.
 
+use std::cmp::Ordering;
+
 use symbolica::domains::InternalOrdering;
 use symbolica::poly::groebner::GroebnerBasis;
-use symbolica::poly::{GrevLexOrder, LexOrder, MonomialOrder};
+use symbolica::poly::{Exponent, GrevLexOrder, LexOrder, MonomialOrder, PolyVariable};
 use symbolica::prelude::{Factorize, Integer, Q, Rational, Z};
 
 use crate::algebra::CoefficientPolynomial;
@@ -186,6 +188,149 @@ fn normalize_in_order<O: MonomialOrder>(
 #[cfg(test)]
 #[path = "native/tests.rs"]
 mod tests;
+
+/// Block elimination order for the Rabinowitsch saturation: the LAST variable
+/// (the auxiliary `t`) is compared first, then GrevLex on the others. Every
+/// monomial containing `t` is larger than every `t`-free monomial, so the
+/// `t`-free elements of a Groebner basis generate the elimination ideal.
+#[derive(Clone)]
+struct EliminateLast;
+
+impl MonomialOrder for EliminateLast {
+    fn cmp<E: Exponent>(a: &[E], b: &[E]) -> Ordering {
+        let last = a.len() - 1;
+        a[last]
+            .cmp(&b[last])
+            .then_with(|| GrevLexOrder::cmp(&a[..last], &b[..last]))
+    }
+}
+
+/// The auxiliary Rabinowitsch variable; never part of a coefficient map.
+const SATURATION_VARIABLE: PolyVariable = PolyVariable::Temporary(usize::MAX - 0x5a7);
+
+/// Exact saturation `(equations) : (prod exclusions)^inf` over Q, returned as
+/// primitive integer generators in the original variable map (the `t`-free
+/// part of a Groebner basis of `equations + (1 - t prod exclusions)` in a block
+/// elimination order). Its zero set is the Zariski closure of the zeros of
+/// `equations` at which no exclusion vanishes: every such point is kept, and
+/// only points on an excluded hypersurface can be removed.
+pub(super) fn saturate(
+    equations: &[CoefficientPolynomial],
+    exclusions: &[CoefficientPolynomial],
+) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
+    super::engine::checkpoint()?;
+    let Some(first) = equations.first() else {
+        return Ok(Vec::new());
+    };
+    if exclusions.is_empty() {
+        return normalize(equations);
+    }
+    let variables = first.variables().clone();
+    if variables.contains(&SATURATION_VARIABLE)
+        || equations
+            .iter()
+            .chain(exclusions)
+            .any(|polynomial| polynomial.variables() != &variables)
+    {
+        return Err(CaseIntersectionFailure::NativeAlgebra);
+    }
+    let lift = |polynomial: &CoefficientPolynomial| {
+        let mut polynomial = polynomial.map_coeff(|value| Rational::from(value), Q);
+        polynomial.add_variable(&SATURATION_VARIABLE);
+        polynomial
+    };
+    let mut product = lift(&first.one());
+    for exclusion in exclusions {
+        product = &product * &lift(exclusion);
+    }
+    let mut t_exponents = vec![0_u16; variables.len() + 1];
+    t_exponents[variables.len()] = 1;
+    let t = product.monomial(Rational::from(1), t_exponents);
+    let rabinowitsch = product.one() - (&t * &product);
+    let mut ideal: Vec<_> = equations
+        .iter()
+        .map(|polynomial| lift(polynomial).reorder::<EliminateLast>())
+        .collect();
+    ideal.push(rabinowitsch.reorder::<EliminateLast>());
+    super::engine::checkpoint()?;
+    let basis = GroebnerBasis::new(&ideal, false);
+    super::engine::checkpoint()?;
+    let template = first.map_coeff(|value| Rational::from(value), Q);
+    let nvars = variables.len();
+    let mut saturated = Vec::new();
+    for polynomial in basis.system {
+        super::engine::checkpoint()?;
+        let polynomial = polynomial.reorder::<LexOrder>();
+        if polynomial.is_zero() || polynomial.degree(nvars) != 0 {
+            continue;
+        }
+        let mut reduced = template.zero();
+        for (coefficient, exponents) in polynomial
+            .coefficients
+            .iter()
+            .zip(polynomial.exponents_iter())
+        {
+            reduced.append_monomial(coefficient.clone(), &exponents[..nvars]);
+        }
+        let reduced = reduced.make_primitive();
+        if reduced.coefficients.iter().any(|value| !value.is_integer()) {
+            return Err(CaseIntersectionFailure::NativeAlgebra);
+        }
+        let reduced = positive_leading(reduced.map_coeff(Rational::numerator, Z));
+        if reduced.variables() != &variables {
+            return Err(CaseIntersectionFailure::NativeAlgebra);
+        }
+        saturated.push(reduced);
+    }
+    canonicalize(&mut saturated);
+    super::engine::checkpoint()?;
+    Ok(saturated)
+}
+
+/// `denominator^d * equation(x = numerator / denominator)` with `d` the degree
+/// of `equation` in variable `x` (`numerator` and `denominator` free of `x`):
+/// the exact denominator-free elimination of a linear dependent.
+pub(super) fn substitute_quotient(
+    equation: &CoefficientPolynomial,
+    x: usize,
+    numerator: &CoefficientPolynomial,
+    denominator: &CoefficientPolynomial,
+) -> CoefficientPolynomial {
+    let degree = usize::from(equation.degree(x));
+    if degree == 0 {
+        return equation.clone();
+    }
+    let mut result = equation.zero();
+    for (coefficient, power) in equation.to_univariate_polynomial_list(x) {
+        let power = usize::from(power);
+        let term = &coefficient * &(numerator.pow(power) * &denominator.pow(degree - power));
+        result = result + term;
+    }
+    result
+}
+
+/// Divide out every factor of `factors` as often as it divides `polynomial`
+/// exactly (valid for an equation on a region where every factor is nonzero).
+pub(super) fn strip_factors(
+    mut polynomial: CoefficientPolynomial,
+    factors: &[CoefficientPolynomial],
+) -> CoefficientPolynomial {
+    if polynomial.is_zero() {
+        return polynomial;
+    }
+    for factor in factors {
+        if factor.is_constant() {
+            continue;
+        }
+        while let Some(quotient) = polynomial.try_div(factor) {
+            polynomial = quotient;
+            if polynomial.is_constant() {
+                break;
+            }
+        }
+    }
+    primitive(polynomial)
+}
 
 /// Distinct nonconstant zero-locus factors. A zero input must be removed by
 /// the caller, and nonzero scalar content/multiplicities create no branches.

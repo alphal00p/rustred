@@ -82,6 +82,7 @@ pub(crate) struct FrameSnapshot {
 }
 
 /// Typed scalar details, not a stringified solver object or coefficient payload.
+#[allow(clippy::large_enum_variant, reason = "short-lived telemetry records")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum StageDetail {
@@ -180,6 +181,24 @@ pub(crate) enum StageDetail {
         exact_materialization_us: u64,
         guard_extraction_us: u64,
         geometry_us: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        trial_elapsed_us: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        case_elapsed_us: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        score: Option<[u64; 14]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_rhs_terms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_numerator_rank_raise: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_matches_baseline: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duplicate_of_trial: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_first_depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_last_depth: Option<u32>,
         duration_micros_saturated: bool,
     },
     RuleFound {
@@ -302,6 +321,10 @@ fn parse_process_start_ticks(stat: &str) -> Option<u64> {
         .nth(19)?
         .parse()
         .ok()
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[cfg(test)]

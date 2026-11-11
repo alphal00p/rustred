@@ -64,9 +64,26 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     /// to the next unresolved centre after the current source batch.
     pub fn solve_numeric_cases(
         &self,
-        mut cases: Vec<CoordinateCase<N>>,
+        cases: Vec<CoordinateCase<N>>,
         options: SearchOptions,
     ) -> Result<NumericResult<N>, SolverError> {
+        self.solve_numeric_cases_with_source_order(cases, options, None)
+    }
+
+    /// [`Self::solve_numeric_cases`] visiting the preconditioned basis in
+    /// `source_order` at every seed (as
+    /// [`Self::solve_case_with_source_order_and_observer`]); `None` keeps the
+    /// configured visit order. The exact replay uses
+    /// `SectorConfig::numerical_exact_backend`.
+    pub fn solve_numeric_cases_with_source_order(
+        &self,
+        mut cases: Vec<CoordinateCase<N>>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+    ) -> Result<NumericResult<N>, SolverError> {
+        if let Some(order) = source_order {
+            super::discovery_strategy::validate_visit_order(order, self.basis.len())?;
+        }
         let max_depth = options.max_depth.ok_or_else(|| {
             SolverError::InvalidInput("shared numerical search requires a finite depth".into())
         })?;
@@ -159,9 +176,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             stats.seeds += 1;
 
             for position in 0..self.basis.len() {
-                let basis_row = self
-                    .source_visit_order()
-                    .map_or(position, |plan| plan.ordinals()[position]);
+                let basis_row = match source_order {
+                    Some(order) => order[position],
+                    None => self
+                        .source_visit_order()
+                        .map_or(position, |plan| plan.ordinals()[position]),
+                };
                 let source = &self.basis[basis_row];
                 let row = instantiate(
                     source,

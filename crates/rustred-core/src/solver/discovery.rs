@@ -17,9 +17,24 @@ type ExactField = RationalPolynomialField<IntegerRing, u16>;
 mod factorized;
 mod fraction_free;
 #[cfg(feature = "reconstruction")]
+mod sampled;
+#[cfg(feature = "reconstruction")]
 mod semi_numerical;
 mod target_only;
+mod trace_dump;
 mod variables;
+
+/// Largest dense box (unknowns of one prime image) the sampled reconstruction accepts (its cubic dense solve).
+pub fn sampled_max_box() -> usize {
+    #[cfg(feature = "reconstruction")]
+    {
+        sampled::MAX_BOX
+    }
+    #[cfg(not(feature = "reconstruction"))]
+    {
+        0
+    }
+}
 
 #[cfg(feature = "reconstruction")]
 pub use semi_numerical::{
@@ -64,6 +79,20 @@ pub enum SymbolicExactBackend {
         max_probes: usize,
         max_attempts: usize,
         max_primes: usize,
+    },
+    /// Reconstruct ONLY the normalized target row from modular replays of the
+    /// fixed trace (degree probe, common denominator, shared numerator box, CRT
+    /// and rational reconstruction; discovery/sampled.rs), without any
+    /// characteristic-zero elimination. Accepted only after a fresh-prime check
+    /// at 3 values of d with a mutation control: a modular certificate, not a
+    /// characteristic-zero proof (p5l-lift-sampled, 5L corner pivots).
+    /// Traces with fewer than `min_rows` source rows use the
+    /// SparseTargetOnlyFactorized lift instead (`min_rows = 0`: always sampled).
+    #[cfg(feature = "reconstruction")]
+    Sampled {
+        threads: usize,
+        seed: u64,
+        min_rows: usize,
     },
     /// Reconstruct both target coefficients and source weights with Symbolica.
     /// A native modular harder-prefix rank certificate and a full exact source
@@ -606,6 +635,10 @@ pub fn exact_materialize_with_observer<const N: usize>(
 
 /// Alternative backends change exact elimination scheduling, not the discovery
 /// trace. They are diagnostics and grant no artifact or closure authority.
+#[allow(
+    clippy::collapsible_if,
+    reason = "the pre-screen hook is one cfg-gated block"
+)]
 pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,
@@ -639,6 +672,47 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         coefficient_variables: variables.original_len(),
         active_variables: variables.active_len(),
     });
+    trace_dump::maybe_dump(rows, &columns, order, target_column);
+    // Lift pre-screen (rr-consolidate): only when a caller installed a policy on this thread
+    // (crate::node::screen::with_screen); the default engine path is unchanged.
+    #[cfg(feature = "reconstruction")]
+    if let Some(screen) = crate::node::screen::active() {
+        if screen.screens(rows.len(), target_column + 1) {
+            let measure = sampled::screen(
+                rows,
+                &columns,
+                order,
+                target_column,
+                &variables,
+                screen.max_points,
+                screen.seed,
+            )?;
+            let symbolic_first = crate::node::screen::seed_schedule_override()
+                == Some(super::SeedSchedule::SymbolicFirst);
+            let decision = screen.decide_in(&measure, symbolic_first);
+            crate::node::screen::record(measure, decision.clone());
+            match decision {
+                crate::node::screen::ScreenDecision::Refuse(reason) => {
+                    return Err(MaterializationError::SemiNumericalReconstruction(format!(
+                        "lift pre-screen refused: {reason}"
+                    )));
+                }
+                crate::node::screen::ScreenDecision::Sampled => {
+                    return sampled::materialize(
+                        rows,
+                        &columns,
+                        order,
+                        target_column,
+                        &variables,
+                        screen.sampled_threads.max(1),
+                        screen.seed,
+                        observe,
+                    );
+                }
+                crate::node::screen::ScreenDecision::Pass => {}
+            }
+        }
+    }
     if backend == SymbolicExactBackend::SparseFactorized {
         return factorized::materialize(rows, &columns, order, target_column, &variables, observe);
     }
@@ -675,6 +749,34 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             max_probes,
             max_attempts,
             max_primes,
+            observe,
+        );
+    }
+    #[cfg(feature = "reconstruction")]
+    if let SymbolicExactBackend::Sampled {
+        threads,
+        seed,
+        min_rows,
+    } = backend
+    {
+        if rows.len() < min_rows {
+            return target_only::materialize_factorized(
+                rows,
+                &columns,
+                order,
+                target_column,
+                &variables,
+                observe,
+            );
+        }
+        return sampled::materialize(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            threads,
+            seed,
             observe,
         );
     }

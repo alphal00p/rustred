@@ -6,6 +6,7 @@
 //!                    [--max-seconds <s>] [--max-rss <bytes>] [--lp-from <dir>]
 //!                    [--integral-order <json>] [--discovery <json>]
 //! rustred p-generate --families <json> --max-loops <k> --list
+//!                    [--exact-backend <backend>] [--trial-log <jsonl>]
 //! ```
 //!
 //! Generates the Custom owners of the library program of the tops with at most
@@ -42,6 +43,15 @@
 //! `data/p/p-families-5L.v1.json` in the families file and `--max-loops 5`
 //! these are the 5L Custom owners; their graph keys identify the census nodes
 //! (`T001..T283`) whose tables `p-import-table` converts.
+//!
+//! --exact-backend chooses the native exact materialization backend (default
+//! sparse); sparse-target-factorized uses factorized target-block lifting.
+//! The owner JSON records the selected backend. Discovery and owner guards
+//! are unchanged.
+//!
+//! --trial-log streams compact case/trial diagnostics from the native callback
+//! before bounded session retention, including failed-owner work. It is off
+//! by default. Owner records retain the native aggregate generation TOML.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -57,12 +67,16 @@ use crate::AppError;
 use crate::application::memory::parse_memory_bytes;
 use crate::application::propagator::generate::{
     CustomOwnerNode, CustomOwnerOptions, GenerationBudget, custom_owner_nodes,
-    generate_custom_owner_with_report,
+    generate_custom_owner_with_report, generate_custom_owner_with_report_and_progress,
 };
-use crate::application::{CandidateDiscoveryStrategy, CandidateIntegralOrder};
+use crate::application::{
+    CandidateDiscoveryStrategy, CandidateExactBackend, CandidateIntegralOrder,
+};
 use crate::cli::args::{ArgError, StreamPath, next_utf8_value, next_value, parse_positive_integer};
 use crate::cli::error::CliError;
 use crate::cli::io::{preflight_output_destination, read_input, write_output};
+
+mod trial_log;
 
 /// Schema of the `<label>.json` owner record.
 pub(crate) const P_CUSTOM_OWNER_RECORD_SCHEMA: &str = "rustred.p-custom-owner.v1";
@@ -74,12 +88,14 @@ struct Arguments {
     out: PathBuf,
     owners: BTreeSet<String>,
     threads: usize,
+    exact_backend: CandidateExactBackend,
     force: bool,
     budget: GenerationBudget,
     lp_from: Option<PathBuf>,
     integral_order: Option<PathBuf>,
     discovery: Option<PathBuf>,
     list: bool,
+    trial_log: Option<PathBuf>,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -88,6 +104,9 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut owners, mut threads, mut force) = (BTreeSet::new(), 1, false);
     let (mut budget, mut lp_from) = (GenerationBudget::default(), None);
     let (mut integral_order, mut discovery, mut list) = (None, None, false);
+    let (mut integral_order, mut discovery) = (None, None);
+    let mut exact_backend = CandidateExactBackend::default();
+    let mut trial_log = None;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -104,6 +123,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--integral-order" => "--integral-order",
             "--discovery" => "--discovery",
             "--list" => "--list",
+            "--exact-backend" => "--exact-backend",
+            "--trial-log" => "--trial-log",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if option != "--owner" && !seen.insert(option) {
@@ -158,6 +179,15 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                         })?,
                 );
             }
+            "--exact-backend" => {
+                let value = next_utf8_value(&mut arguments, option)?;
+                exact_backend = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option,
+                    value,
+                    expected: CandidateExactBackend::EXPECTED_VALUES,
+                })?;
+            }
+            "--trial-log" => trial_log = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--lp-from" => lp_from = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--integral-order" => {
                 integral_order = Some(PathBuf::from(next_value(&mut arguments, option)?))
@@ -177,12 +207,14 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         },
         owners,
         threads,
+        exact_backend,
         force,
         budget,
         lp_from,
         integral_order,
         discovery,
         list,
+        trial_log,
     })
 }
 
@@ -301,6 +333,18 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             preflight_output_destination(&destination(label, extension), arguments.force)?;
         }
     }
+    if let Some(path) = &arguments.trial_log {
+        if selected.iter().any(|(label, _)| {
+            ["rrbin", "json"]
+                .iter()
+                .any(|ext| *path == arguments.out.join(format!("{label}.{ext}")))
+        }) {
+            return Err(CliError::Input(
+                "the trial log must differ from every owner output".into(),
+            ));
+        }
+        preflight_output_destination(&StreamPath::File(path.clone()), arguments.force)?;
+    }
     // Every recorded count before the first generation.
     let mut given = Vec::with_capacity(selected.len());
     for (label, _) in &selected {
@@ -329,22 +373,63 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             .map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap_or_default())
             .unwrap_or(serde_json::Value::Null)
     };
+    let trial_log = arguments
+        .trial_log
+        .as_ref()
+        .map(|path| {
+            trial_log::TrialLog::open(path, arguments.force).map_err(|error| {
+                CliError::OutputIo(format!("cannot open trial log {}: {error}", path.display()))
+            })
+        })
+        .transpose()?;
     let mut stdout = std::io::stdout().lock();
     let report_error = |error: std::io::Error| CliError::OutputIo(error.to_string());
-    for ((label, node), lp_given) in selected.iter().zip(given) {
+    for (owner_ordinal, ((label, node), lp_given)) in selected.iter().zip(given).enumerate() {
         let presentation = &node.presentation;
         let arity = presentation.slots.len();
         let options = CustomOwnerOptions {
             support: None,
             n_cores: arguments.threads,
+            exact_backend: arguments.exact_backend,
             budget: arguments.budget,
             lp_given,
             fallthrough: None,
             integral_order: integral_order.clone(),
             discovery: discovery.clone(),
         };
-        let (payload, report) =
-            generate_custom_owner_with_report(presentation, &options).map_err(failed)?;
+        let generated = match &trial_log {
+            Some(log) => {
+                log.begin_owner();
+                let owner = trial_log::Owner {
+                    label,
+                    ordinal: owner_ordinal,
+                    presentation: presentation.id.0,
+                    family: presentation.family.name(),
+                };
+                let generated = generate_custom_owner_with_report_and_progress(
+                    presentation,
+                    &options,
+                    |event| log.observe(&owner, event),
+                );
+                // Flush even when native generation fails. Measurement failures
+                // must not silently turn a truncated log into usable evidence.
+                log.finish().map_err(|error| {
+                    CliError::OutputIo(format!(
+                        "cannot complete trial log {}: {error}; generation error: {}",
+                        arguments.trial_log.as_ref().unwrap().display(),
+                        generated
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .as_deref()
+                            .unwrap_or("none"),
+                    ))
+                })?;
+                generated
+            }
+            None => generate_custom_owner_with_report(presentation, &options),
+        };
+        let (payload, report) = generated.map_err(failed)?;
         let lp_given_from = (arguments.lp_from.as_ref())
             .filter(|_| report.lp_given)
             .map(|directory| {
@@ -387,8 +472,10 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "payload_bytes": report.payload_bytes,
             "lp_seconds": report.lp_seconds,
             "generation_seconds": report.generation_seconds,
+            "generation_report_toml": report.generation_report,
             "total_seconds": report.total_seconds,
             "workers": arguments.threads,
+            "exact_backend": options.exact_backend.as_str(),
             "budget": {
                 "max_seconds": arguments.budget.max_seconds,
                 "max_rss_bytes": arguments.budget.max_rss_bytes,
@@ -443,6 +530,56 @@ mod tests {
     }
 
     #[test]
+    fn metrics_hook_trial_log_is_opt_in_and_parsed_once() {
+        let required = ["--families", "f", "--max-loops", "4", "--out", "o"];
+        assert!(parsed(&required).unwrap().trial_log.is_none());
+        let with_log = [&required[..], &["--trial-log", "trials.jsonl"]].concat();
+        assert_eq!(
+            parsed(&with_log).unwrap().trial_log,
+            Some(PathBuf::from("trials.jsonl"))
+        );
+        assert!(matches!(
+            parsed(&["--trial-log", "a", "--trial-log", "b"]),
+            Err(ArgError::DuplicateOption("--trial-log"))
+        ));
+        assert!(parsed(&["--trial-log"]).is_err());
+    }
+
+    #[test]
+    fn p_generate_selects_exact_backend_without_changing_default() {
+        let required = ["--families", "f", "--max-loops", "4", "--out", "o"];
+        assert_eq!(
+            parsed(&required).unwrap().exact_backend,
+            CandidateExactBackend::Sparse
+        );
+        for backend in [
+            CandidateExactBackend::Sparse,
+            CandidateExactBackend::SparseFactorized,
+            CandidateExactBackend::SparseTargetOnlyFactorized,
+        ] {
+            let args = [&required[..], &["--exact-backend", backend.as_str()]].concat();
+            assert_eq!(parsed(&args).unwrap().exact_backend, backend);
+        }
+        assert!(matches!(
+            parsed(&["--exact-backend", "invalid"]),
+            Err(ArgError::InvalidValue {
+                option: "--exact-backend",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parsed(&[
+                "--exact-backend",
+                "sparse",
+                "--exact-backend",
+                "sparse-target-factorized"
+            ]),
+            Err(ArgError::DuplicateOption("--exact-backend"))
+        ));
+        assert!(parsed(&["--exact-backend"]).is_err());
+    }
+
+    #[test]
     fn p_generate_parses_its_options() {
         let required = ["--families", "f", "--max-loops", "3", "--out", "o"];
         assert_eq!(
@@ -453,12 +590,14 @@ mod tests {
                 out: "o".into(),
                 owners: BTreeSet::new(),
                 threads: 1,
+                exact_backend: CandidateExactBackend::Sparse,
                 force: false,
                 budget: GenerationBudget::default(),
                 lp_from: None,
                 integral_order: None,
                 discovery: None,
                 list: false,
+                trial_log: None,
             }
         );
         let all = [

@@ -27,6 +27,7 @@ mod search;
 mod sector;
 mod seed;
 mod source;
+mod table_export;
 
 use std::time::{Duration, Instant};
 
@@ -88,12 +89,15 @@ pub use candidate_reduction::{
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
-    CaseIntersectionStats, CoordinateCase,
+    CaseIntersectionStats, CaseRefinement, CaseRefinementStats, CaseResolution,
+    CaseResolutionReason, CoordinateCase, DeferredRegion, GraphDependent, ModularCheck,
+    StuckBranchChecks, UnsupportedBranchPolicy,
 };
 pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::{
     CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend,
+    sampled_max_box,
 };
 #[cfg(feature = "reconstruction")]
 pub use discovery::{
@@ -105,7 +109,11 @@ pub use discovery_strategy::{
     SourceRowPriority, SourceVisitOrder,
 };
 pub use error::SolverError;
-pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};
+pub use exception::{
+    ExceptionError, ExceptionalConditions, GuardReport, GuardRoute, GuardRouteTaken,
+    NativeGuardTry, extract_exceptions, extract_exceptions_content, extract_exceptions_routed,
+    extract_exceptions_two_sided,
+};
 pub use execution::{
     SectorCompleted, SectorExecutionError, SectorExecutor, SectorExecutorBuildError,
     SectorScheduling, SharedSectorSnapshot,
@@ -118,19 +126,23 @@ pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
+    StudyRow, TraceStudy,
 };
 pub use sector::{
-    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, RuleDispatchPolicy,
-    SectorDomainSolution, SectorEvent, SectorPhase, SectorRule, SectorSolution, SectorSolveError,
-    SectorSolveOptions, SectorStats,
+    CaseQueue, CaseQueueEvent, CaseQueueSolution, CaseQueueStats, CoverRule, DeferredExitScan,
+    DeferredSectorSolution, FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError,
+    NumericEndpoints, RuleDispatchPolicy, SectorDeferredRegion, SectorDomainSolution, SectorEvent,
+    SectorPhase, SectorRule, SectorRuleParent, SectorSolution, SectorSolveError,
+    SectorSolveOptions, SectorStats, deferred_exit_scan,
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
-    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
-    RuleTrialStats, RuleTrialSummary,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
+    RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{Seed, Seeds};
+pub use seed::{CaseSeedSchedule, ScheduledSeeds, Seed, SeedSchedule, Seeds, ShellSeedSource};
 pub use source::SourceSystem;
+pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
 
 /// Aggregate diagnostics returned by the topology-neutral family solver.
 ///

@@ -528,6 +528,7 @@ fn actual_fam112_conjunction_splits_after_its_fixed_coordinate_is_absorbed() {
 }
 
 #[test]
+#[allow(clippy::result_large_err)]
 fn ordinary_intersection_ignores_count_diagnostics_and_preserves_resource_causes() {
     use std::time::Duration;
     use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};

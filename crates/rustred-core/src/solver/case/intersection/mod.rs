@@ -11,11 +11,14 @@ mod engine;
 mod integer_divisors;
 mod linear_resultant;
 mod model;
+mod modular;
 mod native;
 
 pub use model::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats,
+    CaseIntersectionResult, CaseIntersectionStats, CaseRefinement, CaseRefinementStats,
+    CaseResolution, CaseResolutionReason, DeferredRegion, GraphDependent, ModularCheck,
+    StuckBranchChecks, UnsupportedBranchPolicy,
 };
 
 use crate::algebra::CoefficientPolynomial;
@@ -29,6 +32,7 @@ impl<const N: usize> Case<N> {
     /// operation; an empty successful `cases` vector means every branch is
     /// proved empty. Counters describe geometry work, not solver sources,
     /// closure, or master counts.
+    #[allow(clippy::result_large_err)]
     pub fn intersect_many(
         &self,
         conjunction: &[CoefficientPolynomial],
@@ -36,7 +40,16 @@ impl<const N: usize> Case<N> {
         sector: &[bool; N],
         limits: CaseIntersectionLimits,
     ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
-        engine::intersect(self, conjunction, indices, sector, limits, None)
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            None,
+            UnsupportedBranchPolicy::Refuse,
+            CaseRefinement::default(),
+        )
     }
 
     /// Exact exceptional geometry within `sum(max(-n_i,0)) <= maximum`.
@@ -49,6 +62,7 @@ impl<const N: usize> Case<N> {
     /// conversion, and every refinement shares the same work budget. Unsupported positive-
     /// power geometry still fails atomically. Returned equality cases can
     /// over-cover outside the explicit rank scope; this is not family closure.
+    #[allow(clippy::result_large_err)]
     pub fn intersect_many_with_max_numerator_rank(
         &self,
         conjunction: &[CoefficientPolynomial],
@@ -57,7 +71,74 @@ impl<const N: usize> Case<N> {
         limits: CaseIntersectionLimits,
         maximum: u32,
     ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
-        engine::intersect(self, conjunction, indices, sector, limits, Some(maximum))
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            Some(maximum),
+            UnsupportedBranchPolicy::Refuse,
+            CaseRefinement::default(),
+        )
+    }
+
+    /// [`Self::intersect_many`] (`max_numerator_rank` `None`) or
+    /// [`Self::intersect_many_with_max_numerator_rank`] with an explicit
+    /// policy for branches that no exact step resolves. `Refuse` is exactly
+    /// those methods. `Defer` (S4, opt-in) returns such branches in
+    /// [`CaseIntersectionResult::deferred`] instead of failing: `cases` then
+    /// does NOT cover them, and a caller must keep every rule away from them.
+    /// All other failures (resources, budgets, admission, invalid input)
+    /// remain atomic under both policies.
+    #[allow(clippy::result_large_err)]
+    pub fn intersect_many_with_policy(
+        &self,
+        conjunction: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        max_numerator_rank: Option<u32>,
+        unsupported: UnsupportedBranchPolicy,
+    ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            max_numerator_rank,
+            unsupported,
+            CaseRefinement::default(),
+        )
+    }
+
+    /// [`Self::intersect_many_with_policy`] with the opt-in exact refinement
+    /// steps of [`CaseRefinement`] (factor-first, saturation, G-split). With
+    /// `CaseRefinement::default()` (every step off) this is exactly
+    /// [`Self::intersect_many_with_policy`]. Results stay exact: the OR of
+    /// `cases` and `deferred` (with their exclusions) is the exceptional locus.
+    #[allow(clippy::result_large_err, clippy::too_many_arguments)]
+    pub fn intersect_many_refined(
+        &self,
+        conjunction: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        max_numerator_rank: Option<u32>,
+        unsupported: UnsupportedBranchPolicy,
+        refinement: CaseRefinement,
+    ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
+        engine::intersect(
+            self,
+            conjunction,
+            indices,
+            sector,
+            limits,
+            max_numerator_rank,
+            unsupported,
+            refinement,
+        )
     }
 }
 
@@ -87,3 +168,30 @@ mod rank_priority_tests;
 
 #[cfg(test)]
 mod overflow_consistency_tests;
+
+#[cfg(test)]
+mod t167_captured_inputs;
+
+#[cfg(test)]
+mod lift_tests;
+
+#[cfg(test)]
+mod lift_review_tests;
+
+#[cfg(test)]
+mod t167_p1_b5_captured;
+
+#[cfg(test)]
+mod defer_tests;
+
+#[cfg(test)]
+mod t167_gsplit_captured;
+
+#[cfg(test)]
+mod gsplit_tests;
+
+#[cfg(test)]
+mod t167_p1_astra_box;
+
+#[cfg(test)]
+mod defer_review_tests;

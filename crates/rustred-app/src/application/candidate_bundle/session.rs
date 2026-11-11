@@ -262,7 +262,14 @@ impl Drop for CandidateGenerationSession {
 }
 
 impl CandidateGenerationJob {
-    pub fn run(mut self) {
+    pub fn run(self) {
+        self.run_with_progress(|_| {});
+    }
+
+    /// Observe native progress before the session's bounded event retention.
+    /// Callbacks may overlap on sector workers and must synchronize their
+    /// state. A callback does not grant rule or closure authority.
+    pub fn run_with_progress(mut self, progress: impl Fn(&FamilyCloseProgress) + Send + Sync) {
         if self.shared.creator_pid != std::process::id() {
             return;
         }
@@ -273,7 +280,10 @@ impl CandidateGenerationJob {
             }
         }
         let request = self.request.take().expect("single-use generation job");
-        let observe = |event| observe(&self.shared, event);
+        let observe = |event| {
+            progress(&event);
+            observe(&self.shared, event);
+        };
         let result = match self.family.take() {
             Some(family) => generate::family_candidates_from_family_controlled(
                 family,
@@ -424,6 +434,42 @@ fn observe(shared: &Shared, event: FamilyCloseProgress) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metrics_hook_callback_precedes_bounded_event_retention() {
+        use std::sync::atomic::AtomicUsize;
+        let request = FamilyCandidatesRequest::new(
+            r#"
+schema = "rustred.project.toml.v1"
+[family]
+name = "metrics_hook_k1"
+loop_momenta = ["q"]
+external_momenta = []
+dimension = "d"
+[[family.denominators]]
+id = "P"
+expression = "q^2-1"
+[target]
+powers = [1]
+"#,
+        );
+        let (session, job) = CandidateGenerationSession::prepare(request, 1).unwrap();
+        let calls = AtomicUsize::new(0);
+        let encoded = AtomicBool::new(false);
+        job.run_with_progress(|event| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            if matches!(event, FamilyCloseProgress::Encoded { .. }) {
+                encoded.store(true, Ordering::Relaxed);
+            }
+        });
+        assert!(session.result().is_ok());
+        assert!(encoded.load(Ordering::Relaxed));
+        let batch = session.poll_events(1, Duration::ZERO).unwrap();
+        let calls = calls.load(Ordering::Relaxed);
+        assert!(calls > 1);
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.dropped_events, (calls - 1) as u64);
+    }
 
     #[test]
     fn inline_failed_job_is_observable_without_waiting() {
