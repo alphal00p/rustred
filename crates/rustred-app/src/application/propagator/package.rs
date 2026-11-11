@@ -37,7 +37,9 @@ use rustred::propagator::families::PFamiliesFile;
 use rustred::propagator::library::{PLibrary, PTerm, PTerminal};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::tag::GammaTag;
-use rustred::propagator::{OwnerClassId, P_LIBRARY_SCHEMA, PTerminalId, PresentationId, p_versions};
+use rustred::propagator::{
+    OwnerClassId, P_LIBRARY_SCHEMA, PTerminalId, PresentationId, p_versions,
+};
 
 use super::CustomPayloads;
 use super::assemble::{
