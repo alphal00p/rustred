@@ -17,8 +17,11 @@ type ExactField = RationalPolynomialField<IntegerRing, u16>;
 mod factorized;
 mod fraction_free;
 #[cfg(feature = "reconstruction")]
+mod sampled;
+#[cfg(feature = "reconstruction")]
 mod semi_numerical;
 mod target_only;
+mod trace_dump;
 mod variables;
 
 #[cfg(feature = "reconstruction")]
@@ -65,6 +68,16 @@ pub enum SymbolicExactBackend {
         max_attempts: usize,
         max_primes: usize,
     },
+    /// Reconstruct ONLY the normalized target row from modular replays of the
+    /// fixed trace (degree probe, common denominator, shared numerator box, CRT
+    /// and rational reconstruction; discovery/sampled.rs), without any
+    /// characteristic-zero elimination. Accepted only after a fresh-prime check
+    /// at 3 values of d with a mutation control: a modular certificate, not a
+    /// characteristic-zero proof (p5l-lift-sampled, 5L corner pivots).
+    /// Traces with fewer than `min_rows` source rows use the
+    /// SparseTargetOnlyFactorized lift instead (`min_rows = 0`: always sampled).
+    #[cfg(feature = "reconstruction")]
+    Sampled { threads: usize, seed: u64, min_rows: usize },
     /// Reconstruct both target coefficients and source weights with Symbolica.
     /// A native modular harder-prefix rank certificate and a full exact source
     /// product prove equality to the ordinary first-target GPLU row without
@@ -639,6 +652,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         coefficient_variables: variables.original_len(),
         active_variables: variables.active_len(),
     });
+    trace_dump::maybe_dump(rows, &columns, order, target_column);
     if backend == SymbolicExactBackend::SparseFactorized {
         return factorized::materialize(rows, &columns, order, target_column, &variables, observe);
     }
@@ -675,6 +689,29 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             max_probes,
             max_attempts,
             max_primes,
+            observe,
+        );
+    }
+    #[cfg(feature = "reconstruction")]
+    if let SymbolicExactBackend::Sampled { threads, seed, min_rows } = backend {
+        if rows.len() < min_rows {
+            return target_only::materialize_factorized(
+                rows,
+                &columns,
+                order,
+                target_column,
+                &variables,
+                observe,
+            );
+        }
+        return sampled::materialize(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            threads,
+            seed,
             observe,
         );
     }
