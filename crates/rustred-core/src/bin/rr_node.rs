@@ -15,6 +15,9 @@
 //!                  [--cover PATH:UPTO]... [--cand-dump]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
+//! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
+//!                  [--sample-easy K] [--rounds K]   (one coordinate priority for the node; see node::predict)
+//! rr_node oracle   --family F.sym --cases CASES.jsonl --orders ORDERS.jsonl   (depth-1 rule per case x order, TSV)
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
 //! rr_node replay   --table F.table.jsonl --out DIR [--family F.sym] [--cert F.cert.jsonl] [--cand-dump-dir D]
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
@@ -558,6 +561,109 @@ fn utc() -> String {
     format!("{:02}:{:02}:{:02}Z", s / 3600 % 24, s / 60 % 60, s % 60)
 }
 
+fn read_cases(path: &str) -> Vec<rustred::node::predict::WeightedCase> {
+    read(path)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| die(&format!("{path}: {e}"))))
+        .collect()
+}
+
+fn cmd_predict(mut a: Args) -> i32 {
+    use rustred::node::predict::{OracleFamily, PredictOptions, predict, table_cases};
+    let family = read(&a.need("--family"));
+    let out = a.need("--out");
+    let table = a.take("--table");
+    let cases_path = a.take("--cases");
+    let base_order = a.take("--base-order");
+    let mut opts = PredictOptions::default();
+    if let Some(k) = a.parse("--sample-easy") {
+        opts.sample_easy = k;
+    }
+    if let Some(k) = a.parse("--rounds") {
+        opts.rounds = k;
+    }
+    a.done();
+    let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
+    let cases = match (table, cases_path) {
+        (Some(t), None) => table_cases(&t).unwrap_or_else(|e| die(&e)).1,
+        (None, Some(c)) => read_cases(&c),
+        _ => die("give exactly one of --table, --cases"),
+    };
+    let cases: Vec<_> = cases
+        .into_iter()
+        .filter(|c| c.fixed.len() == fam.n)
+        .collect();
+    let base: Vec<usize> = match base_order {
+        None => (0..fam.n).collect(),
+        Some(s) => {
+            let o = order_arg(&s, &family, None);
+            if o.slot_permutation.is_some() {
+                die(
+                    "--base-order: a presentation change; pass the presented family and its comparator order instead",
+                );
+            }
+            o.coordinate_priority
+                .unwrap_or_else(|| (0..fam.n).collect())
+        }
+    };
+    let p = predict(&fam, &cases, &base, &opts, &mut |m| {
+        eprintln!("[rr_node predict {}] {m}", utc())
+    })
+    .unwrap_or_else(|e| die(&e));
+    let _ = std::fs::write(&out, serde_json::to_string_pretty(&p).unwrap());
+    println!("{}", p.order.to_json());
+    eprintln!(
+        "[rr_node predict] cases {} hard {} | no depth-1: base {} -> predicted {} (hard {} -> {}, big {} -> {})",
+        p.cases,
+        p.hard,
+        p.no_depth1[0],
+        p.no_depth1[1],
+        p.no_depth1_hard[0],
+        p.no_depth1_hard[1],
+        p.no_depth1_big[0],
+        p.no_depth1_big[1]
+    );
+    0
+}
+
+fn cmd_oracle(mut a: Args) -> i32 {
+    use rustred::node::predict::{OracleCase, OracleFamily};
+    let family = read(&a.need("--family"));
+    let cases = read_cases(&a.need("--cases"));
+    let orders_path = a.need("--orders");
+    a.done();
+    let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
+    let orders: Vec<NodeOrder> = read(&orders_path)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| order_arg(l, &family, None))
+        .collect();
+    for (i, c) in cases.iter().enumerate() {
+        let oc =
+            OracleCase::new(&fam, &c.fixed, &c.equations, 1 + i as u64).unwrap_or_else(|e| die(&e));
+        for o in &orders {
+            if o.slot_permutation.is_some() && o.coordinate_priority.is_some() {
+                die("oracle: an order with both a presentation and a priority");
+            }
+            let prio = o
+                .slot_permutation
+                .clone()
+                .or_else(|| o.coordinate_priority.clone())
+                .unwrap_or_else(|| (0..fam.n).collect());
+            let d = oc.depth1(&prio);
+            println!(
+                "{i}\t{}\t{}\t{}\t{}",
+                o.name,
+                u8::from(d.rule),
+                d.trace,
+                d.rhs
+            );
+        }
+    }
+    0
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
@@ -571,6 +677,8 @@ fn main() {
         "variants" => cmd_variants(a),
         "descent" => cmd_descent(a),
         "replay" => cmd_replay(a),
+        "predict" => cmd_predict(a),
+        "oracle" => cmd_oracle(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
