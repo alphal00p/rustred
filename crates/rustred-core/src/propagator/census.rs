@@ -31,6 +31,17 @@
 //! of its node remains the word of `present`, which chooses the mask on the graph of
 //! the top, and of `edge_map`, which checks it for a child.
 //!
+//! # Route maps
+//!
+//! [`p_census`] stores the first verified route of [`route`]
+//! ([`PRouteMaps::First`], the default) or, with [`PRouteMaps::StaticScore`]
+//! (what a package assembly uses; M5 maps, p5l-maps-rs), the map `T M` with
+//! the fewest static-score terms over the owner sector's automorphisms `M`
+//! ([`route_choice::choose_static`]: the choices of `choose_maps.py static`),
+//! each verified exactly by [`verify_route`] before it is stored.
+//!
+//! [`route_choice::choose_static`]: super::route_choice::choose_static
+//!
 //! # Versioning
 //!
 //! Bump [`P_CENSUS_VERSION`] when a fate, an owner or a stored route can change
@@ -53,6 +64,7 @@ use crate::sector::zero::{Analyzer, Decision};
 use super::class::{ClassLimits, ClassedSector, OwnerClassKey, classify, route, verify_route};
 use super::error::PError;
 use super::presentation::{Presentation, PresentationKind, determinant};
+use super::route_choice::{FormBasis, RouteDecision, choose_static, sector_automorphisms};
 use super::topology::{Dag, GraphKey, PTopo};
 use super::{NodeIndex, OwnerClassId, PresentationId, p_versions};
 
@@ -166,6 +178,22 @@ pub struct PCensusOptions {
     pub limits: ClassLimits,
     /// Worker threads; `0` means one. The census does not depend on it.
     pub threads: usize,
+    /// Which verified route a routed sector stores.
+    pub route_maps: PRouteMaps,
+}
+
+/// Which verified route [`p_census`] stores for a routed (non-owner) sector.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PRouteMaps {
+    /// The route [`route`] finds first.
+    #[default]
+    First,
+    /// The first route composed with the owner-sector automorphism of the
+    /// fewest static-score terms (`route_choice::choose_static`; the stored
+    /// route is kept unless strictly beaten, and an owner whose slots are no
+    /// basis of the quadratic forms keeps every first route). Each changed
+    /// route is verified by [`verify_route`].
+    StaticScore,
 }
 
 impl PCensusOptions {
@@ -651,6 +679,34 @@ pub fn p_census(
         })
         .collect::<Result<BTreeMap<_, _>, PError>>()?;
 
+    // Static-score route maps: the automorphisms of every owner sector and the
+    // form basis of every owner presentation, once.
+    let choice = match options.route_maps {
+        PRouteMaps::First => None,
+        PRouteMaps::StaticScore => {
+            let owner_sectors: Vec<(OwnerClassId, (PresentationId, u64))> = census
+                .classes
+                .iter()
+                .map(|(&id, record)| (id, record.owner))
+                .collect();
+            let groups = parallel_map(&owner_sectors, threads, |&(id, (owner, support))| {
+                Ok((id, sector_automorphisms(presentation(owner)?, support)?))
+            })?
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+            let mut owner_ids: Vec<PresentationId> =
+                owner_sectors.iter().map(|(_, (owner, _))| *owner).collect();
+            owner_ids.sort();
+            owner_ids.dedup();
+            let bases = parallel_map(&owner_ids, threads, |&owner| {
+                Ok((owner, FormBasis::of(presentation(owner)?)?))
+            })?
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+            Some((groups, bases))
+        }
+    };
+
     // Routes last, each from a fresh classification, so that no prepared
     // geometry is held per sector.
     let sectors: Vec<_> = fates
@@ -669,13 +725,28 @@ pub fn p_census(
         } else {
             route(&source, owner, limits)?
         };
-        let map = map.ok_or_else(|| {
+        let mut map = map.ok_or_else(|| {
             PError::Generation(format!(
                 "sector ({}, {support:#x}) has no verified route onto its class {}",
                 id.0,
                 source.key.label()
             ))
         })?;
+        let (owner_id, _) = census.classes[&class].owner;
+        if let Some((groups, bases)) = &choice
+            && (id, support) != census.classes[&class].owner
+            && let Some(basis) = &bases[&owner_id]
+            && let RouteDecision::Changed(chosen) =
+                choose_static(presentation(id)?, support, &map, &groups[&class], basis)?
+        {
+            if verify_route(&source, owner, &chosen.map, limits)?.as_ref() != Some(&chosen.map) {
+                return Err(PError::Generation(format!(
+                    "sector ({}, {support:#x}): the static-score route is no verified route",
+                    id.0
+                )));
+            }
+            map = chosen.map;
+        }
         Ok(((id, support), PSectorFate::Owner { class, map }))
     })?;
     census.sectors = routed.into_iter().collect();

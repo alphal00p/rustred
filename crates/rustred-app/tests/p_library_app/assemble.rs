@@ -720,7 +720,8 @@ fn p_validate_traces_ten_thousand_distinct_keys_per_loop_count() {
         .collect();
     assert_eq!(
         reached,
-        [(1, 127, 127, 10, 117), (2, 10_000, 22_803, 1_686, 19_364)]
+        // P_CENSUS_VERSION 2 (static-score route maps): 22_803 / 1_686 / 19_364 before.
+        [(1, 127, 127, 10, 117), (2, 10_000, 17_691, 1_520, 14_957)]
     );
 }
 
@@ -2878,8 +2879,10 @@ fn p_validate_traces_a_hundred_keys_per_loop_count_at_scope_one_to_three() {
         reached,
         [
             (1, 100, 100, 10, 90),
-            (2, 100, 1_812, 406, 1_490),
-            (3, 100, 409_663, 58_440, 335_988)
+            // P_CENSUS_VERSION 2 (static-score route maps): 2L 1_812 / 406 /
+            // 1_490 and 3L 409_663 / 58_440 / 335_988 before.
+            (2, 100, 1_025, 217, 845),
+            (3, 100, 265_734, 40_322, 210_612)
         ]
     );
 }

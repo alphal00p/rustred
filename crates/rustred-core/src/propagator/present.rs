@@ -32,7 +32,7 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 use crate::algebra::CoefficientContext;
-use crate::family::isp::{IspCompletion, IspCompletionError};
+use crate::family::isp::{IspCompletion, IspCompletionError, IspSource};
 use crate::family::{AffineDenominator, ScalarProductCoordinate};
 use crate::reduction::ReductionError;
 
@@ -304,20 +304,58 @@ pub const P_ISP_PREFERENCES: &[(&str, &[usize])] = &[
 ];
 
 /// Environment variable of the development override of
-/// [`P_ISP_PREFERENCES`]: a JSON file `{"<node family name>": [ordinals], ..}`
-/// that REPLACES the embedded table (`{}` gives the default scan everywhere).
-/// A package generated with it has other presentations for the same
-/// [`P_PRESENTATION_VERSION`]: development only.
+/// [`P_ISP_PREFERENCES`]: a JSON file `{"<node family name>": <preference>, ..}`
+/// that REPLACES the embedded table (`{}` gives the default scan everywhere), a
+/// preference being either a list of coordinate ordinals (the unit rows scanned
+/// first: LoopLoop by `(left, right)`, then LoopExternal) or an object
+/// `{"pairs": [[a, b], ..], "units": [ordinals]}` (p5l-maps-rs): the edge-pair
+/// products `p_a.p_b` of the node's routed line momenta (`a`, `b` line slots,
+/// `-1` = `q`) are offered to [`IspCompletion`] before any unit row, then the
+/// listed unit rows, then the default scan. A package generated with it has
+/// other presentations for the same [`P_PRESENTATION_VERSION`]: development
+/// only; adopting it means a version bump.
 ///
 /// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
 pub const P_ISP_PREFERENCE_ENV: &str = "RUSTRED_P_ISP_PREFERENCE";
 
-fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
-    static TABLE: OnceLock<Result<BTreeMap<String, Vec<usize>>, String>> = OnceLock::new();
+/// One node's entry of the [`P_ISP_PREFERENCE_ENV`] table.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(untagged)]
+pub enum IspPreference {
+    #[default]
+    Default,
+    /// Unit-row ordinals scanned first.
+    Units(Vec<usize>),
+    /// Edge-pair products first (`-1` = `q`), then unit-row ordinals.
+    Pairs {
+        pairs: Vec<[i64; 2]>,
+        #[serde(default)]
+        units: Vec<usize>,
+    },
+}
+
+impl IspPreference {
+    fn units(&self) -> &[usize] {
+        match self {
+            Self::Default => &[],
+            Self::Units(units) | Self::Pairs { units, .. } => units,
+        }
+    }
+
+    fn pairs(&self) -> &[[i64; 2]] {
+        match self {
+            Self::Pairs { pairs, .. } => pairs,
+            Self::Default | Self::Units(_) => &[],
+        }
+    }
+}
+
+fn isp_preference(name: &str) -> Result<IspPreference, PError> {
+    static TABLE: OnceLock<Result<BTreeMap<String, IspPreference>, String>> = OnceLock::new();
     let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
         Err(_) => Ok(P_ISP_PREFERENCES
             .iter()
-            .map(|&(name, ordinals)| (name.to_owned(), ordinals.to_vec()))
+            .map(|&(name, ordinals)| (name.to_owned(), IspPreference::Units(ordinals.to_vec())))
             .collect()),
         Ok(path) => std::fs::read_to_string(&path)
             .map_err(|error| format!("{path}: {error}"))
@@ -331,6 +369,39 @@ fn isp_preference(name: &str) -> Result<Vec<usize>, PError> {
     Ok(table.get(name).cloned().unwrap_or_default())
 }
 
+/// `a.b = constant + row . S` over the coordinates of the family (the
+/// symmetric product; `square_row(m)` is `product_row(m, m)`).
+fn product_row(a: &[i64], b: &[i64]) -> (i64, Vec<i64>) {
+    let (&qa, ka) = a.split_last().expect("loops >= 1");
+    let (&qb, kb) = b.split_last().expect("loops >= 1");
+    let products = (0..ka.len()).flat_map(|left| {
+        (left..ka.len()).map(move |right| {
+            if left == right {
+                ka[left] * kb[left]
+            } else {
+                ka[left] * kb[right] + ka[right] * kb[left]
+            }
+        })
+    });
+    let externals = (0..ka.len()).map(|k| ka[k] * qb + qa * kb[k]);
+    (
+        qa * qb * P_EXTERNAL_SQUARE,
+        products.chain(externals).collect(),
+    )
+}
+
+/// The momentum of pair entry `index` (`-1` = `q`) over `rows`.
+fn pair_momentum(rows: &[Vec<i64>], index: i64, width: usize) -> Result<Vec<i64>, PError> {
+    if index == -1 {
+        return Ok(unit_row(width, width - 1));
+    }
+    usize::try_from(index)
+        .ok()
+        .and_then(|i| rows.get(i))
+        .cloned()
+        .ok_or_else(|| PError::Generation(format!("ISP pair index {index} is no line nor q")))
+}
+
 /// The presentation of `rows`: line slots, then the ISPs of [`IspCompletion`].
 fn with_isps(
     node: &NodeInfo,
@@ -338,6 +409,7 @@ fn with_isps(
     kind: PresentationKind,
     id: PresentationId,
     context: &CoefficientContext,
+    preference: Option<&IspPreference>,
 ) -> Result<Presentation, PError> {
     let name = node_family_name(node);
     let loops = usize::from(node.loops);
@@ -358,8 +430,32 @@ fn with_isps(
         .iter()
         .map(|&(_, _, eps_units)| eps_power_shift(context, eps_units))
         .collect::<Result<_, _>>()?;
-    let preferred = isp_preference(name.as_str())?;
-    let completion = IspCompletion::try_new_with_preference(
+    let preference = match preference {
+        Some(given) => given.clone(),
+        None => isp_preference(name.as_str())?,
+    };
+    let width = loops + 1;
+    let pair_rows = preference
+        .pairs()
+        .iter()
+        .map(|&[a, b]| {
+            Ok((
+                pair_momentum(&rows, a, width)?,
+                pair_momentum(&rows, b, width)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, PError>>()?;
+    let candidates = pair_rows
+        .iter()
+        .map(|(a, b)| {
+            let (constant, row) = product_row(a, b);
+            AffineDenominator::new(
+                context.integer(constant),
+                row.into_iter().map(|c| context.integer(c)).collect(),
+            )
+        })
+        .collect();
+    let completion = IspCompletion::try_new_with_candidates(
         name.as_str(),
         (1..=loops).map(|l| format!("k{l}")).collect(),
         vec!["q".to_owned()],
@@ -369,15 +465,19 @@ fn with_isps(
         vec![vec![context.integer(P_EXTERNAL_SQUARE)]],
         shifts,
         Default::default(),
-        &preferred,
+        candidates,
+        preference.units(),
     )
     .map_err(|error| completion_error(node, error))?;
-    let width = loops + 1;
     let isps = completion
-        .appended_coordinate_ordinals()
+        .appended_sources()
         .iter()
-        .map(
-            |&ordinal| match completion.family().coordinates()[ordinal] {
+        .map(|&source| match source {
+            IspSource::Candidate(index) => {
+                let (left, right) = pair_rows[index].clone();
+                Slot::Isp(SlotIsp { left, right })
+            }
+            IspSource::Unit(ordinal) => match completion.family().coordinates()[ordinal] {
                 ScalarProductCoordinate::LoopLoop { left, right } => Slot::Isp(SlotIsp {
                     left: unit_row(width, left),
                     right: unit_row(width, right),
@@ -387,7 +487,7 @@ fn with_isps(
                     right: unit_row(width, loops),
                 }),
             },
-        )
+        })
         .collect::<Vec<_>>();
     let lines = rows
         .into_iter()
@@ -433,6 +533,7 @@ fn adapted(
     decision: &LaneDecision,
     id: PresentationId,
     context: &CoefficientContext,
+    preference: Option<&IspPreference>,
 ) -> Result<Presentation, PError> {
     let lines = node.topo.lines.len();
     let outside = role_lines(decision.roles)
@@ -449,14 +550,14 @@ fn adapted(
         (OwnerLane::SeriesParallel | OwnerLane::Insertion, LaneRoles::Insertion(roles)) => {
             let rows = routed(node, Some(index(roles.lines[0])), &[index(roles.lines[1])])?;
             let kind = PresentationKind::InsertionAdapted;
-            let presentation = with_isps(node, rows, kind, id, context)?;
+            let presentation = with_isps(node, rows, kind, id, context, preference)?;
             check_insertion_contract(&presentation, &roles)?;
             Ok(presentation)
         }
         (OwnerLane::Carpet, LaneRoles::Carpet(roles)) => {
             let rows = routed_carpet(node, index(roles.r))?;
             let kind = PresentationKind::CarpetAdapted;
-            let presentation = with_isps(node, rows, kind, id, context)?;
+            let presentation = with_isps(node, rows, kind, id, context, preference)?;
             check_carpet_contract(&presentation, &roles)?;
             Ok(presentation)
         }
@@ -464,14 +565,14 @@ fn adapted(
             let tree = [index(roles.a[0]), index(roles.a[1])];
             let rows = routed(node, Some(index(roles.b)), &tree)?;
             let kind = PresentationKind::TriangleAdapted;
-            let presentation = with_isps(node, rows, kind, id, context)?;
+            let presentation = with_isps(node, rows, kind, id, context, preference)?;
             check_triangle_contract(&presentation, &roles)?;
             Ok(presentation)
         }
         (OwnerLane::Diamond, LaneRoles::Diamond(roles)) => {
             let rows = routed_diamond(node, &roles)?;
             let kind = PresentationKind::DiamondAdapted;
-            let presentation = with_isps(node, rows, kind, id, context)?;
+            let presentation = with_isps(node, rows, kind, id, context, preference)?;
             check_diamond_contract(&presentation, &roles)?;
             Ok(presentation)
         }
@@ -612,6 +713,21 @@ pub fn present(
     id: PresentationId,
     context: &CoefficientContext,
 ) -> Result<Presentation, PError> {
+    present_with_isp_preference(node, decision, tops, id, context, None)
+}
+
+/// [`present`] with the node's ISP preference given (p5l-maps-rs) instead of
+/// read from [`P_ISP_PREFERENCE_ENV`]; `None` reads the table, as [`present`]
+/// does. The Induced presentation (integer Custom) keeps the top's slots and
+/// ignores it.
+pub fn present_with_isp_preference(
+    node: &NodeInfo,
+    decision: &LaneDecision,
+    tops: &[Arc<Presentation>],
+    id: PresentationId,
+    context: &CoefficientContext,
+    preference: Option<&IspPreference>,
+) -> Result<Presentation, PError> {
     if decision.trivial {
         return Err(broken(format!(
             "node {}: a trivial node has no presentation",
@@ -628,13 +744,20 @@ pub fn present(
         OwnerLane::Custom if node.eps_lines == 0 => induced(node, tops, id, context),
         OwnerLane::Custom => {
             let rows = routed(node, None, &[])?;
-            with_isps(node, rows, PresentationKind::EpsNode, id, context)
+            with_isps(
+                node,
+                rows,
+                PresentationKind::EpsNode,
+                id,
+                context,
+                preference,
+            )
         }
         OwnerLane::SeriesParallel
         | OwnerLane::Insertion
         | OwnerLane::Carpet
         | OwnerLane::Triangle
-        | OwnerLane::Diamond => adapted(node, decision, id, context),
+        | OwnerLane::Diamond => adapted(node, decision, id, context, preference),
         OwnerLane::Scheme => match decision.roles {
             LaneRoles::Scheme(roles) => {
                 super::scheme::scheme_presentation(node, &roles, id, context)
@@ -882,4 +1005,39 @@ pub fn edge_map(
     };
     verify_edge_map(parent, child, &map)?;
     Ok(map)
+}
+
+#[cfg(test)]
+mod pair_tests {
+    use super::*;
+
+    #[test]
+    fn the_square_is_the_product_with_itself() {
+        for m in [vec![1, 0, 0], vec![1, -1, 1], vec![0, 2, -1], vec![3, 0, 1]] {
+            assert_eq!(product_row(&m, &m), square_row(&m));
+        }
+        // (k1 - q).(k2 + q) = k1.k2 + k1.q - k2.q - q.q
+        assert_eq!(
+            product_row(&[1, 0, -1], &[0, 1, 1]),
+            (1, vec![0, 1, 0, 1, -1])
+        );
+    }
+
+    #[test]
+    fn preferences_parse_both_forms() {
+        let table: BTreeMap<String, IspPreference> = serde_json::from_str(
+            r#"{"a": [3, 1], "b": {"pairs": [[0, 2], [1, -1]]}, "c": {"pairs": [], "units": [2]}}"#,
+        )
+        .unwrap();
+        assert_eq!(table["a"], IspPreference::Units(vec![3, 1]));
+        assert_eq!(
+            table["b"],
+            IspPreference::Pairs {
+                pairs: vec![[0, 2], [1, -1]],
+                units: Vec::new()
+            }
+        );
+        assert_eq!(table["c"].units(), &[2]);
+        assert!(table["c"].pairs().is_empty());
+    }
 }

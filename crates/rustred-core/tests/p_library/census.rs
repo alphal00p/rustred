@@ -19,8 +19,8 @@ use std::time::Instant;
 use rustred::algebra::CoefficientContext;
 use rustred::propagator::PresentationId;
 use rustred::propagator::census::{
-    CENSUS_NO_LEDGER, P_CENSUS_SCHEMA, PCensus, PCensusCounts, PCensusOptions, PSectorFate,
-    SignedAffineLoopMap, p_census,
+    CENSUS_NO_LEDGER, P_CENSUS_SCHEMA, PCensus, PCensusCounts, PCensusOptions, PRouteMaps,
+    PSectorFate, SignedAffineLoopMap, p_census,
 };
 use rustred::propagator::class::{ClassLimits, classify};
 use rustred::propagator::error::PError;
@@ -2256,5 +2256,95 @@ fn the_four_loop_dag_is_complete() {
             (3, 125, 8_216, 6_794, 1_422, 92),
             (4, 291, 171_488, 152_304, 19_184, 183),
         ]
+    );
+}
+
+/// Static-score route maps (M5 maps, p5l-maps-rs): the census of
+/// `PRouteMaps::StaticScore` is the first-route census with each routed
+/// sector's map replaced by `route_choice::choose_static`'s choice (the same
+/// classes, owners and fates), it is strongly complete (every route verified
+/// again), it does not depend on the thread count, and it lowers the static
+/// score of the scope-1-3 routes.
+#[test]
+fn static_score_route_maps_are_the_choices_of_choose_static() {
+    use rustred::propagator::route_choice::{
+        FormBasis, RouteDecision, choose_static, sector_automorphisms, static_score,
+    };
+    let library = production_library(3);
+    let first = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
+    let static_options = |threads| PCensusOptions {
+        threads,
+        route_maps: PRouteMaps::StaticScore,
+        ..PCensusOptions::default()
+    };
+    let chosen = p_census(
+        &library.presentations,
+        Some(&library.dag),
+        &static_options(4),
+    )
+    .unwrap();
+    assert_eq!(
+        p_census(
+            &library.presentations,
+            Some(&library.dag),
+            &static_options(1)
+        )
+        .unwrap(),
+        chosen
+    );
+    chosen
+        .check_complete_with(
+            &library.presentations,
+            Some(&library.dag),
+            &static_options(4),
+        )
+        .unwrap();
+    assert_eq!(chosen.classes, first.classes);
+    let by_id = |id: PresentationId| {
+        library
+            .presentations
+            .iter()
+            .find(|p| p.id == id)
+            .unwrap()
+            .clone()
+    };
+    let (mut changed, mut before, mut after) = (0, 0_u64, 0_u64);
+    for (&(id, support), fate) in &first.sectors {
+        let (class, map) = match fate {
+            PSectorFate::Zero => {
+                assert_eq!(chosen.sectors[&(id, support)], PSectorFate::Zero);
+                continue;
+            }
+            PSectorFate::Owner { class, map } => (*class, map),
+        };
+        let owner = first.classes[&class].owner;
+        let expected = if (id, support) == owner {
+            map.clone()
+        } else {
+            let group = sector_automorphisms(&by_id(owner.0), owner.1).unwrap();
+            let basis = FormBasis::of(&by_id(owner.0)).unwrap().unwrap();
+            let source = by_id(id);
+            before += static_score(&source, support, map, &basis).unwrap().0;
+            let decided = match choose_static(&source, support, map, &group, &basis).unwrap() {
+                RouteDecision::Changed(c) => {
+                    changed += 1;
+                    c.map
+                }
+                RouteDecision::Kept | RouteDecision::TrivialGroup => map.clone(),
+            };
+            after += static_score(&source, support, &decided, &basis).unwrap().0;
+            decided
+        };
+        assert_eq!(
+            chosen.sectors[&(id, support)],
+            PSectorFate::Owner {
+                class,
+                map: expected
+            }
+        );
+    }
+    assert!(
+        changed > 0 && after < before,
+        "{changed} changed, {before} -> {after}"
     );
 }

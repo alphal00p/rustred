@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
 use rustred::family::IntegralKey;
-use rustred::propagator::census::{PCensusOptions, p_census};
+use rustred::propagator::census::{PCensusOptions, PRouteMaps, p_census};
 use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
 use rustred::propagator::diamond::{DiamondError, DiamondTemplate};
@@ -413,8 +413,10 @@ fn assemble(
     clock.lap("present");
 
     // 4. The census, strongly complete.
+    // Routed sectors store the static-score route maps (P_CENSUS_VERSION 2).
     let census_options = PCensusOptions {
         threads: options.threads,
+        route_maps: PRouteMaps::StaticScore,
         ..PCensusOptions::default()
     };
     let census = p_census(&presentations, Some(&dag), &census_options)?;

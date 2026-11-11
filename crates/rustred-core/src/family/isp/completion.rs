@@ -36,8 +36,19 @@ pub struct IspCompletion {
     family: IntegralFamily,
     input_denominator_count: usize,
     appended_coordinate_ordinals: Box<[usize]>,
+    appended_sources: Box<[IspSource]>,
     rank_progression: Box<[usize]>,
     stats: IspCompletionStats,
+}
+
+/// Where an appended ISP row came from (M5 maps, p5l-maps-rs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IspSource {
+    /// The scalar-product unit row of this coordinate ordinal.
+    Unit(usize),
+    /// The candidate denominator of this index (`try_new_with_candidates`):
+    /// any affine row, e.g. a Forcer-style edge-pair product `p_a.p_b`.
+    Candidate(usize),
 }
 
 impl IspCompletion {
@@ -107,10 +118,47 @@ impl IspCompletion {
         external_momenta: Vec<String>,
         coefficients: CoefficientContext,
         dimension: Coefficient,
+        denominators: Vec<AffineDenominator>,
+        external_gram: Vec<Vec<Coefficient>>,
+        power_shifts: Vec<Coefficient>,
+        limits: IspCompletionLimits,
+        preferred: &[usize],
+    ) -> Result<Self, IspCompletionError> {
+        Self::try_new_with_candidates(
+            name,
+            loop_momenta,
+            external_momenta,
+            coefficients,
+            dimension,
+            denominators,
+            external_gram,
+            power_shifts,
+            limits,
+            Vec::new(),
+            preferred,
+        )
+    }
+
+    /// [`Self::try_new_with_preference`] with `candidates` scanned before any
+    /// unit row, in order: each is appended exactly when it raises the generic
+    /// rank (zero power shift), so a dependent candidate is skipped, never an
+    /// error. A candidate is any affine scalar-product row (a constant is
+    /// allowed: `p_a.p_b` with both momenta through `q`), so the ISPs need not
+    /// be unit rows (M5 maps step 1(c), Forcer's edge-pair products). The unit
+    /// rows then complete the basis as before. Empty `candidates` is
+    /// [`Self::try_new_with_preference`] exactly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new_with_candidates<'name>(
+        name: impl Into<Cow<'name, str>>,
+        loop_momenta: Vec<String>,
+        external_momenta: Vec<String>,
+        coefficients: CoefficientContext,
+        dimension: Coefficient,
         mut denominators: Vec<AffineDenominator>,
         external_gram: Vec<Vec<Coefficient>>,
         mut power_shifts: Vec<Coefficient>,
         limits: IspCompletionLimits,
+        candidates: Vec<AffineDenominator>,
         preferred: &[usize],
     ) -> Result<Self, IspCompletionError> {
         checkpoint()?;
@@ -141,6 +189,7 @@ impl IspCompletion {
             });
         }
         authenticate_input_rows(&coefficients, &denominators, scalar_products, limits.family)?;
+        authenticate_input_rows(&coefficients, &candidates, scalar_products, limits.family)?;
 
         // `checked_row_rank` preflights its own work matrix, but assembling
         // `rows` below already clones the complete supplied matrix. Bound that
@@ -174,8 +223,42 @@ impl IspCompletion {
 
         let mut appended_coordinate_ordinals =
             Vec::with_capacity(scalar_products.saturating_sub(input_denominator_count));
+        let mut appended_sources =
+            Vec::with_capacity(scalar_products.saturating_sub(input_denominator_count));
         let mut rank_progression = vec![input_rank];
         let mut rank = input_rank;
+        for (index, candidate) in candidates.into_iter().enumerate() {
+            if rank == scalar_products {
+                break;
+            }
+            preflight_rank_matrix(
+                rows.len() + 1,
+                scalar_products,
+                limits.max_rank_matrix_entries,
+                limits.diagnostics_enabled,
+            )?;
+            preflight_rank_coefficients(
+                rows.iter().flatten().chain(candidate.coefficients()),
+                limits,
+            )?;
+            rows.push(candidate.coefficients().to_vec());
+            let candidate_rank = checked_row_rank(&coefficients, &rows, &mut budget)?;
+            if candidate_rank == rank + 1 {
+                rank = candidate_rank;
+                rank_progression.push(rank);
+                appended_sources.push(IspSource::Candidate(index));
+                denominators.push(candidate);
+                power_shifts.push(coefficients.zero());
+            } else if candidate_rank == rank {
+                rows.pop();
+            } else {
+                return Err(IspCompletionError::InternalVerificationFailure {
+                    detail: format!(
+                        "appending ISP candidate {index} changed rank from {rank} to {candidate_rank}"
+                    ),
+                });
+            }
+        }
         let mut order = Vec::with_capacity(scalar_products);
         for &coordinate in preferred {
             if coordinate >= scalar_products || order.contains(&coordinate) {
@@ -219,6 +302,7 @@ impl IspCompletion {
             let candidate_rank = checked_row_rank(&coefficients, &rows, &mut budget)?;
             if candidate_rank == rank + 1 {
                 appended_coordinate_ordinals.push(coordinate);
+                appended_sources.push(IspSource::Unit(coordinate));
                 rank = candidate_rank;
                 rank_progression.push(rank);
                 denominators.push(AffineDenominator::new(coefficients.zero(), candidate));
@@ -239,7 +323,7 @@ impl IspCompletion {
             });
         }
         debug_assert_eq!(
-            appended_coordinate_ordinals.len(),
+            appended_sources.len(),
             scalar_products - input_denominator_count
         );
 
@@ -257,12 +341,13 @@ impl IspCompletion {
         let stats = IspCompletionStats {
             rank_tests: budget.tests,
             rank_operations: budget.operations,
-            appended_isps: appended_coordinate_ordinals.len(),
+            appended_isps: appended_sources.len(),
         };
         Ok(Self {
             family,
             input_denominator_count,
             appended_coordinate_ordinals: appended_coordinate_ordinals.into_boxed_slice(),
+            appended_sources: appended_sources.into_boxed_slice(),
             rank_progression: rank_progression.into_boxed_slice(),
             stats,
         })
@@ -280,8 +365,15 @@ impl IspCompletion {
         self.input_denominator_count
     }
 
+    /// The ordinals of the appended unit rows, in order (candidates excluded:
+    /// see [`Self::appended_sources`]).
     pub fn appended_coordinate_ordinals(&self) -> &[usize] {
         &self.appended_coordinate_ordinals
+    }
+
+    /// Every appended ISP row in slot order: candidates, then unit rows.
+    pub fn appended_sources(&self) -> &[IspSource] {
+        &self.appended_sources
     }
 
     /// Initial generic rank followed by the rank after every accepted ISP.

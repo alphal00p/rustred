@@ -55,6 +55,9 @@ pub mod descent;
 // Basis layer onto the Forcer masters (M2-T9).
 pub mod basis;
 
+// Static-score route-map choice (M5 maps, p5l-maps-rs).
+pub mod route_choice;
+
 // The topology crate: signatures below name its types, and the app crate
 // reaches them through this path. Its version enters `p_versions()`.
 pub use rustred_topology as topology;
@@ -63,11 +66,12 @@ pub use rustred_topology::P_TOPOLOGY_VERSION;
 /// Generated content and the meaning of a recorded step.
 pub const P_OWNER_LIBRARY_SEMANTICS: &str = "rustred-p-owner-library-2026-11-05";
 pub const P_CLASS_KEY_VERSION: u32 = 1;
-/// 2 (M5 combined 4L package, route maps (a)): the routed sectors of a
-/// package may carry generation-time route maps `T M` (the census map composed
-/// with an automorphism of the owner sector, chosen for the fewest routed terms
-/// by a traffic-free static score, each verified by `class::verify_route`;
-/// examples/p_route_maps.rs); the engine follows the stored maps strictly.
+/// 2 (M5 combined 4L package, route maps (a); p5l-maps-rs in M5 batch 2): a
+/// package assembly stores, for every routed sector, the static-score route map
+/// `T M` (the first route composed with an automorphism of the owner sector,
+/// fewest routed terms by a traffic-free static score, verified by
+/// `class::verify_route`; `census::PRouteMaps::StaticScore`, chosen inside the
+/// assembly since batch 2); the engine follows the stored maps strictly.
 pub const P_CENSUS_VERSION: u32 = 2;
 /// The `present` and `edge_map` algorithms. 2 (M5 combined 4L package, ISP
 /// choice (b)): the embedded `present::P_ISP_PREFERENCES` re-complete the ISPs
