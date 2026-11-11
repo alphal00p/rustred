@@ -180,6 +180,24 @@ pub(crate) enum StageDetail {
         exact_materialization_us: u64,
         guard_extraction_us: u64,
         geometry_us: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        trial_elapsed_us: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        case_elapsed_us: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        score: Option<[u64; 14]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_rhs_terms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_guard_numerator_rank_raise: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_matches_baseline: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duplicate_of_trial: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_first_depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_last_depth: Option<u32>,
         duration_micros_saturated: bool,
     },
     RuleFound {
@@ -328,4 +346,8 @@ mod tests {
         assert_eq!(value["kind"], "exact_semi_numerical_exact_replay_finished");
         assert!(value["output_terms"].is_null());
     }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }

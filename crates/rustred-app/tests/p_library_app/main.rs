@@ -6,12 +6,14 @@ mod basis;
 mod basis4;
 mod cli;
 mod custom;
+mod diamond;
 mod eps;
 mod iface4;
 mod package;
 mod perf;
 mod portfolio;
 mod twosided;
+mod validate4;
 
 /// The app side of the frozen interfaces (plan M2 section 4), public path
 /// `rustred_app::propagator`.

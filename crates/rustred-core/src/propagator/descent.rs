@@ -4,9 +4,11 @@
 //! structure of a library:
 //!
 //! 1. Custom owners: the payload is generated on the owner sector; its order is
-//!    support-primary for an owner without forced axes; for an eps owner the
-//!    persisted order program is two-sided exactly on the forced axes (plan M2
-//!    amendment 2026-11-06: every two-sided order is not support-primary).
+//!    support-primary or rank-gated (M5 B2: pre-support rows only on numerator
+//!    slots outside the support, [`is_rank_gated`]) for an owner without forced
+//!    axes; for an eps owner the persisted order program is two-sided exactly on
+//!    the forced axes (plan M2 amendment 2026-11-06: every two-sided order is not
+//!    support-primary).
 //! 2. Custom rules are checked per RHS term through the owner's `order_key`
 //!    (D-T6-1) on a witness box of keys of every raw chart
 //!    ([`custom_witness_keys`]): every child of a step is a
@@ -18,8 +20,8 @@
 //!    map is verified and belongs to exactly one owner.
 //! 4. SeriesParallel, Insertion and Carpet owners end in the trivial node at one
 //!    loop and otherwise have exactly one rule edge into a presentation of `L - 1`
-//!    loops and fewer lines; a Triangle owner has no edge and lowers integer lines
-//!    of its own support only.
+//!    loops and fewer lines; a Triangle or Diamond owner has no edge and lowers
+//!    integer lines of its own support only.
 //! 5. Overlays: none in M2.
 //! 6. Eps axes are forced into every support: census sectors and owner sectors.
 //! 7. The hard false knock-out guard on Custom owners ([`check_custom_guard`]).
@@ -352,6 +354,17 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
                 check_rule_owner(library, spec, parent, t)?;
             }
             OwnerLane::Triangle => check_triangle_owner(spec, parent, support)?,
+            OwnerLane::Diamond => check_diamond_owner(spec, parent, support)?,
+            OwnerLane::Scheme => {
+                if !spec.edge_maps.is_empty() || spec.terminals.len() > 1 {
+                    return Err(malformed(format!(
+                        "Scheme owner {:016x} with {} edge maps and {} terminals",
+                        spec.class.0,
+                        spec.edge_maps.len(),
+                        spec.terminals.len()
+                    )));
+                }
+            }
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
                 report.guarded_owners += 1;
@@ -424,13 +437,42 @@ fn check_custom_order(
             summary.two_sided_axes
         )));
     }
-    if forced == 0 && !policy.is_support_primary() {
+    if forced == 0 && !policy.is_support_primary() && !is_rank_gated(&policy, support) {
         return Err(fail(format!(
-            "the order {} is not support-primary",
+            "the order {} is neither support-primary nor rank-gated (pre-support rows only on \
+             numerator slots outside the support)",
             summary.ordering
         )));
     }
     Ok(summary)
+}
+
+/// Whether `policy` is a rank-gated order of an owner on `support` (M5 B2,
+/// the WP3 `globisp` recipe): one-sided, and every pre-support degree row
+/// weighs only numerator powers (`inactive`) of slots outside `support`, so
+/// it is zero on the support lines and on every positive power. Such a row
+/// is the numerator rank on the owner's non-support slots: on the owner
+/// support the order stays a well-order (the rows are nonnegative and the
+/// support and degree rows follow), and a subsector child that moves a
+/// support line into a numerator ties on the row and descends by support.
+/// The p engine needs only same-support descent of Apply children and strict
+/// subsectors for Route children, which item 2 checks per RHS term; sector-
+/// first induction (the vacuum reducer's `is_support_primary` consumers) is
+/// not used on the p path.
+fn is_rank_gated(policy: &OrderingPolicy, support: u64) -> bool {
+    let Some(program) = policy.program() else {
+        return false;
+    };
+    if program.has_two_sided() {
+        return false;
+    }
+    let rows = &program.descriptor().pre_support_degree_rows;
+    !rows.is_empty()
+        && rows.iter().all(|row| {
+            row.active.iter().all(|&weight| weight == 0)
+                && (row.inactive.iter().enumerate())
+                    .all(|(slot, &weight)| weight == 0 || support >> slot & 1 == 0)
+        })
 }
 
 /// The keys of the witness box of a Custom owner with `support` and forced
@@ -624,6 +666,39 @@ fn check_triangle_owner(
     if mask.count_ones() != 3 || mask & integer != mask {
         return Err(malformed(format!(
             "Triangle owner {:016x}: b, c1, c2 = {lowered:?} are not three integer lines of {support:#x}",
+            spec.class.0
+        )));
+    }
+    Ok(())
+}
+
+/// Item 4 for the Diamond lane (M3-T5b): no edge; every `b[i]` and `c[i]` is a
+/// distinct integer line of the owner's support, so every child lowers one.
+fn check_diamond_owner(
+    spec: &POwnerSpec,
+    parent: &Presentation,
+    support: u64,
+) -> Result<(), PError> {
+    let LaneRoles::Diamond(roles) = spec.roles else {
+        return Err(malformed(format!(
+            "Diamond owner {:016x} with roles {:?}",
+            spec.class.0, spec.roles
+        )));
+    };
+    if !spec.edge_maps.is_empty() {
+        return Err(malformed(format!(
+            "Diamond owner {:016x} names edge maps",
+            spec.class.0
+        )));
+    }
+    let lowered: Vec<u16> = roles.b().iter().chain(roles.c()).copied().collect();
+    let integer = support & line_mask(parent) & !parent.forced_axes();
+    let mask = (lowered.iter()).fold(0_u64, |mask, &slot| {
+        mask | 1_u64.checked_shl(u32::from(slot)).unwrap_or(0)
+    });
+    if mask.count_ones() as usize != lowered.len() || mask & integer != mask {
+        return Err(malformed(format!(
+            "Diamond owner {:016x}: b, c = {lowered:?} are not distinct integer lines of {support:#x}",
             spec.class.0
         )));
     }
@@ -1159,4 +1234,88 @@ pub fn trace_with(
     report.shard_identities = shards.values().map(HashSet::len).sum();
     report.apply_sites = sites.len();
     Ok(report)
+}
+
+#[cfg(test)]
+mod rank_gate_tests {
+    use super::*;
+    use rustred_order::OrderDescriptor;
+    use rustred_order::{CompiledOrder, CoordinateGroups, DegreeRow, Direction, Limits};
+
+    /// A 5-slot order (slots 0-2 the support lines, 3-4 the ISPs) with the
+    /// given pre-support rows and the default total-excess rows after the
+    /// support.
+    fn policy(pre: Vec<DegreeRow>, two_sided: Vec<bool>) -> OrderingPolicy {
+        let n = 5;
+        OrderingPolicy::try_programmed(
+            CompiledOrder::compile(
+                OrderDescriptor {
+                    pre_support_degree_rows: pre,
+                    support_weights: vec![0; n],
+                    support_priority: (0..n).collect(),
+                    degree_rows: vec![
+                        DegreeRow {
+                            active: vec![1; n],
+                            inactive: vec![1; n],
+                        },
+                        DegreeRow {
+                            active: vec![0; n],
+                            inactive: vec![1; n],
+                        },
+                    ],
+                    coordinate_priority: (0..n).collect(),
+                    coordinate_groups: CoordinateGroups::ActiveFirst,
+                    active_direction: Direction::Descending,
+                    inactive_direction: Direction::Descending,
+                    two_sided,
+                },
+                Limits::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn row(active: [u64; 5], inactive: [u64; 5]) -> DegreeRow {
+        DegreeRow {
+            active: active.to_vec(),
+            inactive: inactive.to_vec(),
+        }
+    }
+
+    /// The WP3 `globisp` gate (numerator rank on the non-support slots, also
+    /// on a subset of them) is accepted; a row that weighs a support line or a
+    /// positive power, and the support-primary order itself, are not rank
+    /// gates.
+    #[test]
+    fn only_numerator_rows_outside_the_support_are_rank_gates() {
+        let support = 0b00111;
+        assert!(is_rank_gated(
+            &policy(vec![row([0; 5], [0, 0, 0, 1, 1])], vec![]),
+            support
+        ));
+        assert!(is_rank_gated(
+            &policy(vec![row([0; 5], [0, 0, 0, 1, 0])], vec![]),
+            support
+        ));
+        assert!(!is_rank_gated(
+            &policy(vec![row([0; 5], [1, 0, 0, 1, 1])], vec![]),
+            support
+        ));
+        assert!(!is_rank_gated(
+            &policy(vec![row([1, 1, 1, 0, 0], [0, 0, 0, 1, 1])], vec![]),
+            support
+        ));
+        assert!(!is_rank_gated(
+            &policy(vec![row([1; 5], [1; 5])], vec![]),
+            support
+        ));
+        let primary = policy(vec![], vec![]);
+        assert!(primary.is_support_primary() && !is_rank_gated(&primary, support));
+        let two_sided = policy(
+            vec![row([0; 5], [0, 0, 0, 1, 1])],
+            vec![true, false, false, false, false],
+        );
+        assert!(!is_rank_gated(&two_sided, support));
+    }
 }

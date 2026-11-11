@@ -11,9 +11,10 @@ use super::instantiate::{canonicalize, instantiate};
 use super::precondition::{
     PreconditionProvenance, precondition_with_provenance, precondition_with_variable_order,
 };
+use super::seed::CaseSeedStream;
 use super::{
-    Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow,
-    RuleSelectionPolicy, RuleTrialBudget, RuleTrialLimits, RuleTrialStats, Seed, Seeds,
+    Case, CaseSeedSchedule, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder,
+    PolynomialRow, RuleSelectionPolicy, RuleTrialBudget, RuleTrialLimits, RuleTrialStats, Seed,
     SolverError, SourceDiscoveryStrategy, SourceSystem, SourceVisitOrder, SymbolicExactBackend,
     Term,
 };
@@ -409,10 +410,33 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     pub(super) fn search_attempt(
         &self,
         case: Case<N>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+        limits: Option<RuleTrialLimits>,
+        account_trace: bool,
+        observe: impl FnMut(SearchEvent<N>),
+    ) -> (Result<RuleCandidate<N>, TrialSearchError>, RuleTrialStats) {
+        self.search_attempt_with_schedule(
+            case,
+            options,
+            source_order,
+            limits,
+            account_trace,
+            &CaseSeedSchedule::Reference,
+            observe,
+        )
+    }
+
+    /// An opt-in trial can change actual seed availability/chronology without
+    /// changing the prepared basis, source ordinals, or exact replay authority.
+    pub(super) fn search_attempt_with_schedule(
+        &self,
+        case: Case<N>,
         mut options: SearchOptions,
         source_order: Option<&[usize]>,
         limits: Option<RuleTrialLimits>,
         account_trace: bool,
+        seed_schedule: &CaseSeedSchedule,
         observe: impl FnMut(SearchEvent<N>),
     ) -> (Result<RuleCandidate<N>, TrialSearchError>, RuleTrialStats) {
         if let Some(limits) = limits {
@@ -420,6 +444,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 options
                     .max_depth
                     .map_or(limits.max_depth, |d| d.min(limits.max_depth)),
+            );
+        }
+        if let CaseSeedSchedule::ShiftShells { last_depth, .. } = seed_schedule {
+            options.max_depth = Some(
+                options
+                    .max_depth
+                    .map_or(*last_depth, |d| d.min(*last_depth)),
             );
         }
         let start = Instant::now();
@@ -430,6 +461,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             source_order,
             limits,
             account_trace,
+            seed_schedule,
             &mut work,
             observe,
         );
@@ -447,6 +479,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         source_order: Option<&[usize]>,
         limits: Option<RuleTrialLimits>,
         account_trace: bool,
+        seed_schedule: &CaseSeedSchedule,
         work: &mut RuleTrialStats,
         mut observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, TrialSearchError> {
@@ -455,13 +488,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        let mut seeds = super::ScheduledSeeds::new(
-            Seeds::new_two_sided(
+        // Astra's shifted-shell stream (CaseSeedSchedule) under the opt-in in-shell SeedSchedule (SymbolicFirst).
+        let mut seeds = super::ScheduledSeeds::over(
+            CaseSeedStream::new(
                 initial,
                 *self.order.sector(),
                 self.seed_frozen(),
                 self.order.two_sided_axes(),
-            ),
+                seed_schedule,
+            )?
+            .with_search_max_depth(options.max_depth),
+            initial,
             self.config.seed_schedule,
         );
         // A coupled affine chart can determine the sign of a symbolic power
@@ -488,6 +525,8 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .into());
             }
             let seed = seed?;
+            work.seed_first_depth.get_or_insert(depth);
+            work.seed_last_depth = Some(depth);
             stats.seeds += 1;
             if observed_depth != Some(depth) || stats.seeds.is_power_of_two() {
                 observed_depth = Some(depth);

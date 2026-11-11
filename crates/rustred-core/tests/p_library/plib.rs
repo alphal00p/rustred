@@ -541,10 +541,10 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         library.identity(),
         "p-library:scope=1-1:\
          P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,\
-         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,\
+         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
-         P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,\
+         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=2,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
          P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1"
     );
@@ -568,7 +568,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     cache.save().unwrap();
     assert_eq!(
         records_digest(&directory),
-        "ad2eb1282d5b1d5be45ac91f4f39f7cf14182c337540d1f955a0ffd9ecfba55f",
+        "a3f3d0fd2e771710565e555d26678a5d72a1d69e784b34573de76f5316d4c7b5",
         "the recorded p steps changed: bump the P_* version whose meaning changed"
     );
     std::fs::remove_dir_all(&directory).unwrap();
@@ -984,6 +984,85 @@ fn phases_descend_through_route_and_apply_with_their_stages() {
         "apply".to_owned(),
         slots
     )));
+}
+
+/// The opt-in path census (M5 R0 WP0) through an inspector.
+struct CensusProbe(rustred::propagator::path_census::PPathCensus);
+
+impl rustred::propagator::library::PInspector for CensusProbe {
+    fn inspect(&mut self, _: &rustred::reduction::OrderedPhaseEvent<'_>) -> Result<(), PError> {
+        Ok(())
+    }
+
+    fn path_census(&mut self) -> Option<&mut rustred::propagator::path_census::PPathCensus> {
+        Some(&mut self.0)
+    }
+}
+
+/// T-BFS: the census changes no value, sees every popped key once, in
+/// non-decreasing phases, each owner in one run per Apply phase, and counts
+/// the driver's keys and edges; its key cap stops the request.
+#[test]
+fn the_path_census_changes_no_value_and_certifies_the_layers() {
+    use rustred::propagator::path_census::{PPathCensus, PPathCensusOptions};
+    let context = context();
+    let (library, _) = routed_kite(&context);
+    let inputs = vec![
+        (PresentationId(0), key(&[2, 1, 3, 1, -1]), context.one()),
+        (
+            PresentationId(0),
+            key(&[1, 2, 1, 1, -2]),
+            context.integer(3),
+        ),
+    ];
+    let plain = library.reduce(request(inputs.clone())).unwrap();
+    let options = PPathCensusOptions {
+        keep_apply_keys: true,
+        max_keys: None,
+    };
+    for (arithmetic, scheduler) in [
+        (
+            OrderedWeightArithmetic::Exact,
+            OrderedSchedulerOptions::default(),
+        ),
+        (modular_polynomial(1), OrderedSchedulerOptions::default()),
+        (OrderedWeightArithmetic::Exact, sixteen_threads()),
+        (modular_polynomial(16), sixteen_threads()),
+    ] {
+        let mut probe = CensusProbe(PPathCensus::new(options));
+        let mut run = request(inputs.clone());
+        run.arithmetic = arithmetic;
+        run.scheduler = scheduler;
+        run.inspector = Some(&mut probe);
+        let reduced = library.reduce(run).unwrap();
+        same_result(&reduced, &plain);
+        let census = probe.0;
+        let certificate = census.certificate();
+        assert!(certificate.holds(), "{certificate:?}");
+        assert!(certificate.popped > 0 && certificate.apply_phases > 0);
+        let progress = reduced.statistics.progress;
+        assert_eq!(certificate.popped, progress.processed_keys as u64);
+        let steps: u64 = census.steps.values().map(|agg| agg.steps).sum();
+        assert_eq!(steps, census.popped);
+        let edges: u64 = census.steps.values().map(|agg| agg.edges()).sum();
+        assert_eq!(edges, progress.emitted_terms as u64);
+        let applies: u64 = census
+            .steps
+            .iter()
+            .filter(|(key, _)| key.1 == 1)
+            .map(|(_, agg)| agg.steps)
+            .sum();
+        assert_eq!(census.apply_keys.len() as u64, applies);
+        assert!(census.inflow.values().any(|inflow| !inflow.is_empty()));
+        assert!(!census.owners.is_empty());
+    }
+    let mut capped = CensusProbe(PPathCensus::new(PPathCensusOptions {
+        keep_apply_keys: false,
+        max_keys: Some(1),
+    }));
+    let mut run = request(inputs);
+    run.inspector = Some(&mut capped);
+    assert!(matches!(library.reduce(run), Err(PError::Unsupported(_))));
 }
 
 /// One integer-line owner of `lane` on a bubble, on every positive key.

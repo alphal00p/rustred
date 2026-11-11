@@ -1,4 +1,61 @@
-use super::{Integral, PowerError};
+use super::{Integral, PowerError, SolverError};
+
+/// Optional finite-search seed schedule; it does not change the integral order
+/// or turn an exhausted search into a statement of coverage.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CaseSeedSchedule {
+    /// The historical zero-first, increasing-L1-shell sequence, unchanged.
+    #[default]
+    Reference,
+    /// Search only these inclusive L1 displacement shells. In particular,
+    /// `first_depth == last_depth == 2` actually omits the depth-0/1 sources;
+    /// it is not a deeper cap on an otherwise identical first-hit search.
+    ShiftShells {
+        first_depth: u32,
+        last_depth: u32,
+        /// Full stored-coordinate permutation; frozen axes are skipped.
+        axis_priority: Vec<usize>,
+        positive_first: bool,
+    },
+}
+
+impl CaseSeedSchedule {
+    pub fn validate(&self, arity: usize) -> Result<(), SolverError> {
+        let Self::ShiftShells {
+            first_depth,
+            last_depth,
+            axis_priority,
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        if first_depth > last_depth {
+            return Err(SolverError::InvalidInput(
+                "seed first depth must not exceed its last depth".into(),
+            ));
+        }
+        if axis_priority.len() != arity {
+            return Err(SolverError::InvalidInput(
+                "seed axis priority must contain every stored coordinate exactly once".into(),
+            ));
+        }
+        let mut seen = vec![false; arity];
+        for &axis in axis_priority {
+            let Some(visited) = seen.get_mut(axis) else {
+                return Err(SolverError::InvalidInput(
+                    "seed axis priority contains an out-of-range coordinate".into(),
+                ));
+            };
+            if std::mem::replace(visited, true) {
+                return Err(SolverError::InvalidInput(
+                    "seed axis priority contains a repeated coordinate".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
 
 /// One seed for a simple coordinate case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +86,8 @@ pub struct Seeds<const N: usize> {
     active_count: usize,
     absolute: [i16; N],
     positive: [bool; N],
+    /// False retains the historical boolRunner interpretation exactly.
+    positive_first: bool,
     depth: i16,
     first: bool,
     done: bool,
@@ -68,6 +127,7 @@ impl<const N: usize> Seeds<N> {
             active_count,
             absolute: [0; N],
             positive: [false; N],
+            positive_first: false,
             depth: 0,
             first: true,
             done: false,
@@ -126,7 +186,7 @@ impl<const N: usize> Seeds<N> {
             let index = self.active[active];
             let initial = self.initial[index];
             if !initial.is_symbolic() && !self.two_sided[index] {
-                let delta = if self.positive[active] {
+                let delta = if self.positive[active] != self.positive_first {
                     self.absolute[active]
                 } else {
                     -self.absolute[active]
@@ -141,7 +201,7 @@ impl<const N: usize> Seeds<N> {
         let mut shifts = [0; N];
         for active in 0..self.active_count {
             let index = self.active[active];
-            let delta = if self.positive[active] {
+            let delta = if self.positive[active] != self.positive_first {
                 self.absolute[active]
             } else {
                 -self.absolute[active]
@@ -205,10 +265,22 @@ pub enum SeedSchedule {
     SymbolicFirst,
 }
 
-/// [`Seeds`] under a [`SeedSchedule`]; buffers one shell at a time for the non-default schedules.
+/// A seed stream that reports the L1 shell of its most recently emitted seed.
+pub trait ShellSeedSource<const N: usize>: Iterator<Item = Result<Seed<N>, PowerError>> {
+    fn shell_depth(&self) -> u32;
+}
+
+impl<const N: usize> ShellSeedSource<N> for Seeds<N> {
+    fn shell_depth(&self) -> u32 {
+        self.depth()
+    }
+}
+
+/// [`Seeds`] (or any [`ShellSeedSource`], e.g. the search's shifted-shell stream) under a [`SeedSchedule`]; buffers one
+/// shell at a time for the non-default schedules.
 #[derive(Clone, Debug)]
-pub struct ScheduledSeeds<const N: usize> {
-    inner: Seeds<N>,
+pub struct ScheduledSeeds<const N: usize, I = Seeds<N>> {
+    inner: I,
     schedule: SeedSchedule,
     initial: Integral<N>,
     shell: std::collections::VecDeque<Seed<N>>,
@@ -220,13 +292,20 @@ pub struct ScheduledSeeds<const N: usize> {
 impl<const N: usize> ScheduledSeeds<N> {
     pub fn new(inner: Seeds<N>, schedule: SeedSchedule) -> Self {
         let initial = inner.initial;
+        Self::over(inner, initial, schedule)
+    }
+}
+
+impl<const N: usize, I: ShellSeedSource<N>> ScheduledSeeds<N, I> {
+    /// Schedule any shell source whose seeds start from `initial`.
+    pub fn over(inner: I, initial: Integral<N>, schedule: SeedSchedule) -> Self {
         Self { inner, schedule, initial, shell: Default::default(), shell_depth: 0, carry: None, error: None }
     }
 
     /// L1 shell of the most recently emitted seed.
     pub fn depth(&self) -> u32 {
         match self.schedule {
-            SeedSchedule::Spired => self.inner.depth(),
+            SeedSchedule::Spired => self.inner.shell_depth(),
             _ => self.shell_depth,
         }
     }
@@ -252,7 +331,7 @@ impl<const N: usize> ScheduledSeeds<N> {
         let (first, depth) = match self.carry.take() {
             Some(c) => c,
             None => match self.inner.next() {
-                Some(Ok(seed)) => (seed, self.inner.depth()),
+                Some(Ok(seed)) => (seed, self.inner.shell_depth()),
                 Some(Err(e)) => {
                     self.error = Some(e);
                     return;
@@ -264,7 +343,7 @@ impl<const N: usize> ScheduledSeeds<N> {
         loop {
             match self.inner.next() {
                 Some(Ok(seed)) => {
-                    let d = self.inner.depth();
+                    let d = self.inner.shell_depth();
                     if d != depth {
                         self.carry = Some((seed, d));
                         break;
@@ -284,7 +363,7 @@ impl<const N: usize> ScheduledSeeds<N> {
     }
 }
 
-impl<const N: usize> Iterator for ScheduledSeeds<N> {
+impl<const N: usize, I: ShellSeedSource<N>> Iterator for ScheduledSeeds<N, I> {
     type Item = Result<Seed<N>, PowerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -301,10 +380,267 @@ impl<const N: usize> Iterator for ScheduledSeeds<N> {
     }
 }
 
+/// Search-local wrapper. Reference uses exactly the historical Seeds stream;
+/// a shifted schedule filters lower shells before any source is instantiated.
+/// Its last shell is imposed by SearchOptions in the caller so the existing
+/// depth-exhaustion accounting remains the single upper-bound authority.
+pub(super) struct CaseSeedStream<const N: usize> {
+    inner: Seeds<N>,
+    first_depth: u32,
+    search_max_depth: Option<u32>,
+}
+
+impl<const N: usize> CaseSeedStream<N> {
+    pub(super) fn new(
+        initial: Integral<N>,
+        sector: [bool; N],
+        frozen: [bool; N],
+        two_sided: [bool; N],
+        schedule: &CaseSeedSchedule,
+    ) -> Result<Self, SolverError> {
+        schedule.validate(N)?;
+        let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided);
+        let mut first_depth = 0;
+        if let CaseSeedSchedule::ShiftShells {
+            first_depth: first,
+            axis_priority,
+            positive_first,
+            ..
+        } = schedule
+        {
+            first_depth = *first;
+            inner.positive_first = *positive_first;
+            let mut priorities = [0; N];
+            for (priority, &axis) in axis_priority.iter().enumerate() {
+                priorities[axis] = priority;
+            }
+            inner.active[..inner.active_count].sort_by_key(|&axis| priorities[axis]);
+        }
+        Ok(Self {
+            inner,
+            first_depth,
+            search_max_depth: None,
+        })
+    }
+
+    pub(super) fn with_search_max_depth(mut self, limit: Option<u32>) -> Self {
+        self.search_max_depth = limit;
+        self
+    }
+
+    pub(super) fn depth(&self) -> u32 {
+        self.inner.depth()
+    }
+}
+
+impl<const N: usize> Iterator for CaseSeedStream<N> {
+    type Item = Result<Seed<N>, PowerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let seed = self.inner.next()?;
+            // Expose the first over-budget shell to the caller's existing
+            // depth check, rather than filtering up to a larger first_depth.
+            if self
+                .search_max_depth
+                .is_some_and(|limit| self.inner.depth() > limit)
+                || self.inner.depth() >= self.first_depth
+                || seed.is_err()
+            {
+                return Some(seed);
+            }
+        }
+    }
+}
+
+impl<const N: usize> ShellSeedSource<N> for CaseSeedStream<N> {
+    fn shell_depth(&self) -> u32 {
+        self.depth()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Power;
     use super::*;
+
+    #[test]
+    fn reference_schedule_preserves_the_exact_legacy_seed_sequence() {
+        let cases = [
+            (Integral::symbolic([0; 3]).unwrap(), [false; 3], [false; 3]),
+            (
+                Integral::numeric([1, -1, 0]).unwrap(),
+                [false; 3],
+                [false; 3],
+            ),
+            (
+                Integral::numeric([1, -1, 0]).unwrap(),
+                [false, true, false],
+                [true; 3],
+            ),
+        ];
+        for (initial, frozen, two_sided) in cases {
+            let expected: Vec<_> = Seeds::new_two_sided(initial, [true; 3], frozen, two_sided)
+                .take(377)
+                .collect();
+            let actual: Vec<_> = CaseSeedStream::new(
+                initial,
+                [true; 3],
+                frozen,
+                two_sided,
+                &CaseSeedSchedule::Reference,
+            )
+            .unwrap()
+            .take(377)
+            .collect();
+            // Includes the entire integral (numeric replacements) and shifts;
+            // comparing only shifts would miss changed numeric seeds.
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn shifted_shells_change_actual_seed_availability_and_priority() {
+        let initial = Integral::symbolic([0; 2]).unwrap();
+        for (depth, expected) in [
+            (1, vec![[-1, 0], [1, 0], [0, -1], [0, 1]]),
+            (
+                2,
+                vec![
+                    [-2, 0],
+                    [2, 0],
+                    [-1, -1],
+                    [1, -1],
+                    [-1, 1],
+                    [1, 1],
+                    [0, -2],
+                    [0, 2],
+                ],
+            ),
+        ] {
+            let schedule = CaseSeedSchedule::ShiftShells {
+                first_depth: depth,
+                last_depth: depth,
+                axis_priority: vec![0, 1],
+                positive_first: false,
+            };
+            let mut seeds =
+                CaseSeedStream::new(initial, [true; 2], [false; 2], [false; 2], &schedule).unwrap();
+            let mut actual = Vec::new();
+            while let Some(seed) = seeds.next() {
+                if seeds.depth() > depth {
+                    break;
+                }
+                let seed = seed.unwrap();
+                assert_eq!(
+                    seed.shifts
+                        .iter()
+                        .map(|x| u32::from(x.unsigned_abs()))
+                        .sum::<u32>(),
+                    depth
+                );
+                actual.push(seed.shifts);
+            }
+            assert_eq!(actual, expected);
+        }
+        let reversed = CaseSeedSchedule::ShiftShells {
+            first_depth: 1,
+            last_depth: 1,
+            axis_priority: vec![1, 0],
+            positive_first: true,
+        };
+        let actual: Vec<_> =
+            CaseSeedStream::new(initial, [true; 2], [false; 2], [false; 2], &reversed)
+                .unwrap()
+                .take(4)
+                .map(|s| s.unwrap().shifts)
+                .collect();
+        assert_eq!(actual, [[0, 1], [0, -1], [1, 0], [-1, 0]]);
+    }
+
+    #[test]
+    fn numeric_schedule_records_changed_integrals_even_when_shifts_are_zero() {
+        let schedule = CaseSeedSchedule::ShiftShells {
+            first_depth: 1,
+            last_depth: 1,
+            axis_priority: vec![1, 0],
+            positive_first: true,
+        };
+        let actual: Vec<_> = CaseSeedStream::new(
+            Integral::numeric([1, -1]).unwrap(),
+            [true, false],
+            [false; 2],
+            [false; 2],
+            &schedule,
+        )
+        .unwrap()
+        .take(3)
+        .map(|s| s.unwrap())
+        .collect();
+        assert!(actual.iter().all(|s| s.shifts == [0; 2]));
+        assert_eq!(
+            actual
+                .iter()
+                .map(|s| s.integral.powers().map(Power::value))
+                .collect::<Vec<_>>(),
+            [[1, 0], [1, -2], [2, -1]]
+        );
+    }
+
+    #[test]
+    fn scheduled_seed_axes_and_depths_fail_closed_on_invalid_descriptors() {
+        for schedule in [
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 2,
+                last_depth: 1,
+                axis_priority: vec![0, 1],
+                positive_first: false,
+            },
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 1,
+                last_depth: 2,
+                axis_priority: vec![0, 0],
+                positive_first: false,
+            },
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 1,
+                last_depth: 2,
+                axis_priority: vec![0, 2],
+                positive_first: false,
+            },
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 1,
+                last_depth: 2,
+                axis_priority: vec![0],
+                positive_first: false,
+            },
+        ] {
+            assert!(schedule.validate(2).is_err());
+        }
+    }
+
+    #[test]
+    fn shell_filter_does_not_hide_a_tighter_search_limit() {
+        let schedule = CaseSeedSchedule::ShiftShells {
+            first_depth: 2,
+            last_depth: 2,
+            axis_priority: vec![0, 1],
+            positive_first: false,
+        };
+        let mut seeds = CaseSeedStream::new(
+            Integral::symbolic([0; 2]).unwrap(),
+            [true; 2],
+            [false; 2],
+            [false; 2],
+            &schedule,
+        )
+        .unwrap()
+        .with_search_max_depth(Some(0));
+        // The caller sees depth1 and refuses before source instantiation.
+        // It must not silently enumerate until the requested first depth2.
+        assert!(seeds.next().unwrap().is_ok());
+        assert_eq!(seeds.depth(), 1);
+    }
 
     #[test]
     fn shell_and_sign_chronology_matches_cpp() {

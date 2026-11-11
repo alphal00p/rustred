@@ -230,7 +230,7 @@ fn the_lane_program_factory_rebuilds_every_owner_and_fails_closed() {
         lane_program(library, &with_payload),
         Err(PError::MalformedLibrary(_))
     ));
-    for lane in [OwnerLane::Zero, OwnerLane::Diamond, OwnerLane::Product] {
+    for lane in [OwnerLane::Zero, OwnerLane::Product] {
         let mut no_program = sp.clone();
         no_program.lane = lane;
         assert!(matches!(
@@ -238,6 +238,13 @@ fn the_lane_program_factory_rebuilds_every_owner_and_fails_closed() {
             Err(PError::MalformedLibrary(_))
         ));
     }
+    // The Diamond lane has a program (M3-T5b): triangle roles break its contract.
+    let mut diamond = triangle.clone();
+    diamond.lane = OwnerLane::Diamond;
+    assert!(matches!(
+        lane_program(library, &diamond),
+        Err(PError::Contract(_))
+    ));
     let mut custom = triangle.clone();
     custom.lane = OwnerLane::Custom;
     custom.roles = LaneRoles::None;
@@ -1054,6 +1061,26 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "1-3",
         "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "9dbf8df84155465c41d7a0855703c46690c36f2c2a8f36d6a1276d8e697fc23e",
+    ),
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "34da7e8d01ca70c21881df65c4e4d40a7cff8b393176156e3310734f33ca6ce6",
+    ),
+    (
+        "1-3",
+        "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "bf8971aa054924315dbca2014d8d89b1bcc368b2d6412d94314ca154cb86f90b",
+    ),
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "34da7e8d01ca70c21881df65c4e4d40a7cff8b393176156e3310734f33ca6ce6",
+    ),
+    (
+        "1-3",
+        "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "bf8971aa054924315dbca2014d8d89b1bcc368b2d6412d94314ca154cb86f90b",
     ),
 ];
 
@@ -3193,7 +3220,7 @@ fn an_integer_custom_owner_needs_a_support_primary_order() {
     owner.payload = Some(CustomPayloadRef::Bytes(bytes));
     let error = descent::check(&parts.build().unwrap()).unwrap_err();
     assert!(
-        matches!(&error, PError::MalformedLibrary(m) if m.contains("is not support-primary")),
+        matches!(&error, PError::MalformedLibrary(m) if m.contains("is neither support-primary nor rank-gated")),
         "{error}"
     );
 }

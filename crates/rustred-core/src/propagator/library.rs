@@ -16,11 +16,13 @@ use crate::reduction::{
 use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 
 use super::census::{PCensus, PSectorFate};
+use super::custom::PRuleOrder;
 use super::engine::{PEngine, merge};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
 use super::programs::{CustomPayloadRef, lane_program};
+use super::saved_routes::PSavedRoutes;
 use super::step::PLaneStep;
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
@@ -118,6 +120,13 @@ pub trait PBasisMap: Send + Sync {
 /// Caller-thread phase inspection; an error stops the request with that error.
 pub trait PInspector {
     fn inspect(&mut self, event: &OrderedPhaseEvent<'_>) -> Result<(), PError>;
+    /// The opt-in path census of the request (M5 R0 WP0,
+    /// [`PPathCensus`](super::path_census::PPathCensus)); `None`, the
+    /// default, keeps it off. Asked once, when the request starts: a request
+    /// whose inspector returns `None` then records nothing.
+    fn path_census(&mut self) -> Option<&mut super::path_census::PPathCensus> {
+        None
+    }
 }
 
 impl<F> PInspector for F
@@ -191,6 +200,13 @@ pub struct PLibrary {
     edge_maps: Vec<EdgeMap>,
     terminals: Vec<PTerminal>,
     basis_map: Option<Arc<dyn PBasisMap>>,
+    /// p artefact v2: explicit rule orders of Custom owners and the ordering
+    /// tag (`<P_ORDERING_VERSION>:<heuristic>`) that joins the identity.
+    rule_orders: BTreeMap<OwnerClassId, Arc<PRuleOrder>>,
+    ordering: Option<String>,
+    /// p artefact v2: saved route verifications, restored on a sector's first
+    /// use instead of verifying its map ([`super::saved_routes`]).
+    saved_routes: Option<Arc<PSavedRoutes>>,
     engine: OnceLock<Result<PEngine, PError>>,
 }
 
@@ -219,6 +235,9 @@ impl PLibrary {
             terminals: vec![PTerminal::Unit],
             residuals: BTreeMap::new(),
             basis_map: None,
+            rule_orders: BTreeMap::new(),
+            ordering: None,
+            saved_routes: None,
         }
     }
 
@@ -229,12 +248,33 @@ impl PLibrary {
             .into_iter()
             .map(|(name, value)| format!("{name}={value}"))
             .collect();
+        let ordering = self
+            .ordering
+            .as_ref()
+            .map_or_else(String::new, |tag| format!(",P_ORDERING_VERSION={tag}"));
         format!(
-            "p-library:scope={}-{}:{}",
+            "p-library:scope={}-{}:{}{ordering}",
             self.scope.start(),
             self.scope.end(),
             versions.join(",")
         )
+    }
+
+    /// The explicit rule order of the Custom owner `class` (p artefact v2),
+    /// if the library has an ordering.
+    pub fn rule_order(&self, class: OwnerClassId) -> Option<&PRuleOrder> {
+        self.rule_orders.get(&class).map(Arc::as_ref)
+    }
+
+    /// The ordering tag `<P_ORDERING_VERSION>:<heuristic>` of the library's
+    /// ordering (p artefact v2), part of its identity.
+    pub fn ordering(&self) -> Option<&str> {
+        self.ordering.as_deref()
+    }
+
+    /// The saved route verifications of this library (p artefact v2).
+    pub fn saved_routes(&self) -> Option<&PSavedRoutes> {
+        self.saved_routes.as_deref()
     }
 
     pub fn scope(&self) -> RangeInclusive<u8> {
@@ -522,6 +562,9 @@ pub struct PLibraryBuilder {
     terminals: Vec<PTerminal>,
     residuals: BTreeMap<(OwnerClassId, IntegralKey), PTerminalId>,
     basis_map: Option<Arc<dyn PBasisMap>>,
+    rule_orders: BTreeMap<OwnerClassId, Arc<PRuleOrder>>,
+    ordering: Option<String>,
+    saved_routes: Option<Arc<PSavedRoutes>>,
 }
 
 fn malformed(detail: impl Into<String>) -> PError {
@@ -658,6 +701,46 @@ impl PLibraryBuilder {
     ///   owner presentation.
     ///
     /// Lane roles are not read here: the steps check them (`check_*_contract`).
+    /// p artefact v2: the explicit rule orders of the library's Custom owners
+    /// and the ordering's heuristic name, which joins the identity as
+    /// `,P_ORDERING_VERSION=<P_ORDERING_VERSION>:<heuristic>`. Every order must
+    /// name a Custom owner; each is checked against its payload when the
+    /// owner's program is built (fail closed).
+    pub fn set_ordering(
+        &mut self,
+        heuristic: &str,
+        orders: BTreeMap<OwnerClassId, PRuleOrder>,
+    ) -> Result<(), PError> {
+        if heuristic.is_empty()
+            || !heuristic
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return Err(malformed(format!("ordering heuristic name {heuristic:?}")));
+        }
+        for class in orders.keys() {
+            match self.owners.get(class) {
+                Some(owner) if owner.spec.lane == OwnerLane::Custom => {}
+                _ => {
+                    return Err(malformed(format!(
+                        "a rule order for {:016x}, which is no Custom owner",
+                        class.0
+                    )));
+                }
+            }
+        }
+        self.rule_orders = orders.into_iter().map(|(c, o)| (c, Arc::new(o))).collect();
+        self.ordering = Some(format!("{}:{heuristic}", super::P_ORDERING_VERSION));
+        Ok(())
+    }
+
+    /// p artefact v2: saved route verifications (`routes.rrbin`). Values do
+    /// not depend on them (a restored map is the verified one), so they are
+    /// not part of the identity.
+    pub fn set_saved_routes(&mut self, routes: PSavedRoutes) {
+        self.saved_routes = Some(Arc::new(routes));
+    }
+
     pub fn build(mut self) -> Result<PLibrary, PError> {
         if self.context.parameter_names() != ["d"] {
             return Err(PError::ContextMismatch);
@@ -694,6 +777,9 @@ impl PLibraryBuilder {
             edge_maps: self.edge_maps,
             terminals: self.terminals,
             basis_map: self.basis_map,
+            rule_orders: self.rule_orders,
+            ordering: self.ordering,
+            saved_routes: self.saved_routes,
             engine: OnceLock::new(),
         })
     }

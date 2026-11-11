@@ -76,6 +76,15 @@ fn portfolio_trial_completion_does_not_count_a_rule_or_sector() {
         exact_materialization_us: 0,
         guard_extraction_us: 0,
         geometry_us: 0,
+        trial_elapsed_us: 0,
+        case_elapsed_us: 0,
+        score: None,
+        pre_guard_rhs_terms: None,
+        pre_guard_numerator_rank_raise: None,
+        target_matches_baseline: None,
+        duplicate_of_trial: None,
+        seed_first_depth: None,
+        seed_last_depth: None,
     };
     let snapshot = tracker.observe(generating(0, 1, stage), now);
     assert_eq!(snapshot.counts.observed_rules, 0);

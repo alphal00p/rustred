@@ -283,18 +283,21 @@ fn deferral_requires_first_valid_rule_selection() {
         order: crate::solver::IntegralOrder::new([true; 3], [false; 3]),
         config: SectorConfig {
             rule_selection: RuleSelectionPolicy::BoundedPortfolio {
-                alternatives: vec![SourceDiscoveryStrategy::InputOrder],
+                alternatives: vec![SourceDiscoveryStrategy::InputOrder.into()],
                 limits: RuleTrialLimits {
                     max_depth: 1,
                     max_rows: 32,
                     max_exact_trace_rows: 32,
                     max_exact_trace_terms: 128,
+                    max_alternatives: 2,
+                    max_case_elapsed: None,
                 },
                 quality: vec![RuleQualityPriority {
                     feature: RuleQualityFeature::RhsTerms,
                     descending: false,
                 }],
                 trigger: RulePortfolioTrigger::Always,
+                pre_screen: false,
             },
             ..Default::default()
         },

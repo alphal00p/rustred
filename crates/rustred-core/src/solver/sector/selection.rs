@@ -1,16 +1,18 @@
 //! Optional exact-rule portfolio. No trial mutates the exceptional-case queue.
-
-use std::cmp::Ordering;
-use std::time::Instant;
-
 use super::*;
 use crate::solver::search::TrialSearchError;
-use crate::solver::{SourceDiscoveryStrategy, SourceVisitOrder};
-
+use crate::solver::{CaseSeedSchedule, SourceDiscoveryStrategy, SourceVisitOrder};
+use std::cmp::Ordering;
+use std::time::Instant;
 mod model;
 mod quality;
 pub use model::*;
-use quality::Features;
+use quality::{Features, PreGuardFeatures};
+
+struct PreScreen<'a> {
+    incumbent: Option<&'a Features>,
+    priorities: &'a [RuleQualityPriority],
+}
 
 pub(super) struct Admitted<const N: usize> {
     pub rule: SectorRule<N>,
@@ -18,6 +20,32 @@ pub(super) struct Admitted<const N: usize> {
     pub discarded: usize,
     pub resolutions: super::ResolutionCounts,
     features: Features,
+}
+
+// Exact canonical relation identity; sources are witnesses, not its identity.
+struct CandidateIdentity<const N: usize> {
+    case: Case<N>,
+    target: Integral<N>,
+    rhs: crate::solver::ExactRow<N>,
+    exceptions: Vec<Vec<crate::algebra::CoefficientPolynomial>>,
+}
+impl<const N: usize> CandidateIdentity<N> {
+    fn read(candidate: &Admitted<N>) -> Self {
+        let rule = &candidate.rule;
+        Self {
+            case: rule.candidate.case.clone(),
+            target: rule.candidate.target,
+            rhs: rule.candidate.rhs.clone(),
+            exceptions: rule.exceptions.branches.clone(),
+        }
+    }
+    fn matches(&self, candidate: &Admitted<N>) -> bool {
+        let rule = &candidate.rule;
+        self.case == rule.candidate.case
+            && self.target == rule.candidate.target
+            && self.rhs == rule.candidate.rhs
+            && self.exceptions == rule.exceptions.branches
+    }
 }
 
 impl<const N: usize> SectorSolver<'_, N> {
@@ -33,39 +61,96 @@ impl<const N: usize> SectorSolver<'_, N> {
             limits,
             quality,
             trigger,
+            pre_screen,
         } = &self.config.rule_selection
         else {
             unreachable!("first-valid uses the original queue branch")
         };
+        let case_started = Instant::now();
         let baseline_order = self.source_visit_order().map(SourceVisitOrder::ordinals);
-        let mut best =
-            self.rule_trial(current, options, baseline_order, None, 0, stats, observe)?;
+        let reference = CaseSeedSchedule::Reference;
+        let mut best = self.rule_trial(
+            current,
+            options,
+            baseline_order,
+            &reference,
+            None,
+            0,
+            None,
+            &[],
+            pre_screen.then_some(PreScreen {
+                incumbent: None,
+                priorities: quality,
+            }),
+            case_started,
+            stats,
+            observe,
+        )?;
+        let baseline_target = best.rule.candidate.target;
+        let mut identities = vec![(0, CandidateIdentity::read(&best))];
         let mut best_features = best.features;
-        let aggregate = stats
-            .rule_selection
-            .as_mut()
-            .expect("baseline records portfolio stats");
         if !best_features.triggered(trigger) {
-            aggregate.trigger_skips += alternatives.len();
+            stats.rule_selection.as_mut().unwrap().trigger_skips += alternatives.len();
             return Ok(best);
         }
         let mut winner = 0;
         for (index, alternative) in alternatives.iter().enumerate() {
-            let order = source_order(alternative);
-            let duplicate = same_order(order, baseline_order, self.basis.len())
-                || alternatives[..index]
+            if case_budget_expired(*limits, case_started) {
+                self.skipped_trial(
+                    current,
+                    index + 1,
+                    RuleTrialOutcome::CaseTimeBudget,
+                    None,
+                    case_started,
+                    stats,
+                    observe,
+                );
+                continue;
+            }
+            let order = source_order(&alternative.source_discovery);
+            let duplicate_of = if alternative.seed_schedule == reference
+                && same_order(order, baseline_order, self.basis.len())
+            {
+                Some(0)
+            } else {
+                alternatives[..index]
                     .iter()
-                    .any(|prior| same_order(order, source_order(prior), self.basis.len()));
-            if duplicate {
-                stats.rule_selection.as_mut().unwrap().duplicate_skips += 1;
+                    .position(|prior| {
+                        prior.seed_schedule == alternative.seed_schedule
+                            && same_order(
+                                order,
+                                source_order(&prior.source_discovery),
+                                self.basis.len(),
+                            )
+                    })
+                    .map(|prior| prior + 1)
+            };
+            if let Some(prior) = duplicate_of {
+                self.skipped_trial(
+                    current,
+                    index + 1,
+                    RuleTrialOutcome::DuplicateDescriptor,
+                    Some(prior),
+                    case_started,
+                    stats,
+                    observe,
+                );
                 continue;
             }
             let candidate = match self.rule_trial(
                 current,
                 options,
                 order,
+                &alternative.seed_schedule,
                 Some(*limits),
                 index + 1,
+                Some(&baseline_target),
+                &identities,
+                pre_screen.then_some(PreScreen {
+                    incumbent: Some(&best_features),
+                    priorities: quality,
+                }),
+                case_started,
                 stats,
                 observe,
             ) {
@@ -73,6 +158,7 @@ impl<const N: usize> SectorSolver<'_, N> {
                 Err(error) if optional_refusal(&error).is_some() => continue,
                 Err(error) => return Err(error),
             };
+            identities.push((index + 1, CandidateIdentity::read(&candidate)));
             let features = candidate.features;
             if features.compare(&best_features, quality) == Ordering::Less {
                 best = candidate;
@@ -86,30 +172,65 @@ impl<const N: usize> SectorSolver<'_, N> {
         Ok(best)
     }
 
+    fn skipped_trial(
+        &self,
+        current: &Case<N>,
+        trial: usize,
+        outcome: RuleTrialOutcome,
+        duplicate_of_trial: Option<usize>,
+        case_started: Instant,
+        stats: &mut SectorStats,
+        observe: &mut impl FnMut(SectorEvent<'_, N>),
+    ) {
+        let summary = RuleTrialSummary {
+            trial,
+            outcome,
+            stats: RuleTrialStats {
+                case_elapsed: case_started.elapsed(),
+                duplicate_of_trial,
+                ..Default::default()
+            },
+        };
+        stats.rule_selection.as_mut().unwrap().record(summary);
+        observe(SectorEvent::RuleTrialFinished {
+            case: current,
+            summary,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn rule_trial(
         &self,
         current: &Case<N>,
         options: SectorSolveOptions,
         order: Option<&[usize]>,
+        schedule: &CaseSeedSchedule,
         limits: Option<RuleTrialLimits>,
         trial: usize,
+        baseline_target: Option<&Integral<N>>,
+        identities: &[(usize, CandidateIdentity<N>)],
+        pre_screen: Option<PreScreen<'_>>,
+        case_started: Instant,
         stats: &mut SectorStats,
         observe: &mut impl FnMut(SectorEvent<'_, N>),
     ) -> Result<Admitted<N>, SectorSolveError<N>> {
+        let started_trial = Instant::now();
         let mut work = RuleTrialStats::default();
         let mut budget = None;
+        let mut selection_refusal = None;
         let result = (|| {
             self.validate_search(current, options.symbolic)
                 .map_err(|source| SectorSolveError::Search {
                     case: current.clone(),
                     source,
                 })?;
-            let (candidate, searched) = self.search_attempt(
+            let (candidate, searched) = self.search_attempt_with_schedule(
                 current.clone(),
                 options.symbolic,
                 order,
                 limits,
                 true,
+                schedule,
                 |event| {
                     observe(SectorEvent::Search {
                         case: current,
@@ -123,8 +244,6 @@ impl<const N: usize> SectorSolver<'_, N> {
                     TrialSearchError::Solver(source) => source,
                     TrialSearchError::Limit(kind) => {
                         budget = Some(kind);
-                        // Private transport; callers distinguish the typed budget
-                        // before public propagation. It is never a rule/coverage.
                         SolverError::SearchExhausted {
                             depth: limits.unwrap().max_depth,
                             rows: work.search.rows,
@@ -136,6 +255,38 @@ impl<const N: usize> SectorSolver<'_, N> {
                     source,
                 }
             })?;
+            // The returned candidate already includes the search's full
+            // canonicalization/recentering of coefficients and source seeds.
+            if let Some(target) = baseline_target {
+                work.target_matches_baseline = Some(candidate.target == *target);
+                if candidate.target != *target {
+                    selection_refusal = Some(RuleTrialOutcome::DifferentTarget);
+                    return Err(SectorSolveError::NonProgress {
+                        case: current.clone(),
+                    });
+                }
+            }
+            if let Some(screen) = pre_screen {
+                self.validate_rule_descent(&candidate)?;
+                let cheap =
+                    PreGuardFeatures::read(&candidate, self.order.sector()).map_err(|source| {
+                        SectorSolveError::Search {
+                            case: current.clone(),
+                            source,
+                        }
+                    })?;
+                work.pre_guard_rhs_terms = Some(cheap.rhs_terms);
+                work.pre_guard_numerator_rank_raise = Some(cheap.numerator_rank_raise);
+                if screen
+                    .incumbent
+                    .is_some_and(|best| cheap.strictly_worse(best, screen.priorities))
+                {
+                    selection_refusal = Some(RuleTrialOutcome::PreScreened);
+                    return Err(SectorSolveError::NonProgress {
+                        case: current.clone(),
+                    });
+                }
+            }
             observe(SectorEvent::PhaseStarted {
                 case: current,
                 phase: SectorPhase::GuardExtraction,
@@ -178,13 +329,40 @@ impl<const N: usize> SectorSolver<'_, N> {
                         source,
                     }
                 })?;
+            work.score = Some(admitted.features.snapshot());
+            if let Some((prior, _)) = identities
+                .iter()
+                .find(|(_, identity)| identity.matches(&admitted))
+            {
+                work.duplicate_of_trial = Some(*prior);
+                selection_refusal = Some(RuleTrialOutcome::DuplicateCandidate);
+                return Err(SectorSolveError::NonProgress {
+                    case: current.clone(),
+                });
+            }
+            // Cooperative, not preemptive: an indivisible native lift may
+            // overrun. An over-budget optional result keeps the incumbent.
+            if limits.is_some_and(|limits| case_budget_expired(limits, case_started)) {
+                selection_refusal = Some(RuleTrialOutcome::CaseTimeBudget);
+                return Err(SectorSolveError::NonProgress {
+                    case: current.clone(),
+                });
+            }
             Ok(admitted)
         })();
-        let outcome = match &result {
-            Ok(_) => RuleTrialOutcome::Admitted,
-            Err(_) if budget.is_some() => RuleTrialOutcome::WorkLimit(budget.unwrap()),
-            Err(error) if trial != 0 => optional_refusal(error).unwrap_or(RuleTrialOutcome::Fatal),
-            Err(_) => RuleTrialOutcome::Fatal,
+        work.elapsed = started_trial.elapsed();
+        work.case_elapsed = case_started.elapsed();
+        let outcome = if let Some(refusal) = selection_refusal {
+            refusal
+        } else {
+            match &result {
+                Ok(_) => RuleTrialOutcome::Admitted,
+                Err(_) if budget.is_some() => RuleTrialOutcome::WorkLimit(budget.unwrap()),
+                Err(error) if trial != 0 => {
+                    optional_refusal(error).unwrap_or(RuleTrialOutcome::Fatal)
+                }
+                Err(_) => RuleTrialOutcome::Fatal,
+            }
         };
         let summary = RuleTrialSummary {
             trial,
@@ -195,8 +373,6 @@ impl<const N: usize> SectorSolver<'_, N> {
             .rule_selection
             .get_or_insert_with(Default::default)
             .record(summary);
-        // Work includes losers/refusals; logical case/discard counts belong only
-        // to the eventual winner and are updated by the queue itself.
         stats.symbolic_rows += work.search.rows;
         stats.symbolic_search += work.search.elapsed;
         stats.exception_extraction += work.guard_extraction;
@@ -207,6 +383,12 @@ impl<const N: usize> SectorSolver<'_, N> {
         });
         result
     }
+}
+
+fn case_budget_expired(limits: RuleTrialLimits, started: Instant) -> bool {
+    limits
+        .max_case_elapsed
+        .is_some_and(|budget| started.elapsed() >= budget)
 }
 
 fn source_order(strategy: &SourceDiscoveryStrategy) -> Option<&[usize]> {

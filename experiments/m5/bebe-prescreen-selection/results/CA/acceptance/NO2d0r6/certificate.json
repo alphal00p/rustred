@@ -1,0 +1,14 @@
+{
+  "apply_phases": 9,
+  "cache_hits": 0,
+  "check_descent": true,
+  "distinct": 170063,
+  "earlier_phase_children": 0,
+  "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+  "foreign_same_phase_children": 0,
+  "holds": true,
+  "phase_regressions": 0,
+  "popped": 170063,
+  "repeats": 0,
+  "split_owner_phases": 0
+}

@@ -129,6 +129,17 @@ pub enum FamilyCloseGenerationStage {
         exact_materialization_us: u128,
         guard_extraction_us: u128,
         geometry_us: u128,
+        trial_elapsed_us: u128,
+        case_elapsed_us: u128,
+        score: Option<[u64; 14]>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pre_guard_rhs_terms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pre_guard_numerator_rank_raise: Option<u64>,
+        target_matches_baseline: Option<bool>,
+        duplicate_of_trial: Option<usize>,
+        seed_first_depth: Option<u32>,
+        seed_last_depth: Option<u32>,
     },
     RuleFound {
         pending: usize,
@@ -299,6 +310,11 @@ pub(in crate::application) fn generation_stage<const N: usize>(
                     RuleTrialOutcome::GeometryBudget => "geometry-budget",
                     RuleTrialOutcome::NonProgress => "non-progress",
                     RuleTrialOutcome::Fatal => "fatal",
+                    RuleTrialOutcome::DuplicateDescriptor => "duplicate-descriptor",
+                    RuleTrialOutcome::DuplicateCandidate => "duplicate-candidate",
+                    RuleTrialOutcome::DifferentTarget => "different-normalized-target",
+                    RuleTrialOutcome::CaseTimeBudget => "cooperative-case-time-budget",
+                    RuleTrialOutcome::PreScreened => "pre-screened-worse-known-prefix",
                 },
                 search_seeds: summary.stats.search.seeds,
                 search_rows: summary.stats.search.rows,
@@ -312,6 +328,15 @@ pub(in crate::application) fn generation_stage<const N: usize>(
                 exact_materialization_us: summary.stats.search.exact_materialization.as_micros(),
                 guard_extraction_us: summary.stats.guard_extraction.as_micros(),
                 geometry_us: summary.stats.geometry.as_micros(),
+                trial_elapsed_us: summary.stats.elapsed.as_micros(),
+                case_elapsed_us: summary.stats.case_elapsed.as_micros(),
+                score: summary.stats.score,
+                pre_guard_rhs_terms: summary.stats.pre_guard_rhs_terms,
+                pre_guard_numerator_rank_raise: summary.stats.pre_guard_numerator_rank_raise,
+                target_matches_baseline: summary.stats.target_matches_baseline,
+                duplicate_of_trial: summary.stats.duplicate_of_trial,
+                seed_first_depth: summary.stats.seed_first_depth,
+                seed_last_depth: summary.stats.seed_last_depth,
             }
         }
         SectorEvent::CaseStarted { pending, .. } => FamilyCloseGenerationStage::Case { pending },
@@ -573,6 +598,15 @@ mod tests {
                 exact_materialization_us: 70,
                 guard_extraction_us: 5,
                 geometry_us: 15,
+                trial_elapsed_us: 0,
+                case_elapsed_us: 0,
+                score: None,
+                pre_guard_rhs_terms: None,
+                pre_guard_numerator_rank_raise: None,
+                target_matches_baseline: None,
+                duplicate_of_trial: None,
+                seed_first_depth: None,
+                seed_last_depth: None,
             }
         );
     }

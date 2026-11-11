@@ -11,8 +11,10 @@ pub mod error;
 pub mod families;
 pub mod lane;
 pub mod library;
+pub mod path_census;
 pub mod presentation;
 pub mod programs;
+pub mod saved_routes;
 pub mod step;
 pub mod tag;
 pub mod terminal;
@@ -34,8 +36,16 @@ pub mod present;
 // Triangle lane (M2-T5).
 pub mod triangle;
 
+// Diamond lane (M3-T5b).
+pub mod diamond;
+
+// Scheme lane (M5 A1 schemes): Forcer's hand schemes as data-driven templates.
+pub mod scheme;
+
 // Custom owners (M2-T7c).
 pub mod custom;
+// The candidate bundle's wire records, reader and restore (M3-T7d).
+pub mod bundle_wire;
 
 // Descent certificate (M2-T8a).
 pub mod descent;
@@ -51,9 +61,16 @@ pub use rustred_topology::P_TOPOLOGY_VERSION;
 /// Generated content and the meaning of a recorded step.
 pub const P_OWNER_LIBRARY_SEMANTICS: &str = "rustred-p-owner-library-2026-11-05";
 pub const P_CLASS_KEY_VERSION: u32 = 1;
-pub const P_CENSUS_VERSION: u32 = 1;
-/// The `present` and `edge_map` algorithms.
-pub const P_PRESENTATION_VERSION: u32 = 1;
+/// 2 (M5 combined 4L package, route maps (a)): the routed sectors of a
+/// package may carry generation-time route maps `T M` (the census map composed
+/// with an automorphism of the owner sector, chosen for the fewest routed terms
+/// by a traffic-free static score, each verified by `class::verify_route`;
+/// examples/p_route_maps.rs); the engine follows the stored maps strictly.
+pub const P_CENSUS_VERSION: u32 = 2;
+/// The `present` and `edge_map` algorithms. 2 (M5 combined 4L package, ISP
+/// choice (b)): the embedded `present::P_ISP_PREFERENCES` re-complete the ISPs
+/// of three scope 1-4 Insertion owners.
+pub const P_PRESENTATION_VERSION: u32 = 2;
 /// The content of `data/p/p-families.v1.json`.
 pub const P_FAMILIES_VERSION: u32 = 1;
 pub const P_GAMMA_TAG_VERSION: u32 = 1;
@@ -62,8 +79,27 @@ pub const P_GAMMA_TAG_WIDTH: usize = 16;
 pub const P_INSERTION_KERNEL_VERSION: u32 = 1;
 pub const P_CARPET_KERNEL_VERSION: u32 = 1;
 pub const P_TRIANGLE_TEMPLATE_VERSION: u32 = 1;
-/// Custom-owner generation options and the false-knock-out guard.
-pub const P_CUSTOM_OWNER_VERSION: u32 = 1;
+/// The Diamond template and its lane (M3-T5b).
+pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
+/// The Scheme lane (M5 A1 schemes): the meaning of the embedded scheme set
+/// (`scheme::EMBEDDED_SCHEMES`: rules, their stored order, order key and
+/// verification). Bump it with every change of an embedded scheme file.
+/// 2 (M5 combined 4L package, user decision 1): no1, haha and bubu are on by
+/// default (`"default": true`), so a library assembled without
+/// `RUSTRED_P_SCHEMES` puts these three owners on the Scheme lane; the
+/// rank-gated Custom no1 of B2 is the fallback (`RUSTRED_P_SCHEMES=none`).
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 2;
+/// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
+/// a payload order may be rank-gated (an ISP-rank row before the support,
+/// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
+pub const P_CUSTOM_OWNER_VERSION: u32 = 2;
+/// p artefact v2 (notes/artifact-ordering.SPEC.md): the format and semantics
+/// of an explicit rule ordering file (`ordering.json`, schema
+/// [`P_ORDERING_SCHEMA`]). Not a `p_versions()` entry: a library without an
+/// ordering keeps its identity; one with an ordering appends
+/// `,P_ORDERING_VERSION=<v>:<heuristic>` (`PLibrary::identity`).
+pub const P_ORDERING_VERSION: u32 = 1;
+pub const P_ORDERING_SCHEMA: &str = "rustred.p-ordering.v1";
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
 pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
@@ -97,6 +133,14 @@ pub fn p_versions() -> Vec<(&'static str, String)> {
         (
             "P_TRIANGLE_TEMPLATE_VERSION",
             P_TRIANGLE_TEMPLATE_VERSION.to_string(),
+        ),
+        (
+            "P_DIAMOND_TEMPLATE_VERSION",
+            P_DIAMOND_TEMPLATE_VERSION.to_string(),
+        ),
+        (
+            "P_SCHEME_TEMPLATE_VERSION",
+            P_SCHEME_TEMPLATE_VERSION.to_string(),
         ),
         ("P_CUSTOM_OWNER_VERSION", P_CUSTOM_OWNER_VERSION.to_string()),
         ("P_LIBRARY_SCHEMA", P_LIBRARY_SCHEMA.to_owned()),

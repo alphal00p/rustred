@@ -82,7 +82,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         self.validate_search(case, options)?;
         let initial = case.integral();
         let mut stream = super::super::ScheduledSeeds::new(
-            Seeds::new_two_sided(initial, *self.order.sector(), self.seed_frozen(), self.order.two_sided_axes()),
+            super::super::Seeds::new_two_sided(initial, *self.order.sector(), self.seed_frozen(), self.order.two_sided_axes()),
             self.config.seed_schedule,
         );
         let probe = Probe::new(self.order.clone(), self.system.variable_count, options);

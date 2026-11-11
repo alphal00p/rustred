@@ -277,7 +277,7 @@ fn the_factory_builds_the_bubble_from_its_roles() {
             .lane(),
         OwnerLane::Insertion
     );
-    for lane in [OwnerLane::Zero, OwnerLane::Diamond, OwnerLane::Product] {
+    for lane in [OwnerLane::Zero, OwnerLane::Product] {
         let mut wrong = spec.clone();
         wrong.lane = lane;
         assert!(matches!(
@@ -285,6 +285,13 @@ fn the_factory_builds_the_bubble_from_its_roles() {
             Err(PError::MalformedLibrary(_))
         ));
     }
+    // The Diamond lane has a program (M3-T5b): bubble roles break its contract.
+    let mut diamond = spec.clone();
+    diamond.lane = OwnerLane::Diamond;
+    assert!(matches!(
+        lane_program(&library, &diamond),
+        Err(PError::Contract(_))
+    ));
     let mut swapped_roles = spec.clone();
     swapped_roles.roles = LaneRoles::Insertion(BubbleRoles {
         lines: [0, 0],

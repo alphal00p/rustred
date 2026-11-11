@@ -1,0 +1,45 @@
+{
+  "cell": "NO2 d0_r6",
+  "baseline": {
+    "seconds": 35.901109499,
+    "kernel_peak_RSS_GB": 0.936009728,
+    "keys": 317606,
+    "edges": 4426927,
+    "frontier": 136596,
+    "primes": 3,
+    "numerator_degree": 16,
+    "denominator_degree": 24,
+    "coefficient_bits": 72,
+    "load_seconds": 4.187388949,
+    "step_seconds": 17.704508444
+  },
+  "terms_first": {
+    "seconds": 36.201668018,
+    "kernel_peak_RSS_GB": 0.93536256,
+    "keys": 318904,
+    "edges": 4403515,
+    "frontier": 137482,
+    "primes": 3,
+    "numerator_degree": 16,
+    "denominator_degree": 24,
+    "coefficient_bits": 72,
+    "load_seconds": 4.291956368,
+    "step_seconds": 17.778413448
+  },
+  "change_percent": {
+    "seconds": 0.8371844859234034,
+    "kernel_peak_RSS_GB": -0.06914116174656648,
+    "keys": 0.40868245562111216,
+    "edges": -0.5288544401116146,
+    "frontier": 0.6486280711001768
+  },
+  "baseline_path": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/generation/terms-first-20261110T2256/NO2d0r6-control",
+  "candidate_path": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/generation/terms-first-20261110T2256/NO2d0r6-terms-first",
+  "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO2_L4_d0_r6/preduction.txt",
+  "reference_kind": "WP0 golden",
+  "PReduction_value_bytes_identical": true,
+  "value_exclusions": [
+    "path-dependent condition lines only"
+  ],
+  "T_BFS_and_strict_descent": true
+}

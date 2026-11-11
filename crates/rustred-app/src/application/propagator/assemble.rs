@@ -9,7 +9,9 @@
 //!    [`TopologyService`];
 //! 3. per node `present_node` (lane, roles, lane-adapted presentation, or the
 //!    Custom fallback with its reason); a Triangle node whose IBP row does not
-//!    have Forcer's shape (`TemplateError::Mismatch`) falls back to Custom too;
+//!    have Forcer's shape (`TemplateError::Mismatch`) falls back to Custom too,
+//!    and so does a Diamond node whose summed rows do not
+//!    (`DiamondError::Mismatch`, M3-T5b);
 //! 4. the census over the tops and every node presentation, with strong
 //!    completeness;
 //! 5. one owner per class at its min-GraphKey node: lane and roles of that node,
@@ -35,9 +37,10 @@ use rustred::family::IntegralKey;
 use rustred::propagator::census::{PCensusOptions, p_census};
 use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
+use rustred::propagator::diamond::{DiamondError, DiamondTemplate};
 use rustred::propagator::error::PError;
 use rustred::propagator::families::{PFamiliesFile, PFamilyEntry};
-use rustred::propagator::lane::{LaneDecision, LaneRoles, OwnerLane, TriangleRoles};
+use rustred::propagator::lane::{DiamondRoles, LaneDecision, LaneRoles, OwnerLane, TriangleRoles};
 use rustred::propagator::library::{PLibrary, PLibraryBuilder, POwnerSpec, PTerminal};
 use rustred::propagator::present::{present, present_node, top_topology};
 use rustred::propagator::presentation::{Presentation, Slot};
@@ -128,6 +131,17 @@ impl Clock {
 /// a [`TemplateError::Mismatch`] presents it as Custom, a
 /// [`TemplateError::Failure`] stops the assembly.
 pub type TriangleCheck<'a> = &'a dyn Fn(&Presentation, &TriangleRoles) -> Result<(), TemplateError>;
+
+/// The Diamond template check of assembly, as [`TriangleCheck`] (M3-T5b).
+pub type DiamondCheck<'a> = &'a dyn Fn(&Presentation, &DiamondRoles) -> Result<(), DiamondError>;
+
+/// The Diamond check of [`assemble_library`]: the template extracts.
+pub fn diamond_template_check(
+    presentation: &Presentation,
+    roles: &DiamondRoles,
+) -> Result<(), DiamondError> {
+    DiamondTemplate::extract(presentation, roles).map(|_| ())
+}
 
 /// The library program of scope `1..=max_loops` of `families`, see the module
 /// docs. `Provided` payloads are used verbatim, by class label, with the LP
@@ -261,6 +275,7 @@ pub fn assemble_library_recounted(
         custom,
         options,
         &triangle_template,
+        &diamond_template_check,
         Some((recount, &mut recounts)),
     )?;
     Ok((assembled, recounts))
@@ -276,7 +291,26 @@ pub fn assemble_library_with(
     options: &AssembleOptions,
     triangle: TriangleCheck<'_>,
 ) -> Result<AssembledLibrary, PError> {
-    assemble(families, max_loops, custom, options, triangle, None)
+    let diamond: DiamondCheck<'_> = &diamond_template_check;
+    assemble(
+        families, max_loops, custom, options, triangle, diamond, None,
+    )
+}
+
+/// [`assemble_library_with`] with another Diamond template check as well: the
+/// Diamond tests use it to present the diamond nodes as Custom owners.
+#[doc(hidden)]
+pub fn assemble_library_checked(
+    families: &PFamiliesFile,
+    max_loops: u8,
+    custom: CustomPayloads,
+    options: &AssembleOptions,
+    triangle: TriangleCheck<'_>,
+    diamond: DiamondCheck<'_>,
+) -> Result<AssembledLibrary, PError> {
+    assemble(
+        families, max_loops, custom, options, triangle, diamond, None,
+    )
 }
 
 fn assemble(
@@ -285,6 +319,7 @@ fn assemble(
     custom: CustomPayloads,
     options: &AssembleOptions,
     triangle: TriangleCheck<'_>,
+    diamond: DiamondCheck<'_>,
     mut recount: Option<(&RecountProvidedLp, &mut Vec<LpRecount>)>,
 ) -> Result<AssembledLibrary, PError> {
     let mut clock = Clock(Instant::now(), Vec::new());
@@ -339,6 +374,28 @@ fn assemble(
                     fallback = Some(mismatch.to_string());
                 }
                 Err(TemplateError::Failure(error)) => return Err(error),
+            }
+        }
+        if let (LaneRoles::Diamond(roles), Some(adapted)) = (decision.roles, &presentation) {
+            match diamond(adapted, &roles) {
+                Ok(()) => {}
+                Err(mismatch @ DiamondError::Mismatch { .. }) => {
+                    decision = CUSTOM;
+                    presentation = Some(present(node, &CUSTOM, &tops, id, &context)?);
+                    fallback = Some(mismatch.to_string());
+                }
+                Err(DiamondError::Failure(error)) => return Err(error),
+            }
+        }
+        if let (LaneRoles::Scheme(_), Some(adapted)) = (decision.roles, &presentation) {
+            match rustred::propagator::scheme::SchemeTemplate::extract(adapted, node) {
+                Ok(_) => {}
+                Err(rustred::propagator::scheme::SchemeError::Mismatch(mismatch)) => {
+                    decision = CUSTOM;
+                    presentation = Some(present(node, &CUSTOM, &tops, id, &context)?);
+                    fallback = Some(mismatch);
+                }
+                Err(rustred::propagator::scheme::SchemeError::Failure(error)) => return Err(error),
             }
         }
         let index = NodeIndex(node.index);
@@ -399,7 +456,22 @@ fn assemble(
             custom: None,
             terminals: Vec::new(),
         };
-        if spec.lane == OwnerLane::Custom {
+        if spec.lane == OwnerLane::Scheme {
+            // M5 A1 schemes: a scheme with a master rule has the node's corner as
+            // its one residual terminal, as the Custom owner it replaces has it
+            // (same class, same powers); a scheme without one (bubu) has none.
+            let info = dag.nodes.get(node_index.0 as usize).ok_or_else(|| {
+                PError::MalformedLibrary(format!("class {label} names node {}", node_index.0))
+            })?;
+            if rustred::propagator::scheme::scheme_has_corner(info)? {
+                let presentation = &presentations[owner_presentation.0 as usize];
+                let corner = rustred::propagator::basis::node_corner(presentation);
+                let key = IntegralKey::try_new(corner).map_err(|error| {
+                    PError::MalformedLibrary(format!("the corner of the Scheme owner {label}: {error}"))
+                })?;
+                spec.terminals.push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
+            }
+        } else if spec.lane == OwnerLane::Custom {
             let payload = custom_payload(
                 &custom,
                 &label,

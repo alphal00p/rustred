@@ -39,7 +39,9 @@ use rustred::persistence::{
 use rustred::propagator::census::{PCensus, PClassRecord, PSectorFate, SignedAffineLoopMap};
 use rustred::propagator::class::OwnerClassKey;
 use rustred::propagator::error::PError;
-use rustred::propagator::lane::{BubbleRoles, CarpetRoles, LaneRoles, OwnerLane, TriangleRoles};
+use rustred::propagator::lane::{
+    BubbleRoles, CarpetRoles, DiamondRoles, LaneRoles, OwnerLane, TriangleRoles,
+};
 use rustred::propagator::library::{CustomOwnerMeta, PTerminal};
 use rustred::propagator::presentation::{
     EdgeKind, EdgeMap, NodeRef, Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
@@ -697,6 +699,15 @@ pub struct FilesRecord {
     pub census: String,
     pub census_json: String,
     pub layer: Option<String>,
+    /// p artefact v2: the rule ordering file (`ordering.json`), if any
+    /// (`super::ordering`); absent in older packages and in `rustred
+    /// p-package` output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordering: Option<String>,
+    /// p artefact v2: saved route verifications (`routes.rrbin`,
+    /// `rustred::propagator::saved_routes`), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routes: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -735,6 +746,8 @@ pub enum KindRecord {
     InsertionAdapted,
     CarpetAdapted,
     TriangleAdapted,
+    DiamondAdapted,
+    SchemeAdapted,
     EpsNode,
     Caller,
 }
@@ -773,6 +786,7 @@ pub enum LaneRecord {
     Carpet,
     Triangle,
     Diamond,
+    Scheme,
     Custom,
     Product,
 }
@@ -796,6 +810,15 @@ pub enum RolesRecord {
         c: [u16; 2],
         k_loop: u8,
     },
+    /// M3-T5b: path `i` is `a[i]`, `b[i]`, `c[i]`.
+    Diamond {
+        a: Vec<u16>,
+        b: Vec<u16>,
+        c: Vec<u16>,
+        spectator: Option<u16>,
+    },
+    /// M5-R0 A1.
+    Scheme { scheme: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -887,6 +910,7 @@ impl LaneRecord {
             OwnerLane::Carpet => Self::Carpet,
             OwnerLane::Triangle => Self::Triangle,
             OwnerLane::Diamond => Self::Diamond,
+            OwnerLane::Scheme => Self::Scheme,
             OwnerLane::Custom => Self::Custom,
             OwnerLane::Product => Self::Product,
         }
@@ -900,6 +924,7 @@ impl LaneRecord {
             Self::Carpet => OwnerLane::Carpet,
             Self::Triangle => OwnerLane::Triangle,
             Self::Diamond => OwnerLane::Diamond,
+            Self::Scheme => OwnerLane::Scheme,
             Self::Custom => OwnerLane::Custom,
             Self::Product => OwnerLane::Product,
         }
@@ -925,6 +950,15 @@ impl RolesRecord {
             LaneRoles::Triangle(TriangleRoles { b, a, c, k_loop }) => {
                 Self::Triangle { b, a, c, k_loop }
             }
+            LaneRoles::Diamond(roles) => Self::Diamond {
+                a: roles.a().to_vec(),
+                b: roles.b().to_vec(),
+                c: roles.c().to_vec(),
+                spectator: roles.spectator,
+            },
+            LaneRoles::Scheme(roles) => Self::Scheme {
+                scheme: roles.scheme,
+            },
         }
     }
 
@@ -946,6 +980,18 @@ impl RolesRecord {
             Self::Triangle { b, a, c, k_loop } => {
                 LaneRoles::Triangle(TriangleRoles { b, a, c, k_loop })
             }
+            // A diamond record of no diamond (path counts differ, too few or too
+            // many paths) reads as no roles: its owner then has no program and
+            // the library is refused.
+            Self::Diamond {
+                ref a,
+                ref b,
+                ref c,
+                spectator,
+            } => DiamondRoles::new(a, b, c, spectator).map_or(LaneRoles::None, LaneRoles::Diamond),
+            Self::Scheme { scheme } => {
+                LaneRoles::Scheme(rustred::propagator::lane::SchemeRoles { scheme })
+            }
         }
     }
 }
@@ -961,6 +1007,8 @@ impl KindRecord {
             PresentationKind::InsertionAdapted => Self::InsertionAdapted,
             PresentationKind::CarpetAdapted => Self::CarpetAdapted,
             PresentationKind::TriangleAdapted => Self::TriangleAdapted,
+            PresentationKind::DiamondAdapted => Self::DiamondAdapted,
+            PresentationKind::SchemeAdapted => Self::SchemeAdapted,
             PresentationKind::EpsNode => Self::EpsNode,
             PresentationKind::Caller => Self::Caller,
         }
@@ -976,6 +1024,8 @@ impl KindRecord {
             Self::InsertionAdapted => PresentationKind::InsertionAdapted,
             Self::CarpetAdapted => PresentationKind::CarpetAdapted,
             Self::TriangleAdapted => PresentationKind::TriangleAdapted,
+            Self::DiamondAdapted => PresentationKind::DiamondAdapted,
+            Self::SchemeAdapted => PresentationKind::SchemeAdapted,
             Self::EpsNode => PresentationKind::EpsNode,
             Self::Caller => PresentationKind::Caller,
         }

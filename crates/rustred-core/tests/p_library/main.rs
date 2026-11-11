@@ -10,6 +10,7 @@ mod canary;
 mod census;
 mod class;
 mod custom;
+mod diamond;
 mod eps;
 mod iface;
 mod kernel;

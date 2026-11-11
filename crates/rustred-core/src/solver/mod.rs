@@ -136,10 +136,10 @@ pub use sector::{
 };
 pub use sector::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
-    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
-    RuleTrialStats, RuleTrialSummary,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
+    RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{ScheduledSeeds, Seed, SeedSchedule, Seeds};
+pub use seed::{CaseSeedSchedule, ScheduledSeeds, Seed, SeedSchedule, Seeds, ShellSeedSource};
 pub use source::SourceSystem;
 pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
 

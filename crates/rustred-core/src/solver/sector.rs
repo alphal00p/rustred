@@ -24,8 +24,8 @@ pub use domains::SectorDomainSolution;
 pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
 pub use selection::{
     RulePortfolioTrigger, RuleQualityFeature, RuleQualityPriority, RuleQualityThreshold,
-    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialLimits, RuleTrialOutcome,
-    RuleTrialStats, RuleTrialSummary,
+    RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
+    RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
 
 /// Saved dispatch semantics, independent of a rule's algebraic identity.
@@ -1275,16 +1275,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         candidate: RuleCandidate<N>,
         route: GuardRoute,
     ) -> Result<(SectorRule<N>, Duration, GuardReport), SectorSolveError<N>> {
-        if candidate
-            .rhs
-            .iter()
-            .any(|term| self.order.compare(&candidate.target, &term.integral) != Ordering::Less)
-        {
-            return Err(SectorSolveError::Search {
-                case: candidate.case,
-                source: SolverError::ExactReplay("winning rule is not strictly descending".into()),
-            });
-        }
+        self.validate_rule_descent(&candidate)?;
         let start = Instant::now();
         let (exceptions, report) = super::exception::extract_exceptions_routed(
             &candidate,
@@ -1306,6 +1297,25 @@ impl<const N: usize> SectorSolver<'_, N> {
             start.elapsed(),
             report,
         ))
+    }
+
+    // Shared by ordinary admission and the opt-in pre-screen. A cheap score
+    // must never turn a malformed/non-descending identity into a refusal.
+    fn validate_rule_descent(
+        &self,
+        candidate: &RuleCandidate<N>,
+    ) -> Result<(), SectorSolveError<N>> {
+        if candidate
+            .rhs
+            .iter()
+            .any(|term| self.order.compare(&candidate.target, &term.integral) != Ordering::Less)
+        {
+            return Err(SectorSolveError::Search {
+                case: candidate.case.clone(),
+                source: SolverError::ExactReplay("winning rule is not strictly descending".into()),
+            });
+        }
+        Ok(())
     }
 
     fn enqueue(

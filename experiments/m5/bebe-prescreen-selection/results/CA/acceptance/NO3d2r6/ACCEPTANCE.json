@@ -1,0 +1,71 @@
+{
+  "cell": "NO3d2r6",
+  "label": "CA-trace256",
+  "cpu": 291,
+  "command": [
+    "/home/vhirschi/.nix-profile/bin/bash",
+    "/shared/vhirschi/t3code/astra_5L/tools/astra_launch_monitored_lean_rss5_20261109.sh",
+    "m5-bstatic-ca-trace256-NO3d2r6-0015",
+    "291",
+    "unlimited",
+    "180",
+    "--",
+    "taskset",
+    "-c",
+    "319",
+    "/home/vhirschi/.nix-profile/bin/bash",
+    "/shared/vhirschi/t3code/astra_5L/m5-rule-search/run-owner-content-bench.sh",
+    "/shared/vhirschi/t3code/astra_5L/m5-rule-search/libs/b-static-prescreen-ca-trace256",
+    "L4_d2_r6",
+    "P4L_NO3",
+    "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+    "291"
+  ],
+  "raw_directory": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/experiments/maps-b-static-ca-trace256/NO3d2r6",
+  "guard_directory": "/shared/vhirschi/t3code/astra_5L/runs/m5-bstatic-ca-trace256-NO3d2r6-0015",
+  "completion": {
+    "utc": "2026-11-11T00:08:17Z",
+    "returncode": 0,
+    "elapsed_seconds": 51.42,
+    "peak_group_rss_bytes": 1213317120,
+    "stopped_by_guard": null
+  },
+  "guard_sampled_peak_group_rss_GB": 1.21331712,
+  "status": "PASS",
+  "acceptance": true,
+  "PReduction_value_bytes_identical": true,
+  "value_exclusions": [
+    "condition lines only"
+  ],
+  "T_BFS_and_strict_descent": true,
+  "reference": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/m5-r0/exec/wp0/goldens/preduction/P4L_NO3_L4_d2_r6/preduction.txt",
+  "reference_kind": "exact WP0 golden",
+  "metrics": {
+    "reduce_seconds": 46.130490024,
+    "load_seconds": 4.450008228,
+    "step_seconds": 22.429769349,
+    "kernel_peak_RSS_GB": 1.211088896,
+    "keys": 599472,
+    "edges": 5472564,
+    "peak_frontier": 233832,
+    "primes": 3,
+    "verification_primes": 1,
+    "max_numerator_degree": 19,
+    "max_denominator_degree": 25,
+    "max_coefficient_bits": 73
+  },
+  "certificate": {
+    "apply_phases": 10,
+    "cache_hits": 0,
+    "check_descent": true,
+    "distinct": 599472,
+    "earlier_phase_children": 0,
+    "fold": "off: SeriesParallelStep::with_fold is only called from tests (src never sets it)",
+    "foreign_same_phase_children": 0,
+    "holds": true,
+    "phase_regressions": 0,
+    "popped": 599472,
+    "repeats": 0,
+    "split_owner_phases": 0
+  }
+}
