@@ -82,6 +82,7 @@ pub(crate) struct FrameSnapshot {
 }
 
 /// Typed scalar details, not a stringified solver object or coefficient payload.
+#[allow(clippy::large_enum_variant, reason = "short-lived telemetry records")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum StageDetail {
@@ -322,6 +323,10 @@ fn parse_process_start_ticks(stat: &str) -> Option<u64> {
         .ok()
 }
 
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,8 +351,4 @@ mod tests {
         assert_eq!(value["kind"], "exact_semi_numerical_exact_replay_finished");
         assert!(value["output_terms"].is_null());
     }
-}
-
-fn is_zero(value: &u64) -> bool {
-    *value == 0
 }

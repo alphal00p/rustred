@@ -666,6 +666,10 @@ fn main() {
     .unwrap();
     let mut cross_report = cross_hybrid_stats.json();
     cross_report["install_seconds"] = serde_json::json!(cross_hybrid_install_seconds);
-    std::fs::write(out.join("cross_hybrid.json"), serde_json::to_string_pretty(&cross_report).unwrap()).unwrap();
+    std::fs::write(
+        out.join("cross_hybrid.json"),
+        serde_json::to_string_pretty(&cross_report).unwrap(),
+    )
+    .unwrap();
     println!("{summary}");
 }

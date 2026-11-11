@@ -24,7 +24,10 @@ use rustred::propagator::custom::custom_payload_rules;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
     file.write_all(bytes)?;
     Ok(())
 }
@@ -37,14 +40,23 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
 
 fn program(bytes: &[u8]) -> Result<ProgramRecord> {
     let envelope = candidate_sections(bytes, BinaryIoLimits::default())?;
-    match decode_program_record(envelope.section(SectionTag::PROGRAM).ok_or("missing PROGRAM")?, 1 << 30)? {
+    match decode_program_record(
+        envelope
+            .section(SectionTag::PROGRAM)
+            .ok_or("missing PROGRAM")?,
+        1 << 30,
+    )? {
         StoredProgram::Current(records) => Ok(records),
-        StoredProgram::Legacy(_) => Err("legacy v1 order is not inferred by this experiment".into()),
+        StoredProgram::Legacy(_) => {
+            Err("legacy v1 order is not inferred by this experiment".into())
+        }
     }
 }
 
 fn mask(bits: &[bool]) -> u64 {
-    bits.iter().enumerate().fold(0, |m, (i, &b)| if b { m | 1 << i } else { m })
+    bits.iter()
+        .enumerate()
+        .fold(0, |m, (i, &b)| if b { m | 1 << i } else { m })
 }
 
 fn export(input: &Path, output: &Path) -> Result<()> {
@@ -68,15 +80,25 @@ fn export(input: &Path, output: &Path) -> Result<()> {
             let mut rhs_shifts = Vec::new();
             let mut net_rank_changes = Vec::new();
             for term in &rule.rhs {
-                let shifts: Vec<Option<i32>> = rule.target.values.iter().enumerate().map(|(slot, &target)| {
-                    (rule.target.symbolic[slot] == term.integral.symbolic[slot])
-                        .then_some(i32::from(term.integral.values[slot]) - i32::from(target))
-                }).collect();
+                let shifts: Vec<Option<i32>> = rule
+                    .target
+                    .values
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, &target)| {
+                        (rule.target.symbolic[slot] == term.integral.symbolic[slot])
+                            .then_some(i32::from(term.integral.values[slot]) - i32::from(target))
+                    })
+                    .collect();
                 let mut net = Some(0i32);
                 for (slot, (&active, shift)) in chart.sector.iter().zip(&shifts).enumerate() {
                     if active {
-                        if shift.is_some_and(|s| s > 0) { lines_raised.insert(slot); }
-                        if shift.is_some_and(|s| s < 0) { lines_lowered.insert(slot); }
+                        if shift.is_some_and(|s| s > 0) {
+                            lines_raised.insert(slot);
+                        }
+                        if shift.is_some_and(|s| s < 0) {
+                            lines_lowered.insert(slot);
+                        }
                     } else {
                         net = net.zip(*shift).map(|(a, b)| a - b);
                     }
@@ -87,14 +109,31 @@ fn export(input: &Path, output: &Path) -> Result<()> {
             let all_rank_changes_known = net_rank_changes.iter().all(Option::is_some);
             let max_rank_change = if all_rank_changes_known {
                 net_rank_changes.iter().filter_map(|&x| x).max()
-            } else { None };
+            } else {
+                None
+            };
             let rank_raising_terms = if all_rank_changes_known {
-                Some(net_rank_changes.iter().filter(|x| x.is_some_and(|n| n > 0)).count())
-            } else { None };
+                Some(
+                    net_rank_changes
+                        .iter()
+                        .filter(|x| x.is_some_and(|n| n > 0))
+                        .count(),
+                )
+            } else {
+                None
+            };
             let distinct_rows: BTreeSet<_> = rule.sources.iter().map(|s| s.basis_row).collect();
-            let distinct_seeds: BTreeSet<_> = rule.sources.iter().map(|s| (
-                s.integral.symbolic.clone(), s.integral.values.clone(), s.shifts.clone(),
-            )).collect();
+            let distinct_seeds: BTreeSet<_> = rule
+                .sources
+                .iter()
+                .map(|s| {
+                    (
+                        s.integral.symbolic.clone(),
+                        s.integral.values.clone(),
+                        s.shifts.clone(),
+                    )
+                })
+                .collect();
             let coefficient_size_bytes: usize = decoded.rhs.iter().map(|(_, c)| c.len()).sum();
             exported.push(serde_json::json!({
                 "original_rule_id": original_rule_id,
@@ -136,31 +175,42 @@ fn export(input: &Path, output: &Path) -> Result<()> {
             "residuals":chart.finite_residuals.iter().map(|r|serde_json::json!({"symbolic":r.symbolic,"values":r.values})).collect::<Vec<_>>(),
         }));
     }
-    if text.next().is_some() { return Err("extra native text rules".into()); }
-    write_json(output, &serde_json::json!({
-        "schema":"astra.m5.native-rule-order-experiment.v1",
-        "payload_path": input,
-        "payload_schema": records.schema,
-        "family_fingerprint": records.family_fingerprint,
-        "root_sector": records.root_sector,
-        "ordering_stable_id": records.integral_order,
-        "dispatch": if records.rule_dispatch.is_empty() { "FirstValid" } else { "native partition FirstValid, then first whole-piece alternative; apply refuses this policy" },
-        "ordered_id_scope":"original ordinal within the raw chart of this input payload; never keyed by case",
-        "owner_ordering_provenance":{"heuristic":"original saved order","parameters":{},"reference_measurements":null},
-        "charts": charts,
-        "unknown_metadata_is_explicit":true,
-    }))
+    if text.next().is_some() {
+        return Err("extra native text rules".into());
+    }
+    write_json(
+        output,
+        &serde_json::json!({
+            "schema":"astra.m5.native-rule-order-experiment.v1",
+            "payload_path": input,
+            "payload_schema": records.schema,
+            "family_fingerprint": records.family_fingerprint,
+            "root_sector": records.root_sector,
+            "ordering_stable_id": records.integral_order,
+            "dispatch": if records.rule_dispatch.is_empty() { "FirstValid" } else { "native partition FirstValid, then first whole-piece alternative; apply refuses this policy" },
+            "ordered_id_scope":"original ordinal within the raw chart of this input payload; never keyed by case",
+            "owner_ordering_provenance":{"heuristic":"original saved order","parameters":{},"reference_measurements":null},
+            "charts": charts,
+            "unknown_metadata_is_explicit":true,
+        }),
+    )
 }
 
 fn permutation(value: &serde_json::Value, count: usize) -> Result<Vec<usize>> {
     let list = value.as_array().ok_or("order must be an array")?;
-    if list.len() != count { return Err(format!("order has {} entries, expected {count}", list.len()).into()); }
+    if list.len() != count {
+        return Err(format!("order has {} entries, expected {count}", list.len()).into());
+    }
     let mut seen = vec![false; count];
     let mut out = Vec::with_capacity(count);
     for value in list {
-        let raw = value.as_u64().ok_or("rule IDs must be nonnegative integers")?;
+        let raw = value
+            .as_u64()
+            .ok_or("rule IDs must be nonnegative integers")?;
         let id = usize::try_from(raw)?;
-        if id >= count || seen[id] { return Err(format!("invalid or repeated original rule ID {id}").into()); }
+        if id >= count || seen[id] {
+            return Err(format!("invalid or repeated original rule ID {id}").into());
+        }
         seen[id] = true;
         out.push(id);
     }
@@ -175,32 +225,45 @@ fn apply(input: &Path, order_path: &Path, output: &Path, report_path: &Path) -> 
         return Err("ordering experiment requires ordinary FirstValid: nonempty native whole-piece rule_dispatch is not rewritten".into());
     }
     let mut records = original.clone();
-    let mut permutations: Vec<Vec<usize>> = records.sectors.iter().map(|s|(0..s.rules.len()).collect()).collect();
+    let mut permutations: Vec<Vec<usize>> = records
+        .sectors
+        .iter()
+        .map(|s| (0..s.rules.len()).collect())
+        .collect();
     let mut provenance = serde_json::json!({"heuristic":"original saved order","parameters":{}});
     if order_path != Path::new("-") {
         let order: serde_json::Value = serde_json::from_slice(&std::fs::read(order_path)?)?;
-        let charts = order["charts"].as_array().ok_or("order JSON needs charts array")?;
+        let charts = order["charts"]
+            .as_array()
+            .ok_or("order JSON needs charts array")?;
         let mut seen = BTreeSet::new();
         for chart in charts {
-            let index = usize::try_from(chart["chart_index"].as_u64().ok_or("chart_index must be an integer")?)?;
+            let index = usize::try_from(
+                chart["chart_index"]
+                    .as_u64()
+                    .ok_or("chart_index must be an integer")?,
+            )?;
             if index >= records.sectors.len() || !seen.insert(index) {
                 return Err(format!("invalid or repeated chart_index {index}").into());
             }
-            permutations[index] = permutation(&chart["order"], original.sectors[index].rules.len())?;
+            permutations[index] =
+                permutation(&chart["order"], original.sectors[index].rules.len())?;
         }
         provenance = order.get("owner_ordering_provenance").cloned().unwrap_or_else(||serde_json::json!({"heuristic":"explicit permutation","parameters":{},"source":order_path}));
     }
     let mut changed_charts = Vec::new();
     for (index, order) in permutations.iter().enumerate() {
         let prior = &original.sectors[index];
-        records.sectors[index].rules = order.iter().map(|&old|prior.rules[old].clone()).collect();
-        if order.iter().enumerate().any(|(new,&old)|new!=old) { changed_charts.push(index); }
+        records.sectors[index].rules = order.iter().map(|&old| prior.rules[old].clone()).collect();
+        if order.iter().enumerate().any(|(new, &old)| new != old) {
+            changed_charts.push(index);
+        }
         // Full native record equality retains cases, exceptions, coefficients,
         // source descriptors and duplicate cases. No rule content is rebuilt.
         if records.sectors[index].finite_residuals != prior.finite_residuals {
             return Err("residual inventory changed".into());
         }
-        for (new,&old) in order.iter().enumerate() {
+        for (new, &old) in order.iter().enumerate() {
             if records.sectors[index].rules[new] != prior.rules[old] {
                 return Err("native RuleRecord permutation invariant failed".into());
             }
@@ -211,37 +274,56 @@ fn apply(input: &Path, order_path: &Path, output: &Path, report_path: &Path) -> 
     } else {
         let encoded_program = encode_program_record(&records)?;
         let envelope = candidate_sections(&bytes, BinaryIoLimits::default())?;
-        let sections: Vec<_> = envelope.sections().iter().map(|section| BinarySection {
-            tag:section.tag,
-            bytes:if section.tag==SectionTag::PROGRAM { &encoded_program } else { section.bytes },
-        }).collect();
+        let sections: Vec<_> = envelope
+            .sections()
+            .iter()
+            .map(|section| BinarySection {
+                tag: section.tag,
+                bytes: if section.tag == SectionTag::PROGRAM {
+                    &encoded_program
+                } else {
+                    section.bytes
+                },
+            })
+            .collect();
         encode_program(envelope.kind(), &sections, BinaryIoLimits::default())?
     };
-    if program(&encoded)? != records { return Err("native program roundtrip mismatch".into()); }
+    if program(&encoded)? != records {
+        return Err("native program roundtrip mismatch".into());
+    }
     let before = candidate_sections(&bytes, BinaryIoLimits::default())?;
     let after = candidate_sections(&encoded, BinaryIoLimits::default())?;
-    for tag in [SectionTag::SYMBOLICA_STATE, SectionTag::COEFFICIENTS, SectionTag::FAMILY] {
-        if before.section(tag)!=after.section(tag) { return Err("non-PROGRAM bytes changed".into()); }
+    for tag in [
+        SectionTag::SYMBOLICA_STATE,
+        SectionTag::COEFFICIENTS,
+        SectionTag::FAMILY,
+    ] {
+        if before.section(tag) != after.section(tag) {
+            return Err("non-PROGRAM bytes changed".into());
+        }
     }
     // Create outputs only after all permutation/content invariants pass.
     write_new(output, &encoded)?;
-    write_json(report_path, &serde_json::json!({
-        "schema":"astra.m5.native-rule-order-experiment.v1",
-        "input":input,"order_file":order_path,"output":output,
-        "dispatch":"FirstValid in saved native rule vector order",
-        "changed_charts":changed_charts,
-        "orders":permutations.iter().enumerate().map(|(chart_index,order)|serde_json::json!({"chart_index":chart_index,"order":order})).collect::<Vec<_>>(),
-        "owner_ordering_provenance":provenance,
-        "default_original_order":changed_charts.is_empty(),
-        "input_output_bytes_identical":encoded==bytes,
-        "rule_record_permutation_invariant":true,
-        "residual_inventory_unchanged":true,
-        "non_PROGRAM_sections_byte_identical":true,
-        "duplicate_case_policy":"all distinct ordered rule entries retained; no case-keyed map",
-        "core_identity_or_format_change":false,
-        "step_cache_policy":"use fresh process and no persistent step cache; final artifact version/identity is coordinator-owned",
-        "acceptance":"PENDING runtime byte-identical PReduction value lines plus T-BFS; structural permutation alone is not acceptance",
-    }))
+    write_json(
+        report_path,
+        &serde_json::json!({
+            "schema":"astra.m5.native-rule-order-experiment.v1",
+            "input":input,"order_file":order_path,"output":output,
+            "dispatch":"FirstValid in saved native rule vector order",
+            "changed_charts":changed_charts,
+            "orders":permutations.iter().enumerate().map(|(chart_index,order)|serde_json::json!({"chart_index":chart_index,"order":order})).collect::<Vec<_>>(),
+            "owner_ordering_provenance":provenance,
+            "default_original_order":changed_charts.is_empty(),
+            "input_output_bytes_identical":encoded==bytes,
+            "rule_record_permutation_invariant":true,
+            "residual_inventory_unchanged":true,
+            "non_PROGRAM_sections_byte_identical":true,
+            "duplicate_case_policy":"all distinct ordered rule entries retained; no case-keyed map",
+            "core_identity_or_format_change":false,
+            "step_cache_policy":"use fresh process and no persistent step cache; final artifact version/identity is coordinator-owned",
+            "acceptance":"PENDING runtime byte-identical PReduction value lines plus T-BFS; structural permutation alone is not acceptance",
+        }),
+    )
 }
 
 fn main() -> Result<()> {

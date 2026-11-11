@@ -666,6 +666,10 @@ fn main() {
     .unwrap();
     let mut bebe_report = bebe_hybrid_stats.json();
     bebe_report["install_seconds"] = serde_json::json!(bebe_hybrid_install_seconds);
-    std::fs::write(out.join("bebe_hybrid.json"), serde_json::to_string_pretty(&bebe_report).unwrap()).unwrap();
+    std::fs::write(
+        out.join("bebe_hybrid.json"),
+        serde_json::to_string_pretty(&bebe_report).unwrap(),
+    )
+    .unwrap();
     println!("{summary}");
 }

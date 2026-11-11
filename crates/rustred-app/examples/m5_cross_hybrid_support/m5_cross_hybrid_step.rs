@@ -75,7 +75,9 @@ impl PLaneStep for CrossHybrid {
 
     fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
         if positive_rank(key.powers, self.stats.support) {
-            self.stats.positive_rank_calls.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .positive_rank_calls
+                .fetch_add(1, Ordering::Relaxed);
             let out = self.gated.step(cx, key)?;
             if !out.terminals.is_empty() {
                 return Err(PError::Contract(
@@ -114,15 +116,23 @@ pub fn install(original: Arc<PLibrary>) -> Result<(Arc<PLibrary>, Arc<Stats>), P
     if owner.spec.lane != OwnerLane::Custom {
         return Err(PError::Contract("cross is not a Custom owner".to_owned()));
     }
-    let original_meta = owner.spec.custom.as_ref().ok_or_else(|| {
-        PError::Contract("cross has no custom metadata".to_owned())
-    })?;
-    let original_bytes = owner.spec.payload.as_ref().ok_or_else(|| {
-        PError::Contract("cross has no payload".to_owned())
-    })?.bytes()?;
+    let original_meta = owner
+        .spec
+        .custom
+        .as_ref()
+        .ok_or_else(|| PError::Contract("cross has no custom metadata".to_owned()))?;
+    let original_bytes = owner
+        .spec
+        .payload
+        .as_ref()
+        .ok_or_else(|| PError::Contract("cross has no payload".to_owned()))?
+        .bytes()?;
     let original_summary = inspect_custom_payload(&original_bytes)?;
     let bytes = std::fs::read(&gated_payload).map_err(|error| {
-        PError::Contract(format!("read gated cross payload {}: {error}", gated_payload.display()))
+        PError::Contract(format!(
+            "read gated cross payload {}: {error}",
+            gated_payload.display()
+        ))
     })?;
     let gated_summary = inspect_custom_payload(&bytes)?;
     if gated_summary.arity != original_summary.arity
@@ -166,12 +176,16 @@ pub fn install(original: Arc<PLibrary>) -> Result<(Arc<PLibrary>, Arc<Stats>), P
     builder.set_census(original.census().clone())?;
     for (index, map) in original.edge_maps().iter().enumerate() {
         if builder.add_edge_map(map.clone())? != index {
-            return Err(PError::Contract("cross hybrid edge maps were renumbered".to_owned()));
+            return Err(PError::Contract(
+                "cross hybrid edge maps were renumbered".to_owned(),
+            ));
         }
     }
     for (index, terminal) in original.terminals().iter().enumerate().skip(1) {
         if builder.add_terminal(terminal.clone())?.0 as usize != index {
-            return Err(PError::Contract("cross hybrid terminals were renumbered".to_owned()));
+            return Err(PError::Contract(
+                "cross hybrid terminals were renumbered".to_owned(),
+            ));
         }
     }
     for existing in original.owners() {
@@ -179,15 +193,23 @@ pub fn install(original: Arc<PLibrary>) -> Result<(Arc<PLibrary>, Arc<Stats>), P
             let shipped = match existing.program(&original)? {
                 OwnerProgram::Lane(step) => Arc::clone(step),
                 OwnerProgram::Missing { .. } => {
-                    return Err(PError::Contract("cross original program is missing".to_owned()));
+                    return Err(PError::Contract(
+                        "cross original program is missing".to_owned(),
+                    ));
                 }
             };
             let gated = build_custom_step(
-                original.presentation(existing.spec.presentation), &bytes, &gated_meta,
+                original.presentation(existing.spec.presentation),
+                &bytes,
+                &gated_meta,
             )?;
             builder.add_owner_with_program(
                 existing.spec.clone(),
-                OwnerProgram::Lane(Arc::new(CrossHybrid { shipped, gated, stats: Arc::clone(&stats) })),
+                OwnerProgram::Lane(Arc::new(CrossHybrid {
+                    shipped,
+                    gated,
+                    stats: Arc::clone(&stats),
+                })),
             )?;
         } else {
             builder.add_owner(existing.spec.clone())?;
@@ -198,7 +220,9 @@ pub fn install(original: Arc<PLibrary>) -> Result<(Arc<PLibrary>, Arc<Stats>), P
     }
     let library = builder.build()?;
     if library.terminals() != original.terminals() {
-        return Err(PError::Contract("cross hybrid changed the terminal inventory".to_owned()));
+        return Err(PError::Contract(
+            "cross hybrid changed the terminal inventory".to_owned(),
+        ));
     }
     Ok((Arc::new(library), stats))
 }
