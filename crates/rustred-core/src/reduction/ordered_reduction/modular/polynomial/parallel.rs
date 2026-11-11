@@ -116,10 +116,8 @@ impl Dataflow {
                     if let Some(step) = open {
                         flow.steps[step].2 = index as u32;
                     }
-                    let value = std::mem::replace(
-                        slot_value.get_mut(slot).ok_or_else(unsupported)?,
-                        NONE,
-                    );
+                    let value =
+                        std::mem::replace(slot_value.get_mut(slot).ok_or_else(unsupported)?, NONE);
                     if value == NONE || flow.consumer[value as usize] != NONE {
                         return Err(unsupported());
                     }
@@ -145,10 +143,8 @@ impl Dataflow {
                     flow.writes[value as usize] += 1;
                 }
                 OpTag::Cancel => {
-                    let value = std::mem::replace(
-                        slot_value.get_mut(slot).ok_or_else(unsupported)?,
-                        NONE,
-                    );
+                    let value =
+                        std::mem::replace(slot_value.get_mut(slot).ok_or_else(unsupported)?, NONE);
                     if value == NONE || flow.consumer[value as usize] != NONE {
                         return Err(unsupported());
                     }
@@ -194,7 +190,9 @@ struct Pass<'a, R: Representation> {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Trace operations between two resource checkpoints of one thread.

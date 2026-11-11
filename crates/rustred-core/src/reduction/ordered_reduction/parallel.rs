@@ -69,9 +69,9 @@ use symbolica::license::LicenseManager;
 use symbolica::utils::resources::ResourceBudget;
 
 use super::{
-    Admitted, Frontier, FrontierMode, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
-    OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
-    invariant, replace_monomials,
+    Admitted, Frontier, FrontierMode, OrderedKernel, OrderedPhaseBoundary, OrderedPosition,
+    OrderedStep, OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit,
+    check_descent, invariant, replace_monomials,
 };
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
@@ -919,14 +919,12 @@ where
     steps.extend(detached.into_iter().map(|step| {
         let mut hashes = Vec::new();
         let mut prestaged = None;
-        let result = step
-            .result
-            .map(|(step, mut children, computed, prepared)| {
-                below.append(&mut children);
-                hashes = computed;
-                prestaged = prepared;
-                step
-            });
+        let result = step.result.map(|(step, mut children, computed, prepared)| {
+            below.append(&mut children);
+            hashes = computed;
+            prestaged = prepared;
+            step
+        });
         (step.key, ((result, step.account), hashes, prestaged))
     }));
     Computed {
@@ -960,7 +958,9 @@ where
         priority: position.priority,
         key,
     };
-    Some(compute_window(workers, stepper, candidates, threshold, prep))
+    Some(compute_window(
+        workers, stepper, candidates, threshold, prep,
+    ))
 }
 
 /// Steps computed ahead by the workers for the sequential scheduler, in a
@@ -1027,11 +1027,7 @@ where
     }
 
     /// Adopt a computed window and start computing the next one.
-    fn adopt<W>(
-        &mut self,
-        computed: Computed<S>,
-        frontier: &Frontier<S::Key, S::Priority, W>,
-    ) {
+    fn adopt<W>(&mut self, computed: Computed<S>, frontier: &Frontier<S::Key, S::Priority, W>) {
         let Computed {
             steps,
             threshold,
@@ -1147,12 +1143,8 @@ where
 impl<'scope, 'p, K, S> StepSource<K> for Pipelined<'scope, 'p, S>
 where
     K: ConcurrentOrderedKernel,
-    S: OrderedStepper<
-            Key = K::Key,
-            Priority = K::Priority,
-            Error = K::Error,
-            Account = K::Account,
-        > + Sync,
+    S: OrderedStepper<Key = K::Key, Priority = K::Priority, Error = K::Error, Account = K::Account>
+        + Sync,
     K::Key: 'scope,
     K::Priority: 'scope,
 {
@@ -1187,11 +1179,7 @@ where
         self.scope.spawn(move |_| drop(spent));
     }
 
-    fn attach_intern(
-        &mut self,
-        table: std::sync::Arc<super::modular::SharedIntern>,
-        hollow: bool,
-    ) {
+    fn attach_intern(&mut self, table: std::sync::Arc<super::modular::SharedIntern>, hollow: bool) {
         self.prep.intern = Some(table);
         self.prep.hollow = hollow;
     }

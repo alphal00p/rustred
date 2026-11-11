@@ -638,7 +638,9 @@ impl SharedIntern {
             let entries = &guard.entries;
             guard
                 .table
-                .find(hash, |&index| entries[index as usize].coefficient == *coefficient)
+                .find(hash, |&index| {
+                    entries[index as usize].coefficient == *coefficient
+                })
                 .copied()
         };
         if let Some(index) = find(&self.lock(shard)) {
@@ -801,10 +803,9 @@ impl ModularRecorder {
     fn intern_entry(&mut self, entry: &InternEntry) -> Result<CoefRef, ReductionError> {
         self.lookups += 1;
         let entries = &self.entries;
-        if let Some(&index) = self
-            .table
-            .find(entry.hash, |&index| entries[index as usize] == entry.coefficient)
-        {
+        if let Some(&index) = self.table.find(entry.hash, |&index| {
+            entries[index as usize] == entry.coefficient
+        }) {
             return Ok(self.entry_refs[index as usize]);
         }
         let (constant, values) = entry.probe.clone()?;
@@ -1208,11 +1209,7 @@ impl ModularRecorder {
     pub(crate) fn memstats(&self) -> serde_json::Value {
         use super::memstats::{block, measure_clone};
         use std::mem::size_of;
-        let entries_heap: usize = self
-            .entries
-            .iter()
-            .map(super::coefficient_heap_bytes)
-            .sum();
+        let entries_heap: usize = self.entries.iter().map(super::coefficient_heap_bytes).sum();
         serde_json::json!({
             "ops": self.ops.len(),
             "ops_capacity": self.ops.capacity(),

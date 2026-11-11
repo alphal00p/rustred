@@ -124,8 +124,16 @@ impl ForwardClock {
             return;
         }
         let total = self.started.map_or(0.0, |s| s.elapsed().as_secs_f64());
-        let [windows, window_nanos, computed, step_nanos, used, speculative, hits, wait] =
-            SOURCE.take();
+        let [
+            windows,
+            window_nanos,
+            computed,
+            step_nanos,
+            used,
+            speculative,
+            hits,
+            wait,
+        ] = SOURCE.take();
         let phases: Vec<String> = self
             .phases
             .iter()

@@ -953,11 +953,19 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
             // top of the heap: find the positions just below it (one
             // comparison per visited entry), then walk best-first from them.
             let heap = &p.buckets[phase].ids;
-            let mut stack = if heap.is_empty() { vec![] } else { vec![0usize] };
+            let mut stack = if heap.is_empty() {
+                vec![]
+            } else {
+                vec![0usize]
+            };
             let mut roots = Vec::new();
             while let Some(at) = stack.pop() {
                 if at_or_above(heap[at]) {
-                    stack.extend([2 * at + 1, 2 * at + 2].into_iter().filter(|&c| c < heap.len()));
+                    stack.extend(
+                        [2 * at + 1, 2 * at + 2]
+                            .into_iter()
+                            .filter(|&c| c < heap.len()),
+                    );
                 } else {
                     roots.push(at);
                 }
@@ -1010,7 +1018,11 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
         let Self::Packed(p) = self else {
             return self.child(key, f);
         };
-        debug_assert_eq!(hash, p.hash(&packed), "a prepacked key carries its frontier hash");
+        debug_assert_eq!(
+            hash,
+            p.hash(&packed),
+            "a prepacked key carries its frontier hash"
+        );
         p.child_at(&key, hash, PackedArg::Owned(packed), f)
     }
 
@@ -1026,7 +1038,11 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
         let Self::Packed(p) = self else {
             return self.child(key.clone(), f);
         };
-        debug_assert_eq!(hash, p.hash(packed), "a prepacked key carries its frontier hash");
+        debug_assert_eq!(
+            hash,
+            p.hash(packed),
+            "a prepacked key carries its frontier hash"
+        );
         p.child_at(key, hash, PackedArg::Borrowed(packed), f)
     }
 

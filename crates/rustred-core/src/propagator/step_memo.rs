@@ -479,7 +479,12 @@ pub(crate) fn clear() {
 /// `(insertion hits, misses, entries, route hits, misses, entries,
 /// distinct coefficients)` of this thread's memos (diagnostics and tests).
 pub(crate) fn counters() -> [u64; 7] {
-    if shared_requested() && SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+    if shared_requested()
+        && SHARED_MEMO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    {
         return with_shared(|memo| memo.counters());
     }
     STATE.with(|state| {
@@ -626,8 +631,8 @@ impl SharedMemo {
             return None;
         }
         let value = rehome(coefficient);
-        let chunk = self.chunks[next / CHUNK]
-            .get_or_init(|| (0..CHUNK).map(|_| OnceLock::new()).collect());
+        let chunk =
+            self.chunks[next / CHUNK].get_or_init(|| (0..CHUNK).map(|_| OnceLock::new()).collect());
         let _ = chunk[next % CHUNK].set(value.clone());
         index.insert(value, next as u32);
         Some(next as u32)
@@ -650,7 +655,15 @@ impl SharedMemo {
         }
         let stat = |i: usize| self.stats[i].load(Ordering::Relaxed);
         let distinct = self.index.lock().unwrap_or_else(|e| e.into_inner()).len() as u64;
-        [stat(0), stat(1), insertion, stat(2), stat(3), route, distinct]
+        [
+            stat(0),
+            stat(1),
+            insertion,
+            stat(2),
+            stat(3),
+            route,
+            distinct,
+        ]
     }
 }
 
@@ -747,7 +760,9 @@ pub(crate) fn end(counted: bool) {
 
 fn end_shared() {
     let before = SHARED_ACTIVE
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)))
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            Some(n.saturating_sub(1))
+        })
         .unwrap_or(0);
     if before <= 1 {
         let mut memo = SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner());

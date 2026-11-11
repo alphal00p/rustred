@@ -7,12 +7,12 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, btree_map};
 
 pub(crate) mod arithmetic;
+pub mod composition;
 mod frontier;
 pub(crate) mod memstats;
-pub(crate) mod parstats;
-pub mod composition;
 mod modular;
 mod parallel;
+pub(crate) mod parstats;
 pub(crate) mod step_cache;
 pub(crate) mod tail;
 
@@ -24,10 +24,10 @@ pub use composition::{
     ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
     OrderedTerminalComposerSlot,
 };
+use frontier::{Child, ChildAction, Frontier, FrontierMode};
+pub(crate) use frontier::{CompactPowers, FrontierKey};
 use modular::{Lifter, ModularRecorder};
 pub use parallel::OrderedSchedulerOptions;
-pub(crate) use frontier::{CompactPowers, FrontierKey};
-use frontier::{Child, ChildAction, Frontier, FrontierMode};
 pub(crate) use parallel::{ConcurrentOrderedKernel, NoDetached, OrderedStepper};
 use parallel::{ConcurrentWeights, Pipelined, Prefetched, Workers};
 pub use tail::{
@@ -209,15 +209,15 @@ impl<K: OrderedKernel, A: OrderedWeights> OrderedStateView for SchedulerState<'_
     fn frontier(&self) -> Box<dyn Iterator<Item = OrderedFrontierEntry<'_>> + '_> {
         let entry = frontier_entry::<K, A>;
         match self.frontier {
-            Frontier::Classic(classic) => Box::new(classic.order.iter().rev().filter_map(
-                move |scheduled| {
+            Frontier::Classic(classic) => {
+                Box::new(classic.order.iter().rev().filter_map(move |scheduled| {
                     let pending = classic.pending.get(&scheduled.key)?;
                     (pending.position.phase == scheduled.phase.0
                         && pending.position.priority == scheduled.priority)
                         .then_some(())?;
                     entry(scheduled, &pending.weight)
-                },
-            )),
+                }))
+            }
             Frontier::Packed(_) => {
                 let unpacked = self.unpacked.get_or_init(|| {
                     let frontier: &FrontierOf<K, A> = self.frontier;
@@ -320,9 +320,8 @@ enum FrontierHash {
 impl FrontierHash {
     fn from_environment() -> Self {
         static FX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *FX.get_or_init(|| {
-            std::env::var("RUSTRED_ORDERED_FRONTIER_HASH").as_deref() == Ok("fx")
-        }) {
+        if *FX.get_or_init(|| std::env::var("RUSTRED_ORDERED_FRONTIER_HASH").as_deref() == Ok("fx"))
+        {
             Self::Fx
         } else {
             Self::Sip(std::hash::RandomState::new())
@@ -350,13 +349,19 @@ impl std::hash::Hasher for FrontierHasher {
             Self::Fx(state) => {
                 let mut chunks = bytes.chunks_exact(8);
                 for chunk in &mut chunks {
-                    Self::fx(state, u64::from_le_bytes(chunk.try_into().expect("8 bytes")));
+                    Self::fx(
+                        state,
+                        u64::from_le_bytes(chunk.try_into().expect("8 bytes")),
+                    );
                 }
                 let rest = chunks.remainder();
                 if !rest.is_empty() {
                     let mut word = [0u8; 8];
                     word[..rest.len()].copy_from_slice(rest);
-                    Self::fx(state, u64::from_le_bytes(word) ^ ((rest.len() as u64) << 56));
+                    Self::fx(
+                        state,
+                        u64::from_le_bytes(word) ^ ((rest.len() as u64) << 56),
+                    );
                 }
             }
         }
@@ -414,7 +419,13 @@ fn check_descent<P: Ord>(
     parent: &P,
     total_phases: usize,
 ) -> Result<(), ReductionError> {
-    check_descent_parts(position.phase, &position.priority, phase, parent, total_phases)
+    check_descent_parts(
+        position.phase,
+        &position.priority,
+        phase,
+        parent,
+        total_phases,
+    )
 }
 
 fn check_descent_parts<P: Ord>(
@@ -1676,72 +1687,77 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             // the step's terms and the lean loop over prepared children).
             macro_rules! decide {
                 ($coefficient:expr, $hash:expr, $id:expr, $key:ident => $position:expr) => {
-                |found: Child<'_, K::Key, K::Priority, A::Weight>| {
-                    Ok::<_, K::Error>(match found {
-                        Child::Occupied {
-                            phase: entered,
-                            priority,
-                            weight: existing,
-                        } => {
-                            // A pending key keeps the position certified at entry.
-                            check_descent_parts(
-                                entered,
+                    |found: Child<'_, K::Key, K::Priority, A::Weight>| {
+                        Ok::<_, K::Error>(match found {
+                            Child::Occupied {
+                                phase: entered,
                                 priority,
-                                phase,
-                                &node.priority,
-                                progress.total_phases,
-                            )?;
-                            let contribution =
-                                weights.scale_interned(&weight, $coefficient, $hash, $id)?;
-                            work.record_coalescing_additions(1);
-                            request.record_coalescing_additions(
-                                1,
-                                limits.diagnostic_limit(limits.max_coalescing_additions),
-                            )?;
-                            let old = weights.monomials(existing)?;
-                            let zero = weights.merge(existing, contribution)?;
-                            let new = if zero {
-                                0
-                            } else {
-                                weights.monomials(existing)?
-                            };
-                            replace_monomials(
-                                &mut progress.frontier_coefficient_monomials,
-                                old,
-                                new,
-                            )?;
-                            if zero {
-                                ChildAction::Remove
-                            } else {
-                                progress.merged_terms = progress.merged_terms.saturating_add(1);
-                                ChildAction::Keep
-                            }
-                        }
-                        Child::Vacant($key) => {
-                            let position = $position;
-                            check_descent(&position, phase, &node.priority, progress.total_phases)?;
-                            let contribution =
-                                weights.scale_interned(&weight, $coefficient, $hash, $id)?;
-                            if weights.contribution_is_zero(&contribution) {
-                                ChildAction::Keep
-                            } else {
-                                request.retain_pending_frame(
-                                    limits.diagnostic_limit(limits.max_pending_frames),
+                                weight: existing,
+                            } => {
+                                // A pending key keeps the position certified at entry.
+                                check_descent_parts(
+                                    entered,
+                                    priority,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
                                 )?;
-                                let inserted = weights.insert(contribution)?;
+                                let contribution =
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                work.record_coalescing_additions(1);
+                                request.record_coalescing_additions(
+                                    1,
+                                    limits.diagnostic_limit(limits.max_coalescing_additions),
+                                )?;
+                                let old = weights.monomials(existing)?;
+                                let zero = weights.merge(existing, contribution)?;
+                                let new = if zero {
+                                    0
+                                } else {
+                                    weights.monomials(existing)?
+                                };
                                 replace_monomials(
                                     &mut progress.frontier_coefficient_monomials,
-                                    0,
-                                    weights.monomials(&inserted)?,
+                                    old,
+                                    new,
                                 )?;
-                                ChildAction::Insert(Pending {
-                                    position,
-                                    weight: inserted,
-                                })
+                                if zero {
+                                    ChildAction::Remove
+                                } else {
+                                    progress.merged_terms = progress.merged_terms.saturating_add(1);
+                                    ChildAction::Keep
+                                }
                             }
-                        }
-                    })
-                }
+                            Child::Vacant($key) => {
+                                let position = $position;
+                                check_descent(
+                                    &position,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
+                                )?;
+                                let contribution =
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                if weights.contribution_is_zero(&contribution) {
+                                    ChildAction::Keep
+                                } else {
+                                    request.retain_pending_frame(
+                                        limits.diagnostic_limit(limits.max_pending_frames),
+                                    )?;
+                                    let inserted = weights.insert(contribution)?;
+                                    replace_monomials(
+                                        &mut progress.frontier_coefficient_monomials,
+                                        0,
+                                        weights.monomials(&inserted)?,
+                                    )?;
+                                    ChildAction::Insert(Pending {
+                                        position,
+                                        weight: inserted,
+                                    })
+                                }
+                            }
+                        })
+                    }
                 };
             }
             if lean && let Some(p) = &prestaged {
@@ -1750,13 +1766,17 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     if zero {
                         continue;
                     }
-                    let key = child.key.as_ref().ok_or_else(|| invariant("a lean step child lost its key"))?;
+                    let key = child
+                        .key
+                        .as_ref()
+                        .ok_or_else(|| invariant("a lean step child lost its key"))?;
                     progress.emitted_terms = progress.emitted_terms.saturating_add(1);
                     let decide = decide!(&placeholder, None, Some((id, zero)), vacant => match &child.position {
                         Some(position) => position.clone(),
                         None => kernel.position(vacant)?,
                     });
-                    let removed = frontier.child_packed_ref(key, &child.packed, child.hash, decide)?;
+                    let removed =
+                        frontier.child_packed_ref(key, &child.packed, child.hash, decide)?;
                     if let Some(removed) = removed {
                         weights.cancel(removed)?;
                         request.release_pending_frame()?;

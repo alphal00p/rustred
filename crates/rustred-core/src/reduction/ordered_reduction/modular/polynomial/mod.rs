@@ -325,9 +325,14 @@ impl ImageSource for PolynomialSource<'_> {
             let begun = Instant::now();
             let (indices, tables): (Vec<usize>, Vec<LaneTables>) = job.into_iter().unzip();
             let parallel = parallel_pool.and_then(|pool| {
-                parallel::replay_parallel(trace, outputs, tables.len(), pool, executor.budget(), || {
-                    Factorized::new(&tables, basis, options.max_degree)
-                })
+                parallel::replay_parallel(
+                    trace,
+                    outputs,
+                    tables.len(),
+                    pool,
+                    executor.budget(),
+                    || Factorized::new(&tables, basis, options.max_degree),
+                )
             });
             let replayed = match parallel {
                 Some(replayed) => replayed.map(|replayed| Replayed {
@@ -338,18 +343,18 @@ impl ImageSource for PolynomialSource<'_> {
                     segment_volume: vec![0.0; trace.phase_starts.len() + 1],
                 }),
                 None => match options.denominators {
-                PolynomialDenominators::Factorized => replay(
-                    trace,
-                    outputs,
-                    tables.len(),
-                    &mut Factorized::new(&tables, basis, options.max_degree),
-                ),
-                PolynomialDenominators::Dense => replay(
-                    trace,
-                    outputs,
-                    tables.len(),
-                    &mut Dense::new(&tables, basis, options.max_degree),
-                ),
+                    PolynomialDenominators::Factorized => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Factorized::new(&tables, basis, options.max_degree),
+                    ),
+                    PolynomialDenominators::Dense => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Dense::new(&tables, basis, options.max_degree),
+                    ),
                 },
             };
             let replay_seconds = begun.elapsed().as_secs_f64();
