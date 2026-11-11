@@ -19,7 +19,8 @@
 //! the inventory lists the layer's rows. The race of D-M3-2 ended in C-D
 //! (M3-T5b not merged before M3-T17), so the M3 package kept the 4 Diamond
 //! nodes d384, d394, d399 and no3 as Custom owners; since M3-T5b they are on
-//! the Diamond lane (their staged payloads unused, 21 Custom owners).
+//! the Diamond lane (their staged payloads unused, 21 Custom owners; M5 combined:
+//! no1, haha, bubu on the Scheme lane, 18 Custom owners).
 //! The 4L tests are `#[ignore]` and run optimised once (notes/rr-assemble4.md).
 //! The certificate's refusal of a Custom Route child on the owner support
 //! (review S2 of M2-T8a, `RouteOnSupport`) runs in the gate at scope 1-2.
@@ -528,6 +529,7 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
         .collect();
     let mut seen = BTreeSet::new();
     let mut diamonds = 0;
+    let mut schemes = 0;
     for row in rows {
         let cells: Vec<&str> = row.split('\t').collect();
         let cell = |name: &str| cells[column(name)];
@@ -541,6 +543,23 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
             assert!(owner.spec.payload.is_none(), "{label}");
             assert!(seen.insert(label.to_owned()), "{label} twice");
             diamonds += 1;
+            continue;
+        }
+        // M5 combined: no1, haha and bubu are Scheme owners by default (their
+        // staged Custom payloads are not used).
+        if !owners.contains_key(label) {
+            let census = library.census();
+            let owner = (library.owners())
+                .find(|o| census.classes[&o.spec.class].key.label() == label)
+                .unwrap_or_else(|| panic!("{label}: no owner"));
+            assert_eq!(owner.spec.lane, OwnerLane::Scheme, "{label}");
+            assert!(
+                ["no1", "haha", "bubu"].contains(&cell("forcer")),
+                "{label}: {} on the Scheme lane",
+                cell("forcer")
+            );
+            assert!(seen.insert(label.to_owned()), "{label} twice");
+            schemes += 1;
             continue;
         }
         let (owner, support) = owners[label];
@@ -594,9 +613,10 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
         assert!(seen.insert(label.to_owned()), "{label} twice");
     }
     assert_eq!(diamonds, 4, "owners_1-4.tsv: the Diamond nodes");
+    assert_eq!(schemes, 3, "owners_1-4.tsv: the Scheme nodes");
     assert_eq!(
         seen.len(),
-        owners.len() + diamonds,
+        owners.len() + diamonds + schemes,
         "owners_1-4.tsv rows against Custom owners"
     );
 }
@@ -633,6 +653,15 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "1-4",
         "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=1,P_PRESENTATION_VERSION=1,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=1,P_CUSTOM_OWNER_VERSION=1,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "e22393316fe87ca20ca9b7e94b342a55f27f4555f3f194e290186a31ec22d94f",
+    ),
+    // M5 combined: Forcer's schemes for no1, haha, bubu on by default
+    // (P_SCHEME_TEMPLATE_VERSION 2: Scheme 3, Custom 18, the M3-T17 layer of 17
+    // rows), route maps (a) and the ISP choice (P_CENSUS_VERSION 2,
+    // P_PRESENTATION_VERSION 2), Custom owner version 2 (M5 B2).
+    (
+        "1-4",
+        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=2,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "532a3a6a40708455ea9fa22d2b2faf215f8f46310a3df017c35012d4a45dfb9e",
     ),
 ];
 
@@ -712,10 +741,11 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         ("l4_top_classes", 183),
         ("diamond_nodes_on_custom", 0),
         ("triangle_fallbacks", 0),
-        // M3-T17's layer: Unit + 16 residuals, each one master term; M5 B2: + the
-        // second residual of the rank-gated no1, a row of several terms.
-        ("terminals", 18),
-        ("layer_rows", 18),
+        // M3-T17's layer: Unit + 16 residuals, each one master term. (M5 B2's
+        // rank-gated no1 added a second no1 residual; M5 combined puts no1 on
+        // the Scheme lane by default, so the layer is M3-T17's again.)
+        ("terminals", 17),
+        ("layer_rows", 17),
         ("layer_masters", 16),
         ("layer_rows_one_master_term", 16),
         ("forcer_action_L0_Trivial", 1),
@@ -741,6 +771,7 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         "Carpet",
         "Triangle",
         "Diamond",
+        "Scheme",
         "Custom",
         "Zero",
     ]
@@ -758,7 +789,9 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
             ("Carpet", 24),
             ("Triangle", 53),
             ("Diamond", 4),
-            ("Custom", 21),
+            // Forcer's schemes no1, haha, bubu (M5 combined: on by default).
+            ("Scheme", 3),
+            ("Custom", 18),
             ("Zero", 1),
         ])
     );
@@ -1132,12 +1165,13 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     }
     assert_eq!(recounts.len(), assembled.custom.len());
     let recounted = recounts.iter().filter(|r| r.recounted.is_some()).count();
-    // The 17 Custom owners of at most 9 lines (owners_1-4.tsv without the
-    // Diamond nodes, M3-T5b), all 21 with P_LP_RECOUNT_ALL=1: a line filter
-    // regressing to none fails here.
+    // The 16 Custom owners of at most 9 lines (owners_1-4.tsv without the
+    // Diamond nodes, M3-T5b, and without the Scheme nodes no1, haha, bubu,
+    // M5 combined), all 18 with P_LP_RECOUNT_ALL=1: a line filter regressing
+    // to none fails here.
     let expected = match RecountProvidedLp::from_env().max_lines() {
-        None => 21,
-        Some(_) => 17,
+        None => 18,
+        Some(_) => 16,
     };
     assert_eq!(recounted, expected, "Custom owners LP-recounted");
     println!(
