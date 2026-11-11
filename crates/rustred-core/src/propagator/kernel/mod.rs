@@ -508,6 +508,59 @@ impl ChildKeys<'_> {
     }
 }
 
+impl ChildKeys<'_> {
+    /// rr-alloc: the weights [`Self::emit`] gives the monomials of `table`, in
+    /// table order, `None` where the weight is zero, signs applied.
+    pub(crate) fn weights(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Coefficient],
+        limits: ExactAlgebraLimits,
+    ) -> Result<Vec<Option<Coefficient>>, PError> {
+        table
+            .monomials
+            .iter()
+            .map(|monomial| {
+                let weight = table_weight(self.context, monomial, weights, limits)?;
+                if weight.is_zero() {
+                    return Ok(None);
+                }
+                Ok(Some(if self.negate {
+                    self.context.try_neg(&weight, limits).map_err(algebra)?
+                } else {
+                    weight
+                }))
+            })
+            .collect()
+    }
+
+    /// rr-alloc: [`Self::emit`] from the weights of [`Self::weights`]: the
+    /// same children in the same order.
+    pub(crate) fn emit_weights(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Option<Coefficient>],
+        output: &mut PStepOut,
+    ) {
+        for (monomial, weight) in table.monomials.iter().zip(weights) {
+            let Some(weight) = weight else { continue };
+            let powers = self
+                .base
+                .iter()
+                .zip(&monomial.exponents)
+                .map(|(power, &exponent)| power - i64::from(exponent))
+                .collect();
+            output.children.push(PChild {
+                stage: PStage::Route,
+                presentation: self.child.id,
+                powers,
+                tag: self.tag.clone(),
+                coefficient: weight.clone(),
+            });
+        }
+    }
+}
+
 /// `Sum_s rational_s W_s`, one child weight of a table.
 fn table_weight(
     context: &CoefficientContext,

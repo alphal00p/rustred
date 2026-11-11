@@ -105,6 +105,33 @@ impl Prepared {
         Ok(self.expansion_input(source, limits)?.0)
     }
 
+    /// rr-alloc: the powers of [`Self::layered_base`] of `source`, appended to
+    /// `out`, without building the numerator factors: only the checks of
+    /// [`Self::transport`] that read the positive powers (arity, root). A
+    /// caller that reuses a factor expansion keyed by the non-positive powers
+    /// of `source` (which carry every other check) gets exactly the endpoints
+    /// of [`Self::transport`] as base plus relative endpoint.
+    pub(crate) fn layered_base_powers(&self, source: &[i64], out: &mut Vec<i64>) -> Result<(), Error> {
+        let arity = self.source_root.arity();
+        if source.len() != arity {
+            return Err(Error::WrongInputArity {
+                expected: arity,
+                actual: source.len(),
+            });
+        }
+        let start = out.len();
+        out.resize(start + self.target.denominator_count(), 0);
+        for (axis, &power) in source.iter().enumerate() {
+            if power > 0 && !self.source_root.active_bits()[axis] {
+                return Err(Error::PositiveOutsideRoot { axis, power });
+            }
+            if power > 0 || self.is_forced(axis) {
+                out[start + self.active_target[axis].expect("compiled active bijection")] = power;
+            }
+        }
+        Ok(())
+    }
+
     /// Layered transport, one factor: the exact expansion of the affine
     /// numerator factor of source axis `axis`, `(c_a + sum_l L_al D_l)^power`,
     /// as endpoints relative to the zero key (the monomial `prod_l D_l^e_l`

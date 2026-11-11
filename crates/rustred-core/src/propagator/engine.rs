@@ -25,6 +25,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
+use smallvec::SmallVec;
+
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
 use crate::family::IntegralKey;
 use crate::reduction::ordered_reduction::step_cache::codec::NodeStage;
@@ -228,6 +230,8 @@ pub(crate) struct PEngine {
     owners: BTreeMap<OwnerClassId, OwnerSlot>,
     owner_sectors: BTreeMap<(PresentationId, u64), OwnerClassId>,
     routes: BTreeMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
+    /// rr-alloc: the id of this engine in the per-thread route memo.
+    uid: u64,
 }
 
 impl PEngine {
@@ -285,6 +289,7 @@ impl PEngine {
             owners,
             owner_sectors,
             routes,
+            uid: super::step_memo::next_uid(),
         })
     }
 
@@ -996,36 +1001,96 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
-        let key = IntegralKey::try_from_preallocated(powers.to_vec())
-            .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
         let limits = ExpansionLimits {
             diagnostics_enabled: self.limits.diagnostics_enabled,
             exact_algebra: self.limits.exact_algebra,
             ..Default::default()
         };
-        let mapped = prepared.transport(&key, limits)?;
         let tag = GammaTag::decode_dense(tag_slots)?;
         let context = self.library.coefficient_context();
         let shape = engine.shape(owner.presentation)?;
-        for endpoint in mapped.terms() {
-            let powers = endpoint.key().powers();
+        let child = |powers: &[i64]| -> Result<PKey, PError> {
             // A numerator can pinch a line of the owner: that is a subsector
             // of its presentation, routed by the census in a later phase.
-            let child = if shape.support(powers) == owner.support {
-                PKey::Apply {
+            if shape.support(powers) == owner.support {
+                Ok(PKey::Apply {
                     class,
                     view: engine.view(powers, &tag)?,
-                }
+                })
             } else {
-                engine.route_key(owner.presentation, powers, &tag)?
-            };
-            merge(
-                context,
-                &self.limits,
-                &mut step.terms,
-                child,
-                endpoint.coefficient().clone(),
-            )?;
+                engine.route_key(owner.presentation, powers, &tag)
+            }
+        };
+        let direct = |terms: &mut BTreeMap<PKey, Coefficient>| -> Result<(), PError> {
+            let key = IntegralKey::try_from_preallocated(powers.to_vec())
+                .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
+            let mapped = prepared.transport(&key, limits)?;
+            for endpoint in mapped.terms() {
+                let child = child(endpoint.key().powers())?;
+                merge(
+                    context,
+                    &self.limits,
+                    terms,
+                    child,
+                    endpoint.coefficient().clone(),
+                )?;
+            }
+            Ok(())
+        };
+        let mode = super::step_memo::mode();
+        if mode == super::step_memo::MemoMode::Off {
+            direct(&mut step.terms)?;
+            return Ok(step);
+        }
+        // rr-alloc memo: the transport of a key is its layered base (the
+        // positive and forced powers, placed on their target axes) times the
+        // expansion of the numerator factors of its non-forced negative axes
+        // (`Prepared::layered_base`). The expansion is memoised under the
+        // non-positive powers, relative to their own base (forced negative
+        // powers only), so the base of `powers` plus a memoised endpoint is an
+        // endpoint of `prepared.transport(powers)`, with its coefficient.
+        let mut memo_key = super::step_memo::MemoKey::new();
+        memo_key.push(engine.uid as i64);
+        memo_key.push(i64::from(presentation.0));
+        memo_key.push(support as i64);
+        memo_key.extend(powers.iter().map(|&p| p.min(0)));
+        let expansion = super::step_memo::route(&memo_key, self.limits.exact_algebra, || {
+            let numerator: Vec<i64> = powers.iter().map(|&p| p.min(0)).collect();
+            let mut base = Vec::new();
+            prepared.layered_base_powers(&numerator, &mut base)?;
+            let numerator = IntegralKey::try_from_preallocated(numerator)
+                .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
+            let mapped = prepared.transport(&numerator, limits)?;
+            Ok(mapped
+                .terms()
+                .iter()
+                .map(|endpoint| {
+                    let relative = endpoint
+                        .key()
+                        .powers()
+                        .iter()
+                        .zip(&base)
+                        .map(|(power, base)| power - base)
+                        .collect();
+                    (relative, endpoint.coefficient().clone())
+                })
+                .collect())
+        })?;
+        let mut base = Vec::with_capacity(engine.width);
+        prepared.layered_base_powers(powers, &mut base)?;
+        let mut target: SmallVec<[i64; 24]> = SmallVec::new();
+        for (relative, coefficient) in expansion.iter() {
+            target.clear();
+            target.extend(base.iter().zip(relative).map(|(base, relative)| base + relative));
+            let child = child(&target)?;
+            merge(context, &self.limits, &mut step.terms, child, coefficient.clone())?;
+        }
+        if mode == super::step_memo::MemoMode::Check {
+            let mut reference = BTreeMap::new();
+            direct(&mut reference)?;
+            if reference != step.terms {
+                return Err(super::step_memo::mismatch("route expansion"));
+            }
         }
         Ok(step)
     }

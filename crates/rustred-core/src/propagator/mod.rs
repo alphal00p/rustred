@@ -28,6 +28,8 @@ pub mod carpet;
 pub mod insertion;
 pub mod kernel;
 pub mod series_parallel;
+// rr-alloc: per-thread step coefficient memos (RUSTRED_P_STEP_MEMO).
+pub(crate) mod step_memo;
 
 // Lane decision and presentations (M2-T3).
 pub mod decide;
