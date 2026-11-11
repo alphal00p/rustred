@@ -875,6 +875,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::needless_range_loop)] // m * adj written as the textbook index sum
     fn determinants_and_adjugates_are_exact() {
         let m = vec![vec![2, 0, 1], vec![1, 3, 2], vec![1, 1, 1]];
         let (det, adj) = determinant_and_adjugate(&m);

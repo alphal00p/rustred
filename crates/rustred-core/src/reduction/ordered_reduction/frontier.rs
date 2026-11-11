@@ -797,6 +797,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
 
     /// Pending entries in pop order. A cancelled key leaves its order entry
     /// behind until it is reached; such entries are skipped.
+    #[allow(clippy::type_complexity)] // one boxed iterator over both layouts
     pub(crate) fn iter(&self) -> Box<dyn Iterator<Item = (Cow<'_, Scheduled<K, P>>, &W)> + '_> {
         match self {
             Self::Classic(c) => Box::new(c.order.iter().rev().filter_map(|scheduled| {
@@ -987,6 +988,7 @@ mod tests {
     /// The packed frontiers pop what the classic one pops, in its order,
     /// through inserts, merges, cancellations, returns and removals.
     #[test]
+    #[allow(clippy::needless_borrows_for_generic_args)] // one closure feeds both frontiers
     fn packed_frontiers_pop_the_classic_sequence() {
         for (seed, mode) in [
             (1, FrontierMode::Compact),

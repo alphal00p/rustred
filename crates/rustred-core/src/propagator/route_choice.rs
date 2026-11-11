@@ -50,6 +50,7 @@ fn overflow() -> PError {
     PError::Unsupported("route choice: exact fraction overflow (i128)".to_owned())
 }
 
+#[allow(clippy::should_implement_trait)] // checked arithmetic: Result, not the std::ops traits
 impl Frac {
     pub const ZERO: Self = Self { num: 0, den: 1 };
     pub const ONE: Self = Self { num: 1, den: 1 };
@@ -481,6 +482,7 @@ pub fn sector_automorphisms(
                 .collect::<Result<_, _>>()?,
         ))
     }
+    #[allow(clippy::needless_range_loop)] // the port follows mapslib's index loops one to one
     fn dfs(
         ctx: &mut Ctx,
         m: usize,

@@ -25,6 +25,7 @@ fn fail(detail: impl Into<String>) -> PError {
 
 /// Post-integration elementary quadratic factors, in the native rewrite order:
 /// contractions, residuals, free factors, then the optional insertion carrier^2.
+#[allow(clippy::type_complexity)] // (parent row, child row) pairs
 pub fn factor_rows(
     parent: &Presentation,
     child: &Presentation,

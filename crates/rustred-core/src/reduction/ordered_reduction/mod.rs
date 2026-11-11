@@ -180,6 +180,7 @@ type FrontierOf<K, A> = Frontier<
     <A as OrderedWeights>::Weight,
 >;
 
+#[allow(clippy::type_complexity)] // the lazily unpacked frontier entries
 struct SchedulerState<'a, K: OrderedKernel, A: OrderedWeights> {
     frontier: &'a FrontierOf<K, A>,
     terminals: &'a BTreeMap<IntegralKey, A::Weight>,
@@ -375,14 +376,10 @@ impl std::hash::Hasher for FrontierHasher {
         match self {
             Self::Sip(hasher) => hasher.write(bytes),
             Self::Fx(state) => {
-                let mut chunks = bytes.chunks_exact(8);
-                for chunk in &mut chunks {
-                    Self::fx(
-                        state,
-                        u64::from_le_bytes(chunk.try_into().expect("8 bytes")),
-                    );
+                let (chunks, rest) = bytes.as_chunks::<8>();
+                for chunk in chunks {
+                    Self::fx(state, u64::from_le_bytes(*chunk));
                 }
-                let rest = chunks.remainder();
                 if !rest.is_empty() {
                     let mut word = [0u8; 8];
                     word[..rest.len()].copy_from_slice(rest);

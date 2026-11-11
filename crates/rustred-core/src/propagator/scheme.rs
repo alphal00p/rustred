@@ -1244,6 +1244,7 @@ impl SchemeTemplate {
 /// Forcer's terms `c_s = num_s / Prod den^e` (RustRed sign) are the relation
 /// divided by its pivot: `rel_s Prod den^e + num_s rel_0 = 0` for every shift,
 /// exactly in `Q(d)[n]` (a shift missing on one side counts as zero there).
+#[allow(clippy::type_complexity)] // (shift, numerator, denominator powers) rows of the scheme file
 fn terms_match_relation(
     context: &IndexedCoefficientContext,
     raw: &[(Vec<i64>, IndexedCoefficient, Vec<(IndexedCoefficient, u32)>)],
