@@ -231,9 +231,10 @@ fn rehome_enabled() -> bool {
 }
 
 thread_local! {
-    /// A zero polynomial owning this thread's polynomial context, and the
-    /// variable map it was made for.
-    static HOME: RefCell<Option<crate::algebra::CoefficientPolynomial>> = const { RefCell::new(None) };
+    /// Zero polynomials owning this thread's polynomial contexts, one per
+    /// variable map met recently (rr-par2: several families' maps alternate;
+    /// one slot was rebuilt on every alternation).
+    static HOME: RefCell<Vec<crate::algebra::CoefficientPolynomial>> = const { RefCell::new(Vec::new()) };
 }
 
 /// rr-alloc, the 16-thread lever: `coefficient` with both polynomials on
@@ -250,18 +251,24 @@ pub(crate) fn rehome(coefficient: &Coefficient) -> Coefficient {
     HOME.with(|home| {
         let mut home = home.borrow_mut();
         let variables = coefficient.numerator.variables();
-        let fits = home.as_ref().is_some_and(|zero| {
+        let at = match home.iter().position(|zero| {
             std::sync::Arc::ptr_eq(zero.variables(), variables)
                 && zero.ring() == coefficient.numerator.ring()
-        });
-        if !fits {
-            *home = Some(crate::algebra::CoefficientPolynomial::new(
-                coefficient.numerator.ring(),
-                None,
-                std::sync::Arc::clone(variables),
-            ));
-        }
-        let zero = home.as_ref().expect("set above");
+        }) {
+            Some(at) => at,
+            None => {
+                if home.len() >= HOME_SLOTS {
+                    home.remove(0);
+                }
+                home.push(crate::algebra::CoefficientPolynomial::new(
+                    coefficient.numerator.ring(),
+                    None,
+                    std::sync::Arc::clone(variables),
+                ));
+                home.len() - 1
+            }
+        };
+        let zero = &home[at];
         let moved = |polynomial: &crate::algebra::CoefficientPolynomial| {
             if !std::sync::Arc::ptr_eq(polynomial.variables(), variables) {
                 return polynomial.clone();
@@ -292,10 +299,13 @@ fn home_context_enabled() -> bool {
 }
 
 thread_local! {
-    /// This thread's copy of the last coefficient context seen by
+    /// This thread's copies of the coefficient contexts seen recently by
     /// [`with_home_context`] (same names and variable map, template rehomed).
-    static HOME_CONTEXT: RefCell<Option<CoefficientContext>> = const { RefCell::new(None) };
+    static HOME_CONTEXT: RefCell<Vec<CoefficientContext>> = const { RefCell::new(Vec::new()) };
 }
+
+/// Variable maps (and contexts) remembered per thread.
+const HOME_SLOTS: usize = 16;
 
 /// rr-par2: `f` on `context`, or (switch on) on its copy whose constants
 /// (`zero`, `one`, `integer`, ...) are made on this thread's polynomial
@@ -307,21 +317,27 @@ pub(crate) fn with_home_context<R>(
     context: &CoefficientContext,
     f: impl FnOnce(&CoefficientContext) -> R,
 ) -> R {
-    if !home_context_enabled() {
+    // One-thread requests (marked by `begin`) have no reference counts to
+    // share: measured +12..+37 % at one thread with the copy.
+    if !home_context_enabled() || SINGLE.with(std::cell::Cell::get) {
         return f(context);
     }
     HOME_CONTEXT.with(|home| {
-        let fits = |home: &Option<CoefficientContext>| {
-            home.as_ref().is_some_and(|home| home.shares_maps(context))
-        };
-        if !fits(&home.borrow())
-            && let Ok(mut slot) = home.try_borrow_mut()
+        let find = |home: &[CoefficientContext]| home.iter().position(|c| c.shares_maps(context));
+        if find(&home.borrow()).is_none()
+            && let Ok(mut slots) = home.try_borrow_mut()
         {
-            *slot = Some(context.with_template(rehome(context.template())));
+            if slots.len() >= HOME_SLOTS {
+                slots.remove(0);
+            }
+            slots.push(context.with_template(rehome(context.template())));
         }
         match home.try_borrow() {
-            Ok(guard) if fits(&guard) => f(guard.as_ref().expect("fits")),
-            _ => f(context),
+            Ok(guard) => match find(&guard) {
+                Some(at) => f(&guard[at]),
+                None => f(context),
+            },
+            Err(_) => f(context),
         }
     })
 }
