@@ -877,9 +877,11 @@ mod tests {
     #[test]
     #[allow(clippy::needless_range_loop)] // m * adj written as the textbook index sum
     fn determinants_and_adjugates_are_exact() {
-        let m = vec![vec![2, 0, 1], vec![1, 3, 2], vec![1, 1, 1]];
+        // det = 2 (6 - 2) - 0 + 1 (1 - 3) = 6 (the matrix of the first version had
+        // determinant 0 and the assertion said 1: it never ran before M5 batch 2).
+        let m = vec![vec![2, 0, 1], vec![1, 3, 2], vec![1, 1, 2]];
         let (det, adj) = determinant_and_adjugate(&m);
-        assert_eq!(det, 1);
+        assert_eq!(det, 6);
         // m * adj = det * I
         for i in 0..3 {
             for j in 0..3 {
