@@ -1,0 +1,83 @@
+{
+  "kind": "historical tested native frontend reference; not an engine port",
+  "source_sha256": "b14694d19d0c6d716c7129b40d653881c24cd4cc76d0cab95e872c3e42fe091e",
+  "base_r9_sha256": "ade9004cc0a59aeda15d10386d56123db5ab01f762686da72d9ecfaa90c64751",
+  "source_original_path": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/p5l-corner/T211/single-target-frontend/face_queue_t211_single.rs",
+  "base_original_path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/p5l/repair/harness/face_queue_r9.rs",
+  "tested_frozen_core_rlib": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/build/rr-probept/build-dir/release/deps/librustred-ae10776c18e29f31.rlib",
+  "tested_frozen_core_rlib_sha256": "7d069f9a021cb48b158180f1a2f6d25e46c34e236bc9f010be7df4a6f4be2fc0",
+  "tested_binary_sha256": "699c38e3fd0b14bcd9775f975a97b429a0a92b1e32a4a6a719330c03a0d34944",
+  "build": {
+    "edition": 2024,
+    "opt_level": 0,
+    "debuginfo": 0,
+    "codegen_units": 16,
+    "actual_seconds": 27.92,
+    "earlier_opt2_compiler_cap_seconds": 181.56
+  },
+  "opt_in_environment": "T211_FORCE_SINGLE_TARGET=1",
+  "config_source_order": "reverse",
+  "config_exact_backend": "targetonlyfactorized",
+  "arity": 20,
+  "point_P": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -1
+  ],
+  "seed_radius": 2,
+  "native_job": {
+    "utc": "2026-11-11T01:36:49Z",
+    "returncode": 0,
+    "elapsed_seconds": 39.28,
+    "peak_group_rss_bytes": 524980224,
+    "stopped_by_guard": null
+  },
+  "native_result": {
+    "rules": 1,
+    "rhs_terms": 4136,
+    "source_descriptors": 2597,
+    "exact_materialization_seconds": 6.831,
+    "chart_seconds": 26.659,
+    "native_total_seconds": 38.335,
+    "residuals": 0,
+    "exceptions": [],
+    "native_descent_not_lower": []
+  },
+  "prior_bulk_numeric_union": "120.99s capped; preserved as prior evidence, not rerun",
+  "existing_replay": {
+    "path": "/shared/vhirschi/t3code/astra_5L/m5-rule-search/p5l-corner/T211/rs2-P-standard/RESULT.json",
+    "status": "PASS_RS2_RS3_SAMPLED",
+    "prime": 2305843009213693951,
+    "dimensions": [
+      "17/7",
+      "19/7",
+      "23/7"
+    ],
+    "original_basis_rows": 30,
+    "source_support_rows": 2597,
+    "full_columns": 26115,
+    "zero_raw_residuals": 3,
+    "mutants_rejected": 3,
+    "native_weights_used": false,
+    "verified_topology": false
+  },
+  "scope": "Single fully fixed P relation only. Completeness, LP/master and global strict descent are separate gates.",
+  "no_new_build_or_science": true
+}

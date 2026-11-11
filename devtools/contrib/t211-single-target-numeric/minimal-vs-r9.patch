@@ -1,0 +1,26 @@
+--- face_queue_r9.rs
++++ face_queue_t211_single.rs
+@@ -1305,7 +1305,7 @@
+             *discarded += 1;
+             return;
+         }
+-        if case.is_numerical() {
++        if case.is_numerical() && std::env::var("T211_FORCE_SINGLE_TARGET").as_deref() != Ok("1") {
+             let fixed = *case.face();
+             if numerical.iter().any(|x| x == &fixed) {
+                 *discarded += 1;
+@@ -1774,12 +1774,7 @@
+         .expect("lower family")
+         .into_family();
+     eprintln!("family {} loops={} externals={} denominators={}", fam.name(), fam.loop_count(), fam.external_count(), fam.denominator_count());
+-    let code = match fam.denominator_count() {
+-        5 => run::<5>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]),
+-        9 => run::<9>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]),
+-        14 => run::<14>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]),
+-        20 => run::<20>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]),
+-        other => panic!("arity {other}: this harness is compiled for 5, 9, 14, 20"),
+-    };
++    assert_eq!(fam.denominator_count(), 20, "T211-only frontend arity");
++    let code = run::<20>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]);
+     std::process::exit(code);
+ }
