@@ -61,6 +61,7 @@ use rustred::propagator::error::PError;
 use rustred::propagator::families::PFamiliesFile;
 use rustred::propagator::library::{PLibrary, POwnerSpec};
 use rustred::propagator::presentation::{Presentation, PresentationKind};
+use rustred::propagator::payload_cache::{PPayloadCheck, PPayloadFile};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::{
     NodeIndex, OwnerClassId, P_CUSTOM_OWNER_VERSION, P_FAMILIES_SCHEMA, P_LIBRARY_SCHEMA,
@@ -245,6 +246,78 @@ fn owner_payload(files: &Files<'_>, owner: &OwnerRecord) -> Result<Option<Arc<[u
     Ok(Some(Arc::from(bytes.as_ref())))
 }
 
+/// p5l-library session 2: payloads read on use. `RUSTRED_P_LAZY_PAYLOADS`:
+/// `on`, `off`, or `auto` (the default: on for a package directory whose scope
+/// reaches 5 loops). The package load then only checks each payload file's
+/// length; its structural check ([`check_payload`]) runs on its first read.
+fn lazy_payloads(source: &PLibrarySource, max_loops: u8) -> bool {
+    if !matches!(source, PLibrarySource::Directory(_)) {
+        return false;
+    }
+    match std::env::var("RUSTRED_P_LAZY_PAYLOADS").as_deref() {
+        Ok("on") | Ok("1") => true,
+        Ok("off") | Ok("0") => false,
+        _ => max_loops >= 5,
+    }
+}
+
+/// [`owner_payload`] read on use: the file's length now, the save format and
+/// [`check_payload`] on its first read.
+fn owner_payload_lazy(
+    directory: &std::path::Path,
+    owner: &OwnerRecord,
+    terminals: &[TerminalRecord],
+    fingerprint: Option<&str>,
+) -> Result<Option<CustomPayloadRef>, PError> {
+    check_owner_record(owner)?;
+    let Some(payload) = &owner.payload else {
+        return Ok(None);
+    };
+    let expected = owner_file(&owner.class)?;
+    if payload.file != expected {
+        return Err(malformed(format!(
+            "the payload of {} is {}, not {expected}",
+            owner.class, payload.file
+        )));
+    }
+    Files::check_name(&payload.file)?;
+    let path = directory.join(&payload.file);
+    let length = std::fs::metadata(&path)
+        .map_err(|error| malformed(format!("reading {}: {error}", path.display())))?
+        .len();
+    if length != payload.bytes {
+        return Err(malformed(format!(
+            "{} has {length} bytes, library.json records {}",
+            payload.file, payload.bytes
+        )));
+    }
+    let record = owner.clone();
+    let named = named_residuals(owner, terminals);
+    let fingerprint = fingerprint.map(str::to_owned);
+    let file = payload.file.clone();
+    let check: PPayloadCheck = Arc::new(move |bytes: &[u8]| {
+        check_save_format(payload_save_format(bytes, &file)?, &file)?;
+        check_payload_named(&record, bytes, named.clone(), fingerprint.as_deref())
+    });
+    Ok(Some(CustomPayloadRef::File(Arc::new(PPayloadFile::new(
+        path,
+        payload.bytes,
+        Some(check),
+    )))))
+}
+
+/// The residual keys of `owner` among the package terminals.
+fn named_residuals(owner: &OwnerRecord, terminals: &[TerminalRecord]) -> Vec<Vec<i64>> {
+    (owner.terminals.iter())
+        .filter_map(|&id| match terminals.get(id as usize) {
+            Some(TerminalRecord::Residual { owner: class, key }) if *class == owner.class => {
+                Some(key.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// A payload is the one its record describes: its structure (charts,
 /// residual count, two-sided axes) gives the record's meta, its residual keys
 /// are the owner's residual terminals, and, when `fingerprint` is given, it is
@@ -253,6 +326,16 @@ fn check_payload(
     owner: &OwnerRecord,
     bytes: &[u8],
     terminals: &[TerminalRecord],
+    fingerprint: Option<&str>,
+) -> Result<(), PError> {
+    check_payload_named(owner, bytes, named_residuals(owner, terminals), fingerprint)
+}
+
+/// [`check_payload`] with the owner's residual terminals already named.
+fn check_payload_named(
+    owner: &OwnerRecord,
+    bytes: &[u8],
+    mut named: Vec<Vec<i64>>,
     fingerprint: Option<&str>,
 ) -> Result<(), PError> {
     let summary = inspect_custom_payload(bytes)?;
@@ -284,14 +367,6 @@ fn check_payload(
             owner.class, owner.presentation
         )));
     }
-    let mut named: Vec<Vec<i64>> = (owner.terminals.iter())
-        .filter_map(|&id| match terminals.get(id as usize) {
-            Some(TerminalRecord::Residual { owner: class, key }) if *class == owner.class => {
-                Some(key.clone())
-            }
-            _ => None,
-        })
-        .collect();
     let mut residuals = summary.residual_keys();
     named.sort_unstable();
     residuals.sort_unstable();
@@ -805,6 +880,7 @@ pub fn load_p_library(
         }
     }
     let mut owners = Vec::with_capacity(manifest.owners.len());
+    let lazy = lazy_payloads(&source, last);
     for record in &manifest.owners {
         let class = *classes.get(&record.class).ok_or_else(|| {
             malformed(format!(
@@ -812,18 +888,34 @@ pub fn load_p_library(
                 record.class
             ))
         })?;
-        let payload = owner_payload(&files, record)?;
-        if let Some(bytes) = &payload {
-            let fingerprint = fingerprints
+        let fingerprint = || {
+            fingerprints
                 .get(record.presentation as usize)
                 .ok_or_else(|| {
                     malformed(format!(
                         "the owner {} is on the unknown presentation {}",
                         record.class, record.presentation
                     ))
-                })?;
-            check_payload(record, bytes, &manifest.terminals, Some(fingerprint))?;
-        }
+                })
+                .map(String::as_str)
+        };
+        let payload = match &source {
+            PLibrarySource::Directory(directory) if lazy => {
+                let fingerprint = if record.payload.is_some() {
+                    Some(fingerprint()?)
+                } else {
+                    None
+                };
+                owner_payload_lazy(directory, record, &manifest.terminals, fingerprint)?
+            }
+            _ => {
+                let payload = owner_payload(&files, record)?;
+                if let Some(bytes) = &payload {
+                    check_payload(record, bytes, &manifest.terminals, Some(fingerprint()?))?;
+                }
+                payload.map(CustomPayloadRef::Bytes)
+            }
+        };
         owners.push(POwnerSpec {
             class,
             lane: record.lane.lane(),
@@ -831,7 +923,7 @@ pub fn load_p_library(
             node: record.node.map(NodeIndex),
             roles: record.roles.roles(),
             edge_maps: record.edge_maps.clone(),
-            payload: payload.map(CustomPayloadRef::Bytes),
+            payload,
             custom: record.custom.as_ref().map(|custom| custom.meta()),
             terminals: record.terminals.iter().map(|&id| PTerminalId(id)).collect(),
         });

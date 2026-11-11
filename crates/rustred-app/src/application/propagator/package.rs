@@ -113,6 +113,21 @@ pub fn payload_save_format(bytes: &[u8], what: &str) -> Result<u16, PError> {
 /// without a topology, or with a basis map whose rows are no valid layer
 /// (`PBasisLayer::new`), is refused.
 pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<u8>)>, PError> {
+    Ok(p_library_parts(assembled, false)?.0)
+}
+
+/// A payload file of a package that is written from its source on its own
+/// (p5l-library session 2): `(relative name, payload)`.
+type DeferredPayload = (String, CustomPayloadRef);
+
+/// [`p_library_files`]; with `defer`, the payloads that are files
+/// (`CustomPayloadRef::File`) are not read here but returned to be copied one
+/// at a time, so writing a package does not hold all its payloads.
+fn p_library_parts(
+    assembled: &AssembledLibrary,
+    defer: bool,
+) -> Result<(Vec<(String, Vec<u8>)>, Vec<DeferredPayload>), PError> {
+    let mut deferred = Vec::new();
     let library = &assembled.library;
     let mut files = BTreeMap::new();
     let save_format = symbolica_save_format()?;
@@ -176,6 +191,14 @@ pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<
             .ok_or_else(|| malformed(format!("owner {:016x} outside the census", spec.class.0)))?;
         let payload = match &spec.payload {
             None => None,
+            Some(payload @ CustomPayloadRef::File(source)) if defer => {
+                let file = owner_file(&label)?;
+                deferred.push((file.clone(), payload.clone()));
+                Some(PayloadRecord {
+                    file,
+                    bytes: source.len(),
+                })
+            }
             Some(payload) => {
                 let file = owner_file(&label)?;
                 let bytes = payload.bytes()?;
@@ -258,7 +281,7 @@ pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<
         LIBRARY_FILE.to_owned(),
         pretty_json(&manifest, LIBRARY_FILE)?,
     );
-    Ok(files.into_iter().collect())
+    Ok((files.into_iter().collect(), deferred))
 }
 
 fn io_failure(path: &Path, error: std::io::Error) -> PError {
@@ -269,11 +292,22 @@ fn io_failure(path: &Path, error: std::io::Error) -> PError {
 /// exist or be empty: the files go to a sibling temporary directory first,
 /// which is then renamed, so a reader never sees half a package.
 pub fn write_p_library(library: &AssembledLibrary, directory: &Path) -> Result<(), PError> {
-    write_p_library_files(&p_library_files(library)?, directory)
+    let (files, deferred) = p_library_parts(library, true)?;
+    write_p_library_parts(&files, &deferred, directory)
 }
 
 /// [`write_p_library`] of files already rendered by [`p_library_files`].
 pub fn write_p_library_files(files: &[(String, Vec<u8>)], directory: &Path) -> Result<(), PError> {
+    write_p_library_parts(files, &[], directory)
+}
+
+/// [`write_p_library_files`] plus payloads copied one at a time from their
+/// source (each read verified and its save format checked).
+fn write_p_library_parts(
+    files: &[(String, Vec<u8>)],
+    deferred: &[DeferredPayload],
+    directory: &Path,
+) -> Result<(), PError> {
     if directory.exists() {
         let mut entries = fs::read_dir(directory).map_err(|error| io_failure(directory, error))?;
         if entries.next().is_some() {
@@ -306,6 +340,15 @@ pub fn write_p_library_files(files: &[(String, Vec<u8>)], directory: &Path) -> R
                 fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
             }
             fs::write(&path, bytes).map_err(|error| io_failure(&path, error))?;
+        }
+        for (file, payload) in deferred {
+            let path = partial.join(file);
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
+            }
+            let bytes = payload.bytes()?;
+            check_save_format(payload_save_format(&bytes, file)?, file)?;
+            fs::write(&path, &*bytes).map_err(|error| io_failure(&path, error))?;
         }
         if directory.exists() {
             fs::remove_dir(directory).map_err(|error| io_failure(directory, error))?;

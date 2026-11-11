@@ -17,6 +17,7 @@ use super::error::PError;
 use super::insertion::InsertionStep;
 use super::lane::OwnerLane;
 use super::library::{OwnerProgram, PLibrary, POwnerSpec};
+use super::payload_cache::{PEvictableStep, PPayloadFile};
 use super::series_parallel::SeriesParallelStep;
 use super::step::PLaneStep;
 use super::triangle::TriangleStep;
@@ -26,6 +27,9 @@ use super::triangle::TriangleStep;
 pub enum CustomPayloadRef {
     Bytes(Arc<[u8]>),
     Lazy(Arc<dyn Fn() -> Result<Arc<[u8]>, PError> + Send + Sync>),
+    /// A payload file read on use, verified on its first read
+    /// ([`super::payload_cache`], p5l-library session 2).
+    File(Arc<PPayloadFile>),
 }
 
 impl CustomPayloadRef {
@@ -33,7 +37,23 @@ impl CustomPayloadRef {
         match self {
             Self::Bytes(bytes) => Ok(bytes.clone()),
             Self::Lazy(load) => load(),
+            Self::File(file) => file.read(),
         }
+    }
+
+    /// The payload length when it is known without reading the payload.
+    pub fn len_hint(&self) -> Option<u64> {
+        match self {
+            Self::Bytes(bytes) => Some(bytes.len() as u64),
+            Self::Lazy(_) => None,
+            Self::File(file) => Some(file.len()),
+        }
+    }
+
+    /// The payload is not held in memory: its program is built on use and
+    /// may be evicted under the library's program budget.
+    pub fn is_deferred(&self) -> bool {
+        !matches!(self, Self::Bytes(_))
     }
 }
 
@@ -42,6 +62,7 @@ impl fmt::Debug for CustomPayloadRef {
         match self {
             Self::Bytes(bytes) => write!(formatter, "Bytes({} bytes)", bytes.len()),
             Self::Lazy(_) => formatter.write_str("Lazy"),
+            Self::File(file) => write!(formatter, "File({file:?})"),
         }
     }
 }
@@ -115,6 +136,31 @@ fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneSt
             owner.class.0
         )));
     };
+    // p5l-library session 2: a payload not held in memory is built on use and
+    // evictable under the library's program budget.
+    if payload.is_deferred()
+        && let Some(budget) = library.program_budget()
+    {
+        let weight = budget.weight(payload.len_hint().unwrap_or(0));
+        let presentation = presentation.clone();
+        let payload = payload.clone();
+        let meta = meta.clone();
+        let order = library.rule_order_arc(owner.class);
+        let step = PEvictableStep::new(
+            OwnerLane::Custom,
+            weight,
+            Arc::clone(budget),
+            Box::new(move || {
+                build_custom_step_ordered(
+                    &presentation,
+                    &payload.bytes()?,
+                    &meta,
+                    order.as_deref(),
+                )
+            }),
+        );
+        return Ok(step);
+    }
     build_custom_step_ordered(
         presentation,
         &payload.bytes()?,

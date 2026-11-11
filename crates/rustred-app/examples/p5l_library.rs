@@ -10,6 +10,9 @@
 //!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>.  P5L_VERIFY=0 skips the descent certificate.
 //! p5l_library load <package dir> <verify 0|1>
 //!     load time and peak RSS.
+//! p5l_library encoding <sample> <payload .rrbin>...
+//!     per payload: read, structure and decode time, decode RSS, coefficient terms, and the digits of an
+//!     expanded vs a factored coefficient encoding on a sample (session 2).
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -43,8 +46,10 @@ use rustred::reduction::{
 };
 use rustred_app::propagator::assemble::SplitMix;
 use rustred_app::propagator::loader::read_custom_payloads;
+use rustred::propagator::payload_cache::PPayloadFile;
+use rustred::propagator::programs::CustomPayloadRef;
 use rustred_app::propagator::{
-    AssembleOptions, CustomOwnerPayload, CustomPayloads, ImportedCustomNode, PLibraryOptions,
+    AssembleOptions, CustomPayloads, ImportedCustomNode, PLibraryOptions,
     PLibrarySource, assemble_library, load_p_library, write_p_library,
 };
 use serde_json::{Value, json};
@@ -81,6 +86,7 @@ fn main() {
             load(&args[2], args[3] == "1");
         }
         Some("check") => check(&args[2..]),
+        Some("encoding") => encoding(&args[2..]),
         Some("edges") => edges(
             &args[2],
             args[3].parse().unwrap(),
@@ -244,18 +250,27 @@ fn assemble(args: &[String]) {
         let fields: Vec<&str> = line.split('\t').collect();
         let record: Value =
             serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
-        let bytes: Arc<[u8]> = std::fs::read(fields[2]).unwrap().into();
-        bytes_total += bytes.len();
+        // Session 2: the payload stays on disk (read once by assembly for its
+        // residuals, copied by the writer, built on use); P5L_EAGER=1 reads it here.
+        let length = std::fs::metadata(fields[2]).unwrap().len();
+        bytes_total += length as usize;
+        let payload = if std::env::var("P5L_EAGER").is_ok_and(|v| v == "1") {
+            CustomPayloadRef::Bytes(std::fs::read(fields[2]).unwrap().into())
+        } else {
+            CustomPayloadRef::File(Arc::new(PPayloadFile::new(
+                PathBuf::from(fields[2]),
+                length,
+                None,
+            )))
+        };
         let key = unhex(record["graph_key"].as_str().unwrap());
         labels.insert(key.clone(), fields[0].to_owned());
         imported.insert(
             key,
             ImportedCustomNode {
                 presentation: record_presentation(&record, &context),
-                payload: CustomOwnerPayload {
-                    bytes,
-                    meta: record_meta(&record),
-                },
+                payload,
+                meta: record_meta(&record),
             },
         );
     }
@@ -360,9 +375,66 @@ fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     println!(
         "{}",
         json!({"load_seconds": seconds, "verify": verify, "load_peak_rss_gb": rss().1,
-               "presentations": library.presentations().len(), "owners": library.owners().len()})
+               "presentations": library.presentations().len(), "owners": library.owners().len(),
+               "program_budget": budget_json(&library)})
     );
     (library, seconds)
+}
+
+/// The program budget's counters (session 2), or null without a budget.
+fn budget_json(library: &PLibrary) -> Value {
+    library.program_budget().map_or(Value::Null, |budget| {
+        let stats = budget.stats();
+        json!({"limit_gb": stats.limit_bytes as f64 / 1e9,
+               "resident_gb": stats.resident_bytes as f64 / 1e9,
+               "peak_resident_gb": stats.peak_resident_bytes as f64 / 1e9,
+               "builds": stats.builds, "rebuilds": stats.rebuilds, "evictions": stats.evictions,
+               "build_seconds": stats.build_seconds_millis as f64 / 1e3})
+    })
+}
+
+// ---------------------------------------------------------------------------
+// encoding (session 2)
+// ---------------------------------------------------------------------------
+
+fn encoding(args: &[String]) {
+    let sample: usize = args[0].parse().unwrap();
+    for file in &args[1..] {
+        let started = Instant::now();
+        let bytes = std::fs::read(file).unwrap();
+        let read_seconds = started.elapsed().as_secs_f64();
+        let started = Instant::now();
+        let summary = rustred::propagator::custom::inspect_custom_payload(&bytes).unwrap();
+        let inspect_seconds = started.elapsed().as_secs_f64();
+        let envelope = rustred::persistence::inspect_program(
+            &bytes,
+            rustred::persistence::BinaryIoLimits::default(),
+        )
+        .unwrap();
+        let sections: Vec<Value> = (envelope.sections().iter())
+            .map(|section| json!([format!("{:?}", section.tag), section.bytes.len()]))
+            .collect();
+        let before = rss().0;
+        let stats =
+            rustred::propagator::custom::custom_payload_coefficient_stats(&bytes, sample).unwrap();
+        let after = rss();
+        println!(
+            "{}",
+            json!({"file": file, "bytes": bytes.len(), "rules": summary.rules(), "sections": sections,
+                   "read_seconds": read_seconds, "inspect_seconds": inspect_seconds,
+                   "decode_seconds": stats.decode_seconds, "rss_after_decode_gb": after.0,
+                   "rss_before_decode_gb": before, "peak_gb": after.1,
+                   "coefficients": stats.coefficients, "numerator_terms": stats.numerator_terms,
+                   "denominator_terms": stats.denominator_terms,
+                   "max_numerator_degree": stats.max_numerator_degree,
+                   "max_denominator_degree": stats.max_denominator_degree,
+                   "sampled": stats.sampled, "sampled_expanded_digits": stats.sampled_expanded_digits,
+                   "sampled_factored_digits": stats.sampled_factored_digits,
+                   "sampled_expanded_terms": stats.sampled_expanded_terms,
+                   "sampled_factored_terms": stats.sampled_factored_terms,
+                   "sampled_factors": stats.sampled_factors, "factor_seconds": stats.factor_seconds})
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

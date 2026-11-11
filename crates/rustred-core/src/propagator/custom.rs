@@ -773,6 +773,96 @@ pub fn custom_payload_dump(payload: &[u8]) -> Result<String, PError> {
     Ok(dump)
 }
 
+/// The coefficients of a payload, measured (p5l-library session 2: the size
+/// of an expanded versus a factored coefficient encoding).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomCoefficientStats {
+    pub coefficients: usize,
+    pub numerator_terms: u64,
+    pub denominator_terms: u64,
+    pub max_numerator_degree: u64,
+    pub max_denominator_degree: u64,
+    pub decode_seconds: f64,
+    /// The sample: the `sample` coefficients with the most terms, then
+    /// `sample` evenly spaced others.
+    pub sampled: usize,
+    /// Decimal digits of every integer coefficient plus 2 per term (an
+    /// exponent), expanded numerator and denominator.
+    pub sampled_expanded_digits: u64,
+    /// The same over the irreducible factors over Z of numerator and denominator.
+    pub sampled_factored_digits: u64,
+    pub sampled_expanded_terms: u64,
+    pub sampled_factored_terms: u64,
+    pub sampled_factors: u64,
+    pub factor_seconds: f64,
+}
+
+/// [`CustomCoefficientStats`] of `payload`.
+pub fn custom_payload_coefficient_stats(
+    payload: &[u8],
+    sample: usize,
+) -> Result<CustomCoefficientStats, PError> {
+    use symbolica::poly::factor::Factorize;
+    let started = std::time::Instant::now();
+    let decoded = decode(None, payload)?;
+    let mut stats = CustomCoefficientStats {
+        coefficients: decoded.table.len(),
+        decode_seconds: started.elapsed().as_secs_f64(),
+        ..CustomCoefficientStats::default()
+    };
+    let coefficient = |index: usize| -> Result<&Coefficient, PError> {
+        let id = CoefficientId::try_from_index(index).map_err(|e| payload_error(e.to_string()))?;
+        decoded.table.coefficient(id).map_err(|e| payload_error(e.to_string()))
+    };
+    type Poly = symbolica::prelude::MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>;
+    let degree = |poly: &Poly| -> u64 {
+        (0..poly.nvars()).map(|x| u64::from(poly.degree(x))).max().unwrap_or(0)
+    };
+    let mut sizes = Vec::with_capacity(stats.coefficients);
+    for index in 0..stats.coefficients {
+        let c = coefficient(index)?;
+        stats.numerator_terms += c.numerator.nterms() as u64;
+        stats.denominator_terms += c.denominator.nterms() as u64;
+        stats.max_numerator_degree = stats.max_numerator_degree.max(degree(&c.numerator));
+        stats.max_denominator_degree = stats.max_denominator_degree.max(degree(&c.denominator));
+        sizes.push((c.numerator.nterms() + c.denominator.nterms(), index));
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    let mut chosen: BTreeSet<usize> = sizes.iter().take(sample).map(|&(_, i)| i).collect();
+    if stats.coefficients > 0 && sample > 0 {
+        let stride = (stats.coefficients / sample).max(1);
+        chosen.extend((0..stats.coefficients).step_by(stride).take(sample));
+    }
+    let digits = |poly: &Poly| -> u64 {
+        poly.coefficients
+            .iter()
+            .map(|c| c.to_string().len() as u64 + 2)
+            .sum()
+    };
+    let started = std::time::Instant::now();
+    for index in chosen {
+        let c = coefficient(index)?;
+        stats.sampled += 1;
+        for poly in [&c.numerator, &c.denominator] {
+            stats.sampled_expanded_digits += digits(poly);
+            stats.sampled_expanded_terms += poly.nterms() as u64;
+            if poly.nterms() <= 1 {
+                stats.sampled_factored_digits += digits(poly);
+                stats.sampled_factored_terms += poly.nterms() as u64;
+                stats.sampled_factors += 1;
+                continue;
+            }
+            for (factor, _) in poly.factor() {
+                stats.sampled_factored_digits += digits(&factor) + 1;
+                stats.sampled_factored_terms += factor.nterms() as u64;
+                stats.sampled_factors += 1;
+            }
+        }
+    }
+    stats.factor_seconds = started.elapsed().as_secs_f64();
+    Ok(stats)
+}
+
 /// Prepares one chart of a payload on first use. t162-export: the decoded
 /// payload (rule records + coefficient table) is released once every chart
 /// is prepared; the deferred programs cache each chart's prepared owner (a

@@ -517,20 +517,29 @@ fn assemble(
             let owner = &presentations[owner_presentation.0 as usize];
             let imported = (owner.node.as_ref())
                 .and_then(|reference| imported_node(&custom, &reference.graph_key));
-            let payload = if let Some(imported) = imported {
-                imported.payload.clone()
+            if let Some(imported) = imported {
+                custom_owner_ref(&mut builder, &mut spec, &imported.payload, &imported.meta)?;
+                // An imported payload in memory is listed; one on disk is not
+                // read into the assembly (p5l-library session 2).
+                if let CustomPayloadRef::Bytes(bytes) = &imported.payload {
+                    let payload = CustomOwnerPayload {
+                        bytes: Arc::clone(bytes),
+                        meta: imported.meta.clone(),
+                    };
+                    payloads.insert(label, payload);
+                }
             } else {
-                custom_payload(
+                let payload = custom_payload(
                     &custom,
                     &label,
                     owner,
                     recount
                         .as_mut()
                         .map(|(filter, recounts)| (*filter, &mut **recounts)),
-                )?
-            };
-            custom_owner(&mut builder, &mut spec, &payload)?;
-            payloads.insert(label, payload);
+                )?;
+                custom_owner(&mut builder, &mut spec, &payload)?;
+                payloads.insert(label, payload);
+            }
         } else {
             for edge in dag.edges_from(node_index.0) {
                 if edge.kind != DagEdgeKind::Rule {
@@ -648,7 +657,23 @@ fn custom_owner(
     spec: &mut POwnerSpec,
     payload: &CustomOwnerPayload,
 ) -> Result<(), PError> {
-    let summary = inspect_custom_payload(&payload.bytes)?;
+    custom_owner_ref(
+        builder,
+        spec,
+        &CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)),
+        &payload.meta,
+    )
+}
+
+/// [`custom_owner`] of a payload reference: the payload is read once here (a
+/// file payload: its first read, which records its digest) and dropped.
+fn custom_owner_ref(
+    builder: &mut PLibraryBuilder,
+    spec: &mut POwnerSpec,
+    payload: &CustomPayloadRef,
+    meta: &rustred::propagator::library::CustomOwnerMeta,
+) -> Result<(), PError> {
+    let summary = inspect_custom_payload(&payload.bytes()?)?;
     for residual in summary.residual_keys() {
         let key = IntegralKey::try_new(residual).map_err(|error| {
             PError::MalformedLibrary(format!(
@@ -662,8 +687,8 @@ fn custom_owner(
                 key,
             })?);
     }
-    spec.payload = Some(CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)));
-    spec.custom = Some(payload.meta.clone());
+    spec.payload = Some(payload.clone());
+    spec.custom = Some(meta.clone());
     Ok(())
 }
 

@@ -885,6 +885,13 @@ fn main() {
         "process_seconds": t_main.elapsed().as_secs_f64(),
         "reduce_cpu_seconds": reduce_cpu_seconds, "warm_cpu_seconds": warm_cpu_seconds,
         "process_cpu_seconds": cpu_seconds(), "load_cpu_seconds": load_cpu_seconds,
+        "program_budget": library.program_budget().map(|budget| {
+            let stats = budget.stats();
+            serde_json::json!({"limit_gb": stats.limit_bytes as f64 / 1e9,
+                "peak_resident_gb": stats.peak_resident_bytes as f64 / 1e9,
+                "builds": stats.builds, "rebuilds": stats.rebuilds, "evictions": stats.evictions,
+                "build_seconds": stats.build_seconds_millis as f64 / 1e3})
+        }),
     });
     if let Some(p) = progress {
         summary["processed"] = p.processed_keys.into();

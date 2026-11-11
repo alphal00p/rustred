@@ -22,6 +22,7 @@ use super::engine::{PEngine, merge};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
+use super::payload_cache::PProgramBudget;
 use super::programs::{CustomPayloadRef, lane_program};
 use super::saved_orbits::PSavedOrbits;
 use super::saved_routes::PSavedRoutes;
@@ -253,6 +254,9 @@ pub struct PLibrary {
     /// restored on a sector's first canonicalised key instead of searching
     /// and authenticating them ([`super::saved_orbits`]).
     saved_orbits: Option<Arc<PSavedOrbits>>,
+    /// p5l-library session 2: the memory budget of the programs of Custom
+    /// owners whose payload is not held in memory ([`super::payload_cache`]).
+    program_budget: Option<Arc<PProgramBudget>>,
     engine: OnceLock<Result<PEngine, PError>>,
     /// Orbit canonicalisation of Apply keys (M5 R0 A2); off by default
     /// (M5 batch 2: opt-in until the coordinator switches it on).
@@ -334,6 +338,17 @@ impl PLibrary {
     /// if the library has an ordering.
     pub fn rule_order(&self, class: OwnerClassId) -> Option<&PRuleOrder> {
         self.rule_orders.get(&class).map(Arc::as_ref)
+    }
+
+    /// [`Self::rule_order`], shared.
+    pub fn rule_order_arc(&self, class: OwnerClassId) -> Option<Arc<PRuleOrder>> {
+        self.rule_orders.get(&class).cloned()
+    }
+
+    /// The budget of the programs of Custom owners whose payload is read on
+    /// use (`RUSTRED_P_PROGRAM_BUDGET_GB`, [`super::payload_cache`]).
+    pub fn program_budget(&self) -> Option<&Arc<PProgramBudget>> {
+        self.program_budget.as_ref()
     }
 
     /// The ordering tag `<P_ORDERING_VERSION>:<heuristic>` of the library's
@@ -1001,6 +1016,7 @@ impl PLibraryBuilder {
         } else {
             P_ORBIT_CANON_DEFAULT
         };
+        let max_loops = *self.scope.end();
         Ok(PLibrary {
             context: self.context,
             scope: self.scope,
@@ -1017,6 +1033,7 @@ impl PLibraryBuilder {
             revision: self.revision,
             saved_routes: self.saved_routes,
             saved_orbits: self.saved_orbits,
+            program_budget: PProgramBudget::from_env(max_loops),
             engine: OnceLock::new(),
             orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(true),
