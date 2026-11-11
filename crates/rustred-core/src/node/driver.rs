@@ -32,10 +32,11 @@ use crate::family::IntegralFamily;
 use crate::input::{Compiler, Limits, LoweringLimits};
 use crate::sector::{Mask, zero};
 use crate::solver::{
-    Case, CaseIntersectionLimits, CaseRefinement, CoordinateCase, ExceptionalConditions,
-    GuardRoute, GuardRouteTaken, Integral, RuleCandidate, SearchEvent, SearchOptions, SectorConfig,
-    SectorRule, SectorSolveOptions, SectorSolver, SolverError, SourceSystem, SymbolicExactBackend,
-    UnsupportedBranchPolicy, extract_exceptions, extract_exceptions_routed,
+    Case, CaseIntersectionLimits, CaseRefinement, CaseSeedSchedule, CoordinateCase,
+    ExceptionalConditions, GuardRoute, GuardRouteTaken, Integral, RuleCandidate, SearchEvent,
+    SearchOptions, SectorConfig, SectorRule, SectorSolveOptions, SectorSolver, SolverError,
+    SourceSystem, SymbolicExactBackend, UnsupportedBranchPolicy, extract_exceptions,
+    extract_exceptions_routed,
 };
 
 /// Table schema of node tables: table_dump.v1 records plus node fields (header `node_order`, rule `recenter`, ...).
@@ -74,6 +75,10 @@ pub struct NodeOptions {
     /// Seed schedule of the whole node (`SymbolicFirst` = p5l-lift-trace's in-shell order); default SpIRed.
     #[serde(default)]
     pub seed_schedule: SeedScheduleName,
+    /// Optional finite shells in PRESENTED storage coordinates. None preserves
+    /// the historical zero-first search. Independent of the in-shell order above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case_seed_schedule: Option<CaseSeedSchedule>,
     /// Lift ladder rung 1 (coordinator ruling 2026-11-11T04:17Z): a case whose lift the screen refused is searched
     /// again with the `SymbolicFirst` seed schedule (same presentation, same seed ball) before other source orders;
     /// the order portfolio (node level, [`super::auto`]) is the next rung.
@@ -169,6 +174,7 @@ impl Default for NodeOptions {
             cand_dump: false,
             numeric_depth: 2,
             seed_schedule: SeedScheduleName::Spired,
+            case_seed_schedule: None,
             symbolic_first_rung: true,
             empty_domain_check: true,
             max_rule_monomials: None,
@@ -386,6 +392,14 @@ pub fn vmhwm_kb() -> u64 {
                 .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
         })
         .unwrap_or(0)
+}
+
+/// Decode the complete existing native schedule, refusing invalid shells or
+/// an incomplete coordinate permutation before any search work.
+pub fn parse_case_seed_schedule(text: &str, arity: usize) -> Result<CaseSeedSchedule, String> {
+    let schedule: CaseSeedSchedule = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    schedule.validate(arity).map_err(|e| e.to_string())?;
+    Ok(schedule)
 }
 
 pub fn parse_backend(name: &str) -> Result<SymbolicExactBackend, String> {
@@ -1181,6 +1195,11 @@ fn run<const N: usize>(
     events: &mut dyn FnMut(&NodeEvent),
 ) -> Result<NodeOutcome, String> {
     let n = fam.denominator_count();
+    if let Some(schedule) = &opts.case_seed_schedule {
+        schedule
+            .validate(N)
+            .map_err(|e| format!("case seed schedule: {e}"))?;
+    }
     let t_total = Instant::now();
     if fam
         .power_shifts()
@@ -1740,14 +1759,25 @@ fn run<const N: usize>(
                     }
                     _ => {}
                 };
-                match so.visit(nb) {
-                    None => solver.solve_case_with_observer(case.clone(), options, observe),
-                    Some(order) => solver.solve_case_with_source_order_and_observer(
+                if let Some(schedule) = &opts.case_seed_schedule {
+                    let visit = so.visit(nb);
+                    solver.solve_case_with_schedule_and_observer(
                         case.clone(),
                         options,
-                        &order,
+                        visit.as_deref(),
+                        schedule,
                         observe,
-                    ),
+                    )
+                } else {
+                    match so.visit(nb) {
+                        None => solver.solve_case_with_observer(case.clone(), options, observe),
+                        Some(order) => solver.solve_case_with_source_order_and_observer(
+                            case.clone(),
+                            options,
+                            &order,
+                            observe,
+                        ),
+                    }
                 }
             })
         });
@@ -3401,6 +3431,32 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&reg);
         let _ = std::fs::remove_dir_all(&fam_dir);
+    }
+
+    #[test]
+    fn scheduled_node_descriptor_defaults_and_validation_are_explicit() {
+        let old_options = serde_json::to_value(NodeOptions::default()).unwrap();
+        assert!(old_options.get("case_seed_schedule").is_none());
+        let restored: NodeOptions = serde_json::from_value(old_options).unwrap();
+        assert!(restored.case_seed_schedule.is_none());
+        let text = r#"{"ShiftShells":{"first_depth":2,"last_depth":2,"axis_priority":[1,0],"positive_first":true}}"#;
+        let native = parse_case_seed_schedule(text, 2).unwrap();
+        assert_eq!(
+            serde_json::to_value(&native).unwrap(),
+            serde_json::from_str::<serde_json::Value>(text).unwrap()
+        );
+        for invalid in [
+            text.replace("[1,0]", "[0]"),
+            text.replace("[1,0]", "[0,0]"),
+            text.replace("[1,0]", "[0,2]"),
+            text.replace("\"first_depth\":2", "\"first_depth\":3"),
+            text.replace(
+                "\"positive_first\":true",
+                "\"positive_first\":true,\"extra\":1",
+            ),
+        ] {
+            assert!(parse_case_seed_schedule(&invalid, 2).is_err(), "{invalid}");
+        }
     }
 
     #[test]
