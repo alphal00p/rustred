@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use smallvec::SmallVec;
 
-use crate::algebra::{Coefficient, ExactAlgebraLimits};
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
 use super::error::PError;
 
@@ -274,6 +274,57 @@ pub(crate) fn rehome(coefficient: &Coefficient) -> Coefficient {
         Coefficient {
             numerator: moved(&coefficient.numerator),
             denominator: moved(&coefficient.denominator),
+        }
+    })
+}
+
+/// `RUSTRED_P_HOME_CONTEXT=1` (rr-par2, switch; default off): Insertion
+/// weights are computed on a copy of the coefficient context whose template
+/// lives on this thread's polynomial context ([`with_home_context`]).
+fn home_context_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_P_HOME_CONTEXT").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
+thread_local! {
+    /// This thread's copy of the last coefficient context seen by
+    /// [`with_home_context`] (same names and variable map, template rehomed).
+    static HOME_CONTEXT: RefCell<Option<CoefficientContext>> = const { RefCell::new(None) };
+}
+
+/// rr-par2: `f` on `context`, or (switch on) on its copy whose constants
+/// (`zero`, `one`, `integer`, ...) are made on this thread's polynomial
+/// context. Every polynomial derived from the library context clones and
+/// drops the one `Arc` of that context, from every worker; derived from the
+/// copy they touch only this thread's. Same ring, same variable map (the same
+/// `Arc`), so every value, comparison and hash is the one of `context`.
+pub(crate) fn with_home_context<R>(
+    context: &CoefficientContext,
+    f: impl FnOnce(&CoefficientContext) -> R,
+) -> R {
+    if !home_context_enabled() {
+        return f(context);
+    }
+    HOME_CONTEXT.with(|home| {
+        let fits = |home: &Option<CoefficientContext>| {
+            home.as_ref().is_some_and(|home| {
+                std::sync::Arc::ptr_eq(home.variables(), context.variables())
+                    && home.parameter_names() == context.parameter_names()
+            })
+        };
+        if !fits(&home.borrow())
+            && let Ok(mut slot) = home.try_borrow_mut()
+        {
+            *slot = Some(context.with_template(rehome(context.template())));
+        }
+        match home.try_borrow() {
+            Ok(guard) if fits(&guard) => f(guard.as_ref().expect("fits")),
+            _ => f(context),
         }
     })
 }

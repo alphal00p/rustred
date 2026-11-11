@@ -126,6 +126,17 @@ impl CoefficientContext {
         &self.template
     }
 
+    /// rr-par2: this context with another template of the same ring and
+    /// variable map (e.g. on a polynomial context owned by one thread).
+    pub(crate) fn with_template(&self, template: Coefficient) -> Self {
+        debug_assert!(Arc::ptr_eq(template.numerator.variables(), &self.variables));
+        Self {
+            names: Arc::clone(&self.names),
+            variables: Arc::clone(&self.variables),
+            template,
+        }
+    }
+
     pub fn zero(&self) -> Coefficient {
         self.integer(0)
     }

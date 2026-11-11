@@ -576,19 +576,21 @@ fn table_weight(
     weights: &[Coefficient],
     limits: ExactAlgebraLimits,
 ) -> Result<Coefficient, PError> {
-    let mut total = context.zero();
-    for (order, value) in &monomial.orders {
-        let weight = &weights[*order as usize];
-        if weight.is_zero() {
-            continue;
+    super::step_memo::with_home_context(context, |context| {
+        let mut total = context.zero();
+        for (order, value) in &monomial.orders {
+            let weight = &weights[*order as usize];
+            if weight.is_zero() {
+                continue;
+            }
+            let scale = rational_coefficient(context, value, limits)?;
+            let term = context
+                .try_mul_validated(weight, &scale, limits)
+                .map_err(algebra)?;
+            total = context
+                .try_add_validated(&total, &term, limits)
+                .map_err(algebra)?;
         }
-        let scale = rational_coefficient(context, value, limits)?;
-        let term = context
-            .try_mul_validated(weight, &scale, limits)
-            .map_err(algebra)?;
-        total = context
-            .try_add_validated(&total, &term, limits)
-            .map_err(algebra)?;
-    }
-    Ok(total)
+        Ok(total)
+    })
 }
