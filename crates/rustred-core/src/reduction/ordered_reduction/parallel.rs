@@ -437,6 +437,9 @@ where
         + Sync
         + Send,
 {
+    if roots.len() < inline_window() {
+        return close_window_inline(stepper, roots, counters, &detach);
+    }
     let closure = Closure {
         stepper,
         detach: &detach,
@@ -471,6 +474,74 @@ where
         .map(|step| step.expect("every root step completes in the scope"))
         .chain(discovered)
         .collect()
+}
+
+/// `RUSTRED_ORDERED_INLINE_WINDOW=n` (rr-par, switch; unset = 0 = off): a
+/// window with fewer than `n` roots is closed on the calling thread instead
+/// of the workers (`close_window_inline`). Small requests (the many small
+/// reductions of a physics expression) then pay no pool dispatch and wake-up
+/// per window; the steps are the same pure functions of their keys.
+fn inline_window() -> usize {
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_ORDERED_INLINE_WINDOW")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
+/// `close_window` on the calling thread: the roots in their order, then
+/// their same-phase descendants at or above the threshold.
+fn close_window_inline<S, X, F>(
+    stepper: &S,
+    roots: Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    counters: Option<&WindowCounters>,
+    detach: &F,
+) -> Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>
+where
+    S: OrderedStepper,
+    F: Fn(
+        &S::Key,
+        &OrderedPosition<S::Priority>,
+        OrderedStep<S::Key>,
+        &mut Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    ) -> X,
+{
+    let mut seen: HashSet<S::Key> = roots.iter().map(|(key, _)| key.clone()).collect();
+    let mut out = Vec::with_capacity(roots.len());
+    let mut pending = Vec::new();
+    let mut step = |key: S::Key,
+                    position: OrderedPosition<S::Priority>,
+                    pending: &mut Vec<(S::Key, OrderedPosition<S::Priority>)>| {
+        let _timer = counters.map(|counters| CpuTimer::new(&counters.step_nanos));
+        let (result, account) = stepper.step(&key);
+        let mut found = Vec::new();
+        let result = result.map(|step| detach(&key, &position, step, &mut found));
+        for (child, position) in found {
+            if seen.insert(child.clone()) {
+                pending.push((child, position));
+            }
+        }
+        Detached {
+            key,
+            position,
+            result,
+            account,
+        }
+    };
+    for (key, position) in roots {
+        out.push(step(key, position, &mut pending));
+    }
+    let mut discovered = 0u64;
+    while let Some((key, position)) = pending.pop() {
+        discovered += 1;
+        out.push(step(key, position, &mut pending));
+    }
+    if let Some(counters) = counters {
+        counters.discovered.fetch_add(discovered, Ordering::Relaxed);
+    }
+    out
 }
 
 /// Shared state of one window closure (`close_window`).
