@@ -250,14 +250,114 @@ struct Pending<P, W> {
 /// the weight; its order entry stays behind and is discarded when reached. If
 /// the key returns before then, the equal order entry is reused.
 struct Frontier<K, P, W> {
-    pending: HashMap<K, Pending<P, W>>,
+    pending: HashMap<K, Pending<P, W>, FrontierHash>,
     order: BTreeSet<Scheduled<K, P>>,
+}
+
+/// Hasher of the frontier's pending map. `RUSTRED_ORDERED_FRONTIER_HASH=fx`
+/// (rr-prof, switch, unset = SipHash as before) selects an Fx hash: the map
+/// is only probed (insert, entry, get, remove, len), never iterated, so the
+/// hash function changes no order, value or counter, only the time of a
+/// probe (SipHash of every child key was ~4 % of a 4L run).
+#[derive(Clone)]
+enum FrontierHash {
+    Sip(std::hash::RandomState),
+    Fx,
+}
+
+impl FrontierHash {
+    fn from_environment() -> Self {
+        static FX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *FX.get_or_init(|| {
+            std::env::var("RUSTRED_ORDERED_FRONTIER_HASH").as_deref() == Ok("fx")
+        }) {
+            Self::Fx
+        } else {
+            Self::Sip(std::hash::RandomState::new())
+        }
+    }
+}
+
+enum FrontierHasher {
+    Sip(std::hash::DefaultHasher),
+    Fx(u64),
+}
+
+impl FrontierHasher {
+    #[inline]
+    fn fx(state: &mut u64, word: u64) {
+        *state = (state.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+impl std::hash::Hasher for FrontierHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        match self {
+            Self::Sip(hasher) => hasher.write(bytes),
+            Self::Fx(state) => {
+                let mut chunks = bytes.chunks_exact(8);
+                for chunk in &mut chunks {
+                    Self::fx(state, u64::from_le_bytes(chunk.try_into().expect("8 bytes")));
+                }
+                let rest = chunks.remainder();
+                if !rest.is_empty() {
+                    let mut word = [0u8; 8];
+                    word[..rest.len()].copy_from_slice(rest);
+                    Self::fx(state, u64::from_le_bytes(word) ^ ((rest.len() as u64) << 56));
+                }
+            }
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_u16(&mut self, value: u16) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        match self {
+            Self::Sip(hasher) => hasher.write_u64(value),
+            Self::Fx(state) => Self::fx(state, value),
+        }
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        match self {
+            Self::Sip(hasher) => hasher.finish(),
+            // Fold the high bits down: hashbrown takes its control byte from
+            // the top 7 bits and its bucket from the low ones.
+            Self::Fx(state) => *state ^ (*state >> 29),
+        }
+    }
+}
+
+impl std::hash::BuildHasher for FrontierHash {
+    type Hasher = FrontierHasher;
+    #[inline]
+    fn build_hasher(&self) -> FrontierHasher {
+        match self {
+            Self::Sip(state) => FrontierHasher::Sip(state.build_hasher()),
+            Self::Fx => FrontierHasher::Fx(0),
+        }
+    }
 }
 
 impl<K: Clone + Ord + Hash, P: Clone + Ord, W> Frontier<K, P, W> {
     fn new() -> Self {
         Self {
-            pending: HashMap::new(),
+            pending: HashMap::with_hasher(FrontierHash::from_environment()),
             order: BTreeSet::new(),
         }
     }
