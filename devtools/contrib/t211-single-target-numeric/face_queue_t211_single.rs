@@ -8,7 +8,8 @@ use rustred::input::{Compiler, Limits, LoweringLimits};
 use rustred::order::{CompiledOrder, DegreeRow, OrderDescriptor};
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    Case, Integral, SectorConfig, SectorExecutor, SectorRule, SectorSolveOptions, SectorSolver, SourceSystem,
+    Case, Integral, SectorConfig, SectorExecutor, SectorRule, SectorSolveOptions, SectorSolver,
+    SourceSystem,
 };
 
 /// Bump on any change of the record layout (FORMAT.md).
@@ -42,7 +43,10 @@ fn mask_string(bits: &[bool]) -> String {
 }
 
 fn degree_row(row: &DegreeRow) -> String {
-    format!("{{\"active\":{:?},\"inactive\":{:?}}}", row.active, row.inactive)
+    format!(
+        "{{\"active\":{:?},\"inactive\":{:?}}}",
+        row.active, row.inactive
+    )
 }
 
 fn descriptor_json(d: &OrderDescriptor) -> String {
@@ -72,21 +76,29 @@ fn vmhwm_kb() -> u64 {
         .unwrap_or(0)
 }
 
-fn order_for<const N: usize>(name: &str, axes: &[bool; N], n: usize) -> (OrderDescriptor, Option<CompiledOrder>, String) {
+fn order_for<const N: usize>(
+    name: &str,
+    axes: &[bool; N],
+    n: usize,
+) -> (OrderDescriptor, Option<CompiledOrder>, String) {
     let any = axes.iter().any(|&a| a);
     let resolved = match name {
         "auto" if any => "two_sided",
         "auto" => "legacy",
         other => other,
     };
-    let eps_row = DegreeRow { active: axes[..n].iter().map(|&a| u64::from(a)).collect(), inactive: vec![0; n] };
+    let eps_row = DegreeRow {
+        active: axes[..n].iter().map(|&a| u64::from(a)).collect(),
+        inactive: vec![0; n],
+    };
     let descriptor = match resolved {
         "legacy" | "one_sided" => OrderDescriptor::spired_uncut(n),
         "two_sided" => OrderDescriptor::spired_uncut_two_sided(axes[..n].to_vec()),
         "eps_first" | "eps_third" => {
             let mut d = OrderDescriptor::spired_uncut(n);
             d.two_sided = axes[..n].to_vec();
-            d.degree_rows.insert(if resolved == "eps_first" { 0 } else { 2 }, eps_row);
+            d.degree_rows
+                .insert(if resolved == "eps_first" { 0 } else { 2 }, eps_row);
             d
         }
         "plain_two_sided" => {
@@ -104,16 +116,45 @@ fn order_for<const N: usize>(name: &str, axes: &[bool; N], n: usize) -> (OrderDe
     (descriptor, program, resolved.to_string())
 }
 
-fn write_rule<const N: usize>(f: &mut impl std::io::Write, chart: &str, index: usize, rule: &SectorRule<N>) -> usize {
+fn write_rule<const N: usize>(
+    f: &mut impl std::io::Write,
+    chart: &str,
+    index: usize,
+    rule: &SectorRule<N>,
+) -> usize {
     let c = &rule.candidate;
-    let rhs: Vec<String> = c.rhs.iter().map(|t| format!("[{},{}]", q(&t.integral.to_string()), q(&t.coefficient.to_string()))).collect();
-    let exceptions: Vec<String> = rule.exceptions.branches.iter().map(|b| strings(b.iter())).collect();
-    let fixed: Vec<String> = c.case.fixed().iter().map(|v| v.map_or("null".to_string(), |x| x.to_string())).collect();
+    let rhs: Vec<String> = c
+        .rhs
+        .iter()
+        .map(|t| {
+            format!(
+                "[{},{}]",
+                q(&t.integral.to_string()),
+                q(&t.coefficient.to_string())
+            )
+        })
+        .collect();
+    let exceptions: Vec<String> = rule
+        .exceptions
+        .branches
+        .iter()
+        .map(|b| strings(b.iter()))
+        .collect();
+    let fixed: Vec<String> = c
+        .case
+        .fixed()
+        .iter()
+        .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
+        .collect();
     let equations = match &c.case {
         Case::Coordinate(_) => "[]".to_string(),
         Case::Affine(a) => strings(a.equations().iter()),
     };
-    let mut seeds: Vec<String> = c.sources.iter().map(|s| s.seed.integral.to_string()).collect();
+    let mut seeds: Vec<String> = c
+        .sources
+        .iter()
+        .map(|s| s.seed.integral.to_string())
+        .collect();
     seeds.sort();
     seeds.dedup();
     writeln!(
@@ -137,7 +178,11 @@ fn write_rule<const N: usize>(f: &mut impl std::io::Write, chart: &str, index: u
     c.rhs.len()
 }
 
-fn write_cert_header<const N: usize>(f: &mut impl std::io::Write, fam: &IntegralFamily, sources: &SourceSystem<N>) {
+fn write_cert_header<const N: usize>(
+    f: &mut impl std::io::Write,
+    fam: &IntegralFamily,
+    sources: &SourceSystem<N>,
+) {
     let (loops, externals) = (fam.loop_count(), fam.external_count());
     writeln!(
         f,
@@ -152,7 +197,16 @@ fn write_cert_header<const N: usize>(f: &mut impl std::io::Write, fam: &Integral
     for (m, row) in sources.rows().iter().enumerate() {
         // SourceSystem order: differentiated-loop major, reversed externals then loops. Momentum j: k_{j+1}, j >= loops: the external.
         let (loop_id, momentum) = (m / contraction.len(), contraction[m % contraction.len()]);
-        let terms: Vec<String> = row.iter().map(|t| format!("[{},{}]", q(&t.integral.to_string()), q(&t.coefficient.to_string()))).collect();
+        let terms: Vec<String> = row
+            .iter()
+            .map(|t| {
+                format!(
+                    "[{},{}]",
+                    q(&t.integral.to_string()),
+                    q(&t.coefficient.to_string())
+                )
+            })
+            .collect();
         writeln!(
             f,
             "{{\"type\":\"source_row\",\"m\":{m},\"differentiated_loop\":{loop_id},\"contraction_momentum\":{momentum},\"terms\":[{}]}}",
@@ -183,23 +237,44 @@ fn write_chart_cert<const N: usize>(
     totals: &mut CertTotals,
 ) {
     let t0 = Instant::now();
-    let (solver, derivation) = match SectorSolver::with_basis_derivation(sources, chart, config.clone()) {
-        Ok(x) => x,
-        Err(e) => {
-            writeln!(f, "{{\"type\":\"cert_chart_error\",\"chart\":{},\"error\":{}}}", q(label), q(&format!("{e:?}"))).unwrap();
-            totals.failed += rules.len();
-            return;
-        }
-    };
+    let (solver, derivation) =
+        match SectorSolver::with_basis_derivation(sources, chart, config.clone()) {
+            Ok(x) => x,
+            Err(e) => {
+                writeln!(
+                    f,
+                    "{{\"type\":\"cert_chart_error\",\"chart\":{},\"error\":{}}}",
+                    q(label),
+                    q(&format!("{e:?}"))
+                )
+                .unwrap();
+                totals.failed += rules.len();
+                return;
+            }
+        };
     for (k, row) in derivation.rows.iter().enumerate() {
-        let entries: Vec<String> = row.iter().map(|(m, p)| format!("[{m},{}]", q(&p.to_string()))).collect();
-        writeln!(f, "{{\"type\":\"basis_row\",\"chart\":{},\"k\":{k},\"sources\":[{}]}}", q(label), entries.join(",")).unwrap();
+        let entries: Vec<String> = row
+            .iter()
+            .map(|(m, p)| format!("[{m},{}]", q(&p.to_string())))
+            .collect();
+        writeln!(
+            f,
+            "{{\"type\":\"basis_row\",\"chart\":{},\"k\":{k},\"sources\":[{}]}}",
+            q(label),
+            entries.join(",")
+        )
+        .unwrap();
     }
     f.flush().unwrap();
     for (index, rule) in rules.iter().enumerate() {
         let rows = rule.candidate.sources.len();
         if rows > max_rows {
-            writeln!(f, "{{\"type\":\"cert_skip\",\"chart\":{},\"rule\":{index},\"trace_rows\":{rows}}}", q(label)).unwrap();
+            writeln!(
+                f,
+                "{{\"type\":\"cert_skip\",\"chart\":{},\"rule\":{index},\"trace_rows\":{rows}}}",
+                q(label)
+            )
+            .unwrap();
             totals.skipped += 1;
             continue;
         }
@@ -209,9 +284,20 @@ fn write_chart_cert<const N: usize>(
                 let entries: Vec<String> = frame
                     .entries
                     .iter()
-                    .map(|e| format!("[{},{},{}]", e.basis_row, q(&e.at.to_string()), q(&e.weight.to_string())))
+                    .map(|e| {
+                        format!(
+                            "[{},{},{}]",
+                            e.basis_row,
+                            q(&e.at.to_string()),
+                            q(&e.weight.to_string())
+                        )
+                    })
                     .collect();
-                let poles: Vec<String> = frame.weight_poles.iter().map(|b| strings(b.iter())).collect();
+                let poles: Vec<String> = frame
+                    .weight_poles
+                    .iter()
+                    .map(|b| strings(b.iter()))
+                    .collect();
                 writeln!(
                     f,
                     "{{\"type\":\"cert_rule\",\"chart\":{},\"rule\":{index},\"via\":{},\"recenter\":{:?},\"trace_rows\":{rows},\"zero_weights\":{},\"seconds\":{:.6},\"weight_poles\":[{}],\"frame\":[{}]}}",
@@ -229,7 +315,13 @@ fn write_chart_cert<const N: usize>(
                 totals.rules_with_weight_poles += usize::from(!frame.weight_poles.is_empty());
             }
             Err(e) => {
-                writeln!(f, "{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}", q(label), q(&format!("{e:?}").chars().take(800).collect::<String>())).unwrap();
+                writeln!(
+                    f,
+                    "{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}",
+                    q(label),
+                    q(&format!("{e:?}").chars().take(800).collect::<String>())
+                )
+                .unwrap();
                 totals.failed += 1;
             }
         }
@@ -295,10 +387,13 @@ fn write_chart_cert<const N: usize>(
 // Differences, all explicit in OUT.queue.jsonl: (1) exclusions; (2) an intersect_many error (unsupported, e.g.
 // nonlinear, geometry) does not abort: the branch is written as deferred_branch with the exact polynomials and error;
 // (3) rules and certificates are streamed as found.
-use std::cmp::Ordering;
 use rustred::algebra::CoefficientPolynomial;
-use rustred::solver::{CaseIntersectionLimits, CaseRefinement, CoordinateCase, SearchOptions, UnsupportedBranchPolicy, extract_exceptions};
+use rustred::solver::{
+    CaseIntersectionLimits, CaseRefinement, CoordinateCase, SearchOptions, UnsupportedBranchPolicy,
+    extract_exceptions,
+};
 use rustred::solver::{ExceptionalConditions, RuleCandidate};
+use std::cmp::Ordering;
 use symbolica::domains::InternalOrdering;
 use symbolica::prelude::{Factorize, Integer};
 
@@ -327,29 +422,41 @@ static R9: std::sync::Mutex<Option<R9Snap>> = std::sync::Mutex::new(None);
 /// SPILL_PATH = {current case, every pending case, every pending numerical point, rules written so far} and exit 9.
 /// The table holds exactly the rules 0..rules_done (it is flushed after every rule); the driver re-plans the rest.
 fn r9_watchdog(budget: u64, spill_path: String) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let g = R9.lock().unwrap();
-        let Some(s) = g.as_ref() else { continue };
-        let Some(t) = s.started else { continue };
-        if !s.applies || t.elapsed().as_secs() < budget {
-            continue;
-        }
-        let child = FORK_CHILD.load(std::sync::atomic::Ordering::SeqCst);
-        if child > 0 {
-            unsafe {
-                kill(child, 9);
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let g = R9.lock().unwrap();
+            let Some(s) = g.as_ref() else { continue };
+            let Some(t) = s.started else { continue };
+            if !s.applies || t.elapsed().as_secs() < budget {
+                continue;
             }
+            let child = FORK_CHILD.load(std::sync::atomic::Ordering::SeqCst);
+            if child > 0 {
+                unsafe {
+                    kill(child, 9);
+                }
+            }
+            let body = format!(
+                "{{\"type\":\"spill\",\"budget\":{budget},\"case_seconds\":{:.3},\"rules_done\":{},\"current\":{},\"pending\":[{}],\"numerical\":[{}]}}\n",
+                t.elapsed().as_secs_f64(),
+                s.rules_done,
+                s.current,
+                s.pending.join(","),
+                s.numerical.join(",")
+            );
+            let tmp = format!("{spill_path}.part");
+            std::fs::write(&tmp, body.as_bytes()).expect("spill write");
+            std::fs::rename(&tmp, &spill_path).expect("spill rename");
+            eprintln!(
+                "SPILL after {:.1} s on the current case: {} pending, {} numerical, {} rules done",
+                t.elapsed().as_secs_f64(),
+                s.pending.len(),
+                s.numerical.len(),
+                s.rules_done
+            );
+            std::process::exit(9);
         }
-        let body = format!(
-            "{{\"type\":\"spill\",\"budget\":{budget},\"case_seconds\":{:.3},\"rules_done\":{},\"current\":{},\"pending\":[{}],\"numerical\":[{}]}}\n",
-            t.elapsed().as_secs_f64(), s.rules_done, s.current, s.pending.join(","), s.numerical.join(",")
-        );
-        let tmp = format!("{spill_path}.part");
-        std::fs::write(&tmp, body.as_bytes()).expect("spill write");
-        std::fs::rename(&tmp, &spill_path).expect("spill rename");
-        eprintln!("SPILL after {:.1} s on the current case: {} pending, {} numerical, {} rules done", t.elapsed().as_secs_f64(), s.pending.len(), s.numerical.len(), s.rules_done);
-        std::process::exit(9);
     });
 }
 
@@ -387,7 +494,8 @@ fn forked<F: FnOnce() -> String>(tag: &str, secs: u64, f: F) -> Forked {
         FORK_CHILD.store(pid, std::sync::atomic::Ordering::SeqCst);
     }
     if pid == 0 {
-        let s = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| "{\"child_panic\":true}".to_string());
+        let s = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+            .unwrap_or_else(|_| "{\"child_panic\":true}".to_string());
         let tmp = format!("{path}.part");
         let ok = std::fs::write(&tmp, s.as_bytes()).is_ok() && std::fs::rename(&tmp, &path).is_ok();
         unsafe { _exit(if ok { 0 } else { 3 }) }
@@ -440,7 +548,10 @@ fn xs_sort_unique(v: &mut Vec<CoefficientPolynomial>) {
 
 /// The engine's factorisation inputs (exception.rs `extract`): denominators of nonzero RHS coefficients that contain an
 /// index variable, made primitive with positive leading coefficient, sorted and deduplicated (InternalOrdering).
-fn xs_guard_inputs<const N: usize>(candidate: &RuleCandidate<N>, idx: &[usize; N]) -> Vec<CoefficientPolynomial> {
+fn xs_guard_inputs<const N: usize>(
+    candidate: &RuleCandidate<N>,
+    idx: &[usize; N],
+) -> Vec<CoefficientPolynomial> {
     let mut d: Vec<CoefficientPolynomial> = candidate
         .rhs
         .iter()
@@ -454,14 +565,34 @@ fn xs_guard_inputs<const N: usize>(candidate: &RuleCandidate<N>, idx: &[usize; N
 }
 
 fn xs_poly_info(p: &CoefficientPolynomial, names: &[String]) -> String {
-    let degs: Vec<String> = (0..p.nvars()).filter(|&v| p.degree(v) > 0).map(|v| format!("{}:{}", q(&names[v]), p.degree(v))).collect();
-    let tdeg = p.exponents_iter().map(|e| e.iter().map(|&x| x as u32).sum::<u32>()).max().unwrap_or(0);
-    let maxdigits = p.coefficients.iter().map(|c| c.to_string().trim_start_matches('-').len()).max().unwrap_or(0);
-    format!("\"nterms\":{},\"total_degree\":{tdeg},\"degrees\":{{{}}},\"max_coeff_digits\":{maxdigits}", p.nterms(), degs.join(","))
+    let degs: Vec<String> = (0..p.nvars())
+        .filter(|&v| p.degree(v) > 0)
+        .map(|v| format!("{}:{}", q(&names[v]), p.degree(v)))
+        .collect();
+    let tdeg = p
+        .exponents_iter()
+        .map(|e| e.iter().map(|&x| x as u32).sum::<u32>())
+        .max()
+        .unwrap_or(0);
+    let maxdigits = p
+        .coefficients
+        .iter()
+        .map(|c| c.to_string().trim_start_matches('-').len())
+        .max()
+        .unwrap_or(0);
+    format!(
+        "\"nterms\":{},\"total_degree\":{tdeg},\"degrees\":{{{}}},\"max_coeff_digits\":{maxdigits}",
+        p.nterms(),
+        degs.join(",")
+    )
 }
 
 /// Activation branches of exception.rs `extract` (inactive axis, symbolic power, positive shift), verbatim logic.
-fn xs_activation_branches<const N: usize>(candidate: &RuleCandidate<N>, idx: &[usize; N], sector: &[bool; N]) -> Vec<Vec<CoefficientPolynomial>> {
+fn xs_activation_branches<const N: usize>(
+    candidate: &RuleCandidate<N>,
+    idx: &[usize; N],
+    sector: &[bool; N],
+) -> Vec<Vec<CoefficientPolynomial>> {
     let template = &candidate.rhs[0].coefficient.numerator;
     let mut branches = Vec::new();
     for term in &candidate.rhs {
@@ -472,10 +603,17 @@ fn xs_activation_branches<const N: usize>(candidate: &RuleCandidate<N>, idx: &[u
             }
             for boundary in 0..power.value() {
                 let value = Integer::from(-(boundary as i64));
-                if term.coefficient.numerator.replace(position, &value).is_zero() {
+                if term
+                    .coefficient
+                    .numerator
+                    .replace(position, &value)
+                    .is_zero()
+                {
                     continue;
                 }
-                let variable = template.variable(&template.variables()[position]).expect("variable");
+                let variable = template
+                    .variable(&template.variables()[position])
+                    .expect("variable");
                 let equation = &variable + &template.constant(Integer::from(boundary as i64));
                 branches.push(vec![equation]);
             }
@@ -490,7 +628,13 @@ fn xs_activation_branches<const N: usize>(candidate: &RuleCandidate<N>, idx: &[u
 /// The engine instead factors P and, per irreducible factor f, takes the d-coefficients of f; since Q[d] is an integral
 /// domain, P(x,.) == 0 <=> some f(x,.) == 0, so both give the same set. Here only g (d-free) is factored; the
 /// d-dependent part becomes ONE AND-branch [h_k] (omitted when some h_k is a nonzero constant: then V(h) is empty).
-fn xs_content_exceptions<const N: usize>(candidate: &RuleCandidate<N>, idx: &[usize; N], sector: &[bool; N], names: &[String], log: &mut Vec<String>) -> ExceptionalConditions {
+fn xs_content_exceptions<const N: usize>(
+    candidate: &RuleCandidate<N>,
+    idx: &[usize; N],
+    sector: &[bool; N],
+    names: &[String],
+    log: &mut Vec<String>,
+) -> ExceptionalConditions {
     if candidate.rhs.is_empty() {
         return ExceptionalConditions::default();
     }
@@ -500,7 +644,11 @@ fn xs_content_exceptions<const N: usize>(candidate: &RuleCandidate<N>, idx: &[us
     let mut branches: Vec<Vec<CoefficientPolynomial>> = Vec::new();
     for (k, den) in inputs.iter().enumerate() {
         let t = Instant::now();
-        let coeffs: Vec<CoefficientPolynomial> = den.to_multivariate_polynomial_list(&params, true).into_values().filter(|c| !c.is_zero()).collect();
+        let coeffs: Vec<CoefficientPolynomial> = den
+            .to_multivariate_polynomial_list(&params, true)
+            .into_values()
+            .filter(|c| !c.is_zero())
+            .collect();
         let t_split = t.elapsed().as_secs_f64();
         let mut g = coeffs[0].clone();
         for c in &coeffs[1..] {
@@ -526,13 +674,27 @@ fn xs_content_exceptions<const N: usize>(candidate: &RuleCandidate<N>, idx: &[us
             }
         }
         let t_gfac = t2.elapsed().as_secs_f64();
-        let cof: Vec<CoefficientPolynomial> = if g_const { coeffs.clone() } else { coeffs.iter().map(|c| c.try_div(&g).expect("content divides each coefficient")).collect() };
+        let cof: Vec<CoefficientPolynomial> = if g_const {
+            coeffs.clone()
+        } else {
+            coeffs
+                .iter()
+                .map(|c| c.try_div(&g).expect("content divides each coefficient"))
+                .collect()
+        };
         let cof_empty = cof.iter().any(|h| h.is_constant() && !h.is_zero());
         let mut cof_info = String::from("null");
         if !cof_empty {
-            let mut b: Vec<CoefficientPolynomial> = cof.into_iter().filter(|h| !h.is_zero()).map(xs_primitive).collect();
+            let mut b: Vec<CoefficientPolynomial> = cof
+                .into_iter()
+                .filter(|h| !h.is_zero())
+                .map(xs_primitive)
+                .collect();
             xs_sort_unique(&mut b);
-            let infos: Vec<String> = b.iter().map(|h| format!("{{{}}}", xs_poly_info(h, names))).collect();
+            let infos: Vec<String> = b
+                .iter()
+                .map(|h| format!("{{{}}}", xs_poly_info(h, names)))
+                .collect();
             cof_info = format!("[{}]", infos.join(","));
             branches.push(b);
             nb += 1;
@@ -557,9 +719,24 @@ fn xs_branches_json(e: &ExceptionalConditions) -> String {
 
 /// The candidate dump (round 8 / xstuck item 1): written BEFORE any guard extraction.
 #[allow(clippy::too_many_arguments)]
-fn xs_write_dump<const N: usize>(path: &str, terms_path: &str, candidate: &RuleCandidate<N>, idx: &[usize; N], sector: &[bool; N], names: &[String], rule_index: usize, search_seconds: f64, config_text: &str, probe_env: Option<&str>) {
+fn xs_write_dump<const N: usize>(
+    path: &str,
+    terms_path: &str,
+    candidate: &RuleCandidate<N>,
+    idx: &[usize; N],
+    sector: &[bool; N],
+    names: &[String],
+    rule_index: usize,
+    search_seconds: f64,
+    config_text: &str,
+    probe_env: Option<&str>,
+) {
     let mut tf = std::io::BufWriter::new(std::fs::File::create(terms_path).expect("terms file"));
-    let mut dens_raw: Vec<String> = candidate.rhs.iter().map(|t| t.coefficient.denominator.to_string()).collect();
+    let mut dens_raw: Vec<String> = candidate
+        .rhs
+        .iter()
+        .map(|t| t.coefficient.denominator.to_string())
+        .collect();
     dens_raw.sort();
     dens_raw.dedup();
     let mut rhs_items: Vec<String> = Vec::new();
@@ -567,24 +744,73 @@ fn xs_write_dump<const N: usize>(path: &str, terms_path: &str, candidate: &RuleC
         let num = t.coefficient.numerator.to_string();
         let den = t.coefficient.denominator.to_string();
         let did = dens_raw.binary_search(&den).unwrap();
-        writeln!(tf, "{{\"k\":{k},\"integral\":{},\"num\":{},\"den\":{}}}", q(&t.integral.to_string()), q(&num), q(&den)).unwrap();
+        writeln!(
+            tf,
+            "{{\"k\":{k},\"integral\":{},\"num\":{},\"den\":{}}}",
+            q(&t.integral.to_string()),
+            q(&num),
+            q(&den)
+        )
+        .unwrap();
         rhs_items.push(format!("{{\"k\":{k},\"integral\":{},\"den_id\":{did},\"num_terms\":{},\"num_chars\":{},\"zero\":{}}}", q(&t.integral.to_string()), t.coefficient.numerator.nterms(), num.len(), t.coefficient.is_zero()));
     }
     tf.flush().unwrap();
     let mut den_items: Vec<String> = Vec::new();
     for (id, s) in dens_raw.iter().enumerate() {
-        let p = candidate.rhs.iter().find(|t| &t.coefficient.denominator.to_string() == s).map(|t| &t.coefficient.denominator).unwrap();
-        let uses = candidate.rhs.iter().filter(|t| &t.coefficient.denominator.to_string() == s).count();
-        den_items.push(format!("{{\"id\":{id},\"uses\":{uses},\"contains_index\":{},{},\"poly\":{}}}", xs_contains_index(p, idx), xs_poly_info(p, names), q(s)));
+        let p = candidate
+            .rhs
+            .iter()
+            .find(|t| &t.coefficient.denominator.to_string() == s)
+            .map(|t| &t.coefficient.denominator)
+            .unwrap();
+        let uses = candidate
+            .rhs
+            .iter()
+            .filter(|t| &t.coefficient.denominator.to_string() == s)
+            .count();
+        den_items.push(format!(
+            "{{\"id\":{id},\"uses\":{uses},\"contains_index\":{},{},\"poly\":{}}}",
+            xs_contains_index(p, idx),
+            xs_poly_info(p, names),
+            q(s)
+        ));
     }
     let inputs = xs_guard_inputs(candidate, idx);
-    let in_items: Vec<String> = inputs.iter().enumerate().map(|(k, p)| format!("{{\"id\":{k},{},\"poly\":{}}}", xs_poly_info(p, names), q(&p.to_string()))).collect();
+    let in_items: Vec<String> = inputs
+        .iter()
+        .enumerate()
+        .map(|(k, p)| {
+            format!(
+                "{{\"id\":{k},{},\"poly\":{}}}",
+                xs_poly_info(p, names),
+                q(&p.to_string())
+            )
+        })
+        .collect();
     let act = xs_activation_branches(candidate, idx, sector);
     let act_items: Vec<String> = act.iter().map(|b| strings(b.iter())).collect();
-    let pivots: Vec<String> = candidate.sources.iter().map(|s| format!("{{\"basis_row\":{},\"seed\":{}}}", s.basis_row, q(&format!("{:?}", s.seed)))).collect();
+    let pivots: Vec<String> = candidate
+        .sources
+        .iter()
+        .map(|s| {
+            format!(
+                "{{\"basis_row\":{},\"seed\":{}}}",
+                s.basis_row,
+                q(&format!("{:?}", s.seed))
+            )
+        })
+        .collect();
     let st = &candidate.stats;
-    let fixed: Vec<String> = candidate.case.fixed().iter().map(|v| v.map_or("null".to_string(), |x| x.to_string())).collect();
-    let params: Vec<String> = (0..names.len()).filter(|p| !idx.contains(p)).map(|p| q(&names[p])).collect();
+    let fixed: Vec<String> = candidate
+        .case
+        .fixed()
+        .iter()
+        .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
+        .collect();
+    let params: Vec<String> = (0..names.len())
+        .filter(|p| !idx.contains(p))
+        .map(|p| q(&names[p]))
+        .collect();
     let mut f = std::io::BufWriter::new(std::fs::File::create(path).expect("dump file"));
     write!(
         f,
@@ -634,7 +860,14 @@ fn xs_write_dump<const N: usize>(path: &str, terms_path: &str, candidate: &RuleC
 }
 
 /// One certificate (rule_frame), in-process or in a forked child with a timeout (cert_timeout).
-fn xs_cert_one<const N: usize>(solver: &SectorSolver<N>, label: &str, index: usize, rule: &SectorRule<N>, cert_timeout: Option<u64>, qlog: &mut impl std::io::Write) -> (String, bool, usize, bool) {
+fn xs_cert_one<const N: usize>(
+    solver: &SectorSolver<N>,
+    label: &str,
+    index: usize,
+    rule: &SectorRule<N>,
+    cert_timeout: Option<u64>,
+    qlog: &mut impl std::io::Write,
+) -> (String, bool, usize, bool) {
     match cert_timeout {
         None => cert_line(solver, label, index, rule),
         Some(cs) => {
@@ -655,11 +888,31 @@ fn xs_cert_one<const N: usize>(solver: &SectorSolver<N>, label: &str, index: usi
                 }
                 Forked::Timeout(wall, cpu) => {
                     writeln!(qlog, "{{\"type\":\"cert_forked\",\"rule\":{index},\"status\":\"timeout\",\"wall\":{wall:.3},\"child_cpu\":{cpu:.3}}}").unwrap();
-                    (format!("{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}", q(&label), q(&format!("cert_timeout: rule_frame exceeded {cs} s (child cpu {cpu:.1} s)"))), false, 0, false)
+                    (
+                        format!(
+                            "{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}",
+                            q(&label),
+                            q(&format!(
+                                "cert_timeout: rule_frame exceeded {cs} s (child cpu {cpu:.1} s)"
+                            ))
+                        ),
+                        false,
+                        0,
+                        false,
+                    )
                 }
                 Forked::Failed(m, wall) => {
                     writeln!(qlog, "{{\"type\":\"cert_forked\",\"rule\":{index},\"status\":\"failed\",\"wall\":{wall:.3},\"msg\":{}}}", q(&m)).unwrap();
-                    (format!("{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}", q(&label), q(&format!("cert child failed: {m}"))), false, 0, false)
+                    (
+                        format!(
+                            "{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}",
+                            q(&label),
+                            q(&format!("cert child failed: {m}"))
+                        ),
+                        false,
+                        0,
+                        false,
+                    )
                 }
             }
         }
@@ -667,7 +920,11 @@ fn xs_cert_one<const N: usize>(solver: &SectorSolver<N>, label: &str, index: usi
 }
 // ======================= end of round 8 / xstuck additions =======================
 
-fn parse_linear(expr: &str, template: &CoefficientPolynomial, idx: &[usize]) -> CoefficientPolynomial {
+fn parse_linear(
+    expr: &str,
+    template: &CoefficientPolynomial,
+    idx: &[usize],
+) -> CoefficientPolynomial {
     let vars = template.variables();
     let mut acc = template.zero();
     let s: String = expr.chars().filter(|c| !c.is_whitespace()).collect();
@@ -745,19 +1002,42 @@ fn total_degree(p: &CoefficientPolynomial) -> u32 {
 fn parse_spec<const N: usize>(spec: &str) -> [Option<i16>; N] {
     let parts: Vec<&str> = spec.split(',').collect();
     assert_eq!(parts.len(), N, "spec arity");
-    std::array::from_fn(|i| if parts[i].trim() == "_" { None } else { Some(parts[i].trim().parse::<i16>().expect("spec value")) })
+    std::array::from_fn(|i| {
+        if parts[i].trim() == "_" {
+            None
+        } else {
+            Some(parts[i].trim().parse::<i16>().expect("spec value"))
+        }
+    })
 }
 
-fn case_from<const N: usize>(spec: &str, eqs: &str, template: &CoefficientPolynomial, idx: &[usize; N], sector: &[bool; N]) -> Option<Case<N>> {
+fn case_from<const N: usize>(
+    spec: &str,
+    eqs: &str,
+    template: &CoefficientPolynomial,
+    idx: &[usize; N],
+    sector: &[bool; N],
+) -> Option<Case<N>> {
     let face = Case::from(CoordinateCase::new(parse_spec::<N>(spec)).expect("coordinate case"));
-    let polys: Vec<CoefficientPolynomial> = eqs.split(';').map(str::trim).filter(|e| !e.is_empty()).map(|e| parse_linear(e, template, idx)).collect();
-    face.intersect(&polys, idx, sector).expect("admit nominated case")
+    let polys: Vec<CoefficientPolynomial> = eqs
+        .split(';')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(|e| parse_linear(e, template, idx))
+        .collect();
+    face.intersect(&polys, idx, sector)
+        .expect("admit nominated case")
 }
 
 /// One table rule record -> Some(Some((case, branches))) if index < upto and parsable, Some(None) if not parsable, None if
 /// index >= upto. Minimal JSON field extraction (the records are written by write_rule above).
-fn r9_rule_cover<const N: usize>(line: &str, template: &CoefficientPolynomial, idx: &[usize; N], sector: &[bool; N], upto: usize)
-    -> Option<Option<(Case<N>, Vec<Vec<CoefficientPolynomial>>)>> {
+fn r9_rule_cover<const N: usize>(
+    line: &str,
+    template: &CoefficientPolynomial,
+    idx: &[usize; N],
+    sector: &[bool; N],
+    upto: usize,
+) -> Option<Option<(Case<N>, Vec<Vec<CoefficientPolynomial>>)>> {
     let field = |key: &str| -> Option<&str> {
         let k = format!("\"{key}\":");
         let at = line.find(&k)? + k.len();
@@ -804,12 +1084,26 @@ fn r9_rule_cover<const N: usize>(line: &str, template: &CoefficientPolynomial, i
         out
     };
     let fixed = field("fixed")?;
-    let spec: Vec<String> = fixed.trim_matches(|c| c == '[' || c == ']').split(',').map(|v| if v.trim() == "null" { "_".to_string() } else { v.trim().to_string() }).collect();
+    let spec: Vec<String> = fixed
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(',')
+        .map(|v| {
+            if v.trim() == "null" {
+                "_".to_string()
+            } else {
+                v.trim().to_string()
+            }
+        })
+        .collect();
     if spec.len() != N {
         return Some(None);
     }
     let eqs = strs(field("equations")?).join(";");
-    let case = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| case_from::<N>(&spec.join(","), &eqs, template, idx, sector))).ok().flatten();
+    let case = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        case_from::<N>(&spec.join(","), &eqs, template, idx, sector)
+    }))
+    .ok()
+    .flatten();
     let Some(case) = case else { return Some(None) };
     // exceptions: [[..],[..]] -> split the outer list into its inner lists
     let ex = field("exceptions")?;
@@ -848,7 +1142,11 @@ fn r9_rule_cover<const N: usize>(line: &str, template: &CoefficientPolynomial, i
 
 /// Integer polynomial in the index variables n<i> (sum of c*n_i^e*.. monomials) -> CoefficientPolynomial; None if it has
 /// another symbol or a coefficient beyond i64 (then that rule is simply not used for pruning).
-fn r9_parse_poly(expr: &str, template: &CoefficientPolynomial, idx: &[usize]) -> Option<CoefficientPolynomial> {
+fn r9_parse_poly(
+    expr: &str,
+    template: &CoefficientPolynomial,
+    idx: &[usize],
+) -> Option<CoefficientPolynomial> {
     let vars = template.variables();
     let s: String = expr.chars().filter(|c| !c.is_whitespace()).collect();
     let mut acc = template.zero();
@@ -895,15 +1193,29 @@ fn r9_parse_poly(expr: &str, template: &CoefficientPolynomial, idx: &[usize]) ->
 }
 
 fn case_json<const N: usize>(c: &Case<N>) -> String {
-    let fixed: Vec<String> = c.fixed().iter().map(|v| v.map_or("null".to_string(), |x| x.to_string())).collect();
+    let fixed: Vec<String> = c
+        .fixed()
+        .iter()
+        .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
+        .collect();
     let equations = match c {
         Case::Coordinate(_) => "[]".to_string(),
         Case::Affine(a) => strings(a.equations().iter()),
     };
-    format!("{{\"fixed\":[{}],\"equations\":{}}}", fixed.join(","), equations)
+    format!(
+        "{{\"fixed\":[{}],\"equations\":{}}}",
+        fixed.join(","),
+        equations
+    )
 }
 
-fn rule_covers<const N: usize>(rule: &SectorRule<N>, case: &Case<N>, idx: &[usize; N], sector: &[bool; N], limits: CaseIntersectionLimits) -> bool {
+fn rule_covers<const N: usize>(
+    rule: &SectorRule<N>,
+    case: &Case<N>,
+    idx: &[usize; N],
+    sector: &[bool; N],
+    limits: CaseIntersectionLimits,
+) -> bool {
     if !rule.candidate.case.contains(case).unwrap_or(false) {
         return false;
     }
@@ -933,28 +1245,70 @@ fn prune_subsumed<const N: usize>(cases: &mut Vec<Case<N>>, candidate: &Case<N>)
     true
 }
 
-fn cert_line<const N: usize>(solver: &SectorSolver<N>, label: &str, index: usize, rule: &SectorRule<N>) -> (String, bool, usize, bool) {
+fn cert_line<const N: usize>(
+    solver: &SectorSolver<N>,
+    label: &str,
+    index: usize,
+    rule: &SectorRule<N>,
+) -> (String, bool, usize, bool) {
     let rows = rule.candidate.sources.len();
     let t5 = Instant::now();
     match solver.rule_frame(rule) {
         Ok(frame) => {
-            let entries: Vec<String> = frame.entries.iter().map(|e| format!("[{},{},{}]", e.basis_row, q(&e.at.to_string()), q(&e.weight.to_string()))).collect();
-            let poles: Vec<String> = frame.weight_poles.iter().map(|b| strings(b.iter())).collect();
+            let entries: Vec<String> = frame
+                .entries
+                .iter()
+                .map(|e| {
+                    format!(
+                        "[{},{},{}]",
+                        e.basis_row,
+                        q(&e.at.to_string()),
+                        q(&e.weight.to_string())
+                    )
+                })
+                .collect();
+            let poles: Vec<String> = frame
+                .weight_poles
+                .iter()
+                .map(|b| strings(b.iter()))
+                .collect();
             (
                 format!(
                     "{{\"type\":\"cert_rule\",\"chart\":{},\"rule\":{index},\"via\":{},\"recenter\":{:?},\"trace_rows\":{rows},\"zero_weights\":{},\"seconds\":{:.6},\"weight_poles\":[{}],\"frame\":[{}]}}",
-                    q(label), q(frame.via), frame.recenter, frame.zero_weights, t5.elapsed().as_secs_f64(), poles.join(","), entries.join(",")
+                    q(label),
+                    q(frame.via),
+                    frame.recenter,
+                    frame.zero_weights,
+                    t5.elapsed().as_secs_f64(),
+                    poles.join(","),
+                    entries.join(",")
                 ),
                 true,
                 frame.entries.len(),
                 !frame.weight_poles.is_empty(),
             )
         }
-        Err(e) => (format!("{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}", q(label), q(&format!("{e:?}").chars().take(800).collect::<String>())), false, 0, false),
+        Err(e) => (
+            format!(
+                "{{\"type\":\"cert_error\",\"chart\":{},\"rule\":{index},\"error\":{}}}",
+                q(label),
+                q(&format!("{e:?}").chars().take(800).collect::<String>())
+            ),
+            false,
+            0,
+            false,
+        ),
     }
 }
 
-fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamily, out_path: &str, cert_path: &str, config_path: &str) -> i32 {
+fn run<const N: usize>(
+    family_path: &str,
+    family_text: &str,
+    fam: &IntegralFamily,
+    out_path: &str,
+    cert_path: &str,
+    config_path: &str,
+) -> i32 {
     let n = fam.denominator_count();
     let t_total = Instant::now();
     let config_text = std::fs::read_to_string(config_path).expect("config");
@@ -972,7 +1326,11 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             _ => (),
         }
     }
-    let axes: [bool; N] = if matches!(order_req.as_str(), "legacy" | "one_sided") { [false; N] } else { sources.set_two_sided_eps_axes(fam).expect("eps axes") };
+    let axes: [bool; N] = if matches!(order_req.as_str(), "legacy" | "one_sided") {
+        [false; N]
+    } else {
+        sources.set_two_sided_eps_axes(fam).expect("eps axes")
+    };
     let (descriptor, program, order_name) = order_for::<N>(&order_req, &axes, n);
     let mask: Vec<bool> = family_text
         .lines()
@@ -986,7 +1344,10 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             let b: Vec<bool> = m.chars().map(|c| c == '1').collect();
             assert_eq!(b.len(), n, "chart mask arity");
             for i in 0..n {
-                assert!(axes[i] || b[i] == top[i], "chart {m} differs from the top mask off the eps axes");
+                assert!(
+                    axes[i] || b[i] == top[i],
+                    "chart {m} differs from the top mask off the eps axes"
+                );
             }
             std::array::from_fn(|i| b[i])
         }
@@ -1032,7 +1393,13 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
         q(&config_text)
     )
     .unwrap();
-    writeln!(out, "{{\"type\":\"zero_sectors\",\"scope\":\"downset\",\"count\":{},\"masks\":{}}}", zeros.len(), strings(zeros.iter().map(|z| mask_string(&z[..n])))).unwrap();
+    writeln!(
+        out,
+        "{{\"type\":\"zero_sectors\",\"scope\":\"downset\",\"count\":{},\"masks\":{}}}",
+        zeros.len(),
+        strings(zeros.iter().map(|z| mask_string(&z[..n])))
+    )
+    .unwrap();
     let guards: Vec<String> = (0..n)
         .map(|i| match (axes[i], base[i]) {
             (true, true) => "two_sided:n>=1".to_string(),
@@ -1042,13 +1409,25 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
         })
         .collect();
     if zeros.contains(&base) {
-        writeln!(out, "{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":true}}", q(&label), strings(guards.iter())).unwrap();
+        writeln!(
+            out,
+            "{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":true}}",
+            q(&label),
+            strings(guards.iter())
+        )
+        .unwrap();
         writeln!(out, "{{\"type\":\"end\",\"charts\":1,\"rules\":0,\"rhs_terms\":0,\"residuals\":0,\"chart_errors\":0,\"seconds\":{:.3},\"vmhwm_kb\":{},\"zero_chart\":true,\"native_descent_not_lower\":[]}}", t_total.elapsed().as_secs_f64(), vmhwm_kb()).unwrap();
         out.flush().unwrap();
         println!("{{\"chart\":\"{label}\",\"zero\":true}}");
         return 0;
     }
-    writeln!(out, "{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":false}}", q(&label), strings(guards.iter())).unwrap();
+    writeln!(
+        out,
+        "{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":false}}",
+        q(&label),
+        strings(guards.iter())
+    )
+    .unwrap();
     out.flush().unwrap();
     let qpath = format!("{}.queue.jsonl", out_path.trim_end_matches(".table.jsonl"));
     let mut qlog = std::io::BufWriter::new(std::fs::File::create(&qpath).expect("queue log"));
@@ -1071,29 +1450,50 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 },
                 // [coordinator 2026-11-10] the lifts that avoid the full characteristic-zero sparse elimination
                 "targetonly" => rustred::solver::SymbolicExactBackend::SparseTargetOnly,
-                "targetonlyfactorized" => rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized,
-                "sourceweights" => rustred::solver::SymbolicExactBackend::SemiNumericalSourceWeights {
-                    diagnostics_enabled: false,
-                    max_degree: w[2].parse().unwrap(),
-                    max_probes: w[3].parse().unwrap(),
-                    max_attempts: w[4].parse().unwrap(),
-                    max_primes: w[5].parse().unwrap(),
-                    max_cached_images: w[6].parse().unwrap(),
-                    max_cached_values: w[7].parse().unwrap(),
-                    max_weight_slots: w[8].parse().unwrap(),
-                },
+                "targetonlyfactorized" => {
+                    rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized
+                }
+                "sourceweights" => {
+                    rustred::solver::SymbolicExactBackend::SemiNumericalSourceWeights {
+                        diagnostics_enabled: false,
+                        max_degree: w[2].parse().unwrap(),
+                        max_probes: w[3].parse().unwrap(),
+                        max_attempts: w[4].parse().unwrap(),
+                        max_primes: w[5].parse().unwrap(),
+                        max_cached_images: w[6].parse().unwrap(),
+                        max_cached_values: w[7].parse().unwrap(),
+                        max_weight_slots: w[8].parse().unwrap(),
+                    }
+                }
                 other => panic!("exact_backend {other}"),
             };
         }
     }
     eprintln!("EXACT_BACKEND {exact_backend:?}");
-    let config = SectorConfig { zero_sectors: Arc::from(zeros.clone()), integral_order: program.clone(), symbolic_exact_backend: exact_backend, ..Default::default() };
+    let config = SectorConfig {
+        zero_sectors: Arc::from(zeros.clone()),
+        integral_order: program.clone(),
+        symbolic_exact_backend: exact_backend,
+        ..Default::default()
+    };
     let t1 = Instant::now();
-    let (solver, derivation) = SectorSolver::with_basis_derivation(&sources, base, config.clone()).expect("solver with basis derivation");
-    eprintln!("PREPARED basis={} seconds={:.3}", solver.basis().len(), t1.elapsed().as_secs_f64());
+    let (solver, derivation) = SectorSolver::with_basis_derivation(&sources, base, config.clone())
+        .expect("solver with basis derivation");
+    eprintln!(
+        "PREPARED basis={} seconds={:.3}",
+        solver.basis().len(),
+        t1.elapsed().as_secs_f64()
+    );
     let idx: [usize; N] = *sources.index_variables();
     let sector: [bool; N] = *solver.ordering().sector();
-    let template = sources.rows().iter().flat_map(|r| r.iter()).next().expect("a source term").coefficient.clone();
+    let template = sources
+        .rows()
+        .iter()
+        .flat_map(|r| r.iter())
+        .next()
+        .expect("a source term")
+        .coefficient
+        .clone();
     // config
     let mut initial: Vec<Case<N>> = Vec::new();
     let mut excludes: Vec<(String, Case<N>)> = Vec::new();
@@ -1126,25 +1526,46 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
         let words: Vec<&str> = line.split_whitespace().collect();
         match words[0] {
             "initial" => {
-                let c = case_from::<N>(words[1], words.get(2).copied().unwrap_or(""), &template, &idx, &sector);
+                let c = case_from::<N>(
+                    words[1],
+                    words.get(2).copied().unwrap_or(""),
+                    &template,
+                    &idx,
+                    &sector,
+                );
                 match c {
                     Some(c) => {
-                        writeln!(qlog, "{{\"type\":\"initial\",\"case\":{}}}", case_json(&c)).unwrap();
+                        writeln!(qlog, "{{\"type\":\"initial\",\"case\":{}}}", case_json(&c))
+                            .unwrap();
                         if prune_subsumed(&mut initial, &c) {
                             initial.push(c);
                         }
                     }
-                    None => writeln!(qlog, "{{\"type\":\"initial_empty\",\"spec\":{}}}", q(line)).unwrap(),
+                    None => writeln!(qlog, "{{\"type\":\"initial_empty\",\"spec\":{}}}", q(line))
+                        .unwrap(),
                 }
             }
             "exclude" => {
-                let c = case_from::<N>(words[2], words.get(3).copied().unwrap_or(""), &template, &idx, &sector);
+                let c = case_from::<N>(
+                    words[2],
+                    words.get(3).copied().unwrap_or(""),
+                    &template,
+                    &idx,
+                    &sector,
+                );
                 match c {
                     Some(c) => {
-                        writeln!(qlog, "{{\"type\":\"exclude\",\"label\":{},\"case\":{}}}", q(words[1]), case_json(&c)).unwrap();
+                        writeln!(
+                            qlog,
+                            "{{\"type\":\"exclude\",\"label\":{},\"case\":{}}}",
+                            q(words[1]),
+                            case_json(&c)
+                        )
+                        .unwrap();
                         excludes.push((words[1].to_string(), c));
                     }
-                    None => writeln!(qlog, "{{\"type\":\"exclude_empty\",\"spec\":{}}}", q(line)).unwrap(),
+                    None => writeln!(qlog, "{{\"type\":\"exclude_empty\",\"spec\":{}}}", q(line))
+                        .unwrap(),
                 }
             }
             "cert" => want_cert = words[1] == "on",
@@ -1177,8 +1598,17 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
     let mut c = std::io::BufWriter::new(std::fs::File::create(cert_path).expect("cert file"));
     write_cert_header(&mut c, fam, &sources);
     for (k, row) in derivation.rows.iter().enumerate() {
-        let entries: Vec<String> = row.iter().map(|(m, p)| format!("[{m},{}]", q(&p.to_string()))).collect();
-        writeln!(c, "{{\"type\":\"basis_row\",\"chart\":{},\"k\":{k},\"sources\":[{}]}}", q(&label), entries.join(",")).unwrap();
+        let entries: Vec<String> = row
+            .iter()
+            .map(|(m, p)| format!("[{m},{}]", q(&p.to_string())))
+            .collect();
+        writeln!(
+            c,
+            "{{\"type\":\"basis_row\",\"chart\":{},\"k\":{k},\"sources\":[{}]}}",
+            q(&label),
+            entries.join(",")
+        )
+        .unwrap();
     }
     c.flush().unwrap();
     let limits = CaseIntersectionLimits::default();
@@ -1226,12 +1656,23 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             }
         }
         let rest: Vec<usize> = (0..nvars).filter(|p| vals[*p].is_none()).collect();
-        assert_eq!(rest.len(), 1, "probe_point must name every index variable n0..n{} and d", N - 1);
+        assert_eq!(
+            rest.len(),
+            1,
+            "probe_point must name every index variable n0..n{} and d",
+            N - 1
+        );
         vals[rest[0]] = Some(dval.expect("probe_point d"));
         let joined: Vec<String> = vals.into_iter().map(|v| v.unwrap()).collect();
         joined.join(",")
     });
-    writeln!(qlog, "{{\"type\":\"probe_point\",\"nvars\":{nvars},\"spec\":{},\"env\":{}}}", probe_spec.as_deref().map_or("null".to_string(), q), probe_env.as_deref().map_or("null".to_string(), q)).unwrap();
+    writeln!(
+        qlog,
+        "{{\"type\":\"probe_point\",\"nvars\":{nvars},\"spec\":{},\"env\":{}}}",
+        probe_spec.as_deref().map_or("null".to_string(), q),
+        probe_env.as_deref().map_or("null".to_string(), q)
+    )
+    .unwrap();
     // [p5l-repair r9 v2] `cover_table PATH UPTO`: the rules 0..UPTO of an ancestor table (case + exception branches)
     let mut covers: Vec<(String, Case<N>, Vec<Vec<CoefficientPolynomial>>)> = Vec::new();
     for line in config_text.lines() {
@@ -1247,7 +1688,9 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             if !l.starts_with("{\"type\":\"rule\"") {
                 continue;
             }
-            let Some(r) = r9_rule_cover::<N>(l, &template, &idx, &sector, upto) else { continue };
+            let Some(r) = r9_rule_cover::<N>(l, &template, &idx, &sector, upto) else {
+                continue;
+            };
             match r {
                 Some(x) => {
                     covers.push((format!("{}#{}", w[1], loaded), x.0, x.1));
@@ -1257,24 +1700,45 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             }
         }
         writeln!(qlog, "{{\"type\":\"cover_table\",\"path\":{},\"upto\":{upto},\"loaded\":{loaded},\"skipped\":{skipped}}}", q(w[1])).unwrap();
-        eprintln!("COVER_TABLE {} upto {upto}: {loaded} rules loaded, {skipped} skipped (unparsed)", w[1]);
+        eprintln!(
+            "COVER_TABLE {} upto {upto}: {loaded} rules loaded, {skipped} skipped (unparsed)",
+            w[1]
+        );
     }
     let initial_keys: Vec<String> = initial.iter().map(|c| case_json(c)).collect();
     let mut pending: Vec<Case<N>> = Vec::new();
     let mut numerical: Vec<CoordinateCase<N>> = Vec::new();
     let mut rules: Vec<SectorRule<N>> = Vec::new();
-    let (mut cert_ok, mut cert_failed, mut nweights, mut poles_n) = (0usize, 0usize, 0usize, 0usize);
+    let (mut cert_ok, mut cert_failed, mut nweights, mut poles_n) =
+        (0usize, 0usize, 0usize, 0usize);
     let mut deferred_regions = 0usize;
-    let (mut symbolic_cases, mut discarded, mut deferred_cases, mut deferred_branches, mut lifted, mut modular_empty) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+    let (
+        mut symbolic_cases,
+        mut discarded,
+        mut deferred_cases,
+        mut deferred_branches,
+        mut lifted,
+        mut modular_empty,
+    ) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     let mut not_lower: Vec<String> = Vec::new();
     let mut terms = 0usize;
     let mut branches_total = 0usize;
     // enqueue closure as a macro-like fn over the explicit state
     #[allow(clippy::too_many_arguments)]
     fn enqueue<const N: usize>(
-        case: Case<N>, from: Option<usize>, pending: &mut Vec<Case<N>>, numerical: &mut Vec<CoordinateCase<N>>, rules: &[SectorRule<N>],
-        excludes: &[(String, Case<N>)], idx: &[usize; N], sector: &[bool; N], limits: CaseIntersectionLimits, qlog: &mut impl std::io::Write,
-        discarded: &mut usize, deferred: &mut usize, covers: &[(String, Case<N>, Vec<Vec<CoefficientPolynomial>>)],
+        case: Case<N>,
+        from: Option<usize>,
+        pending: &mut Vec<Case<N>>,
+        numerical: &mut Vec<CoordinateCase<N>>,
+        rules: &[SectorRule<N>],
+        excludes: &[(String, Case<N>)],
+        idx: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        qlog: &mut impl std::io::Write,
+        discarded: &mut usize,
+        deferred: &mut usize,
+        covers: &[(String, Case<N>, Vec<Vec<CoefficientPolynomial>>)],
     ) {
         // [p5l-repair r9 v2] rules of the ancestor pieces (FirstValid-earlier in the assembled table) prune like own rules
         for (label, rc, branches) in covers {
@@ -1288,20 +1752,39 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
         }
         for (k, rule) in rules.iter().enumerate() {
             if rule_covers(rule, &case, idx, sector, limits) {
-                writeln!(qlog, "{{\"type\":\"covered\",\"from_rule\":{},\"by_rule\":{k},\"case\":{}}}", from.map_or("null".into(), |x| x.to_string()), case_json(&case)).unwrap();
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"covered\",\"from_rule\":{},\"by_rule\":{k},\"case\":{}}}",
+                    from.map_or("null".into(), |x| x.to_string()),
+                    case_json(&case)
+                )
+                .unwrap();
                 *discarded += 1;
                 return;
             }
         }
         for (lab, ex) in excludes {
             if ex.contains(&case).unwrap_or(false) {
-                writeln!(qlog, "{{\"type\":\"deferred_case\",\"owner\":{},\"from_rule\":{},\"case\":{}}}", q(lab), from.map_or("null".into(), |x| x.to_string()), case_json(&case)).unwrap();
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"deferred_case\",\"owner\":{},\"from_rule\":{},\"case\":{}}}",
+                    q(lab),
+                    from.map_or("null".into(), |x| x.to_string()),
+                    case_json(&case)
+                )
+                .unwrap();
                 *deferred += 1;
                 return;
             }
         }
         if !prune_subsumed(pending, &case) {
-            writeln!(qlog, "{{\"type\":\"subsumed_by_pending\",\"from_rule\":{},\"case\":{}}}", from.map_or("null".into(), |x| x.to_string()), case_json(&case)).unwrap();
+            writeln!(
+                qlog,
+                "{{\"type\":\"subsumed_by_pending\",\"from_rule\":{},\"case\":{}}}",
+                from.map_or("null".into(), |x| x.to_string()),
+                case_json(&case)
+            )
+            .unwrap();
             *discarded += 1;
             return;
         }
@@ -1311,38 +1794,74 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 *discarded += 1;
                 return;
             }
-            writeln!(qlog, "{{\"type\":\"enqueue_numerical\",\"from_rule\":{},\"case\":{}}}", from.map_or("null".into(), |x| x.to_string()), case_json(&case)).unwrap();
+            writeln!(
+                qlog,
+                "{{\"type\":\"enqueue_numerical\",\"from_rule\":{},\"case\":{}}}",
+                from.map_or("null".into(), |x| x.to_string()),
+                case_json(&case)
+            )
+            .unwrap();
             numerical.push(fixed);
             return;
         }
         match pending.binary_search_by(|queued| queued.queue_cmp(&case)) {
             Ok(_) => *discarded += 1,
             Err(position) => {
-                writeln!(qlog, "{{\"type\":\"enqueue\",\"from_rule\":{},\"case\":{}}}", from.map_or("null".into(), |x| x.to_string()), case_json(&case)).unwrap();
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"enqueue\",\"from_rule\":{},\"case\":{}}}",
+                    from.map_or("null".into(), |x| x.to_string()),
+                    case_json(&case)
+                )
+                .unwrap();
                 pending.insert(position, case);
             }
         }
     }
     initial.sort_unstable_by(Case::queue_cmp);
     for case in initial {
-        enqueue(case, None, &mut pending, &mut numerical, &rules, &excludes, &idx, &sector, limits, &mut qlog, &mut discarded, &mut deferred_cases, &covers);
+        enqueue(
+            case,
+            None,
+            &mut pending,
+            &mut numerical,
+            &rules,
+            &excludes,
+            &idx,
+            &sector,
+            limits,
+            &mut qlog,
+            &mut discarded,
+            &mut deferred_cases,
+            &covers,
+        );
     }
     qlog.flush().unwrap();
     let t2 = Instant::now();
     let mut error: Option<String> = None;
     while !pending.is_empty() {
         if max_cases.is_some_and(|m| symbolic_cases >= m) {
-            error = Some(format!("max_cases {symbolic_cases} reached, {} pending", pending.len()));
+            error = Some(format!(
+                "max_cases {symbolic_cases} reached, {} pending",
+                pending.len()
+            ));
             break;
         }
         let current = pending.remove(0);
         if let Some(b) = case_budget {
             let mut g = R9.lock().unwrap();
             if g.is_none() {
-                r9_watchdog(b, format!("{}.spill.json", out_path.trim_end_matches(".table.jsonl")));
+                r9_watchdog(
+                    b,
+                    format!("{}.spill.json", out_path.trim_end_matches(".table.jsonl")),
+                );
             }
             let fixed_json = |f: &CoordinateCase<N>| {
-                let v: Vec<String> = f.fixed().iter().map(|x| x.map_or("null".to_string(), |y| y.to_string())).collect();
+                let v: Vec<String> = f
+                    .fixed()
+                    .iter()
+                    .map(|x| x.map_or("null".to_string(), |y| y.to_string()))
+                    .collect();
                 format!("{{\"fixed\":[{}],\"equations\":[]}}", v.join(","))
             };
             *g = Some(R9Snap {
@@ -1363,40 +1882,85 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 std::env::remove_var("RUSTRED_PROBE_POINT");
             }
         }
-        writeln!(qlog, "{{\"type\":\"probe_mode\",\"probe_point\":{use_probe},\"case\":{}}}", case_json(&current)).unwrap();
-        eprintln!("SEVENT {:.3}s CaseStarted pending={} case={:?}", t2.elapsed().as_secs_f64(), pending.len(), current);
-        writeln!(qlog, "{{\"type\":\"case_started\",\"t\":{:.3},\"pending\":{},\"case\":{}}}", t2.elapsed().as_secs_f64(), pending.len(), case_json(&current)).unwrap();
+        writeln!(
+            qlog,
+            "{{\"type\":\"probe_mode\",\"probe_point\":{use_probe},\"case\":{}}}",
+            case_json(&current)
+        )
+        .unwrap();
+        eprintln!(
+            "SEVENT {:.3}s CaseStarted pending={} case={:?}",
+            t2.elapsed().as_secs_f64(),
+            pending.len(),
+            current
+        );
+        writeln!(
+            qlog,
+            "{{\"type\":\"case_started\",\"t\":{:.3},\"pending\":{},\"case\":{}}}",
+            t2.elapsed().as_secs_f64(),
+            pending.len(),
+            case_json(&current)
+        )
+        .unwrap();
         qlog.flush().unwrap();
         let ts = Instant::now();
         let observe = |event: rustred::solver::SearchEvent<N>| {
             let s = format!("{event:?}");
             if !s.starts_with("ExactProgress") {
-                eprintln!("EVENT {:.3}s {}", t2.elapsed().as_secs_f64(), s.chars().take(400).collect::<String>());
+                eprintln!(
+                    "EVENT {:.3}s {}",
+                    t2.elapsed().as_secs_f64(),
+                    s.chars().take(400).collect::<String>()
+                );
             }
         };
         let solved = match &source_order {
             None => solver.solve_case_with_observer(current.clone(), symbolic.clone(), observe),
-            Some(order) => solver.solve_case_with_source_order_and_observer(current.clone(), symbolic.clone(), order, observe),
+            Some(order) => solver.solve_case_with_source_order_and_observer(
+                current.clone(),
+                symbolic.clone(),
+                order,
+                observe,
+            ),
         };
         let candidate = match solved {
             Ok(c) => c,
             Err(e) => {
                 error = Some(format!("search error on {current:?}: {e:?}"));
-                writeln!(qlog, "{{\"type\":\"search_error\",\"case\":{},\"error\":{}}}", case_json(&current), q(&format!("{e:?}").chars().take(4000).collect::<String>())).unwrap();
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"search_error\",\"case\":{},\"error\":{}}}",
+                    case_json(&current),
+                    q(&format!("{e:?}").chars().take(4000).collect::<String>())
+                )
+                .unwrap();
                 break;
             }
         };
         symbolic_cases += 1;
         let search_seconds = ts.elapsed().as_secs_f64();
-        let nl: Vec<String> = candidate.rhs.iter().filter(|t| solver.ordering().compare(&candidate.target, &t.integral) != Ordering::Less).map(|t| t.integral.to_string()).collect();
+        let nl: Vec<String> = candidate
+            .rhs
+            .iter()
+            .filter(|t| solver.ordering().compare(&candidate.target, &t.integral) != Ordering::Less)
+            .map(|t| t.integral.to_string())
+            .collect();
         if !nl.is_empty() {
-            error = Some(format!("winning rule is not strictly descending on {current:?}"));
+            error = Some(format!(
+                "winning rule is not strictly descending on {current:?}"
+            ));
             not_lower.extend(nl);
             break;
         }
         if dump_candidate {
             let cpath = format!("{}.cand.jsonl", out_path.trim_end_matches(".table.jsonl"));
-            let mut cf = std::io::BufWriter::new(std::fs::OpenOptions::new().create(true).append(true).open(&cpath).expect("cand file"));
+            let mut cf = std::io::BufWriter::new(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&cpath)
+                    .expect("cand file"),
+            );
             let mut dens: Vec<String> = Vec::new();
             for t in candidate.rhs.iter() {
                 let num = t.coefficient.numerator.to_string();
@@ -1411,7 +1975,13 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             writeln!(cf, "{{\"type\":\"cand_summary\",\"rule\":{},\"case\":{},\"target\":{},\"rhs\":{},\"sources\":{},\"search_seconds\":{:.3},\"distinct_denominators\":{},\"max_den_chars\":{}}}",
                 rules.len(), case_json(&candidate.case), q(&candidate.target.to_string()), candidate.rhs.len(), candidate.sources.len(), search_seconds, dens.len(), maxlen).unwrap();
             cf.flush().unwrap();
-            eprintln!("CAND dumped rule {} rhs={} distinct_dens={} max_den_chars={}", rules.len(), candidate.rhs.len(), dens.len(), maxlen);
+            eprintln!(
+                "CAND dumped rule {} rhs={} distinct_dens={} max_den_chars={}",
+                rules.len(),
+                candidate.rhs.len(),
+                dens.len(),
+                maxlen
+            );
         }
         // ---- round 8 / xstuck: candidate dump BEFORE GuardExtraction
         let names: Vec<String> = template.variables().iter().map(|v| v.to_string()).collect();
@@ -1420,10 +1990,29 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             let dpath = format!("{base}.cand_dump.r{}.json", rules.len());
             let tpath = format!("{base}.cand_terms.r{}.jsonl", rules.len());
             let td = Instant::now();
-            xs_write_dump(&dpath, &tpath, &candidate, &idx, &sector, &names, rules.len(), search_seconds, &config_text, if use_probe { probe_env.as_deref() } else { None });
+            xs_write_dump(
+                &dpath,
+                &tpath,
+                &candidate,
+                &idx,
+                &sector,
+                &names,
+                rules.len(),
+                search_seconds,
+                &config_text,
+                if use_probe {
+                    probe_env.as_deref()
+                } else {
+                    None
+                },
+            );
             writeln!(qlog, "{{\"type\":\"cand_dump\",\"rule\":{},\"file\":{},\"terms_file\":{},\"seconds\":{:.3}}}", rules.len(), q(&dpath), q(&tpath), td.elapsed().as_secs_f64()).unwrap();
             qlog.flush().unwrap();
-            eprintln!("CAND_DUMP rule {} rhs={} -> {dpath}", rules.len(), candidate.rhs.len());
+            eprintln!(
+                "CAND_DUMP rule {} rhs={} -> {dpath}",
+                rules.len(),
+                candidate.rhs.len()
+            );
         }
         let te = Instant::now();
         let mut guard_route = "native";
@@ -1434,7 +2023,11 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             let r = forked(&format!("native_r{}", rules.len()), secs, || {
                 let t = Instant::now();
                 match extract_exceptions(&candidate, &idx, &sector) {
-                    Ok(e) => format!("{{\"ok\":true,\"seconds\":{:.3},\"branches\":{}}}", t.elapsed().as_secs_f64(), xs_branches_json(&e)),
+                    Ok(e) => format!(
+                        "{{\"ok\":true,\"seconds\":{:.3},\"branches\":{}}}",
+                        t.elapsed().as_secs_f64(),
+                        xs_branches_json(&e)
+                    ),
                     Err(e) => format!("{{\"ok\":false,\"error\":{}}}", q(&format!("{e:?}"))),
                 }
             });
@@ -1453,54 +2046,115 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                     };
                     writeln!(qlog, "{{\"type\":\"native_try\",\"rule\":{},\"status\":\"{status}\",\"wall\":{wall:.3},\"child_cpu\":{cpu:.3},\"timeout\":{secs},\"msg\":{}}}", rules.len(), q(&msg)).unwrap();
                     qlog.flush().unwrap();
-                    eprintln!("NATIVE_TRY {status} after {wall:.1} s (child cpu {cpu:.1} s) on rule {}", rules.len());
+                    eprintln!(
+                        "NATIVE_TRY {status} after {wall:.1} s (child cpu {cpu:.1} s) on rule {}",
+                        rules.len()
+                    );
                     if let Some(ps) = guard_profile {
                         let inputs = xs_guard_inputs(&candidate, &idx);
                         let mut order: Vec<usize> = (0..inputs.len()).collect();
                         order.sort_by_key(|&k| (inputs[k].nterms(), k));
-                        let ppath = format!("{}.guard_profile.jsonl", out_path.trim_end_matches(".table.jsonl"));
-                        let mut pf = std::io::BufWriter::new(std::fs::OpenOptions::new().create(true).append(true).open(&ppath).expect("profile file"));
+                        let ppath = format!(
+                            "{}.guard_profile.jsonl",
+                            out_path.trim_end_matches(".table.jsonl")
+                        );
+                        let mut pf = std::io::BufWriter::new(
+                            std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&ppath)
+                                .expect("profile file"),
+                        );
                         let mut touts = 0usize;
                         for k in order {
                             let p = &inputs[k];
                             if touts >= guard_profile_max {
-                                writeln!(pf, "{{\"rule\":{},\"input\":{k},\"status\":\"skipped\",{}}}", rules.len(), xs_poly_info(p, &names)).unwrap();
+                                writeln!(
+                                    pf,
+                                    "{{\"rule\":{},\"input\":{k},\"status\":\"skipped\",{}}}",
+                                    rules.len(),
+                                    xs_poly_info(p, &names)
+                                )
+                                .unwrap();
                                 continue;
                             }
                             let r = forked(&format!("prof_r{}_{k}", rules.len()), ps, || {
                                 let t = Instant::now();
                                 let fs = p.factor();
-                                let items: Vec<String> = fs.iter().map(|(f, m)| format!("{{\"m\":{m},\"index\":{},{},\"f\":{}}}", xs_contains_index(f, &idx), xs_poly_info(f, &names), q(&f.to_string()))).collect();
-                                format!("{{\"seconds\":{:.3},\"factors\":[{}]}}", t.elapsed().as_secs_f64(), items.join(","))
+                                let items: Vec<String> = fs
+                                    .iter()
+                                    .map(|(f, m)| {
+                                        format!(
+                                            "{{\"m\":{m},\"index\":{},{},\"f\":{}}}",
+                                            xs_contains_index(f, &idx),
+                                            xs_poly_info(f, &names),
+                                            q(&f.to_string())
+                                        )
+                                    })
+                                    .collect();
+                                format!(
+                                    "{{\"seconds\":{:.3},\"factors\":[{}]}}",
+                                    t.elapsed().as_secs_f64(),
+                                    items.join(",")
+                                )
                             });
                             let line = match r {
-                                Forked::Done(s, w) => format!("{{\"rule\":{},\"input\":{k},\"status\":\"done\",\"wall\":{w:.3},{},\"result\":{}}}", rules.len(), xs_poly_info(p, &names), s.trim()),
+                                Forked::Done(s, w) => format!(
+                                    "{{\"rule\":{},\"input\":{k},\"status\":\"done\",\"wall\":{w:.3},{},\"result\":{}}}",
+                                    rules.len(),
+                                    xs_poly_info(p, &names),
+                                    s.trim()
+                                ),
                                 Forked::Timeout(w, cpu) => {
                                     touts += 1;
-                                    format!("{{\"rule\":{},\"input\":{k},\"status\":\"timeout\",\"wall\":{w:.3},\"child_cpu\":{cpu:.3},{}}}", rules.len(), xs_poly_info(p, &names))
+                                    format!(
+                                        "{{\"rule\":{},\"input\":{k},\"status\":\"timeout\",\"wall\":{w:.3},\"child_cpu\":{cpu:.3},{}}}",
+                                        rules.len(),
+                                        xs_poly_info(p, &names)
+                                    )
                                 }
-                                Forked::Failed(m, w) => format!("{{\"rule\":{},\"input\":{k},\"status\":\"failed\",\"wall\":{w:.3},\"msg\":{}}}", rules.len(), q(&m)),
+                                Forked::Failed(m, w) => format!(
+                                    "{{\"rule\":{},\"input\":{k},\"status\":\"failed\",\"wall\":{w:.3},\"msg\":{}}}",
+                                    rules.len(),
+                                    q(&m)
+                                ),
                             };
                             writeln!(pf, "{line}").unwrap();
                             pf.flush().unwrap();
-                            eprintln!("GUARD_PROFILE {}", line.chars().take(300).collect::<String>());
+                            eprintln!(
+                                "GUARD_PROFILE {}",
+                                line.chars().take(300).collect::<String>()
+                            );
                         }
                     }
                     let mut content: Option<ExceptionalConditions> = None;
                     if fallback == "content" {
-                        let r = forked(&format!("content_r{}", rules.len()), content_timeout, || {
-                            let mut log = Vec::new();
-                            let t = Instant::now();
-                            let e = xs_content_exceptions(&candidate, &idx, &sector, &names, &mut log);
-                            format!("{{\"seconds\":{:.3},\"branches\":{},\"log\":[{}]}}", t.elapsed().as_secs_f64(), xs_branches_json(&e), log.join(","))
-                        });
+                        let r = forked(
+                            &format!("content_r{}", rules.len()),
+                            content_timeout,
+                            || {
+                                let mut log = Vec::new();
+                                let t = Instant::now();
+                                let e = xs_content_exceptions(
+                                    &candidate, &idx, &sector, &names, &mut log,
+                                );
+                                format!(
+                                    "{{\"seconds\":{:.3},\"branches\":{},\"log\":[{}]}}",
+                                    t.elapsed().as_secs_f64(),
+                                    xs_branches_json(&e),
+                                    log.join(",")
+                                )
+                            },
+                        );
                         match r {
                             Forked::Done(s, w) => {
                                 writeln!(qlog, "{{\"type\":\"content_try\",\"rule\":{},\"status\":\"done\",\"wall\":{w:.3},\"child\":{}}}", rules.len(), s.trim()).unwrap();
                                 qlog.flush().unwrap();
                                 eprintln!("CONTENT_TRY done in {w:.1} s on rule {}", rules.len());
                                 let mut log = Vec::new();
-                                content = Some(xs_content_exceptions(&candidate, &idx, &sector, &names, &mut log));
+                                content = Some(xs_content_exceptions(
+                                    &candidate, &idx, &sector, &names, &mut log,
+                                ));
                             }
                             Forked::Timeout(w, cpu) => {
                                 writeln!(qlog, "{{\"type\":\"content_try\",\"rule\":{},\"status\":\"timeout\",\"wall\":{w:.3},\"child_cpu\":{cpu:.3}}}", rules.len()).unwrap();
@@ -1522,7 +2176,10 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                             writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{:.3},\"error\":{}}}", q(&label), t2.elapsed().as_secs_f64(), q(&format!("guard extraction: native_try {status} after {secs} s and no fallback on {current:?}"))).unwrap();
                             writeln!(out, "{{\"type\":\"end\",\"rules\":{},\"exception_timeout\":true,\"vmhwm_kb\":{}}}", rules.len(), vmhwm_kb()).unwrap();
                             out.flush().unwrap();
-                            eprintln!("EXCEPTION_TIMEOUT (native_try {status}, no fallback) on rule {}; exiting", rules.len());
+                            eprintln!(
+                                "EXCEPTION_TIMEOUT (native_try {status}, no fallback) on rule {}; exiting",
+                                rules.len()
+                            );
                             std::process::exit(7);
                         }
                     }
@@ -1548,7 +2205,10 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                             writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{:.3},\"error\":{}}}", q(&label), t2.elapsed().as_secs_f64(), q(&format!("exception extraction exceeded {secs} s on {current:?}"))).unwrap();
                             writeln!(out, "{{\"type\":\"end\",\"rules\":{},\"exception_timeout\":true,\"vmhwm_kb\":{}}}", rules.len(), vmhwm_kb()).unwrap();
                             out.flush().unwrap();
-                            eprintln!("EXCEPTION_TIMEOUT after {secs} s on rule {} (rhs {nrhs}); exiting", rules.len());
+                            eprintln!(
+                                "EXCEPTION_TIMEOUT after {secs} s on rule {} (rhs {nrhs}); exiting",
+                                rules.len()
+                            );
                             std::process::exit(7);
                         }
                     }
@@ -1563,19 +2223,34 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 break;
             }
         };
-        let rule = SectorRule { candidate, exceptions, dispatch_policy: Default::default() };
+        let rule = SectorRule {
+            candidate,
+            exceptions,
+            dispatch_policy: Default::default(),
+        };
         let index = rules.len();
         terms += write_rule(&mut out, &label, index, &rule);
         out.flush().unwrap();
         branches_total += rule.exceptions.branches.len();
-        let branch_strings: Vec<String> = rule.exceptions.branches.iter().map(|b| strings(b.iter())).collect();
+        let branch_strings: Vec<String> = rule
+            .exceptions
+            .branches
+            .iter()
+            .map(|b| strings(b.iter()))
+            .collect();
         writeln!(
             qlog,
             "{{\"type\":\"rule\",\"index\":{index},\"guard_route\":\"{guard_route}\",\"case\":{},\"rhs\":{},\"sources\":{},\"search_seconds\":{search_seconds:.3},\"exception_seconds\":{:.3},\"branches\":[{}]}}",
             case_json(&rule.candidate.case), rule.candidate.rhs.len(), rule.candidate.sources.len(), te.elapsed().as_secs_f64(), branch_strings.join(",")
         )
         .unwrap();
-        eprintln!("SEVENT {:.3}s RuleFound index={index} rhs={} sources={} branches={:?}", t2.elapsed().as_secs_f64(), rule.candidate.rhs.len(), rule.candidate.sources.len(), branch_strings);
+        eprintln!(
+            "SEVENT {:.3}s RuleFound index={index} rhs={} sources={} branches={:?}",
+            t2.elapsed().as_secs_f64(),
+            rule.candidate.rhs.len(),
+            rule.candidate.sources.len(),
+            branch_strings
+        );
         // exceptional children (admit every branch before mutating the queue)
         let mut children: Vec<Case<N>> = Vec::new();
         for (bi, branch) in rule.exceptions.branches.iter().enumerate() {
@@ -1585,16 +2260,34 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":\"not attempted: every polynomial of this AND branch is nonlinear (total degrees {degs:?}); defer_nonlinear on\"}}", strings(branch.iter())).unwrap();
                 continue;
             }
-            if let Some(secs) = admit_try.filter(|_| gsplit && branch.iter().any(|p| total_degree(p) >= 2)) {
+            if let Some(secs) =
+                admit_try.filter(|_| gsplit && branch.iter().any(|p| total_degree(p) >= 2))
+            {
                 out.flush().unwrap();
                 qlog.flush().unwrap();
                 c.flush().unwrap();
                 let case_ref = &rule.candidate.case;
                 let r = forked(&format!("admit_r{index}_b{bi}"), secs, || {
                     let t = Instant::now();
-                    match case_ref.intersect_many_refined(branch, &idx, &sector, limits, None, UnsupportedBranchPolicy::Defer, CaseRefinement::all()) {
-                        Ok(r) => format!("{{\"ok\":true,\"seconds\":{:.3},\"cases\":{},\"deferred\":{}}}", t.elapsed().as_secs_f64(), r.cases.len(), r.deferred.len()),
-                        Err(e) => format!("{{\"ok\":false,\"error\":{}}}", q(&format!("{e:?}").chars().take(400).collect::<String>())),
+                    match case_ref.intersect_many_refined(
+                        branch,
+                        &idx,
+                        &sector,
+                        limits,
+                        None,
+                        UnsupportedBranchPolicy::Defer,
+                        CaseRefinement::all(),
+                    ) {
+                        Ok(r) => format!(
+                            "{{\"ok\":true,\"seconds\":{:.3},\"cases\":{},\"deferred\":{}}}",
+                            t.elapsed().as_secs_f64(),
+                            r.cases.len(),
+                            r.deferred.len()
+                        ),
+                        Err(e) => format!(
+                            "{{\"ok\":false,\"error\":{}}}",
+                            q(&format!("{e:?}").chars().take(400).collect::<String>())
+                        ),
                     }
                 });
                 let (status, wall) = match &r {
@@ -1619,9 +2312,19 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                 }
             }
             let admitted = if gsplit {
-                rule.candidate.case.intersect_many_refined(branch, &idx, &sector, limits, None, UnsupportedBranchPolicy::Defer, CaseRefinement::all())
+                rule.candidate.case.intersect_many_refined(
+                    branch,
+                    &idx,
+                    &sector,
+                    limits,
+                    None,
+                    UnsupportedBranchPolicy::Defer,
+                    CaseRefinement::all(),
+                )
             } else {
-                rule.candidate.case.intersect_many(branch, &idx, &sector, limits)
+                rule.candidate
+                    .case
+                    .intersect_many(branch, &idx, &sector, limits)
             };
             match admitted {
                 Ok(r) => {
@@ -1645,7 +2348,12 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                         writeln!(qlog, "{{\"type\":\"branch_empty\",\"rule\":{index},\"branch\":{bi},\"polys\":{}}}", strings(branch.iter())).unwrap();
                     }
                     for ch in &r.cases {
-                        writeln!(qlog, "{{\"type\":\"child\",\"rule\":{index},\"branch\":{bi},\"case\":{}}}", case_json(ch)).unwrap();
+                        writeln!(
+                            qlog,
+                            "{{\"type\":\"child\",\"rule\":{index},\"branch\":{bi},\"case\":{}}}",
+                            case_json(ch)
+                        )
+                        .unwrap();
                     }
                     children.extend(r.cases);
                 }
@@ -1661,7 +2369,21 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             break;
         }
         for ch in children {
-            enqueue(ch, Some(index), &mut pending, &mut numerical, &rules, &excludes, &idx, &sector, limits, &mut qlog, &mut discarded, &mut deferred_cases, &covers);
+            enqueue(
+                ch,
+                Some(index),
+                &mut pending,
+                &mut numerical,
+                &rules,
+                &excludes,
+                &idx,
+                &sector,
+                limits,
+                &mut qlog,
+                &mut discarded,
+                &mut deferred_cases,
+                &covers,
+            );
         }
         qlog.flush().unwrap();
         rule_secs.push((index, search_seconds));
@@ -1669,11 +2391,16 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
             out.flush().unwrap();
             qlog.flush().unwrap();
             c.flush().unwrap();
-            let (line, ok, w, p) = xs_cert_one(&solver, &label, index, &rule, cert_timeout, &mut qlog);
+            let (line, ok, w, p) =
+                xs_cert_one(&solver, &label, index, &rule, cert_timeout, &mut qlog);
             writeln!(c, "{line}").unwrap();
             c.flush().unwrap();
             qlog.flush().unwrap();
-            if ok { cert_ok += 1 } else { cert_failed += 1 }
+            if ok {
+                cert_ok += 1
+            } else {
+                cert_failed += 1
+            }
             nweights += w;
             poles_n += usize::from(p);
             eprintln!("CERT rule {index} ok={ok} weights={w}");
@@ -1687,15 +2414,40 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
     let mut numerical_cases = 0;
     if error.is_none() && !numerical.is_empty() {
         numerical_cases = numerical.len();
-        eprintln!("SEVENT {:.3}s NumericalStarted cases={numerical:?}", t2.elapsed().as_secs_f64());
-        match solver.solve_numeric_cases(numerical.clone(), SearchOptions { max_depth: Some(2), ..symbolic.clone() }) {
+        eprintln!(
+            "SEVENT {:.3}s NumericalStarted cases={numerical:?}",
+            t2.elapsed().as_secs_f64()
+        );
+        match solver.solve_numeric_cases(
+            numerical.clone(),
+            SearchOptions {
+                max_depth: Some(2),
+                ..symbolic.clone()
+            },
+        ) {
             Ok(result) => {
                 for candidate in result.rules {
-                    let nl: Vec<String> = candidate.rhs.iter().filter(|t| solver.ordering().compare(&candidate.target, &t.integral) != Ordering::Less).map(|t| t.integral.to_string()).collect();
+                    let nl: Vec<String> = candidate
+                        .rhs
+                        .iter()
+                        .filter(|t| {
+                            solver.ordering().compare(&candidate.target, &t.integral)
+                                != Ordering::Less
+                        })
+                        .map(|t| t.integral.to_string())
+                        .collect();
                     not_lower.extend(nl);
-                    let exceptions = extract_exceptions(&candidate, &idx, &sector).expect("numerical exceptions");
-                    assert!(exceptions.branches.is_empty(), "a fully fixed rule has no index exceptions");
-                    let rule = SectorRule { candidate, exceptions, dispatch_policy: Default::default() };
+                    let exceptions = extract_exceptions(&candidate, &idx, &sector)
+                        .expect("numerical exceptions");
+                    assert!(
+                        exceptions.branches.is_empty(),
+                        "a fully fixed rule has no index exceptions"
+                    );
+                    let rule = SectorRule {
+                        candidate,
+                        exceptions,
+                        dispatch_policy: Default::default(),
+                    };
                     let index = rules.len();
                     terms += write_rule(&mut out, &label, index, &rule);
                     out.flush().unwrap();
@@ -1704,7 +2456,11 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
                         let (line, ok, w, p) = cert_line(&solver, &label, index, &rule);
                         writeln!(c, "{line}").unwrap();
                         c.flush().unwrap();
-                        if ok { cert_ok += 1 } else { cert_failed += 1 }
+                        if ok {
+                            cert_ok += 1
+                        } else {
+                            cert_failed += 1
+                        }
                         nweights += w;
                         poles_n += usize::from(p);
                     }
@@ -1718,11 +2474,23 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
         }
     }
     for key in &residual_points {
-        writeln!(out, "{{\"type\":\"residual\",\"chart\":{},\"key\":{}}}", q(&label), q(key)).unwrap();
+        writeln!(
+            out,
+            "{{\"type\":\"residual\",\"chart\":{},\"key\":{}}}",
+            q(&label),
+            q(key)
+        )
+        .unwrap();
     }
     let seconds = t2.elapsed().as_secs_f64();
     if let Some(e) = &error {
-        writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{}}}", q(&label), q(&e.chars().take(4000).collect::<String>())).unwrap();
+        writeln!(
+            out,
+            "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{}}}",
+            q(&label),
+            q(&e.chars().take(4000).collect::<String>())
+        )
+        .unwrap();
     }
     writeln!(
         out,
@@ -1738,17 +2506,34 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
     .unwrap();
     out.flush().unwrap();
     if want_cert && cert_defer {
-        writeln!(qlog, "{{\"type\":\"queue_done\",\"rules\":{},\"error\":{},\"seconds\":{seconds:.3}}}", rules.len(), error.as_deref().map_or("null".to_string(), q)).unwrap();
+        writeln!(
+            qlog,
+            "{{\"type\":\"queue_done\",\"rules\":{},\"error\":{},\"seconds\":{seconds:.3}}}",
+            rules.len(),
+            error.as_deref().map_or("null".to_string(), q)
+        )
+        .unwrap();
         qlog.flush().unwrap();
         let mut order = rule_secs.clone();
         order.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
         for (index, secs) in order {
             eprintln!("CERT_DEFERRED start rule {index} (search {secs:.1} s)");
-            let (line, ok, w, p) = xs_cert_one(&solver, &label, index, &rules[index], cert_timeout, &mut qlog);
+            let (line, ok, w, p) = xs_cert_one(
+                &solver,
+                &label,
+                index,
+                &rules[index],
+                cert_timeout,
+                &mut qlog,
+            );
             writeln!(c, "{line}").unwrap();
             c.flush().unwrap();
             qlog.flush().unwrap();
-            if ok { cert_ok += 1 } else { cert_failed += 1 }
+            if ok {
+                cert_ok += 1
+            } else {
+                cert_failed += 1
+            }
             nweights += w;
             poles_n += usize::from(p);
             eprintln!("CERT rule {index} ok={ok} weights={w}");
@@ -1758,13 +2543,23 @@ fn run<const N: usize>(family_path: &str, family_text: &str, fam: &IntegralFamil
     c.flush().unwrap();
     writeln!(qlog, "{{\"type\":\"end\",\"error\":{},\"rules\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{numerical_cases},\"residuals\":{},\"deferred_cases\":{deferred_cases},\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions},\"discarded\":{discarded},\"seconds\":{seconds:.3}}}", error.as_deref().map_or("null".to_string(), q), rules.len(), residual_points.len()).unwrap();
     qlog.flush().unwrap();
-    println!("{{\"rules\":{},\"rhs\":{terms},\"residuals\":{},\"deferred_regions\":{deferred_regions},\"deferred_cases\":{deferred_cases},\"deferred_branches\":{deferred_branches},\"not_lower\":{},\"cert_ok\":{cert_ok},\"cert_failed\":{cert_failed},\"error\":{},\"seconds\":{seconds:.3},\"vmhwm_kb\":{}}}", rules.len(), residual_points.len(), not_lower.len(), error.as_deref().map_or("null".to_string(), q), vmhwm_kb());
+    println!(
+        "{{\"rules\":{},\"rhs\":{terms},\"residuals\":{},\"deferred_regions\":{deferred_regions},\"deferred_cases\":{deferred_cases},\"deferred_branches\":{deferred_branches},\"not_lower\":{},\"cert_ok\":{cert_ok},\"cert_failed\":{cert_failed},\"error\":{},\"seconds\":{seconds:.3},\"vmhwm_kb\":{}}}",
+        rules.len(),
+        residual_points.len(),
+        not_lower.len(),
+        error.as_deref().map_or("null".to_string(), q),
+        vmhwm_kb()
+    );
     i32::from(!not_lower.is_empty() || cert_failed != 0 || error.is_some())
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 5, "usage: face_queue FAMILY OUT.table.jsonl OUT.cert.jsonl CONFIG");
+    assert!(
+        args.len() >= 5,
+        "usage: face_queue FAMILY OUT.table.jsonl OUT.cert.jsonl CONFIG"
+    );
     let family_text = std::fs::read_to_string(&args[1]).expect("read family");
     let fam = Compiler::new(Limits::default())
         .expect("compiler")
@@ -1773,7 +2568,13 @@ fn main() {
         .into_lowered(LoweringLimits::default())
         .expect("lower family")
         .into_family();
-    eprintln!("family {} loops={} externals={} denominators={}", fam.name(), fam.loop_count(), fam.external_count(), fam.denominator_count());
+    eprintln!(
+        "family {} loops={} externals={} denominators={}",
+        fam.name(),
+        fam.loop_count(),
+        fam.external_count(),
+        fam.denominator_count()
+    );
     assert_eq!(fam.denominator_count(), 20, "T211-only frontend arity");
     let code = run::<20>(&args[1], &family_text, &fam, &args[2], &args[3], &args[4]);
     std::process::exit(code);
