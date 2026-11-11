@@ -462,6 +462,16 @@ pub(crate) trait OrderedWeights {
         weight: &Self::Weight,
         coefficient: &Coefficient,
     ) -> Result<Self::Contribution, ReductionError>;
+    /// `scale` with the coefficient's interning hash computed ahead
+    /// (`modular::coefficient_hash`, rr-par; `None`: not computed).
+    fn scale_hashed(
+        &mut self,
+        weight: &Self::Weight,
+        coefficient: &Coefficient,
+        _hash: Option<u64>,
+    ) -> Result<Self::Contribution, ReductionError> {
+        self.scale(weight, coefficient)
+    }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
@@ -1244,6 +1254,12 @@ trait StepSource<K: OrderedKernel> {
     fn threads(&self) -> usize {
         1
     }
+
+    /// rr-par: the interning hashes of the coefficients of the step just
+    /// returned (terms in order, then terminals), when computed ahead.
+    fn take_hashes(&mut self) -> Option<Vec<u64>> {
+        None
+    }
 }
 
 /// The adapter's own step, computed when the key is popped.
@@ -1515,6 +1531,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             kernel.observe(progress, Some(&node.key))?;
             let source_started = par_clock.now();
             let checked = steps.step(kernel, frontier, &node, request, work)?;
+            let hashes = steps.take_hashes();
+            let term_count = checked.terms.len();
             if let Some(started) = source_started {
                 par_pops += 1;
                 par_source += started.elapsed().as_secs_f64();
@@ -1526,10 +1544,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 guards.intern(nonzero_conditions, condition, |_| Ok(()))?;
             }
             weights.begin_step(&weight)?;
-            for (child, coefficient) in checked.terms {
+            for (index, (child, coefficient)) in checked.terms.into_iter().enumerate() {
                 if coefficient.is_zero() {
                     continue;
                 }
+                let hash = hashes.as_ref().map(|hashes| hashes[index]);
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
                 let removed = frontier.child(child, |found| {
                     Ok::<_, K::Error>(match found {
@@ -1546,7 +1565,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                 &node.priority,
                                 progress.total_phases,
                             )?;
-                            let contribution = weights.scale(&weight, &coefficient)?;
+                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                             work.record_coalescing_additions(1);
                             request.record_coalescing_additions(
                                 1,
@@ -1574,7 +1593,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         Child::Vacant(key) => {
                             let position = kernel.position(key)?;
                             check_descent(&position, phase, &node.priority, progress.total_phases)?;
-                            let contribution = weights.scale(&weight, &coefficient)?;
+                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                             if weights.contribution_is_zero(&contribution) {
                                 ChildAction::Keep
                             } else {
@@ -1605,8 +1624,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     .peak_frontier_coefficient_monomials
                     .max(progress.frontier_coefficient_monomials);
             }
-            for (terminal, coefficient) in checked.terminals {
-                let contribution = weights.scale(&weight, &coefficient)?;
+            for (index, (terminal, coefficient)) in checked.terminals.into_iter().enumerate() {
+                let hash = hashes.as_ref().map(|hashes| hashes[term_count + index]);
+                let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
                 if weights.contribution_is_zero(&contribution) {
                     continue;
                 }

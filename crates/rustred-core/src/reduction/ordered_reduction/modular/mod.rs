@@ -120,6 +120,12 @@ impl Lifter {
     }
 }
 
+/// rr-par: the hash the recorder interns `coefficient` under, so that the
+/// workers can compute it ahead of the sequential merge (`Pipelined`).
+pub(crate) fn coefficient_hash(coefficient: &Coefficient) -> u64 {
+    FxBuild.hash_one(coefficient)
+}
+
 /// Interned coefficient reference; the top bit marks a constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CoefRef(u32);
@@ -617,8 +623,16 @@ impl ModularRecorder {
     }
 
     fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefRef, ReductionError> {
+        self.intern_hashed(coefficient, FxBuild.hash_one(coefficient))
+    }
+
+    /// `intern` with the coefficient's hash ([`coefficient_hash`]).
+    fn intern_hashed(
+        &mut self,
+        coefficient: &Coefficient,
+        hash: u64,
+    ) -> Result<CoefRef, ReductionError> {
         self.lookups += 1;
-        let hash = FxBuild.hash_one(coefficient);
         let entries = &self.entries;
         if let Some(&index) = self
             .table
@@ -1085,6 +1099,24 @@ impl OrderedWeights for ModularRecorder {
     ) -> Result<ModularContribution, ReductionError> {
         let zero = coefficient.is_zero();
         let reference = self.intern(coefficient)?;
+        Ok(ModularContribution {
+            coefficient: reference,
+            probe: self.scaled(weight, reference),
+            zero,
+        })
+    }
+
+    fn scale_hashed(
+        &mut self,
+        weight: &ModularWeight,
+        coefficient: &Coefficient,
+        hash: Option<u64>,
+    ) -> Result<ModularContribution, ReductionError> {
+        let Some(hash) = hash else {
+            return self.scale(weight, coefficient);
+        };
+        let zero = coefficient.is_zero();
+        let reference = self.intern_hashed(coefficient, hash)?;
         Ok(ModularContribution {
             coefficient: reference,
             probe: self.scaled(weight, reference),

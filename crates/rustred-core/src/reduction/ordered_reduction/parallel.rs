@@ -683,7 +683,8 @@ type Candidate<S> = (
 /// same-phase children of its steps below the threshold (the candidates of
 /// the next window).
 struct Computed<S: OrderedStepper> {
-    steps: Vec<(S::Key, StepOf<S>)>,
+    /// Built by the thread that computed the window (not the scheduler).
+    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
     threshold: Scheduled<S::Key, S::Priority>,
     below: Vec<Candidate<S>>,
 }
@@ -718,7 +719,15 @@ fn compute_window<S: OrderedStepper>(
                     }
                 }
             }
-            (step, below)
+            // The recorder's interning hashes, computed here instead of on
+            // the sequential merge (terms in order, then terminals).
+            let hashes = step
+                .terms
+                .values()
+                .chain(step.terminals.values())
+                .map(super::modular::coefficient_hash)
+                .collect();
+            (step, below, hashes)
         },
     );
     if let (Some(started), Some(counters)) = (started, &counters) {
@@ -739,11 +748,13 @@ fn compute_window<S: OrderedStepper>(
     let steps = detached
         .into_iter()
         .map(|step| {
-            let result = step.result.map(|(step, mut children)| {
+            let mut hashes = Vec::new();
+            let result = step.result.map(|(step, mut children, computed)| {
                 below.append(&mut children);
+                hashes = computed;
                 step
             });
-            (step.key, (result, step.account))
+            (step.key, ((result, step.account), hashes))
         })
         .collect();
     Computed {
@@ -796,7 +807,9 @@ pub(super) struct Pipelined<'scope, 'p, S: OrderedStepper> {
     workers: &'scope Workers,
     stepper: &'scope S,
     window_keys: usize,
-    steps: HashMap<S::Key, StepOf<S>>,
+    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
+    /// The hashes of the step returned last.
+    hashes: Option<Vec<u64>>,
     /// The phase and the receiver of the window being computed ahead.
     ahead: Option<(usize, std::sync::mpsc::Receiver<Option<Computed<S>>>)>,
 }
@@ -819,6 +832,7 @@ where
             stepper,
             window_keys,
             steps: HashMap::new(),
+            hashes: None,
             ahead: None,
         }
     }
@@ -834,10 +848,10 @@ where
             threshold,
             below,
         } = computed;
-        self.steps.clear();
-        self.steps.reserve(steps.len());
-        for (key, step) in steps {
-            self.steps.insert(key, step);
+        // The leftover steps (dead keys) are dropped on the workers.
+        let spent = std::mem::replace(&mut self.steps, steps);
+        if !spent.is_empty() {
+            self.scope.spawn(move |_| drop(spent));
         }
         let phase = threshold.phase.0;
         let mut candidates = below;
@@ -892,7 +906,7 @@ where
                     .fetch_add(super::parstats::nanos(waited.elapsed()), Ordering::Relaxed);
             }
             if let Some(computed) = computed {
-                let hit = computed.steps.iter().any(|(key, _)| *key == node.key);
+                let hit = computed.steps.contains_key(&node.key);
                 if hit {
                     if stats {
                         super::parstats::SOURCE
@@ -953,16 +967,21 @@ where
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<K::Key>, K::Error> {
         self.obtain(frontier, node);
-        let (result, account) = self
+        let ((result, account), hashes) = self
             .steps
             .remove(&node.key)
             .ok_or_else(|| invariant("a pipelined ordered step is missing"))?;
         kernel.absorb(&node.key, account, request, work)?;
+        self.hashes = Some(hashes).filter(|_| result.is_ok());
         result
     }
 
     fn threads(&self) -> usize {
         self.workers.pool.current_num_threads()
+    }
+
+    fn take_hashes(&mut self) -> Option<Vec<u64>> {
+        self.hashes.take()
     }
 }
 
