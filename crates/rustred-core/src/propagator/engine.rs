@@ -1199,7 +1199,7 @@ impl<'l> PStepper<'l> {
             ));
         }
         let mut target: SmallVec<[i64; 24]> = SmallVec::new();
-        super::step_memo::coefficients(|values| -> Result<(), PError> {
+        super::step_memo::coefficients_of(&expansion, |values| -> Result<(), PError> {
             for (relative, &coefficient) in expansion
                 .offsets
                 .chunks(expansion.arity.max(1))

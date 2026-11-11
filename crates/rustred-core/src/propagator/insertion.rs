@@ -326,7 +326,7 @@ impl InsertionStep {
                         Ok((table, weights))
                     })?;
                     match memo {
-                        Some(memo) => step_memo::coefficients(|values| {
+                        Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
                         }),
                         // The shared memo is full: compute directly.

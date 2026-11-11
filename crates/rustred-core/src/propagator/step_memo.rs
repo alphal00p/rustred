@@ -198,6 +198,23 @@ pub(crate) fn coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) 
     if shared_enabled() {
         return with_shared(|memo| f(&|index| rehome(memo.coefficient(index))));
     }
+    local_coefficients(f)
+}
+
+/// [`coefficients`] for the indices of `held`: the table of the memo that
+/// issued them (the mode is decided once per lookup, by [`insertion`] or
+/// [`route`]).
+pub(crate) fn coefficients_of<V, R>(
+    held: &Held<V>,
+    f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R,
+) -> R {
+    match held {
+        Held::Shared(_) => with_shared(|memo| f(&|index| rehome(memo.coefficient(index)))),
+        Held::Local(_) => local_coefficients(f),
+    }
+}
+
+fn local_coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) -> R {
     STATE.with(|state| {
         let state = state.borrow();
         let values = &state.coefficients.values;
@@ -439,9 +456,17 @@ pub(crate) fn counters() -> [u64; 7] {
 /// one. Values are those of the per-thread memo (same keys, same
 /// computations).
 pub(crate) fn shared_enabled() -> bool {
-    // Only while a request on several threads runs: one thread has nothing
-    // to share and keeps the cheaper per-thread memo.
-    shared_requested() && SHARED_ACTIVE.load(Ordering::Relaxed) > 0
+    // Only for requests on several threads: one thread has nothing to share
+    // and keeps the cheaper per-thread memo (a one-thread request runs all
+    // its steps on its calling thread, marked by `begin`).
+    shared_requested()
+        && !SINGLE.with(std::cell::Cell::get)
+        && SHARED_ACTIVE.load(Ordering::Relaxed) > 0
+}
+
+thread_local! {
+    /// This thread runs a one-thread request (per-thread memo).
+    static SINGLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn shared_requested() -> bool {
@@ -614,29 +639,43 @@ thread_local! {
 /// `f` on the current shared memo (created on first use).
 fn with_shared<R>(f: impl FnOnce(&SharedMemo) -> R) -> R {
     let generation = SHARED_GENERATION.load(Ordering::Acquire);
-    let memo = SHARED_LOCAL.with(|local| {
-        let mut local = local.borrow_mut();
-        match &*local {
-            Some((held, memo)) if *held == generation => std::sync::Arc::clone(memo),
-            _ => {
-                let memo = std::sync::Arc::clone(
-                    SHARED_MEMO
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .get_or_insert_with(|| std::sync::Arc::new(SharedMemo::new())),
-                );
-                *local = Some((generation, std::sync::Arc::clone(&memo)));
-                memo
-            }
-        }
+    // The thread's handle, without touching the shared count of the memo on
+    // every call (one refresh per generation).
+    let fresh = SHARED_LOCAL.with(|local| {
+        local
+            .try_borrow()
+            .is_ok_and(|local| matches!(&*local, Some((held, _)) if *held == generation))
     });
-    f(&memo)
+    if !fresh {
+        let memo = std::sync::Arc::clone(
+            SHARED_MEMO
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_or_insert_with(|| std::sync::Arc::new(SharedMemo::new())),
+        );
+        let installed = SHARED_LOCAL.with(|local| match local.try_borrow_mut() {
+            Ok(mut local) => {
+                *local = Some((generation, std::sync::Arc::clone(&memo)));
+                true
+            }
+            Err(_) => false,
+        });
+        if !installed {
+            // A nested call while the handle is borrowed: use this one.
+            return f(&memo);
+        }
+    }
+    SHARED_LOCAL.with(|local| {
+        let local = local.borrow();
+        f(&local.as_ref().expect("installed above").1)
+    })
 }
 
 /// A request on `threads` threads starts using the memos: the shared memo
 /// (when requested) serves requests on several threads and lives while any
 /// of them runs. Returns whether this request counts as one ([`end`]).
 pub(crate) fn begin(threads: usize) -> bool {
+    SINGLE.with(|single| single.set(threads <= 1));
     let counted = shared_requested() && threads > 1;
     if counted {
         SHARED_ACTIVE.fetch_add(1, Ordering::AcqRel);
@@ -650,6 +689,7 @@ pub(crate) fn end(counted: bool) {
     if counted {
         end_shared();
     }
+    SINGLE.with(|single| single.set(false));
     clear();
 }
 
