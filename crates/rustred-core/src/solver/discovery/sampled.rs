@@ -196,6 +196,13 @@ pub(super) fn materialize<const N: usize>(
         info.points,
         start.elapsed().as_secs_f64()
     );
+    let unknowns = (boxes.l_mons.len() + boxes.nf_mons.len()).max(boxes.p_mons.len());
+    if unknowns > recon::MAX_BOX {
+        // The relation itself is large (dense box beyond the cubic-solve limit): the sampled route cannot help, so the
+        // ordinary exact lift keeps its chance (it closes such lifts when the elimination does not swell, e.g. T163 1504 rows).
+        eprintln!("SAMPLED fallback: dense box {unknowns} > {} -> targetonlyfactorized exact lift", recon::MAX_BOX);
+        return super::target_only::materialize_factorized(rows, columns, order, target_column, variables, observe);
+    }
     let mut lift = recon::Lift::new();
     let mut norm = None;
     let mut confirmed = false;
