@@ -219,15 +219,17 @@ class Field:
         return a == 0
 
 
-def laporta(templates, slots, eps, d, seeds_box, F, keep):
+def laporta(templates, slots, eps, d, seeds_box, F, keep, masters=frozenset()):
     eps_val = (4 - d) / 2
     N = len(slots)
 
     def weight(k):
+        # The owner's residuals (`masters`) are the least integrals: Laporta then reduces onto THEM
+        # (with LP >= 2 its own complexity order may prefer another basis, e.g. a numerator over a dot).
         dots = sum(k[a] - 1 for a in range(N) if slots[a][2] and eps[a] == 0 and k[a] > 1)
         num = sum(-k[a] for a in range(N) if not slots[a][2] and k[a] < 0)
         epsx = sum(abs(k[a] - 1) for a in range(N) if eps[a] != 0)
-        return (dots + num + epsx, dots + epsx, num, tuple(-x for x in k))
+        return (k not in masters, dots + num + epsx, dots + epsx, num, tuple(-x for x in k))
     pivots = {}
 
     def reduce_row(row):
@@ -340,6 +342,11 @@ def main():
     loops, slots, eps = parse_family(header)
     N = len(slots)
     replay = json.load(open('%s/%s.replay.json' % (a.import_dir, a.label)))
+    # The owner's residuals in TABLE slot order (the import record keeps them in presentation order).
+    record = json.load(open('%s/%s.json' % (a.import_dir, a.label)))
+    slot_map = record['slot_map']
+    masters = frozenset(tuple(key[slot_map[j]] for j in range(len(slot_map)))
+                        for chart in record['charts'] for key in chart['residuals'])
     t0 = time.time()
     templates = ibp_templates(loops, slots, a.qq)
     t_tmpl = time.time() - t0
@@ -355,7 +362,7 @@ def main():
         d = Fraction(dtext)
         for fname, F in fields:
             t1 = time.time()
-            express, npiv = laporta(templates, slots, eps, d, box, F, keep)
+            express, npiv = laporta(templates, slots, eps, d, box, F, keep, masters)
             tl = time.time() - t1
             for res in replay['results']:
                 seed = tuple(res['seed'])
