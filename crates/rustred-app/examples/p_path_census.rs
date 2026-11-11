@@ -229,7 +229,12 @@ fn cpu_seconds() -> f64 {
     let fields: Vec<&str> = stat
         .rsplit_once(')')
         .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
-    let ticks = |i: usize| fields.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
     (ticks(11) + ticks(12)) / 100.0
 }
 

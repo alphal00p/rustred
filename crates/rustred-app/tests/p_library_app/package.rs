@@ -1621,6 +1621,17 @@ fn saved_orbits_restore_the_searched_groups_and_change_no_value() {
         Some(saved)
     );
     assert_eq!(loaded.identity(), plain.identity());
+    // Saved groups switch canonicalisation on by default (M5 batch 2); a
+    // library without them keeps the old default and step identity.
+    assert_eq!(
+        plain.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_DEFAULT
+    );
+    assert_eq!(
+        loaded.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS
+    );
+    loaded.set_orbit_canonicalization(plain.orbit_canonicalization());
     assert_eq!(loaded.step_identity(), plain.step_identity());
     let off = reductions(&plain, &requests, false);
     for library in [&plain, &loaded] {
@@ -1641,6 +1652,10 @@ fn saved_orbits_restore_the_searched_groups_and_change_no_value() {
     );
     let verified = load(&directory).unwrap();
     assert!(verified.saved_orbits().is_none());
+    assert_eq!(
+        verified.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_DEFAULT
+    );
 }
 
 /// p artefact v2 (M5 m5-1l3l, notes/artifact-ordering.SPEC.md): an ordering

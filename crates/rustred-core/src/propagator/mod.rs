@@ -115,6 +115,15 @@ pub const P_ORBIT_CANON_VERSION: u32 = 3;
 /// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction
 /// path, the step identity and the step records are the ones without A2.
 pub const P_ORBIT_CANON_DEFAULT: bool = false;
+/// Whether a new [`library::PLibrary`] that carries saved automorphism
+/// groups (`orbits.rrbin`, [`library::PLibraryBuilder::set_saved_orbits`])
+/// canonicalises keys under orbits. On (M5 batch 2, measured 2026-11-11 on the
+/// combined 1-4 package, 12 cells, values identical): 16 threads -17 % cold and
+/// -15 % warm wall, peak RSS -1..-14 %; 1 thread -5.7 % instructions. A
+/// library without saved groups keeps [`P_ORBIT_CANON_DEFAULT`] (the run-time
+/// group search costs more cold time than it saves on small requests), so
+/// the step identity, and the step caches, of such a library do not change.
+pub const P_ORBIT_CANON_WITH_SAVED_ORBITS: bool = true;
 
 const _: () = assert!(P_GAMMA_TAG_WIDTH == 2 * P_GAMMA_TAG_MAX_M as usize);
 

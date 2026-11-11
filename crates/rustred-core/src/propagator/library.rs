@@ -30,8 +30,8 @@ use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::topology::{Dag, NodeInfo};
 use super::{
-    NodeIndex, OwnerClassId, P_ORBIT_CANON_DEFAULT, P_ORBIT_CANON_VERSION, PTerminalId,
-    PresentationId, p_versions,
+    NodeIndex, OwnerClassId, P_ORBIT_CANON_DEFAULT, P_ORBIT_CANON_VERSION,
+    P_ORBIT_CANON_WITH_SAVED_ORBITS, PTerminalId, PresentationId, p_versions,
 };
 
 #[derive(Clone)]
@@ -323,7 +323,8 @@ impl PLibrary {
 
     /// Switch the orbit canonicalisation of Apply keys (M5 R0 A2) on or off
     /// for the requests that start after this call; the default is
-    /// [`super::P_ORBIT_CANON_DEFAULT`].
+    /// [`super::P_ORBIT_CANON_WITH_SAVED_ORBITS`] for a library with saved
+    /// groups (`orbits.rrbin`), else [`super::P_ORBIT_CANON_DEFAULT`].
     /// Canonicalisation replaces an Apply key by the least of its exact images
     /// under the verified automorphisms of its owner sector (one key times
     /// `+-1`, module [`super::orbit`]), so symmetric copies merge. The values
@@ -864,6 +865,12 @@ impl PLibraryBuilder {
                 return Err(malformed(format!("two top presentations named {name}")));
             }
         }
+        // Default on when the groups are saved (P_ORBIT_CANON_WITH_SAVED_ORBITS).
+        let orbit_default = if self.saved_orbits.is_some() {
+            P_ORBIT_CANON_WITH_SAVED_ORBITS
+        } else {
+            P_ORBIT_CANON_DEFAULT
+        };
         Ok(PLibrary {
             context: self.context,
             scope: self.scope,
@@ -880,7 +887,7 @@ impl PLibraryBuilder {
             saved_routes: self.saved_routes,
             saved_orbits: self.saved_orbits,
             engine: OnceLock::new(),
-            orbit_canonicalization: AtomicBool::new(P_ORBIT_CANON_DEFAULT),
+            orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(true),
             orbit_prefer_high: AtomicBool::new(true),
         })
