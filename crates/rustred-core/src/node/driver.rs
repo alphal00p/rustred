@@ -144,21 +144,48 @@ pub struct NodeOptions {
     /// this recursion depth; 0 = only single-rule coverage.
     #[serde(default = "two")]
     pub union_cover_depth: u32,
-    /// Shared case registry of the parallel pieces of ONE node: (directory, piece name). Every rule of this piece is
-    /// appended to `<dir>/<piece>.rules.jsonl`; before each case the sibling files are read incrementally (same
-    /// presented family, chart and order only): a case contained in a sibling rule's case is CLAIMED by that sibling
-    /// and skipped (the sibling closes its exceptional children), and sibling rules act as cover rules for children.
-    /// The node is complete only when every piece completes; its table is the union of the pieces' tables.
-    ///
-    /// DISABLED unless `unsafe_shared_registry` is set (M5 batch 3, coordinator ruling 2026-11-11 17:37Z): pop
-    /// pruning transfers ownership of a case by case containment, not by a valid-domain proof; the final join does
-    /// not yet keep exception-child dependencies, and the registry key does not bind the full source basis and
-    /// certificate provenance. Until that is fixed a node run with `registry` set and the switch off is refused.
+    /// Proof-bearing shared case registry of the parallel pieces of ONE node: (directory, piece name), see
+    /// [`super::registry`]. Every accepted rule of this piece is appended to its own append-only epoch file; the
+    /// sibling files with the same registry identity (math key = presented family, chart, order, full certificate;
+    /// seed schedules; backend; engine version) are read incrementally. A popped case is DISCHARGED only by a
+    /// valid-domain proof against the accepted rules (one rule whose case contains it and whose exceptional branches
+    /// miss it, or the union argument); a case merely contained in a sibling rule's case is LEASED (postponed, see
+    /// `registry_lease`), never discharged by containment. (Replaces the rr-consolidate registry whose pop pruning
+    /// transferred ownership by containment: coordinator ruling 2026-11-11T17:37Z.)
     #[serde(default)]
     pub registry: Option<(String, String)>,
-    /// Opt-in for the experimental shared case registry (default off; see `registry`).
+    /// Accepted for compatibility (the M5 batch 3 opt-in of the old registry); without effect.
     #[serde(default)]
     pub unsafe_shared_registry: bool,
+    /// With a registry: postpone a case contained in a sibling's rule case until the queue (and the pool) is empty,
+    /// wait up to `lease_wait` seconds for the siblings to end, then discharge it by proof or solve it here.
+    #[serde(default = "yes")]
+    pub registry_lease: bool,
+    #[serde(default = "lease_wait")]
+    pub lease_wait: u64,
+    /// A case whose every relation is refused (or whose guard extraction times out) becomes an OPEN OBLIGATION of
+    /// the run (listed in `F.obligations.json`) and the queue continues; default: the node stops there.
+    #[serde(default)]
+    pub open_on_refusal: bool,
+    /// Initial cases in PRESENTED slots (as `F.obligations.json` / queue logs record them), added to `initial`.
+    #[serde(default)]
+    pub initial_presented: Vec<CaseSpec>,
+    /// Obligation pool directory (`POOL.json` + `claims/`): when the queue is empty, the next unclaimed item is
+    /// claimed atomically and becomes an initial case of this run (dynamic work distribution of a split node).
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// Lift ladder rung after SymbolicFirst: the same case searched with these finite seed shells (ShiftShells; Astra
+    /// T162: depth-2 shells select far smaller relations than the mandatory depth-0/1 seeds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case_seed_rung: Option<CaseSeedSchedule>,
+    /// Drop the RHS and the trace sources of a symbolic rule once it is written (memory of long split pieces: the
+    /// queue reads only case and exceptional branches of earlier rules).
+    #[serde(default)]
+    pub slim_rules: bool,
+}
+
+fn lease_wait() -> u64 {
+    1800
 }
 
 fn three() -> usize {
@@ -222,6 +249,13 @@ impl Default for NodeOptions {
             union_cover_depth: 2,
             registry: None,
             unsafe_shared_registry: false,
+            registry_lease: true,
+            lease_wait: 1800,
+            open_on_refusal: false,
+            initial_presented: Vec::new(),
+            pool: None,
+            case_seed_rung: None,
+            slim_rules: false,
         }
     }
 }
@@ -283,13 +317,37 @@ pub enum StopReason {
         covered: usize,
         charts: Vec<CaseSpec>,
     },
+    /// The queue closed, but cases left open by `open_on_refusal` remain (listed in `F.obligations.json`).
+    OpenObligations {
+        refused: usize,
+    },
     Error(String),
 }
 
-/// Result of [`generate`]. `complete` = the chart closed (no stop, no error).
+/// Result of [`generate`]. `complete` = the chart closed (no stop, no error); `state` says it in words
+/// (`complete` / `stopped`) and `open_obligations` counts what `F.obligations.json` lists.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodeOutcome {
     pub complete: bool,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub open_obligations: usize,
+    /// Math key of the run ([`super::registry::math_key`]).
+    #[serde(default)]
+    pub math_key: String,
+    /// Registry leases taken / resolved by proof / returned to the own queue; pool items claimed.
+    #[serde(default)]
+    pub leases: usize,
+    #[serde(default)]
+    pub leases_resolved: usize,
+    #[serde(default)]
+    pub leases_returned: usize,
+    #[serde(default)]
+    pub pool_claims: usize,
+    /// Cases left open by `open_on_refusal`.
+    #[serde(default)]
+    pub refused_open: usize,
     pub rules: usize,
     pub rhs_terms: usize,
     pub residuals: usize,
@@ -323,7 +381,7 @@ pub struct NodeOutcome {
     /// Cases dropped by union-aware coverage (not covered by any single rule).
     #[serde(default)]
     pub union_covered: usize,
-    /// Cases dropped because a sibling piece's rule (shared registry) covers them.
+    /// Popped cases discharged by a valid-domain proof against sibling pieces' accepted rules (shared registry).
     #[serde(default)]
     pub registry_covered: usize,
     /// Largest coefficient-monomial count of a rule in the table.
@@ -663,7 +721,7 @@ fn case_json<const N: usize>(c: &Case<N>, n: usize) -> String {
 }
 
 /// Linear integer expression in `n<i>` (`3*n1-n2+4`) as a coefficient polynomial of the family's index variables.
-fn parse_index_poly(
+pub(super) fn parse_index_poly(
     expr: &str,
     template: &CoefficientPolynomial,
     idx: &[usize],
@@ -715,7 +773,7 @@ fn parse_index_poly(
     Some(acc)
 }
 
-fn build_case<const N: usize>(
+pub(super) fn build_case<const N: usize>(
     spec: &CaseSpec,
     template: &CoefficientPolynomial,
     idx: &[usize; N],
@@ -887,7 +945,7 @@ fn write_cert_header<const N: usize>(
 }
 
 /// Covering check of the harness (`rule_covers`): the rule's case contains `case` and no exceptional branch meets it.
-fn covers<const N: usize>(
+pub(super) fn covers<const N: usize>(
     rcase: &Case<N>,
     branches: &[Vec<CoefficientPolynomial>],
     case: &Case<N>,
@@ -972,7 +1030,7 @@ fn fnv64(parts: &[&str]) -> u64 {
 /// through the same argument. Sound: the entry's rule is valid on its case outside its branches, and the
 /// intersection pieces over-cover `case ∩ branch` (deferred pieces make the check fail).
 #[allow(clippy::too_many_arguments)]
-fn union_covered<const N: usize>(
+pub(super) fn union_covered<const N: usize>(
     case: &Case<N>,
     entries: &[(&Case<N>, &[Vec<CoefficientPolynomial>])],
     idx: &[usize; N],
@@ -1028,103 +1086,6 @@ fn union_covered<const N: usize>(
         }
     }
     false
-}
-
-/// Shared case registry of the parallel pieces of one node (see [`NodeOptions::registry`]).
-struct Registry {
-    dir: PathBuf,
-    own: PathBuf,
-    file: std::fs::File,
-    piece: String,
-    key: String,
-    offsets: std::collections::BTreeMap<PathBuf, u64>,
-}
-
-impl Registry {
-    fn open(dir: &str, piece: &str, key: &str) -> Result<Self, String> {
-        let dir = PathBuf::from(dir);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("registry {}: {e}", dir.display()))?;
-        let own = dir.join(format!("{piece}.rules.jsonl"));
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&own)
-            .map_err(|e| format!("registry {}: {e}", own.display()))?;
-        writeln!(
-            file,
-            "{{\"type\":\"registry_header\",\"piece\":{},\"key\":{}}}",
-            q(piece),
-            q(key)
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(Self {
-            dir,
-            own,
-            file,
-            piece: piece.to_string(),
-            key: key.to_string(),
-            offsets: Default::default(),
-        })
-    }
-
-    fn publish(&mut self, index: usize, spec: &CaseSpec, branches: &[Vec<CoefficientPolynomial>]) {
-        let ex: Vec<String> = branches.iter().map(|b| strings(b.iter())).collect();
-        // one write per line (O_APPEND not needed: one writer per file); readers take complete lines only
-        let line = format!(
-            "{{\"type\":\"rule\",\"piece\":{},\"key\":{},\"index\":{index},\"fixed\":{},\"equations\":{},\"exceptions\":[{}]}}\n",
-            q(&self.piece),
-            q(&self.key),
-            serde_json::to_string(&spec.fixed).unwrap_or_default(),
-            strings(spec.equations.iter()),
-            ex.join(",")
-        );
-        let _ = self.file.write_all(line.as_bytes());
-        let _ = self.file.flush();
-    }
-
-    /// New complete rule lines of sibling pieces (same key), as JSON values with a `registry_label`.
-    fn poll(&mut self) -> Vec<(String, serde_json::Value)> {
-        let mut out = Vec::new();
-        let Ok(rd) = std::fs::read_dir(&self.dir) else {
-            return out;
-        };
-        let mut files: Vec<PathBuf> = rd
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.to_string_lossy().ends_with(".rules.jsonl") && *p != self.own)
-            .collect();
-        files.sort();
-        for path in files {
-            let off = *self.offsets.get(&path).unwrap_or(&0);
-            let Ok(bytes) = std::fs::read(&path) else {
-                continue;
-            };
-            if (bytes.len() as u64) <= off {
-                continue;
-            }
-            let tail = &bytes[off as usize..];
-            let Some(last_nl) = tail.iter().rposition(|b| *b == b'\n') else {
-                continue;
-            };
-            let complete = &tail[..=last_nl];
-            self.offsets
-                .insert(path.clone(), off + complete.len() as u64);
-            for line in String::from_utf8_lossy(complete).lines() {
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-                    continue;
-                };
-                if v["type"] == "rule" && v["key"].as_str() == Some(self.key.as_str()) {
-                    let label = format!(
-                        "registry:{}#{}",
-                        v["piece"].as_str().unwrap_or("?"),
-                        v["index"]
-                    );
-                    out.push((label, v));
-                }
-            }
-        }
-        out
-    }
 }
 
 /// Guards of a candidate: native, fork-timed native try with the exact content-route fallback, or native only.
@@ -1488,81 +1449,62 @@ fn run<const N: usize>(
         opts.order.to_json()
     )
     .map_err(|e| e.to_string())?;
-    // cover tables (rules of earlier pieces, FirstValid order)
+    // cover tables (rules of earlier pieces, FirstValid order): streamed rule shapes (case + exceptions only; the
+    // coefficients are skipped) or a compact cover index (`rr_node cover-index`) bound to its table
     let mut cover: Vec<CoverEntry<N>> = Vec::new();
     for (path, upto) in &opts.cover_tables {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("cover table {path}: {e}"))?;
+        let (shapes, head) = super::registry::read_rule_shapes(path, *upto)?;
         let (mut loaded, mut skipped) = (0usize, 0usize);
-        for line in text.lines().filter(|l| l.starts_with("{\"type\":\"rule\"")) {
-            let v: serde_json::Value =
-                serde_json::from_str(line).map_err(|e| format!("cover table {path}: {e}"))?;
-            if v["index"].as_u64().is_none_or(|i| i as usize >= *upto) {
-                continue;
-            }
+        for sh in shapes {
             let spec = CaseSpec {
-                fixed: v["fixed"]
-                    .as_array()
-                    .map(|a| a.iter().map(|x| x.as_i64()).collect())
-                    .unwrap_or_default(),
-                equations: v["equations"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                fixed: sh.fixed,
+                equations: sh.equations,
             };
-            let case = build_case::<N>(&spec, &template, &idx, &sector, n)
-                .ok()
-                .flatten();
-            let branches: Option<Vec<Vec<CoefficientPolynomial>>> =
-                v["exceptions"].as_array().map(|bs| {
-                    bs.iter()
-                        .map(|b| {
-                            b.as_array()
-                                .map(|ps| {
-                                    ps.iter()
-                                        .filter_map(|p| {
-                                            p.as_str()
-                                                .and_then(|p| parse_index_poly(p, &template, &idx))
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default()
-                        })
-                        .collect()
-                });
-            match (case, branches) {
-                (Some(c), Some(b)) => {
-                    cover.push((format!("{path}#{}", v["index"]), c, b));
+            match super::registry::shape_entry::<N>(
+                &spec,
+                &sh.exceptions,
+                &template,
+                &idx,
+                &sector,
+                n,
+            ) {
+                Some((c, b)) => {
+                    cover.push((format!("{path}#{}", sh.index.unwrap_or(0)), c, b));
                     loaded += 1;
                 }
-                _ => skipped += 1,
+                None => skipped += 1,
             }
         }
-        writeln!(qlog, "{{\"type\":\"cover_table\",\"path\":{},\"upto\":{upto},\"loaded\":{loaded},\"skipped\":{skipped}}}", q(path)).map_err(|e| e.to_string())?;
+        writeln!(qlog, "{{\"type\":\"cover_table\",\"path\":{},\"upto\":{upto},\"loaded\":{loaded},\"skipped\":{skipped},\"index\":{}}}", q(path), head["type"] == "cover_index").map_err(|e| e.to_string())?;
     }
     // initial cases (ORIGINAL slots -> presented)
     let mut initial: Vec<Case<N>> = Vec::new();
-    if opts.initial.is_empty() {
+    if opts.initial.is_empty() && opts.initial_presented.is_empty() && opts.pool.is_none() {
         initial.push(Case::from(
             CoordinateCase::new(std::array::from_fn(|i| if i < n { None } else { Some(0) }))
                 .map_err(|e| format!("{e:?}"))?,
         ));
     }
-    for spec in &opts.initial {
-        let (fixed, eqs) = opts.order.present_case(&spec.fixed, &spec.equations);
-        match build_case::<N>(
-            &CaseSpec {
-                fixed,
-                equations: eqs,
-            },
-            &template,
-            &idx,
-            &sector,
-            n,
-        )? {
+    let presented_initial: Vec<CaseSpec> = opts
+        .initial
+        .iter()
+        .map(|spec| {
+            let (fixed, equations) = opts.order.present_case(&spec.fixed, &spec.equations);
+            CaseSpec { fixed, equations }
+        })
+        .chain(opts.initial_presented.iter().cloned())
+        .collect();
+    // what this run owns (F.obligations.json): its initial cases, pool claims added below
+    let mut owned: Vec<CaseSpec> = if presented_initial.is_empty() && opts.pool.is_none() {
+        vec![CaseSpec {
+            fixed: vec![None; n],
+            equations: vec![],
+        }]
+    } else {
+        presented_initial.clone()
+    };
+    for spec in &presented_initial {
+        match build_case::<N>(spec, &template, &idx, &sector, n)? {
             Some(c) => {
                 writeln!(
                     qlog,
@@ -1582,8 +1524,9 @@ fn run<const N: usize>(
             .map_err(|e| e.to_string())?,
         }
     }
-    // stable key of (presented family, chart, integral order, basis) for the side bank and the shared registry: the
-    // source visit order only steers the search, so rules found under another one are valid here (same basis rows)
+    // stable key of (presented family, chart, integral order, basis count) for the side bank (legacy, kept so that
+    // earlier banks stay adoptable): the source visit order only steers the search, so rules found under another
+    // one are valid here (same basis rows)
     let key = format!(
         "{:016x}",
         fnv64(&[
@@ -1593,18 +1536,48 @@ fn run<const N: usize>(
             &nb.to_string()
         ])
     );
+    // full keys: math key (presented family, chart, order, full certificate = source rows + basis derivation) and the
+    // registry identity (math key + seed schedules + backend + engine version)
+    let cert_text =
+        std::fs::read_to_string(out_dir.join("F.cert.jsonl")).map_err(|e| format!("cert: {e}"))?;
+    let math_key = super::registry::math_key(
+        presented,
+        &label,
+        &descriptor_json(&opts.order, n),
+        &super::registry::cert_hash(&cert_text),
+    );
+    drop(cert_text);
+    outcome.math_key = math_key.clone();
+    let provenance = serde_json::json!({
+        "seed_schedule": opts.seed_schedule,
+        "case_seed_schedule": serde_json::to_value(&opts.case_seed_schedule).unwrap_or_default(),
+        "case_seed_priority": opts.case_seed_priority,
+        "case_seed_rung": serde_json::to_value(&opts.case_seed_rung).unwrap_or_default(),
+        "exact_backend": opts.exact_backend,
+        "engine": format!("rustred {} node {}", env!("CARGO_PKG_VERSION"), super::registry::REGISTRY_SCHEMA),
+    });
+    let identity =
+        super::registry::hash_parts(&[math_key.as_bytes(), provenance.to_string().as_bytes()]);
+    writeln!(qlog, "{{\"type\":\"keys\",\"math_key\":{},\"identity\":{},\"bank_key\":{},\"provenance\":{provenance}}}", q(&math_key), q(&identity), q(&key)).map_err(|e| e.to_string())?;
     let mut registry = match &opts.registry {
-        Some(_) if !opts.unsafe_shared_registry => {
-            return Err(
-                "the shared case registry is disabled (ownership by case containment is not a \
-                        valid-domain proof; M5 batch 3): set unsafe_shared_registry (rr_node \
-                        --unsafe-shared-registry) to run it experimentally"
-                    .to_string(),
-            );
-        }
-        Some((dir, piece)) => Some(Registry::open(dir, piece, &key)?),
+        Some((dir, piece)) => Some(super::registry::Registry::open(
+            dir,
+            piece,
+            &identity,
+            &math_key,
+            provenance.clone(),
+        )?),
         None => None,
     };
+    let mut pool = match &opts.pool {
+        Some(dir) => Some(super::registry::PoolClaimer::open(
+            dir,
+            registry.as_ref().map_or("solo", |r| r.piece.as_str()),
+            &math_key,
+        )?),
+        None => None,
+    };
+    let mut pool_claims: Vec<String> = Vec::new();
     let mut bank = if opts.refused_bank {
         let mut f = std::io::BufWriter::new(
             std::fs::File::create(out_dir.join("F.refused.jsonl"))
@@ -1612,8 +1585,9 @@ fn run<const N: usize>(
         );
         writeln!(
             f,
-            "{{\"type\":\"bank_header\",\"schema\":\"rustred.node.refused_bank.v1\",\"key\":{},\"chart\":{},\"order_name\":{},\"basis\":{nb},\"accept_monomials\":{},\"fallback_monomials\":{},\"fallback_after\":{}}}",
+            "{{\"type\":\"bank_header\",\"schema\":\"rustred.node.refused_bank.v1\",\"key\":{},\"math_key\":{},\"chart\":{},\"order_name\":{},\"basis\":{nb},\"accept_monomials\":{},\"fallback_monomials\":{},\"fallback_after\":{}}}",
             q(&key),
+            q(&math_key),
             q(&label),
             q(&opts.order.name),
             opts.max_rule_monomials.map_or("null".into(), |v| v.to_string()),
@@ -1642,7 +1616,10 @@ fn run<const N: usize>(
             .next()
             .and_then(|l| serde_json::from_str(l).ok())
             .unwrap_or_default();
-        if header["key"].as_str() != Some(key.as_str()) {
+        let full_differs = header["math_key"]
+            .as_str()
+            .is_some_and(|k| k != math_key.as_str());
+        if header["key"].as_str() != Some(key.as_str()) || full_differs {
             writeln!(qlog, "{{\"type\":\"bank_skipped\",\"path\":{},\"reason\":\"key differs (other family presentation, chart or order)\"}}", q(path)).map_err(|e| e.to_string())?;
             continue;
         }
@@ -1684,7 +1661,8 @@ fn run<const N: usize>(
     // rules adopted from earlier banks (written to the table, kept as cover entries, not as SectorRule values)
     let mut adopted_rules = 0usize;
     // charts of deferred regions / failed branch admissions: open obligations unless covered at the end
-    let mut deferred_charts: Vec<Case<N>> = Vec::new();
+    // with their full fields (rule, branch, reason, conjunction, exclusions, dependents, parent) for F.obligations.json
+    let mut deferred_charts: Vec<(Case<N>, serde_json::Value)> = Vec::new();
     let mut discarded = 0usize;
     #[allow(clippy::too_many_arguments)]
     fn enqueue<const N: usize>(
@@ -1845,6 +1823,7 @@ fn run<const N: usize>(
                   so: &SourceOrder,
                   seeds: Option<crate::solver::SeedSchedule>,
                   large_gate: bool,
+                  shell_rung: bool,
                   options: SearchOptions|
      -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
         // the large-trace "SymbolicFirst rung first" gate applies to the first rung only; later rungs lift such traces
@@ -1888,7 +1867,15 @@ fn run<const N: usize>(
                         )
                     })
                     .transpose()?;
-                if let Some(schedule) = resolved.as_ref().or(opts.case_seed_schedule.as_ref()) {
+                let rung_schedule = if shell_rung {
+                    opts.case_seed_rung.as_ref()
+                } else {
+                    None
+                };
+                if let Some(schedule) = rung_schedule
+                    .or(resolved.as_ref())
+                    .or(opts.case_seed_schedule.as_ref())
+                {
                     let visit = so.visit(nb);
                     solver.solve_case_with_schedule_and_observer(
                         case.clone(),
@@ -1922,7 +1909,160 @@ fn run<const N: usize>(
         )
     };
     let mut symbolic_cases = 0usize;
-    while !pending.is_empty() {
+    // registry leases (postponed sibling-contained cases, with the lessor's label), cases returned from a lease (never
+    // leased again), cases left open by `open_on_refusal`, and the case in flight when the loop breaks
+    let mut leased: Vec<(Case<N>, String)> = Vec::new();
+    let mut returned: Vec<Case<N>> = Vec::new();
+    let mut refused_open: Vec<(Case<N>, serde_json::Value)> = Vec::new();
+    let mut in_flight: Option<Case<N>>;
+    loop {
+        in_flight = None;
+        if pending.is_empty() {
+            // (a) the next pool item becomes an initial case of this run
+            if let Some(p) = pool.as_mut() {
+                if let Some(item) = p.claim() {
+                    outcome.pool_claims += 1;
+                    pool_claims.push(item.id.clone());
+                    owned.push(item.case.clone());
+                    writeln!(
+                        qlog,
+                        "{{\"type\":\"pool_claim\",\"id\":{},\"case\":{}}}",
+                        q(&item.id),
+                        serde_json::to_string(&item.case).unwrap_or_default()
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if let Some(c) = build_case::<N>(&item.case, &template, &idx, &sector, n)? {
+                        enqueue(
+                            c,
+                            None,
+                            &mut pending,
+                            &mut numerical,
+                            &rules,
+                            &cover,
+                            &idx,
+                            &sector,
+                            limits,
+                            &mut qlog,
+                            &mut discarded,
+                            n,
+                            opts.union_cover_depth,
+                            &mut outcome.union_covered,
+                        );
+                    }
+                    qlog.flush().map_err(|e| e.to_string())?;
+                    continue;
+                }
+            }
+            // (b) leases: wait (bounded) for the lessors to end, then discharge each by a valid-domain proof against
+            // every accepted rule, or take it back into the own queue
+            if leased.is_empty() {
+                break;
+            }
+            if let Some(reg) = registry.as_mut() {
+                let t = Instant::now();
+                loop {
+                    let (new, foreign) = reg.poll();
+                    for f in foreign {
+                        writeln!(
+                            qlog,
+                            "{{\"type\":\"registry_foreign\",\"file\":{}}}",
+                            q(&f.display().to_string())
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
+                    for (lbl, sp, ex) in new {
+                        if let Some((c, b)) =
+                            super::registry::shape_entry::<N>(&sp, &ex, &template, &idx, &sector, n)
+                        {
+                            cover.push((lbl, c, b));
+                        }
+                    }
+                    if reg.siblings_ended() || t.elapsed().as_secs() >= opts.lease_wait {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                }
+            }
+            let mut back: Vec<Case<N>> = Vec::new();
+            {
+                let entries: Vec<(&Case<N>, &[Vec<CoefficientPolynomial>])> = cover
+                    .iter()
+                    .map(|(_, c, b)| (c, b.as_slice()))
+                    .chain(
+                        rules
+                            .iter()
+                            .map(|r| (&r.candidate.case, r.exceptions.branches.as_slice())),
+                    )
+                    .collect();
+                for (c, lessor) in leased.drain(..) {
+                    let direct = entries
+                        .iter()
+                        .any(|(rc, b)| covers(rc, b, &c, &idx, &sector, limits));
+                    let mut budget = 400usize;
+                    let proved = direct
+                        || union_covered(
+                            &c,
+                            &entries,
+                            &idx,
+                            &sector,
+                            limits,
+                            opts.union_cover_depth.max(3),
+                            &mut budget,
+                        );
+                    let kind = if proved {
+                        "lease_resolved"
+                    } else {
+                        "lease_returned"
+                    };
+                    writeln!(
+                        qlog,
+                        "{{\"type\":{},\"lessor\":{},\"proof\":{},\"case\":{}}}",
+                        q(kind),
+                        q(&lessor),
+                        q(if direct {
+                            "direct"
+                        } else if proved {
+                            "union"
+                        } else {
+                            "none"
+                        }),
+                        case_json(&c, n)
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if let Some(reg) = registry.as_mut() {
+                        reg.record(serde_json::json!({"type": kind, "lessor": lessor, "case": case_spec(&c, n)}));
+                    }
+                    if proved {
+                        outcome.leases_resolved += 1;
+                        discarded += 1;
+                    } else {
+                        outcome.leases_returned += 1;
+                        back.push(c);
+                    }
+                }
+            }
+            for c in back {
+                returned.push(c.clone());
+                enqueue(
+                    c,
+                    None,
+                    &mut pending,
+                    &mut numerical,
+                    &rules,
+                    &cover,
+                    &idx,
+                    &sector,
+                    limits,
+                    &mut qlog,
+                    &mut discarded,
+                    n,
+                    opts.union_cover_depth,
+                    &mut outcome.union_covered,
+                );
+            }
+            qlog.flush().map_err(|e| e.to_string())?;
+            continue;
+        }
         if opts.max_cases.is_some_and(|m| symbolic_cases >= m) {
             stop = Some(StopReason::MaxCases {
                 pending: pending.len(),
@@ -1930,6 +2070,7 @@ fn run<const N: usize>(
             break;
         }
         let current = pending.remove(0);
+        in_flight = Some(current.clone());
         if opts.case_budget_exit.is_some() {
             let fixed_json = |f: &CoordinateCase<N>| {
                 serde_json::to_string(&CaseSpec {
@@ -1947,29 +2088,98 @@ fn run<const N: usize>(
             });
         }
         let spec = case_spec(&current, n);
-        // shared registry: the sibling pieces' new rules become cover entries; the popped case may be covered by now
+        // shared registry: sibling pieces' accepted rules become cover entries; the popped case is discharged only by
+        // a valid-domain proof (one rule, or the union argument); mere containment in a sibling rule's case leases it
         if let Some(reg) = registry.as_mut() {
-            for (lbl, v) in reg.poll() {
-                if let Some((c, b)) = parse_cover_entry::<N>(&v, &template, &idx, &sector, n) {
+            let (new, foreign) = reg.poll();
+            for f in foreign {
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"registry_foreign\",\"file\":{}}}",
+                    q(&f.display().to_string())
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            for (lbl, sp, ex) in new {
+                if let Some((c, b)) =
+                    super::registry::shape_entry::<N>(&sp, &ex, &template, &idx, &sector, n)
+                {
                     cover.push((lbl, c, b));
                 }
             }
-            // a sibling rule whose case CONTAINS this case claims it: the sibling's rule covers it outside its
-            // branches and the sibling's own children (rule case ∩ branches, a superset of this case ∩ branches)
-            // are the sibling's queue; the node is complete only when every piece is
-            if let Some((lbl, _, _)) = cover.iter().find(|(l, c, _)| {
-                l.starts_with("registry:") && c.contains(&current).unwrap_or(false)
-            }) {
+            let direct = cover
+                .iter()
+                .find(|(_, c, b)| covers(c, b, &current, &idx, &sector, limits))
+                .map(|(l, _, _)| l.clone())
+                .or_else(|| {
+                    rules
+                        .iter()
+                        .position(|r| {
+                            covers(
+                                &r.candidate.case,
+                                &r.exceptions.branches,
+                                &current,
+                                &idx,
+                                &sector,
+                                limits,
+                            )
+                        })
+                        .map(|k| format!("rule#{k}"))
+                });
+            let proof = match direct {
+                Some(l) => Some(("direct", l)),
+                None => {
+                    let entries: Vec<(&Case<N>, &[Vec<CoefficientPolynomial>])> = cover
+                        .iter()
+                        .map(|(_, c, b)| (c, b.as_slice()))
+                        .chain(
+                            rules
+                                .iter()
+                                .map(|r| (&r.candidate.case, r.exceptions.branches.as_slice())),
+                        )
+                        .collect();
+                    let mut budget = 200usize;
+                    union_covered(
+                        &current,
+                        &entries,
+                        &idx,
+                        &sector,
+                        limits,
+                        opts.union_cover_depth.max(1),
+                        &mut budget,
+                    )
+                    .then(|| ("union", String::new()))
+                }
+            };
+            if let Some((how, lbl)) = proof {
                 outcome.registry_covered += 1;
                 discarded += 1;
                 writeln!(
                     qlog,
-                    "{{\"type\":\"covered\",\"by_registry\":{},\"case\":{}}}",
-                    q(lbl),
+                    "{{\"type\":\"covered\",\"by_registry\":{},\"proof\":{},\"case\":{}}}",
+                    q(&lbl),
+                    q(how),
                     case_json(&current, n)
                 )
                 .map_err(|e| e.to_string())?;
                 continue;
+            }
+            if opts.registry_lease && !returned.contains(&current) {
+                if let Some((lbl, _, _)) = cover.iter().find(|(l, c, _)| {
+                    l.starts_with("registry:") && c.contains(&current).unwrap_or(false)
+                }) {
+                    outcome.leases += 1;
+                    writeln!(
+                        qlog,
+                        "{{\"type\":\"lease\",\"lessor\":{},\"case\":{}}}",
+                        q(lbl),
+                        case_json(&current, n)
+                    )
+                    .map_err(|e| e.to_string())?;
+                    reg.record(serde_json::json!({"type": "lease", "lessor": lbl, "case": spec}));
+                    leased.push((current, lbl.clone()));
+                    continue;
+                }
             }
         }
         // a banked rule of an earlier run for this very case (same key): adopt it without a search
@@ -2041,14 +2251,15 @@ fn run<const N: usize>(
                     Ok(r) => {
                         for (di, d) in r.deferred.iter().enumerate() {
                             deferred_regions += 1;
-                            deferred_charts.push(d.chart.clone());
+                            deferred_charts
+                                .push((d.chart.clone(), region_detail(index, bi, di, d, n)));
                             writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                         }
                         children.extend(r.cases);
                     }
                     Err(e) => {
                         deferred_branches += 1;
-                        deferred_charts.push(rc.clone());
+                        deferred_charts.push((rc.clone(), serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()})));
                         writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                     }
                 }
@@ -2058,7 +2269,14 @@ fn run<const N: usize>(
                 break;
             }
             if let Some(reg) = registry.as_mut() {
-                reg.publish(index, &spec, &branches);
+                reg.publish_rule(
+                    index,
+                    &spec,
+                    branches
+                        .iter()
+                        .map(|b| b.iter().map(|p| p.to_string()).collect())
+                        .collect(),
+                );
             }
             cover.push((format!("bank:{src}"), rc, branches));
             adopted_rules += 1;
@@ -2170,8 +2388,8 @@ fn run<const N: usize>(
         qlog.flush().map_err(|e| e.to_string())?;
         // lift ladder: node source order; the SymbolicFirst seed schedule (same presentation); other source orders
         // (source order, seed schedule override, large-trace gate)
-        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool)> =
-            vec![(node_source.clone(), None, true)];
+        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool, bool)> =
+            vec![(node_source.clone(), None, true, false)];
         if opts.symbolic_first_rung
             && screen.is_some()
             && opts.seed_schedule != SeedScheduleName::SymbolicFirst
@@ -2180,13 +2398,23 @@ fn run<const N: usize>(
                 node_source.clone(),
                 Some(crate::solver::SeedSchedule::SymbolicFirst),
                 true,
+                false,
             ));
+        }
+        // ladder rung: the configured finite seed shells (e.g. depth-2 ShiftShells) for the same case and order
+        if opts.case_seed_rung.is_some() {
+            orders.push((node_source.clone(), None, true, true));
+        }
+        if opts.symbolic_first_rung
+            && screen.is_some()
+            && opts.seed_schedule != SeedScheduleName::SymbolicFirst
+        {
             // SymbolicFirst did not help (e.g. it found a larger relation): the node's own relation, lifted
-            orders.push((node_source.clone(), None, false));
+            orders.push((node_source.clone(), None, false, false));
         }
         for so in &opts.retry_source_orders {
-            if !orders.iter().any(|(o, _, _)| o == so) {
-                orders.push((so.clone(), None, false));
+            if !orders.iter().any(|(o, _, _, _)| o == so) {
+                orders.push((so.clone(), None, false, false));
             }
         }
         let mut found: Option<Searched<N>> = None;
@@ -2195,9 +2423,10 @@ fn run<const N: usize>(
         // size ruling: the smallest fallback rule (accept < size <= fallback limit) with its guards
         let mut fallback: Option<(usize, Searched<N>, ExceptionalConditions, String, usize)> = None;
         let (mut variants_tried, mut since_fallback) = (0usize, 0usize);
-        for (k, (so, seeds, large_gate)) in orders.iter().enumerate() {
+        for (k, (so, seeds, large_gate, shell_rung)) in orders.iter().enumerate() {
             // the ungated retry of the node's relation only matters when a large-trace refusal happened
             if !*large_gate
+                && !*shell_rung
                 && seeds.is_none()
                 && *so == node_source
                 && !tried_large.iter().any(|x| *x)
@@ -2212,12 +2441,13 @@ fn run<const N: usize>(
             }
             variants_tried += 1;
             let vlabel = match (seeds, large_gate) {
+                _ if *shell_rung => format!("{}+seed_shells", so.label()),
                 (Some(_), _) => format!("{}+symbolic_first", so.label()),
                 (None, false) if *so == node_source => format!("{}+lift_large", so.label()),
                 _ => so.label(),
             };
             if k > 0 {
-                if seeds.is_some() {
+                if seeds.is_some() || *shell_rung {
                     outcome.symbolic_first_retries += 1;
                 } else {
                     outcome.source_order_retries += 1;
@@ -2235,7 +2465,8 @@ fn run<const N: usize>(
                 .map_err(|e| e.to_string())?;
             }
             log_case_seed_schedule(&mut qlog, opts, &current, &top, n)?;
-            let (result, reports) = search(&current, so, *seeds, *large_gate, symbolic);
+            let (result, reports) =
+                search(&current, so, *seeds, *large_gate, *shell_rung, symbolic);
             tried_large.push(reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first"))));
             for r in &reports {
                 outcome.screened_lifts += 1;
@@ -2446,6 +2677,14 @@ fn run<const N: usize>(
                 case_json(&current, n)
             )
             .map_err(|e| e.to_string())?;
+            if opts.open_on_refusal {
+                outcome.refused_open += 1;
+                refused_open.push((
+                    current.clone(),
+                    serde_json::json!({"reason": "lift refused", "reports": serde_json::to_value(&refusals).unwrap_or_default()}),
+                ));
+                continue;
+            }
             stop = Some(StopReason::LiftRefused {
                 case: spec.clone(),
                 reports: refusals,
@@ -2510,6 +2749,14 @@ fn run<const N: usize>(
                 );
                 if !matches!(r, Forked::Done(..)) {
                     writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len() + adopted_rules, case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
+                    if opts.open_on_refusal {
+                        outcome.refused_open += 1;
+                        refused_open.push((
+                            current.clone(),
+                            serde_json::json!({"reason": format!("guard extraction timeout ({secs} s)"), "rhs": candidate.rhs.len()}),
+                        ));
+                        continue;
+                    }
                     stop = Some(StopReason::GuardTimeout {
                         case: spec.clone(),
                         rhs: candidate.rhs.len(),
@@ -2629,7 +2876,7 @@ fn run<const N: usize>(
                 );
                 if !matches!(r, Forked::Done(..)) {
                     deferred_regions += 1;
-                    deferred_charts.push(rule.candidate.case.clone());
+                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)})));
                     writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"reason\":\"AdmissionTimeout({secs} s)\",\"chart\":{},\"conjunction\":{}}}", case_json(&rule.candidate.case, n), strings(branch.iter())).map_err(|e| e.to_string())?;
                     continue;
                 }
@@ -2653,7 +2900,7 @@ fn run<const N: usize>(
                 Ok(r) => {
                     for (di, d) in r.deferred.iter().enumerate() {
                         deferred_regions += 1;
-                        deferred_charts.push(d.chart.clone());
+                        deferred_charts.push((d.chart.clone(), region_detail(index, bi, di, d, n)));
                         writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                     }
                     if r.cases.is_empty() && r.deferred.is_empty() {
@@ -2671,7 +2918,7 @@ fn run<const N: usize>(
                 }
                 Err(e) => {
                     deferred_branches += 1;
-                    deferred_charts.push(rule.candidate.case.clone());
+                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()})));
                     writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                 }
             }
@@ -2701,17 +2948,29 @@ fn run<const N: usize>(
         }
         qlog.flush().map_err(|e| e.to_string())?;
         if let Some(reg) = registry.as_mut() {
-            reg.publish(
+            reg.publish_rule(
                 index,
                 &case_spec(&rule.candidate.case, n),
-                &rule.exceptions.branches,
+                rule.exceptions
+                    .branches
+                    .iter()
+                    .map(|b| b.iter().map(|p| p.to_string()).collect())
+                    .collect(),
             );
+        }
+        let mut rule = rule;
+        if opts.slim_rules {
+            // the table holds the rule; the queue only needs its case and exceptional branches
+            rule.candidate.rhs = Vec::new();
+            rule.candidate.sources = Vec::new();
         }
         rules.push(rule);
     }
     *WATCH.lock().unwrap() = None;
     // ---- numeric endpoints: one by one under the node's source order and exact backend; exhausted ones in bulk
     let mut residual_keys: Vec<String> = Vec::new();
+    // numeric endpoints are open obligations unless the numeric phase ran to its end
+    let numeric_ran = error.is_none() && stop.is_none();
     if error.is_none() && stop.is_none() && !numerical.is_empty() {
         outcome.numerical_cases = numerical.len();
         let options = SearchOptions {
@@ -2773,7 +3032,7 @@ fn run<const N: usize>(
                     writeln!(qlog, "{{\"type\":\"relation_retry\",\"numerical\":true,\"source_order\":{},\"fixed\":{fixed:?}}}", q(&so.label())).map_err(|e| e.to_string())?;
                 }
                 log_case_seed_schedule(&mut qlog, opts, &case, &top, n)?;
-                let (r, reports) = search(&case, so, None, false, options);
+                let (r, reports) = search(&case, so, None, false, false, options);
                 for rep in &reports {
                     outcome.screened_lifts += 1;
                     writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"source_order\":{},\"report\":{}}}", q(&so.label()), serde_json::to_string(rep).unwrap()).map_err(|e| e.to_string())?;
@@ -2905,6 +3164,7 @@ fn run<const N: usize>(
         }
     }
     // deferred regions are obligations: a region is settled when the final rule set covers its chart
+    let mut regions_open: Option<Vec<usize>> = None;
     if error.is_none() && stop.is_none() && !deferred_charts.is_empty() {
         let entries: Vec<(&Case<N>, &[Vec<CoefficientPolynomial>])> = cover
             .iter()
@@ -2922,7 +3182,7 @@ fn run<const N: usize>(
         let checked = forked(out_dir, "deferred_check", 600, || {
             let flags: Vec<bool> = deferred_charts
                 .iter()
-                .map(|chart| {
+                .map(|(chart, _)| {
                     let direct = entries
                         .iter()
                         .any(|(c, b)| covers(c, b, chart, &idx, &sector, limits));
@@ -2938,12 +3198,14 @@ fn run<const N: usize>(
             }
             _ => vec![false; deferred_charts.len()],
         };
-        let open: Vec<CaseSpec> = deferred_charts
-            .iter()
-            .zip(flags.iter().chain(std::iter::repeat(&false)))
-            .filter(|(_, ok)| !**ok)
-            .map(|(c, _)| case_spec(c, n))
+        let open_idx: Vec<usize> = (0..deferred_charts.len())
+            .filter(|&k| !flags.get(k).copied().unwrap_or(false))
             .collect();
+        let open: Vec<CaseSpec> = open_idx
+            .iter()
+            .map(|&k| case_spec(&deferred_charts[k].0, n))
+            .collect();
+        regions_open = Some(open_idx);
         writeln!(
             qlog,
             "{{\"type\":\"deferred_check\",\"regions\":{},\"open\":{}}}",
@@ -2958,6 +3220,90 @@ fn run<const N: usize>(
                 covered: deferred_charts.len() - open.len(),
                 charts: open,
             });
+        }
+    }
+    if stop.is_none() && !refused_open.is_empty() {
+        stop = Some(StopReason::OpenObligations {
+            refused: refused_open.len(),
+        });
+    }
+    // ---- F.obligations.json: what this run owns and what stays open (every stop writes the full list)
+    {
+        use super::registry::{OBLIGATIONS_SCHEMA, Obligation, Obligations};
+        let mut open: Vec<Obligation> = Vec::new();
+        let ob = |kind: &str, c: &Case<N>, detail: serde_json::Value| Obligation {
+            kind: kind.into(),
+            case: case_spec(c, n),
+            detail,
+        };
+        let stopped_by: Option<StopReason> = stop
+            .clone()
+            .or_else(|| error.clone().map(StopReason::Error));
+        if stopped_by.is_some() {
+            if let Some(c) = &in_flight {
+                let detail = match &stopped_by {
+                    Some(s) => {
+                        serde_json::json!({"stop": serde_json::to_value(s).unwrap_or_default()})
+                    }
+                    None => serde_json::Value::Null,
+                };
+                open.push(ob("current", c, detail));
+            }
+        }
+        for (c, d) in &refused_open {
+            open.push(ob("refused", c, d.clone()));
+        }
+        for c in &pending {
+            open.push(ob("pending", c, serde_json::Value::Null));
+        }
+        for (c, lessor) in &leased {
+            open.push(ob("leased", c, serde_json::json!({"lessor": lessor})));
+        }
+        if !numeric_ran {
+            for p in &numerical {
+                open.push(ob("numerical", &Case::from(*p), serde_json::Value::Null));
+            }
+        }
+        let region_list: Vec<usize> = match &regions_open {
+            Some(v) => v.clone(),
+            None => (0..deferred_charts.len()).collect(),
+        };
+        for k in region_list {
+            let (c, d) = &deferred_charts[k];
+            let kind = d["kind"].as_str().unwrap_or("region").to_string();
+            open.push(ob(&kind, c, d.clone()));
+        }
+        let complete = stopped_by.is_none() && outcome.not_lower.is_empty() && open.is_empty();
+        outcome.open_obligations = open.len();
+        outcome.state = if complete {
+            "complete".into()
+        } else {
+            "stopped".into()
+        };
+        let record = Obligations {
+            schema: OBLIGATIONS_SCHEMA.into(),
+            math_key: math_key.clone(),
+            identity: Some(identity.clone()),
+            state: outcome.state.clone(),
+            stop: stopped_by
+                .as_ref()
+                .map(|s| serde_json::to_string(s).unwrap_or_default())
+                .or_else(|| {
+                    (!outcome.not_lower.is_empty())
+                        .then(|| "rules not strictly descending".to_string())
+                }),
+            chart: label.clone(),
+            initial: owned.clone(),
+            pool_claims: pool_claims.clone(),
+            open,
+            rules: rules.len() + adopted_rules,
+            residual_keys: residual_keys.clone(),
+            source: out_dir.display().to_string(),
+        };
+        record.write(&out_dir.join("F.obligations.json"))?;
+        if let Some(reg) = registry.as_mut() {
+            reg.record(serde_json::json!({"type": "end", "state": outcome.state, "open": outcome.open_obligations,
+                "rules": rules.len() + adopted_rules}));
         }
     }
     for key in &residual_keys {
@@ -2996,11 +3342,13 @@ fn run<const N: usize>(
     let chart_errors = usize::from(error.is_some() || stop.is_some());
     writeln!(
         out,
-        "{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver (rr-consolidate)\",\"native_descent_not_lower\":{}}}",
+        "{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver (rr-registry)\",\"state\":{},\"open_obligations\":{},\"native_descent_not_lower\":{}}}",
         rules.len() + adopted_rules,
         residual_keys.len(),
         t_total.elapsed().as_secs_f64(),
         vmhwm_kb(),
+        q(&outcome.state),
+        outcome.open_obligations,
         strings(outcome.not_lower.iter())
     )
     .map_err(|e| e.to_string())?;
@@ -3009,7 +3357,9 @@ fn run<const N: usize>(
     cert.flush().map_err(|e| e.to_string())?;
     writeln!(
         qlog,
-        "{{\"type\":\"end\",\"error\":{},\"rules\":{},\"residuals\":{},\"seconds\":{seconds:.3}}}",
+        "{{\"type\":\"end\",\"state\":{},\"open_obligations\":{},\"error\":{},\"rules\":{},\"residuals\":{},\"seconds\":{seconds:.3}}}",
+        q(&outcome.state),
+        outcome.open_obligations,
         error.as_deref().map_or("null".to_string(), q),
         rules.len() + adopted_rules,
         residual_keys.len()
@@ -3019,7 +3369,7 @@ fn run<const N: usize>(
     if let Some(e) = error {
         stop = Some(StopReason::Error(e));
     }
-    outcome.complete = stop.is_none() && outcome.not_lower.is_empty();
+    outcome.complete = outcome.state == "complete";
     outcome.rules = rules.len() + adopted_rules;
     outcome.rhs_terms = terms;
     outcome.residuals = residual_keys.len();
@@ -3031,6 +3381,27 @@ fn run<const N: usize>(
     outcome.seconds = t_total.elapsed().as_secs_f64();
     outcome.vmhwm_kb = vmhwm_kb();
     Ok(outcome)
+}
+
+/// Full fields of a deferred region (the queue log keeps chart and conjunction only).
+fn region_detail<const N: usize>(
+    rule: usize,
+    branch: usize,
+    k: usize,
+    d: &crate::solver::DeferredRegion<N>,
+    n: usize,
+) -> serde_json::Value {
+    let polys = |ps: &[CoefficientPolynomial]| ps.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let dependents: Vec<serde_json::Value> = d
+        .dependents
+        .iter()
+        .map(|g| serde_json::json!({"axis": g.axis, "numerator": g.numerator.to_string(), "denominator": g.denominator.to_string()}))
+        .collect();
+    serde_json::json!({
+        "kind": "region", "rule": rule, "branch": branch, "k": k, "reason": format!("{:?}", d.reason),
+        "conjunction": polys(&d.conjunction), "exclusions": polys(&d.exclusions), "dependents": dependents,
+        "parent": case_spec(&d.parent, n),
+    })
 }
 
 fn rule_extras<const N: usize>(
@@ -3499,86 +3870,335 @@ mod tests {
     }
 
     #[test]
-    fn registry_pieces_see_each_others_rules() {
+    fn registry_binds_identity_and_is_append_only() {
+        use crate::node::registry::Registry;
         let reg = tmp("registry");
-        let key = "k";
-        let mut a = Registry::open(reg.to_str().unwrap(), "a", key).unwrap();
-        let mut b = Registry::open(reg.to_str().unwrap(), "b", key).unwrap();
-        let mut other = Registry::open(reg.to_str().unwrap(), "x", "other-key").unwrap();
-        a.publish(
-            0,
-            &CaseSpec {
-                fixed: vec![Some(1), None],
-                equations: vec![],
-            },
-            &[],
+        let d = reg.to_str().unwrap();
+        let mut a = Registry::open(d, "a", "id1", "mk", serde_json::json!({})).unwrap();
+        let mut b = Registry::open(d, "b", "id1", "mk", serde_json::json!({})).unwrap();
+        let mut other = Registry::open(d, "x", "id2", "mk", serde_json::json!({})).unwrap();
+        let spec = |f: Vec<Option<i64>>| CaseSpec {
+            fixed: f,
+            equations: vec![],
+        };
+        a.publish_rule(0, &spec(vec![Some(1), None]), vec![vec!["n1-2".into()]]);
+        other.publish_rule(0, &spec(vec![None, None]), vec![]);
+        let (seen, foreign) = b.poll();
+        assert_eq!(seen.len(), 1, "only the same identity, never its own file");
+        assert!(seen[0].0.starts_with("registry:a."));
+        assert_eq!(
+            seen[0].2,
+            vec![vec!["n1-2".to_string()]],
+            "full exceptions travel"
         );
-        other.publish(
-            0,
-            &CaseSpec {
-                fixed: vec![None, None],
-                equations: vec![],
-            },
-            &[],
+        assert_eq!(foreign.len(), 1, "the other identity is reported foreign");
+        assert!(b.poll().0.is_empty(), "incremental");
+        assert!(!b.siblings_ended());
+        a.record(serde_json::json!({"type": "end", "state": "stopped"}));
+        let _ = b.poll();
+        assert!(b.siblings_ended());
+        // a second epoch of piece a is a NEW file: the first one's records survive (never truncated)
+        let _a2 = Registry::open(d, "a", "id1", "mk", serde_json::json!({})).unwrap();
+        let files: Vec<_> = std::fs::read_dir(&reg)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("a."))
+            .collect();
+        assert_eq!(files.len(), 2);
+        let first = std::fs::read_to_string(a_path(&reg, &a)).unwrap();
+        assert!(first.contains("\"type\":\"rule\""));
+        let _ = std::fs::remove_dir_all(&reg);
+    }
+
+    fn a_path(dir: &Path, r: &crate::node::registry::Registry) -> PathBuf {
+        dir.join(format!("{}.reg.jsonl", r.label()))
+    }
+
+    fn obligations(dir: &Path) -> crate::node::registry::Obligations {
+        crate::node::registry::Obligations::read(&dir.join("F.obligations.json")).unwrap()
+    }
+
+    fn join_of(
+        dirs: &[&Path],
+        out: &Path,
+        expect: Option<usize>,
+    ) -> crate::node::registry::JoinReport {
+        let opts = crate::node::registry::JoinOptions {
+            runs: dirs
+                .iter()
+                .map(|d| crate::node::registry::JoinRun {
+                    dir: d.to_path_buf(),
+                    obligations: d.join("F.obligations.json"),
+                    cover_index: None,
+                })
+                .collect(),
+            out: out.to_path_buf(),
+            expect_residuals: expect,
+            union_depth: 3,
+            write_table: true,
+            ..Default::default()
+        };
+        crate::node::registry::join(&opts).unwrap()
+    }
+
+    #[test]
+    fn containment_in_a_sibling_rule_never_certifies_a_case() {
+        // p1 stops after its first rule (whose exceptional children stay open); p2 runs the whole chart with the
+        // registry: p1's rule case CONTAINS p2's first case but its branches meet it, so p2 may only lease it and
+        // must take it back (no proof) and close it itself. The old registry discharged it by containment.
+        let root = tmp("contain");
+        let regdir = root.join("reg").display().to_string();
+        let p1 = NodeOptions {
+            registry: Some((regdir.clone(), "p1".into())),
+            max_cases: Some(1),
+            ..quiet()
+        };
+        let r1 = generate(SUNSET, "sunset.sym", &root.join("p1"), &p1, &mut |_| {}).unwrap();
+        assert!(!r1.complete && r1.state == "stopped", "{r1:?}");
+        let o1 = obligations(&root.join("p1"));
+        assert_eq!(o1.state, "stopped");
+        assert!(
+            !o1.open.is_empty(),
+            "a stopped run lists its open obligations"
         );
-        let seen = b.poll();
-        assert_eq!(seen.len(), 1, "only the same key, never its own file");
-        assert_eq!(seen[0].0, "registry:a#0");
-        assert!(b.poll().is_empty(), "incremental");
-        // a partial line is not taken before it is complete
-        use std::io::Write as _;
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(reg.join("a.rules.jsonl"))
-            .unwrap();
-        write!(
-            f,
-            "{{\"type\":\"rule\",\"piece\":\"a\",\"key\":\"k\",\"index\":1,\"fixed\":[2,null]"
+        assert_eq!(r1.open_obligations, o1.open.len());
+        let qlog = std::fs::read_to_string(root.join("p1/F.queue.jsonl")).unwrap();
+        assert!(
+            qlog.contains("\"state\":\"stopped\""),
+            "the queue end record says stopped"
+        );
+        let p2 = NodeOptions {
+            registry: Some((regdir, "p2".into())),
+            lease_wait: 0,
+            ..quiet()
+        };
+        let r2 = generate(SUNSET, "sunset.sym", &root.join("p2"), &p2, &mut |_| {}).unwrap();
+        assert!(r2.complete && r2.state == "complete", "{r2:?}");
+        assert!(
+            r2.leases >= 1,
+            "the contained case is leased, not discharged: {r2:?}"
+        );
+        assert!(
+            r2.leases_returned >= 1,
+            "no proof: the lease comes back: {r2:?}"
+        );
+        let q2 = std::fs::read_to_string(root.join("p2/F.queue.jsonl")).unwrap();
+        assert!(
+            !q2.lines()
+                .any(|l| l.contains("\"by_registry\"") && l.contains("\"proof\":\"none\"")),
+            "no discharge without a proof"
+        );
+        let plain = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("plain"),
+            &quiet(),
+            &mut |_| {},
         )
         .unwrap();
-        f.flush().unwrap();
-        assert!(b.poll().is_empty());
-        writeln!(f, ",\"equations\":[],\"exceptions\":[]}}").unwrap();
-        f.flush().unwrap();
-        assert_eq!(b.poll().len(), 1);
-        // two pieces of the sunset chart through the registry: the second sees the first's rules and both close
-        let fam_dir = tmp("registry-node");
-        let dir = fam_dir.display().to_string();
-        let refused = NodeOptions {
-            registry: Some((dir.clone(), "p0".into())),
-            ..quiet()
-        };
-        assert!(
-            generate(
-                SUNSET,
-                "sunset.sym",
-                &fam_dir.join("p0"),
-                &refused,
-                &mut |_| {}
-            )
-            .is_err(),
-            "the registry is refused without the experimental switch (M5 batch 3)"
+        assert_eq!(r2.rules, plain.rules, "p2 solved the whole chart itself");
+        // join: p1's open obligations lie in p2's initial case (an edge p1 -> p2), p2 is complete: closed
+        let j = join_of(
+            &[&root.join("p1"), &root.join("p2")],
+            &root.join("join"),
+            Some(1),
         );
-        let p1 = NodeOptions {
-            registry: Some((dir.clone(), "p1".into())),
-            unsafe_shared_registry: true,
+        assert_eq!(j.verdict, "closed", "{j:?}");
+        assert_eq!(j.edges.len(), 1);
+        // p1 alone stays open, with the obligations listed
+        let j1 = join_of(&[&root.join("p1")], &root.join("join1"), None);
+        assert_eq!(j1.verdict, "open", "{j1:?}");
+        assert_eq!(j1.unresolved.len(), o1.open.len());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn join_rejects_a_two_cycle_of_stopped_runs() {
+        // two stopped runs of the whole chart: each one's open obligations lie in the other's initial case, so each
+        // "discharges" the other: an unresolved strongly connected component (cf. Astra's T212 2-cycle); rejected
+        let root = tmp("cycle");
+        let stopped = NodeOptions {
+            max_cases: Some(1),
             ..quiet()
         };
-        let r1 = generate(SUNSET, "sunset.sym", &fam_dir.join("p1"), &p1, &mut |_| {}).unwrap();
-        assert!(r1.complete);
-        let p2 = NodeOptions {
-            registry: Some((dir, "p2".into())),
-            unsafe_shared_registry: true,
-            ..quiet()
-        };
-        let r2 = generate(SUNSET, "sunset.sym", &fam_dir.join("p2"), &p2, &mut |_| {}).unwrap();
-        assert!(r2.complete);
-        assert!(
-            r2.registry_covered > 0 && r2.rules < r1.rules,
-            "the second piece leaves the first one's cases to it: {r2:?}"
+        generate(SUNSET, "sunset.sym", &root.join("a"), &stopped, &mut |_| {}).unwrap();
+        generate(SUNSET, "sunset.sym", &root.join("b"), &stopped, &mut |_| {}).unwrap();
+        let j = join_of(
+            &[&root.join("a"), &root.join("b")],
+            &root.join("join"),
+            None,
         );
-        let _ = std::fs::remove_dir_all(&reg);
-        let _ = std::fs::remove_dir_all(&fam_dir);
+        assert_eq!(j.verdict, "rejected", "{j:?}");
+        assert_eq!(j.cycles.len(), 1);
+        assert_eq!(
+            crate::node::registry::sccs(3, &[(0, 1), (1, 0), (1, 2)])
+                .iter()
+                .filter(|c| c.len() > 1)
+                .count(),
+            1
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn join_rejects_runs_under_different_orders() {
+        // T212 lesson: cheap rules of two orders joined into one table can cycle; the math key binds the order
+        let root = tmp("orders");
+        let tie = NodeOrder {
+            name: "tie_isp_rev".into(),
+            coordinate_priority: Some(vec![0, 1, 2, 4, 3]),
+            ..NodeOrder::identity()
+        };
+        generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("id"),
+            &quiet(),
+            &mut |_| {},
+        )
+        .unwrap();
+        let o = NodeOptions {
+            order: tie,
+            ..quiet()
+        };
+        generate(SUNSET, "sunset.sym", &root.join("tie"), &o, &mut |_| {}).unwrap();
+        let j = join_of(
+            &[&root.join("id"), &root.join("tie")],
+            &root.join("join"),
+            None,
+        );
+        assert_eq!(j.verdict, "rejected", "{j:?}");
+        assert!(j.reasons.iter().any(|r| r.contains("math key")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pool_split_closes_and_reconstruction_matches_the_native_record() {
+        use crate::node::registry::{POOL_SCHEMA, Pool, PoolItem, obligations_from_queue};
+        let root = tmp("pool");
+        let p0 = NodeOptions {
+            max_cases: Some(2),
+            ..quiet()
+        };
+        let r0 = generate(SUNSET, "sunset.sym", &root.join("p0"), &p0, &mut |_| {}).unwrap();
+        assert!(!r0.complete);
+        let native = obligations(&root.join("p0"));
+        let rebuilt =
+            obligations_from_queue(SUNSET, &NodeOrder::identity(), &root.join("p0")).unwrap();
+        assert_eq!(rebuilt.math_key, native.math_key);
+        let cases = |o: &crate::node::registry::Obligations, kinds: &[&str]| {
+            let mut v: Vec<String> = o
+                .open
+                .iter()
+                .filter(|x| kinds.contains(&x.kind.as_str()))
+                .map(|x| serde_json::to_string(&x.case).unwrap())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            cases(&rebuilt, &["pending", "current"]),
+            cases(&native, &["pending", "current"])
+        );
+        assert_eq!(
+            cases(&rebuilt, &["numerical"]),
+            cases(&native, &["numerical"])
+        );
+        // the pool: every open obligation of p0; two pieces claim from it with the registry and p0 as cover
+        let items: Vec<PoolItem> = native
+            .open
+            .iter()
+            .enumerate()
+            .map(|(k, o)| PoolItem {
+                id: format!("o{k:03}"),
+                case: o.case.clone(),
+            })
+            .collect();
+        let pool_dir = root.join("pool");
+        std::fs::create_dir_all(&pool_dir).unwrap();
+        let pool = Pool {
+            schema: POOL_SCHEMA.into(),
+            math_key: Some(native.math_key.clone()),
+            items,
+        };
+        std::fs::write(
+            pool_dir.join("POOL.json"),
+            serde_json::to_string(&pool).unwrap(),
+        )
+        .unwrap();
+        let cover = (
+            root.join("p0/F.table.jsonl").display().to_string(),
+            usize::MAX,
+        );
+        // a compact cover index of p0's table loads like the table
+        let index = root.join("p0.cover.jsonl").display().to_string();
+        let k = crate::node::registry::write_cover_index(&cover.0, usize::MAX, &index).unwrap();
+        assert_eq!(k, r0.rules);
+        let mut dirs = vec![root.join("p0")];
+        for (piece, cov) in [("q1", cover.clone()), ("q2", (index.clone(), usize::MAX))] {
+            let o = NodeOptions {
+                pool: Some(pool_dir.display().to_string()),
+                registry: Some((root.join("reg").display().to_string(), piece.into())),
+                cover_tables: vec![cov],
+                lease_wait: 0,
+                ..quiet()
+            };
+            let r = generate(SUNSET, "sunset.sym", &root.join(piece), &o, &mut |_| {}).unwrap();
+            assert!(r.complete, "{piece}: {r:?}");
+            dirs.push(root.join(piece));
+        }
+        let claimed = obligations(&root.join("q1")).pool_claims.len()
+            + obligations(&root.join("q2")).pool_claims.len();
+        assert_eq!(
+            claimed,
+            native.open.len(),
+            "every pool item claimed exactly once"
+        );
+        let refs: Vec<&Path> = dirs.iter().map(|d| d.as_path()).collect();
+        let j = join_of(&refs, &root.join("join"), Some(1));
+        assert_eq!(j.verdict, "closed", "{j:?}");
+        assert!(j.cycles.is_empty());
+        let (_, rep) =
+            crate::node::descent::check_table_file(j.table.as_ref().unwrap(), None).unwrap();
+        assert!(rep.passed() && rep.rules == j.rules, "{rep:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refused_cases_stay_open_obligations_and_the_queue_continues() {
+        let dir = tmp("open-refusal");
+        let screen = LiftScreen {
+            min_rows: 1,
+            max_total_degree: 0,
+            max_rhs_terms: 0,
+            on_heavy: HeavyAction::Refuse,
+            ..LiftScreen::default()
+        };
+        let opts = NodeOptions {
+            screen: Some(screen),
+            open_on_refusal: true,
+            ..quiet()
+        };
+        let out = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |_| {}).unwrap();
+        if out.screened_lifts > 0 {
+            assert!(out.refused_open > 0 && !out.complete && out.state == "stopped");
+            assert!(
+                matches!(out.stop, Some(StopReason::OpenObligations { .. })),
+                "{:?}",
+                out.stop
+            );
+            let o = obligations(&dir);
+            assert_eq!(
+                o.open.iter().filter(|x| x.kind == "refused").count(),
+                out.refused_open
+            );
+            assert!(
+                o.open
+                    .iter()
+                    .all(|x| x.kind != "refused" || x.detail["reports"].is_array())
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

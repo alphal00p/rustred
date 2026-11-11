@@ -181,10 +181,14 @@ pub fn check_table_file(
     path: &str,
     order: Option<NodeOrder>,
 ) -> Result<(NodeOrder, DescentReport), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    // streamed line by line: node tables of split 5L nodes reach several GB
+    use std::io::BufRead as _;
+    let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
     let mut header = None;
     let mut rules: Vec<(String, String, String, Vec<String>)> = Vec::new();
-    for line in text.lines() {
+    for line in std::io::BufReader::with_capacity(1 << 22, file).lines() {
+        let line = line.map_err(|e| format!("{path}: {e}"))?;
+        let line = line.as_str();
         if line.trim().is_empty() {
             continue;
         }

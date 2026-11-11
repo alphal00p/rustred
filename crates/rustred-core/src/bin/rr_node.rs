@@ -8,7 +8,8 @@
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
 //!                  [--case-seed-priority symbolic-isp-first]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
-//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
+//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE] [--no-registry-lease]
+//!                  [--lease-wait S] [--pool DIR] [--open-on-refusal] [--initial-presented CASES.json] [--case-seed-rung JSON] [--slim-rules]
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
@@ -18,8 +19,12 @@
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
 //! rr_node replay   --table F.table.jsonl --out DIR [--family F.sym] [--cert F.cert.jsonl] [--cand-dump-dir D]
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
+//! rr_node cover-index --table F.table.jsonl --out F.cover.jsonl [--upto K]
+//! rr_node obligations --family F.sym --order NAME|JSON --run DIR --out F.obligations.json   (rebuild from F.queue.jsonl)
+//! rr_node join     --run DIR[:OBLIGATIONS[:COVER_INDEX]]... --out DIR [--expect-residuals K] [--region-proof F.json]...
+//!                  [--union-depth K] [--no-table]
 //! ```
-//! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
+//! Exit status: join 0 closed / 1 open / 3 rejected. Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
 #![allow(
     clippy::field_reassign_with_default,
@@ -267,9 +272,32 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             .unwrap_or_else(|| die("--registry DIR:PIECE"));
         o.registry = Some((dir.to_string(), piece.to_string()));
     }
-    // M5 batch 3: the shared case registry is experimental and refused without this flag.
+    // the M5 batch 3 opt-in of the old registry: accepted, without effect (the registry is proof-bearing now)
     if a.flag("--unsafe-shared-registry") {
         o.unsafe_shared_registry = true;
+    }
+    if a.flag("--no-registry-lease") {
+        o.registry_lease = false;
+    }
+    if let Some(v) = a.parse("--lease-wait") {
+        o.lease_wait = v;
+    }
+    o.pool = a.take("--pool");
+    if a.flag("--slim-rules") {
+        o.slim_rules = true;
+    }
+    if a.flag("--open-on-refusal") {
+        o.open_on_refusal = true;
+    }
+    if let Some(f) = a.take("--initial-presented") {
+        o.initial_presented = serde_json::from_str(&read(&f))
+            .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+    }
+    if let Some(v) = a.take("--case-seed-rung") {
+        o.case_seed_rung = Some(
+            parse_case_seed_schedule(&v, rustred::node::order::family_props(family).len())
+                .unwrap_or_else(|e| die(&format!("--case-seed-rung: {e}"))),
+        );
     }
     if a.flag("--no-empty-domain-check") {
         o.empty_domain_check = false;
@@ -562,10 +590,92 @@ fn utc() -> String {
     format!("{:02}:{:02}:{:02}Z", s / 3600 % 24, s / 60 % 60, s % 60)
 }
 
+fn cmd_cover_index(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let out = a.need("--out");
+    let upto = a.parse("--upto").unwrap_or(usize::MAX);
+    a.done();
+    let k =
+        rustred::node::registry::write_cover_index(&table, upto, &out).unwrap_or_else(|e| die(&e));
+    println!("{}", serde_json::json!({"cover_index": out, "rules": k}));
+    0
+}
+
+fn cmd_obligations(mut a: Args) -> i32 {
+    let family = read(&a.need("--family"));
+    let order = a.need("--order");
+    let run = PathBuf::from(a.need("--run"));
+    let out = PathBuf::from(a.need("--out"));
+    a.done();
+    let order = order_arg(&order, &family, None);
+    let o = rustred::node::registry::obligations_from_queue(&family, &order, &run)
+        .unwrap_or_else(|e| die(&e));
+    o.write(&out).unwrap_or_else(|e| die(&e));
+    let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
+    for x in &o.open {
+        *kinds.entry(x.kind.as_str()).or_default() += 1;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"state": o.state, "open": o.open.len(), "kinds": kinds, "rules": o.rules, "math_key": o.math_key, "stop": o.stop})
+    );
+    0
+}
+
+fn cmd_join(mut a: Args) -> i32 {
+    use rustred::node::registry::{JoinOptions, JoinRun, join};
+    let runs: Vec<JoinRun> = a
+        .take_all("--run")
+        .iter()
+        .map(|r| {
+            let mut it = r.split(':');
+            let dir = PathBuf::from(it.next().unwrap_or_default());
+            let obligations = it
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("F.obligations.json"));
+            let cover_index = it.next().filter(|s| !s.is_empty()).map(PathBuf::from);
+            JoinRun {
+                dir,
+                obligations,
+                cover_index,
+            }
+        })
+        .collect();
+    let opts = JoinOptions {
+        runs,
+        out: PathBuf::from(a.need("--out")),
+        expect_residuals: a.parse("--expect-residuals"),
+        region_proofs: a
+            .take_all("--region-proof")
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        union_depth: a.parse("--union-depth").unwrap_or(3),
+        write_table: !a.flag("--no-table"),
+    };
+    a.done();
+    let r = join(&opts).unwrap_or_else(|e| die(&e));
+    println!(
+        "{}",
+        serde_json::json!({"verdict": r.verdict, "rules": r.rules, "unresolved": r.unresolved.len(),
+        "cycles": r.cycles.len(), "residuals": r.residual_keys.len(), "residuals_ok": r.residuals_ok,
+        "discharged": r.discharged, "reasons": r.reasons, "table": r.table, "seconds": r.seconds})
+    );
+    match r.verdict.as_str() {
+        "closed" => 0,
+        "open" => 1,
+        _ => 3,
+    }
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
-        die("usage: rr_node generate|probe|variants|descent|replay ... (see the source header)");
+        die(
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join ... (see the source header)",
+        );
     }
     let cmd = items.remove(0);
     let a = Args { items };
@@ -575,6 +685,9 @@ fn main() {
         "variants" => cmd_variants(a),
         "descent" => cmd_descent(a),
         "replay" => cmd_replay(a),
+        "cover-index" => cmd_cover_index(a),
+        "obligations" => cmd_obligations(a),
+        "join" => cmd_join(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
