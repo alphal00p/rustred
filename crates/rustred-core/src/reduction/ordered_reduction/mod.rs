@@ -1260,6 +1260,17 @@ trait StepSource<K: OrderedKernel> {
     fn take_hashes(&mut self) -> Option<Vec<u64>> {
         None
     }
+
+    /// rr-par: whether spent step coefficients go to [`StepSource::dispose`]
+    /// instead of being dropped by the scheduler.
+    fn disposes(&self) -> bool {
+        false
+    }
+
+    /// Drop spent step coefficients (on another thread).
+    fn dispose(&mut self, spent: Vec<Coefficient>) {
+        drop(spent);
+    }
 }
 
 /// The adapter's own step, computed when the key is popped.
@@ -1503,6 +1514,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     let context = kernel.context().clone();
     let mut mem_probe = memstats::Probe::new();
     let mut par_clock = parstats::ForwardClock::new();
+    let disposing = steps.disposes();
+    let mut spent: Vec<Coefficient> = Vec::new();
     for phase in 0..state.progress.total_phases {
         let phase_started = par_clock.now();
         let (mut par_pops, mut par_source) = (0u64, 0.0f64);
@@ -1614,6 +1627,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         }
                     })
                 })?;
+                if disposing {
+                    spent.push(coefficient);
+                }
                 if let Some(removed) = removed {
                     weights.cancel(removed)?;
                     request.release_pending_frame()?;
@@ -1643,6 +1659,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 )?;
             }
             weights.end_step(weight);
+            if spent.len() >= 4096 {
+                steps.dispose(std::mem::take(&mut spent));
+            }
             progress.processed_keys = progress.processed_keys.saturating_add(1);
             progress.frontier_keys = frontier.len();
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());

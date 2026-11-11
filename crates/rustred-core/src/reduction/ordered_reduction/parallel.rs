@@ -983,6 +983,16 @@ where
     fn take_hashes(&mut self) -> Option<Vec<u64>> {
         self.hashes.take()
     }
+
+    /// The scheduler hands its spent step coefficients back: they were
+    /// allocated by the workers and are freed there.
+    fn disposes(&self) -> bool {
+        true
+    }
+
+    fn dispose(&mut self, spent: Vec<Coefficient>) {
+        self.scope.spawn(move |_| drop(spent));
+    }
 }
 
 /// The accounting call the sequential scheduler makes before an operation
