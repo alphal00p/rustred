@@ -1452,7 +1452,7 @@ fn residual_relations(
                 let mut isp = false;
                 for (shift, value) in relation.terms() {
                     let (value, _) = (generator.context())
-                        .specialize(value, &seed, IndexedAlgebraLimits::default())
+                        .specialize(value, seed, IndexedAlgebraLimits::default())
                         .map_err(|error| {
                             failed(format!("specialising IBP row {ordinal}: {error}"))
                         })?;
@@ -1543,6 +1543,7 @@ fn residual_relations(
 
 /// `Sum_j r_j row_j + s` of a relation modulo the sample's prime, its nonzero
 /// components (`None` at a pole).
+#[allow(clippy::type_complexity)]
 fn relation_image(
     field: &PrimeField,
     sample: &ZpSample,

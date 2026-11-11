@@ -117,6 +117,10 @@ struct CampaignDeclaredPowerJobOutputV1 {
     ordering: &'static str,
 }
 
+// FamilyKey orders and compares by the family fingerprint only; the family's
+// lazily built derivative-contraction cache (a OnceLock, M5 1L-3L) does not
+// take part in it.
+#[allow(clippy::mutable_key_type)]
 pub(super) fn compile_roots_only_output(
     roots: Vec<PreparedCampaignRoot>,
 ) -> Result<CampaignPlanOutputV1, AppError> {

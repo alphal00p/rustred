@@ -123,6 +123,7 @@ struct IspRecord {
 }
 
 #[derive(Deserialize)]
+#[allow(clippy::type_complexity)]
 struct RuleRecord {
     name: String,
     pattern: Vec<serde_json::Value>,
@@ -271,6 +272,7 @@ impl Poly {
     }
 }
 
+#[allow(clippy::type_complexity)]
 struct ParsedRule {
     name: String,
     /// Forcer slot order.
@@ -631,6 +633,7 @@ pub fn scheme_presentation(
 
 /// One rule in presentation coordinates.
 #[derive(Clone, Debug)]
+#[allow(clippy::type_complexity)]
 pub struct SchemeRule {
     pub name: String,
     /// Presentation slot order.
@@ -676,6 +679,7 @@ pub struct SchemeTemplate {
     name: String,
     presentation: PresentationId,
     context: IndexedCoefficientContext,
+    #[allow(dead_code)] // the Forcer -> presentation slot map, kept with the template (Debug)
     perm: Vec<usize>,
     lines: usize,
     order: Vec<Row>,

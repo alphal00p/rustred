@@ -194,6 +194,7 @@ impl PBfsCertificate {
 }
 
 #[derive(Debug)]
+#[allow(clippy::type_complexity)]
 pub struct PPathCensus {
     pub options: PPathCensusOptions,
     pub steps: BTreeMap<PCensusKey, PCensusAgg>,
