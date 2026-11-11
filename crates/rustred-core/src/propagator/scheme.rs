@@ -1840,7 +1840,13 @@ impl SchemeStep {
                 .filter(|&(_, &p)| p > 0)
                 .fold(0_u64, |m, (slot, _)| m | 1 << slot)
         };
-        let add = |map: &mut BTreeMap<_, Coefficient>, at, value: Coefficient| -> Result<(), PError> {
+        fn add<K: Ord>(
+            base: &CoefficientContext,
+            exact: ExactAlgebraLimits,
+            map: &mut BTreeMap<K, Coefficient>,
+            at: K,
+            value: Coefficient,
+        ) -> Result<(), PError> {
             match map.entry(at) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
                     entry.insert(value);
@@ -1851,7 +1857,7 @@ impl SchemeStep {
                 }
             }
             Ok(())
-        };
+        }
         let source = IntegralKey::try_new(key.powers.iter().copied())
             .map_err(|error| PError::Contract(error.to_string()))?;
         let expansion = ExpansionLimits {
@@ -1866,9 +1872,9 @@ impl SchemeStep {
             let powers = endpoint.key().powers().to_vec();
             let value = endpoint.coefficient().clone();
             if support_of(&powers) == fallback.support {
-                add(&mut frontier, (fallback.program.order(&powers)?, powers), value)?;
+                add(base, exact, &mut frontier, (fallback.program.order(&powers)?, powers), value)?;
             } else {
-                add(&mut routes, powers, value)?;
+                add(base, exact, &mut routes, powers, value)?;
             }
         }
         let mut residual = base.zero();
@@ -1902,9 +1908,9 @@ impl SchemeStep {
                                     self.template.name
                                 )));
                             }
-                            add(&mut frontier, (below, child), weight)?;
+                            add(base, exact, &mut frontier, (below, child), weight)?;
                         } else {
-                            add(&mut routes, child, weight)?;
+                            add(base, exact, &mut routes, child, weight)?;
                         }
                     }
                 }
