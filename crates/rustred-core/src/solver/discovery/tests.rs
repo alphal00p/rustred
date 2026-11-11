@@ -400,3 +400,108 @@ fn exact_gplu_compacts_fixed_axes_and_restores_the_full_context() {
         }
     ));
 }
+
+#[cfg(feature = "reconstruction")]
+#[test]
+fn sampled_strict_backend_is_explicit_and_legacy_keeps_its_threshold() {
+    use crate::node::driver::parse_backend;
+    assert_eq!(
+        parse_backend("sampled-strict").unwrap(),
+        SymbolicExactBackend::SampledStrict {
+            threads: 1,
+            seed: 0x5eed
+        }
+    );
+    assert_eq!(
+        parse_backend("sampled").unwrap(),
+        SymbolicExactBackend::Sampled {
+            threads: 1,
+            seed: 0x5eed,
+            min_rows: 600
+        }
+    );
+    assert!(parse_backend("sampled_strict").is_err());
+}
+
+#[cfg(feature = "reconstruction")]
+#[test]
+fn sampled_strict_refuses_actual_dense_box_without_exact_fallback() {
+    // Only four nonzero monomials, but a genuine native dense reconstruction
+    // box > MAX_BOX. Drive the actual dispatcher/sampler, no injected failure.
+    let context = CoefficientContext::new(["a", "b", "c", "d"]);
+    let rows = vec![vec![
+        Term {
+            integral: integral(1),
+            coefficient: context.one(),
+        },
+        Term {
+            integral: integral(0),
+            coefficient: context.coefficient_fixture("a^16+b^16+c^16+d^16"),
+        },
+    ]];
+    let run = |backend| {
+        let mut events = Vec::new();
+        let result = exact_materialize_using_with_observer(
+            &rows,
+            &order(),
+            integral(1),
+            backend,
+            CoefficientVariableOrder::Original,
+            &[],
+            |event| events.push(event),
+        );
+        (result, events)
+    };
+    let assert_refused = |(result, events): (
+        Result<ExactRow<1>, MaterializationError>,
+        Vec<MaterializationEvent<1>>,
+    )| {
+        assert!(
+            matches!(&result, Err(MaterializationError::SemiNumericalReconstruction(reason))
+            if reason.contains("strict sampled refused: dense box")
+                && reason.contains("fallback disabled")),
+            "{result:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, MaterializationEvent::SemiNumericalStarted { .. }))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, MaterializationEvent::TargetBlockStarted { .. }))
+        );
+    };
+    let strict = SymbolicExactBackend::SampledStrict {
+        threads: 1,
+        seed: 0x5eed,
+    };
+    assert_refused(run(strict));
+    // A pre-screen Sampled decision must not bypass the selected strict backend.
+    crate::node::screen::with_screen(
+        Some(crate::node::screen::LiftScreen {
+            min_rows: 0,
+            sampled_from_rows: Some(0),
+            max_box: 6000,
+            ..Default::default()
+        }),
+        || assert_refused(run(strict)),
+    );
+    crate::node::screen::take_reports();
+    // Same real dense-box failure: legacy still enters TOF and matches Sparse.
+    let (legacy, events) = run(SymbolicExactBackend::Sampled {
+        threads: 1,
+        seed: 0x5eed,
+        min_rows: 0,
+    });
+    assert_eq!(
+        legacy.unwrap(),
+        exact_materialize(&rows, &order(), integral(1)).unwrap()
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, MaterializationEvent::TargetBlockStarted { .. }))
+    );
+}

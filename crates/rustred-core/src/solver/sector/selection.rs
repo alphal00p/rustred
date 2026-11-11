@@ -49,6 +49,90 @@ impl<const N: usize> CandidateIdentity<N> {
 }
 
 impl<const N: usize> SectorSolver<'_, N> {
+    /// Admit one explicitly nominated native rule trial without changing an
+    /// exceptional-case queue or the default selector. This diagnostic seam
+    /// lets an external, fixed-context consumer score the ACTUAL admitted
+    /// relation rather than a local feature proxy or a progress summary.
+    ///
+    /// Search, canonicalization, descent, guards and complete geometry use the
+    /// same rule_trial path as BoundedPortfolio. No pre-screen or deduplication
+    /// against an external candidate bank is implied. A supplied baseline
+    /// target must agree exactly. The caller owns the trial count and shared
+    /// cooperative case clock; None limits is the mandatory Reference trial.
+    /// Returned children retain the original OR order. No rule is published.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn probe_admitted_rule_with_observer(
+        &self,
+        current: &Case<N>,
+        options: SectorSolveOptions,
+        descriptor: &RuleTrialDescriptor,
+        limits: Option<RuleTrialLimits>,
+        trial: usize,
+        baseline_target: Option<&Integral<N>>,
+        case_started: Instant,
+        mut observe: impl FnMut(SectorEvent<'_, N>),
+    ) -> Result<(SectorRule<N>, Vec<Case<N>>, usize), SectorSolveError<N>> {
+        let error = |source| SectorSolveError::Search {
+            case: current.clone(),
+            source,
+        };
+        descriptor.source_discovery.validate(N).map_err(error)?;
+        descriptor.seed_schedule.validate(N).map_err(error)?;
+        if let Some(limits) = limits {
+            // Reuse the ordinary public portfolio validation. These quality
+            // fields are validation-only; this seam makes no selection.
+            RuleSelectionPolicy::BoundedPortfolio {
+                alternatives: vec![descriptor.clone()],
+                limits,
+                quality: vec![RuleQualityPriority {
+                    feature: RuleQualityFeature::RhsTerms,
+                    descending: false,
+                }],
+                trigger: RulePortfolioTrigger::Always,
+                pre_screen: false,
+            }
+            .validate(N)
+            .map_err(error)?;
+        }
+        let mut stats = SectorStats {
+            rule_selection: Some(Default::default()),
+            ..Default::default()
+        };
+        if limits.is_some_and(|limits| case_budget_expired(limits, case_started)) {
+            self.skipped_trial(
+                current,
+                trial,
+                RuleTrialOutcome::CaseTimeBudget,
+                None,
+                case_started,
+                &mut stats,
+                &mut observe,
+            );
+            return Err(SectorSolveError::NonProgress {
+                case: current.clone(),
+            });
+        }
+        let prepared = descriptor
+            .source_discovery
+            .materialize(&self.basis)
+            .map_err(error)?;
+        let admitted = self.rule_trial(
+            current,
+            options,
+            prepared.as_ref().map(SourceVisitOrder::ordinals),
+            &descriptor.seed_schedule,
+            limits,
+            trial,
+            baseline_target,
+            &[],
+            None,
+            case_started,
+            &mut stats,
+            &mut observe,
+        )?;
+        Ok((admitted.rule, admitted.children, admitted.discarded))
+    }
+
     pub(super) fn select_rule(
         &self,
         current: &Case<N>,

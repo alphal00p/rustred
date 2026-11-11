@@ -2,7 +2,8 @@ use super::{Integral, PowerError, SolverError};
 
 /// Optional finite-search seed schedule; it does not change the integral order
 /// or turn an exhausted search into a statement of coverage.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CaseSeedSchedule {
     /// The historical zero-first, increasing-L1-shell sequence, unchanged.
     #[default]

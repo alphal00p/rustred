@@ -284,3 +284,91 @@ fn sector_observation_forwards_case_and_preserves_phase_order() {
     );
     assert_eq!(baseline.rules[0].exceptions, observed.rules[0].exceptions);
 }
+
+#[test]
+fn scheduled_node_reference_preserves_default_and_shell_two_skips_lower_sources() {
+    let system = SourceSystem::<1>::from_family(&tadpole()).unwrap();
+    let solver = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();
+    let baseline = solver
+        .solve_case(CoordinateCase::generic(), SearchOptions::default())
+        .unwrap();
+    let reference = solver
+        .solve_case_with_schedule_and_observer(
+            CoordinateCase::generic(),
+            SearchOptions::default(),
+            None,
+            &CaseSeedSchedule::Reference,
+            |_| {},
+        )
+        .unwrap();
+    assert_eq!(reference.target, baseline.target);
+    assert_eq!(reference.rhs, baseline.rhs);
+    assert_eq!(reference.sources, baseline.sources);
+    let schedule = CaseSeedSchedule::ShiftShells {
+        first_depth: 2,
+        last_depth: 2,
+        axis_priority: vec![0],
+        positive_first: true,
+    };
+    let mut events = Vec::new();
+    let result = solver.solve_case_with_schedule_and_observer(
+        CoordinateCase::generic(),
+        SearchOptions::default(),
+        None,
+        &schedule,
+        |event| events.push(event),
+    );
+    assert!(matches!(
+        result,
+        Ok(_) | Err(SolverError::SearchExhausted { .. })
+    ));
+    let depths: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            SearchEvent::DiscoveryProgress { depth, .. } => Some(*depth),
+            _ => None,
+        })
+        .collect();
+    assert!(!depths.is_empty());
+    assert!(depths.iter().all(|&d| d == 2), "{depths:?}");
+}
+
+#[test]
+fn scheduled_node_invalid_descriptor_source_or_case_fails_before_events() {
+    let system = SourceSystem::<1>::from_family(&tadpole()).unwrap();
+    let solver = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();
+    let invalid = CaseSeedSchedule::ShiftShells {
+        first_depth: 3,
+        last_depth: 2,
+        axis_priority: vec![0],
+        positive_first: true,
+    };
+    let mut events = Vec::new();
+    let result = solver.solve_case_with_schedule_and_observer(
+        CoordinateCase::generic(),
+        SearchOptions::default(),
+        None,
+        &invalid,
+        |event| events.push(event),
+    );
+    assert!(matches!(result, Err(SolverError::InvalidInput(_))));
+    assert!(events.is_empty());
+    let result = solver.solve_case_with_schedule_and_observer(
+        CoordinateCase::generic(),
+        SearchOptions::default(),
+        Some(&[usize::MAX]),
+        &CaseSeedSchedule::Reference,
+        |event| events.push(event),
+    );
+    assert!(matches!(result, Err(SolverError::InvalidInput(_))));
+    assert!(events.is_empty());
+    let result = solver.solve_case_with_schedule_and_observer(
+        CoordinateCase::new([Some(0)]).unwrap(),
+        SearchOptions::default(),
+        None,
+        &CaseSeedSchedule::Reference,
+        |event| events.push(event),
+    );
+    assert!(matches!(result, Err(SolverError::InvalidInput(_))));
+    assert!(events.is_empty());
+}

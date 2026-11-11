@@ -75,6 +75,11 @@ enum BackendRecord {
         seed: u64,
         min_rows: usize,
     },
+    /// Appended: the old sampled policy keeps its wire discriminant and fields.
+    SampledStrict {
+        threads: usize,
+        seed: u64,
+    },
 }
 
 impl From<OwnerFeedbackPolicy> for PolicyRecord {
@@ -130,6 +135,8 @@ impl From<OwnerFeedbackPolicy> for PolicyRecord {
                 seed,
                 min_rows,
             },
+            #[cfg(feature = "reconstruction")]
+            S::SampledStrict { threads, seed } => BackendRecord::SampledStrict { threads, seed },
         };
         Self {
             numerical_depth: value.numerical_depth,
@@ -206,10 +213,13 @@ impl PolicyRecord {
                 seed,
                 min_rows,
             },
+            #[cfg(feature = "reconstruction")]
+            BackendRecord::SampledStrict { threads, seed } => S::SampledStrict { threads, seed },
             #[cfg(not(feature = "reconstruction"))]
             BackendRecord::SemiNumerical { .. }
             | BackendRecord::SemiNumericalSourceWeights { .. }
-            | BackendRecord::Sampled { .. } => {
+            | BackendRecord::Sampled { .. }
+            | BackendRecord::SampledStrict { .. } => {
                 return Err(crate::AppError::input(
                     "saved overlay backend requires the reconstruction feature",
                 ));

@@ -158,6 +158,7 @@ pub(super) fn materialize<const N: usize>(
     variables: &FrameVariables,
     threads: usize,
     seed: u64,
+    strict: bool,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     let start = std::time::Instant::now();
@@ -245,6 +246,12 @@ pub(super) fn materialize<const N: usize>(
     );
     let unknowns = (boxes.l_mons.len() + boxes.nf_mons.len()).max(boxes.p_mons.len());
     if unknowns > recon::MAX_BOX {
+        if strict {
+            return Err(err(format!(
+                "strict sampled refused: dense box {unknowns} > {}; targetonlyfactorized fallback disabled",
+                recon::MAX_BOX
+            )));
+        }
         // The relation itself is large (dense box beyond the cubic-solve limit): the sampled route cannot help, so the
         // ordinary exact lift keeps its chance (it closes such lifts when the elimination does not swell, e.g. T163 1504 rows).
         eprintln!(
