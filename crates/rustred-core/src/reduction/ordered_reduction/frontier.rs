@@ -291,6 +291,10 @@ struct Priorities<P> {
     values: Vec<Option<(P, u32)>>,
     free: Vec<u32>,
     index: HashTable<u32>,
+    /// fwd-opt: the priority id of every slot, by slot id (a dense copy of
+    /// `Slot::priority`), so that a heap comparison reads two `u32`s instead
+    /// of two slots; the slots are read only when the priorities tie.
+    of: Vec<u32>,
 }
 
 impl<P: Clone + Ord + Hash> Priorities<P> {
@@ -299,6 +303,7 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
             values: Vec::new(),
             free: Vec::new(),
             index: HashTable::new(),
+            of: Vec::new(),
         }
     }
 
@@ -357,8 +362,36 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
         }
     }
 
+    /// fwd-opt: [`Self::release`] returning the value: moved out when this
+    /// was its last reference, cloned otherwise (as `get(id).clone()` then
+    /// `release(id)`).
+    fn release_value(&mut self, hasher: &FrontierHash, id: u32) -> P {
+        let entry = self.values[id as usize].as_mut().expect("live priority");
+        if entry.1 > 1 {
+            entry.1 -= 1;
+            return entry.0.clone();
+        }
+        let hash = hasher.hash_one(&entry.0);
+        if let Ok(found) = self.index.find_entry(hash, |&x| x == id) {
+            found.remove();
+        }
+        let (value, _) = self.values[id as usize].take().expect("live priority");
+        self.free.push(id);
+        value
+    }
+
     fn live(&self) -> usize {
         self.values.len() - self.free.len()
+    }
+
+    /// Record that slot `slot` holds priority `id`.
+    #[inline]
+    fn set_of(&mut self, slot: u32, id: u32) {
+        let at = slot as usize;
+        if at >= self.of.len() {
+            self.of.resize(at + 1, 0);
+        }
+        self.of[at] = id;
     }
 }
 
@@ -463,13 +496,23 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
         a: u32,
         b: u32,
     ) -> Ordering {
-        let (a, b) = (
-            slots[a as usize].as_ref().expect("live slot"),
-            slots[b as usize].as_ref().expect("live slot"),
+        // fwd-opt: the priority ids from the dense array; the slots only on
+        // a tie (same order as comparing `(priority, key)` of the slots).
+        let (pa, pb) = (priorities.of[a as usize], priorities.of[b as usize]);
+        debug_assert_eq!(
+            (pa, pb),
+            (
+                slots[a as usize].as_ref().expect("live slot").priority,
+                slots[b as usize].as_ref().expect("live slot").priority
+            )
         );
-        priorities
-            .cmp(a.priority, b.priority)
-            .then_with(|| K::cmp_packed(&a.key, &b.key))
+        priorities.cmp(pa, pb).then_with(|| {
+            let (a, b) = (
+                slots[a as usize].as_ref().expect("live slot"),
+                slots[b as usize].as_ref().expect("live slot"),
+            );
+            K::cmp_packed(&a.key, &b.key)
+        })
     }
 
     fn hash(&self, packed: &K::Packed) -> u64 {
@@ -579,6 +622,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
                 (self.slots.len() - 1) as u32
             }
         };
+        self.priorities.set_of(id, priority);
         let slots = &self.slots;
         let hasher = &self.hasher;
         self.index.insert_unique(hash, id, |&x| {
@@ -622,8 +666,12 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
             self.unindex(id);
             let slot = self.slots[id as usize].take().expect("live slot");
             self.free.push(id);
-            let priority = self.priorities.get(slot.priority).clone();
-            self.priorities.release(&self.hasher, slot.priority);
+            if slot.weight.is_none() {
+                // A tombstone: its priority is not returned.
+                self.priorities.release(&self.hasher, slot.priority);
+                continue;
+            }
+            let priority = self.priorities.release_value(&self.hasher, slot.priority);
             if let Some(weight) = slot.weight {
                 self.live -= 1;
                 return Some((
