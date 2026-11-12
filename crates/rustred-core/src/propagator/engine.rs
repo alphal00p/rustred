@@ -23,6 +23,7 @@
 //! [`PLaneStep::order_key`]: super::step::PLaneStep::order_key
 //! [`ORDERED_STEP_CACHE_SCHEMA`]: crate::reduction::ORDERED_STEP_CACHE_SCHEMA
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, OnceLock};
 
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
@@ -523,6 +524,17 @@ impl PEngine {
             },
             None => PCensusMode::OFF,
         };
+        // Experimental zero-reference pruning changes the recorded step, so
+        // it deliberately refuses persistent caches instead of reusing their
+        // unpruned records or changing their identity/schema.
+        let prune_zero_children =
+            std::env::var("RUSTRED_P_PRUNE_ZERO_CHILDREN").is_ok_and(|value| value == "1");
+        if prune_zero_children && cache.is_some() {
+            return Err(PError::Unsupported(
+                "RUSTRED_P_PRUNE_ZERO_CHILDREN requires cache=None".to_owned(),
+            ));
+        }
+        let zero_pruning = prune_zero_children.then(ZeroPruningCounters::default);
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -533,10 +545,11 @@ impl PEngine {
                 canonical_routes: library.orbit_canonicalization()
                     && library.route_canonicalization(),
                 prefer_high: library.orbit_prefer_high(),
+                zero_pruning: zero_pruning.as_ref(),
             },
             inspector,
         };
-        run_with_step_cache_and_options(
+        let result = run_with_step_cache_and_options(
             &mut kernel,
             &mut ReductionRequest::default(),
             initial,
@@ -544,7 +557,16 @@ impl PEngine {
             arithmetic,
             scheduler,
             cache,
-        )
+        );
+        if let Some(counters) = zero_pruning {
+            eprintln!(
+                "rustred.p-zero-pruning.v1 canonical_candidates_before_parent_merge={} known_zero_candidates_pruned={} complete={}",
+                counters.canonical_candidates.load(AtomicOrdering::Relaxed),
+                counters.known_zero.load(AtomicOrdering::Relaxed),
+                result.is_ok(),
+            );
+        }
+        result
     }
 }
 
@@ -715,6 +737,15 @@ pub(crate) fn routed_sectors(
 }
 
 /// The shared, read-only part of the adapter: pure positions and steps.
+#[derive(Debug, Default)]
+struct ZeroPruningCounters {
+    // These are canonical candidates BEFORE per-parent merging, not the
+    // coalesced emitted children counted by PCensusAgg::ch_zero.
+    canonical_candidates: AtomicU64,
+    known_zero: AtomicU64,
+}
+
+/// The shared, read-only part of the adapter: pure positions and steps.
 #[derive(Clone, Copy)]
 pub(crate) struct PStepper<'l> {
     library: &'l PLibrary,
@@ -728,6 +759,9 @@ pub(crate) struct PStepper<'l> {
     /// The greatest exact image stands for an orbit (the default), else the
     /// least ([`PLibrary::set_orbit_prefer_high`]).
     prefer_high: bool,
+    /// None keeps the historical path byte-for-byte; the opt-in counter is
+    /// request-local and shared only by that request's detached steppers.
+    zero_pruning: Option<&'l ZeroPruningCounters>,
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -1073,7 +1107,9 @@ impl<'l> PStepper<'l> {
                     endpoint.coefficient().clone(),
                 )?
             };
-            merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+            if self.keep_canonical_child(&child, &coefficient)? {
+                merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+            }
         }
         Ok(step)
     }
@@ -1421,6 +1457,37 @@ impl<'l> PStepper<'l> {
         self.apply_key(*class, &child.powers, &child.tag, child.coefficient.clone())
     }
 
+    fn keep_canonical_child(
+        &self,
+        child: &PKey,
+        coefficient: &Coefficient,
+    ) -> Result<bool, PError> {
+        let Some(counters) = self.zero_pruning else {
+            return Ok(true);
+        };
+        if coefficient.is_zero() {
+            return Ok(true); // The existing merge erases literal zero weights.
+        }
+        counters
+            .canonical_candidates
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        let PKey::Route { presentation, view } = child else {
+            return Ok(true);
+        };
+        let (powers, _) = self.engine.split(*presentation, view)?;
+        let support = self.engine.shape(*presentation)?.support(powers);
+        // Use exactly the existing census authority. In particular, a gap
+        // propagates its error and is never inferred to be a zero sector.
+        if matches!(
+            self.engine.sector(self.library, *presentation, support)?,
+            Sector::Zero
+        ) {
+            counters.known_zero.fetch_add(1, AtomicOrdering::Relaxed);
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     fn ordered_step(&self, output: PStepOut) -> Result<OrderedStep<PKey>, PError> {
         let context = self.library.coefficient_context();
         let mut step = OrderedStep::default();
@@ -1445,7 +1512,9 @@ impl<'l> PStepper<'l> {
                 )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
-            merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+            if self.keep_canonical_child(&key, &coefficient)? {
+                merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+            }
         }
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
@@ -1853,6 +1922,9 @@ mod tests {
                 eps_lines: 0,
             })
             .unwrap();
+        // A one-line massless bubble is scaleless; the other one-line mask
+        // remains absent so the zero-pruning tests also exercise a census gap.
+        census.sectors.insert((BUBBLE, 0b01), PSectorFate::Zero);
         let mut builder = PLibrary::builder(context.clone(), 1..=2);
         builder
             .add_presentation(presentation(
@@ -1926,6 +1998,7 @@ mod tests {
             canonical: true,
             canonical_routes: true,
             prefer_high: false,
+            zero_pruning: None,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -1999,6 +2072,7 @@ mod tests {
             canonical: true,
             canonical_routes: true,
             prefer_high: false,
+            zero_pruning: None,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -2010,5 +2084,119 @@ mod tests {
             stepper.apply_step(class, &pinched),
             Err(PError::MalformedLibrary(_))
         ));
+    }
+
+    #[test]
+    fn known_zero_pruning_preserves_default_tags_conditions_and_cancellation() {
+        let (library, _) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let counters = ZeroPruningCounters::default();
+        let off = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
+            canonical: false,
+            canonical_routes: false,
+            prefer_high: false,
+            zero_pruning: None,
+        };
+        let on = PStepper {
+            zero_pruning: Some(&counters),
+            ..off
+        };
+        let one = library.coefficient_context().one();
+        let tag = GammaTag::from_pairs([(1, 2)]).unwrap();
+        let other_tag = GammaTag::from_pairs([(-1, 3)]).unwrap();
+        let child = |powers: Vec<i64>, tag: &GammaTag, coefficient: Coefficient| PChild {
+            stage: PStage::Route,
+            presentation: BUBBLE,
+            powers,
+            tag: tag.clone(),
+            coefficient,
+        };
+        let output = PStepOut {
+            children: vec![
+                child(vec![1, 0], &tag, one.clone()),
+                child(vec![1, 1], &tag, one.clone()),
+                child(vec![1, 1], &tag, one.clone()),
+                child(vec![1, 1], &tag, -one.clone()),
+                child(vec![1, 1], &other_tag, one.clone()),
+            ],
+            terminals: vec![(PTerminalId(0), tag.clone(), one.clone())],
+            conditions: vec![one.clone()],
+        };
+        let old = off.ordered_step(output.clone()).unwrap();
+        let pruned = on.ordered_step(output).unwrap();
+        let zero = engine.route_key(BUBBLE, &[1, 0], &tag).unwrap();
+        let first = engine.route_key(BUBBLE, &[1, 1], &tag).unwrap();
+        let second = engine.route_key(BUBBLE, &[1, 1], &other_tag).unwrap();
+        // The default has exactly the old three coalesced tagged children.
+        assert_eq!(old.terms.len(), 3);
+        for key in [&zero, &first, &second] {
+            assert_eq!(old.terms.get(key), Some(&one));
+        }
+        assert_eq!(pruned.terms.len(), 2);
+        assert!(!pruned.terms.contains_key(&zero));
+        for key in [&first, &second] {
+            assert_eq!(pruned.terms.get(key), Some(&one));
+        }
+        assert_eq!(pruned.terminals, old.terminals);
+        assert_eq!(pruned.nonzero_conditions, old.nonzero_conditions);
+        assert_eq!(
+            counters.canonical_candidates.load(AtomicOrdering::Relaxed),
+            5
+        );
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 1);
+        assert!(
+            on.route_step(BUBBLE, &engine.view(&[1, 0], &tag).unwrap())
+                .unwrap()
+                .terms
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn known_zero_pruning_refuses_gaps_and_preserves_coefficient_admission() {
+        let (library, _) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let counters = ZeroPruningCounters::default();
+        let stepper = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
+            canonical: false,
+            canonical_routes: false,
+            prefer_high: false,
+            zero_pruning: Some(&counters),
+        };
+        let tag = GammaTag::one();
+        let one = library.coefficient_context().one();
+        let gap = engine.route_key(BUBBLE, &[0, 1], &tag).unwrap();
+        assert!(matches!(
+            stepper.keep_canonical_child(&gap, &one),
+            Err(PError::MalformedLibrary(_))
+        ));
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
+        let foreign = CoefficientContext::try_new(["x"])
+            .unwrap()
+            .parameter("x")
+            .unwrap();
+        let output = PStepOut {
+            children: vec![PChild {
+                stage: PStage::Route,
+                presentation: BUBBLE,
+                powers: vec![1, 0],
+                tag,
+                coefficient: foreign,
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(
+            stepper.ordered_step(output),
+            Err(PError::ContextMismatch)
+        ));
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
     }
 }
