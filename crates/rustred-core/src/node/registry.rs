@@ -141,8 +141,8 @@ fn read_run_header(table: &Path) -> Result<RunHeader, String> {
 pub type SiblingRule = (String, CaseSpec, Vec<Vec<String>>);
 
 /// Append-only shared registry of the pieces of one node. Each piece writes its own epoch file
-/// `<dir>/<piece>.<epoch>.reg.jsonl` (created new, never truncated): a header binding the registry identity (math key
-/// + seed schedules + backend + engine version) followed by lifecycle records (`rule` accepted, `lease`,
+/// `<dir>/<piece>.<epoch>.reg.jsonl` (created new, never truncated): a header binding the registry identity (math key,
+/// seed schedules, backend and engine version) followed by lifecycle records (`rule` accepted, `lease`,
 /// `lease_resolved`, `lease_returned`, `end`). Siblings with another identity are ignored.
 pub struct Registry {
     dir: PathBuf,
@@ -1185,8 +1185,17 @@ fn join_impl<const N: usize>(
         entries.iter().map(|(c, b)| (c, b.as_slice())).collect();
     let mut edges: BTreeMap<(usize, usize), usize> = BTreeMap::new();
     let mut discharged: BTreeMap<String, usize> = BTreeMap::new();
+    let total: usize = obls.iter().map(|o| o.open.len()).sum();
+    let mut seen = 0usize;
     for (k, o) in obls.iter().enumerate() {
         for ob in &o.open {
+            seen += 1;
+            if seen % 250 == 0 {
+                eprintln!(
+                    "[join] {seen}/{total} obligations, {} unresolved",
+                    report.unresolved.len()
+                );
+            }
             // (1) emptiness certificate of a deferred region (matched on chart and conjunction)
             if ob.kind == "region" || ob.kind == "branch" {
                 let conj = if ob.kind == "region" {
@@ -1225,16 +1234,7 @@ fn join_impl<const N: usize>(
                 }
                 continue;
             };
-            // (2) one accepted rule covers it (valid domain): no dependency at all
-            if refs
-                .iter()
-                .any(|(c, b)| covers(c, b, &case, &ctx.idx, &ctx.sector, limits))
-            {
-                *discharged.entry("rule_cover".into()).or_default() += 1;
-                continue;
-            }
-            // (3) containment in the initial case of ANOTHER run: a dependency edge (never a self discharge);
-            // preferred owners: complete runs, then runs that do not own the whole chart
+            // candidate owners: ANOTHER run whose initial case contains it (never a self discharge)
             let mut owners: Vec<usize> = (0..obls.len())
                 .filter(|&j| {
                     j != k
@@ -1244,6 +1244,27 @@ fn join_impl<const N: usize>(
                 })
                 .collect();
             owners.sort_by_key(|&j| (obls[j].state != "complete", roots.contains(&j), j));
+            // (2) a COMPLETE run owns it: a dependency edge into a sink (a complete run has no open obligation, so no
+            // cycle can pass through it); cheap containment, tried before any intersection
+            if let Some(&j) = owners.first().filter(|&&j| obls[j].state == "complete") {
+                *edges.entry((k, j)).or_default() += 1;
+                *discharged.entry("run_initial_complete".into()).or_default() += 1;
+                continue;
+            }
+            // a deferred region's chart is where the intersection with an exceptional branch got stuck: no
+            // intersection-based proof is attempted on it here (it can hang, rr-consolidate T182 lesson); it needs an
+            // emptiness certificate or a run owning its chart
+            let is_region = ob.kind == "region" || ob.kind == "branch";
+            // (3) one accepted rule covers it (valid domain): no dependency at all
+            if !is_region
+                && refs
+                    .iter()
+                    .any(|(c, b)| covers(c, b, &case, &ctx.idx, &ctx.sector, limits))
+            {
+                *discharged.entry("rule_cover".into()).or_default() += 1;
+                continue;
+            }
+            // (3b) a stopped run owns it: an edge (cycles among stopped runs are rejected below)
             if let Some(&j) = owners.first() {
                 *edges.entry((k, j)).or_default() += 1;
                 *discharged.entry("run_initial".into()).or_default() += 1;
@@ -1251,15 +1272,17 @@ fn join_impl<const N: usize>(
             }
             // (4) the depth-bounded union argument against the joined rules
             let mut budget = 400usize;
-            if union_covered(
-                &case,
-                &refs,
-                &ctx.idx,
-                &ctx.sector,
-                limits,
-                opts.union_depth.max(1),
-                &mut budget,
-            ) {
+            if !is_region
+                && union_covered(
+                    &case,
+                    &refs,
+                    &ctx.idx,
+                    &ctx.sector,
+                    limits,
+                    opts.union_depth.max(1),
+                    &mut budget,
+                )
+            {
                 *discharged.entry("union_cover".into()).or_default() += 1;
                 continue;
             }
