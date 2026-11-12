@@ -1119,6 +1119,18 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "3c7a710a90c8365b2274c6196e68ed59f98cffdaf965f4c9a3f9be47cc913790",
     ),
+    // M5 batch 4 (P_PRESENTATION_VERSION 3: route-basis edge-pair ISPs): the
+    // presentations of the changed nodes and the identity change.
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=3,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "fd05cfab2ab374774e30257038b658a59b08d85e2e3d210593d67920c2697131",
+    ),
+    (
+        "1-3",
+        "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=3,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "aa936cca66fb9f4cd3fccef93f877f9dcb1807195bccb7ace840cfd1688e8c9b",
+    ),
 ];
 
 fn check_inventory(scope: &str, assembled: &AssembledLibrary) {
@@ -2906,7 +2918,9 @@ fn p_validate_traces_a_hundred_keys_per_loop_count_at_scope_one_to_three() {
             // P_CENSUS_VERSION 2 (static-score route maps): 2L 1_812 / 406 /
             // 1_490 and 3L 409_663 / 58_440 / 335_988 before.
             (2, 100, 1_025, 217, 845),
-            (3, 100, 265_734, 40_322, 210_612)
+            // P_PRESENTATION_VERSION 3 (M5 batch 4, route bases): 3L
+            // 265_734 / 40_322 / 210_612 before.
+            (3, 100, 205_050, 31_654, 159_049)
         ]
     );
 }

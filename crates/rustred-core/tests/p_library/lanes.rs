@@ -39,16 +39,18 @@ const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/p_library/g
 /// new pins here: `RUSTRED_P_BLESS=1 cargo test -p rustred --test p_library lanes`.
 // P_PRESENTATION_VERSION 2 (M5 combined: the ISP choice of three scope 1-4
 // Insertion owners): the 2L/3L dumps change only in their header line.
+// P_PRESENTATION_VERSION 3 (M5 batch 4, route bases): edge-pair ISPs of the
+// generic presentations of the table; the 2L dump changes in its header only.
 const DUMP_PINS: (u32, [(u8, &str); 2]) = (
-    2,
+    3,
     [
         (
             2,
-            "4efcc4e9a45ddd5025bf469dc815365d75e3e6329ca152200d889e1e64df8dce",
+            "9c1c5bb98184eb80386448f94a112d4ab3c11c28ea0bea2d4792aadc4705ac8b",
         ),
         (
             3,
-            "3df92da8abd8828a1ac6f24562347f1ab289c468cf60a263f964b585b3176946",
+            "6170032ceba9a50f86e99eaa25f3e0b4def9994880d9b3d3a5ddb43ee0dae719",
         ),
     ],
 );
@@ -375,7 +377,20 @@ fn assert_routes_the_graph(node: &NodeInfo, presentation: &Presentation) {
             if presentation.kind == PresentationKind::SchemeAdapted {
                 assert!(row.iter().any(|&c| c != 0), "{name}");
             } else {
-                assert_eq!(row.iter().map(|c| c.abs()).sum::<i64>(), 1, "{name}");
+                // P_PRESENTATION_VERSION 3 (M5 batch 4, route bases): an ISP
+                // factor is a unit row or, for an edge-pair ISP p_a.p_b, the
+                // momentum of a line of the node (up to sign).
+                let unit = row.iter().map(|c| c.abs()).sum::<i64>() == 1;
+                let line = presentation.slots[..node.topo.lines.len()]
+                    .iter()
+                    .any(|slot| match slot {
+                        Slot::Line(line) => {
+                            line.momentum == *row
+                                || line.momentum.iter().zip(row.iter()).all(|(a, b)| *a == -*b)
+                        }
+                        Slot::Isp(_) => false,
+                    });
+                assert!(unit || line, "{name}: ISP factor {row:?}");
             }
         }
     }

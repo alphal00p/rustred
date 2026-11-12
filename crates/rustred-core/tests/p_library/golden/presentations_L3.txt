@@ -1,4 +1,4 @@
-# Node presentations and rule edge maps of the 3L DAG, P_PRESENTATION_VERSION 2.
+# Node presentations and rule edge maps of the 3L DAG, P_PRESENTATION_VERSION 3.
 # Momenta over (k_1, .., k_L, q).
 node d192 01060000000001010001010000030100000501000102010001050100020301000204010003040100 L=3 t=8 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [2, 4], c: [1, 3], k_loop: 0 })
    0 line [ 1  0  0  0] eps 0
@@ -88,7 +88,7 @@ node d118 0105000000010100020100000301000004010001020100010301000104010002040100
    4 line [ 0  1  0  0] eps 0
    5 line [ 0  0  1  0] eps 0
    6 line [ 1 -1 -1  0] eps 0
-   7 isp  [ 1  0  0  0] . [ 0  1  0  0]
+   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
    8 isp  [ 0  0  1  0] . [ 0  0  0  1]
 node d148 0105000000010100020100000301000004010001020100010402000002030100 L=3 t=7 lane=Insertion kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [4, 5], loop_index: 0 })
    0 line [ 0 -1  1  0] eps 0
@@ -157,9 +157,9 @@ node d92 010400000101000102000000020100000301000102010001030100 L=3 t=6 lane=Ins
    3 line [ 0  0 -1  1] eps 0
    4 line [ 0  1  0  0] eps 0
    5 line [ 0  0  1  0] eps 0
-   6 isp  [ 1  0  0  0] . [ 0  1  0  0]
-   7 isp  [ 1  0  0  0] . [ 0  0  1  0]
-   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+   6 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   7 isp  [ 1  0  0  0] . [ 0 -1  0 -1]
+   8 isp  [ 1  0  0  0] . [ 0  0  1  0]
 node d78 010400000101000102000000030100010201000103010002030100 L=3 t=6 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
    0 line [ 1  0  0  0] eps 0
    1 line [-1  1  1 -1] eps 0
@@ -227,8 +227,8 @@ node d50 01030001010001010000020200000102020000 L=3 t=5 lane=SeriesParallel kind
    3 line [ 0  1  0  0] eps 0
    4 line [ 0  0  1  0] eps 0
    5 isp  [ 1  0  0  0] . [ 0  1  0  0]
-   6 isp  [ 1  0  0  0] . [ 0  0  1  0]
-   7 isp  [ 0  1  0  0] . [ 0  0  1  0]
+   6 isp  [ 1  0  0  0] . [ 0  0  0  1]
+   7 isp  [ 0  1  1 -1] . [ 0  1  0  0]
    8 isp  [ 0  1  0  0] . [ 0  0  0  1]
 node d33 01030001010001010000020300000001020100 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [1, 2], loop_index: 0 })
    0 line [ 0  0  1 -1] eps 0
@@ -239,7 +239,7 @@ node d33 01030001010001010000020300000001020100 L=3 t=5 lane=SeriesParallel kind
    5 isp  [ 1  0  0  0] . [ 0  1  0  0]
    6 isp  [ 1  0  0  0] . [ 0  0  1  0]
    7 isp  [ 0  1  0  0] . [ 0  0  1  0]
-   8 isp  [ 1  0  0  0] . [ 0  0  0  1]
+   8 isp  [ 0  0  1 -1] . [ 1  0  0  0]
 node d37 01030001010001020000000202000001020100 L=3 t=5 lane=SeriesParallel kind=InsertionAdapted roles=Insertion(BubbleRoles { lines: [0, 1], loop_index: 0 })
    0 line [ 1  0  0  0] eps 0
    1 line [-1  0  1 -1] eps 0
