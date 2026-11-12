@@ -51,7 +51,9 @@ fn inverse(m: &[Vec<Q>]) -> R<Vec<Vec<Q>>> {
         })
         .collect();
     for c in 0..n {
-        let p = (c..n).find(|&r| !a[r][c].is_zero()).ok_or("singular matrix")?;
+        let p = (c..n)
+            .find(|&r| !a[r][c].is_zero())
+            .ok_or("singular matrix")?;
         a.swap(c, p);
         let f = a[c][c];
         a[c] = a[c].iter().map(|x| x.div(f)).collect::<R<_>>()?;
@@ -280,8 +282,13 @@ pub fn automorphisms(fam: &Family, mask: &[bool]) -> R<Group> {
     let nv = lp + 1;
     let mom = fam.momenta();
     let lines: Vec<usize> = (0..n).filter(|&s| mask[s]).collect();
-    let vq: Vec<Vec<Q>> = mom.iter().map(|v| v.iter().map(|&x| qv(x)).collect()).collect();
-    let eq: Vec<Q> = (0..nv).map(|i| if i == lp { Q::ONE } else { Q::ZERO }).collect();
+    let vq: Vec<Vec<Q>> = mom
+        .iter()
+        .map(|v| v.iter().map(|&x| qv(x)).collect())
+        .collect();
+    let eq: Vec<Q> = (0..nv)
+        .map(|i| if i == lp { Q::ONE } else { Q::ZERO })
+        .collect();
     // basis: L lines independent together with q
     let mut basis: Vec<usize> = vec![];
     for &s in &lines {
@@ -331,9 +338,9 @@ pub fn automorphisms(fam: &Family, mask: &[bool]) -> R<Group> {
                 }
                 for sx in [1i64, -1] {
                     for sq in [1i64, -1] {
-                        if (0..nv).all(|t| {
-                            mom[i][t] == sx * mom[x][t] + if t == lp { sq } else { 0 }
-                        }) {
+                        if (0..nv)
+                            .all(|t| mom[i][t] == sx * mom[x][t] + if t == lp { sq } else { 0 })
+                        {
                             b += 1;
                         }
                     }
@@ -503,7 +510,11 @@ pub fn automorphisms(fam: &Family, mask: &[bool]) -> R<Group> {
     // closure: matrices R_g (rows = images, last row q^2 -> q^2)
     let mat = |e: &Element| -> Vec<Vec<Q>> {
         let mut m = e.images.clone();
-        m.push((0..=n).map(|t| if t == n { Q::ONE } else { Q::ZERO }).collect());
+        m.push(
+            (0..=n)
+                .map(|t| if t == n { Q::ONE } else { Q::ZERO })
+                .collect(),
+        );
         m
     };
     let keys: HashSet<Vec<Vec<Q>>> = elements.iter().map(|e| e.images.clone()).collect();
@@ -587,8 +598,10 @@ impl Elim {
                 r = outr;
             } else {
                 let iv = arith::inv(p, v0).ok_or("zero pivot")?;
-                self.piv
-                    .insert(c0, r.iter().map(|&(c, v)| (c, arith::mul(p, v, iv))).collect());
+                self.piv.insert(
+                    c0,
+                    r.iter().map(|&(c, v)| (c, arith::mul(p, v, iv))).collect(),
+                );
                 return Ok(true);
             }
         }
@@ -640,7 +653,8 @@ pub struct Options {
     pub masters: Vec<Key>,
     /// Keys to keep in the V_G basis if possible.
     pub prefer: Vec<Key>,
-    /// Also add exact symmetry rows at seeds with ISPs where the element is exact on every nonzero ISP.
+    /// Also add exact symmetry rows at seeds with ISPs where the element is exact on every nonzero ISP (the default
+    /// of `rr_node symmasters` since TD-REVIEW 2: ISP-free seeds with one dot do not span `V` on T162, T178).
     pub isp_exact_seeds: bool,
     pub threads: usize,
 }
@@ -719,6 +733,18 @@ pub struct Sample {
     pub map: Vec<BTreeMap<Key, u64>>,
     pub leaks: usize,
     pub trace_incomplete: bool,
+    /// Rank on `V` (pass T, IBP only) of the ISP-free keys with at most `D` dots, `D = 0..=dots` (TD-REVIEW 2: the
+    /// direct test of `U = V`).
+    pub isp_free_rank: Vec<usize>,
+}
+
+/// Signed lift of a residue (`|x| < p/2`).
+fn signed(x: u64, p: u64) -> i64 {
+    if x > p / 2 {
+        -((p - x) as i64)
+    } else {
+        x as i64
+    }
 }
 
 fn small_int(x: u64, bound: u64) -> Option<u64> {
@@ -776,7 +802,11 @@ fn one_sample(
     };
     let mut colt = colv_all.clone();
     colt.sort_by_key(|k| std::cmp::Reverse(wt(k)));
-    let cid_t: HashMap<Key, usize> = colt.iter().enumerate().map(|(i, k)| (k.clone(), i)).collect();
+    let cid_t: HashMap<Key, usize> = colt
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.clone(), i))
+        .collect();
     let mut et = Elim::new(p);
     for row in &rows {
         let r: Vec<(usize, u64)> = row.iter().map(|(k, c)| (cid_t[k], *c)).collect();
@@ -803,11 +833,7 @@ fn one_sample(
     // traces
     let mut traces = vec![];
     let mut trace_incomplete = false;
-    let vset: HashMap<usize, usize> = v_t
-        .iter()
-        .enumerate()
-        .map(|(i, k)| (cid_t[k], i))
-        .collect();
+    let vset: HashMap<usize, usize> = v_t.iter().enumerate().map(|(i, k)| (cid_t[k], i)).collect();
     for e in &g.elements {
         let mut tr = 0u64;
         for b in &v_t {
@@ -846,7 +872,29 @@ fn one_sample(
     let sum = traces.iter().fold(0u64, |a, &x| arith::add(p, a, x));
     let ginv = arith::inv(p, g.order_full() as u64).ok_or("|G| = 0 mod p")?;
     let dim_inv = small_int(arith::mul(p, sum, ginv), v_t.len() as u64);
-    let symrow = |cid: &HashMap<Key, usize>, a: &Key, b: &Key| vec![(cid[a], 1u64), (cid[b], p - 1)];
+    // U = V test: rank on V of the ISP-free in-sector keys with <= D dots (IBP rows only, before any symmetry row)
+    let mut isp_free_rank = vec![];
+    for dmax in 0..=opt.dots {
+        let mut eu = Elim::new(p);
+        let mut r = 0usize;
+        for k in &colt {
+            let isp_free = (0..k.len()).all(|s| mask[s] || k[s] == 0);
+            if !isp_free || !in_sector(mask, k) || dr(mask, k).0 > dmax {
+                continue;
+            }
+            let row: Vec<(usize, u64)> = et
+                .reduce(&[(cid_t[k], 1)])
+                .into_iter()
+                .filter_map(|(c, x)| vset.get(&c).map(|&i| (i, x)))
+                .collect();
+            if eu.insert(&row)? {
+                r += 1;
+            }
+        }
+        isp_free_rank.push(r);
+    }
+    let symrow =
+        |cid: &HashMap<Key, usize>, a: &Key, b: &Key| vec![(cid[a], 1u64), (cid[b], p - 1)];
     for (a, b) in sym_pairs {
         et.insert(&symrow(&cid_t, a, b))?;
     }
@@ -854,17 +902,17 @@ fn one_sample(
     let t_pass_t = t0.elapsed().as_secs_f64();
 
     // ---- pass M
-    let low: Vec<Key> = opt
-        .prefer
-        .iter()
-        .chain(opt.masters.iter())
-        .cloned()
-        .fold(vec![], |mut acc, k| {
-            if !acc.contains(&k) {
-                acc.push(k);
-            }
-            acc
-        });
+    let low: Vec<Key> =
+        opt.prefer
+            .iter()
+            .chain(opt.masters.iter())
+            .cloned()
+            .fold(vec![], |mut acc, k| {
+                if !acc.contains(&k) {
+                    acc.push(k);
+                }
+                acc
+            });
     let wm = |k: &Key| -> (i64, i64, i64, i64, Key) {
         if let Some(pos) = low.iter().position(|m| m == k) {
             return (0, -(pos as i64), 0, 0, k.clone());
@@ -874,7 +922,11 @@ fn one_sample(
     };
     let mut colm = colv_all;
     colm.sort_by_key(|k| std::cmp::Reverse(wm(k)));
-    let cid_m: HashMap<Key, usize> = colm.iter().enumerate().map(|(i, k)| (k.clone(), i)).collect();
+    let cid_m: HashMap<Key, usize> = colm
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.clone(), i))
+        .collect();
     let mut em = Elim::new(p);
     for row in &rows {
         let r: Vec<(usize, u64)> = row.iter().map(|(k, c)| (cid_m[k], *c)).collect();
@@ -892,7 +944,11 @@ fn one_sample(
         if red.keys().any(|c| !vgs.contains(c)) {
             leaks += 1;
         }
-        map.push(red.into_iter().map(|(c, x)| (colm[c].clone(), x)).collect::<BTreeMap<_, _>>());
+        map.push(
+            red.into_iter()
+                .map(|(c, x)| (colm[c].clone(), x))
+                .collect::<BTreeMap<_, _>>(),
+        );
     }
     let kt = |v: &[Key]| v.iter().map(|k| key_text(k)).collect::<Vec<_>>();
     let json = json!({
@@ -901,6 +957,7 @@ fn one_sample(
         "V_T": kt(&v_t), "traces": traces.iter().map(|x| if *x > p / 2 { format!("-{}", p - x) } else { x.to_string() }).collect::<Vec<_>>(),
         "dim_VG_trace": dim_inv, "VG_T": kt(&vg_t), "V_M": kt(&v_m), "VG_M": kt(&vg_m),
         "leaks": leaks, "unconstrained_inner": unconstrained, "trace_incomplete": trace_incomplete,
+        "isp_free_rank_on_V": isp_free_rank,
         "seconds_pass_T": t_pass_t, "seconds": t0.elapsed().as_secs_f64(),
     });
     Ok(Sample {
@@ -915,6 +972,7 @@ fn one_sample(
         map,
         leaks,
         trace_incomplete,
+        isp_free_rank,
     })
 }
 
@@ -965,7 +1023,11 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
             for e in reps {
                 if let Some(b) = e.exact_image(a) {
                     if &b != a {
-                        let pr = if *a < b { (a.clone(), b) } else { (b, a.clone()) };
+                        let pr = if *a < b {
+                            (a.clone(), b)
+                        } else {
+                            (b, a.clone())
+                        };
                         pairs.insert(pr);
                     }
                 }
@@ -992,7 +1054,12 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
                     // Family keeps a RefCell cache (not Sync): one parse per thread
                     let fam = match Family::parse(src) {
                         Ok(f) => f,
-                        Err(e) => return idx.into_iter().map(|i| (i, Err(e.clone()))).collect::<Vec<_>>(),
+                        Err(e) => {
+                            return idx
+                                .into_iter()
+                                .map(|i| (i, Err(e.clone())))
+                                .collect::<Vec<_>>();
+                        }
                     };
                     let fam = &fam;
                     idx.into_iter()
@@ -1013,13 +1080,47 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
         .collect::<R<_>>()?;
     // certificate
     let s0 = &samples[0];
-    let same = samples.iter().all(|s| {
-        s.v_t == s0.v_t && s.vg_t == s0.vg_t && s.v_m == s0.v_m && s.vg_m == s0.vg_m
-    });
-    let no_leak = samples.iter().all(|s| s.leaks == 0);
-    let trace_ok = samples
+    let same = samples
         .iter()
-        .all(|s| !s.trace_incomplete && s.dim_inv == Some(s.vg_t.len() as u64) && s.vg_t.len() == s.vg_m.len());
+        .all(|s| s.v_t == s0.v_t && s.vg_t == s0.vg_t && s.v_m == s0.v_m && s.vg_m == s0.vg_m);
+    let no_leak = samples.iter().all(|s| s.leaks == 0);
+    // signed-integer traces (TD-REVIEW 5): lift every trace to an integer with |tr| <= dim V, require the same
+    // character at every (d, p) and tr(identity) = dim V, then divide the integer sum by |G|
+    let dim_v = s0.v_t.len() as i64;
+    let tr_int: Vec<Vec<i64>> = samples
+        .iter()
+        .map(|s| s.traces.iter().map(|&x| signed(x, s.p)).collect())
+        .collect();
+    let traces_bounded = tr_int.iter().flatten().all(|t| t.abs() <= dim_v);
+    let traces_equal = tr_int.iter().all(|t| *t == tr_int[0]);
+    let identity_ok = tr_int.iter().all(|t| t.first() == Some(&dim_v));
+    let tr_sum: i64 = tr_int[0].iter().sum();
+    let g_ord = g.order_full() as i64;
+    let dim_vg_int = (traces_bounded && traces_equal && identity_ok && tr_sum % g_ord == 0)
+        .then_some(tr_sum / g_ord);
+    let unequal: Vec<String> = samples
+        .iter()
+        .zip(&tr_int)
+        .filter(|(_, t)| **t != tr_int[0])
+        .map(|(s, _)| format!("d={} p={}", s.json["d"].as_str().unwrap_or("?"), s.p))
+        .collect();
+    let trace_ok = dim_vg_int.is_some()
+        && samples.iter().all(|s| {
+            !s.trace_incomplete
+                && Some(s.vg_t.len() as i64) == dim_vg_int
+                && s.vg_t.len() == s.vg_m.len()
+        });
+    let isp_free_rank = s0.isp_free_rank.clone();
+    let isp_free_spans_v = isp_free_rank.last().copied() == Some(s0.v_t.len());
+    let n_lines = mask.iter().filter(|&&b| b).count();
+    let maximal = n_lines + 1 >= 3 * fam.loops;
+    let count_status = if s0.vg_m.is_empty() {
+        "dim V_G = 0 (no top-sector master)"
+    } else if maximal {
+        "maximal sector: node-local count = global count once the box is saturated"
+    } else {
+        "upper bound: non-maximal sector, a supersector's IBP rows may hide further relations (compare the literature count)"
+    };
     let dims_ok = samples.iter().all(|s| s.v_t.len() == s.v_m.len());
     let masters_basis = !opt.masters.is_empty()
         && samples.iter().all(|s| {
@@ -1038,7 +1139,10 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
             let mut terms = serde_json::Map::new();
             let ks: BTreeSet<&Key> = ss.iter().flat_map(|s| s.map[mi].keys()).collect();
             for k in ks {
-                let rs: Vec<u64> = ss.iter().map(|s| s.map[mi].get(k).copied().unwrap_or(0)).collect();
+                let rs: Vec<u64> = ss
+                    .iter()
+                    .map(|s| s.map[mi].get(k).copied().unwrap_or(0))
+                    .collect();
                 match reconstruct(&rs, &opt.primes) {
                     Some(r) => {
                         terms.insert(key_text(k), json!(r.to_string()));
@@ -1053,18 +1157,10 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
         }
         exact.push(json!({"d": format!("{}/{}", d.n, d.d), "masters": per}));
     }
-    let traces_int: Vec<Value> = s0
-        .traces
-        .iter()
-        .map(|&x| {
-            if x > s0.p / 2 {
-                json!(-((s0.p - x) as i64))
-            } else {
-                json!(x as i64)
-            }
-        })
-        .collect();
-    let ok = g.closed && same && no_leak && trace_ok && dims_ok && recon_ok;
+    let traces_int: Vec<Value> = tr_int[0].iter().map(|&x| json!(x)).collect();
+    // |G_full| = |G_lines| (TD-REVIEW 5, proved: the cycle matroid of a nonzero sector is connected)
+    let g_lines_ok = g.order_full() == g.order_lines();
+    let ok = g.closed && g_lines_ok && same && no_leak && trace_ok && dims_ok && recon_ok;
     let kt = |v: &[Key]| v.iter().map(|k| key_text(k)).collect::<Vec<_>>();
     let doc = json!({
         "tool": "rustred rr_node symmasters",
@@ -1073,16 +1169,271 @@ pub fn run(src: &str, mask: &[bool], opt: &Options) -> R<(Value, bool)> {
         "box": [opt.dots, opt.rank], "inner": opt.inner, "inner_keys": inner_keys.len(),
         "isp_exact_seeds": opt.isp_exact_seeds, "sym_rows": sym_pairs.len(),
         "dim_V": s0.v_t.len(), "V_rank_first": kt(&s0.v_t), "V_masters_order": kt(&s0.v_m),
-        "traces": traces_int, "dim_VG_trace": s0.dim_inv, "dim_VG": s0.vg_m.len(),
+        "traces": traces_int, "dim_VG_trace": dim_vg_int, "dim_VG": s0.vg_m.len(),
+        "traces_unequal_samples": unequal,
+        "isp_free_rank_on_V": isp_free_rank, "isp_free_spans_V": isp_free_spans_v,
+        "sector_lines": n_lines, "sector_maximal": maximal, "count_status": count_status,
+        "saturation": "not shown by this run: compare the literature count or rerun with --escalate (box D+1 and R+1)",
         "VG_basis": kt(&s0.vg_m), "VG_basis_rank_first": kt(&s0.vg_t),
         "masters": kt(&opt.masters), "masters_are_V_basis": masters_basis,
         "exact": exact,
-        "certificate": {"group_closed": g.closed, "same_at_every_sample": same, "no_leak": no_leak,
-            "trace_equals_count": trace_ok, "dim_V_both_orders": dims_ok, "reconstruction": recon_ok, "ok": ok},
+        "certificate": {"group_closed": g.closed, "group_full_equals_lines": g_lines_ok, "same_at_every_sample": same,
+            "no_leak_bug_check": no_leak, "traces_signed_integer_equal": traces_bounded && traces_equal && identity_ok,
+            "trace_equals_count_in_box": trace_ok, "dim_V_both_orders": dims_ok, "reconstruction": recon_ok, "ok": ok,
+            "note": "ok = the box quotient is consistent (exact rows suffice for the space computed); it does NOT certify saturation of the box"},
         "samples": samples.iter().map(|s| s.json.clone()).collect::<Vec<_>>(),
         "seconds": t0.elapsed().as_secs_f64(),
     });
     Ok((doc, ok))
+}
+
+/// Box escalation (TD-REVIEW 1, saturation evidence): rerun at `(D+1, R)` and `(D, R+1)` and compare `dim V`,
+/// `dim V_G`. Returns `{"boxes": [...], "status": "box-stable" | "UNSATURATED"}`; `base` is the report of [`run`].
+pub fn escalate(src: &str, mask: &[bool], opt: &Options, base: &Value) -> R<Value> {
+    let mut boxes = vec![];
+    let mut stable = true;
+    for (dd, rr) in [(opt.dots + 1, opt.rank), (opt.dots, opt.rank + 1)] {
+        let mut o = opt.clone();
+        o.dots = dd;
+        o.rank = rr;
+        let (doc, ok) = run(src, mask, &o)?;
+        let same = doc["dim_V"] == base["dim_V"] && doc["dim_VG"] == base["dim_VG"];
+        stable &= same && ok;
+        boxes.push(json!({"box": [dd, rr], "dim_V": doc["dim_V"], "dim_VG": doc["dim_VG"],
+            "dim_VG_trace": doc["dim_VG_trace"], "traces": doc["traces"], "ok": ok, "same_as_base": same,
+            "seconds": doc["seconds"]}));
+    }
+    Ok(json!({"boxes": boxes, "status": if stable { "box-stable" } else { "UNSATURATED" }}))
+}
+
+/// Subsector tail (TD-REVIEW 3) with a node's own table: for every master `m` and element `g` with an exact image
+/// `u = g m != m`, `I(m) = I(u)` exactly, so `red(m) - red(u) = 0` (table reductions with the lower-sector keys kept).
+/// Solved for the masters outside `basis`: `b = sum_v c_bv(d) v + sum_k t_bk(d) k` (lower keys `k`), symbolic in
+/// `d` (Thiele per prime at integer `d`, CRT; points doubled until every fit holds, up to 4x). The top part is
+/// compared with `laporta` (the `exact` list of [`run`]: maps at rational `d`), and the order at `d = 4` of every
+/// coefficient is recorded (Y6: spurious poles).
+pub fn table_tail(
+    tab: &mut super::mastermap::Table,
+    src: &str,
+    basis: &[Key],
+    laporta: &Value,
+    points: usize,
+    primes: &[u64],
+) -> R<Value> {
+    use super::mastermap::{RatFun, fit};
+    let fam = Family::parse(src)?;
+    let mask = tab.mask.clone();
+    let g = automorphisms(&fam, &mask)?;
+    let masters = tab.masters.clone();
+    if let Some(b) = basis.iter().find(|b| !masters.contains(b)) {
+        return Err(format!(
+            "V_G basis key {} is not a table master",
+            key_text(b)
+        ));
+    }
+    let nb: Vec<Key> = masters
+        .iter()
+        .filter(|m| !basis.contains(m))
+        .cloned()
+        .collect();
+    if nb.is_empty() {
+        return Ok(json!({"status": "nothing to eliminate"}));
+    }
+    // relations m = u
+    let mut pairs: Vec<(Key, Key)> = vec![];
+    for m in &masters {
+        for e in &g.elements[1..] {
+            if let Some(u) = e.exact_image(m) {
+                if &u != m && !pairs.iter().any(|(a, b)| a == m && *b == u) {
+                    pairs.push((m.clone(), u));
+                }
+            }
+        }
+    }
+    let seeds: Vec<Key> = pairs
+        .iter()
+        .map(|x| x.1.clone())
+        .filter(|u| !masters.contains(u))
+        .fold(vec![], |mut acc, u| {
+            if !acc.contains(&u) {
+                acc.push(u);
+            }
+            acc
+        });
+    let col_of = |k: &Key| masters.iter().position(|m| m == k);
+    let mut npts = points;
+    loop {
+        let dims: Vec<Q> = (0..npts).map(|k| Q::int(1001 + k as i128)).collect();
+        let red = tab.reduce_mod(&seeds, primes, &dims, true)?;
+        let nd = dims.len();
+        let nm = masters.len();
+        // lower keys
+        let lower: Vec<Key> = red.lower.iter().map(|x| x.0.clone()).collect();
+        let lidx: HashMap<&Key, usize> = lower.iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let nl = lower.len();
+        // value of red(seed j) on column c (masters then lower) at sample (pi, di)
+        let mut seed_vals: Vec<HashMap<usize, Vec<u64>>> = vec![HashMap::new(); seeds.len()];
+        for (k, per) in &red.masters {
+            let c = col_of(k).ok_or("reduction hit a non-master top key")?;
+            for (j, v) in per.iter().enumerate() {
+                seed_vals[j].insert(c, v.clone());
+            }
+        }
+        for (k, per) in &red.lower {
+            let c = nm + lidx[k];
+            for (j, v) in per.iter().enumerate() {
+                seed_vals[j].insert(c, v.clone());
+            }
+        }
+        // column order: non-basis masters first
+        let order: Vec<usize> = nb.iter().map(|k| col_of(k).expect("master")).collect();
+        // per sample: solve, giving for each nb master the coefficients on basis + lower columns
+        let ncol = nm + nl;
+        let mut sol: Vec<Vec<Vec<u64>>> = vec![vec![vec![0; primes.len() * nd]; ncol]; nb.len()];
+        let mut status_ok = true;
+        for (pi, &p) in primes.iter().enumerate() {
+            for di in 0..nd {
+                let s = pi * nd + di;
+                let mut rows: Vec<Vec<u64>> = vec![];
+                for (m, u) in &pairs {
+                    let mut r = vec![0u64; ncol];
+                    r[col_of(m).expect("master")] = 1;
+                    if let Some(cu) = col_of(u) {
+                        r[cu] = arith::sub(p, r[cu], 1);
+                    } else {
+                        let j = seeds.iter().position(|x| x == u).expect("seed");
+                        for (&c, v) in &seed_vals[j] {
+                            r[c] = arith::sub(p, r[c], v[s]);
+                        }
+                    }
+                    rows.push(r);
+                }
+                // Gauss-Jordan on the nb columns, rows in fixed order
+                let mut used = vec![false; rows.len()];
+                let mut piv_rows = vec![];
+                for &c in &order {
+                    let Some(ri) = (0..rows.len()).find(|&i| !used[i] && rows[i][c] != 0) else {
+                        status_ok = false;
+                        break;
+                    };
+                    used[ri] = true;
+                    let iv = arith::inv(p, rows[ri][c]).ok_or("pivot")?;
+                    for x in rows[ri].iter_mut() {
+                        *x = arith::mul(p, *x, iv);
+                    }
+                    let pr = rows[ri].clone();
+                    for (i, r) in rows.iter_mut().enumerate() {
+                        if i != ri && r[c] != 0 {
+                            let f = r[c];
+                            for (x, y) in r.iter_mut().zip(&pr) {
+                                *x = arith::sub(p, *x, arith::mul(p, f, *y));
+                            }
+                        }
+                    }
+                    piv_rows.push(ri);
+                }
+                if !status_ok {
+                    break;
+                }
+                // a leftover row with a basis part is a relation among the basis: the V_G count would be wrong
+                for (i, r) in rows.iter().enumerate() {
+                    if !used[i] && (0..nm).any(|c| r[c] != 0) {
+                        return Err("table relations give a relation among the V_G basis".into());
+                    }
+                }
+                // row: b + sum_{others} r_c c = 0  ->  b = - sum r_c c
+                for (bi, &ri) in piv_rows.iter().enumerate() {
+                    for c in 0..ncol {
+                        if order.contains(&c) {
+                            continue;
+                        }
+                        sol[bi][c][s] = arith::neg(p, rows[ri][c]);
+                    }
+                }
+            }
+            if !status_ok {
+                break;
+            }
+        }
+        if !status_ok {
+            return Ok(
+                json!({"status": "the table relations do not determine the non-basis masters",
+                "pairs": pairs.len()}),
+            );
+        }
+        let xs: Vec<i64> = (0..nd).map(|k| 1001 + k as i64).collect();
+        let mut per_master = serde_json::Map::new();
+        let mut failed = 0usize;
+        let mut top_ok = true;
+        let four = symbolica::domains::rational::Rational::from(4);
+        let mut fits: Vec<Vec<(usize, RatFun)>> = vec![];
+        for row in &sol {
+            let mut fr = vec![];
+            for (c, v) in row.iter().enumerate() {
+                if v.iter().all(|&x| x == 0) {
+                    continue;
+                }
+                let ys: Vec<Vec<u64>> = (0..primes.len())
+                    .map(|pi| v[pi * nd..(pi + 1) * nd].to_vec())
+                    .collect();
+                match fit(&xs, &ys, primes) {
+                    Ok(f) => fr.push((c, f)),
+                    Err(_) => failed += 1,
+                }
+            }
+            fits.push(fr);
+        }
+        if failed > 0 && npts < 4 * points {
+            npts *= 2;
+            continue;
+        }
+        for (bi, b) in nb.iter().enumerate() {
+            let mut top = serde_json::Map::new();
+            let mut tail = serde_json::Map::new();
+            let mut hist: BTreeMap<String, usize> = BTreeMap::new();
+            let mut min_top: Option<i64> = None;
+            for (c, f) in &fits[bi] {
+                let o = f.order_at(&four);
+                if *c < nm {
+                    min_top = match (min_top, o) {
+                        (Some(a), Some(x)) => Some(a.min(x)),
+                        (None, x) => x,
+                        (a, None) => a,
+                    };
+                    top.insert(key_text(&masters[*c]), f.to_json());
+                    // cross-check with the Laporta map at rational d
+                    for e in laporta.as_array().into_iter().flatten() {
+                        let dq: Vec<&str> = e["d"].as_str().unwrap_or("0/1").split('/').collect();
+                        let x = symbolica::domains::rational::Rational::from((
+                            dq[0].parse::<i64>().unwrap_or(0),
+                            dq.get(1).and_then(|t| t.parse::<i64>().ok()).unwrap_or(1),
+                        ));
+                        let want = e["masters"][key_text(b)][key_text(&masters[*c])].as_str();
+                        let got = f.eval(&x).map(|v| v.to_string());
+                        if want.map(str::to_string) != got {
+                            top_ok = false;
+                        }
+                    }
+                } else {
+                    *hist
+                        .entry(o.map_or("zero".into(), |x| x.to_string()))
+                        .or_insert(0) += 1;
+                    tail.insert(key_text(&lower[*c - nm]), json!(f.text()));
+                }
+            }
+            per_master.insert(
+                key_text(b),
+                json!({"top": top, "top_min_order_at_d4": min_top,
+                "tail_terms": tail.len(), "tail_order_at_d4_histogram": hist, "tail": tail}),
+            );
+        }
+        return Ok(
+            json!({"status": if failed == 0 { "ok" } else { "fit failures" }, "fit_failures": failed,
+            "relations": pairs.iter().map(|(m, u)| format!("{} = {}", key_text(m), key_text(u))).collect::<Vec<_>>(),
+            "points": npts, "primes": primes.len(), "lower_keys": nl, "top_equals_laporta_map": top_ok,
+            "masters": per_master}),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1187,21 +1538,31 @@ mod tests {
             }
         }
         let mut colv: Vec<Key> = cols.into_iter().collect();
-        colv.sort_by_key(|k| std::cmp::Reverse({
-            let (dd, rr) = dr(&mask, k);
-            (dd + rr, rr, dd, k.clone())
-        }));
-        let cid: HashMap<Key, usize> = colv.iter().enumerate().map(|(i, k)| (k.clone(), i)).collect();
+        colv.sort_by_key(|k| {
+            std::cmp::Reverse({
+                let (dd, rr) = dr(&mask, k);
+                (dd + rr, rr, dd, k.clone())
+            })
+        });
+        let cid: HashMap<Key, usize> = colv
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i))
+            .collect();
         let mut e = Elim::new(p);
         for r in &rows {
-            e.insert(&r.iter().map(|(k, c)| (cid[k], *c)).collect::<Vec<_>>()).unwrap();
+            e.insert(&r.iter().map(|(k, c)| (cid[k], *c)).collect::<Vec<_>>())
+                .unwrap();
         }
         let mut checked = 0;
         for a in seeds(&mask, 1, 0) {
             for &gi in &g.line_reps[1..] {
                 let b = g.elements[gi].exact_image(&a).unwrap();
                 if let (Some(&ca), Some(&cb)) = (cid.get(&a), cid.get(&b)) {
-                    assert!(e.reduce(&[(ca, 1), (cb, p - 1)]).is_empty(), "{a:?} vs {b:?}");
+                    assert!(
+                        e.reduce(&[(ca, 1), (cb, p - 1)]).is_empty(),
+                        "{a:?} vs {b:?}"
+                    );
                     checked += 1;
                 }
             }
@@ -1210,14 +1571,83 @@ mod tests {
     }
 
     fn node_family(name: &str) -> Option<(String, Vec<bool>)> {
-        let p = format!("{}/src/node/testdata/{name}.sym", env!("CARGO_MANIFEST_DIR"));
+        let p = format!(
+            "{}/src/node/testdata/{name}.sym",
+            env!("CARGO_MANIFEST_DIR")
+        );
         let src = std::fs::read_to_string(&p).ok()?;
         let mask: Vec<bool> = src
             .lines()
             .filter(|l| l.trim_start().starts_with("prop("))
-            .map(|l| l.trim_end().trim_end_matches(',').trim_end_matches(')').ends_with(",1"))
+            .map(|l| {
+                l.trim_end()
+                    .trim_end_matches(',')
+                    .trim_end_matches(')')
+                    .ends_with(",1")
+            })
             .collect();
         Some((src, mask))
+    }
+
+    #[test]
+    fn kite_top_sector_has_no_master() {
+        // dim V = 0 is a valid result (TD-REVIEW 5: T233, T261); the certificate must hold
+        let (doc, ok) = run(KITE, &[true; 5], &opts(vec![], 1, 1)).unwrap();
+        assert!(ok, "{doc:#}");
+        assert_eq!(doc["dim_V"], 0, "{doc:#}");
+        assert_eq!(doc["dim_VG"], 0);
+        assert_eq!(doc["dim_VG_trace"], 0);
+        assert!(doc["traces"].as_array().unwrap().iter().all(|t| t == 0));
+        assert_eq!(doc["isp_free_spans_V"], true);
+    }
+
+    fn t266_opts(dots: i64, rank: i64) -> Options {
+        let mut o = opts(vec![], dots, rank);
+        o.dims = vec![Q { n: 37, d: 7 }];
+        o.primes = super::super::mastermap::PRIMES[..2].to_vec();
+        o.isp_exact_seeds = true;
+        o
+    }
+
+    /// T266 (TD-REVIEW 7): box (1,2): IBP 7, exact 3, traces 7,3,3,3,3,1,1,3 (as a multiset), signed integers.
+    #[test]
+    fn t266_box12_traces_and_count() {
+        let (fam, mask) = node_family("T266").expect("testdata family");
+        let (doc, ok) = run(&fam, &mask, &t266_opts(1, 2)).unwrap();
+        assert!(ok, "{}", doc["certificate"]);
+        assert_eq!(doc["dim_V"], 7);
+        assert_eq!(doc["dim_VG"], 3);
+        assert_eq!(doc["dim_VG_trace"], 3);
+        let mut tr: Vec<i64> = doc["traces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_i64().unwrap())
+            .collect();
+        tr.sort_unstable();
+        assert_eq!(tr, vec![1, 1, 3, 3, 3, 3, 3, 7]);
+        assert_eq!(doc["sector_maximal"], true, "T266 has 14 lines");
+        assert_eq!(doc["group"]["order_full"], doc["group"]["order_lines"]);
+        // U = V: the ISP-free keys with one dot span V (TD-REVIEW 2 table: rank 1 at D = 0, 7 at D = 1)
+        assert_eq!(doc["isp_free_rank_on_V"], json!([1, 7]));
+    }
+
+    /// TD-REVIEW 1: box (1,0) gives a wrong count; the run or its escalation must flag it.
+    #[test]
+    #[ignore = "T266 escalation from box (1,0) (several five-loop Laporta runs)"]
+    fn t266_box10_is_flagged_unsaturated() {
+        let (fam, mask) = node_family("T266").expect("testdata family");
+        let o = t266_opts(1, 0);
+        let (doc, ok) = run(&fam, &mask, &o).unwrap();
+        // with inner keys dots + rank <= 1 the rank-1 inner keys are unconstrained at R = 0, so the in-box
+        // certificate already fails here; escalation must flag the box either way
+        let esc = escalate(&fam, &mask, &o, &doc).unwrap();
+        assert!(
+            !ok || esc["status"] == "UNSATURATED",
+            "{}",
+            doc["certificate"]
+        );
+        assert_eq!(esc["status"], "UNSATURATED", "{esc:#}");
     }
 
     /// Five-loop nodes against mcount_sym (REPORT A5, box (1,2), interior dots + rank <= 1): IBP / exact rows.
@@ -1229,7 +1659,10 @@ mod tests {
             let mut o = opts(vec![], 1, 2);
             o.threads = 3;
             let (doc, ok) = run(&fam, &mask, &o).unwrap();
-            eprintln!("{name}: {}", serde_json::to_string(&doc["certificate"]).unwrap());
+            eprintln!(
+                "{name}: {}",
+                serde_json::to_string(&doc["certificate"]).unwrap()
+            );
             assert_eq!(doc["group"]["order_lines"], gl, "{name}");
             assert_eq!(doc["dim_V"], ibp, "{name}");
             assert_eq!(doc["dim_VG"], exact, "{name}");

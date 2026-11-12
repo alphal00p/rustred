@@ -34,9 +34,13 @@
 //! rr_node mapcheck --old OLD --new NEW --keys auto|'K;..' --out CHECK.json [--old-masters ..] [--new-masters ..] [--dims ..]
 //!                  (few-integral cross-check only: old reduction == new reduction mapped back; exit 0 equal / 1 not)
 //! rr_node symmasters (--table F.table.jsonl | --family F.sym --mask BITS) --out OUT.json [--masters 'K;..'] [--prefer 'K;..']
-//!                  [--box DOTS,RANK] [--inner T] [--dims ..] [--primes N] [--isp-exact-seeds] [--threads N]
-//!                  (masters modulo the top sector's symmetry group: IBP + exact symmetry rows at ISP-free seeds, trace
-//!                   certificate dim V^G = |V_G basis|, exact map of the masters onto the V_G basis; node::symmasters;
+//!                  [--box DOTS,RANK] [--inner T] [--dims ..] [--primes N] [--isp-free-seeds] [--threads N] [--escalate]
+//!                  [--no-tail] [--tail-points 80] [--tail-primes 8]
+//!                  (masters modulo the top sector's symmetry group: IBP + exact symmetry rows at every exactly mapped
+//!                   seed (--isp-free-seeds: ISP-free seeds only), signed-integer trace certificate dim V^G = |V_G basis|
+//!                   in the box, exact map of the masters onto the V_G basis; --escalate reruns at (D+1,R), (D,R+1) as
+//!                   saturation evidence; with --table the relation with the full subsector tail from the table's
+//!                   reductions red(m) - red(g m), symbolic in d, with (d-4) orders; node::symmasters;
 //!                   exit 0 certificate holds / 1 not)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
@@ -1059,9 +1063,16 @@ fn cmd_symmasters(mut a: Args) -> i32 {
     let inner: Option<i64> = a.parse("--inner");
     let dims = dims_arg(&mut a);
     let primes = primes_arg(&mut a, 3);
-    let isp_exact_seeds = a.flag("--isp-exact-seeds");
+    // exact rows at every exactly mapped seed are the default (TD-REVIEW 2); --isp-free-seeds is the fallback mode
+    let _ = a.flag("--isp-exact-seeds");
+    let isp_exact_seeds = !a.flag("--isp-free-seeds");
     let threads: usize = a.parse("--threads").unwrap_or(1);
+    let escalate = a.flag("--escalate");
+    let no_tail = a.flag("--no-tail");
+    let tail_points: usize = a.parse("--tail-points").unwrap_or(80);
+    let tail_primes = a.parse::<usize>("--tail-primes").unwrap_or(8);
     a.done();
+    let mut tab = None;
     let (src, mask, mut mlist, origin) = match (table, family) {
         (Some(t), None) => {
             let tb = load_table(&t, masters.clone());
@@ -1070,7 +1081,9 @@ fn cmd_symmasters(mut a: Args) -> i32 {
                 Some(m) => m.chars().map(|c| c == '1').collect(),
                 None => tb.mask.clone(),
             };
-            (src, mask, tb.masters.clone(), t)
+            let ms = tb.masters.clone();
+            tab = Some(tb);
+            (src, mask, ms, t)
         }
         (None, Some(f)) => {
             let src = std::fs::read_to_string(&f).unwrap_or_else(|e| die(&format!("{f}: {e}")));
@@ -1079,7 +1092,12 @@ fn cmd_symmasters(mut a: Args) -> i32 {
                 .chars()
                 .map(|c| c == '1')
                 .collect();
-            (src, mask, masters.as_deref().map(keys_arg).unwrap_or_default(), f)
+            (
+                src,
+                mask,
+                masters.as_deref().map(keys_arg).unwrap_or_default(),
+                f,
+            )
         }
         _ => die("give exactly one of --table / --family"),
     };
@@ -1116,12 +1134,44 @@ fn cmd_symmasters(mut a: Args) -> i32 {
         threads,
     };
     let (mut doc, ok) = run(&src, &mask, &opt).unwrap_or_else(|e| die(&e));
+    if escalate {
+        doc["escalation"] = rustred::node::symmasters::escalate(&src, &mask, &opt, &doc)
+            .unwrap_or_else(|e| serde_json::json!({"status": format!("error: {e}")}));
+        doc["saturation"] = doc["escalation"]["status"].clone();
+    }
+    if let (Some(tb), false) = (tab.as_mut(), no_tail) {
+        if ok && !outside.is_empty() {
+            doc["tail"] =
+                serde_json::json!({"status": "skipped: table masters outside the sector"});
+        } else if ok && tb.mask == mask {
+            let basis: Vec<Vec<i64>> = doc["VG_basis"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|k| k.as_str())
+                .map(|k| rustred::node::mastermap::parse_key(k).unwrap_or_else(|e| die(&e)))
+                .collect();
+            let ps = &rustred::node::mastermap::PRIMES[..tail_primes.min(10)];
+            doc["tail"] = rustred::node::symmasters::table_tail(
+                tb,
+                &src,
+                &basis,
+                &doc["exact"],
+                tail_points,
+                ps,
+            )
+            .unwrap_or_else(|e| serde_json::json!({"status": format!("error: {e}")}));
+        }
+    }
     doc["source"] = serde_json::json!(origin);
     doc["masters_outside_sector"] = serde_json::json!(outside);
     write_json(&out, &doc);
     eprintln!(
         "[symmasters] |G|={} V={} V^G(trace)={} V_G={} ok={ok} {:.1}s -> {out}",
-        doc["group"]["order_lines"], doc["dim_V"], doc["dim_VG_trace"], doc["dim_VG"],
+        doc["group"]["order_lines"],
+        doc["dim_V"],
+        doc["dim_VG_trace"],
+        doc["dim_VG"],
         doc["seconds"].as_f64().unwrap_or(0.0)
     );
     i32::from(!ok)
