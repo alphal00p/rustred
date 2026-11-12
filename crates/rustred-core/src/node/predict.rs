@@ -260,6 +260,8 @@ impl OracleFamily {
             (coeff, beta)
         };
         let mut templates = Vec::new();
+        #[allow(clippy::needless_range_loop)]
+        // i indexes the momentum rows and the template coordinates together (affine-faces)
         for i in 0..l {
             for v in 0..l + e {
                 let mut terms: Vec<(Vec<i32>, Option<usize>, Q)> = Vec::new();
@@ -830,6 +832,7 @@ fn binom(n: usize, k: usize) -> f64 {
 
 /// Profile of the relation selected for a case under `prio` (the oracle's pivot, or the eligible pivot `pivot`);
 /// `None` without an eligible pivot.
+#[allow(clippy::too_many_arguments)] // a profile request: family, case, order, pivot and the three report options (order-study tooling)
 pub fn relation_profile(
     fam: &OracleFamily,
     fixed: &[Option<i64>],

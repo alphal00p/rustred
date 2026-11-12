@@ -584,6 +584,7 @@ fn order_key(o: &NodeOrder, n: usize) -> (Vec<usize>, Option<Vec<usize>>, String
 
 /// The affine rung (see [`ProbeOptions::affine_rung`]): returns the candidates to probe and whether the depth-1
 /// round is futile. Oracle failures leave the candidates unchanged.
+#[allow(clippy::type_complexity)] // (priority, seed order, label) triples of the probe log, read once (affine-faces tooling)
 fn affine_rung(
     family_text: &str,
     stuck: &CaseSpec,
@@ -1222,6 +1223,8 @@ pub fn predict_iterate(
             }
         }
         let step = (easy_seen.len() / iopts.keep_easy.max(1)).max(1);
+        #[allow(clippy::map_entry)]
+        // the key is pushed with its index; the entry API would borrow across the push (order-study tooling)
         for c in easy_seen.into_iter().step_by(step).take(iopts.keep_easy) {
             if !extra_keys.contains_key(&key(&c)) {
                 extra_keys.insert(key(&c), extra.len());

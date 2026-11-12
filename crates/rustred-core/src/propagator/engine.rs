@@ -2078,6 +2078,7 @@ impl PStepper<'_> {
     /// Canonicalise again (in the current owners' orders) the Apply children
     /// of the [`REFRESH_CLASSES`] of a replayed step, merging children that
     /// meet and dropping sums that cancel, as the step itself would.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     fn refresh_canonical(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
         if !self.canonical {
             return Ok(step);

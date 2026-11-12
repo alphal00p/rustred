@@ -1944,6 +1944,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 let capacity = if lean || prepared.is_some() { 4096 } else { 0 };
                 steps.dispose(std::mem::replace(&mut spent, Vec::with_capacity(capacity)));
             }
+            #[allow(clippy::collapsible_if)]
+            // rr-par2: the prestaged step is dropped here unless disposing
             if let Some(p) = prestaged {
                 if disposing {
                     spent_prestaged.push(p);
