@@ -299,6 +299,7 @@ fn affine_rule_coverage_respects_the_exceptional_fixed_point() {
         }],
         sources: Vec::new(),
         stats: SearchStats::default(),
+        hidden_poles: Vec::new(),
     };
     let (rule, _) = solver.finish_rule(candidate).unwrap();
     let excluded: Case<2> = CoordinateCase::new([Some(1); 2]).unwrap().into();
@@ -335,6 +336,7 @@ fn exceptional_case_union_removes_only_exactly_subsumed_affine_branches() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: vec![
@@ -366,6 +368,7 @@ fn unsupported_guard_intersection_cannot_suppress_pending_work() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             // Bilinear integer guards are now exactly refined. This Pell

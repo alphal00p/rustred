@@ -556,6 +556,7 @@ fn quality_candidate<const N: usize>(target: Integral<N>, rhs: Vec<Integral<N>>)
                     .collect(),
                 sources: Vec::new(),
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions {
                 branches: Vec::new(),
@@ -682,6 +683,7 @@ fn bounded_rule_portfolio_unpruned_children_and_guard_priorities_remain_distinct
                     .collect(),
                 sources: Vec::new(),
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions {
                 branches: Vec::new(),

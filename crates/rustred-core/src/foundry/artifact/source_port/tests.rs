@@ -351,6 +351,7 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: Default::default(),
     });
@@ -363,6 +364,7 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: vec![vec![first - second]],
@@ -680,6 +682,7 @@ fn boundary_rule(coefficient: &str) -> (CoefficientContext, SectorRule<2>) {
         }],
         sources: Vec::new(),
         stats: Default::default(),
+        hidden_poles: Vec::new(),
     };
     (
         context,
@@ -770,6 +773,7 @@ fn affine_descent_excludes_only_proved_impossible_activation_cells() {
                 }],
                 sources: Vec::new(),
                 stats: Default::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions::default(),
         }
@@ -824,6 +828,7 @@ fn affine_target_removes_relative_coordinate_exceptions_from_replay_prefilter() 
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: vec![vec![context.coefficient_fixture("n2").numerator]],

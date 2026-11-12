@@ -117,6 +117,7 @@ impl<const A: usize, const B: usize> Mapping<'_, A, B> {
                     })
                     .collect::<Result<_, _>>()?,
                 stats: source.stats,
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions {
                 branches: value
@@ -484,6 +485,7 @@ fn resized<const N: usize, const K: usize>(
             source_discovery: solver.config.source_discovery.clone(),
             rule_selection: solver.config.rule_selection.clone(),
             seed_schedule: solver.config.seed_schedule,
+            witness_guards: solver.config.witness_guards,
         };
         // Already materialized against the unchanged basis; do not rebuild or
         // interpret physical-axis priorities as storage-axis priorities.

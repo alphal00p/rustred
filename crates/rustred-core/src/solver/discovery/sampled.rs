@@ -23,12 +23,15 @@ use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::domains::{Field, Ring, SelfRing};
 use symbolica::poly::polynomial::MultivariatePolynomial;
 use symbolica::prelude::{IntegerRing, Z};
-use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
+use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
 
-use crate::algebra::Coefficient;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 use super::variables::FrameVariables;
-use super::{ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term};
+use super::{
+    ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term,
+    WitnessPoles,
+};
 
 mod recon;
 pub(super) use recon::MAX_BOX;
@@ -160,11 +163,18 @@ pub(super) fn materialize<const N: usize>(
     seed: u64,
     strict: bool,
     mut observe: impl FnMut(MaterializationEvent<N>),
-) -> Result<ExactRow<N>, MaterializationError> {
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
     let start = std::time::Instant::now();
     if variables.active_len() == 0 {
         // a constant frame is cheap for the ordinary sparse authority
-        return super::sparse_materialize(rows, columns, order, target_column, variables, observe);
+        return super::sparse_materialize_witnessed(
+            rows,
+            columns,
+            order,
+            target_column,
+            variables,
+            observe,
+        );
     }
     observe(MaterializationEvent::SemiNumericalStarted {
         rows: rows.len(),
@@ -258,7 +268,7 @@ pub(super) fn materialize<const N: usize>(
             "SAMPLED fallback: dense box {unknowns} > {} -> targetonlyfactorized exact lift",
             recon::MAX_BOX
         );
-        return super::target_only::materialize_factorized(
+        return super::target_only::materialize_factorized_witnessed(
             rows,
             columns,
             order,
@@ -395,7 +405,211 @@ pub(super) fn materialize<const N: usize>(
         output.len(),
         start.elapsed().as_secs_f64()
     );
-    Ok(output)
+    // guard-fix: the poles of the source weights of this row (WitnessPoles). The row was reconstructed without
+    // any weights; reconstruct the common denominator of the weights the same modular way (one random
+    // combination of the weights, fixed integer multipliers). If that is out of reach, a non-strict run takes
+    // the exact target-only lift (exact weights) instead; a strict run refuses (no row without its guards).
+    match weight_denominator(
+        rows,
+        &frame,
+        &oracle.pivots,
+        &template,
+        variables,
+        threads,
+        rng.next(),
+    ) {
+        Ok(witness) => {
+            eprintln!(
+                "SAMPLED witness poles={} t={:.1}s",
+                witness.denominators.len(),
+                start.elapsed().as_secs_f64()
+            );
+            Ok((output, witness))
+        }
+        Err(e) if strict => Err(err(format!(
+            "strict sampled refused: source-weight poles not reconstructed ({e}); targetonlyfactorized fallback disabled"
+        ))),
+        Err(e) => {
+            eprintln!(
+                "SAMPLED witness fallback: {e} -> targetonlyfactorized exact lift (exact weights)"
+            );
+            super::target_only::materialize_factorized_witnessed(
+                rows,
+                columns,
+                order,
+                target_column,
+                variables,
+                observe,
+            )
+        }
+    }
+}
+
+impl Frame {
+    /// Replay mod p with the full L: (L, pivot trace, U row of the target) or None at a pole / missing target.
+    fn replay_lower(
+        &self,
+        p: u64,
+        point: &[u64],
+    ) -> Option<(SparseMatrix<Zp64>, Vec<Option<u32>>, usize)> {
+        let field = Zp64::new(p);
+        let pt: Vec<_> = point.iter().map(|&x| field.to_element(x)).collect();
+        let mut reducer =
+            SparseRowReducer::new(self.columns_with_sentinel, field.clone(), LuLMode::Full);
+        let mut values = Vec::new();
+        let mut ids = Vec::new();
+        let mut pivots = Vec::new();
+        for row in &self.rows {
+            values.clear();
+            ids.clear();
+            for (column, coefficient) in row {
+                let numerator = coefficient.numerator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(&field),
+                    &pt,
+                    &field,
+                );
+                let denominator = coefficient.denominator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(&field),
+                    &pt,
+                    &field,
+                );
+                if field.is_zero(&denominator) {
+                    return None;
+                }
+                let value = field.div(&numerator, &denominator);
+                if !field.is_zero(&value) {
+                    ids.push(*column);
+                    values.push(value);
+                }
+            }
+            let pivot = reducer.add_row(&values, &ids);
+            pivots.push(pivot);
+            if pivot == Some(self.target) {
+                let last = reducer.u().nrows() as usize - 1;
+                return Some((reducer.l().clone(), pivots, last));
+            }
+        }
+        None
+    }
+}
+
+/// F_w = sum_j r_j w_j(point) mod p for the source weights w_j of the target row (fixed integer r_j), at points
+/// with the generic pivot trace only.
+struct WeightOracle<'a> {
+    frame: &'a Frame,
+    pivots: &'a [Option<u32>],
+    multipliers: Vec<u64>,
+}
+
+impl Oracle for WeightOracle<'_> {
+    fn nvars(&self) -> usize {
+        self.frame.nvars
+    }
+    fn ncols(&self) -> usize {
+        1
+    }
+    fn eval(&self, p: u64, point: &[u64]) -> Option<Vec<u64>> {
+        let (lower, pivots, target_u_row) = self.frame.replay_lower(p, point)?;
+        if pivots != self.pivots {
+            return None;
+        }
+        let field = Zp64::new(p);
+        let (square, inputs) = super::target_only::independent_lower(&lower).ok()?;
+        let weights =
+            super::target_only::solve_transposed_lower(&square, target_u_row, field.one(), false)
+                .ok()?;
+        let f = Fp { p };
+        let mut sum = 0u64;
+        for (&k, value) in weights.col_idcs().iter().zip(weights.values()) {
+            let w = field.from_element(value);
+            sum = f.add(sum, f.mul(self.multipliers[inputs[k as usize]] % p, w));
+        }
+        Some(vec![sum])
+    }
+}
+
+/// The common denominator of the source weights of the sampled row (modular reconstruction of one random
+/// combination, verified at a fresh prime like the row), plus the input denominators of the frame rows.
+fn weight_denominator<const N: usize>(
+    rows: &[ExactRow<N>],
+    frame: &Frame,
+    pivots: &[Option<u32>],
+    template: &MultivariatePolynomial<IntegerRing, u16>,
+    variables: &FrameVariables,
+    threads: usize,
+    seed: u64,
+) -> Result<WitnessPoles, String> {
+    let mut rng = Rng(seed | 1);
+    let multipliers: Vec<u64> = (0..frame.rows.len())
+        .map(|_| 1 + rng.next() % ((1 << 31) - 1))
+        .collect();
+    let oracle = WeightOracle {
+        frame,
+        pivots,
+        multipliers,
+    };
+    let primes = recon::primes_below_2_62(14, 0);
+    let f0 = Fp { p: primes[0] };
+    let info = recon::probe_degrees(&oracle, &f0, rng.next(), threads, 4000)?;
+    let boxes = recon::boxes(&info);
+    let mut extra: Vec<CoefficientPolynomial> = rows
+        .iter()
+        .flatten()
+        .filter(|term| !term.coefficient.denominator.is_constant())
+        .map(|term| term.coefficient.denominator.clone())
+        .collect();
+    if info.f_total.1 == 0 {
+        // polynomial weights: no weight pole at all
+        return Ok(WitnessPoles::recorded(extra));
+    }
+    let mut lift = recon::Lift::new();
+    let mut norm = None;
+    let mut confirmed = false;
+    for &p in primes.iter().take(12) {
+        let f = Fp { p };
+        let weights: Vec<u64> = info.weights.iter().map(|&w| w % p).collect();
+        let image =
+            recon::prime_image(&oracle, &f, &boxes, &weights, &mut norm, rng.next(), threads)?;
+        confirmed = lift.add(p, &image);
+        if confirmed {
+            break;
+        }
+    }
+    if !confirmed {
+        return Err("weight denominator not confirmed after 12 primes".into());
+    }
+    let coeffs = lift.candidate.clone().ok_or("no weight candidate")?;
+    let vp = recon::primes_below_2_62(1, 41)[0];
+    let fv = Fp { p: vp };
+    let points: Vec<Vec<u64>> = (0..6)
+        .map(|_| (0..frame.nvars).map(|_| rng.element(vp)).collect())
+        .collect();
+    let replays = recon::eval_many(&oracle, vp, &points, threads);
+    let pass = points
+        .iter()
+        .zip(&replays)
+        .filter(|(x, y)| matches!((y, recon::eval_rational_row(&fv, &boxes, &coeffs, x)), (Some(y), Some(z)) if *y == z))
+        .count();
+    if pass != points.len() {
+        return Err(format!(
+            "weight denominator verification failed ({pass}/{})",
+            points.len()
+        ));
+    }
+    let nl = boxes.l_mons.len();
+    let l_coeffs = &coeffs[..nl];
+    let l_scale = lcm_denominators(l_coeffs);
+    let l_poly = integer_poly(template, &boxes.l_mons, l_coeffs, &l_scale);
+    let restored = variables
+        .restore_coefficient(&Coefficient::from_num_den(
+            l_poly.one(),
+            l_poly,
+            &Z,
+            false,
+        ))
+        .map_err(|e| e.to_string())?;
+    extra.push(restored.denominator);
+    Ok(WitnessPoles::recorded(extra))
 }
 
 /// Lift pre-screen (rr-consolidate): a cheap modular estimate of the target row of a fixed trace BEFORE any exact

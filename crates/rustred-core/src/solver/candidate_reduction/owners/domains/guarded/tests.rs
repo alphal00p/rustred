@@ -572,6 +572,7 @@ fn guarded_preparation_retains_arc_case_without_forging_selection() {
         rhs: vec![],
         sources: vec![],
         stats: SearchStats::default(),
+        hidden_poles: Vec::new(),
     };
     let prepared = CandidateOwnerPrograms::try_new(
         p.context.clone(),

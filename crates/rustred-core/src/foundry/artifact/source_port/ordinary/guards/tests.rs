@@ -13,6 +13,7 @@ fn fixture() -> (CoefficientContext, SectorRule<2>, Vec<LatticeBox>) {
             rhs: vec![],
             sources: vec![],
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

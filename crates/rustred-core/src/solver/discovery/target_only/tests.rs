@@ -234,8 +234,72 @@ fn hidden_weight_poles_match_the_default_but_are_not_new_certificate_authority()
             exact_materialize(&rows, &IntegralOrder::new([true], [false]), integral(2)).unwrap()
         );
         assert!(result.iter().all(|term| term.coefficient.is_one()));
-        // Only a candidate ExactRow is returned. Original-source replay and
-        // uncancelled source/weight guards still belong to the artifact owner.
+        // The ExactRow itself carries no trace of x: the witnessed lift does.
+    }
+}
+
+/// guard-fix: the documented fixture now yields its hidden guard. For every
+/// exact backend, `x*(T+L)` gives `T+L` with weight `1/x` (witness pole x),
+/// `(1/x)*(T+L)` has the input denominator x, and `x*T + L` keeps x in the RHS
+/// only (weight 1/x as well). A two-row elimination whose pivot `x-1` cancels
+/// from the final row still reports it.
+#[test]
+fn witness_poles_carry_cancelled_weight_and_pivot_factors_for_every_backend() {
+    use super::super::exact_materialize_witnessed;
+    let context = CoefficientContext::new(["x"]);
+    let x = context.coefficient_fixture("x").numerator;
+    let xm1 = context.coefficient_fixture("x-1").numerator;
+    let backends = [
+        SymbolicExactBackend::Sparse,
+        SymbolicExactBackend::SparseFactorized,
+        SymbolicExactBackend::SparseTargetOnly,
+        SymbolicExactBackend::SparseTargetOnlyFactorized,
+    ];
+    let order = IntegralOrder::new([true], [false]);
+    for backend in backends {
+        let witnessed = |rows: &[ExactRow<1>], target| {
+            exact_materialize_witnessed(
+                rows,
+                &order,
+                integral(target),
+                backend,
+                CoefficientVariableOrder::Original,
+                &[],
+                |_| {},
+            )
+            .unwrap()
+        };
+        for terms in [
+            vec![(2, "x"), (0, "x")],
+            vec![(2, "1/x"), (0, "1/x")],
+        ] {
+            let rows = [row(&context, &terms)];
+            let (result, witness) = witnessed(&rows, 2);
+            assert!(result.iter().all(|term| term.coefficient.is_one()), "{backend:?}");
+            assert!(witness.recorded, "{backend:?}");
+            assert_eq!(witness.denominators.len(), 1, "{backend:?} {terms:?}");
+            assert_eq!(
+                witness.denominators[0].clone().make_primitive(),
+                x.clone().make_primitive(),
+                "{backend:?} {terms:?}"
+            );
+        }
+        // Row 1 fixes column 3; row 2 = (x-1)*(T + L) + I3 reduces to (x-1)*(T+L):
+        // the final row T+L is regular at x=1, the witness has the pole x-1.
+        let rows = [
+            row(&context, &[(3, "1"), (0, "1")]),
+            row(&context, &[(3, "1"), (2, "x-1"), (0, "x")]),
+        ];
+        let (result, witness) = witnessed(&rows, 2);
+        assert_eq!(result, row(&context, &[(2, "1"), (0, "1")]), "{backend:?}");
+        assert!(
+            witness
+                .denominators
+                .iter()
+                .any(|d| d.clone().make_primitive() == xm1.clone().make_primitive()),
+            "{backend:?}: {:?}",
+            witness.denominators
+        );
     }
 }
 

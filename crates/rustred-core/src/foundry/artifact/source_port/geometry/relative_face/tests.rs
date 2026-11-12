@@ -56,6 +56,7 @@ fn relative_faces_intersect_new_fixed_coordinates_before_testing_equations() {
                 rhs: Vec::new(),
                 sources: Vec::new(),
                 stats: Default::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions {
                 branches: vec![vec![
@@ -94,6 +95,7 @@ fn genuinely_extra_equations_are_not_replaced_with_their_coordinate_hull() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: Vec::new(),
@@ -131,6 +133,7 @@ fn disjoint_fixed_faces_remove_no_parent_points_and_wrong_maps_are_rejected() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: Vec::new(),

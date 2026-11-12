@@ -390,6 +390,7 @@ fn affine_test_owner(block: bool) -> CandidateReducer<3> {
             rhs,
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: vec![vec![
