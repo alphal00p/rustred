@@ -946,7 +946,8 @@ pub struct JoinOptions {
     pub runs: Vec<JoinRun>,
     pub out: PathBuf,
     pub expect_residuals: Option<usize>,
-    /// Emptiness certificates of deferred regions: JSON lists of {chart, conjunction, status: "EMPTY", method}.
+    /// Certificates of deferred regions: JSON lists of {chart, conjunction, status: "EMPTY", method} or
+    /// {chart, conjunction, status: "COVERED", method, cases: [CaseSpec]} (decomposition into owned/covered cases).
     pub region_proofs: Vec<PathBuf>,
     pub union_depth: u32,
     pub write_table: bool,
@@ -1218,6 +1219,59 @@ fn join_impl<const N: usize>(
                         ))
                         .or_default() += 1;
                     continue;
+                }
+                // (1b) decomposition certificate: {chart, conjunction, status: "COVERED", method, cases: [CaseSpec]}
+                // = an exact (external) proof that the integer points of chart & conjunction lie in the union of the
+                // listed cases; each listed case must be empty, owned by a COMPLETE run other than this one (an edge
+                // into a sink) or covered by one accepted rule's valid domain. Otherwise the certificate is not used.
+                if let Some(p) = proofs.iter().find(|p| {
+                    p["status"] == "COVERED"
+                        && serde_json::from_value::<CaseSpec>(p["chart"].clone())
+                            .ok()
+                            .as_ref()
+                            == Some(&ob.case)
+                        && p["conjunction"] == *conj
+                }) {
+                    let pieces: Vec<CaseSpec> =
+                        serde_json::from_value(p["cases"].clone()).unwrap_or_default();
+                    let mut ok = !pieces.is_empty();
+                    let mut new_edges: Vec<usize> = Vec::new();
+                    for s in &pieces {
+                        if !ok {
+                            break;
+                        }
+                        let Some(pc) = (if s.fixed.len() == n { build(s)? } else { None }) else {
+                            ok = s.fixed.len() == n; // an empty piece needs nothing
+                            continue;
+                        };
+                        let owner = (0..obls.len()).find(|&j| {
+                            j != k
+                                && obls[j].state == "complete"
+                                && initials[j]
+                                    .iter()
+                                    .any(|ic| ic.contains(&pc).unwrap_or(false))
+                        });
+                        if let Some(j) = owner {
+                            new_edges.push(j);
+                        } else if !refs
+                            .iter()
+                            .any(|(c, b)| covers(c, b, &pc, &ctx.idx, &ctx.sector, limits))
+                        {
+                            ok = false;
+                        }
+                    }
+                    if ok {
+                        for j in new_edges {
+                            *edges.entry((k, j)).or_default() += 1;
+                        }
+                        *discharged
+                            .entry(format!(
+                                "region_covered:{}",
+                                p["method"].as_str().unwrap_or("?")
+                            ))
+                            .or_default() += 1;
+                        continue;
+                    }
                 }
             }
             let Some(case) = (if ob.case.fixed.len() == n {
