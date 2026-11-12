@@ -544,6 +544,65 @@ mod tests {
 
     const SUNSET: &str = "I(\n  name(S),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1+k2-q)^2,1),\n  prop(D4,(k1+q)^2,0),\n  prop(D5,(k2+q)^2,0),\n  gram(q,q,1)\n)\n";
 
+    /// p5l-close (M5 batch 5 tests): a power shift must be a nonzero integer multiple k of
+    /// eps = (4-d)/2 (checked at d = 0, 2, 4); anything else is refused.
+    #[test]
+    fn eps_power_shifts_are_integer_multiples_of_eps() {
+        assert_eq!(eps_multiple("(4-d)/2", 5).unwrap(), 1);
+        assert_eq!(eps_multiple("2-d/2", 5).unwrap(), 1);
+        assert_eq!(eps_multiple("4-d", 5).unwrap(), 2);
+        assert_eq!(eps_multiple("(d-4)/2", 5).unwrap(), -1);
+        assert_eq!(eps_multiple("3*(4-d)/2", 5).unwrap(), 3);
+        for bad in ["d", "1", "(4-d)/3", "(4-d)/2+1", "0*d", "(6-d)/2"] {
+            assert!(eps_multiple(bad, 5).is_err(), "{bad}");
+        }
+    }
+
+    /// An eps family (one line with exponent a_1 + k eps): the exact IBP forms (with the k eps
+    /// terms on the constant and d offsets) agree with the modular rows at y = a, d = 7, for
+    /// k = 1 and k = -2; the rows differ from the plain family's and from k = 2 (a doubled
+    /// shift is not silently accepted as the single one).
+    #[test]
+    fn eps_family_rows_agree_with_their_exact_forms() {
+        let shifted = |shift: &str| {
+            SUNSET.replace(
+                "  gram(q,q,1)\n",
+                &format!("  power_shift(D1,{shift}),\n  gram(q,q,1)\n"),
+            )
+        };
+        let plain = Family::parse(SUNSET).unwrap();
+        let a = [1i128, 1, 1, 0, 0];
+        let d = 7u64;
+        let mut seen = Vec::new();
+        for (shift, k) in [("(4-d)/2", 1), ("d-4", -2), ("4-d", 2)] {
+            let f = Family::parse(&shifted(shift)).unwrap();
+            assert_eq!(f.kshift, vec![k, 0, 0, 0, 0], "{shift}");
+            let rows = f.rows_at(&[1, 1, 1, 0, 0], d, arith::P).unwrap();
+            assert_eq!(rows.len(), 6);
+            for (op, md) in rows.iter().enumerate() {
+                let ex = f.exact_row(op).unwrap();
+                for (key, form) in &ex {
+                    let mut v = form[0].modp(arith::P).unwrap();
+                    for i in 0..5 {
+                        let term = arith::mul(
+                            arith::P,
+                            form[i + 1].modp(arith::P).unwrap(),
+                            arith::from_i128(arith::P, a[i]),
+                        );
+                        v = arith::add(arith::P, v, term);
+                    }
+                    let dterm = arith::mul(arith::P, form[6].modp(arith::P).unwrap(), d);
+                    v = arith::add(arith::P, v, dterm);
+                    assert_eq!(md.get(key).copied().unwrap_or(0), v, "{shift} op {op} {key:?}");
+                }
+            }
+            seen.push(rows);
+        }
+        let base = plain.rows_at(&[1, 1, 1, 0, 0], d, arith::P).unwrap();
+        assert_ne!(seen[0], base, "k = 1 must change the rows");
+        assert_ne!(seen[0], seen[2], "k = 2 (doubled) must differ from k = 1");
+    }
+
     #[allow(clippy::needless_range_loop)]
     #[test]
     fn sunset_family_ibp_and_zero_sectors() {
