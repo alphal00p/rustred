@@ -524,17 +524,11 @@ impl PEngine {
             },
             None => PCensusMode::OFF,
         };
-        // Experimental zero-reference pruning changes the recorded step, so
-        // it deliberately refuses persistent caches instead of reusing their
-        // unpruned records or changing their identity/schema.
-        let prune_zero_children =
-            std::env::var("RUSTRED_P_PRUNE_ZERO_CHILDREN").is_ok_and(|value| value == "1");
-        if prune_zero_children && cache.is_some() {
-            return Err(PError::Unsupported(
-                "RUSTRED_P_PRUNE_ZERO_CHILDREN requires cache=None".to_owned(),
-            ));
-        }
-        let zero_pruning = prune_zero_children.then(ZeroPruningCounters::default);
+        // The same process-wide snapshot appends the pruning marker to the
+        // library's step identity, so persistent pruned/unpruned records cannot
+        // be attached or reopened across modes.
+        let zero_pruning =
+            super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -1871,6 +1865,7 @@ mod tests {
     use crate::propagator::lane::{LaneRoles, OwnerLane};
     use crate::propagator::library::POwnerSpec;
     use crate::propagator::presentation::{PresentationKind, Slot, SlotLine};
+    use crate::propagator::step::PLaneStep;
 
     const BUBBLE: PresentationId = PresentationId(1);
 
@@ -1905,6 +1900,10 @@ mod tests {
     /// terminal but `Unit`. Keys have the 21 slots of the kite: a view of the
     /// bubble ends in 3 slots of padding, a terminal key in 2.
     fn library() -> (PLibrary, OwnerClassId) {
+        library_with_program(OwnerProgram::Missing { ledger: 0 })
+    }
+
+    fn library_with_program(program: OwnerProgram) -> (PLibrary, OwnerClassId) {
         let context = CoefficientContext::try_new(["d"]).unwrap();
         let mut census = PCensus::default();
         let class = census
@@ -1957,7 +1956,7 @@ mod tests {
                     custom: None,
                     terminals: Vec::new(),
                 },
-                OwnerProgram::Missing { ledger: 0 },
+                program,
             )
             .unwrap();
         (builder.build().unwrap(), class)
@@ -2198,5 +2197,226 @@ mod tests {
             Err(PError::ContextMismatch)
         ));
         assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
+    }
+
+    /// A native fixture with one explicit zero child, two nonzero tagged
+    /// terminals, and a nontrivial condition. It uses the actual Ordered cache,
+    /// canonical keys, coefficient context and terminal decoding.
+    struct PruningCacheLane;
+
+    impl PLaneStep for PruningCacheLane {
+        fn lane(&self) -> OwnerLane {
+            OwnerLane::Custom
+        }
+
+        fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+            let context = cx.library.coefficient_context();
+            let d = context.parameter("d").unwrap();
+            Ok(PStepOut {
+                children: vec![PChild {
+                    stage: PStage::Route,
+                    presentation: BUBBLE,
+                    powers: vec![1, 0],
+                    tag: key.tag.add(&GammaTag::from_pairs([(1, 2)])?),
+                    coefficient: context.one(),
+                }],
+                terminals: vec![
+                    (
+                        PTerminalId(0),
+                        key.tag.add(&GammaTag::from_pairs([(1, 2)])?),
+                        d.clone(),
+                    ),
+                    (
+                        PTerminalId(0),
+                        key.tag.add(&GammaTag::from_pairs([(-1, 3)])?),
+                        context.one(),
+                    ),
+                ],
+                conditions: vec![d],
+            })
+        }
+    }
+
+    /// Run by the parent test in separate processes: no concurrent environment
+    /// mutation, and each process captures the production flag exactly once.
+    #[test]
+    fn known_zero_cache_fixture_process() {
+        use super::super::library::{PReductionRequest, PUncoveredPolicy};
+        use crate::reduction::OrderedStepCacheBinding;
+        use crate::solver::UnresolvedPolicy;
+
+        let Ok(action) = std::env::var("RUSTRED_TEST_PRUNING_CACHE_ACTION") else {
+            return;
+        };
+        let root =
+            std::path::PathBuf::from(std::env::var_os("RUSTRED_TEST_PRUNING_CACHE_ROOT").unwrap());
+        let on = super::super::library::prune_zero_children_enabled();
+        let mode = if on { "on" } else { "off" };
+        let (library, _) = library_with_program(OwnerProgram::Lane(Arc::new(PruningCacheLane)));
+        library.set_orbit_canonicalization(false);
+        let context = library.coefficient_context();
+        let mut legacy = library.identity();
+        assert!(!crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail());
+        legacy.push_str(",P_ADJOINT_TAIL=off");
+        let marker = ",P_PRUNE_ZERO_CHILDREN=on";
+        for (route, high, suffix) in [
+            (true, true, ""),
+            (false, true, "-apply"),
+            (true, false, "-least"),
+            (false, false, "-apply-least"),
+        ] {
+            library.set_orbit_canonicalization(true);
+            library.set_route_canonicalization(route);
+            library.set_orbit_prefer_high(high);
+            assert_eq!(
+                library.step_identity(),
+                format!(
+                    "{},P_ORBIT_CANON_VERSION={}{suffix},P_ADJOINT_TAIL=off{}",
+                    library.identity(),
+                    super::super::P_ORBIT_CANON_VERSION,
+                    if on { marker } else { "" }
+                )
+            );
+        }
+        library.set_orbit_canonicalization(false);
+        let expected_identity = format!("{legacy}{}", if on { marker } else { "" });
+        assert_eq!(library.step_identity(), expected_identity);
+        let binding = library.step_cache_binding().unwrap();
+        assert_eq!(binding.family_fingerprint, expected_identity);
+        let request = |cache| PReductionRequest {
+            inputs: vec![(BUBBLE, IntegralKey::try_new([1, 1]).unwrap(), context.one())],
+            arithmetic: OrderedWeightArithmetic::Exact,
+            scheduler: OrderedSchedulerOptions {
+                threads: 1,
+                ..Default::default()
+            },
+            step_cache: cache,
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: false,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        };
+        if action == "reject-other" {
+            let other_mode = if on { "off" } else { "on" };
+            assert!(matches!(
+                OrderedStepCache::open(root.join(other_mode), binding, Default::default()),
+                Err(ReductionError::OrderedStepCache { .. })
+            ));
+            let other_identity = if on {
+                legacy
+            } else {
+                format!("{legacy}{marker}")
+            };
+            let wrong = OrderedStepCacheBinding::new(
+                crate::reduction::OrderedStepCacheAdapter::PropagatorLibrary,
+                other_identity,
+                context,
+                Some(UnresolvedPolicy::Reject),
+            );
+            assert!(matches!(
+                library.reduce(request(Some(OrderedStepCache::in_memory(
+                    wrong,
+                    Default::default()
+                )))),
+                Err(PError::Engine(ReductionError::OrderedStepCache { .. }))
+            ));
+            return;
+        }
+        assert_eq!(action, "roundtrip");
+        let uncached = library.reduce(request(None)).unwrap();
+        assert_eq!(uncached.terms.len(), 2);
+        assert_eq!(uncached.nonzero_conditions.len(), 1);
+        assert_ne!(uncached.terms[0].tag, uncached.terms[1].tag);
+        let directory = root.join(mode);
+        let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+        let first = library.reduce(request(Some(Arc::clone(&cold)))).unwrap();
+        let progress = &first.statistics.progress;
+        assert!(progress.processed_keys > 0);
+        assert_eq!(progress.step_cache_hits, 0);
+        assert_eq!(progress.step_cache_misses, progress.processed_keys);
+        let saved = cold.save().unwrap();
+        assert!(saved.records > 0);
+        let warm = OrderedStepCache::open(&directory, binding, Default::default()).unwrap();
+        let second = library.reduce(request(Some(warm))).unwrap();
+        let warm_progress = &second.statistics.progress;
+        assert!(warm_progress.step_cache_hits > 0);
+        assert_eq!(warm_progress.step_cache_hits, warm_progress.processed_keys);
+        assert_eq!(warm_progress.step_cache_misses, 0);
+        for output in [&first, &second] {
+            assert_eq!(output.terms, uncached.terms);
+            assert_eq!(output.nonzero_conditions, uncached.nonzero_conditions);
+            assert_eq!(output.dimension, uncached.dimension);
+        }
+        let terms: Vec<_> = second
+            .terms
+            .iter()
+            .map(|term| {
+                let mut tag = Vec::new();
+                term.tag.encode_dense(&mut tag).unwrap();
+                serde_json::json!({"tag": tag, "coefficient": term.coefficient.to_string()})
+            })
+            .collect();
+        let report = serde_json::json!({
+            "identity": expected_identity,
+            "value": {"dimension": second.dimension, "terms": terms,
+                "conditions": second.nonzero_conditions.iter().map(ToString::to_string).collect::<Vec<_>>()},
+            "cold_misses": progress.step_cache_misses,
+            "warm_hits": warm_progress.step_cache_hits,
+            "warm_misses": warm_progress.step_cache_misses,
+            "saved_records": saved.records,
+        });
+        std::fs::write(
+            root.join(format!("{mode}.json")),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn known_zero_cache_roundtrip_and_mode_isolation() {
+        let keep = std::env::var_os("RUSTRED_TEST_PRUNING_CACHE_ROOT");
+        let root = keep
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("rustred-pruning-cache-{}", std::process::id()))
+            });
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        for action in ["roundtrip", "reject-other"] {
+            for on in [false, true] {
+                let mut child = std::process::Command::new(&executable);
+                child
+                    .args([
+                        "--exact",
+                        "propagator::engine::tests::known_zero_cache_fixture_process",
+                        "--nocapture",
+                    ])
+                    .env("RUSTRED_TEST_PRUNING_CACHE_ACTION", action)
+                    .env("RUSTRED_TEST_PRUNING_CACHE_ROOT", &root)
+                    .env("RUSTRED_ORDERED_ADJOINT_TAIL", "off");
+                if on {
+                    child.env("RUSTRED_P_PRUNE_ZERO_CHILDREN", "1");
+                } else {
+                    child.env_remove("RUSTRED_P_PRUNE_ZERO_CHILDREN");
+                }
+                assert!(child.status().unwrap().success(), "{action}, pruning={on}");
+            }
+        }
+        let off: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("off.json")).unwrap()).unwrap();
+        let on: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("on.json")).unwrap()).unwrap();
+        assert_eq!(off["value"], on["value"]);
+        assert_eq!(
+            on["identity"].as_str().unwrap(),
+            format!(
+                "{},P_PRUNE_ZERO_CHILDREN=on",
+                off["identity"].as_str().unwrap()
+            )
+        );
+        if keep.is_none() {
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }
