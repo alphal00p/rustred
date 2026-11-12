@@ -13,7 +13,7 @@
 //!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--numeric-depth K] [--numeric-depth-max K]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -355,6 +355,9 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     o.strict_numeric_search = a.flag("--strict-numeric-search");
     if let Some(d) = a.parse("--numeric-depth") {
         o.numeric_depth = d;
+    }
+    if let Some(d) = a.parse("--numeric-depth-max") {
+        o.numeric_depth_max = Some(d);
     }
     let _ = family;
     o
