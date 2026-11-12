@@ -13,6 +13,7 @@
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
 //!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
+//!                  [--stop-before-numeric]   (finish symbolic work; numeric endpoints stay OPEN, never searched)
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
@@ -337,6 +338,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         .collect();
     o.cand_dump = a.flag("--cand-dump");
     o.strict_numeric_search = a.flag("--strict-numeric-search");
+    o.stop_before_numeric = a.flag("--stop-before-numeric");
     if let Some(path) = a.take("--known-terminals") {
         o.known_terminals = Some(KnownTerminalsFile::read(path).unwrap_or_else(|e| die(&e)));
     }
@@ -1044,6 +1046,19 @@ mod strict_numeric_tests {
             let options = node_options(&mut args, "");
             args.done();
             assert_eq!(options.strict_numeric_search, enabled);
+        }
+    }
+
+    #[test]
+    fn stop_before_numeric_cli_is_opt_in() {
+        for enabled in [false, true] {
+            let mut args = Args {
+                items: if enabled { vec!["--stop-before-numeric".into()] } else { vec![] },
+            };
+            let options = node_options(&mut args, "");
+            args.done();
+            assert_eq!(options.stop_before_numeric, enabled);
+            assert!(!options.strict_numeric_search);
         }
     }
 

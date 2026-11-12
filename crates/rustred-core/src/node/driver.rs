@@ -481,6 +481,10 @@ pub struct NodeOptions {
     /// The unfinished points stay explicit obligations; this does not classify any of them as masters.
     #[serde(default, skip_serializing_if = "is_false")]
     pub strict_numeric_search: bool,
+    /// Finish symbolic work, then leave every undeclared numeric endpoint as an open obligation.
+    /// No per-point search or shared numeric solve runs. Default off preserves the original pipeline.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub stop_before_numeric: bool,
     /// guard-fix: switch OFF the witness-pole guards (default ON = every lift's source-weight poles join the
     /// rule's exceptions, `GUARD_VERSION` 2). Off reproduces the old RHS-denominator-only guards: A/B only.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -612,6 +616,7 @@ impl Default for NodeOptions {
             cand_dump: false,
             numeric_depth: 2,
             strict_numeric_search: false,
+            stop_before_numeric: false,
             no_witness_guards: false,
             seed_schedule: SeedScheduleName::Spired,
             case_seed_schedule: None,
@@ -687,6 +692,8 @@ pub enum StopReason {
         covered: usize,
         charts: Vec<CaseSpec>,
     },
+    /// The caller requested a stop before any numeric search. Endpoints remain open, not masters.
+    BeforeNumeric { pending: usize },
     /// Per-point numeric searches exhausted or were screened out, and strict mode forbids the shared fallback.
     /// Cases are in PRESENTED slots and remain open, including any possible genuine masters.
     NumericSearchRefused {
@@ -3367,7 +3374,25 @@ fn run<const N: usize>(
     let mut residual_keys: Vec<String> = terminal_ledger.as_ref().map_or_else(Vec::new, |l| {
         l.terminals.iter().map(|t| t.key.clone()).collect()
     });
-    if error.is_none() && stop.is_none() && !numerical.is_empty() {
+    if opts.stop_before_numeric && error.is_none() && stop.is_none() {
+        let pending = numerical
+            .iter()
+            .filter(|p| {
+                !terminal_ledger
+                    .as_ref()
+                    .is_some_and(|ledger| ledger.is_point(&Case::from(**p), n))
+            })
+            .count();
+        if pending > 0 {
+            writeln!(
+                qlog,
+                "{{\"type\":\"stop_before_numeric\",\"pending\":{pending},\"searched\":0}}"
+            )
+            .map_err(|e| e.to_string())?;
+            stop = Some(StopReason::BeforeNumeric { pending });
+        }
+    }
+    if !opts.stop_before_numeric && error.is_none() && stop.is_none() && !numerical.is_empty() {
         outcome.numerical_cases = numerical.len();
         let options = SearchOptions {
             max_depth: Some(opts.numeric_depth),
@@ -3741,7 +3766,7 @@ fn run<const N: usize>(
         writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{},\"stop\":{reason}}}", q(&label), q("node stopped (see stop)")).map_err(|e| e.to_string())?;
         events(&NodeEvent::Stopped { reason });
     }
-    let active_partial = terminal_ledger.is_some()
+    let active_partial = (terminal_ledger.is_some() || opts.stop_before_numeric)
         && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
     let chart_record = if active_partial {
         "chart_partial"
@@ -3949,6 +3974,100 @@ mod tests {
         });
         std::fs::write(&file, serde_json::to_vec(&value).unwrap()).unwrap();
         KnownTerminalsFile::read(file).unwrap()
+    }
+
+    #[test]
+    fn stop_before_numeric_is_opt_in_and_preserves_option_bytes() {
+        let legacy = serde_json::to_value(quiet()).unwrap();
+        assert!(legacy.get("stop_before_numeric").is_none());
+        let read: NodeOptions = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(!read.stop_before_numeric);
+        assert_eq!(serde_json::to_value(read).unwrap(), legacy);
+        let mut explicit_off = legacy.clone();
+        explicit_off["stop_before_numeric"] = serde_json::json!(false);
+        let read: NodeOptions = serde_json::from_value(explicit_off).unwrap();
+        assert_eq!(serde_json::to_value(read).unwrap(), legacy);
+        let on = NodeOptions { stop_before_numeric: true, ..quiet() };
+        assert_eq!(serde_json::to_value(on).unwrap()["stop_before_numeric"], true);
+    }
+
+    #[test]
+    fn stop_before_numeric_leaves_every_endpoint_open_without_search() {
+        let dir = tmp("before-numeric-points");
+        let opts = NodeOptions {
+            initial: [1, 2].into_iter().map(|dot| CaseSpec {
+                fixed: vec![Some(dot), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }).collect(),
+            stop_before_numeric: true,
+            ..quiet()
+        };
+        let mut searched = 0;
+        let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |e| {
+            if matches!(e, NodeEvent::CaseStarted { .. }) { searched += 1; }
+        }).unwrap();
+        assert_eq!(searched, 0);
+        assert_eq!(outcome.numerical_cases, 0);
+        assert_eq!(outcome.numeric_bulk_fallback, 0);
+        assert_eq!(outcome.rules, 0);
+        assert!(outcome.residual_keys.is_empty());
+        assert!(!outcome.complete);
+        assert!(matches!(outcome.stop, Some(StopReason::BeforeNumeric { pending: 2 })));
+        // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
+        let table = std::fs::read_to_string(&outcome.table).unwrap();
+        let records: Vec<serde_json::Value> = table.lines()
+            .map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert!(records.iter().any(|r| r["type"] == "partial"));
+        assert!(!records.iter().any(|r| r["type"] == "end" || r["type"] == "residual"));
+    }
+
+    #[test]
+    fn stop_before_numeric_handles_last_symbolic_leaf_without_retainer() {
+        let dir = tmp("before-numeric-last-leaf");
+        let opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![None, Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            stop_before_numeric: true,
+            max_cases: Some(1),
+            ..quiet()
+        };
+        let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |_| {}).unwrap();
+        assert_eq!(outcome.symbolic_cases, 1);
+        assert!(outcome.rules > 0);
+        assert_eq!(outcome.numerical_cases, 0);
+        assert_eq!(outcome.numeric_bulk_fallback, 0);
+        assert!(outcome.residual_keys.is_empty());
+        assert!(matches!(outcome.stop, Some(StopReason::BeforeNumeric { pending: 1 })));
+        // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
+    }
+
+    #[test]
+    fn stop_before_numeric_keeps_declared_terminals_out_of_open_endpoints() {
+        let dir = tmp("before-numeric-ledger");
+        let mut opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            stop_before_numeric: true,
+            ..quiet()
+        };
+        opts.known_terminals = Some(known_file(
+            "before-numeric-known", &opts, vec![vec![1, 1, 1, 0, 0]]));
+        let mut searched = 0;
+        let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |e| {
+            if matches!(e, NodeEvent::CaseStarted { .. }) { searched += 1; }
+        }).unwrap();
+        assert_eq!(searched, 0);
+        assert_eq!(outcome.numerical_cases, 0);
+        // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
+        assert!(outcome.complete);
+        assert_eq!(outcome.residual_keys, vec!["I(1,1,1,0,0)"]);
+        let table = std::fs::read_to_string(&outcome.table).unwrap();
+        assert!(table.contains("DECLARED_NON_NATIVE"));
+        assert!(table.contains("terminal ledger declared (non-native)"));
     }
 
     #[test]
