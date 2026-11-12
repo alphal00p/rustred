@@ -747,7 +747,80 @@ impl PEngine {
             );
         }
         super::step_memo::end(shared_memo);
+        canon_stats::flush();
         output
+    }
+}
+
+/// fwd-opt diagnostics: canonicalisation coverage of the stepped Apply keys
+/// per owner class (`RUSTRED_P_CANON_STATS=<file>`, one JSON line per class
+/// at the end of each request). Per class: keys, keys whose owner has a
+/// nontrivial group, keys on which every action is exact (signed slot
+/// permutation on the key: canonicalised), keys on which no action is exact
+/// (escape canonicalisation entirely), keys with at least one inexact action
+/// (an ISP with a nonzero power maps to a combination), keys whose line part
+/// some inexact action would lower (candidate duplicates by symmetry), and
+/// the number of actions.
+pub(crate) mod canon_stats {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    static STATS: Mutex<BTreeMap<u64, [u64; 7]>> = Mutex::new(BTreeMap::new());
+
+    pub(crate) fn enabled() -> bool {
+        PATH.get_or_init(|| std::env::var_os("RUSTRED_P_CANON_STATS").map(Into::into))
+            .is_some()
+    }
+
+    pub(crate) fn record(class: u64, actions: u64, exact: u64, inexact: u64, better: bool) {
+        let mut stats = STATS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = stats.entry(class).or_default();
+        entry[0] += 1;
+        entry[1] += u64::from(actions > 0);
+        entry[2] += u64::from(actions > 0 && inexact == 0);
+        entry[3] += u64::from(actions > 0 && exact == 0);
+        entry[4] += u64::from(inexact > 0);
+        entry[5] += u64::from(better);
+        entry[6] = actions;
+    }
+
+    pub(crate) fn flush() {
+        use std::io::Write;
+        let Some(Some(path)) = PATH.get() else {
+            return;
+        };
+        let stats = std::mem::take(
+            &mut *STATS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            for (
+                class,
+                [
+                    keys,
+                    nontrivial,
+                    all_exact,
+                    none_exact,
+                    some_inexact,
+                    better,
+                    actions,
+                ],
+            ) in stats
+            {
+                let _ = writeln!(
+                    file,
+                    "{{\"class\":\"{class:016x}\",\"keys\":{keys},\"nontrivial\":{nontrivial},\"all_exact\":{all_exact},\"none_exact\":{none_exact},\"some_inexact\":{some_inexact},\"line_lowered\":{better},\"actions\":{actions}}}"
+                );
+            }
+        }
     }
 }
 
@@ -1467,6 +1540,9 @@ impl<'l> PStepper<'l> {
                 });
             }
         };
+        if canon_stats::enabled() {
+            self.canon_coverage(class, slot.presentation, powers);
+        }
         let tag = GammaTag::decode_dense(tag_slots)?;
         let key = PKeyView {
             presentation: slot.presentation,
@@ -1491,6 +1567,51 @@ impl<'l> PStepper<'l> {
             lane.step(&self.context(owner), &key)?
         };
         self.ordered_step(output)
+    }
+
+    /// fwd-opt diagnostics (`RUSTRED_P_CANON_STATS=<file>`): how the owner's
+    /// automorphisms act on this stepped Apply key (see `canon_stats`).
+    fn canon_coverage(&self, class: OwnerClassId, presentation: PresentationId, powers: &[i64]) {
+        let Ok(orbit) = self.orbit(class) else {
+            return;
+        };
+        let Ok(shape) = self.engine.shape(presentation) else {
+            return;
+        };
+        let n = powers.len();
+        let line = |slot: usize| shape.lines >> slot & 1 == 1;
+        let (mut exact, mut inexact, mut better) = (0u64, 0u64, false);
+        let own: Vec<i64> = (0..n)
+            .map(|i| if line(i) { powers[i].max(0) } else { 0 })
+            .collect();
+        for action in &orbit.actions {
+            if action.len() < n {
+                continue;
+            }
+            let is_exact = powers
+                .iter()
+                .zip(action.iter())
+                .all(|(&power, image)| power == 0 || image.is_some());
+            if is_exact {
+                exact += 1;
+                continue;
+            }
+            inexact += 1;
+            // The image of the line part (lines always map onto lines).
+            let mut image = vec![0i64; n];
+            for slot in (0..n).filter(|&slot| line(slot) && powers[slot] > 0) {
+                if let Some((target, _)) = action[slot] {
+                    image[usize::from(target)] = powers[slot];
+                }
+            }
+            let below = if self.prefer_high {
+                image > own
+            } else {
+                image < own
+            };
+            better |= below;
+        }
+        canon_stats::record(class.0, orbit.actions.len() as u64, exact, inexact, better);
     }
 
     /// The Apply key of `powers` with `tag` on the sector of `class`, and the
