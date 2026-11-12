@@ -53,7 +53,8 @@ pub struct LocusArgs {
     pub extra_loci: Option<PathBuf>,
     pub keep_cells: bool,
     pub no_replay: bool,
-    /// Random integer-point attempts per flat (the Python tool: 600).
+    /// Random integer-point attempts per flat (the Python tool: 600; default here 4000: an attempt that is not
+    /// integral or not in the chart costs only rational arithmetic).
     pub point_tries: usize,
 }
 
@@ -622,9 +623,10 @@ fn prepare(
                 // exhaustive small box (n = 1..5 / 0..-4 on the free coordinates) before giving up
                 let mut ext = rcx.case.affine_rule.clone();
                 ext.equations.push(form_str(&c));
-                // bounded enumeration: size^free <= ~20k points
+                // bounded enumeration: size^free <= ~20k points, n up to 64 on a low-dimensional flat (cases whose
+                // equations have a large modulus need it: r38's rule 1 has integral points only every 62 steps)
                 let free = n.saturating_sub(rcx.case.piv.len() + 1).max(1) as f64;
-                let size = (20_000f64.powf(1.0 / free).floor() as usize).clamp(2, 5);
+                let size = (20_000f64.powf(1.0 / free).floor() as usize).clamp(2, 64);
                 match box_points(&ext, dims, chart, &rcx.coefs, size, 1) {
                     Ok((pts, _)) if !pts.is_empty() && point_valid(rule, &pts[0], dims, chart, &rcx.coefs).is_ok() => {
                         rcx.smallpt.insert(c.clone(), pts[0].clone());
@@ -899,7 +901,7 @@ mod tests {
             extra_loci: None,
             keep_cells: false,
             no_replay: false,
-            point_tries: 600,
+            point_tries: 4000,
         }
     }
 

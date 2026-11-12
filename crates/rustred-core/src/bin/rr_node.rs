@@ -587,7 +587,7 @@ fn cmd_replay(mut a: Args) -> i32 {
 }
 
 /// `rr_node locus-rank --table T --out DIR [--rules all|I,A-Z,CHART:I] [--chart C] [--family F] [--max-flats 64]
-/// [--full] [--extra-loci FILE] [--keep-cells] [--no-replay] [--point-tries 600] [--dimensions D..]`:
+/// [--full] [--extra-loci FILE] [--keep-cells] [--no-replay] [--point-tries 4000] [--dimensions D..]`:
 /// guard-theory's decisive locus test (seed-coordinate suspect flats, one full-seed-system replay per flat);
 /// writes DIR/RESULTS.jsonl + DIR/SUMMARY.json. Exit 0 = every rule PASS_ALL_FLATS, 1 = some FAIL, 2 = otherwise.
 fn cmd_locus_rank(mut a: Args) -> i32 {
@@ -615,7 +615,7 @@ fn cmd_locus_rank(mut a: Args) -> i32 {
         extra_loci: a.take("--extra-loci").map(PathBuf::from),
         keep_cells: a.flag("--keep-cells"),
         no_replay: a.flag("--no-replay"),
-        point_tries: a.parse("--point-tries").unwrap_or(600),
+        point_tries: a.parse("--point-tries").unwrap_or(4000),
     };
     a.done();
     let (status, summary) = run(&args).unwrap_or_else(|e| die(&e));
