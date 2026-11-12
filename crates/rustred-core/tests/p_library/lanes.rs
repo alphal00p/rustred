@@ -611,6 +611,7 @@ fn custom_presentations_are_induced_or_eps_nodes() {
 
     let built = lanes(4);
     let mut integer = 0;
+    let mut rebased = 0;
     let mut eps = 0;
     for (node, decision) in built.dag.nodes.iter().zip(&built.decisions) {
         if decision.lane != OwnerLane::Custom {
@@ -623,9 +624,14 @@ fn custom_presentations_are_induced_or_eps_nodes() {
                 assert_eq!(top_named(top).loops, node.loops);
                 assert_eq!(mask.count_ones(), u32::from(node.t));
             }
+            PresentationKind::EpsNode if node.eps_lines == 0 => {
+                // an integer Custom node with an ISP-table entry (bebe, P_PRESENTATION_VERSION 4)
+                rebased += 1;
+                assert_eq!(forcer_name(&node.key), "bebe");
+                assert_eq!(presentation.forced_axes().count_ones(), 0);
+            }
             PresentationKind::EpsNode => {
                 eps += 1;
-                assert_ne!(node.eps_lines, 0);
                 assert_eq!(
                     presentation.forced_axes().count_ones(),
                     u32::from(node.eps_lines)
@@ -635,8 +641,76 @@ fn custom_presentations_are_induced_or_eps_nodes() {
         }
     }
     // The 4 diamond nodes (d384, d394, d399, no3) are Diamond owners (M3-T5b);
-    // no1, haha and bubu are Scheme owners (M5 combined), no2 and no6 too (M5 batch 2).
-    assert_eq!((integer, eps), (5, 11));
+    // no1, haha and bubu are Scheme owners (M5 combined), no2 and no6 too (M5 batch 2);
+    // bebe is presented in its own family since M5 batch 5 (table entry, basis b3).
+    assert_eq!((integer, rebased, eps), (4, 1, 11));
+}
+
+/// M5 batch 5 (bebe-basis): an integer Custom node WITH an entry in the embedded
+/// ISP table gets its own family: its lines carry the top's momenta of its sector
+/// (signed for momentum conservation, so the loop momenta are the top's), its ISP
+/// slots are the entry's rows in the entry's order, kind EpsNode without forced
+/// axes; it validates and is deterministic. Integer Custom nodes without an entry
+/// stay Induced (checked by `custom_presentations_are_induced_or_eps_nodes`).
+#[test]
+fn an_integer_custom_node_with_a_table_entry_gets_its_own_family() {
+    let table: BTreeMap<String, IspPreference> =
+        serde_json::from_str(rustred::propagator::present::P_ISP_PREFERENCES_JSON).unwrap();
+    let (_, top_presentations) = tops();
+    let built = lanes(4);
+    let mut rebased = Vec::new();
+    for (node, decision) in built.dag.nodes.iter().zip(&built.decisions) {
+        let name = format!("p_node_{}", node.key.to_hex());
+        let Some(IspPreference::Rows { rows, .. }) = table.get(&name) else {
+            continue;
+        };
+        if decision.lane != OwnerLane::Custom || node.eps_lines != 0 {
+            continue;
+        }
+        let presentation = built.presentation(node.index).unwrap();
+        assert_eq!(presentation.kind, PresentationKind::EpsNode, "{name}");
+        presentation.validate().unwrap();
+        let lines: Vec<&Vec<i64>> = presentation
+            .slots
+            .iter()
+            .filter_map(|slot| match slot {
+                Slot::Line(line) => Some(&line.momentum),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), usize::from(node.t), "{name}");
+        let isps: Vec<[Vec<i64>; 2]> = presentation.slots[lines.len()..]
+            .iter()
+            .map(|slot| {
+                let Slot::Isp(SlotIsp { left, right }) = slot else {
+                    panic!("{name}: ISP expected after the lines")
+                };
+                [left.clone(), right.clone()]
+            })
+            .collect();
+        assert_eq!(&isps, rows, "{name}: the entry's rows, in order");
+        // every line momentum is +- a line momentum of a same-loop top
+        let top_lines: BTreeSet<Vec<i64>> = top_presentations
+            .iter()
+            .filter(|top| top.loops == node.loops)
+            .flat_map(|top| top.slots.iter())
+            .filter_map(|slot| match slot {
+                Slot::Line(line) => Some(line.momentum.clone()),
+                _ => None,
+            })
+            .collect();
+        for momentum in &lines {
+            let negated: Vec<i64> = momentum.iter().map(|c| -c).collect();
+            assert!(
+                top_lines.contains(*momentum) || top_lines.contains(&negated),
+                "{name}: line {momentum:?} is no top momentum"
+            );
+        }
+        let again = present_node(node, top_presentations, presentation.id, context()).unwrap();
+        assert_eq!(again.presentation.unwrap().slots, presentation.slots);
+        rebased.push(forcer_name(&node.key));
+    }
+    assert_eq!(rebased, ["bebe"]);
 }
 
 #[test]
