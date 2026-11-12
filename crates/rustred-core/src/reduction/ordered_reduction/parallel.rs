@@ -979,6 +979,14 @@ thread_local! {
         std::cell::RefCell::new((u64::MAX, HashMap::with_hasher(super::FrontierHash::Fx)));
 }
 
+/// `RUSTRED_ORDERED_CROSS_PHASE=on|off` (fwd-opt; default on): speculate
+/// the first window of the next phase while the last window of a phase
+/// merges (pipelined source, lean prestaging).
+fn cross_phase_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_CROSS_PHASE").unwrap_or(true))
+}
+
 /// `RUSTRED_ORDERED_PIPELINED_LIGHT=on|off` (fwd-opt; default on): light
 /// steps on the workers of the pipelined source (lean prestaging only).
 fn pipelined_light_enabled() -> bool {
@@ -1431,8 +1439,17 @@ where
                     }),
             );
         }
+        let mut phase = phase;
         if candidates.is_empty() {
-            return;
+            // fwd-opt: the phase ends with this window; speculate the first
+            // window of the next phase (lean prestaging only).
+            match self.next_phase_candidates(frontier, phase) {
+                Some((next, next_candidates)) => {
+                    phase = next;
+                    candidates = next_candidates;
+                }
+                None => return,
+            }
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         let (workers, stepper, window_keys) = (self.workers, self.stepper, self.window_keys);
@@ -1444,6 +1461,62 @@ where
             let _ = sender.send(computed);
         });
         self.ahead = Some((phase, receiver));
+    }
+
+    /// fwd-opt: when the current window ends its phase, the candidates of the
+    /// first window of the next phase: the greatest pending keys of the next
+    /// phase with pending keys and the children of that phase of the window's
+    /// steps (not merged yet; nonzero only). Every key of that phase is one
+    /// of those, so its first popped key is among them. Lean prestaging only
+    /// (`RUSTRED_ORDERED_CROSS_PHASE=off` disables).
+    fn next_phase_candidates<W>(
+        &self,
+        frontier: &Frontier<S::Key, S::Priority, W>,
+        phase: usize,
+    ) -> Option<(usize, Vec<Candidate<S>>)> {
+        let lean = self.prep.children && self.prep.hollow && self.prep.intern.is_some();
+        if !lean || !cross_phase_enabled() {
+            return None;
+        }
+        let mut children: Vec<Candidate<S>> = Vec::new();
+        let mut least: Option<usize> = None;
+        for (_, _, prestaged) in self.steps.values() {
+            let Some(prestaged) = prestaged else {
+                continue;
+            };
+            for (child, &(_, zero)) in prestaged.children.iter().zip(&prestaged.ids) {
+                if zero {
+                    continue;
+                }
+                if let (Some(key), Some(position)) = (&child.key, &child.position)
+                    && position.phase > phase
+                    && least.is_none_or(|least| position.phase <= least)
+                {
+                    if least != Some(position.phase) {
+                        children.clear();
+                        least = Some(position.phase);
+                    }
+                    children.push((key.clone(), position.clone()));
+                }
+            }
+        }
+        let pending = frontier.next_phase_top(phase, self.window_keys);
+        let next = match (&pending, least) {
+            (Some((q, _)), Some(c)) => (*q).min(c),
+            (Some((q, _)), None) => *q,
+            (None, Some(c)) => c,
+            (None, None) => return None,
+        };
+        let mut candidates = children;
+        if least != Some(next) {
+            candidates.clear();
+        }
+        if let Some((q, keys)) = pending
+            && q == next
+        {
+            candidates.extend(keys);
+        }
+        (!candidates.is_empty()).then_some((next, candidates))
     }
 
     /// Ensure that the step of `node` is computed.

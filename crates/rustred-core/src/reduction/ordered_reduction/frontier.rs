@@ -932,6 +932,82 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
         matches!(self, Self::Packed(p) if matches!(p.hasher, FrontierHash::Fx))
     }
 
+    /// fwd-opt: the first phase after `after` with pending keys and its
+    /// greatest `n` pending keys with their positions (in no particular
+    /// order; ties and order are left to the caller's sort).
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn next_phase_top(
+        &self,
+        after: usize,
+        n: usize,
+    ) -> Option<(usize, Vec<(K, OrderedPosition<P>)>)> {
+        if n == 0 {
+            return None;
+        }
+        let p = match self {
+            Self::Classic(_) => {
+                let mut phase = None;
+                let mut out = Vec::new();
+                for (scheduled, _) in self.iter() {
+                    let q = scheduled.phase.0;
+                    if q <= after {
+                        continue;
+                    }
+                    match phase {
+                        None => phase = Some(q),
+                        Some(p) if p != q => break,
+                        Some(_) => {}
+                    }
+                    out.push((
+                        scheduled.key.clone(),
+                        OrderedPosition {
+                            phase: q,
+                            priority: scheduled.priority.clone(),
+                        },
+                    ));
+                    if out.len() == n {
+                        break;
+                    }
+                }
+                return phase.map(|phase| (phase, out));
+            }
+            Self::Packed(p) => p,
+        };
+        for q in after + 1..p.buckets.len() {
+            let mut ids: Vec<u32> = p.buckets[q]
+                .ids
+                .iter()
+                .copied()
+                .filter(|&id| p.slot(id).weight.is_some())
+                .collect();
+            if ids.is_empty() {
+                continue;
+            }
+            if ids.len() > n {
+                let (slots, priorities) = (&p.slots, &p.priorities);
+                ids.select_nth_unstable_by(n - 1, |&a, &b| {
+                    Packed::<K, P, W>::cmp_ids(slots, priorities, b, a)
+                });
+                ids.truncate(n);
+            }
+            let out = ids
+                .into_iter()
+                .map(|id| {
+                    let slot = p.slot(id);
+                    (
+                        K::unpack(&slot.key),
+                        OrderedPosition {
+                            phase: q,
+                            priority: p.priorities.get(slot.priority).clone(),
+                        },
+                    )
+                })
+                .collect();
+            return Some((q, out));
+        }
+        None
+    }
+
     /// rr-par2: the first `n` pending keys of `phase` below `threshold`, in pop
     /// order, with their positions: what
     /// `iter().take_while(phase).skip_while(>= threshold).take(n)` yields, without
