@@ -99,6 +99,24 @@ fn inverse(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, Unknown> {
     Ok(a.into_iter().map(|row| row[n..].to_vec()).collect())
 }
 
+/// Integer k with `value == k (4-d)/2` (checked exactly at d = 0, 2, 4 over Q).
+fn eps_multiple(value: &str, n: usize) -> Result<i64, Unknown> {
+    let e = super::expr::Expr::parse(value, n)
+        .map_err(|e| format!("power shift {value}: {e}"))?;
+    let at = |d: i128| -> Result<u64, Unknown> {
+        e.at_point(super::arith::P, &vec![0; n], Q::int(d))
+    };
+    let p = super::arith::P;
+    let (v0, v2, v4) = (at(0)?, at(2)?, at(4)?);
+    let k = (-64i64..=64)
+        .find(|&k| arith::from_i128(p, k as i128) == v2)
+        .ok_or_else(|| format!("power shift {value} is not a small integer multiple of (4-d)/2"))?;
+    if v0 != arith::from_i128(p, 2 * k as i128) || v4 != 0 || k == 0 {
+        return Err(format!("power shift {value} is not an integer multiple of (4-d)/2"));
+    }
+    Ok(k)
+}
+
 /// Text inside the first balanced `name(` ... `)` occurrence.
 fn call_args(src: &str, name: &str) -> Option<String> {
     let start = src.find(&format!("{name}("))? + name.len() + 1;
@@ -164,12 +182,15 @@ impl Family {
                 .split_once(',')
                 .map(|x| x.1.to_string())
                 .unwrap_or_default();
-            if value != "0" && !value.is_empty() {
-                // (4-d)/2 multiples: only the plain one-sided families are supported by this port
-                return Err("power shifts (eps axes) are not supported by the replay port".into());
-            }
+            // p5l-close: two-sided (eps) families. A power shift must be an integer multiple k of
+            // eps = (4-d)/2; the line's exponent is then a_i + k eps (checked at d = 0, 2, 4).
+            let k = if value == "0" || value.is_empty() {
+                0
+            } else {
+                eps_multiple(&value, n)?
+            };
             if j >= 1 && j <= n {
-                kshift[j - 1] = 0;
+                kshift[j - 1] = k;
             }
             r = &r[at + 13..];
         }
@@ -279,7 +300,21 @@ impl Family {
         p: u64,
     ) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
         let n = self.n;
-        let ai: Vec<u64> = (0..n).map(|i| arith::from_i128(p, a[i] as i128)).collect();
+        // eps = (4-d)/2 mod p; exponent of line i = a_i + kshift_i eps
+        let eps = arith::mul(
+            p,
+            arith::sub(p, 4 % p, d % p),
+            arith::inv(p, 2).ok_or("p = 2")?,
+        );
+        let ai: Vec<u64> = (0..n)
+            .map(|i| {
+                arith::add(
+                    p,
+                    arith::from_i128(p, a[i] as i128),
+                    arith::mul(p, arith::from_i128(p, self.kshift[i] as i128), eps),
+                )
+            })
+            .collect();
         let mut out = Vec::with_capacity(self.ops.len());
         for (diag, tab) in &self.ops {
             let mut r: BTreeMap<Vec<i64>, u64> = BTreeMap::new();
@@ -339,12 +374,24 @@ impl Family {
             }
             let mut up = vec![0i64; n];
             up[i] = 1;
+            // exponent a_i + k eps = y_i + 2k - (k/2) d
+            let k = self.kshift[i];
+            let half = Q::new(-(k as i128), 2)?;
+            let twok = Q::int(2 * k as i128);
             if !t0.is_zero() {
                 bump(up.clone(), i + 1, t0.neg())?;
+                if k != 0 {
+                    bump(up.clone(), 0, t0.neg().mul(twok)?)?;
+                    bump(up.clone(), n + 1, t0.neg().mul(half)?)?;
+                }
             }
             for (m, x) in tm {
                 up[*m] -= 1;
                 bump(up.clone(), i + 1, x.neg())?;
+                if k != 0 {
+                    bump(up.clone(), 0, x.neg().mul(twok)?)?;
+                    bump(up.clone(), n + 1, x.neg().mul(half)?)?;
+                }
                 up[*m] += 1;
             }
         }
