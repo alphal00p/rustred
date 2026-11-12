@@ -521,6 +521,14 @@ impl<'s, K: ConcurrentStepCacheKernel + 's> OrderedStepper for CachedStepper<'s,
     fn later_phase(&self, parent: &K::Key, child: &K::Key) -> bool {
         self.inner.later_phase(parent, child)
     }
+
+    fn warm_count(&self) -> usize {
+        self.inner.warm_count()
+    }
+
+    fn warm(&self, index: usize) {
+        self.inner.warm(index);
+    }
 }
 
 /// rr-par: [`CachedStepper`] over the adapter's detached stepper, so that the
@@ -611,6 +619,14 @@ impl<'c, K: ConcurrentStepCacheKernel> OrderedStepper for DetachedCachedStepper<
 
     fn later_phase(&self, parent: &K::Key, child: &K::Key) -> bool {
         self.inner.later_phase(parent, child)
+    }
+
+    fn warm_count(&self) -> usize {
+        self.inner.warm_count()
+    }
+
+    fn warm(&self, index: usize) {
+        self.inner.warm(index);
     }
 }
 

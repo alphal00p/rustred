@@ -299,6 +299,19 @@ pub(crate) trait OrderedStepper: Sync {
     fn light_value(&self, _handle: u64) -> Option<Coefficient> {
         None
     }
+
+    /// fwd-opt: the number of one-time setup tasks the steps of this request
+    /// will (probably) need (compiled routes, owner programs, orbit groups),
+    /// which the pipelined source runs ahead of time on idle workers.
+    fn warm_count(&self) -> usize {
+        0
+    }
+
+    /// fwd-opt: run setup task `index` (`< warm_count()`). Setup is a pure,
+    /// once-per-process function of the read-only state (the steps that need
+    /// it compute the very same value when they come first), so running it
+    /// ahead of time changes no step.
+    fn warm(&self, _index: usize) {}
 }
 
 /// An adapter whose steps can be computed by worker threads.
@@ -987,6 +1000,55 @@ fn cross_phase_enabled() -> bool {
     *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_CROSS_PHASE").unwrap_or(true))
 }
 
+/// `RUSTRED_ORDERED_WARM=on|off` (fwd-opt; default on): the pipelined
+/// source runs the stepper's one-time setup tasks ([`OrderedStepper::warm`])
+/// ahead of time on a quarter of the workers.
+fn warm_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_WARM").unwrap_or(true))
+}
+
+/// fwd-opt: start the setup tasks of `stepper` on `threads / 4` (at least
+/// one) workers, in the stepper's order, until all ran or `stop` is set. A
+/// step that needs a setup a task is running waits for it, as it would for
+/// another step computing it; the values are the same either way.
+fn warm_ahead<'scope, S: OrderedStepper>(
+    scope: &rayon::Scope<'scope>,
+    workers: &'scope Workers,
+    stepper: &'scope S,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let count = stepper.warm_count();
+    if count == 0 || !warm_enabled() {
+        return;
+    }
+    let next = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let tasks = (workers.pool.current_num_threads() / 4).clamp(1, count);
+    for _ in 0..tasks {
+        let (next, stop) = (std::sync::Arc::clone(&next), std::sync::Arc::clone(stop));
+        scope.spawn(move |_| {
+            workers.budget.run_captured(|| {
+                while !stop.load(Ordering::Relaxed) {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    if index >= count {
+                        break;
+                    }
+                    stepper.warm(index);
+                }
+            });
+        });
+    }
+}
+
+impl<S: OrderedStepper> Drop for Pipelined<'_, '_, S>
+where
+    S::Key: super::FrontierKey,
+{
+    fn drop(&mut self) {
+        self.warm_stop.store(true, Ordering::Relaxed);
+    }
+}
+
 /// `RUSTRED_ORDERED_PIPELINED_LIGHT=on|off` (fwd-opt; default on): light
 /// steps on the workers of the pipelined source (lean prestaging only).
 fn pipelined_light_enabled() -> bool {
@@ -1359,6 +1421,9 @@ where
     window_keys: usize,
     /// rr-par2: pre-staging requested (`TailOptions::prestage`).
     prestage: bool,
+    /// fwd-opt: tells the setup tasks ([`OrderedStepper::warm`]) to stop
+    /// when the source is dropped (the end of the forward pass).
+    warm_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     steps: HashMap<S::Key, StepEntry<S>, super::FrontierHash>,
     /// The hashes of the step returned last.
     hashes: Option<Vec<u64>>,
@@ -1383,12 +1448,15 @@ where
         window_keys: usize,
         prestage: bool,
     ) -> Self {
+        let warm_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        warm_ahead(scope, workers, stepper, &warm_stop);
         Self {
             scope,
             workers,
             stepper,
             window_keys,
             prestage,
+            warm_stop,
             steps: HashMap::with_hasher(super::FrontierHash::Fx),
             hashes: None,
             prep: Prep {

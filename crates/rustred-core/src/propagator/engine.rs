@@ -297,6 +297,33 @@ struct OwnerSlot {
     rank: u32,
 }
 
+/// fwd-opt: one once-per-process setup of the engine or the library that the
+/// steps of a request will need ([`PEngine::warm_tasks`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum WarmTask {
+    /// The owner's lane program ([`POwner::program`]).
+    Program(OwnerClassId),
+    /// The automorphisms of the owner's sector.
+    OwnerOrbit(OwnerClassId),
+    /// The compiled route of a routed sector (and its automorphisms when
+    /// Route keys are canonicalised).
+    Route(PresentationId, u64),
+    /// The automorphisms of a presentation's whole line set.
+    PresentationOrbit(PresentationId),
+}
+
+/// `RUSTRED_P_WARM_MAX=n` (fwd-opt): at most `n` setup tasks per request
+/// (default 4096; the most lines first).
+fn warm_max() -> usize {
+    static MAX: OnceLock<usize> = OnceLock::new();
+    *MAX.get_or_init(|| {
+        std::env::var("RUSTRED_P_WARM_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4096)
+    })
+}
+
 /// Where a Route key goes.
 enum Sector<'e> {
     Zero,
@@ -677,6 +704,75 @@ impl PEngine {
         Ok(initial)
     }
 
+    /// fwd-opt: the setup tasks a request on `inputs` may need, the most
+    /// lines first: the owners and routed sectors of the presentations
+    /// reachable from the inputs' presentations through the census routes
+    /// (an over-approximation; a task no step needs only costs time on an
+    /// otherwise idle worker), with orbit tasks only when keys are
+    /// canonicalised.
+    pub(crate) fn warm_tasks(
+        &self,
+        inputs: impl Iterator<Item = PresentationId>,
+        canonical: bool,
+        canonical_routes: bool,
+    ) -> Vec<WarmTask> {
+        let mut reached: std::collections::BTreeSet<PresentationId> = inputs.collect();
+        loop {
+            let before = reached.len();
+            for (&(presentation, _), fate) in &self.fates {
+                if let Some(at) = fate
+                    && reached.contains(&presentation)
+                    && let Some((class, _)) = self.routed.get(*at as usize)
+                    && let Ok(slot) = self.owner(*class)
+                {
+                    reached.insert(slot.presentation);
+                }
+            }
+            if reached.len() == before {
+                break;
+            }
+        }
+        let mut tasks: Vec<(usize, WarmTask)> = Vec::new();
+        for (&(presentation, _), &class) in &self.owner_sectors {
+            if !reached.contains(&presentation) {
+                continue;
+            }
+            let Ok(slot) = self.owner(class) else {
+                continue;
+            };
+            tasks.push((slot.t, WarmTask::Program(class)));
+            if canonical {
+                tasks.push((slot.t, WarmTask::OwnerOrbit(class)));
+            }
+        }
+        for (&(presentation, support), fate) in &self.fates {
+            if fate.is_some()
+                && reached.contains(&presentation)
+                && let Ok(shape) = self.shape(presentation)
+            {
+                tasks.push((
+                    shape.line_count(support),
+                    WarmTask::Route(presentation, support),
+                ));
+            }
+        }
+        if canonical_routes {
+            for &presentation in &reached {
+                if let Ok(shape) = self.shape(presentation) {
+                    tasks.push((
+                        shape.line_count(shape.lines),
+                        WarmTask::PresentationOrbit(presentation),
+                    ));
+                }
+            }
+        }
+        // The most lines first (the order the phases need them), then a fixed
+        // order (hash-map iteration order is not one).
+        tasks.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        tasks.truncate(warm_max());
+        tasks.into_iter().map(|(_, task)| task).collect()
+    }
+
     /// Run one request; the terminal keys of the output are [`PTerminalCodec`]
     /// keys.
     #[allow(clippy::too_many_arguments)]
@@ -706,6 +802,23 @@ impl PEngine {
         // be attached or reopened across modes.
         let zero_pruning =
             super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
+        let canonical = library.orbit_canonicalization();
+        let canonical_routes = canonical && library.route_canonicalization();
+        // fwd-opt: setup tasks for the workers of a multi-thread request.
+        let warm: Vec<WarmTask> = if scheduler.threads > 1 {
+            self.warm_tasks(
+                initial.keys().filter_map(|key| match key {
+                    PKey::Route { presentation, .. } => Some(*presentation),
+                    PKey::Apply { class, .. } => {
+                        self.owner(*class).ok().map(|slot| slot.presentation)
+                    }
+                }),
+                canonical,
+                canonical_routes,
+            )
+        } else {
+            Vec::new()
+        };
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -717,6 +830,7 @@ impl PEngine {
                     && library.route_canonicalization(),
                 prefer_high: library.orbit_prefer_high(),
                 zero_pruning: zero_pruning.as_ref(),
+                warm: &warm,
             },
             inspector,
         };
@@ -1347,6 +1461,8 @@ pub(crate) struct PStepper<'l> {
     /// None keeps the historical path byte-for-byte; the opt-in counter is
     /// request-local and shared only by that request's detached steppers.
     zero_pruning: Option<&'l ZeroPruningCounters>,
+    /// fwd-opt: the request's setup tasks ([`OrderedStepper::warm`]).
+    warm: &'l [WarmTask],
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -2223,6 +2339,41 @@ impl<'l> PStepper<'l> {
             .map_err(Clone::clone)
     }
 
+    /// fwd-opt: the compiled route of sector `support` of `presentation` (as
+    /// [`Self::route_step`] compiles it) and, with Route keys canonicalised,
+    /// its automorphisms (as [`Self::canonical_route`] finds them).
+    fn warm_route(&self, presentation: PresentationId, support: u64) {
+        let engine = self.engine;
+        let Ok(Sector::Routed { class, map }) = engine.sector(self.library, presentation, support)
+        else {
+            return;
+        };
+        let Ok(owner) = engine.owner(class) else {
+            return;
+        };
+        if let Some(route) = engine.routes.get(&(presentation, support)) {
+            let source = self.library.presentation(presentation);
+            let target = self.library.presentation(owner.presentation);
+            let _ = route.get_or_init(|| {
+                crate::prof!(RouteCompile);
+                restored_route(self.library, source, target, map, support, owner.support)
+                    .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
+            });
+        }
+        if self.canonical_routes
+            && let Ok(shape) = engine.shape(presentation)
+        {
+            // A key of the sector: its lines at power 1 (`canonical_route`
+            // reads only the support of the key to find the cell).
+            let powers: Vec<i64> = (0..shape.arity)
+                .map(|slot| i64::from((support >> slot) & 1 == 1))
+                .collect();
+            if shape.support(&powers) == support {
+                let _ = self.canonical_route(presentation, &powers);
+            }
+        }
+    }
+
     /// The least exact image of `powers` other than itself, in the owner's
     /// order and then by powers, with its sign; `None` when the key is its own
     /// representative. Images the owner cannot order, or off its support, are
@@ -2613,6 +2764,32 @@ impl OrderedStepper for PStepper<'_> {
             super::step_memo::shared_value(index)
         };
         value.map(|value| if negative { -value } else { value })
+    }
+
+    fn warm_count(&self) -> usize {
+        self.warm.len()
+    }
+
+    fn warm(&self, index: usize) {
+        // Errors are kept in the cells, exactly as a step would keep them,
+        // and surface only in a step that needs the cell.
+        match self.warm.get(index) {
+            Some(&WarmTask::Program(class)) => {
+                if let Ok(owner) = self.owner(class) {
+                    let _ = owner.program(self.library);
+                }
+            }
+            Some(&WarmTask::OwnerOrbit(class)) => {
+                let _ = self.orbit(class);
+            }
+            Some(&WarmTask::Route(presentation, support)) => {
+                self.warm_route(presentation, support);
+            }
+            Some(&WarmTask::PresentationOrbit(presentation)) => {
+                let _ = self.presentation_orbit(presentation);
+            }
+            None => {}
+        }
     }
 }
 
@@ -3072,6 +3249,7 @@ mod tests {
             canonical_routes: true,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -3146,6 +3324,7 @@ mod tests {
             canonical_routes: true,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -3173,6 +3352,7 @@ mod tests {
             canonical_routes: false,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         let on = PStepper {
             zero_pruning: Some(&counters),
@@ -3243,6 +3423,7 @@ mod tests {
             canonical_routes: false,
             prefer_high: false,
             zero_pruning: Some(&counters),
+            warm: &[],
         };
         let tag = GammaTag::one();
         let one = library.coefficient_context().one();
