@@ -1374,3 +1374,125 @@ fn edge_pair_isps_present_eps_nodes() {
     }
     assert!(checked > 0);
 }
+
+/// Explicit-row ISPs (route-basis-2): every generic-lane node (Insertion,
+/// SeriesParallel, Triangle, Carpet) of 3L and 4L, given its own default ISP
+/// forms as explicit rows in REVERSED order, gets exactly those ISPs in that
+/// order, keeps its line rows and its lane contract; the eps nodes given the
+/// edge-pair momenta as explicit rows get the presentation of the pair
+/// preference; a row with `q` in both factors is refused before completion.
+#[test]
+fn explicit_row_isps_present_generic_lanes() {
+    let mut generic = 0;
+    let mut eps = 0;
+    for loops in [3, 4] {
+        let built = lanes(loops);
+        for (node, decision) in built.dag.nodes.iter().zip(&built.decisions) {
+            let Some(default) = built.presentation(node.index) else {
+                continue;
+            };
+            let lines = default
+                .slots
+                .iter()
+                .filter(|s| matches!(s, Slot::Line(_)))
+                .count();
+            if lines == default.slots.len() {
+                continue;
+            }
+            let isp_rows = |p: &Presentation| -> Vec<[Vec<i64>; 2]> {
+                p.slots[lines..]
+                    .iter()
+                    .map(|slot| {
+                        let Slot::Isp(SlotIsp { left, right }) = slot else {
+                            panic!("ISP expected")
+                        };
+                        [left.clone(), right.clone()]
+                    })
+                    .collect()
+            };
+            let present_rows = |rows: Vec<[Vec<i64>; 2]>| {
+                present_with_isp_preference(
+                    node,
+                    decision,
+                    &tops().1,
+                    default.id,
+                    context(),
+                    Some(&IspPreference::Rows {
+                        rows,
+                        pairs: Vec::new(),
+                        units: Vec::new(),
+                    }),
+                )
+            };
+            match default.kind {
+                PresentationKind::InsertionAdapted
+                | PresentationKind::TriangleAdapted
+                | PresentationKind::CarpetAdapted => {
+                    let mut reversed = isp_rows(default);
+                    reversed.reverse();
+                    let given = present_rows(reversed.clone()).unwrap();
+                    given.validate().unwrap();
+                    check_contract(&given, decision);
+                    assert_eq!(given.slots[..lines], default.slots[..lines]);
+                    assert_eq!(isp_rows(&given), reversed);
+                    generic += 1;
+                }
+                PresentationKind::EpsNode => {
+                    let width = usize::from(node.loops) + 1;
+                    let momentum = |i: i64| -> Vec<i64> {
+                        if i < 0 {
+                            let mut q = vec![0; width];
+                            q[width - 1] = 1;
+                            q
+                        } else {
+                            let Slot::Line(line) = &default.slots[i as usize] else {
+                                unreachable!()
+                            };
+                            line.momentum.clone()
+                        }
+                    };
+                    let mut pairs = Vec::new();
+                    for a in 0..lines as i64 {
+                        for b in (a + 1)..lines as i64 {
+                            pairs.push([a, b]);
+                        }
+                        pairs.push([a, -1]);
+                    }
+                    // the massless filter of explicit rows: drop q-q products
+                    pairs.retain(|&[a, b]| momentum(a)[width - 1] == 0 || momentum(b)[width - 1] == 0);
+                    let by_pairs = present_with_isp_preference(
+                        node,
+                        decision,
+                        &tops().1,
+                        default.id,
+                        context(),
+                        Some(&IspPreference::Pairs {
+                            pairs: pairs.clone(),
+                            units: Vec::new(),
+                        }),
+                    )
+                    .unwrap();
+                    let rows = pairs.iter().map(|&[a, b]| [momentum(a), momentum(b)]);
+                    let by_rows = present_rows(rows.collect()).unwrap();
+                    assert_eq!(by_rows.slots, by_pairs.slots);
+                    eps += 1;
+                }
+                _ => {}
+            }
+            if generic + eps == 1 {
+                let width = usize::from(node.loops) + 1;
+                let mut kq = vec![0; width];
+                kq[0] = 1;
+                kq[width - 1] = -1;
+                let mut q = vec![0; width];
+                q[width - 1] = 1;
+                assert!(matches!(
+                    present_rows(vec![[kq, q]]),
+                    Err(PError::Generation(_))
+                ));
+            }
+        }
+    }
+    assert!(generic > 20, "{generic} generic nodes");
+    assert!(eps > 0);
+}
