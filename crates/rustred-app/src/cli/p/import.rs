@@ -299,18 +299,22 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "terminals": check.terminals,
         },
         "import_seconds": import_seconds,
-        "coef_form": if arguments.factored { "factored" } else { "expanded" },
-        "coef_form_seconds": coef_form_seconds,
-        "expanded_payload_bytes": expanded_payload_bytes,
         "verify_seconds": verify_seconds,
         "versions": {
             "P_TABLE_IMPORT_VERSION": P_TABLE_IMPORT_VERSION,
             "P_CUSTOM_OWNER_VERSION": P_CUSTOM_OWNER_VERSION,
             "P_OWNER_LIBRARY_SEMANTICS": P_OWNER_LIBRARY_SEMANTICS,
-            "FACTORED_TABLE_VERSION": arguments.factored.then_some(FACTORED_TABLE_VERSION),
         },
     });
     record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
+    if arguments.factored {
+        record["coef_form"] = serde_json::json!({
+            "form": "factored",
+            "FACTORED_TABLE_VERSION": FACTORED_TABLE_VERSION,
+            "seconds": coef_form_seconds,
+            "expanded_payload_bytes": expanded_payload_bytes,
+        });
+    }
     record["census_family"] = serde_json::json!(
         arguments
             .census_family

@@ -7,7 +7,8 @@
 //! factor dictionary index), parses every RHS coefficient over (d, n0..n{k-1})
 //! with Symbolica, factors numerator and denominator into irreducibles
 //! (`Factorize::factor`; a polynomial above `COEF_FORM_FACTOR_CAP` terms,
-//! default `FACTOR_TERM_CAP` = 4000, is kept whole) and reports, as one JSON
+//! default `FACTOR_TERM_CAP` = 4000, is kept whole; so is one whose
+//! factorisation exceeds `COEF_FORM_FACTOR_TIMEOUT` s, default 60) and reports, as one JSON
 //! line appended to `report.jsonl`:
 //!
 //! - bytes: the table as given, the same table with factored coefficient text
@@ -55,6 +56,9 @@ type Poly = CoefficientPolynomial;
 
 /// Version tag of the factored coefficient text written by `--write`.
 const TABLE_COEF_FORM: &str = "factored-text.v1";
+/// Abandoned (timed-out) factorisation workers after which no further
+/// factorisation is attempted in this run.
+const MAX_ABANDONED: usize = 16;
 
 // ---------- byte helpers (compact binary, as coef_form_probe) ----------
 
@@ -241,6 +245,9 @@ struct State {
     max_factor_s: f64,
     distinct_coefs: u64,
     distinct_terms: u64,
+    timeout: std::time::Duration,
+    timeouts: u64,
+    abandoned: usize,
 }
 
 impl State {
@@ -301,10 +308,63 @@ impl State {
             };
         }
         let t = Instant::now();
+        // Symbolica's multivariate factorisation is pathologically slow on a
+        // few polynomials (T064: > 25 min on one call): each call runs in a
+        // worker thread with a time budget; past it the polynomial is kept
+        // whole (counted in full) and the worker is abandoned. After
+        // `MAX_ABANDONED` abandoned workers no further call is attempted.
+        if self.abandoned >= MAX_ABANDONED {
+            self.whole_polys += 1;
+            self.timeouts += 1;
+            return Part {
+                content: Integer::one(),
+                factors: vec![(self.entry(p, true), 1)],
+            };
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (tid_tx, tid_rx) = std::sync::mpsc::channel();
+        let q = p.clone();
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let tid = std::fs::read_link("/proc/thread-self")
+                    .ok()
+                    .and_then(|l| l.file_name().map(|n| n.to_string_lossy().to_string()));
+                let _ = tid_tx.send(tid);
+                let _ = tx.send(q.factor());
+            })
+            .expect("factor worker");
+        let factored = match rx.recv_timeout(self.timeout) {
+            Ok(f) => f,
+            Err(_) => {
+                // the abandoned worker keeps running until the process ends:
+                // lowest priority, so it no longer competes with this run
+                if let Ok(Some(tid)) = tid_rx.recv() {
+                    let _ = Command::new("renice")
+                        .args(["-n", "19", "-p", &tid])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+                self.abandoned += 1;
+                self.timeouts += 1;
+                self.whole_polys += 1;
+                self.factor_s += t.elapsed().as_secs_f64();
+                eprintln!(
+                    "factor timeout ({} terms) after {:.0} s: kept whole",
+                    p.nterms(),
+                    t.elapsed().as_secs_f64()
+                );
+                return Part {
+                    content: Integer::one(),
+                    factors: vec![(self.entry(p, true), 1)],
+                };
+            }
+        };
         let mut content = Integer::one();
         let mut fs = Vec::new();
         let mut check = p.one();
-        for (f, e) in p.factor() {
+        for (f, e) in factored {
             check = check * &f.pow(e);
             if f.is_constant() {
                 for _ in 0..e {
@@ -557,6 +617,13 @@ fn main() {
                 max_factor_s: 0.0,
                 distinct_coefs: 0,
                 distinct_terms: 0,
+                timeout: std::time::Duration::from_secs_f64(
+                    std::env::var("COEF_FORM_FACTOR_TIMEOUT")
+                        .ok()
+                        .map_or(60.0, |s| s.parse().unwrap()),
+                ),
+                timeouts: 0,
+                abandoned: 0,
             });
             let tag = b"{\"type\":\"header\",";
             let mut out = Vec::with_capacity(line.len() + 40);
@@ -685,6 +752,7 @@ fn main() {
         "whole_entries": s.dict.iter().filter(|e| e.whole).count(),
         "whole_terms": s.dict.iter().filter(|e| e.whole).map(|e| e.terms).sum::<u64>(),
         "factored_polys": s.factored_polys, "whole_polys": s.whole_polys,
+        "factor_timeouts": s.timeouts, "factor_timeout_s": s.timeout.as_secs_f64(),
         "sizes": sizes, "rules_over_1M": largest,
         "parse_s": s.parse_s, "factor_and_multiply_back_s": s.factor_s, "max_poly_factor_s": s.max_factor_s,
         "factored_text_s": write_s, "text_check_s": check_s, "written": write,
