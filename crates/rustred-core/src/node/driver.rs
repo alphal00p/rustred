@@ -217,8 +217,13 @@ fn seed_pose_keep_default() -> f64 {
     5_000.0
 }
 
+/// seed-rung 2026-11-12: default trigger 5e3 (was 5e4) = the regen-flagged queue's recipe value. [M] 5e3 is the only
+/// trigger with node-level closure evidence (T205 R1 order: complete, largest 26k, where 1e6 never fires and the node
+/// keeps its open region; T267/T241 shipped order, T161/T273 queue attempts complete); its probe overhead is 1.05x
+/// (T266 pieces) to 1.7x (T205) of the rung-off wall, 40-61 % of the wall in probes on dotted-corner nodes. 1e6
+/// (T266 registry pieces: 2.06x faster) stays an explicit `--seed-pose-trigger` for time-bound piece waves.
 fn seed_pose_trigger_default() -> Option<f64> {
-    Some(50_000.0)
+    Some(5_000.0)
 }
 
 fn seed_pose_min_rows_default() -> usize {
