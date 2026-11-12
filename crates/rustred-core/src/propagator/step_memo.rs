@@ -570,6 +570,11 @@ thread_local! {
     static SINGLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// fwd-opt: whether this thread runs a one-thread request ([`begin`]).
+pub(crate) fn single_thread() -> bool {
+    SINGLE.with(std::cell::Cell::get)
+}
+
 fn shared_requested() -> bool {
     static SHARED: OnceLock<bool> = OnceLock::new();
     *SHARED.get_or_init(|| {

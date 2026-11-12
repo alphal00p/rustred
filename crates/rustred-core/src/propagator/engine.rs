@@ -872,17 +872,28 @@ mod canon_cache {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
     }
 
+    /// The cache size of this thread: `RUSTRED_P_CANON_CACHE` when set;
+    /// unset, 2^13 entries on the thread of a one-thread request and none on
+    /// the workers of a multi-thread request (measured at 16 threads on NO3
+    /// L4_d2_r8, batch 5: no instruction saved, +60 MB of caches; a worker
+    /// sees about 1/16 of the keys).
     pub(super) fn bits() -> Option<u32> {
-        static BITS: OnceLock<Option<u32>> = OnceLock::new();
-        *BITS.get_or_init(|| match std::env::var("RUSTRED_P_CANON_CACHE").as_deref() {
-            Ok("0" | "off" | "false") => None,
-            Ok(value) => value
-                .parse::<u32>()
-                .ok()
-                .filter(|b| (4..=24).contains(b))
-                .or(Some(13)),
-            Err(_) => Some(13),
-        })
+        static BITS: OnceLock<Option<Option<u32>>> = OnceLock::new();
+        let set = *BITS.get_or_init(|| match std::env::var("RUSTRED_P_CANON_CACHE").as_deref() {
+            Ok("0" | "off" | "false") => Some(None),
+            Ok(value) => Some(
+                value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|b| (4..=24).contains(b))
+                    .or(Some(13)),
+            ),
+            Err(_) => None,
+        });
+        match set {
+            Some(bits) => bits,
+            None => super::super::step_memo::single_thread().then_some(13),
+        }
     }
 
     #[inline]
