@@ -621,6 +621,36 @@ pub fn p_census(
     dag: Option<&Dag>,
     options: &PCensusOptions,
 ) -> Result<PCensus, PError> {
+    p_census_journaled(presentations, dag, options, &PCensusJournal::default())
+}
+
+/// Incremental checkpoint of the routes stage of [`p_census_journaled`]
+/// (p5l-library session 4: a 15-hour 5L census must survive a stop).
+#[derive(Default)]
+pub struct PCensusJournal<'a> {
+    /// A partial census of an earlier run on the same presentations and
+    /// options. Its sectors are reused when the classes of both runs agree
+    /// and the sector's class is the same; anything else is recomputed. A
+    /// caller should check the final census completely
+    /// ([`PCensus::check_complete_with`]): reused routes were verified only by
+    /// the earlier process.
+    pub resume: Option<&'a PCensus>,
+    /// Called with a partial census (every class, the sectors routed so far)
+    /// at most once per `every`, from a census worker.
+    #[allow(clippy::type_complexity)]
+    pub write: Option<&'a (dyn Fn(&PCensus) -> Result<(), PError> + Sync)>,
+    pub every: std::time::Duration,
+}
+
+/// [`p_census`] with an incremental checkpoint of its routes stage. The census
+/// returned is the same as [`p_census`]'s (a reused sector carries the fate
+/// the earlier run computed for the same class).
+pub fn p_census_journaled(
+    presentations: &[Arc<Presentation>],
+    dag: Option<&Dag>,
+    options: &PCensusOptions,
+    journal: &PCensusJournal<'_>,
+) -> Result<PCensus, PError> {
     let ordered = by_id(presentations)?;
     let threads = options.threads();
     let limits = &options.limits;
@@ -746,7 +776,29 @@ pub fn p_census(
         .iter()
         .map(|(&sector, &class)| (sector, class))
         .collect();
-    let routed = parallel_map_labeled("routes", &sectors, threads, |&((id, support), class)| {
+    let resume = journal.resume.filter(|old| {
+        let same = old.classes == census.classes;
+        if !same {
+            eprintln!("[census] journal: other classes than this run; not reused");
+        }
+        same
+    });
+    let done: std::sync::Mutex<Vec<((PresentationId, u64), PSectorFate)>> = Default::default();
+    let last_write = std::sync::Mutex::new(std::time::Instant::now());
+    let reused = AtomicUsize::new(0);
+    let route_one = |&((id, support), class): &((PresentationId, u64), Option<OwnerClassId>)|
+     -> Result<((PresentationId, u64), PSectorFate), PError> {
+        if let Some(old) = resume.and_then(|old| old.sectors.get(&(id, support))) {
+            let same = match (old, class) {
+                (PSectorFate::Zero, None) => true,
+                (PSectorFate::Owner { class: old, .. }, Some(class)) => *old == class,
+                _ => false,
+            };
+            if same {
+                reused.fetch_add(1, Ordering::Relaxed);
+                return Ok(((id, support), old.clone()));
+            }
+        }
         let Some(class) = class else {
             return Ok(((id, support), PSectorFate::Zero));
         };
@@ -781,7 +833,32 @@ pub fn p_census(
             map = chosen.map;
         }
         Ok(((id, support), PSectorFate::Owner { class, map }))
+    };
+    let routed = parallel_map_labeled("routes", &sectors, threads, |item| {
+        let (sector, fate) = route_one(item)?;
+        if let Some(write) = journal.write {
+            done.lock().unwrap().push((sector, fate.clone()));
+            // One writer at a time; the others go on routing.
+            if let Ok(mut last) = last_write.try_lock()
+                && last.elapsed() >= journal.every
+            {
+                let partial = PCensus {
+                    sectors: done.lock().unwrap().iter().cloned().collect(),
+                    classes: census.classes.clone(),
+                };
+                write(&partial)?;
+                *last = std::time::Instant::now();
+            }
+        }
+        Ok((sector, fate))
     })?;
+    if resume.is_some() {
+        eprintln!(
+            "[census] journal: {} of {} sectors reused",
+            reused.load(Ordering::Relaxed),
+            sectors.len()
+        );
+    }
     census.sectors = routed.into_iter().collect();
     Ok(census)
 }

@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
 use rustred::family::IntegralKey;
-use rustred::propagator::census::{PCensusOptions, PRouteMaps, p_census};
+use rustred::propagator::census::{PCensusOptions, PRouteMaps};
 use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
 use rustred::propagator::diamond::{DiamondError, DiamondTemplate};
@@ -454,7 +454,57 @@ fn assemble(
             super::format::decode_census(&bytes)?
         }
         _ => {
-            let census = p_census(&presentations, Some(&dag), &census_options)?;
+            // p5l-library session 4: with a checkpoint path the routes stage
+            // also writes <path>.journal (a partial census) every
+            // RUSTRED_P_ASSEMBLE_CENSUS_JOURNAL_MIN minutes (default 20) and a
+            // rerun resumes from it; a resumed census is checked completely.
+            let journal_path = checkpoint
+                .as_ref()
+                .map(|path| path.with_extension("journal"));
+            let resume = match &journal_path {
+                Some(path) if path.exists() => {
+                    let bytes = std::fs::read(path).map_err(|error| {
+                        PError::MalformedLibrary(format!("reading {}: {error}", path.display()))
+                    })?;
+                    fresh = false;
+                    Some(super::format::decode_census(&bytes)?)
+                }
+                _ => None,
+            };
+            let write = |partial: &rustred::propagator::census::PCensus| -> Result<(), PError> {
+                let Some(path) = &journal_path else {
+                    return Ok(());
+                };
+                let bytes = super::format::encode_census(partial)?;
+                let tmp = path.with_extension("journal.partial");
+                std::fs::write(&tmp, bytes)
+                    .and_then(|()| std::fs::rename(&tmp, path))
+                    .map_err(|error| {
+                        PError::Generation(format!("writing {}: {error}", path.display()))
+                    })?;
+                eprintln!(
+                    "[census] journal: {} sectors written",
+                    partial.sectors.len()
+                );
+                Ok(())
+            };
+            let minutes = std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_JOURNAL_MIN")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(20);
+            let journal = rustred::propagator::census::PCensusJournal {
+                resume: resume.as_ref(),
+                write: journal_path
+                    .is_some()
+                    .then_some(&write as &(dyn Fn(&_) -> Result<(), PError> + Sync)),
+                every: std::time::Duration::from_secs(60 * minutes),
+            };
+            let census = rustred::propagator::census::p_census_journaled(
+                &presentations,
+                Some(&dag),
+                &census_options,
+                &journal,
+            )?;
             if let Some(path) = &checkpoint {
                 let bytes = super::format::encode_census(&census)?;
                 let partial = path.with_extension("partial");
