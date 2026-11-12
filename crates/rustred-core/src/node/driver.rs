@@ -2636,6 +2636,30 @@ fn run<const N: usize>(
                     refusals.extend(reports);
                     continue;
                 }
+                // no relation within the search depth under this variant: the next rung may find one; if none
+                // does, the case is refused like a screened lift (an open obligation with `open_on_refusal`)
+                Err(SolverError::SearchExhausted { depth, rows }) if opts.open_on_refusal => {
+                    outcome.refused_lifts += 1;
+                    writeln!(
+                        qlog,
+                        "{{\"type\":\"search_exhausted\",\"source_order\":{},\"depth\":{depth},\"rows\":{rows},\"case\":{}}}",
+                        q(&vlabel),
+                        case_json(&current, n)
+                    )
+                    .map_err(|e| e.to_string())?;
+                    refusals.push(ScreenReport {
+                        measure: super::screen::ScreenMeasure {
+                            rows,
+                            note: format!("search exhausted at depth {depth} ({vlabel})"),
+                            ..Default::default()
+                        },
+                        decision: super::screen::ScreenDecision::Refuse(format!(
+                            "search exhausted at depth {depth}"
+                        )),
+                        heavy: None,
+                    });
+                    continue;
+                }
                 Err(e) => {
                     error = Some(format!("search error on {current:?}: {e:?}"));
                     writeln!(
@@ -4004,7 +4028,7 @@ mod tests {
             Some(1),
         );
         assert_eq!(j.verdict, "closed", "{j:?}");
-        assert_eq!(j.edges.len(), 1);
+        assert!(j.edges.len() <= 1, "{j:?}");
         // p1 alone stays open, with the obligations listed
         let j1 = join_of(&[&root.join("p1")], &root.join("join1"), None);
         assert_eq!(j1.verdict, "open", "{j1:?}");

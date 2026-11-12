@@ -1225,18 +1225,7 @@ fn join_impl<const N: usize>(
                 }
                 continue;
             };
-            // (2) containment in the initial case of ANOTHER run: a dependency edge (never a self discharge)
-            if let Some(j) = (0..obls.len()).find(|&j| {
-                j != k
-                    && initials[j]
-                        .iter()
-                        .any(|ic| ic.contains(&case).unwrap_or(false))
-            }) {
-                *edges.entry((k, j)).or_default() += 1;
-                *discharged.entry("run_initial".into()).or_default() += 1;
-                continue;
-            }
-            // (3) valid-domain proof against the joined rules: one rule, or the depth-bounded union argument
+            // (2) one accepted rule covers it (valid domain): no dependency at all
             if refs
                 .iter()
                 .any(|(c, b)| covers(c, b, &case, &ctx.idx, &ctx.sector, limits))
@@ -1244,6 +1233,23 @@ fn join_impl<const N: usize>(
                 *discharged.entry("rule_cover".into()).or_default() += 1;
                 continue;
             }
+            // (3) containment in the initial case of ANOTHER run: a dependency edge (never a self discharge);
+            // preferred owners: complete runs, then runs that do not own the whole chart
+            let mut owners: Vec<usize> = (0..obls.len())
+                .filter(|&j| {
+                    j != k
+                        && initials[j]
+                            .iter()
+                            .any(|ic| ic.contains(&case).unwrap_or(false))
+                })
+                .collect();
+            owners.sort_by_key(|&j| (obls[j].state != "complete", roots.contains(&j), j));
+            if let Some(&j) = owners.first() {
+                *edges.entry((k, j)).or_default() += 1;
+                *discharged.entry("run_initial".into()).or_default() += 1;
+                continue;
+            }
+            // (4) the depth-bounded union argument against the joined rules
             let mut budget = 400usize;
             if union_covered(
                 &case,
