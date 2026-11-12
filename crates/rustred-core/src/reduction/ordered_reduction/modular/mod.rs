@@ -648,6 +648,27 @@ impl SharedIntern {
 
     /// The id of `coefficient` (hash `hash` = [`coefficient_hash`]).
     pub(crate) fn id(&self, coefficient: &Coefficient, hash: u64) -> u32 {
+        self.id_with(coefficient, hash, |_| ()).0
+    }
+
+    /// fwd-opt: [`Self::id`] and the probe values of the value, read under
+    /// the same lock (zero probes when the value fails validation or its
+    /// probe: the recorder reports that error when the sequence reaches the
+    /// id).
+    pub(crate) fn id_probe(&self, coefficient: &Coefficient, hash: u64) -> (u32, Probe) {
+        let zero = [self.probe_field.zero(); PROBES];
+        self.id_with(coefficient, hash, |entry| match &entry.probe {
+            Ok((_, values)) => *values,
+            Err(_) => zero,
+        })
+    }
+
+    fn id_with<R>(
+        &self,
+        coefficient: &Coefficient,
+        hash: u64,
+        read: impl Fn(&InternEntry) -> R,
+    ) -> (u32, R) {
         let shard = Self::shard_of(hash);
         let find = |guard: &InternShard| {
             let entries = &guard.entries;
@@ -658,8 +679,14 @@ impl SharedIntern {
                 })
                 .copied()
         };
-        if let Some(index) = find(&self.lock(shard)) {
-            return (index << INTERN_SHARD_BITS) | shard as u32;
+        {
+            let guard = self.lock(shard);
+            if let Some(index) = find(&guard) {
+                return (
+                    (index << INTERN_SHARD_BITS) | shard as u32,
+                    read(&guard.entries[index as usize]),
+                );
+            }
         }
         // A new value: validate and evaluate outside the lock.
         crate::prof!(InternNew);
@@ -674,20 +701,25 @@ impl SharedIntern {
             });
         let mut guard = self.lock(shard);
         if let Some(index) = find(&guard) {
-            return (index << INTERN_SHARD_BITS) | shard as u32;
+            return (
+                (index << INTERN_SHARD_BITS) | shard as u32,
+                read(&guard.entries[index as usize]),
+            );
         }
         let index = u32::try_from(guard.entries.len())
             .ok()
             .filter(|&index| index < (1 << (32 - INTERN_SHARD_BITS)) - 1)
             .expect("fewer than 2^26 distinct step coefficients per intern shard");
-        guard.entries.push(std::sync::Arc::new(InternEntry {
+        let entry = InternEntry {
             coefficient: coefficient.clone(),
             hash,
             probe,
-        }));
+        };
+        let value = read(&entry);
+        guard.entries.push(std::sync::Arc::new(entry));
         let InternShard { table, entries } = &mut *guard;
         table.insert_unique(hash, index, |&i| entries[i as usize].hash);
-        (index << INTERN_SHARD_BITS) | shard as u32
+        ((index << INTERN_SHARD_BITS) | shard as u32, value)
     }
 
     fn entry(&self, id: u32) -> std::sync::Arc<InternEntry> {
@@ -1289,22 +1321,6 @@ impl ModularWeight {
 
     pub(crate) fn probe_mut(&mut self) -> &mut Probe {
         &mut self.probe
-    }
-}
-
-impl SharedIntern {
-    /// fwd-opt: [`Self::id`] and the probe values of the value (zero
-    /// probes when the value fails validation or its probe: the recorder
-    /// reports that error when the sequence reaches the id).
-    pub(crate) fn id_probe(&self, coefficient: &Coefficient, hash: u64) -> (u32, Probe) {
-        let id = self.id(coefficient, hash);
-        let shard = id as usize & (INTERN_SHARDS - 1);
-        let guard = self.lock(shard);
-        let probe = match &guard.entries[(id >> INTERN_SHARD_BITS) as usize].probe {
-            Ok((_, values)) => *values,
-            Err(_) => [self.probe_field.zero(); PROBES],
-        };
-        (id, probe)
     }
 }
 
