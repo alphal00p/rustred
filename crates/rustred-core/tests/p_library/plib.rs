@@ -552,14 +552,16 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
          P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
          P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1";
+    let mut changed = Vec::new();
     for (on, identity, digest) in [
         (
             false,
             format!("{BASE},P_ADJOINT_TAIL=off"),
             // M5 batch 4: known-zero children are pruned at emission by
             // default (records without them); the identity moved with
-            // P_PRESENTATION_VERSION 3. Before: 5aecae8b...
-            "4f1a19567a6a36fb763233291ee09ba8a5f135c7be69963f3f049d89dbfdfe38",
+            // P_PRESENTATION_VERSION 3. Before: 5aecae8b... M5 batch 5: the
+            // identity moved with P_PRESENTATION_VERSION 4. Before: 4f1a1956...
+            "a164f8e82974504c1506e1dfaa48fbabad1a5286c0ef6ba1e5aff8c514352c97",
         ),
         (
             true,
@@ -589,19 +591,25 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         run.step_cache = Some(Arc::clone(&cache));
         library.reduce(run).unwrap();
         cache.save().unwrap();
-        assert_eq!(
-            records_digest(&directory),
-            digest,
-            "the recorded p steps changed: bump the P_* version whose meaning changed"
-        );
+        let recorded = records_digest(&directory);
+        println!("records digest (orbit canonicalisation {on}): {recorded}");
+        if recorded != digest {
+            changed.push((on, recorded, digest));
+        }
         std::fs::remove_dir_all(&directory).unwrap();
     }
+    // Every digest is reported before the test fails, so one run re-pins both.
+    assert!(
+        changed.is_empty(),
+        "the recorded p steps changed: bump the P_* version whose meaning changed; (orbit, now, pinned): {changed:?}"
+    );
 }
 
 /// The records of the reference program with orbit canonicalisation on
-/// (M5 batch 4: known-zero children pruned; before: 0abd5420...).
+/// (M5 batch 4: known-zero children pruned; before: 0abd5420...; M5 batch 5:
+/// the identity moved with P_PRESENTATION_VERSION 4, before: 0843333d...).
 const ORBIT_CANON_RECORDS_DIGEST: &str =
-    "0843333d6d263d66206613421e6bd309239c8249721b079a1698e29c97cba1fb";
+    "1ab091dd3df5b95b5b526ee3d25cbe5d3b2629286dd1cc2f54667c381d8b49d3";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {
