@@ -390,7 +390,8 @@ fn explicit_row(row: &[Vec<i64>; 2], width: usize) -> Result<(Vec<i64>, Vec<i64>
     Ok((left.clone(), right.clone()))
 }
 
-fn isp_preference(name: &str) -> Result<IspPreference, PError> {
+/// The table entry of `name`, `None` without one.
+fn isp_preference_entry(name: &str) -> Result<Option<IspPreference>, PError> {
     static TABLE: OnceLock<Result<BTreeMap<String, IspPreference>, String>> = OnceLock::new();
     let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
         Err(_) => serde_json::from_str(P_ISP_PREFERENCES_JSON)
@@ -404,7 +405,11 @@ fn isp_preference(name: &str) -> Result<IspPreference, PError> {
     let table = table
         .as_ref()
         .map_err(|error| PError::Generation(format!("{P_ISP_PREFERENCE_ENV}: {error}")))?;
-    Ok(table.get(name).cloned().unwrap_or_default())
+    Ok(table.get(name).cloned())
+}
+
+fn isp_preference(name: &str) -> Result<IspPreference, PError> {
+    Ok(isp_preference_entry(name)?.unwrap_or_default())
 }
 
 /// `a.b = constant + row . S` over the coordinates of the family (the
@@ -747,6 +752,85 @@ fn induced(
     )))
 }
 
+/// An integer Custom node WITH an entry in the ISP table (bebe-basis): its own
+/// family instead of the Induced one. Line slot `i` = canonical line `i` with
+/// the top's momentum of its sector slot, signed so that momentum is conserved
+/// on the node's graph (`q` from `s` to `t`), so the loop momenta are the top's
+/// and the entry's rows are written in the top's momenta; the ISPs (the top's
+/// removed lines and ISPs re-chosen) are the entry's, completed by
+/// [`IspCompletion`]. Kind [`PresentationKind::EpsNode`] (a node family, no
+/// eps line). Without an entry the node stays Induced, byte for byte.
+fn rebased_induced(
+    node: &NodeInfo,
+    tops: &[Arc<Presentation>],
+    id: PresentationId,
+    context: &CoefficientContext,
+    preference: &IspPreference,
+) -> Result<Presentation, PError> {
+    for top in tops.iter().filter(|top| top.loops == node.loops) {
+        let graph = top_graph(top)?;
+        let mut masks =
+            (0..1_u64 << graph.lines.len()).filter(|m| m.count_ones() == u32::from(node.t));
+        let Some(slots) = masks.find_map(|m| sector_slots(&graph, m, &node.key)) else {
+            continue;
+        };
+        let momenta = slots
+            .iter()
+            .map(|&slot| match top.slots.get(usize::from(slot)) {
+                Some(Slot::Line(line)) => Ok(line.momentum.clone()),
+                _ => Err(broken(format!(
+                    "slot {slot} of top {} is no line",
+                    top.id.0
+                ))),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let topo = &node.topo;
+        let width = usize::from(node.loops) + 1;
+        let conserved = |rows: &[Vec<i64>]| {
+            (0..topo.n).all(|w| {
+                let mut net = vec![0_i64; width];
+                for (row, &(u, v, _)) in rows.iter().zip(&topo.lines) {
+                    for (x, c) in net.iter_mut().zip(row) {
+                        *x += i64::from(u == w) * c - i64::from(v == w) * c;
+                    }
+                }
+                let q = i64::from(w == topo.s) - i64::from(w == topo.t);
+                net[..width - 1].iter().all(|&x| x == 0) && net[width - 1] == q
+            })
+        };
+        let lines = momenta.len();
+        let rows = (0..1_u64 << lines)
+            .map(|signs| {
+                (momenta.iter().enumerate())
+                    .map(|(i, m)| {
+                        let sign = if signs >> i & 1 == 1 { -1 } else { 1 };
+                        m.iter().map(|c| sign * c).collect::<Vec<i64>>()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .find(|rows| conserved(rows))
+            .ok_or_else(|| {
+                broken(format!(
+                    "node {}: no signing of the top's sector momenta conserves momentum",
+                    node.index
+                ))
+            })?;
+        return with_isps(
+            node,
+            rows,
+            PresentationKind::EpsNode,
+            id,
+            context,
+            Some(preference),
+        );
+    }
+    Err(broken(format!(
+        "the integer Custom node {} is no sector of the {} tops",
+        node.index,
+        tops.len()
+    )))
+}
+
 /// The presentation of `node` under `decision`; the trivial node has none. A
 /// decision that contradicts itself is refused, it is never partly read.
 pub fn present(
@@ -784,7 +868,12 @@ pub fn present_with_isp_preference(
         )));
     }
     match decision.lane {
-        OwnerLane::Custom if node.eps_lines == 0 => induced(node, tops, id, context),
+        OwnerLane::Custom if node.eps_lines == 0 => {
+            match isp_preference_entry(node_family_name(node).as_str())? {
+                Some(entry) => rebased_induced(node, tops, id, context, &entry),
+                None => induced(node, tops, id, context),
+            }
+        }
         OwnerLane::Custom => {
             let rows = routed(node, None, &[])?;
             with_isps(
