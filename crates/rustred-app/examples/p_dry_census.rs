@@ -699,6 +699,12 @@ fn main() {
             writeln!(out.lock().unwrap(), "{line}").unwrap();
             continue;
         }
+        // Re-canonicalise replayed Apply children of the swapped owners
+        // (their order may differ; DRY_REFRESH=off keeps the base's
+        // representatives).
+        if std::env::var("DRY_REFRESH").as_deref() != Ok("off") {
+            rustred::propagator::engine::set_step_cache_refresh_classes(changed.clone());
+        }
         let cache = base_cache.as_ref().map(|cache| {
             cache.fork_in_memory(
                 library.step_cache_binding().unwrap(),
@@ -723,5 +729,6 @@ fn main() {
                 "changed": changed.iter().map(|c| format!("{c:016x}")).collect::<Vec<_>>(),
                 "other": other}),
         );
+        rustred::propagator::engine::set_step_cache_refresh_classes(BTreeSet::new());
     }
 }

@@ -22,7 +22,7 @@
 //!
 //! [`PLaneStep::order_key`]: super::step::PLaneStep::order_key
 //! [`ORDERED_STEP_CACHE_SCHEMA`]: crate::reduction::ORDERED_STEP_CACHE_SCHEMA
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
@@ -1771,6 +1771,70 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
 
     fn step_cache_key(&self, stage: NodeStage, view: IntegralKey) -> Result<PKey, PError> {
         self.stepper.recorded_key(stage, view)
+    }
+
+    fn step_cache_refresh(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
+        self.stepper.refresh_canonical(step)
+    }
+}
+
+/// Owner classes whose Apply children are canonicalised again when a step is
+/// replayed from a step cache (dry census, R4a): a cache forked from another
+/// program whose order of these owners differs holds representatives chosen
+/// in the old order. Process-wide; empty (the default) changes nothing.
+static REFRESH_CLASSES: std::sync::RwLock<BTreeSet<u64>> = std::sync::RwLock::new(BTreeSet::new());
+
+/// Set the classes of [`REFRESH_CLASSES`] for the requests that start after
+/// this call (dry census only; never set it while a cache serves programs
+/// that disagree on any other owner).
+pub fn set_step_cache_refresh_classes(classes: BTreeSet<u64>) {
+    *REFRESH_CLASSES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = classes;
+}
+
+impl PStepper<'_> {
+    /// Canonicalise again (in the current owners' orders) the Apply children
+    /// of the [`REFRESH_CLASSES`] of a replayed step, merging children that
+    /// meet and dropping sums that cancel, as the step itself would.
+    fn refresh_canonical(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
+        if !self.canonical {
+            return Ok(step);
+        }
+        let classes = REFRESH_CLASSES
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if classes.is_empty()
+            || !step.terms.keys().any(
+                |key| matches!(key, PKey::Apply { class, .. } if classes.contains(&class.0)),
+            )
+        {
+            return Ok(step);
+        }
+        let OrderedStep {
+            terms,
+            terminals,
+            nonzero_conditions,
+        } = step;
+        let context = self.library.coefficient_context();
+        let mut out = BTreeMap::new();
+        for (key, coefficient) in terms {
+            let (key, coefficient) = match &key {
+                PKey::Apply { class, view } if classes.contains(&class.0) => {
+                    let slot = self.engine.owner(*class)?;
+                    let (powers, tag_slots) = self.engine.split(slot.presentation, view)?;
+                    let tag = GammaTag::decode_dense(tag_slots)?;
+                    self.apply_key(*class, powers, &tag, coefficient)?
+                }
+                _ => (key, coefficient),
+            };
+            merge(context, &self.limits, &mut out, key, coefficient)?;
+        }
+        Ok(OrderedStep {
+            terms: out,
+            terminals,
+            nonzero_conditions,
+        })
     }
 }
 
