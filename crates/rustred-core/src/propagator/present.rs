@@ -281,30 +281,27 @@ fn completion_error(node: &NodeInfo, error: IspCompletionError) -> PError {
     }
 }
 
-/// The generation-time ISP choice (M5 maps, choice (b); P_PRESENTATION_VERSION
-/// 2): per node family name, the scalar-product coordinate ordinals
-/// (LoopLoop by `(left, right)`, then LoopExternal) that [`IspCompletion`]
-/// scans first. The three scope 1-4 Insertion owners listed here (nodes 248,
-/// 253 and 263 of the Diamond census) take unit-row ISPs chosen for the fewest
-/// routed terms of their inbound routes (SCRATCHPAD/m5-maps/data/bprefs.json);
-/// every other node keeps the default scan. The lane contract is unchanged.
-pub const P_ISP_PREFERENCES: &[(&str, &[usize])] = &[
-    (
-        "p_node_01040000010100010100000201000003010001020100010302000002030100",
-        &[13, 2, 1, 11, 3, 12, 10],
-    ),
-    (
-        "p_node_01040000010100010100000201000003020000010201000103020000",
-        &[1, 13, 3, 5, 6, 10, 12],
-    ),
-    (
-        "p_node_01040000010100010200000002010000030100010201000103020000",
-        &[1, 13, 3, 5, 6, 10, 8],
-    ),
-];
+/// The generation-time ISP choice (P_PRESENTATION_VERSION 3, M5 batch 4):
+/// per node family name, the ISPs that [`IspCompletion`] is offered first,
+/// as package DATA (`data/p/p-isp-preferences.v3.json`, one
+/// [`IspPreference`] per node). 55 generic-lane presentations of scope 1-4
+/// (Insertion/SeriesParallel, Triangle, Carpet; no Custom or Scheme owner) take edge-pair products `p_a.p_b` and unit rows chosen by
+/// the route-basis chooser (devtools/p-isp-basis: exact distinct-monomial
+/// route cost, inbound and outbound, weighted by the measured route traffic of
+/// three 4L r8 cells, coordinate descent; no pair with `q` in both factors,
+/// which would break the massless family admission). Every other node keeps
+/// the default scan. The lane contracts are unchanged. Version 2 (M5 maps,
+/// choice (b)) listed unit rows for three Insertion owners only; one of them
+/// is kept, the other two take pairs now.
+///
+/// Changing this file changes presentations: bump [`P_PRESENTATION_VERSION`]
+/// and the file name together.
+///
+/// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
+pub const P_ISP_PREFERENCES_JSON: &str = include_str!("../../data/p/p-isp-preferences.v3.json");
 
 /// Environment variable of the development override of
-/// [`P_ISP_PREFERENCES`]: a JSON file `{"<node family name>": <preference>, ..}`
+/// [`P_ISP_PREFERENCES_JSON`]: a JSON file `{"<node family name>": <preference>, ..}`
 /// that REPLACES the embedded table (`{}` gives the default scan everywhere), a
 /// preference being either a list of coordinate ordinals (the unit rows scanned
 /// first: LoopLoop by `(left, right)`, then LoopExternal) or an object
@@ -353,10 +350,8 @@ impl IspPreference {
 fn isp_preference(name: &str) -> Result<IspPreference, PError> {
     static TABLE: OnceLock<Result<BTreeMap<String, IspPreference>, String>> = OnceLock::new();
     let table = TABLE.get_or_init(|| match std::env::var(P_ISP_PREFERENCE_ENV) {
-        Err(_) => Ok(P_ISP_PREFERENCES
-            .iter()
-            .map(|&(name, ordinals)| (name.to_owned(), IspPreference::Units(ordinals.to_vec())))
-            .collect()),
+        Err(_) => serde_json::from_str(P_ISP_PREFERENCES_JSON)
+            .map_err(|error| format!("embedded p-isp-preferences: {error}")),
         Ok(path) => std::fs::read_to_string(&path)
             .map_err(|error| format!("{path}: {error}"))
             .and_then(|text| {
@@ -1045,5 +1040,23 @@ mod pair_tests {
         );
         assert_eq!(table["c"].units(), &[2]);
         assert!(table["c"].pairs().is_empty());
+    }
+
+    /// The embedded table (P_PRESENTATION_VERSION 3) parses, names 55 nodes,
+    /// and has no pair with `q` in both factors (a constant `q^2` breaks the
+    /// massless family admission, `family::unit_scale`).
+    #[test]
+    fn the_embedded_preference_table_is_version_3() {
+        assert_eq!(super::super::P_PRESENTATION_VERSION, 3);
+        let table: BTreeMap<String, IspPreference> =
+            serde_json::from_str(P_ISP_PREFERENCES_JSON).unwrap();
+        assert_eq!(table.len(), 55);
+        assert!(table.keys().all(|name| name.starts_with("p_node_")));
+        assert!(
+            table
+                .values()
+                .flat_map(IspPreference::pairs)
+                .all(|pair| *pair != [-1, -1])
+        );
     }
 }

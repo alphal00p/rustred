@@ -78,9 +78,13 @@ pub const P_CLASS_KEY_VERSION: u32 = 1;
 /// assembly since batch 2); the engine follows the stored maps strictly.
 pub const P_CENSUS_VERSION: u32 = 2;
 /// The `present` and `edge_map` algorithms. 2 (M5 combined 4L package, ISP
-/// choice (b)): the embedded `present::P_ISP_PREFERENCES` re-complete the ISPs
-/// of three scope 1-4 Insertion owners.
-pub const P_PRESENTATION_VERSION: u32 = 2;
+/// choice (b)): unit-row ISPs for three scope 1-4 Insertion owners.
+/// 3 (M5 batch 4, route bases): the embedded ISP preference table
+/// `data/p/p-isp-preferences.v3.json` (`present::P_ISP_PREFERENCES_JSON`):
+/// edge-pair and unit-row ISPs of 55 generic-lane presentations chosen for the
+/// fewest routed terms (devtools/p-isp-basis); values unchanged, routed edges
+/// of the 4L cells -16..-54 %.
+pub const P_PRESENTATION_VERSION: u32 = 3;
 /// The content of `data/p/p-families.v1.json`.
 pub const P_FAMILIES_VERSION: u32 = 1;
 pub const P_GAMMA_TAG_VERSION: u32 = 1;
