@@ -488,6 +488,13 @@ impl Workers {
         });
     }
 
+    /// fwd-opt: `f` on the pool (rayon parallel iterators inside it run on
+    /// the workers), inside the request's resource budgets.
+    pub(super) fn install<R: Send>(&self, f: impl FnOnce() -> R + Send) -> R {
+        let budget = &self.budget;
+        self.pool.install(|| budget.run_captured(f))
+    }
+
     /// fwd-opt: the worker count.
     pub(super) fn threads(&self) -> usize {
         self.pool.current_num_threads()

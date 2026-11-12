@@ -473,41 +473,69 @@ where
             }
             // 2. Pop order (greatest first) and layers.
             let layering_started = std::time::Instant::now();
-            nodes.sort_unstable_by(|a, b| {
-                (&b.position.priority, &b.key).cmp(&(&a.position.priority, &a.key))
+            // On the workers: the sort, the packed keys and, per node, its
+            // window children (node indices); then the layers in one serial
+            // pass over the edges in pop order.
+            workers.install(|| {
+                use rayon::prelude::*;
+                nodes.par_sort_unstable_by(|a, b| {
+                    (&b.position.priority, &b.key).cmp(&(&a.position.priority, &a.key))
+                });
             });
-            let (packed, hashes): (Vec<_>, Vec<u64>) = nodes
+            let keys: Vec<&K::Key> = nodes.iter().map(|node| &node.key).collect();
+            let lists: Vec<&[LChild<K::Key, K::Priority>]> = nodes
                 .iter()
-                .map(|node| {
-                    let packed = node.key.pack();
-                    let hash = FrontierHash::Fx.hash_one(&packed);
-                    (packed, hash)
+                .map(|node| match &node.result {
+                    Ok(step) => step.children.as_slice(),
+                    Err(_) => &[],
                 })
-                .unzip();
-            let mut index: HashTable<u32> = HashTable::with_capacity(nodes.len());
-            for (i, &hash) in hashes.iter().enumerate() {
-                index.insert_unique(hash, i as u32, |&j| hashes[j as usize]);
-            }
+                .collect();
+            let (packed, hashes, kids) = workers.install(|| {
+                use rayon::prelude::*;
+                let (packed, hashes): (Vec<_>, Vec<u64>) = keys
+                    .par_iter()
+                    .map(|key| {
+                        let packed = key.pack();
+                        let hash = FrontierHash::Fx.hash_one(&packed);
+                        (packed, hash)
+                    })
+                    .unzip();
+                let mut index: HashTable<u32> = HashTable::with_capacity(keys.len());
+                for (i, &hash) in hashes.iter().enumerate() {
+                    index.insert_unique(hash, i as u32, |&j| hashes[j as usize]);
+                }
+                let kids: Vec<Vec<u32>> = lists
+                    .par_iter()
+                    .map(|children| {
+                        children
+                            .iter()
+                            .filter(|c| c.window)
+                            .filter_map(|child| {
+                                index
+                                    .find(child.hash, |&j| packed[j as usize] == child.packed)
+                                    .copied()
+                            })
+                            .collect()
+                    })
+                    .collect();
+                (packed, hashes, kids)
+            });
+            drop((keys, lists));
             let mut layer = vec![0u32; nodes.len()];
-            for i in 0..nodes.len() {
-                let Ok(step) = &nodes[i].result else { continue };
+            for (i, kids) in kids.iter().enumerate() {
                 let next = layer[i] + 1;
-                for child in step.children.iter().filter(|c| c.window) {
-                    if let Some(&j) =
-                        index.find(child.hash, |&j| packed[j as usize] == child.packed)
-                    {
-                        let j = j as usize;
-                        if j <= i {
-                            return Err(invariant(
-                                "a window child is not below its parent in the pop order",
-                            )
-                            .into());
-                        }
-                        layer[j] = layer[j].max(next);
+                for &j in kids {
+                    let j = j as usize;
+                    if j <= i {
+                        return Err(invariant(
+                            "a window child is not below its parent in the pop order",
+                        )
+                        .into());
                     }
+                    layer[j] = layer[j].max(next);
                 }
             }
-            drop(index);
+            drop(kids);
             let mut order: Vec<u32> = (0..nodes.len() as u32).collect();
             order.sort_by_key(|&i| (layer[i as usize], i));
             lstats.layering += layering_started.elapsed().as_secs_f64();
