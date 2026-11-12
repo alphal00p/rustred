@@ -608,7 +608,15 @@ where
     let closure = Closure {
         stepper,
         detach: &detach,
-        seen: Mutex::new(roots.iter().map(|(key, _)| key.clone()).collect()),
+        seen: {
+            let seen: Vec<Mutex<HashSet<S::Key, super::FrontierHash>>> = (0..SEEN_SHARDS)
+                .map(|_| Mutex::new(HashSet::with_hasher(super::FrontierHash::Fx)))
+                .collect();
+            for (key, _) in &roots {
+                lock(&seen[seen_shard(key)]).insert(key.clone());
+            }
+            seen
+        },
         discovered: Mutex::new(Vec::new()),
         counters,
         budget: &workers.budget,
@@ -709,11 +717,22 @@ where
     out
 }
 
+/// fwd-opt: shards of a window closure's `seen` set.
+const SEEN_SHARDS: usize = 64;
+
+fn seen_shard<K: Hash>(key: &K) -> usize {
+    use std::hash::BuildHasher;
+    // Middle bits: the shard tables use the low bits and the top seven.
+    (super::FrontierHash::Fx.hash_one(key) >> 24) as usize % SEEN_SHARDS
+}
+
 /// Shared state of one window closure (`close_window`).
 struct Closure<'a, S: OrderedStepper, X, F> {
     stepper: &'a S,
     detach: &'a F,
-    seen: Mutex<HashSet<S::Key>>,
+    /// fwd-opt: the keys stepped so far, in Fx-hashed shards (one lock per
+    /// shard instead of one for the whole closure).
+    seen: Vec<Mutex<HashSet<S::Key, super::FrontierHash>>>,
     discovered: Mutex<Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>>,
     counters: Option<&'a WindowCounters>,
     budget: &'a ResourceBudget,
@@ -761,7 +780,7 @@ where
             )
         });
         for (child, position) in found {
-            if lock(&self.seen).insert(child.clone()) {
+            if lock(&self.seen[seen_shard(&child)]).insert(child.clone()) {
                 scope.spawn(move |scope| {
                     let step = self.step(scope, child, position);
                     lock(&self.discovered).push(step);
