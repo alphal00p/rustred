@@ -282,6 +282,23 @@ pub(crate) trait OrderedStepper: Sync {
     fn later_phase(&self, _parent: &Self::Key, _child: &Self::Key) -> bool {
         false
     }
+
+    /// fwd-opt: switch light steps on for the calling (worker) thread: the
+    /// adapter may hand singly met children over as `(key, handle)` pairs
+    /// ([`Self::take_light`], right after the step on the same thread)
+    /// instead of terms. Default: never.
+    fn set_light(&self, _on: bool) {}
+
+    /// fwd-opt: the light children of the step this thread computed last,
+    /// sorted by key, disjoint from its terms.
+    fn take_light(&self) -> Vec<(Self::Key, u64)> {
+        Vec::new()
+    }
+
+    /// fwd-opt: the coefficient a light handle names.
+    fn light_value(&self, _handle: u64) -> Option<Coefficient> {
+        None
+    }
 }
 
 /// An adapter whose steps can be computed by worker threads.
@@ -493,6 +510,11 @@ impl Workers {
     pub(super) fn install<R: Send>(&self, f: impl FnOnce() -> R + Send) -> R {
         let budget = &self.budget;
         self.pool.install(|| budget.run_captured(f))
+    }
+
+    /// fwd-opt: `f` once on every worker.
+    pub(super) fn broadcast(&self, f: impl Fn() + Sync) {
+        self.pool.broadcast(|_| f());
     }
 
     /// fwd-opt: the worker count.

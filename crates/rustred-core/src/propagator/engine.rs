@@ -752,6 +752,69 @@ impl PEngine {
     }
 }
 
+/// fwd-opt: light steps (worker threads of a layered request only, switched
+/// on per thread by `OrderedStepper::set_light`): a memoised route step hands
+/// its singly met children over as (key, handle) pairs, handle = shared memo
+/// coefficient index and sign, beside the materialised terms; the caller
+/// takes them right after the step (`take_light`) and maps a handle to a
+/// value only once per request (`light_value`). `RUSTRED_P_LIGHT_STEPS=off`
+/// disables it. Value-neutral (the same terms, the same coefficients).
+pub(crate) mod light {
+    use std::cell::{Cell, RefCell};
+    use std::sync::OnceLock;
+
+    use super::PKey;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static OUT: RefCell<Vec<(PKey, u64)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn allowed() -> bool {
+        static ALLOWED: OnceLock<bool> = OnceLock::new();
+        *ALLOWED.get_or_init(|| {
+            !matches!(
+                std::env::var("RUSTRED_P_LIGHT_STEPS").as_deref(),
+                Ok("0" | "off" | "false")
+            )
+        })
+    }
+
+    pub(crate) fn set(on: bool) {
+        ON.with(|cell| cell.set(on && allowed()));
+    }
+
+    pub(crate) fn enabled() -> bool {
+        ON.with(Cell::get)
+    }
+
+    /// A handle: shared or this thread's (`local`) memo index, and sign.
+    /// A local handle is valid only on the thread that made it.
+    pub(crate) fn handle(index: u32, negative: bool, local: bool) -> u64 {
+        (1 << 63) | (u64::from(negative) << 62) | (u64::from(local) << 61) | u64::from(index)
+    }
+
+    pub(crate) fn split(handle: u64) -> (u32, bool) {
+        ((handle & 0xFFFF_FFFF) as u32, handle >> 62 & 1 == 1)
+    }
+
+    pub(crate) fn is_local(handle: u64) -> bool {
+        handle >> 61 & 1 == 1
+    }
+
+    pub(super) fn put(children: Vec<(PKey, u64)>) {
+        OUT.with(|out| *out.borrow_mut() = children);
+    }
+
+    pub(crate) fn clear() {
+        OUT.with(|out| out.borrow_mut().clear());
+    }
+
+    pub(crate) fn take() -> Vec<(PKey, u64)> {
+        OUT.with(|out| std::mem::take(&mut *out.borrow_mut()))
+    }
+}
+
 /// fwd-opt: a per-thread, direct-mapped cache of canonical images. The
 /// image of a key under its automorphisms (and the sign) is a pure function
 /// of the engine, the presentation or owner class, the orientation and the
@@ -1668,6 +1731,63 @@ impl<'l> PStepper<'l> {
             ));
         }
         let mut target: SmallVec<[i64; 24]> = SmallVec::new();
+        if mode != super::step_memo::MemoMode::Check && light::enabled() {
+            let local = matches!(expansion, super::step_memo::Held::Local(..));
+            // fwd-opt light step: children of the shared memo carry a handle
+            // (memo index, sign) instead of a materialised coefficient; only
+            // children met twice are materialised and summed.
+            let mut pairs: Vec<(PKey, u64)> = Vec::with_capacity(expansion.coefficients.len());
+            for (relative, &index) in expansion
+                .offsets
+                .chunks(expansion.arity.max(1))
+                .zip(&expansion.coefficients)
+            {
+                target.clear();
+                target.extend(
+                    base.iter()
+                        .zip(relative)
+                        .map(|(base, &relative)| base + i64::from(relative)),
+                );
+                let (child, negative) = if shape.support(&target) == owner.support {
+                    self.apply_key_with(class, &target, &tag, false, |b| !b)?
+                } else {
+                    self.route_child_with(owner.presentation, &target, &tag, false, |b| !b)?
+                };
+                let keep = match self.zero_pruning {
+                    Some(counters) => self.keep_canonical_key(&child, counters)?,
+                    None => true,
+                };
+                if keep {
+                    pairs.push((child, light::handle(index, negative, local)));
+                }
+            }
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut single = Vec::with_capacity(pairs.len());
+            let mut repeated: Vec<(PKey, Coefficient)> = Vec::new();
+            super::step_memo::coefficients_of(&expansion, |values| {
+                let mut at = 0;
+                while at < pairs.len() {
+                    let end = at
+                        + pairs[at..]
+                            .iter()
+                            .take_while(|(key, _)| *key == pairs[at].0)
+                            .count();
+                    if end - at == 1 {
+                        single.push(pairs[at].clone());
+                    } else {
+                        for (key, handle) in &pairs[at..end] {
+                            let (index, negative) = light::split(*handle);
+                            let value = values(index);
+                            repeated.push((key.clone(), if negative { -value } else { value }));
+                        }
+                    }
+                    at = end;
+                }
+            });
+            step.terms = merge_all(context, &self.limits, repeated)?;
+            light::put(single);
+            return Ok(step);
+        }
         let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(expansion.coefficients.len());
         super::step_memo::coefficients_of(&expansion, |values| -> Result<(), PError> {
             crate::prof!(RouteChildren);
@@ -1806,6 +1926,18 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        self.apply_key_with(class, powers, tag, coefficient, |c| -c)
+    }
+
+    /// `apply_key` for any weight with a sign flip (fwd-opt: a bare sign).
+    fn apply_key_with<C>(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: C,
+        negate: fn(C) -> C,
+    ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonApply);
         if self.canonical
             && let Some((image, negative)) = canon_cache::lookup(
@@ -1818,7 +1950,11 @@ impl<'l> PStepper<'l> {
         {
             // A sign flip of a coefficient the library already sealed: same
             // variables, degrees and sizes, so no new authentication (M5 R0 A2).
-            let coefficient = if negative { -coefficient } else { coefficient };
+            let coefficient = if negative {
+                negate(coefficient)
+            } else {
+                coefficient
+            };
             return Ok((
                 PKey::Apply {
                     class,
@@ -1849,6 +1985,18 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        self.route_child_with(presentation, powers, tag, coefficient, |c| -c)
+    }
+
+    /// `route_child` for any weight with a sign flip (fwd-opt: a bare sign).
+    fn route_child_with<C>(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: C,
+        negate: fn(C) -> C,
+    ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonRoute);
         if self.canonical_routes {
             // First across the subsectors of the presentation, then inside the
@@ -1876,7 +2024,11 @@ impl<'l> PStepper<'l> {
             if let Some((image, negative)) = image {
                 // A sign flip of a coefficient the library already sealed: same
                 // variables, degrees and sizes, so no new authentication (M5 R0 A2).
-                let coefficient = if negative { -coefficient } else { coefficient };
+                let coefficient = if negative {
+                    negate(coefficient)
+                } else {
+                    coefficient
+                };
                 return Ok((
                     crate::prof_wrap_fine!(
                         CanonKey,
@@ -2139,6 +2291,15 @@ impl<'l> PStepper<'l> {
         if coefficient.is_zero() {
             return Ok(true); // The existing merge erases literal zero weights.
         }
+        self.keep_canonical_key(child, counters)
+    }
+
+    /// `keep_canonical_child` of a child with a nonzero weight (fwd-opt).
+    fn keep_canonical_key(
+        &self,
+        child: &PKey,
+        counters: &ZeroPruningCounters,
+    ) -> Result<bool, PError> {
         counters
             .canonical_candidates
             .fetch_add(1, AtomicOrdering::Relaxed);
@@ -2295,6 +2456,7 @@ impl OrderedStepper for PStepper<'_> {
     }
 
     fn step(&self, key: &PKey) -> (Result<OrderedStep<PKey>, PError>, PAccount) {
+        light::clear();
         let started = self.census.on.then(std::time::Instant::now);
         let (result, mut account) = match key {
             PKey::Route { presentation, view } => {
@@ -2328,6 +2490,30 @@ impl OrderedStepper for PStepper<'_> {
             (self.phase(parent), self.phase(child)),
             (Ok(parent), Ok(child)) if child > parent
         )
+    }
+
+    fn set_light(&self, on: bool) {
+        // Light children only without the census (its step records count
+        // the terms of the step).
+        light::set(on && !self.census.on);
+    }
+
+    fn take_light(&self) -> Vec<(PKey, u64)> {
+        if light::enabled() {
+            light::take()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn light_value(&self, handle: u64) -> Option<Coefficient> {
+        let (index, negative) = light::split(handle);
+        let value = if light::is_local(handle) {
+            super::step_memo::local_value(index)
+        } else {
+            super::step_memo::shared_value(index)
+        };
+        value.map(|value| if negative { -value } else { value })
     }
 }
 
@@ -2407,6 +2593,18 @@ impl OrderedKernel for PKernel<'_, '_> {
         let (result, account) = OrderedStepper::step(&self.stepper, key);
         self.account(account, request, work)?;
         result
+    }
+
+    fn set_light(&mut self, on: bool) {
+        OrderedStepper::set_light(&self.stepper, on);
+    }
+
+    fn take_light(&mut self) -> Vec<(PKey, u64)> {
+        OrderedStepper::take_light(&self.stepper)
+    }
+
+    fn light_value(&self, handle: u64) -> Option<Coefficient> {
+        OrderedStepper::light_value(&self.stepper, handle)
     }
 
     fn key_heap_bytes(key: &PKey) -> usize {

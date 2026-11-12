@@ -68,6 +68,16 @@ use crate::solver::CandidateOrderedReductionProgress;
 /// count).
 const SHARDS: usize = 64;
 
+/// Layered requests started in this process (keys the workers' handle caches).
+static REQUESTS: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// fwd-opt: this worker's light handles of the current request ->
+    /// (shared-table id, probe values, zero).
+    static HANDLES: std::cell::RefCell<(u64, std::collections::HashMap<u64, (u32, Probe, bool), FrontierHash>)> =
+        std::cell::RefCell::new((u64::MAX, std::collections::HashMap::with_hasher(FrontierHash::Fx)));
+}
+
 /// `RUSTRED_ORDERED_LAYERED=on|off` (fwd-opt; default off).
 pub(crate) fn environment() -> Option<bool> {
     static ON: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
@@ -349,6 +359,8 @@ where
     let stepper = kernel
         .detached_stepper()
         .ok_or_else(|| invariant("the layered mode needs a detached stepper"))?;
+    // fwd-opt light steps on the workers (adapters that support them).
+    workers.broadcast(|| stepper.set_light(true));
     let mut work = ReductionStatistics::default();
     let output = forward(
         kernel,
@@ -433,6 +445,7 @@ where
     let mut terminal_events: Vec<AtomicU64> = Vec::new();
     let mut lstats = LayerStats::default();
     let window = window_keys();
+    let request_id = REQUESTS.fetch_add(1, AtomicOrdering::Relaxed);
     let mut par_clock = super::parstats::ForwardClock::new();
     let mut check: Option<std::collections::HashSet<<K::Key as FrontierKey>::Packed>> =
         check_requested().then(Default::default);
@@ -467,7 +480,7 @@ where
             };
             // 1. The window closure, on the workers.
             let closure_started = par_clock.now();
-            let mut nodes = closure::<K>(workers, stepper, table, roots, &threshold);
+            let mut nodes = closure::<K>(workers, stepper, table, roots, &threshold, request_id);
             if let Some(started) = closure_started {
                 source += started.elapsed().as_secs_f64();
             }
@@ -999,6 +1012,7 @@ fn closure<K>(
     table: &SharedIntern,
     roots: Vec<(K::Key, OrderedPosition<K::Priority>)>,
     threshold: &Scheduled<K::Key, K::Priority>,
+    request_id: u64,
 ) -> Vec<Node<K::Key, K::Priority, K::Error, K::Account>>
 where
     K: ConcurrentOrderedKernel,
@@ -1009,8 +1023,60 @@ where
             terminals,
             nonzero_conditions,
         } = step;
-        let mut children = Vec::with_capacity(terms.len());
-        for (child, coefficient) in terms {
+        // Light children (singly met memo children, by handle) merge with
+        // the materialised terms in key order: the children are those of
+        // the full step, in its order.
+        let mut light = stepper.take_light().into_iter().peekable();
+        let mut materialised = terms.into_iter().peekable();
+        let mut merged: Vec<(K::Key, Result<Coefficient, u64>)> =
+            Vec::with_capacity(materialised.len() + light.len());
+        loop {
+            let take_light = match (materialised.peek(), light.peek()) {
+                (None, None) => break,
+                (Some(_), None) => false,
+                (None, Some(_)) => true,
+                (Some((a, _)), Some((b, _))) => b < a,
+            };
+            if take_light {
+                let (key, handle) = light.next().expect("peeked");
+                merged.push((key, Err(handle)));
+            } else {
+                let (key, coefficient) = materialised.next().expect("peeked");
+                merged.push((key, Ok(coefficient)));
+            }
+        }
+        let mut children = Vec::with_capacity(merged.len());
+        for (child, source) in merged {
+            let (id, probe, zero) = match source {
+                Ok(coefficient) => {
+                    let zero = coefficient.is_zero();
+                    let (id, probe) = table
+                        .id_probe(&coefficient, super::modular::coefficient_hash(&coefficient));
+                    (id, probe, zero)
+                }
+                Err(handle) => HANDLES.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    if cache.0 != request_id {
+                        cache.0 = request_id;
+                        cache.1.clear();
+                    }
+                    if let Some(&found) = cache.1.get(&handle) {
+                        return found;
+                    }
+                    let coefficient = stepper
+                        .light_value(handle)
+                        .expect("a light handle names a shared memo coefficient");
+                    let zero = coefficient.is_zero();
+                    let (id, probe) = table
+                        .id_probe(&coefficient, super::modular::coefficient_hash(&coefficient));
+                    cache.1.insert(handle, (id, probe, zero));
+                    (id, probe, zero)
+                }),
+            };
+            if zero {
+                // A zero weight is no child (the merged step has no such term).
+                continue;
+            }
             // A child of a later phase needs no position here: the shard
             // computes it if the child is new.
             let position = if stepper.later_phase(parent, &child) {
@@ -1024,10 +1090,6 @@ where
             if window && let Some(position) = &position {
                 found.push((child.clone(), position.clone()));
             }
-            let zero = coefficient.is_zero();
-            let (id, probe) =
-                table.id_probe(&coefficient, super::modular::coefficient_hash(&coefficient));
-            drop(coefficient);
             let packed = child.pack();
             let hash = FrontierHash::Fx.hash_one(&packed);
             children.push(LChild {

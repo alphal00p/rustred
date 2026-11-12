@@ -595,6 +595,8 @@ pub(crate) struct ModularRecorder {
     /// shard the reference of each of its ids once the sequence reached it.
     shared: Option<std::sync::Arc<SharedIntern>>,
     shared_refs: Vec<Vec<u32>>,
+    /// fwd-opt: light handles of this request -> (reference, zero).
+    handles: std::collections::HashMap<u64, (CoefRef, bool), FxBuild>,
 }
 
 /// rr-par2: shards of [`SharedIntern`] (low bits of an id).
@@ -831,6 +833,7 @@ impl ModularRecorder {
             par_replay: false,
             shared: None,
             shared_refs: vec![Vec::new(); INTERN_SHARDS],
+            handles: Default::default(),
         })
     }
 
@@ -1473,6 +1476,36 @@ impl OrderedWeights for ModularRecorder {
             return self.scale_hashed(weight, coefficient, hash);
         };
         let reference = self.intern_id(id)?;
+        Ok(ModularContribution {
+            coefficient: reference,
+            probe: self.scaled(weight, reference),
+            zero,
+        })
+    }
+
+    fn takes_light(&self) -> bool {
+        true
+    }
+
+    fn scale_handle(
+        &mut self,
+        weight: &ModularWeight,
+        handle: u64,
+        value: &mut dyn FnMut() -> Option<Coefficient>,
+    ) -> Result<ModularContribution, ReductionError> {
+        let (reference, zero) = match self.handles.get(&handle) {
+            Some(&found) => {
+                self.lookups += 1;
+                found
+            }
+            None => {
+                let coefficient =
+                    value().ok_or_else(|| error("a light handle names no coefficient"))?;
+                let found = (self.intern(&coefficient)?, coefficient.is_zero());
+                self.handles.insert(handle, found);
+                found
+            }
+        };
         Ok(ModularContribution {
             coefficient: reference,
             probe: self.scaled(weight, reference),

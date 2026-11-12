@@ -207,6 +207,27 @@ pub(crate) fn coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) 
     local_coefficients(f)
 }
 
+/// fwd-opt: the value of index `index` of the current shared memo (on this
+/// thread's polynomial context), when the shared memo is in use.
+pub(crate) fn shared_value(index: u32) -> Option<Coefficient> {
+    if !shared_enabled() {
+        return None;
+    }
+    Some(with_shared(|memo| rehome(memo.coefficient(index))))
+}
+
+/// fwd-opt: the value of index `index` of this thread's memo.
+pub(crate) fn local_value(index: u32) -> Option<Coefficient> {
+    STATE.with(|state| {
+        state
+            .borrow()
+            .coefficients
+            .values
+            .get(index as usize)
+            .cloned()
+    })
+}
+
 /// [`coefficients`] for the indices of `held`: the table of the memo that
 /// issued them (the mode is decided once per lookup, by [`insertion`] or
 /// [`route`]).
