@@ -1669,7 +1669,8 @@ impl<'l> PStepper<'l> {
         let PKey::Route { presentation, view } = child else {
             return Ok(true);
         };
-        let (powers, _) = self.engine.split(*presentation, view)?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(*presentation, &slots)?;
         let support = self.engine.shape(*presentation)?.support(powers);
         // Use exactly the existing census authority. In particular, a gap
         // propagates its error and is never inferred to be a zero sector.
@@ -2085,9 +2086,10 @@ impl PStepper<'_> {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if classes.is_empty()
-            || !step.terms.keys().any(
-                |key| matches!(key, PKey::Apply { class, .. } if classes.contains(&class.0)),
-            )
+            || !step
+                .terms
+                .keys()
+                .any(|key| matches!(key, PKey::Apply { class, .. } if classes.contains(&class.0)))
         {
             return Ok(step);
         }
@@ -2102,7 +2104,8 @@ impl PStepper<'_> {
             let (key, coefficient) = match &key {
                 PKey::Apply { class, view } if classes.contains(&class.0) => {
                     let slot = self.engine.owner(*class)?;
-                    let (powers, tag_slots) = self.engine.split(slot.presentation, view)?;
+                    let slots = view.slots();
+                    let (powers, tag_slots) = self.engine.split(slot.presentation, &slots)?;
                     let tag = GammaTag::decode_dense(tag_slots)?;
                     self.apply_key(*class, powers, &tag, coefficient)?
                 }
@@ -2552,7 +2555,9 @@ mod tests {
         let mut legacy = library.identity();
         assert!(!crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail());
         legacy.push_str(",P_ADJOINT_TAIL=off");
-        let marker = ",P_PRUNE_ZERO_CHILDREN=on";
+        // M5 batch 4: pruning is the default; the identity of a process that
+        // does NOT prune carries the marker.
+        let marker = ",P_PRUNE_ZERO_CHILDREN=off";
         for (route, high, suffix) in [
             (true, true, ""),
             (false, true, "-apply"),
@@ -2568,12 +2573,12 @@ mod tests {
                     "{},P_ORBIT_CANON_VERSION={}{suffix},P_ADJOINT_TAIL=off{}",
                     library.identity(),
                     super::super::P_ORBIT_CANON_VERSION,
-                    if on { marker } else { "" }
+                    if on { "" } else { marker }
                 )
             );
         }
         library.set_orbit_canonicalization(false);
-        let expected_identity = format!("{legacy}{}", if on { marker } else { "" });
+        let expected_identity = format!("{legacy}{}", if on { "" } else { marker });
         assert_eq!(library.step_identity(), expected_identity);
         let binding = library.step_cache_binding().unwrap();
         assert_eq!(binding.family_fingerprint, expected_identity);
@@ -2597,9 +2602,9 @@ mod tests {
                 Err(ReductionError::OrderedStepCache { .. })
             ));
             let other_identity = if on {
-                legacy
-            } else {
                 format!("{legacy}{marker}")
+            } else {
+                legacy
             };
             let wrong = OrderedStepCacheBinding::new(
                 crate::reduction::OrderedStepCacheAdapter::PropagatorLibrary,
@@ -2690,9 +2695,9 @@ mod tests {
                     .env("RUSTRED_TEST_PRUNING_CACHE_ROOT", &root)
                     .env("RUSTRED_ORDERED_ADJOINT_TAIL", "off");
                 if on {
-                    child.env("RUSTRED_P_PRUNE_ZERO_CHILDREN", "1");
-                } else {
                     child.env_remove("RUSTRED_P_PRUNE_ZERO_CHILDREN");
+                } else {
+                    child.env("RUSTRED_P_PRUNE_ZERO_CHILDREN", "0");
                 }
                 assert!(child.status().unwrap().success(), "{action}, pruning={on}");
             }
@@ -2703,10 +2708,10 @@ mod tests {
             serde_json::from_slice(&std::fs::read(root.join("on.json")).unwrap()).unwrap();
         assert_eq!(off["value"], on["value"]);
         assert_eq!(
-            on["identity"].as_str().unwrap(),
+            off["identity"].as_str().unwrap(),
             format!(
-                "{},P_PRUNE_ZERO_CHILDREN=on",
-                off["identity"].as_str().unwrap()
+                "{},P_PRUNE_ZERO_CHILDREN=off",
+                on["identity"].as_str().unwrap()
             )
         );
         if keep.is_none() {

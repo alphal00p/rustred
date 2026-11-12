@@ -34,13 +34,20 @@ use super::{
     P_ORBIT_CANON_WITH_SAVED_ORBITS, PTerminalId, PresentationId, p_versions,
 };
 
-/// One process-wide snapshot, shared by the cache identity and every request.
-/// Changing the environment after first use cannot change step semantics under
-/// an already-created cache binding. Unset and values other than `1` stay off.
+/// Known-zero child pruning at emission (Astra AR5; ON by default since M5
+/// batch 4, `RUSTRED_P_PRUNE_ZERO_CHILDREN=0`/`off`/`false` disables): a
+/// routed child whose sector the census proves zero is dropped where the
+/// step emits it instead of being merged into the frontier and routed to
+/// nothing. One process-wide snapshot, shared by the cache identity and every
+/// request: changing the environment after first use cannot change step
+/// semantics under an already-created cache binding.
 pub(super) fn prune_zero_children_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var("RUSTRED_P_PRUNE_ZERO_CHILDREN").is_ok_and(|value| value == "1")
+        !matches!(
+            std::env::var("RUSTRED_P_PRUNE_ZERO_CHILDREN").as_deref(),
+            Ok("0" | "off" | "false")
+        )
     })
 }
 
@@ -333,8 +340,10 @@ impl PLibrary {
     /// p profile, M5 batch 2: a cache they write has no tail table, so it is a
     /// distinct identity that a process whose p requests run the tail,
     /// `RUSTRED_ORDERED_ADJOINT_TAIL=on`, never reads), plus
-    /// `P_PRUNE_ZERO_CHILDREN=on` while explicit known-zero children are pruned.
-    /// The pruning setting is captured once per process, shared with requests.
+    /// `P_PRUNE_ZERO_CHILDREN=off` while known-zero children are NOT pruned
+    /// (pruning is the default since M5 batch 4; a cache written without it
+    /// is a distinct identity). The pruning setting is captured once per
+    /// process, shared with requests.
     pub fn step_identity(&self) -> String {
         let mut identity = self.identity();
         if self.orbit_canonicalization() {
@@ -351,8 +360,8 @@ impl PLibrary {
         if !crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail() {
             identity.push_str(",P_ADJOINT_TAIL=off");
         }
-        if prune_zero_children_enabled() {
-            identity.push_str(",P_PRUNE_ZERO_CHILDREN=on");
+        if !prune_zero_children_enabled() {
+            identity.push_str(",P_PRUNE_ZERO_CHILDREN=off");
         }
         identity
     }

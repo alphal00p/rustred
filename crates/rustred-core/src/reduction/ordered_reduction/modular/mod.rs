@@ -729,6 +729,20 @@ impl ModularRecorder {
         self.par_replay = par_replay;
     }
 
+    /// rr-par2: create (or drop) the table the workers intern step
+    /// coefficients into (`OrderedTuning::prestage`); before any step.
+    pub(crate) fn set_prestage(&mut self, prestage: bool) {
+        self.shared = prestage.then(|| {
+            std::sync::Arc::new(SharedIntern {
+                context: self.context.clone(),
+                limits: self.limits,
+                probe_field: self.probe_field.clone(),
+                probe_points: self.probe_points,
+                shards: (0..INTERN_SHARDS).map(|_| Default::default()).collect(),
+            })
+        });
+    }
+
     pub(crate) fn try_new(
         context: &CoefficientContext,
         limits: ReductionLimits,
@@ -747,15 +761,6 @@ impl ModularRecorder {
         let probe_field = Zp64::new(prime);
         let probe_points =
             std::array::from_fn(|_| probe_field.to_element(rng.random_range(2..prime)));
-        let shared = super::prestage_enabled().then(|| {
-            std::sync::Arc::new(SharedIntern {
-                context: context.clone(),
-                limits: limits.exact_algebra,
-                probe_field: probe_field.clone(),
-                probe_points,
-                shards: (0..INTERN_SHARDS).map(|_| Default::default()).collect(),
-            })
-        });
         Ok(Self {
             common,
             lifter,
@@ -780,7 +785,7 @@ impl ModularRecorder {
             started: Instant::now(),
             modular_round: None,
             par_replay: false,
-            shared,
+            shared: None,
             shared_refs: vec![Vec::new(); INTERN_SHARDS],
         })
     }

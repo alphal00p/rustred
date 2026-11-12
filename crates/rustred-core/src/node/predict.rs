@@ -426,7 +426,7 @@ impl OracleCase {
             })
             .collect();
         let d = rng.val();
-        Self::new_at(fam, fixed, &eqs, &point, d)
+        Self::new_at_centred(fam, fixed, &eqs, &point, d, centre)
     }
 
     /// The case evaluated at an explicit point: `point[i]` (mod p) on every free axis that the equations do not
@@ -437,6 +437,18 @@ impl OracleCase {
         eqs: &[(Vec<i64>, i64)],
         point: &[u64],
         d: u64,
+    ) -> Result<Self, String> {
+        Self::new_at_centred(fam, fixed, eqs, point, d, None)
+    }
+
+    /// [`Self::new_at`] with the seed ball displaced by `centre` (see [`Self::new_centred`]).
+    pub fn new_at_centred(
+        fam: &OracleFamily,
+        fixed: &[Option<i64>],
+        eqs: &[(Vec<i64>, i64)],
+        point: &[u64],
+        d: u64,
+        centre: Option<&[i32]>,
     ) -> Result<Self, String> {
         let n = fam.n;
         let eqs = eqs.to_vec();

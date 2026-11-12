@@ -142,8 +142,9 @@ pub enum OrderedProfile {
 /// `RUSTRED_ORDERED_FRONTIER=classic|compact|phased`,
 /// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip`,
 /// `RUSTRED_ORDERED_ADJOINT_TAIL=on|off`, `RUSTRED_MODULAR_POLY_ROUND=n`
-/// (`0`/`off`: one prime per thread), `RUSTRED_ORDERED_PIPELINE=on|off` and
-/// `RUSTRED_MODULAR_PAR_REPLAY=on|off`.
+/// (`0`/`off`: one prime per thread), `RUSTRED_ORDERED_PIPELINE=on|off`,
+/// `RUSTRED_MODULAR_PAR_REPLAY=on|off`, `RUSTRED_ORDERED_PRESTAGE=on|off` and
+/// `RUSTRED_ORDERED_HOLLOW=on|off` (rr-par2, on for p requests since M5 batch 4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct OrderedTuning {
     pub frontier: super::frontier::FrontierMode,
@@ -154,6 +155,11 @@ pub(crate) struct OrderedTuning {
     pub pipeline: bool,
     /// rr-par parallel modular replay (M5 batch 3: on for p requests).
     pub par_replay: bool,
+    /// rr-par2 pre-staged children + shared intern (M5 batch 4: on for p
+    /// requests; needs the pipeline).
+    pub prestage: bool,
+    /// rr-par2 hollow steps (M5 batch 4: on for p requests; needs prestage).
+    pub hollow: bool,
 }
 
 impl OrderedSchedulerOptions {
@@ -179,6 +185,8 @@ impl OrderedSchedulerOptions {
             modular_round: super::modular_round_environment().unwrap_or(p.then_some(4)),
             pipeline: super::pipeline_environment().unwrap_or(p),
             par_replay: super::par_replay_environment().unwrap_or(p),
+            prestage: super::prestage_environment().unwrap_or(p),
+            hollow: super::hollow_environment().unwrap_or(p),
         }
     }
 }
@@ -1045,6 +1053,8 @@ where
     workers: &'scope Workers,
     stepper: &'scope S,
     window_keys: usize,
+    /// rr-par2: pre-staging requested (`TailOptions::prestage`).
+    prestage: bool,
     steps: HashMap<S::Key, StepEntry<S>, super::FrontierHash>,
     /// The hashes of the step returned last.
     hashes: Option<Vec<u64>>,
@@ -1067,16 +1077,18 @@ where
         workers: &'scope Workers,
         stepper: &'scope S,
         window_keys: usize,
+        prestage: bool,
     ) -> Self {
         Self {
             scope,
             workers,
             stepper,
             window_keys,
+            prestage,
             steps: HashMap::with_hasher(super::FrontierHash::Fx),
             hashes: None,
             prep: Prep {
-                children: super::prestage_enabled(),
+                children: prestage,
                 intern: None,
                 hollow: false,
             },
@@ -1231,7 +1243,7 @@ where
     }
 
     fn configure_prestage(&mut self, prepacked: bool) {
-        self.prep.children = super::prestage_enabled() && prepacked;
+        self.prep.children = self.prestage && prepacked;
     }
 
     fn dispose_prestaged(&mut self, spent: Vec<super::PrestagedFor<K>>) {

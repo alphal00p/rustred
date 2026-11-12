@@ -1016,6 +1016,11 @@ struct TailOptions {
     pipeline: bool,
     /// rr-par: one replay job on the whole modular pool.
     par_replay: bool,
+    /// rr-par2: workers prepare children and intern step coefficients
+    /// (pipelined sources only).
+    prestage: bool,
+    /// rr-par2: the scheduler reads step coefficients through their ids only.
+    hollow: bool,
 }
 
 impl TailOptions {
@@ -1040,6 +1045,8 @@ impl TailOptions {
             modular_round: tuning.modular_round,
             pipeline: tuning.pipeline && threads > 1,
             par_replay: tuning.par_replay,
+            prestage: tuning.prestage && tuning.pipeline && threads > 1,
+            hollow: tuning.hollow,
         }
     }
 }
@@ -1159,7 +1166,13 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
                             nonzero_conditions,
                             arithmetic,
                             &mut work,
-                            &mut Pipelined::new(scope, workers, stepper, scheduler.window_keys),
+                            &mut Pipelined::new(
+                                scope,
+                                workers,
+                                stepper,
+                                scheduler.window_keys,
+                                tail.prestage,
+                            ),
                             tail,
                         )
                     })
@@ -1200,6 +1213,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
     recorder.set_modular_round(tail.modular_round);
     recorder.set_par_replay(tail.par_replay);
+    recorder.set_prestage(tail.prestage);
     // A cross-checked request compares the exact terminal map itself, so it
     // never composes.
     let composer = (!common.cross_check_exact)
@@ -1223,10 +1237,10 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
     } else {
         let mut weights = recorder;
-        if prestage_enabled()
+        if tail.prestage
             && let Some(table) = weights.shared_intern()
         {
-            source.attach_intern(table, !tail.enabled && hollow_enabled());
+            source.attach_intern(table, !tail.enabled && tail.hollow);
         }
         run_inner(
             kernel,
@@ -1404,31 +1418,24 @@ trait StepSource<K: OrderedKernel> {
     fn attach_intern(&mut self, _table: std::sync::Arc<modular::SharedIntern>, _hollow: bool) {}
 }
 
-/// rr-par2 (`RUSTRED_ORDERED_PRESTAGE=1`, with `RUSTRED_ORDERED_PIPELINE=1`):
-/// the workers that compute a step also prepare what the sequential merge
-/// needs per child, so that the scheduler thread only probes and records.
-pub(crate) fn prestage_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        matches!(
-            std::env::var("RUSTRED_ORDERED_PRESTAGE").as_deref(),
-            Ok("1" | "on")
-        )
-    })
+/// rr-par2 (`RUSTRED_ORDERED_PRESTAGE=on|off` overrides the profile; on for
+/// p requests since M5 batch 4; effective with the pipeline, i.e. more than
+/// one thread): the workers that compute a step also prepare what the
+/// sequential merge needs per child, so that the scheduler thread only probes
+/// and records.
+pub(crate) fn prestage_environment() -> Option<bool> {
+    static ON: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| switch_environment("RUSTRED_ORDERED_PRESTAGE"))
 }
 
-/// rr-par2 (`RUSTRED_ORDERED_HOLLOW=1`, with `RUSTRED_ORDERED_PRESTAGE=1`):
-/// the worker that interned a step's coefficients frees them (where they were
-/// allocated) and hands the scheduler placeholders; the scheduler uses the
-/// ids and zero tests.
-pub(crate) fn hollow_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        matches!(
-            std::env::var("RUSTRED_ORDERED_HOLLOW").as_deref(),
-            Ok("1" | "on")
-        )
-    })
+/// rr-par2 (`RUSTRED_ORDERED_HOLLOW=on|off` overrides the profile; on for p
+/// requests since M5 batch 4; effective with prestage and without the adjoint
+/// tail): the worker that interned a step's coefficients frees them (where
+/// they were allocated) and hands the scheduler placeholders; the scheduler
+/// uses the ids and zero tests.
+pub(crate) fn hollow_environment() -> Option<bool> {
+    static ON: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| switch_environment("RUSTRED_ORDERED_HOLLOW"))
 }
 
 /// rr-par2: one term child of a step, packed and hashed with the Fx frontier

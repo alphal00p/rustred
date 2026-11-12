@@ -290,15 +290,16 @@ pub(crate) fn rehome(coefficient: &Coefficient) -> Coefficient {
     })
 }
 
-/// `RUSTRED_P_HOME_CONTEXT=1` (rr-par2, switch; default off): Insertion
+/// `RUSTRED_P_HOME_CONTEXT` (rr-par2; on by default since M5 batch 4,
+/// `0`/`off`/`false` disables; multi-thread requests only): Insertion
 /// weights are computed on a copy of the coefficient context whose template
 /// lives on this thread's polynomial context ([`with_home_context`]).
 fn home_context_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(
+        !matches!(
             std::env::var("RUSTRED_P_HOME_CONTEXT").as_deref(),
-            Ok("1" | "on")
+            Ok("0" | "off" | "false")
         )
     })
 }
