@@ -381,15 +381,16 @@ fn assert_routes_the_graph(node: &NodeInfo, presentation: &Presentation) {
                 // factor is a unit row or, for an edge-pair ISP p_a.p_b, the
                 // momentum of a line of the node (up to sign).
                 let unit = row.iter().map(|c| c.abs()).sum::<i64>() == 1;
-                let line = presentation.slots[..node.topo.lines.len()]
-                    .iter()
-                    .any(|slot| match slot {
-                        Slot::Line(line) => {
-                            line.momentum == *row
-                                || line.momentum.iter().zip(row.iter()).all(|(a, b)| *a == -*b)
-                        }
-                        Slot::Isp(_) => false,
-                    });
+                let line =
+                    presentation.slots[..node.topo.lines.len()]
+                        .iter()
+                        .any(|slot| match slot {
+                            Slot::Line(line) => {
+                                line.momentum == *row
+                                    || line.momentum.iter().zip(row.iter()).all(|(a, b)| *a == -*b)
+                            }
+                            Slot::Isp(_) => false,
+                        });
                 assert!(unit || line, "{name}: ISP factor {row:?}");
             }
         }
