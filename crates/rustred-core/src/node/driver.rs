@@ -537,9 +537,16 @@ pub struct NodeOptions {
     /// seed-fixed-dot (inside the rung only): after the portfolio, at most this many FIXED-DOT poses
     /// ([`fixed_dot_poses`]: one L1 shell 3 with one fixed line first, bounded seed count) are measured when no
     /// portfolio pose reached `seed_pose_keep`, led by one free-first shell-3 pose that gates them
-    /// ([`FIXED_DOT_GATE_RHS`]). `None` = [`FIXED_DOT_POSES_DEFAULT`]; `Some(0)` = off (lead included).
+    /// ([`FIXED_DOT_GATE_RHS`]). `Some(0)` = off (lead included) = the old rung; `Some(k >= 1)` = on with k line
+    /// poses unless [`Self::seed_pose_fixed_dot_lines`] is set; `None` = on, lead only by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_pose_fixed_dot: Option<usize>,
+    /// Fixed-LINE poses after the lead (opt-in; `None` = [`FIXED_DOT_LINES_DEFAULT`] = 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_pose_fixed_dot_lines: Option<usize>,
+    /// Keep the fixed-dot poses on cases whose free lines carry a loop momentum (Y9 cyc >= 1; skipped by default).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub seed_pose_fixed_dot_no_static_skip: bool,
     /// Seed budget of one fixed-dot pose (`None` = [`FIXED_DOT_SEEDS_DEFAULT`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_pose_fixed_dot_seeds: Option<u32>,
@@ -701,6 +708,8 @@ impl Default for NodeOptions {
             seed_pose_trigger: seed_pose_trigger_default(),
             seed_pose_min_rows: seed_pose_min_rows_default(),
             seed_pose_fixed_dot: None,
+            seed_pose_fixed_dot_lines: None,
+            seed_pose_fixed_dot_no_static_skip: false,
             seed_pose_fixed_dot_seeds: None,
             seed_pose_fixed_dot_first: false,
             symbolic_first_rung: true,
@@ -1966,8 +1975,10 @@ pub fn seed_pose_portfolio<const N: usize>(
     poses
 }
 
-/// Fixed-dot poses measured by the rung by default (seed-fixed-dot).
-pub const FIXED_DOT_POSES_DEFAULT: usize = 4;
+/// Fixed-LINE poses (one fixed line first) measured by the rung after the free-first shell-3 lead by default:
+/// none (opt-in with `--seed-pose-fixed-dot-lines K`). [M] seed-fixed-dot ab5: in the rung the lead was chosen in
+/// all 5 cases where the gate opened; the line poses never beat it and cost 140-250 s there (T230 #11, T225 G04).
+pub const FIXED_DOT_LINES_DEFAULT: usize = 0;
 /// Seed budget of one fixed-dot pose (Astra's T265 pose: 2,504 sector-valid seeds in its shell; the relation was
 /// selected after ~460).
 pub const FIXED_DOT_SEEDS_DEFAULT: u32 = 1_500;
@@ -1983,25 +1994,280 @@ pub const FIXED_DOT_GATE_RHS: usize = 400;
 /// Fixed-dot configuration of the rung.
 #[derive(Clone, Debug)]
 pub struct FixedDotConfig {
-    pub poses: usize,
+    /// The fixed-dot extension of the rung at all (`--seed-pose-fixed-dot 0` = off = the old rung).
+    pub enabled: bool,
+    /// Fixed-line poses after the lead ([`FIXED_DOT_LINES_DEFAULT`]).
+    pub lines: usize,
     pub max_seeds: u32,
     pub first: bool,
     /// The node order's final tie priority over the presented slots (None = legacy = identity).
     pub priority: Option<Vec<usize>>,
+    /// Skip the fixed-dot poses on a case whose free lines carry a loop momentum ([`FixedDotStatic::FreeCycle`]).
+    pub static_skip: bool,
+    /// Loop momentum (up to scale) of every presented denominator ([`fixed_dot_line_momenta`]); None = unknown.
+    pub momenta: Option<Arc<Vec<Option<Vec<i64>>>>>,
 }
 
 impl FixedDotConfig {
     pub fn from_options(opts: &NodeOptions) -> Self {
         Self {
-            poses: opts.seed_pose_fixed_dot.unwrap_or(FIXED_DOT_POSES_DEFAULT),
+            enabled: opts.seed_pose_fixed_dot != Some(0),
+            // an explicit `--seed-pose-fixed-dot K` (K >= 1) keeps its earlier meaning: K line poses
+            lines: opts
+                .seed_pose_fixed_dot_lines
+                .or(opts.seed_pose_fixed_dot.filter(|&k| k > 0))
+                .unwrap_or(FIXED_DOT_LINES_DEFAULT),
             max_seeds: opts
                 .seed_pose_fixed_dot_seeds
                 .unwrap_or(FIXED_DOT_SEEDS_DEFAULT),
             first: opts.seed_pose_fixed_dot_first,
             priority: opts.order.coordinate_priority.clone(),
+            static_skip: !opts.seed_pose_fixed_dot_no_static_skip,
+            momenta: None,
         }
     }
 
+    pub fn with_momenta(mut self, momenta: Option<Arc<Vec<Option<Vec<i64>>>>>) -> Self {
+        self.momenta = momenta;
+        self
+    }
+}
+
+/// The loop momentum of every denominator of `fam`, up to a nonzero factor, read off its loop-loop quadratic
+/// part (`(sum_i c_i k_i + p)^2` has `c_i^2` on `k_i^2` and `2 c_i c_j` on `k_i.k_j`, so any row `j` with
+/// `c_j != 0` of the symmetric matrix `2 c c^T` is `2 c_j c`). None for a denominator without a quadratic part
+/// or with a non-integer coefficient.
+pub fn fixed_dot_line_momenta(fam: &IntegralFamily) -> Vec<Option<Vec<i64>>> {
+    use crate::family::ScalarProductCoordinate;
+    let l = fam.loop_count();
+    let integer = |c: &crate::algebra::Coefficient| -> Option<i64> {
+        let s = c.to_string();
+        s.trim()
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim()
+            .parse::<i64>()
+            .ok()
+    };
+    fam.denominators()
+        .iter()
+        .map(|d| {
+            let mut m = vec![vec![0i64; l]; l];
+            for (coef, coord) in d.coefficients().iter().zip(fam.coordinates()) {
+                if let ScalarProductCoordinate::LoopLoop { left, right } = *coord {
+                    let v = integer(coef)?;
+                    if left == right {
+                        m[left][left] = v.checked_mul(2)?;
+                    } else {
+                        m[left][right] = v;
+                        m[right][left] = v;
+                    }
+                }
+            }
+            let j = (0..l).find(|&j| m[j][j] != 0)?;
+            Some(m[j].clone())
+        })
+        .collect()
+}
+
+/// Rank of integer vectors over Q (computed modulo the prime 2^61 - 1: exact for the small entries of
+/// line momenta).
+fn rank_mod_p(rows: &[Vec<i64>]) -> usize {
+    const P: i128 = (1 << 61) - 1;
+    let pow = |mut b: i128, mut e: i128| {
+        let mut r = 1i128;
+        b = b.rem_euclid(P);
+        while e > 0 {
+            if e & 1 == 1 {
+                r = r * b % P;
+            }
+            b = b * b % P;
+            e >>= 1;
+        }
+        r
+    };
+    let mut m: Vec<Vec<i128>> = rows
+        .iter()
+        .map(|r| r.iter().map(|&x| i128::from(x).rem_euclid(P)).collect())
+        .collect();
+    let cols = m.first().map_or(0, Vec::len);
+    let mut rank = 0;
+    for c in 0..cols {
+        let Some(p) = (rank..m.len()).find(|&i| m[i][c] != 0) else {
+            continue;
+        };
+        m.swap(rank, p);
+        let inv = pow(m[rank][c], P - 2);
+        for i in 0..m.len() {
+            if i != rank && m[i][c] != 0 {
+                let f = m[i][c] * inv % P;
+                for k in 0..cols {
+                    m[i][k] = (m[i][k] - f * m[rank][k] % P).rem_euclid(P);
+                }
+            }
+        }
+        rank += 1;
+    }
+    rank
+}
+
+/// Helper Y9's static fixed-dot test of a case (2026-11-12T20:50Z), with RustRed's own comparator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixedDotStatic {
+    /// `cyc = L - rank{momenta of the fixed lines} >= 1`: the free lines carry a loop momentum; on-face seeds
+    /// close the case, fixed-dot seeds are unnecessary (Y9: 10/11 cases).
+    FreeCycle(usize),
+    /// cyc = 0 and every minimal exposed set of fixed lines has a dot transfer {a: +1, f: -1} (a exposed, f a free
+    /// line) that is NOT below the target under the node order: fixed dots needed (Y9: 19/21).
+    Needed,
+    /// cyc = 0 and some minimal exposed set has all its transfers below the target: undecided (Y9: 8 of 18 on-face).
+    Undecided,
+    /// No momenta (non-integer or linear denominators) or no fixed line.
+    Unknown,
+}
+
+impl FixedDotStatic {
+    pub fn label(self) -> String {
+        match self {
+            Self::FreeCycle(c) => format!("free_cycle{c}"),
+            Self::Needed => "needed".into(),
+            Self::Undecided => "undecided".into(),
+            Self::Unknown => "unknown".into(),
+        }
+    }
+}
+
+/// Detail of [`fixed_dot_static`]: the verdict, cyc, the minimal exposure mu and its exposed sets, and the fixed
+/// lines that have a dot transfer NOT below the target ("rising" lines).
+#[derive(Clone, Debug)]
+pub struct FixedDotStaticReport {
+    pub verdict: FixedDotStatic,
+    pub cyc: Option<usize>,
+    pub mu: Option<usize>,
+    pub exposed: Vec<Vec<usize>>,
+    pub rising: Vec<usize>,
+}
+
+impl FixedDotStaticReport {
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\"verdict\":\"{}\",\"cyc\":{},\"mu\":{},\"exposed\":{},\"rising\":{}}}",
+            self.verdict.label(),
+            self.cyc.map_or("null".into(), |c| c.to_string()),
+            self.mu.map_or("null".into(), |c| c.to_string()),
+            serde_json::to_string(&self.exposed).unwrap(),
+            serde_json::to_string(&self.rising).unwrap(),
+        )
+    }
+}
+
+/// Y9's static test: `cyc = L - rank{alpha_a : a fixed line}`; for cyc = 0 the exposed sets E(c) = {fixed lines a
+/// with alpha_a . c != 0} of the loop directions c in {-1,0,1}^L of minimal size, and for each E whether every
+/// transfer {a: +1, f: -1} (a in E, f a free line) is below the target under `order` (RustRed's comparator:
+/// `compare(target, term) == Less`).
+pub fn fixed_dot_static<const N: usize>(
+    case: &Case<N>,
+    phys: &[bool; N],
+    momenta: &[Option<Vec<i64>>],
+    order: &crate::solver::IntegralOrder<N>,
+) -> FixedDotStaticReport {
+    let unknown = FixedDotStaticReport {
+        verdict: FixedDotStatic::Unknown,
+        cyc: None,
+        mu: None,
+        exposed: Vec::new(),
+        rising: Vec::new(),
+    };
+    let fixed = case.fixed();
+    let lines: Vec<usize> = (0..N)
+        .filter(|&i| phys[i] && matches!(fixed[i], Some(v) if v >= 1))
+        .collect();
+    // free LINES (the transfers lower one); a case whose free axes are all ISPs has none: then no transfer exists
+    // and the verdict is at most Undecided
+    let free: Vec<usize> = (0..N).filter(|&i| phys[i] && fixed[i].is_none()).collect();
+    if lines.is_empty() {
+        return unknown;
+    }
+    let Some(alpha): Option<Vec<&Vec<i64>>> = lines
+        .iter()
+        .map(|&a| momenta.get(a).and_then(Option::as_ref))
+        .collect()
+    else {
+        return unknown;
+    };
+    let l = alpha[0].len();
+    let cyc = l - rank_mod_p(&alpha.iter().map(|v| (*v).clone()).collect::<Vec<_>>());
+    if cyc >= 1 {
+        return FixedDotStaticReport {
+            verdict: FixedDotStatic::FreeCycle(cyc),
+            cyc: Some(cyc),
+            ..unknown
+        };
+    }
+    // minimal exposed sets over c in {-1,0,1}^L \ {0}
+    let mut best: Option<usize> = None;
+    let mut sets: Vec<Vec<usize>> = Vec::new();
+    let total = 3usize.pow(l as u32);
+    for code in 1..total {
+        let mut x = code;
+        let c: Vec<i64> = (0..l)
+            .map(|_| {
+                let d = (x % 3) as i64 - 1;
+                x /= 3;
+                d
+            })
+            .collect();
+        if c.iter().all(|&v| v == 0) {
+            continue;
+        }
+        let e: Vec<usize> = lines
+            .iter()
+            .zip(&alpha)
+            .filter(|(_, v)| v.iter().zip(&c).map(|(a, b)| a * b).sum::<i64>() != 0)
+            .map(|(&a, _)| a)
+            .collect();
+        match best {
+            Some(b) if e.len() > b => {}
+            Some(b) if e.len() == b => {
+                if !sets.contains(&e) {
+                    sets.push(e);
+                }
+            }
+            _ => {
+                best = Some(e.len());
+                sets = vec![e];
+            }
+        }
+    }
+    let target = case.integral();
+    let below = |a: usize, f: usize| -> Option<bool> {
+        let mut powers = *target.powers();
+        powers[a] = crate::solver::Power::new(false, fixed[a]? + 1).ok()?;
+        powers[f] = powers[f].shifted(-1).ok()?;
+        let term = Integral::new(powers);
+        Some(order.compare(&target, &term) == Ordering::Less)
+    };
+    let mut rising: Vec<usize> = lines
+        .iter()
+        .copied()
+        .filter(|&a| free.iter().any(|&f| below(a, f) == Some(false)))
+        .collect();
+    rising.sort_unstable();
+    let some_all_below = free.is_empty()
+        || sets
+            .iter()
+            .any(|e| e.iter().all(|&a| free.iter().all(|&f| below(a, f) == Some(true))));
+    FixedDotStaticReport {
+        verdict: if some_all_below {
+            FixedDotStatic::Undecided
+        } else {
+            FixedDotStatic::Needed
+        },
+        cyc: Some(0),
+        mu: best,
+        exposed: sets,
+        rising,
+    }
 }
 
 /// The fixed lines of a case (value >= 1; ISPs never lead a fixed-dot pose) in the order the fixed-dot poses try
@@ -2023,7 +2289,8 @@ pub fn fixed_dot_axes<const N: usize>(
     lines
 }
 
-/// seed-fixed-dot poses of a case: for each fixed line `a` of [`fixed_dot_axes`] (at most `k`), one shell
+/// seed-fixed-dot poses of a case: the free-first shell-3 lead, then for each fixed line `a` of
+/// [`fixed_dot_axes`] (at most `k`; 0 = the lead only), one shell
 /// L1 = 3 ([`CaseSeedSchedule::FixedDotShell`]) with axis priority [a, free axes (equation-coupled first), the
 /// other fixed lines, the remaining axes], positive first, at most `max_seeds` seeds, SpIRed in-shell order.
 /// Source seeds leave the target face by a dot on `a`; the selected pivot is still on the case.
@@ -2050,7 +2317,7 @@ pub fn fixed_dot_poses<const N: usize>(
         .chain(free.iter().copied().filter(|&a| !coupled(a)))
         .collect();
     let lines = fixed_dot_axes(case, phys, priority);
-    if free.is_empty() || k == 0 {
+    if free.is_empty() {
         return Vec::new();
     }
     // [M] seed-fixed-dot probe4: shell 3 ALONE with the free axes first (no fixed line first) is the cheapest pose
@@ -2192,14 +2459,37 @@ pub fn choose_seed_pose<const N: usize>(
     };
     if default_cost > keep {
         // seed-fixed-dot: the fixed-dot poses follow the portfolio (or precede it with `first` on a case with a
-        // dotted fixed line); every pose is measured the same way, the cheapest wins, early stop at `keep`
-        let dots = fixed_dot_poses(
-            case,
-            phys,
-            fixed_dot.poses,
-            fixed_dot.max_seeds,
-            fixed_dot.priority.as_deref(),
+        // dotted fixed line); every pose is measured the same way, the cheapest wins, early stop at `keep`.
+        // Y9 static test first: a case whose free lines carry a loop momentum skips them (static_skip).
+        let report = fixed_dot.momenta.as_deref().map_or_else(
+            || FixedDotStaticReport {
+                verdict: FixedDotStatic::Unknown,
+                cyc: None,
+                mu: None,
+                exposed: Vec::new(),
+                rising: Vec::new(),
+            },
+            |m| fixed_dot_static(case, phys, m, solver.ordering()),
         );
+        let skip_static =
+            fixed_dot.static_skip && matches!(report.verdict, FixedDotStatic::FreeCycle(_));
+        if fixed_dot.enabled {
+            eprintln!(
+                "EVENT FixedDotStatic {} skip={skip_static}",
+                report.to_json()
+            );
+        }
+        let dots = if fixed_dot.enabled && !skip_static {
+            fixed_dot_poses(
+                case,
+                phys,
+                fixed_dot.lines,
+                fixed_dot.max_seeds,
+                fixed_dot.priority.as_deref(),
+            )
+        } else {
+            Vec::new()
+        };
         let dotted = case
             .fixed()
             .iter()
@@ -2258,6 +2548,9 @@ struct PoseProbe {
     /// Probe point seed of the modular discovery (default 0 = the engine's).
     #[serde(default)]
     sample_seed: u64,
+    /// seed-fixed-dot: write only the static fixed-dot test of the case (no search).
+    #[serde(default)]
+    static_only: bool,
 }
 
 /// seed-pose: run every probe of `path` with a refuse-all screen; write `F.poses.jsonl`.
@@ -2273,6 +2566,7 @@ fn pose_probe_run<const N: usize>(
     nb: usize,
     out_dir: &Path,
     top: &[bool; N],
+    momenta: &[Option<Vec<i64>>],
 ) -> Result<NodeOutcome, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("pose probes {path}: {e}"))?;
     let mut out = std::io::BufWriter::new(
@@ -2314,6 +2608,20 @@ fn pose_probe_run<const N: usize>(
             .map_err(|e| e.to_string())?;
             continue;
         };
+        // seed-fixed-dot: Y9's static test of the case under the node order (no search with `static_only`)
+        let fd_static = fixed_dot_static(&case, top, momenta, solver.ordering()).to_json();
+        if probe.static_only {
+            writeln!(
+                out,
+                "{{\"label\":{},\"line\":{},\"case\":{},\"result\":\"static\",\"fixed_dot_static\":{fd_static}}}",
+                q(&probe.label),
+                line_no + 1,
+                serde_json::to_string(&spec).unwrap(),
+            )
+            .map_err(|e| e.to_string())?;
+            done += 1;
+            continue;
+        }
         symbolic.max_depth = probe.max_depth.or(opts.max_depth);
         symbolic.sample_seed = probe.sample_seed;
         let schedule = probe.schedule.clone().unwrap_or_default();
@@ -2399,7 +2707,7 @@ fn pose_probe_run<const N: usize>(
         });
         writeln!(
             out,
-            "{{\"label\":{},\"line\":{},\"case\":{},\"schedule\":{},\"in_shell\":{},\"source_order\":{},\"result\":{},\"error\":{},\"pivot\":{},\"trace_rows\":{},\"direct_rhs\":{},\"last_depth\":{depth},\"seeds\":{seeds},\"rows\":{rows},\"discovery\":{},\"measure\":{},\"trace\":{},\"seconds\":{seconds:.4}}}",
+            "{{\"label\":{},\"line\":{},\"case\":{},\"schedule\":{},\"in_shell\":{},\"source_order\":{},\"result\":{},\"error\":{},\"pivot\":{},\"trace_rows\":{},\"direct_rhs\":{},\"last_depth\":{depth},\"seeds\":{seeds},\"rows\":{rows},\"discovery\":{},\"measure\":{},\"trace\":{},\"seconds\":{seconds:.4},\"fixed_dot_static\":{fd_static}}}",
             q(&probe.label),
             line_no + 1,
             serde_json::to_string(&spec).unwrap(),
@@ -2456,6 +2764,8 @@ fn run<const N: usize>(
     }
     let sources = SourceSystem::<N>::from_family_with_capacity(fam, true)
         .map_err(|e| format!("sources: {e:?}"))?;
+    // seed-fixed-dot: line momenta of the presented family for the rung's static test (Y9)
+    let fd_momenta = Arc::new(fixed_dot_line_momenta(fam));
     let flags = super::order::physical_slots(presented);
     if flags.len() != n {
         return Err("family propagator lines do not match the compiled arity".into());
@@ -2775,7 +3085,7 @@ fn run<const N: usize>(
     }
     if let Some(path) = &opts.pose_probe {
         return pose_probe_run::<N>(
-            path, &solver, opts, &template, &idx, &sector, n, nb, out_dir, &top,
+            path, &solver, opts, &template, &idx, &sector, n, nb, out_dir, &top, &fd_momenta,
         );
     }
     // initial cases (ORIGINAL slots -> presented)
@@ -3212,7 +3522,7 @@ fn run<const N: usize>(
                     opts.seed_schedule,
                     opts.seed_pose_keep,
                     known,
-                    FixedDotConfig::from_options(opts),
+                    FixedDotConfig::from_options(opts).with_momenta(Some(fd_momenta.clone())),
                 )
             };
             let report = |choice: &SeedPoseChoice, gated: bool| {
@@ -6134,7 +6444,8 @@ mod tests {
         );
         assert_eq!(p[0].2, SeedScheduleName::Spired);
         assert_eq!(fixed_dot_poses(&affine, &physical, 1, 100, None).len(), 2);
-        assert!(fixed_dot_poses(&affine, &physical, 0, 100, None).is_empty());
+        // k = 0: the lead only (line poses are opt-in)
+        assert_eq!(fixed_dot_poses(&affine, &physical, 0, 100, None).len(), 1);
         // no free axis: nothing to search
         let point = Case::from(
             CoordinateCase::new([Some(1), Some(2), Some(1), Some(1), Some(0), Some(0)]).unwrap(),
@@ -6146,9 +6457,65 @@ mod tests {
         assert!(!json.contains("fixed_dot"));
         let cfg = FixedDotConfig::from_options(&o);
         assert_eq!(
-            (cfg.poses, cfg.max_seeds, cfg.first, cfg.priority.is_none()),
-            (FIXED_DOT_POSES_DEFAULT, FIXED_DOT_SEEDS_DEFAULT, false, true)
+            (cfg.enabled, cfg.lines, cfg.max_seeds, cfg.first, cfg.priority.is_none(), cfg.static_skip),
+            (true, FIXED_DOT_LINES_DEFAULT, FIXED_DOT_SEEDS_DEFAULT, false, true, true)
         );
+        assert_eq!(FIXED_DOT_LINES_DEFAULT, 0);
+        // --seed-pose-fixed-dot 0 = off; K >= 1 keeps its earlier meaning (K line poses); -lines wins
+        let off = FixedDotConfig::from_options(&NodeOptions { seed_pose_fixed_dot: Some(0), ..NodeOptions::default() });
+        assert!(!off.enabled);
+        let four = FixedDotConfig::from_options(&NodeOptions { seed_pose_fixed_dot: Some(4), ..NodeOptions::default() });
+        assert!(four.enabled && four.lines == 4);
+        let two = FixedDotConfig::from_options(&NodeOptions {
+            seed_pose_fixed_dot: Some(4),
+            seed_pose_fixed_dot_lines: Some(2),
+            ..NodeOptions::default()
+        });
+        assert_eq!(two.lines, 2);
+    }
+
+    #[test]
+    fn fixed_dot_static_counts_free_cycles_and_exposed_sets() {
+        let fam = compile_family(SUNSET).unwrap();
+        let m = fixed_dot_line_momenta(&fam);
+        assert_eq!(
+            m,
+            vec![
+                Some(vec![2, 0]),
+                Some(vec![0, 2]),
+                Some(vec![2, 2]),
+                Some(vec![2, 0]),
+                Some(vec![0, 2])
+            ]
+        );
+        let physical = [true, true, true, false, false, false];
+        let order = crate::solver::IntegralOrder::<6>::new(physical, [false; 6]);
+        // free line 0 only: fixed momenta k2, k1 + k2 span both loops -> cyc 0, exposed sets {1} and {2}
+        let one = Case::from(
+            CoordinateCase::new([None, Some(1), Some(1), Some(0), Some(0), Some(0)]).unwrap(),
+        );
+        let r = fixed_dot_static(&one, &physical, &m, &order);
+        assert_eq!(r.cyc, Some(0));
+        assert_eq!(r.mu, Some(1));
+        assert!(r.exposed.contains(&vec![1]) && r.exposed.contains(&vec![2]));
+        assert!(matches!(r.verdict, FixedDotStatic::Needed | FixedDotStatic::Undecided));
+        // free lines 0, 1: the fixed line k1 + k2 leaves the direction k1 - k2 free -> cyc 1
+        let two = Case::from(
+            CoordinateCase::new([None, None, Some(1), Some(0), Some(0), Some(0)]).unwrap(),
+        );
+        let r = fixed_dot_static(&two, &physical, &m, &order);
+        assert_eq!(r.verdict, FixedDotStatic::FreeCycle(1));
+        assert!(r.to_json().contains("\"verdict\":\"free_cycle1\""));
+        // every line fixed, only an ISP free: cyc 0 and no transfer -> undecided
+        let isp = Case::from(
+            CoordinateCase::new([Some(1), Some(1), Some(1), None, Some(0), Some(0)]).unwrap(),
+        );
+        let r = fixed_dot_static(&isp, &physical, &m, &order);
+        assert_eq!((r.verdict, r.cyc), (FixedDotStatic::Undecided, Some(0)));
+        // no momenta: unknown
+        let r = fixed_dot_static(&two, &physical, &[None, None, None, None, None], &order);
+        assert_eq!(r.verdict, FixedDotStatic::Unknown);
+        assert_eq!(rank_mod_p(&[vec![1, 2], vec![2, 4], vec![0, 1]]), 2);
     }
 
     #[test]
