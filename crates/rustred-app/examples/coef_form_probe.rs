@@ -480,6 +480,33 @@ fn main() {
         put("compact_factored_decode_s", t.elapsed().as_secs_f64().into());
         assert_eq!(polys.len(), dict.polys.len());
         assert_eq!(back.len(), fcoefs.len());
+        // multiply back to today's expanded form (what a loader that keeps
+        // the engine unchanged must do); identity checked on printed forms
+        let one = template.one();
+        let t = Instant::now();
+        let expand = |part: &FPart| {
+            let mut acc = one.clone().mul_coeff(part.content.clone());
+            for &(id, e) in &part.factors {
+                acc = acc * &polys[id as usize].pow(e as usize);
+            }
+            acc
+        };
+        let rebuilt: Vec<(Poly, Poly)> = back.iter().map(|(n, d)| (expand(n), expand(d))).collect();
+        put("compact_factored_expand_s", t.elapsed().as_secs_f64().into());
+        let t = Instant::now();
+        let rebuilt_den: Vec<Poly> = back.iter().map(|(_, d)| expand(d)).collect();
+        put("compact_denfactored_expand_den_s", t.elapsed().as_secs_f64().into());
+        let bad = rebuilt
+            .iter()
+            .zip(&rebuilt_den)
+            .zip(coefs)
+            .filter(|((r, rd), c)| {
+                r.0.to_string() != c.numerator.to_string()
+                    || r.1.to_string() != c.denominator.to_string()
+                    || rd.to_string() != c.denominator.to_string()
+            })
+            .count();
+        put("compact_factored_rebuild_mismatches", bad.into());
     }
     let mem_factored: usize = dict.polys.iter().map(poly_mem).sum::<usize>()
         + fcoefs.iter().map(|c| 2 * std::mem::size_of::<FPart>() + (c.num.factors.len() + c.den.factors.len()) * 8).sum::<usize>();
