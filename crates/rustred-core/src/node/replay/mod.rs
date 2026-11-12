@@ -1017,6 +1017,7 @@ fn rows_for(
     f: &Family,
     cert: Option<&Cert>,
     chart: &str,
+    sym: Option<&[Vec<Option<usize>>]>,
 ) -> Result<Built, Unknown> {
     let n = f.n;
     let mut out = Built {
@@ -1087,6 +1088,17 @@ fn rows_for(
                 out.rows.push(strip(&rr));
                 out.labels
                     .push(json!({"independent_original_operator": op, "at": y}));
+            }
+            if let Some(actions) = sym {
+                for (a, b) in sym_rows_at(&y, chart, actions) {
+                    let mut rr = Row::new();
+                    out.universe.insert(a.clone());
+                    out.universe.insert(b.clone());
+                    addto(&mut rr, a.clone(), 1);
+                    addto(&mut rr, b.clone(), P - 1);
+                    out.rows.push(strip(&rr));
+                    out.labels.push(json!({"exact_symmetry_row": [a, b]}));
+                }
             }
         }
     }
@@ -1182,7 +1194,7 @@ fn reconstruct_direct(
             let mut accepted = true;
             let sup = Support::Direct(vec![(bid, pat.clone())]);
             for ((_, d), wanted) in dims.iter().zip(&desireds) {
-                let built = rows_for(&sup, point, &rc, *d, f, Some(cert), &rule.chart)?;
+                let built = rows_for(&sup, point, &rc, *d, f, Some(cert), &rule.chart, None)?;
                 let r = &built.rows[0];
                 let pivot = r.get(&target).copied().unwrap_or(0);
                 if pivot == 0 {
@@ -1332,6 +1344,38 @@ struct Ctx<'a> {
     f: &'a Family,
     cert: Option<&'a Cert>,
     dims: Vec<(String, u64, Q)>,
+    /// sym-gen step 2: per chart, the slot actions of the table's `symmetry_group` elements that passed
+    /// [`check_symmetry_record`] on this family (integer momentum check); used only for rules with `sym_rows`.
+    sym: HashMap<String, Vec<Vec<Option<usize>>>>,
+}
+
+/// Exact symmetry rows `I(y) - I(g y)` at a chart key `y` (every chart line >= 1, every nonzero slot mapped).
+fn sym_rows_at(y: &[i64], chart: &str, actions: &[Vec<Option<usize>>]) -> Vec<(Key, Key)> {
+    let lines: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+    if lines.len() != y.len() || y.iter().zip(&lines).any(|(v, l)| *l && *v < 1) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for act in actions {
+        let mut img = vec![0i64; y.len()];
+        let mut ok = true;
+        for (i, &v) in y.iter().enumerate() {
+            if v == 0 {
+                continue;
+            }
+            match act.get(i).copied().flatten() {
+                Some(t) if t < y.len() => img[t] = v,
+                _ => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok && img != y {
+            out.push((y.to_vec(), img));
+        }
+    }
+    out
 }
 
 fn replay_rule(
@@ -1496,8 +1540,34 @@ fn replay_point(
         .iter()
         .map(|(_, c)| Expr::parse(c, n))
         .collect::<Result<_, _>>()?;
+    // sym-gen step 2: a rule whose trace used exact symmetry rows is replayed on ALL original IBPs plus the exact
+    // symmetry rows of the table's verified group at its exported seeds (its cand dump names no basis row for them)
+    let sym_rows = rule.raw["sym_rows"].as_u64().unwrap_or(0);
+    let used_sym = sym_rows > 0;
+    let sym_actions: Option<&[Vec<Option<usize>>]> = if sym_rows > 0 {
+        Some(
+            ctx.sym
+                .get(&rule.chart)
+                .filter(|v| !v.is_empty())
+                .ok_or("rule uses symmetry rows but the table has no verified symmetry_group for its chart")?
+                .as_slice(),
+        )
+    } else {
+        None
+    };
+    let no_dump: Option<PathBuf> = None;
+    let dump_dir = if sym_rows > 0 { &no_dump } else { &ctx.args.cand_dump_dir };
+    let b_sup = if sym_rows > 0 {
+        let mut c = b.clone();
+        if let Some(o) = c.as_object_mut() {
+            o.remove("cand_dump");
+        }
+        c
+    } else {
+        b.clone()
+    };
     let (rc, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(|(rc, a)| {
-        support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (rc, a, s, m))
+        support(rule, &b_sup, dump_dir, n, ctx.cert).map(|(s, m)| (rc, a, s, m))
     }) {
         Ok(x) => x,
         Err(e) if e.starts_with("missing symbolic raw pivot/recenter") && rule.direct_hit => {
@@ -1527,7 +1597,7 @@ fn replay_point(
         for (k, v) in rhskeys.iter().zip(&values) {
             addto(&mut desired, k.clone(), arith::neg(P, *v));
         }
-        let built = rows_for(&sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart)?;
+        let built = rows_for(&sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart, sym_actions)?;
         let mut universe = built.universe.clone();
         universe.insert(target.clone());
         universe.extend(rhskeys.iter().cloned());
@@ -1603,7 +1673,7 @@ fn replay_point(
     Ok(json!({
         "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
         "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
-        "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
+        "support_kind": sup.kind(), "support": supp_meta, "symmetry_rows": used_sym, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
     }))
 }
 
@@ -1765,6 +1835,7 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
         let mut charts: HashMap<String, Value> = HashMap::new();
         let mut rules: Vec<Rule> = Vec::new();
         let mut syms: Vec<Value> = Vec::new();
+        let mut groups: Vec<Value> = Vec::new();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             let r: Value = serde_json::from_str(line).map_err(|e| format!("table json: {e}"))?;
             match r["type"].as_str() {
@@ -1786,6 +1857,9 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
                     if chart_ok && args.rules.as_ref().is_none_or(|w| w.contains(&idx)) {
                         rules.push(rule_from(&r)?);
                     }
+                }
+                Some("symmetry_group") => {
+                    groups.push(r);
                 }
                 Some("sym") | Some("sym_zero") => {
                     let idx = r["index"].as_u64().unwrap_or(u64::MAX) as usize;
@@ -1847,11 +1921,36 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
                 Ok((ds.clone(), q.modp(P).ok_or("dimension pole")?, q))
             })
             .collect::<Result<_, Unknown>>()?;
+        // sym-gen step 2: verify every element of each symmetry_group record on the family (as a record with the
+        // unmapped slots fixed at 0: the rows use an element only on keys with zero power there)
+        let mut sym: HashMap<String, Vec<Vec<Option<usize>>>> = HashMap::new();
+        for g in &groups {
+            let chart = g["chart"].as_str().unwrap_or_default().to_string();
+            let mut ok = Vec::new();
+            for e in g.pointer("/group/elements").and_then(Value::as_array).into_iter().flatten() {
+                let action = e["action"].clone();
+                let fixed: Vec<Value> = action
+                    .as_array()
+                    .map(|a| a.iter().map(|x| if x.is_null() { json!(0) } else { Value::Null }).collect())
+                    .unwrap_or_default();
+                let rec = json!({"type": "sym", "matrix": e["matrix"], "action": action, "chart": chart, "fixed": fixed});
+                if check_symmetry_record(&rec, &f).is_ok() {
+                    ok.push(
+                        action
+                            .as_array()
+                            .map(|a| a.iter().map(|x| x[0].as_u64().map(|t| t as usize)).collect())
+                            .unwrap_or_default(),
+                    );
+                }
+            }
+            sym.insert(chart, ok);
+        }
         let ctx = Ctx {
             args,
             f: &f,
             cert: cert.as_ref(),
             dims,
+            sym,
         };
         let mut recs = Vec::new();
         for rule in &rules {

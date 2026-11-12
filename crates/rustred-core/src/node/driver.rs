@@ -616,6 +616,13 @@ pub struct NodeOptions {
     /// record; such cases are never searched. The group goes into a `"type":"symmetry_group"` record.
     #[serde(default, skip_serializing_if = "is_false")]
     pub symmetry: bool,
+    /// sym-gen step 2 (2026-11-12, default off; notes/sym-gen.md): EXACT one-term symmetry rows `I(a) - s I(g a)`
+    /// of the chart's authenticated group, added at every seed of the shared numeric bulk solve next to its IBP rows
+    /// (same modular reducer, same exact union replay). The exhausted endpoints then end on masters modulo IBP and
+    /// symmetry (within the seed depth). Rules whose trace uses such rows carry `"sym_rows":K`; the group goes into a
+    /// `"type":"symmetry_group"` record. Independent of `symmetry` (no records, no forms needed).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub symmetry_rows: bool,
 }
 
 fn lease_wait() -> u64 {
@@ -728,6 +735,7 @@ impl Default for NodeOptions {
             slim_rules: false,
             region: None,
             symmetry: false,
+            symmetry_rows: false,
         }
     }
 }
@@ -887,6 +895,13 @@ pub struct NodeOutcome {
     pub sym_numeric: usize,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub sym_zeros: usize,
+    /// sym-gen step 2: symmetry rows generated / independent in the shared bulk solve, and its rules using them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_rows: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_rows_independent: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_row_rules: usize,
     pub not_lower: Vec<String>,
     pub stop: Option<StopReason>,
     pub seconds: f64,
@@ -1450,13 +1465,24 @@ fn write_rule<const N: usize>(
         .map(|t| if t.len() > 4000 { "elided".to_string() } else { t })
         .collect();
     let opt = |v: &Option<Vec<i16>>| v.as_ref().map_or("null".to_string(), |v| format!("{v:?}"));
+    // sym-gen step 2: number of exact symmetry rows in the rule's trace (field absent when 0: off tables unchanged)
+    let sym_rows = c
+        .sources
+        .iter()
+        .filter(|s| s.basis_row == crate::solver::SYMMETRY_ROW)
+        .count();
+    let sym_field = if sym_rows > 0 {
+        format!(",\"sym_rows\":{sym_rows}")
+    } else {
+        String::new()
+    };
     let raw = x
         .raw_pivot
         .as_ref()
         .map_or("null".to_string(), |v| format!("{v:?}"));
     writeln!(
         f,
-        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{}}}",
+        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{}{sym_field}}}",
         q(chart),
         q(&format!("{:?}", c.case)),
         fixed.join(","),
@@ -2448,6 +2474,26 @@ fn run<const N: usize>(
         Some((group, forms))
     } else {
         None
+    };
+    // sym-gen step 2: the group for exact symmetry rows in the shared bulk solve (no order forms needed)
+    let row_group: Option<super::symmetry::NodeGroup> = if !opts.symmetry_rows {
+        None
+    } else if let Some((g, _)) = symmetry.as_ref() {
+        Some(g.clone())
+    } else {
+        let chart: Vec<bool> = base[..n].to_vec();
+        let t = Instant::now();
+        let group = super::symmetry::node_group(presented, &chart)?;
+        writeln!(
+            out,
+            "{{\"type\":\"symmetry_group\",\"chart\":{},\"seconds\":{:.3},\"rows\":true,\"group\":{}}}",
+            q(&label),
+            t.elapsed().as_secs_f64(),
+            group.to_json()
+        )
+        .map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        Some(group)
     };
     // a symmetry / zero record for a case (fixed values) the group decides; `None` when it decides nothing
     let sym_record = |spec: &CaseSpec, index: usize, numerical: bool| -> Option<(String, bool)> {
@@ -4690,9 +4736,40 @@ fn run<const N: usize>(
         if error.is_none() && stop.is_none() && !exhausted.is_empty() {
             outcome.numeric_bulk_fallback = exhausted.len();
             let visit = node_source.visit(nb);
-            match solver.solve_numeric_cases_with_source_order(exhausted, options, visit.as_deref())
+            // sym-gen step 2: exact images of a chart key (every chart line >= 1; subsector seeds get no rows)
+            let chart_lines: Vec<bool> = base[..n].to_vec();
+            let images = |a: &Integral<N>| -> Vec<(Integral<N>, bool)> {
+                let Some(group) = row_group.as_ref() else {
+                    return Vec::new();
+                };
+                let p = a.powers();
+                if (0..n).any(|i| chart_lines[i] && p[i].value() < 1) || p[..n].iter().any(|x| x.is_symbolic()) {
+                    return Vec::new();
+                }
+                let key: Vec<i64> = p[..n].iter().map(|x| i64::from(x.value())).collect();
+                group
+                    .elements
+                    .iter()
+                    .filter_map(|e| e.image(&key))
+                    .filter_map(|(img, negative)| {
+                        let mut powers = *p;
+                        for i in 0..n {
+                            powers[i] = crate::solver::Power::new(false, img[i] as i16).ok()?;
+                        }
+                        Some((Integral::new(powers), negative))
+                    })
+                    .collect()
+            };
+            let images_dyn: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>> =
+                row_group.as_ref().map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);
+            match solver.solve_numeric_cases_with_symmetry(exhausted, options, visit.as_deref(), images_dyn)
             {
                 Ok(result) => {
+                    outcome.sym_rows = result.stats.symmetry_rows;
+                    outcome.sym_rows_independent = result.stats.symmetry_rows_independent;
+                    if row_group.is_some() {
+                        writeln!(qlog, "{{\"type\":\"sym_rows\",\"rows\":{},\"independent\":{},\"seeds\":{},\"ibp_rows\":{},\"rules\":{},\"residuals\":{}}}", result.stats.symmetry_rows, result.stats.symmetry_rows_independent, result.stats.seeds, result.stats.rows, result.rules.len(), result.residuals.len()).map_err(|e| e.to_string())?;
+                    }
                     // Check the entire returned batch before exporting any shared-solve rule.
                     if let Some(ledger) = &terminal_ledger {
                         for candidate in &result.rules {
@@ -4724,6 +4801,9 @@ fn run<const N: usize>(
                     }
                     if error.is_none() {
                         for candidate in result.rules {
+                            if candidate.sources.iter().any(|s| s.basis_row == crate::solver::SYMMETRY_ROW) {
+                                outcome.sym_row_rules += 1;
+                            }
                             let nl: Vec<String> = candidate
                                 .rhs
                                 .iter()
@@ -4992,7 +5072,7 @@ fn run<const N: usize>(
     } else {
         String::new()
     };
-    let sym_fields = if opts.symmetry {
+    let mut sym_fields = if opts.symmetry {
         format!(
             ",\"sym_rules\":{},\"sym_numeric\":{},\"sym_zeros\":{}",
             outcome.sym_rules, outcome.sym_numeric, outcome.sym_zeros
@@ -5000,6 +5080,12 @@ fn run<const N: usize>(
     } else {
         String::new()
     };
+    if opts.symmetry_rows {
+        sym_fields.push_str(&format!(
+            ",\"sym_rows\":{},\"sym_rows_independent\":{},\"sym_row_rules\":{}",
+            outcome.sym_rows, outcome.sym_rows_independent, outcome.sym_row_rules
+        ));
+    }
     writeln!(
         out,
         "{{\"type\":\"{chart_record}\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches_total},\"residuals\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{},\"discarded_cases\":{discarded},\"finite_case_policy\":\"node-queue\",\"deferred_cases\":0,\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions}{sym_fields}}}",
@@ -6767,6 +6853,60 @@ mod tests {
             serde_json::to_value(serde_json::from_value::<NodeOptions>(legacy).unwrap()).unwrap(),
             serde_json::to_value(NodeOptions::default()).unwrap()
         );
+    }
+
+    #[test]
+    fn symmetry_rows_in_the_shared_solve_identify_symmetric_endpoints_and_replay() {
+        // sym-gen step 2: the three single-dot sunset endpoints form one orbit of the chart group (line permutations,
+        // exact on ISP-free keys). At depth 0 the per-point search has no relation; the shared solve with exact
+        // symmetry rows leaves at most one of them, every rule replays on IBP + verified symmetry rows.
+        let points: Vec<CaseSpec> = [[2, 1, 1], [1, 2, 1], [1, 1, 2]]
+            .iter()
+            .map(|p| CaseSpec {
+                fixed: vec![Some(p[0]), Some(p[1]), Some(p[2]), Some(0), Some(0)],
+                equations: vec![],
+            })
+            .collect();
+        let base = NodeOptions {
+            initial: points,
+            numeric_depth: 0,
+            ..quiet()
+        };
+        let off_dir = tmp("symrows-off");
+        let off = generate(SUNSET, "sunset.sym", &off_dir, &base, &mut |_| {}).unwrap();
+        assert!(off.complete, "{off:?}");
+        assert_eq!(off.numeric_bulk_fallback, 3);
+        assert_eq!(off.sym_rows, 0);
+        let off_table = std::fs::read_to_string(&off.table).unwrap();
+        assert!(!off_table.contains("symmetry_group") && !off_table.contains("sym_rows"));
+        let on_dir = tmp("symrows-on");
+        let on = generate(
+            SUNSET,
+            "sunset.sym",
+            &on_dir,
+            &NodeOptions {
+                symmetry_rows: true,
+                ..base.clone()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(on.complete, "{on:?}");
+        assert!(on.sym_rows > 0 && on.sym_rows_independent > 0, "{on:?}");
+        assert!(on.residuals <= off.residuals, "{on:?} {off:?}");
+        let dotted = on
+            .residual_keys
+            .iter()
+            .filter(|k| k.contains('2'))
+            .count();
+        assert!(dotted <= 1, "{:?}", on.residual_keys);
+        assert!(on.sym_row_rules > 0, "{on:?}");
+        assert!(on.not_lower.is_empty());
+        let table = std::fs::read_to_string(&on.table).unwrap();
+        assert!(table.contains("\"type\":\"symmetry_group\"") && table.contains("\"sym_rows\":"));
+        assert_eq!(replay_status(&on_dir, &on.table), "PASS_RS2_RS3_SAMPLED");
+        let _ = std::fs::remove_dir_all(off_dir);
+        let _ = std::fs::remove_dir_all(on_dir);
     }
 
     #[test]
