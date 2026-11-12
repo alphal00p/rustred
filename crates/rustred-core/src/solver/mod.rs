@@ -22,6 +22,7 @@ mod instantiate;
 pub mod litered;
 mod numeric;
 mod precondition;
+pub mod region_probe;
 mod row;
 mod search;
 mod sector;

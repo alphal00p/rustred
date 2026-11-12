@@ -220,6 +220,13 @@ pub struct NodeOptions {
     /// queue reads only case and exceptional branches of earlier rules).
     #[serde(default)]
     pub slim_rules: bool,
+    /// Region-restricted run (t266-regions): the conjunction (PRESENTED `n<i>`, `= 0`) of ONE deferred region whose
+    /// chart is the run's initial case. The modular discovery point of every case search is placed on the region
+    /// (solver::region_probe), so the first-hit search selects a pivot that does not vanish there, and every
+    /// exceptional branch is intersected together with the region (children stay inside it). The run then owns that
+    /// region only (`F.obligations.json` `region`), not its whole chart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<Vec<String>>,
 }
 
 fn lease_wait() -> u64 {
@@ -318,6 +325,7 @@ impl Default for NodeOptions {
             pool: None,
             case_seed_rung: None,
             slim_rules: false,
+            region: None,
         }
     }
 }
@@ -872,7 +880,8 @@ pub(super) fn parse_index_poly(
         let mut m = template.one();
         for f in body.split('*') {
             if f.chars().all(|x| x.is_ascii_digit()) && !f.is_empty() {
-                c = &c * &symbolica::domains::integer::Integer::from(f.parse::<i64>().ok()?);
+                // arbitrary precision: deferred-region polynomials carry coefficients beyond i64 (t266-regions)
+                c = &c * &f.parse::<symbolica::domains::integer::Integer>().ok()?;
             } else {
                 let (name, e) = match f.split_once('^') {
                     Some((a, b)) => (a, b.parse::<u32>().ok()?),
@@ -1917,6 +1926,20 @@ fn run<const N: usize>(
         .ok_or("empty source system")?
         .coefficient
         .clone();
+    // region-restricted run: the region's polynomials in the source system's coefficient map
+    let region_polys: Vec<CoefficientPolynomial> = match &opts.region {
+        None => Vec::new(),
+        Some(conj) => conj
+            .iter()
+            .map(|e| {
+                parse_index_poly(e, &template, &idx).ok_or_else(|| format!("--region polynomial {e}"))
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    crate::solver::region_probe::set_region((!region_polys.is_empty()).then(|| region_polys.clone()));
+    if let Some(conj) = &opts.region {
+        writeln!(qlog, "{{\"type\":\"region_run\",\"conjunction\":{}}}", strings(conj.iter())).map_err(|e| e.to_string())?;
+    }
     // certificate file: header, original source rows, basis derivation (replay authority for retained traces)
     let mut cert = std::io::BufWriter::new(
         std::fs::File::create(out_dir.join("F.cert.jsonl")).map_err(|e| format!("cert: {e}"))?,
@@ -3484,6 +3507,17 @@ fn run<const N: usize>(
         // exceptional children
         let mut children: Vec<Case<N>> = Vec::new();
         for (bi, branch) in rule.exceptions.branches.iter().enumerate() {
+            // region-restricted run: the child lives on branch AND region; record whether the branch vanishes at
+            // the region point the search used (false = this branch cannot contain the region's component there)
+            let restricted: Vec<CoefficientPolynomial>;
+            let branch: &Vec<CoefficientPolynomial> = if region_polys.is_empty() {
+                branch
+            } else {
+                let at = crate::solver::region_probe::vanishes_at_last(branch);
+                writeln!(qlog, "{{\"type\":\"region_branch\",\"rule\":{index},\"branch\":{bi},\"vanishes_at_region_point\":{}}}", at.map_or("null".to_string(), |b| b.to_string())).map_err(|e| e.to_string())?;
+                restricted = branch.iter().chain(region_polys.iter()).cloned().collect();
+                &restricted
+            };
             let nonlinear = branch.iter().any(|p| max_total_degree(p) >= 2);
             if let Some(secs) = opts.admit_try.filter(|_| opts.gsplit && nonlinear) {
                 out.flush().map_err(|e| e.to_string())?;
@@ -3951,6 +3985,7 @@ fn run<const N: usize>(
             rules: rules.len() + adopted_rules,
             residual_keys: residual_keys.clone(),
             source: out_dir.display().to_string(),
+            region: opts.region.clone(),
         };
         record.write(&out_dir.join("F.obligations.json"))?;
         if let Some(reg) = registry.as_mut() {

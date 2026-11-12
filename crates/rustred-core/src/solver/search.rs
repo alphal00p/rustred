@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
+use symbolica::domains::finite_field::{FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::prelude::{Field, Integer, Ring};
 
 use super::discovery::{Discovery, DiscoveryStats, exact_materialize_using_with_observer};
@@ -623,7 +623,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     continue;
                 }
                 let active_probe = probe.get_or_insert_with(|| {
-                    Probe::new(self.order.clone(), self.system.variable_count, options)
+                    let mut p = Probe::new(self.order.clone(), self.system.variable_count, options);
+                    p.place_on_region(&case, &self.system.indices, options.sample_seed);
+                    p
                 });
                 let modular_row = active_probe.evaluate(&row)?;
                 if let Some(pivot) = active_probe.discovery.add_row(&modular_row) {
@@ -790,6 +792,34 @@ impl<const N: usize> Probe<N> {
             discovery: Discovery::new(order, field.clone()),
             field,
             point,
+        }
+    }
+
+    /// Region-restricted run (t266-regions): move the discovery point onto the run's region intersected with
+    /// `case` (fixed slots, affine equations); unchanged when no region is installed or no Zp point is found.
+    pub(super) fn place_on_region(&mut self, case: &Case<N>, indices: &[usize; N], seed: u64) {
+        let Some(mut system) = super::region_probe::region() else {
+            return;
+        };
+        let Some(template) = system.first().cloned() else {
+            return;
+        };
+        let vars = template.variables();
+        for (axis, value) in case.fixed().iter().enumerate() {
+            if let Some(value) = value {
+                if let Ok(x) = template.variable(&vars[indices[axis]]) {
+                    system.push(&x - &template.constant(Integer::from(*value)));
+                }
+            }
+        }
+        if let Some(affine) = case.affine() {
+            system.extend(affine.equations().iter().cloned());
+        }
+        if let Some(point) =
+            super::region_probe::region_point(&system, &self.point, &self.field, seed)
+        {
+            self.point = point;
+            super::region_probe::record_point(self.field.get_prime(), &self.point, &self.field);
         }
     }
 

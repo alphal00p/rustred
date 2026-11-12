@@ -323,6 +323,21 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.initial_presented = serde_json::from_str(&read(&f))
             .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
     }
+    // t266-regions: a region-restricted run on ONE deferred region {chart (PRESENTED), conjunction}; the chart is
+    // added to the initial cases and the run owns that region only
+    if let Some(f) = a.take("--region") {
+        let v: serde_json::Value = serde_json::from_str(&read(&f))
+            .unwrap_or_else(|e| die(&format!("--region {f}: {e}")));
+        let chart: rustred::node::driver::CaseSpec = serde_json::from_value(v["chart"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: chart: {e}")));
+        let conj: Vec<String> = serde_json::from_value(v["conjunction"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: conjunction: {e}")));
+        if conj.is_empty() {
+            die(&format!("--region {f}: empty conjunction"));
+        }
+        o.initial_presented.push(chart);
+        o.region = Some(conj);
+    }
     if let Some(v) = a.take("--case-seed-rung") {
         o.case_seed_rung = Some(
             parse_case_seed_schedule(&v, rustred::node::order::family_props(family).len())
