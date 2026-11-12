@@ -18,6 +18,12 @@
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
 //!   P_RSS_LIMIT_GB=x        run the request inside a Symbolica ResourceBudget with that RSS ceiling (as vakint)
+//!   P_STEP_CACHE=mem|<dir>  give the request(s) an Ordered step cache: `mem` an empty in-memory cache
+//!                           (populated by the cold request, replayed by a P_WARM request, as vakint's
+//!                           warm-same), `<dir>` a cache directory (e.g. a shipped one), read-only unless
+//!                           P_STEP_CACHE_POPULATE=1; statistics in step_cache.json
+//!   RUSTRED_FWD_PROFILE=1|2 (feature `fwd-profile`) the built-in phase timer: fwd_profile.json (cold) and
+//!                           fwd_profile_warm.json (P_WARM); 2 also times every allocator call
 //!
 //! Writes into <out dir>: inputs.tsv, phases.jsonl, preduction.txt (rustred.p-reduction.canonical.v1,
 //! the T-VAL golden format, `p_path_census/canonical.rs`), summary.json, and with the census on:
@@ -49,9 +55,62 @@ mod canonical;
 // mimalloc as its global allocator (and, through the crate's `override`
 // feature, as the process C malloc), as the `rustred` binary does (N3).
 // On by default since M5 batch 2; `alloc-count` replaces it.
-#[cfg(all(feature = "mimalloc", not(feature = "alloc-count")))]
+#[cfg(all(
+    feature = "mimalloc",
+    not(feature = "alloc-count"),
+    not(feature = "fwd-profile")
+))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// fwd-profile: mimalloc with the phase timer's allocator hooks (counts at
+// level 1, counts and time at level 2; nothing while the timer is stopped).
+#[cfg(all(
+    feature = "mimalloc",
+    feature = "fwd-profile",
+    not(feature = "alloc-count")
+))]
+mod prof_alloc {
+    use rustred::prof;
+    use std::alloc::{GlobalAlloc, Layout};
+    pub struct Profiled;
+    // SAFETY: forwards every call to mimalloc unchanged; the hooks never allocate.
+    unsafe impl GlobalAlloc for Profiled {
+        #[inline]
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            prof::alloc_event(0, layout.size());
+            let entered = prof::alloc_enter();
+            let p = unsafe { mimalloc::MiMalloc.alloc(layout) };
+            prof::alloc_exit(entered);
+            p
+        }
+        #[inline]
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            prof::alloc_event(0, layout.size());
+            let entered = prof::alloc_enter();
+            let p = unsafe { mimalloc::MiMalloc.alloc_zeroed(layout) };
+            prof::alloc_exit(entered);
+            p
+        }
+        #[inline]
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            prof::alloc_event(1, 0);
+            let entered = prof::alloc_enter();
+            unsafe { mimalloc::MiMalloc.dealloc(ptr, layout) };
+            prof::alloc_exit(entered);
+        }
+        #[inline]
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            prof::alloc_event(2, new_size);
+            let entered = prof::alloc_enter();
+            let p = unsafe { mimalloc::MiMalloc.realloc(ptr, layout, new_size) };
+            prof::alloc_exit(entered);
+            p
+        }
+    }
+    #[global_allocator]
+    static GLOBAL: Profiled = Profiled;
+}
 
 // rr-frontier: with the opt-in `alloc-count` feature, the probe counts its
 // Rust heap allocations over the system allocator (alloc_count.json).
@@ -661,13 +720,67 @@ fn main() {
         }
         alloc_sites::ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    // P_STEP_CACHE=mem|<dir>: an Ordered step cache for the request(s).
+    let step_cache = std::env::var("P_STEP_CACHE").ok().map(|spec| {
+        let binding = library.step_cache_binding().expect("step cache binding");
+        let options = rustred::reduction::OrderedStepCacheOptions {
+            populate: spec == "mem" || flag("P_STEP_CACHE_POPULATE"),
+            ..Default::default()
+        };
+        if spec == "mem" {
+            rustred::reduction::OrderedStepCache::in_memory(binding, options)
+        } else {
+            rustred::reduction::OrderedStepCache::open(&spec, binding, options)
+                .expect("open the step cache")
+        }
+    });
+    let step_cache_stats = |label: &str| {
+        if let Some(cache) = &step_cache {
+            let s = cache.statistics();
+            serde_json::json!({"after": label, "records": s.records, "hits": s.hits,
+                "misses": s.misses, "inserts": s.inserts, "skipped_inserts": s.skipped_inserts,
+                "resident_bytes": s.resident_bytes, "load_seconds": s.load_seconds,
+                "loaded_shards": s.loaded_shards, "rejected_shards": s.rejected_shards})
+        } else {
+            serde_json::Value::Null
+        }
+    };
+    // RUSTRED_FWD_PROFILE=1|2 (feature fwd-profile): the built-in phase timer.
+    #[cfg(feature = "fwd-profile")]
+    let fwd_profile: Option<u8> = std::env::var("RUSTRED_FWD_PROFILE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&v| v > 0);
+    #[cfg(feature = "fwd-profile")]
+    if let Some(level) = fwd_profile {
+        rustred::prof::start(level);
+        rustred::prof::reset();
+    }
+    #[cfg(feature = "fwd-profile")]
+    let fwd_write = |name: &str, seconds: f64, cpu: f64, extra: serde_json::Value| {
+        if fwd_profile.is_some() {
+            let mut report = rustred::prof::report();
+            report["reduce_seconds"] = seconds.into();
+            report["reduce_cpu_seconds"] = cpu.into();
+            report["threads"] = threads.into();
+            report["step_cache"] = extra;
+            std::fs::write(
+                out.join(name),
+                serde_json::to_string_pretty(&report).unwrap(),
+            )
+            .unwrap();
+            rustred::prof::reset();
+        }
+    };
     let t_reduce = Instant::now();
     let cpu_before_reduce = cpu_seconds();
+    #[cfg(feature = "fwd-profile")]
+    let root = rustred::prof::Scope::enter(rustred::prof::Cat::Root);
     let request = PReductionRequest {
         inputs: inputs.clone(),
         arithmetic: arithmetic(arith, threads),
         scheduler: OrderedSchedulerOptions::with_threads(threads),
-        step_cache: None,
+        step_cache: step_cache.clone(),
         uncovered: PUncoveredPolicy::Reject,
         onto_masters: true,
         limits: ReductionLimits::default(),
@@ -677,8 +790,18 @@ fn main() {
         Some(budget) => budget.run(|| library.reduce(request)),
         None => library.reduce(request),
     };
+    #[cfg(feature = "fwd-profile")]
+    drop(root);
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
     let reduce_cpu_seconds = cpu_seconds() - cpu_before_reduce;
+    #[cfg(feature = "fwd-profile")]
+    fwd_write(
+        "fwd_profile.json",
+        reduce_seconds,
+        reduce_cpu_seconds,
+        step_cache_stats("cold"),
+    );
+    let cold_cache_stats = step_cache_stats("cold");
     #[cfg(feature = "alloc-sites")]
     alloc_sites::dump(&out);
     #[cfg(feature = "alloc-count")]
@@ -691,18 +814,29 @@ fn main() {
     let warm_seconds = flag("P_WARM").then(|| {
         let t_warm = Instant::now();
         let cpu_before_warm = cpu_seconds();
+        #[cfg(feature = "fwd-profile")]
+        let root = rustred::prof::Scope::enter(rustred::prof::Cat::Root);
         let warm = library.reduce(PReductionRequest {
             inputs: inputs.clone(),
             arithmetic: arithmetic(arith, threads),
             scheduler: OrderedSchedulerOptions::with_threads(threads),
-            step_cache: None,
+            step_cache: step_cache.clone(),
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: true,
             limits: ReductionLimits::default(),
             inspector: None,
         });
+        #[cfg(feature = "fwd-profile")]
+        drop(root);
         let seconds = t_warm.elapsed().as_secs_f64();
         warm_cpu_seconds = Some(cpu_seconds() - cpu_before_warm);
+        #[cfg(feature = "fwd-profile")]
+        fwd_write(
+            "fwd_profile_warm.json",
+            seconds,
+            warm_cpu_seconds.unwrap_or(0.0),
+            step_cache_stats("warm"),
+        );
         if let (Ok(cold), Ok(warm)) = (&result, &warm) {
             assert_eq!(
                 canonical::canonical_text(cold),
@@ -732,6 +866,16 @@ fn main() {
         vmhwm as f64 / 1048576.0
     );
 
+    if step_cache.is_some() {
+        std::fs::write(
+            out.join("step_cache.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "cold": cold_cache_stats, "end": step_cache_stats("end"),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
         "census": census_on, "orbit_canonicalization": orbit_canon, "orbit_prefer_high": prefer_high, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,

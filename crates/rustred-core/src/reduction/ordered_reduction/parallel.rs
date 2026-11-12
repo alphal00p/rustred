@@ -658,6 +658,7 @@ where
         'a: 'scope,
     {
         let (detached, found) = self.budget.run_captured(|| {
+            crate::prof!(Source);
             let _timer = self
                 .counters
                 .map(|counters| CpuTimer::new(&counters.step_nanos));
@@ -871,6 +872,7 @@ where
         roots,
         counters.as_ref(),
         |parent, _, mut step, found| {
+            crate::prof!(Prestage);
             let mut below = Vec::new();
             let mut positions = Vec::new();
             if prep.children {
@@ -881,7 +883,7 @@ where
                 if later && !prep.children {
                     continue;
                 }
-                let position = stepper.position(child).ok();
+                let position = crate::prof_wrap!(Position, stepper.position(child)).ok();
                 if !later && let Some(position) = &position {
                     if at_or_above(position, child, &threshold) {
                         found.push((child.clone(), position.clone()));
@@ -908,7 +910,10 @@ where
                     .chain(step.terminals.values())
                     .zip(&hashes)
                     .map(|(coefficient, &hash)| {
-                        (table.id(coefficient, hash), coefficient.is_zero())
+                        (
+                            crate::prof_wrap!(Intern, table.id(coefficient, hash)),
+                            coefficient.is_zero(),
+                        )
                     })
                     .collect(),
                 None => Vec::new(),
@@ -1162,7 +1167,7 @@ where
             && phase == node.phase.0
         {
             let waited = stats.then(std::time::Instant::now);
-            let computed = receiver.recv().ok().flatten();
+            let computed = crate::prof_wrap!(Wait, receiver.recv().ok().flatten());
             if let Some(waited) = waited {
                 super::parstats::SOURCE
                     .wait_nanos

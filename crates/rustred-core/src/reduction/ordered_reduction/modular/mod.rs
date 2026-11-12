@@ -651,6 +651,7 @@ impl SharedIntern {
             return (index << INTERN_SHARD_BITS) | shard as u32;
         }
         // A new value: validate and evaluate outside the lock.
+        crate::prof!(InternNew);
         let probe = self
             .context
             .validate_with_limits(coefficient, self.limits)
@@ -831,6 +832,7 @@ impl ModularRecorder {
         }) {
             return Ok(self.entry_refs[index as usize]);
         }
+        crate::prof!(InternNew);
         let (constant, values) = entry.probe.clone()?;
         self.push_new(&entry.coefficient, entry.hash, constant, values)
     }
@@ -891,6 +893,7 @@ impl ModularRecorder {
         }
         // Validation depends only on the value, so one check per distinct
         // coefficient covers every occurrence.
+        crate::prof!(InternNew);
         self.context
             .validate_with_limits(coefficient, self.limits)
             .map_err(ReductionError::from)?;
@@ -949,6 +952,7 @@ impl ModularRecorder {
         terms: BTreeMap<IntegralKey, ModularWeight>,
         composer: Option<&dyn OrderedTerminalComposer>,
     ) -> Result<(Finished, ModularStatistics), ReductionError> {
+        crate::prof!(FinPrepare);
         let record_seconds = self.started.elapsed().as_secs_f64();
         let prepare = Instant::now();
         let constant_total = self.constant_count as usize;
@@ -986,13 +990,16 @@ impl ModularRecorder {
             }
         }
         let factoring = Instant::now();
-        let mut builder = BasisBuilder::default();
-        for coefficient in factored.into_iter().flatten() {
-            // Factoring a denominator is a CAS call: one checkpoint each.
-            symbolica::utils::resources::checkpoint()?;
-            builder.push(coefficient)?;
-        }
-        let basis = builder.finish();
+        let basis = {
+            crate::prof!(FinFactor);
+            let mut builder = BasisBuilder::default();
+            for coefficient in factored.into_iter().flatten() {
+                // Factoring a denominator is a CAS call: one checkpoint each.
+                symbolica::utils::resources::checkpoint()?;
+                builder.push(coefficient)?;
+            }
+            builder.finish()
+        };
         let factor_seconds = factoring.elapsed().as_secs_f64();
         let trace = Trace {
             ops: self.ops,
@@ -1141,7 +1148,7 @@ impl ModularRecorder {
             };
         let attempt = Instant::now();
         let before = program.is_some().then(|| statistics.clone());
-        let mut lifted = lift_with(program.as_ref(), &mut statistics);
+        let mut lifted = crate::prof_wrap!(FinLift, lift_with(program.as_ref(), &mut statistics));
         let mut labels = labels;
         // A composed lift that fails closed (its prime or point budget, or
         // any other `ModularWeights` failure) lifts the raw terminals once

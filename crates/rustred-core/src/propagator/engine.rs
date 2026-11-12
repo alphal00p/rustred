@@ -689,6 +689,7 @@ pub(super) fn merge<K: Ord>(
     coefficient: Coefficient,
 ) -> Result<(), PError> {
     use std::collections::btree_map::Entry;
+    crate::prof!(StepMerge);
     if coefficient.is_zero() {
         return Ok(());
     }
@@ -697,9 +698,11 @@ pub(super) fn merge<K: Ord>(
             entry.insert(coefficient);
         }
         Entry::Occupied(mut entry) => {
-            let sum = context
-                .try_add(entry.get(), &coefficient, limits.exact_algebra)
-                .map_err(algebra)?;
+            let sum = crate::prof_wrap!(
+                StepAdd,
+                context.try_add(entry.get(), &coefficient, limits.exact_algebra)
+            )
+            .map_err(algebra)?;
             if sum.is_zero() {
                 entry.remove();
             } else {
@@ -1153,6 +1156,7 @@ impl<'l> PStepper<'l> {
         presentation: PresentationId,
         view: &PView,
     ) -> Result<OrderedStep<PKey>, PError> {
+        crate::prof!(RouteStep);
         let engine = self.engine;
         let slots = view.slots();
         let (powers, tag_slots) = engine.split(presentation, &slots)?;
@@ -1192,6 +1196,7 @@ impl<'l> PStepper<'l> {
                 ))
             })?
             .get_or_init(|| {
+                crate::prof!(RouteCompile);
                 restored_route(self.library, source, target, map, support, owner.support)
                     .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
             })
@@ -1220,6 +1225,7 @@ impl<'l> PStepper<'l> {
                 }
             };
         let direct = |terms: &mut BTreeMap<PKey, Coefficient>| -> Result<(), PError> {
+            crate::prof!(RouteTransport);
             let key = IntegralKey::try_from_preallocated(powers.to_vec())
                 .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
             let mapped = prepared.transport(&key, limits)?;
@@ -1249,7 +1255,10 @@ impl<'l> PStepper<'l> {
         memo_key.push(i64::from(presentation.0));
         memo_key.push(support as i64);
         memo_key.extend(powers.iter().map(|&p| p.min(0)));
+        #[cfg(feature = "fwd-profile")]
+        let memo_scope = crate::prof::Scope::enter(crate::prof::Cat::MemoRoute);
         let expansion = super::step_memo::route(&memo_key, self.limits.exact_algebra, || {
+            crate::prof!(RouteTransport);
             let numerator: Vec<i64> = powers.iter().map(|&p| p.min(0)).collect();
             let mut base = Vec::new();
             prepared.layered_base_powers(&numerator, &mut base)?;
@@ -1271,6 +1280,8 @@ impl<'l> PStepper<'l> {
             }
             Ok((base.len(), offsets, coefficients))
         })?;
+        #[cfg(feature = "fwd-profile")]
+        drop(memo_scope);
         let Some(expansion) = expansion else {
             direct(&mut step.terms)?;
             return Ok(step);
@@ -1284,6 +1295,7 @@ impl<'l> PStepper<'l> {
         }
         let mut target: SmallVec<[i64; 24]> = SmallVec::new();
         super::step_memo::coefficients_of(&expansion, |values| -> Result<(), PError> {
+            crate::prof!(RouteChildren);
             for (relative, &coefficient) in expansion
                 .offsets
                 .chunks(expansion.arity.max(1))
@@ -1313,6 +1325,7 @@ impl<'l> PStepper<'l> {
     }
 
     fn apply_step(&self, class: OwnerClassId, view: &PView) -> Result<OrderedStep<PKey>, PError> {
+        crate::prof!(ApplyStep);
         let slot = self.engine.owner(class)?;
         let slots = view.slots();
         let (powers, tag_slots) = self.engine.split(slot.presentation, &slots)?;
@@ -1338,7 +1351,23 @@ impl<'l> PStepper<'l> {
             powers,
             tag: &tag,
         };
-        let output = lane.step(&self.context(owner), &key)?;
+        let output = {
+            #[cfg(feature = "fwd-profile")]
+            let _lane = {
+                use crate::prof::Cat;
+                crate::prof::Scope::enter(match lane.lane() {
+                    OwnerLane::Insertion => Cat::LaneInsertion,
+                    OwnerLane::SeriesParallel => Cat::LaneSeriesParallel,
+                    OwnerLane::Triangle => Cat::LaneTriangle,
+                    OwnerLane::Carpet => Cat::LaneCarpet,
+                    OwnerLane::Diamond => Cat::LaneDiamond,
+                    OwnerLane::Scheme => Cat::LaneScheme,
+                    OwnerLane::Custom => Cat::LaneCustom,
+                    _ => Cat::LaneOther,
+                })
+            };
+            lane.step(&self.context(owner), &key)?
+        };
         self.ordered_step(output)
     }
 
@@ -1353,6 +1382,7 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        crate::prof!(CanonApply);
         if self.canonical
             && let Some((image, negative)) = self.canonical_powers(class, powers)?
         {
@@ -1362,7 +1392,7 @@ impl<'l> PStepper<'l> {
             return Ok((
                 PKey::Apply {
                     class,
-                    view: self.engine.view(&image, tag)?,
+                    view: crate::prof_wrap!(CanonKey, self.engine.view(&image, tag))?,
                 },
                 coefficient,
             ));
@@ -1370,7 +1400,7 @@ impl<'l> PStepper<'l> {
         Ok((
             PKey::Apply {
                 class,
-                view: self.engine.view(powers, tag)?,
+                view: crate::prof_wrap!(CanonKey, self.engine.view(powers, tag))?,
             },
             coefficient,
         ))
@@ -1389,6 +1419,7 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        crate::prof!(CanonRoute);
         if self.canonical_routes {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
@@ -1409,13 +1440,13 @@ impl<'l> PStepper<'l> {
                 // variables, degrees and sizes, so no new authentication (M5 R0 A2).
                 let coefficient = if negative { -coefficient } else { coefficient };
                 return Ok((
-                    self.engine.route_key(presentation, &image, tag)?,
+                    crate::prof_wrap!(CanonKey, self.engine.route_key(presentation, &image, tag))?,
                     coefficient,
                 ));
             }
         }
         Ok((
-            self.engine.route_key(presentation, powers, tag)?,
+            crate::prof_wrap!(CanonKey, self.engine.route_key(presentation, powers, tag))?,
             coefficient,
         ))
     }
@@ -1454,6 +1485,7 @@ impl<'l> PStepper<'l> {
                 ))
             })?
             .get_or_init(|| {
+                crate::prof!(OrbitInit);
                 let source = self.library.presentation(presentation);
                 if let Some(orbit) = self
                     .library
@@ -1481,6 +1513,7 @@ impl<'l> PStepper<'l> {
         };
         let orbit = cell
             .get_or_init(|| {
+                crate::prof!(OrbitInit);
                 let Ok(Sector::Routed { class, map }) =
                     engine.sector(self.library, presentation, support)
                 else {
@@ -1534,6 +1567,7 @@ impl<'l> PStepper<'l> {
                 PError::MalformedLibrary(format!("owner class {:016x} has no orbit cell", class.0))
             })?
             .get_or_init(|| {
+                crate::prof!(OrbitInit);
                 // An owner on every line of its presentation has the
                 // presentation's group: search and authenticate it once.
                 let lines = self.engine.shape(slot.presentation)?.lines;
@@ -1657,6 +1691,7 @@ impl<'l> PStepper<'l> {
         child: &PKey,
         coefficient: &Coefficient,
     ) -> Result<bool, PError> {
+        crate::prof!(CanonZero);
         let Some(counters) = self.zero_pruning else {
             return Ok(true);
         };
@@ -1685,6 +1720,7 @@ impl<'l> PStepper<'l> {
     }
 
     fn ordered_step(&self, output: PStepOut) -> Result<OrderedStep<PKey>, PError> {
+        crate::prof!(ChildAssembly);
         let context = self.library.coefficient_context();
         let mut step = OrderedStep::default();
         for child in output.children {

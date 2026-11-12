@@ -59,7 +59,7 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
     let context = programs.context();
     let shared = &context.shared;
     let limits = *limits;
-    let owner = programs.owner(sector)?.ok_or_else(|| {
+    let owner = crate::prof_wrap!(OwnerPrepare, programs.owner(sector))?.ok_or_else(|| {
         CandidateReductionError::InvalidInput("the owner sector has no prepared program".into())
     })?;
     if owner.batches[0].terminals.contains(key) {

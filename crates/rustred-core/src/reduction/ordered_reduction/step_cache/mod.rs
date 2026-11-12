@@ -943,6 +943,7 @@ impl OrderedStepCache {
         context: &CoefficientContext,
         build: impl FnOnce(RecordView<'_>) -> T,
     ) -> Result<Lookup<T>, ReductionError> {
+        crate::prof!(CacheLookup);
         let shard = self.shard(id);
         let found = self.find(&shard, key, context, build)?;
         Self::count(&shard, found.count());
@@ -1039,6 +1040,7 @@ impl OrderedStepCache {
         id: OrderedStepShard,
         record: StepRecordInput<'_>,
     ) -> Result<bool, ReductionError> {
+        crate::prof!(CacheRecord);
         if !self.options.populate {
             return Ok(false);
         }

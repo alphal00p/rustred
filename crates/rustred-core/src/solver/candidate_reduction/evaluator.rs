@@ -185,13 +185,22 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
                 }
                 rule
             }
-            None => self.selected_rule_with_conditions(target, &mut nonzero)?.1,
+            None => {
+                crate::prof_wrap!(
+                    CustomDispatch,
+                    self.selected_rule_with_conditions(target, &mut nonzero)
+                )?
+                .1
+            }
         };
         *position = self
             .rules
             .first()
             .map_or(0, |first| rule.ordinal.saturating_sub(first.ordinal));
-        let terms = self.apply_selected(rule, target, request, statistics, &mut nonzero)?;
+        let terms = crate::prof_wrap!(
+            CustomSpecialise,
+            self.apply_selected(rule, target, request, statistics, &mut nonzero)
+        )?;
         Ok((terms, conditions))
     }
 

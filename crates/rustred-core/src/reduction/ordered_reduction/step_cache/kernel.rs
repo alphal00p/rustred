@@ -225,6 +225,7 @@ impl<'k, 'c, K: OrderedStepCacheKernel> CachedKernel<'k, 'c, K> {
         step: &OrderedStep<K::Key>,
         opaque: bool,
     ) -> Result<(), K::Error> {
+        crate::prof!(CacheRecord);
         let record = if opaque {
             StepRecordInput {
                 key: &self.key,
