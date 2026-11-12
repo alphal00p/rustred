@@ -46,8 +46,9 @@ use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CustomRecord, EdgeMapRecord, FAMILIES_FILE, FamilyFileRecord,
     FilesRecord, LAYER_FILE, LIBRARY_FILE, LaneRecord, LibraryManifest, NodeRecord, OwnerRecord,
     PayloadRecord, PresentationRecord, ProducerRecord, RolesRecord, TOPOLOGY_FILE, TerminalRecord,
-    check_save_format, encode_census, encode_family_file, encode_topology, family_file, malformed,
-    owner_file, pretty_json, state_save_format, symbolica_save_format,
+    check_save_format, encode_census, encode_family_file, encode_payload_file, encode_topology,
+    family_file, malformed, owner_file, payload_encoding_for_write, pretty_json, state_save_format,
+    symbolica_save_format,
 };
 use super::loader::counts_of;
 use crate::application::producer::ProducerOutputV1;
@@ -113,21 +114,39 @@ pub fn payload_save_format(bytes: &[u8], what: &str) -> Result<u16, PError> {
 /// without a topology, or with a basis map whose rows are no valid layer
 /// (`PBasisLayer::new`), is refused.
 pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<u8>)>, PError> {
-    Ok(p_library_parts(assembled, false)?.0)
+    p_library_parts(assembled, None)
 }
 
-/// A payload file of a package that is written from its source on its own
-/// (p5l-library session 2): `(relative name, payload)`.
-type DeferredPayload = (String, CustomPayloadRef);
+/// The payloads of `assembled` that are files (`CustomPayloadRef::File`),
+/// `(relative name, payload)`: written one at a time by [`write_p_library`]
+/// (p5l-library session 2), so writing a package does not hold its payloads.
+fn file_payloads(assembled: &AssembledLibrary) -> Result<Vec<(String, CustomPayloadRef)>, PError> {
+    let library = &assembled.library;
+    let labels: BTreeMap<OwnerClassId, String> = (library.census().classes.iter())
+        .map(|(id, record)| (*id, record.key.label()))
+        .collect();
+    let mut out = Vec::new();
+    for owner in library.owners() {
+        if let Some(payload @ CustomPayloadRef::File(_)) = &owner.spec.payload {
+            let label = labels.get(&owner.spec.class).ok_or_else(|| {
+                malformed(format!(
+                    "owner {:016x} outside the census",
+                    owner.spec.class.0
+                ))
+            })?;
+            out.push((owner_file(label)?, payload.clone()));
+        }
+    }
+    Ok(out)
+}
 
-/// [`p_library_files`]; with `defer`, the payloads that are files
-/// (`CustomPayloadRef::File`) are not read here but returned to be copied one
-/// at a time, so writing a package does not hold all its payloads.
+/// [`p_library_files`]; with `written`, the file payloads are already written
+/// and only recorded here with their stored lengths.
 fn p_library_parts(
     assembled: &AssembledLibrary,
-    defer: bool,
-) -> Result<(Vec<(String, Vec<u8>)>, Vec<DeferredPayload>), PError> {
-    let mut deferred = Vec::new();
+    written: Option<&BTreeMap<String, u64>>,
+) -> Result<Vec<(String, Vec<u8>)>, PError> {
+    let encoding = payload_encoding_for_write()?;
     let library = &assembled.library;
     let mut files = BTreeMap::new();
     let save_format = symbolica_save_format()?;
@@ -191,23 +210,29 @@ fn p_library_parts(
             .ok_or_else(|| malformed(format!("owner {:016x} outside the census", spec.class.0)))?;
         let payload = match &spec.payload {
             None => None,
-            Some(payload @ CustomPayloadRef::File(source)) if defer => {
+            // A file payload already written by `write_p_library`.
+            Some(CustomPayloadRef::File(_)) if written.is_some() => {
                 let file = owner_file(&label)?;
-                deferred.push((file.clone(), payload.clone()));
+                let bytes = *written
+                    .and_then(|written| written.get(&file))
+                    .ok_or_else(|| malformed(format!("the payload {file} was not written")))?;
                 Some(PayloadRecord {
                     file,
-                    bytes: source.len(),
+                    bytes,
+                    encoding: encoding.clone(),
                 })
             }
             Some(payload) => {
                 let file = owner_file(&label)?;
                 let bytes = payload.bytes()?;
                 check_save_format(payload_save_format(&bytes, &file)?, &file)?;
+                let stored = encode_payload_file(encoding.as_deref(), &bytes)?;
                 let record = PayloadRecord {
                     file: file.clone(),
-                    bytes: bytes.len() as u64,
+                    bytes: stored.len() as u64,
+                    encoding: encoding.clone(),
                 };
-                files.insert(file, bytes.to_vec());
+                files.insert(file, stored);
                 Some(record)
             }
         };
@@ -281,7 +306,7 @@ fn p_library_parts(
         LIBRARY_FILE.to_owned(),
         pretty_json(&manifest, LIBRARY_FILE)?,
     );
-    Ok((files.into_iter().collect(), deferred))
+    Ok(files.into_iter().collect())
 }
 
 fn io_failure(path: &Path, error: std::io::Error) -> PError {
@@ -292,21 +317,52 @@ fn io_failure(path: &Path, error: std::io::Error) -> PError {
 /// exist or be empty: the files go to a sibling temporary directory first,
 /// which is then renamed, so a reader never sees half a package.
 pub fn write_p_library(library: &AssembledLibrary, directory: &Path) -> Result<(), PError> {
-    let (files, deferred) = p_library_parts(library, true)?;
-    write_p_library_parts(&files, &deferred, directory)
+    let deferred = file_payloads(library)?;
+    if deferred.is_empty() {
+        return write_p_library_files(&p_library_files(library)?, directory);
+    }
+    // File payloads first, one at a time (read verified, save format checked,
+    // stored in the write encoding), then the files that record them.
+    let encoding = payload_encoding_for_write()?;
+    write_p_library_with(directory, |partial| {
+        let mut written = BTreeMap::new();
+        for (file, payload) in &deferred {
+            let path = partial.join(file);
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
+            }
+            let bytes = payload.bytes()?;
+            check_save_format(payload_save_format(&bytes, file)?, file)?;
+            let stored = encode_payload_file(encoding.as_deref(), &bytes)?;
+            fs::write(&path, &stored).map_err(|error| io_failure(&path, error))?;
+            written.insert(file.clone(), stored.len() as u64);
+        }
+        let files = p_library_parts(library, Some(&written))?;
+        write_files(partial, &files)
+    })
 }
 
 /// [`write_p_library`] of files already rendered by [`p_library_files`].
 pub fn write_p_library_files(files: &[(String, Vec<u8>)], directory: &Path) -> Result<(), PError> {
-    write_p_library_parts(files, &[], directory)
+    write_p_library_with(directory, |partial| write_files(partial, files))
 }
 
-/// [`write_p_library_files`] plus payloads copied one at a time from their
-/// source (each read verified and its save format checked).
-fn write_p_library_parts(
-    files: &[(String, Vec<u8>)],
-    deferred: &[DeferredPayload],
+fn write_files(partial: &Path, files: &[(String, Vec<u8>)]) -> Result<(), PError> {
+    for (file, bytes) in files {
+        let path = partial.join(file);
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
+        }
+        fs::write(&path, bytes).map_err(|error| io_failure(&path, error))?;
+    }
+    Ok(())
+}
+
+/// Write a package through `fill` into a sibling temporary directory, then
+/// rename it to `directory` (which must not exist or be empty).
+fn write_p_library_with(
     directory: &Path,
+    fill: impl FnOnce(&Path) -> Result<(), PError>,
 ) -> Result<(), PError> {
     if directory.exists() {
         let mut entries = fs::read_dir(directory).map_err(|error| io_failure(directory, error))?;
@@ -334,22 +390,8 @@ fn write_p_library_parts(
         fs::remove_dir_all(&partial).map_err(|error| io_failure(&partial, error))?;
     }
     let result = (|| {
-        for (file, bytes) in files {
-            let path = partial.join(file);
-            if let Some(dir) = path.parent() {
-                fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
-            }
-            fs::write(&path, bytes).map_err(|error| io_failure(&path, error))?;
-        }
-        for (file, payload) in deferred {
-            let path = partial.join(file);
-            if let Some(dir) = path.parent() {
-                fs::create_dir_all(dir).map_err(|error| io_failure(dir, error))?;
-            }
-            let bytes = payload.bytes()?;
-            check_save_format(payload_save_format(&bytes, file)?, file)?;
-            fs::write(&path, &*bytes).map_err(|error| io_failure(&path, error))?;
-        }
+        fs::create_dir_all(&partial).map_err(|error| io_failure(&partial, error))?;
+        fill(&partial)?;
         if directory.exists() {
             fs::remove_dir(directory).map_err(|error| io_failure(directory, error))?;
         }

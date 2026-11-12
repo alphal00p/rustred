@@ -812,11 +812,17 @@ pub fn custom_payload_coefficient_stats(
     };
     let coefficient = |index: usize| -> Result<&Coefficient, PError> {
         let id = CoefficientId::try_from_index(index).map_err(|e| payload_error(e.to_string()))?;
-        decoded.table.coefficient(id).map_err(|e| payload_error(e.to_string()))
+        decoded
+            .table
+            .coefficient(id)
+            .map_err(|e| payload_error(e.to_string()))
     };
     type Poly = symbolica::prelude::MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>;
     let degree = |poly: &Poly| -> u64 {
-        (0..poly.nvars()).map(|x| u64::from(poly.degree(x))).max().unwrap_or(0)
+        (0..poly.nvars())
+            .map(|x| u64::from(poly.degree(x)))
+            .max()
+            .unwrap_or(0)
     };
     let mut sizes = Vec::with_capacity(stats.coefficients);
     for index in 0..stats.coefficients {

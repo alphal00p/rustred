@@ -35,11 +35,16 @@ use super::step::{PKeyView, PLaneStep, POrderKey, PStepContext, PStepOut};
 /// check against its record).
 pub type PPayloadCheck = Arc<dyn Fn(&[u8]) -> Result<(), PError> + Send + Sync>;
 
+/// The decoding of a stored payload file into the payload bytes (a
+/// compressed package, p5l-library session 2), applied on every read.
+pub type PPayloadDecode = Arc<dyn Fn(Vec<u8>) -> Result<Vec<u8>, PError> + Send + Sync>;
+
 /// A Custom payload on disk, read on use.
 pub struct PPayloadFile {
     path: PathBuf,
     bytes: u64,
     check: Option<PPayloadCheck>,
+    decode: Option<PPayloadDecode>,
     digest: OnceLock<[u8; 32]>,
     reads: AtomicU64,
 }
@@ -63,16 +68,36 @@ impl PPayloadFile {
             path,
             bytes,
             check,
+            decode: None,
             digest: OnceLock::new(),
             reads: AtomicU64::new(0),
         }
+    }
+
+    /// [`Self::new`] of a stored file of `bytes` bytes that `decode` turns
+    /// into the payload (the digest and the check see the decoded payload).
+    pub fn with_decode(
+        path: PathBuf,
+        bytes: u64,
+        check: Option<PPayloadCheck>,
+        decode: PPayloadDecode,
+    ) -> Self {
+        Self {
+            decode: Some(decode),
+            ..Self::new(path, bytes, check)
+        }
+    }
+
+    /// The stored file is decoded on read (a compressed payload).
+    pub fn is_encoded(&self) -> bool {
+        self.decode.is_some()
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// The recorded length in bytes.
+    /// The recorded length in bytes of the stored file.
     pub fn len(&self) -> u64 {
         self.bytes
     }
@@ -101,6 +126,10 @@ impl PPayloadFile {
                 self.bytes
             )));
         }
+        let data = match &self.decode {
+            Some(decode) => decode(data)?,
+            None => data,
+        };
         let digest: [u8; 32] = blake3::hash(&data).into();
         match self.digest.get() {
             Some(first) if *first != digest => {
@@ -245,7 +274,10 @@ impl PProgramBudget {
                 continue;
             };
             // In use: a step holds a clone of the program.
-            if slot.as_ref().is_some_and(|program| Arc::strong_count(program) == 1) {
+            if slot
+                .as_ref()
+                .is_some_and(|program| Arc::strong_count(program) == 1)
+            {
                 *slot = None;
                 drop(slot);
                 self.resident.fetch_sub(step.weight, Ordering::Relaxed);

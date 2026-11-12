@@ -151,12 +151,7 @@ fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneSt
             weight,
             Arc::clone(budget),
             Box::new(move || {
-                build_custom_step_ordered(
-                    &presentation,
-                    &payload.bytes()?,
-                    &meta,
-                    order.as_deref(),
-                )
+                build_custom_step_ordered(&presentation, &payload.bytes()?, &meta, order.as_deref())
             }),
         );
         return Ok(step);

@@ -60,8 +60,8 @@ use rustred::propagator::descent;
 use rustred::propagator::error::PError;
 use rustred::propagator::families::PFamiliesFile;
 use rustred::propagator::library::{PLibrary, POwnerSpec};
-use rustred::propagator::presentation::{Presentation, PresentationKind};
 use rustred::propagator::payload_cache::{PPayloadCheck, PPayloadFile};
+use rustred::propagator::presentation::{Presentation, PresentationKind};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::{
     NodeIndex, OwnerClassId, P_CUSTOM_OWNER_VERSION, P_FAMILIES_SCHEMA, P_LIBRARY_SCHEMA,
@@ -71,8 +71,8 @@ use rustred::propagator::{
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CountsRecord, FAMILIES_FILE, LAYER_FILE, LIBRARY_FILE,
     LaneRecord, LibraryManifest, OwnerRecord, SYMBOLICA_SAVE_FORMAT, TOPOLOGY_FILE, TerminalRecord,
-    check_save_format, decode_census, decode_family_file, decode_topology, family_file, malformed,
-    owner_file,
+    check_save_format, decode_census, decode_family_file, decode_payload_file, decode_topology,
+    family_file, malformed, owner_file,
 };
 use super::generate::CustomOwnerPayload;
 use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
@@ -242,6 +242,14 @@ fn owner_payload(files: &Files<'_>, owner: &OwnerRecord) -> Result<Option<Arc<[u
         )));
     }
     let bytes = files.read_sized(&payload.file, payload.bytes)?;
+    let bytes = match payload.encoding.as_deref() {
+        None => bytes,
+        encoding => Cow::Owned(decode_payload_file(
+            encoding,
+            bytes.into_owned(),
+            &payload.file,
+        )?),
+    };
     check_save_format(payload_save_format(&bytes, &payload.file)?, &payload.file)?;
     Ok(Some(Arc::from(bytes.as_ref())))
 }
@@ -299,11 +307,19 @@ fn owner_payload_lazy(
         check_save_format(payload_save_format(bytes, &file)?, &file)?;
         check_payload_named(&record, bytes, named.clone(), fingerprint.as_deref())
     });
-    Ok(Some(CustomPayloadRef::File(Arc::new(PPayloadFile::new(
-        path,
-        payload.bytes,
-        Some(check),
-    )))))
+    let file = match payload.encoding.clone() {
+        None => PPayloadFile::new(path, payload.bytes, Some(check)),
+        Some(encoding) => {
+            let what = payload.file.clone();
+            PPayloadFile::with_decode(
+                path,
+                payload.bytes,
+                Some(check),
+                Arc::new(move |stored| decode_payload_file(Some(&encoding), stored, &what)),
+            )
+        }
+    };
+    Ok(Some(CustomPayloadRef::File(Arc::new(file))))
 }
 
 /// The residual keys of `owner` among the package terminals.
