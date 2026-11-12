@@ -776,7 +776,10 @@ fn point_valid(
             }
         };
         // eps (two-sided) axes: the guard constrains the integer part of the exponent the same way
-        let g = g.strip_prefix("two_sided:").map(str::to_string).unwrap_or(g);
+        let g = g
+            .strip_prefix("two_sided:")
+            .map(str::to_string)
+            .unwrap_or(g);
         if !["n>=1", "n<=0", "n:any", "any", "n in Z"].contains(&g.as_str()) {
             return Err(format!("unsupported chart guard {g}"));
         }
@@ -1257,9 +1260,11 @@ fn replay_rule(
     if ctx.f.zero_key(&target) {
         return Err("target is independently scaleless; not a nonzero-rule test".into());
     }
-    let (candidates, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(|(rc, a)| {
-        support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (vec![rc], a, s, m))
-    }) {
+    let (candidates, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(
+        |(rc, a)| {
+            support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (vec![rc], a, s, m))
+        },
+    ) {
         Ok(x) => x,
         Err(e)
             if e.starts_with("missing symbolic raw pivot/recenter")
@@ -1282,10 +1287,20 @@ fn replay_rule(
                 .collect::<Result<_, _>>()?;
             let cands = recenter_candidates(&s, &point, ctx, &target, &rhskeys, &rhsvals, rule)?;
             if cands.is_empty() {
-                return Err("recenter search: no translation puts target and RHS into the seed universe".into());
+                return Err(
+                    "recenter search: no translation puts target and RHS into the seed universe"
+                        .into(),
+                );
             }
             let k = cands.len();
-            (cands, format!("span-verified recenter search ({k} candidates; RR_REPLAY_RECENTER_SEARCH)"), s, m)
+            (
+                cands,
+                format!(
+                    "span-verified recenter search ({k} candidates; RR_REPLAY_RECENTER_SEARCH)"
+                ),
+                s,
+                m,
+            )
         }
         Err(e) => return Err(e),
     };
@@ -1341,7 +1356,13 @@ fn recenter_candidates(
     let mut cands: Vec<Vec<i64>> = built
         .universe
         .iter()
-        .map(|u| target.iter().zip(u).map(|(t, u)| t - u).collect::<Vec<i64>>())
+        .map(|u| {
+            target
+                .iter()
+                .zip(u)
+                .map(|(t, u)| t - u)
+                .collect::<Vec<i64>>()
+        })
         .filter(|r: &Vec<i64>| r.iter().zip(&numeric).all(|(x, num)| !num || *x == 0))
         .collect();
     cands.sort_by_key(|r| (r.iter().map(|x| x.abs()).sum::<i64>(), r.clone()));

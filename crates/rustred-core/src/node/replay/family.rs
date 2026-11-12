@@ -101,18 +101,18 @@ fn inverse(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, Unknown> {
 
 /// Integer k with `value == k (4-d)/2` (checked exactly at d = 0, 2, 4 over Q).
 fn eps_multiple(value: &str, n: usize) -> Result<i64, Unknown> {
-    let e = super::expr::Expr::parse(value, n)
-        .map_err(|e| format!("power shift {value}: {e}"))?;
-    let at = |d: i128| -> Result<u64, Unknown> {
-        e.at_point(super::arith::P, &vec![0; n], Q::int(d))
-    };
+    let e = super::expr::Expr::parse(value, n).map_err(|e| format!("power shift {value}: {e}"))?;
+    let at =
+        |d: i128| -> Result<u64, Unknown> { e.at_point(super::arith::P, &vec![0; n], Q::int(d)) };
     let p = super::arith::P;
     let (v0, v2, v4) = (at(0)?, at(2)?, at(4)?);
     let k = (-64i64..=64)
         .find(|&k| arith::from_i128(p, k as i128) == v2)
         .ok_or_else(|| format!("power shift {value} is not a small integer multiple of (4-d)/2"))?;
     if v0 != arith::from_i128(p, 2 * k as i128) || v4 != 0 || k == 0 {
-        return Err(format!("power shift {value} is not an integer multiple of (4-d)/2"));
+        return Err(format!(
+            "power shift {value} is not an integer multiple of (4-d)/2"
+        ));
     }
     Ok(k)
 }
@@ -593,7 +593,11 @@ mod tests {
                     }
                     let dterm = arith::mul(arith::P, form[6].modp(arith::P).unwrap(), d);
                     v = arith::add(arith::P, v, dterm);
-                    assert_eq!(md.get(key).copied().unwrap_or(0), v, "{shift} op {op} {key:?}");
+                    assert_eq!(
+                        md.get(key).copied().unwrap_or(0),
+                        v,
+                        "{shift} op {op} {key:?}"
+                    );
                 }
             }
             seen.push(rows);

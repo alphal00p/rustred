@@ -619,7 +619,13 @@ pub fn custom_payload_coefficient_table(payload: &[u8]) -> Result<CustomCoeffici
     let mut coefficients = Vec::with_capacity(decoded.table.len());
     for index in 0..decoded.table.len() {
         let id = CoefficientId::try_from_index(index).map_err(payload_error)?;
-        coefficients.push(decoded.table.coefficient(id).map_err(payload_error)?.clone());
+        coefficients.push(
+            decoded
+                .table
+                .coefficient(id)
+                .map_err(payload_error)?
+                .clone(),
+        );
     }
     let rules = (decoded.program.sectors.iter())
         .flat_map(|sector| sector.rules.iter())
