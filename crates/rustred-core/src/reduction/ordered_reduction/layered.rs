@@ -512,6 +512,7 @@ where
             order.sort_by_key(|&i| (layer[i as usize], i));
             lstats.layering += layering_started.elapsed().as_secs_f64();
             // 3. Layers.
+            let mut expanded: Vec<usize> = Vec::new();
             let mut start = 0;
             while start < order.len() {
                 let current = layer[order[start] as usize];
@@ -633,11 +634,12 @@ where
                     &terminal_events,
                 );
                 lstats.ops += ops_started.elapsed().as_secs_f64();
+                drop(steps);
                 // Accounting, in parent order (the scheduler's effects).
                 let serial_started = std::time::Instant::now();
                 let terminal_new = emitted;
                 let emitted = new + add + cancel + terminal_new + term_add + term_cancel;
-                for parent in &parents {
+                for (p, parent) in parents.iter().enumerate() {
                     request.release_pending_frame()?;
                     pops += 1;
                     if let Some(set) = &mut check
@@ -645,32 +647,29 @@ where
                     {
                         return Err(invariant("a layered key was expanded twice").into());
                     }
-                    let node = &mut nodes[parent.node];
                     progress.frontier_keys = progress.frontier_keys.saturating_sub(1);
-                    kernel.observe(&progress, Some(&node.key))?;
-                    let account = node
-                        .account
-                        .take()
-                        .ok_or_else(|| invariant("a layered step was absorbed twice"))?;
-                    kernel.absorb(&node.key, account, request, work)?;
-                    let step = match &mut node.result {
-                        Ok(step) => step,
-                        Err(_) => {
-                            let failed = std::mem::replace(&mut node.result, Ok(LStep::empty()));
-                            return Err(failed.err().expect("a failed step"));
+                    let failed = nodes[parent.node].result.is_err();
+                    let stopped = shard_error.as_ref().is_some_and(|(at, _)| *at == p);
+                    if failed || stopped {
+                        // The scheduler's effects up to the failure, then
+                        // the failure (the request ends).
+                        expanded.push(parent.node);
+                        account_window::<K>(
+                            kernel,
+                            &mut nodes,
+                            &mut expanded,
+                            &mut guards,
+                            &mut nonzero_conditions,
+                            &mut progress,
+                            request,
+                            work,
+                        )?;
+                        if let Some((_, error)) = shard_error.take() {
+                            return Err(error);
                         }
-                    };
-                    for condition in std::mem::take(&mut step.conditions) {
-                        guards.intern(&mut nonzero_conditions, &condition, |_| Ok(()))?;
+                        return Err(invariant("a failed layered step was absorbed").into());
                     }
-                    progress.processed_keys = progress.processed_keys.saturating_add(1);
-                    kernel.observe(&progress, Some(&node.key))?;
-                    if let Some((p, _)) = &shard_error
-                        && std::ptr::eq(parent, &parents[*p])
-                    {
-                        let (_, error) = shard_error.take().expect("checked above");
-                        return Err(error);
-                    }
+                    expanded.push(parent.node);
                 }
                 // Layer totals (the same sums as one event at a time).
                 for _ in 0..new {
@@ -719,6 +718,20 @@ where
                 lstats.layers += 1;
                 lstats.layer_wall += layer_started.elapsed().as_secs_f64();
             }
+            // The scheduler's per-key effects (observations, step accounts,
+            // conditions) in the sequential pop order of the window.
+            let accounted = std::time::Instant::now();
+            account_window::<K>(
+                kernel,
+                &mut nodes,
+                &mut expanded,
+                &mut guards,
+                &mut nonzero_conditions,
+                &mut progress,
+                request,
+                work,
+            )?;
+            lstats.serial += accounted.elapsed().as_secs_f64();
         }
         if let Some(started) = phase_started {
             let wall = started.elapsed().as_secs_f64();
@@ -791,6 +804,50 @@ impl<K: FrontierKey, P> LStep<K, P> {
             conditions: Vec::new(),
         }
     }
+}
+
+/// The scheduler's per-key effects of the expanded keys of a window, in the
+/// sequential pop order (node order): observation before and after each
+/// step, its account, its conditions (first-appearance order), the processed
+/// counter. A failed step's account is applied, then its error returned.
+#[allow(clippy::too_many_arguments)]
+fn account_window<K>(
+    kernel: &mut K,
+    nodes: &mut [Node<K::Key, K::Priority, K::Error, K::Account>],
+    expanded: &mut Vec<usize>,
+    guards: &mut GuardIndex,
+    nonzero_conditions: &mut Vec<Coefficient>,
+    progress: &mut CandidateOrderedReductionProgress,
+    request: &mut ReductionRequest,
+    work: &mut ReductionStatistics,
+) -> Result<(), K::Error>
+where
+    K: ConcurrentOrderedKernel,
+{
+    expanded.sort_unstable();
+    for &i in expanded.iter() {
+        let node = &mut nodes[i];
+        kernel.observe(progress, Some(&node.key))?;
+        let account = node
+            .account
+            .take()
+            .ok_or_else(|| invariant("a layered step was absorbed twice"))?;
+        kernel.absorb(&node.key, account, request, work)?;
+        let step = match &mut node.result {
+            Ok(step) => step,
+            Err(_) => {
+                let failed = std::mem::replace(&mut node.result, Ok(LStep::empty()));
+                return Err(failed.err().expect("a failed step"));
+            }
+        };
+        for condition in std::mem::take(&mut step.conditions) {
+            guards.intern(nonzero_conditions, &condition, |_| Ok(()))?;
+        }
+        progress.processed_keys = progress.processed_keys.saturating_add(1);
+        kernel.observe(progress, Some(&node.key))?;
+    }
+    expanded.clear();
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
