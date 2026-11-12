@@ -850,8 +850,13 @@ fn cmd_witness(mut a: Args) -> i32 {
     let family = read(&family_path);
     let base: NodeOptions = serde_json::from_value(header["node_options"].clone())
         .unwrap_or_else(|e| die(&format!("{table}: node_options: {e}")));
-    if base.order.slot_permutation.is_some() {
-        die("witness: tables with a slot permutation are not supported (case records are in presented slots)");
+    if base
+        .order
+        .slot_permutation
+        .as_ref()
+        .is_some_and(|p| p.iter().enumerate().any(|(i, &x)| i != x))
+    {
+        die("witness: tables with a (non-identity) slot permutation are not supported (case records are in presented slots)");
     }
     std::fs::create_dir_all(&out).unwrap_or_else(|e| die(&e.to_string()));
     let mut report = String::new();
