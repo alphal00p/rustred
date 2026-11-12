@@ -84,7 +84,12 @@ pub const P_CENSUS_VERSION: u32 = 2;
 /// edge-pair and unit-row ISPs of 55 generic-lane presentations chosen for the
 /// fewest routed terms (devtools/p-isp-basis); values unchanged, routed edges
 /// of the 4L cells -16..-54 %.
-pub const P_PRESENTATION_VERSION: u32 = 3;
+/// 4 (M5 batch 5): `data/p/p-isp-preferences.v4.json`: explicit-row ISPs
+/// (`IspPreference::Rows`) for 57 generic-lane presentations (route-basis-2)
+/// plus one entry for the integer Custom node 151 (bebe, owner
+/// L4T08-d261f9c2d25e2dac), which now gets its own family in the chosen basis
+/// b3 (bebe-basis); values unchanged.
+pub const P_PRESENTATION_VERSION: u32 = 4;
 /// The content of `data/p/p-families.v1.json`.
 pub const P_FAMILIES_VERSION: u32 = 1;
 pub const P_GAMMA_TAG_VERSION: u32 = 1;

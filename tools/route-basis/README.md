@@ -45,3 +45,24 @@ table; a package built with it is NOT a version-3 package).
 18 4L cells: values identical 18/18, edges -16..-54 % (sum -34.1 %), keys sum -21.8 %,
 peak RSS sum -9.3 %; 75 1L-3L cells: values identical, edges -22.1 %.
 Changing the table means a new file name and a `P_PRESENTATION_VERSION` bump.
+
+## Version 4 (M5 batch 5)
+
+`crates/rustred-core/data/p/p-isp-preferences.v4.json` replaces v3 (P_PRESENTATION_VERSION 4):
+
+- 57 generic-lane presentations (41 4L + 16 3L) with explicit-row ISPs (`{"rows": [[left, right], ..]}`,
+  `IspPreference::Rows`: arbitrary massless-shaped momentum products `left.right` over the node's
+  L loop momenta and `q`), chosen by route-basis-2's `basis_opt2` (= `basis_opt` with a
+  free-row pool, the massless filter and inherited parent slot forms; model opt_all2). Recorded
+  in the p_integral_dev workspace as `SCRATCHPAD/route-basis/data/pref_rows_all2.json`
+  (= `p-isp-preferences.v4.json` of route-basis-2, notes/route-basis.md session 2).
+- One entry for the integer Custom node 151 (`p_node_0105...0204`, bebe, owner
+  L4T08-d261f9c2d25e2dac): basis b3 (the removed J1 lines kept as squares; ISPs `k3.(k1+q)`,
+  `(k3-k4).q`, `k3.q`). With an entry an integer Custom node is presented in its own family
+  (the top's sector momenta); its payload must be generated in that basis
+  (`artefacts/m5/bebe-basis/README.md` in the workspace: R1 vote order with k4, k1 last +
+  Astra's CA264 portfolio, 351 rules).
+
+Measured on the batch-2/batch-4 bases (1 thread, 18 4L cells, values identical): rows alone -18.1 %
+edges vs v3 (route-basis-2), bebe in b3 alone -33.4 % edges vs batch 4 (bebe-basis); the batch-5
+18-cell matrix measures both together (notes/m5-batch5.md).

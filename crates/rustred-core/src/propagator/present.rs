@@ -294,11 +294,19 @@ fn completion_error(node: &NodeInfo, error: IspCompletionError) -> PError {
 /// choice (b)) listed unit rows for three Insertion owners only; one of them
 /// is kept, the other two take pairs now.
 ///
+/// Version 4 (M5 batch 5, `data/p/p-isp-preferences.v4.json`): 57 generic-lane
+/// presentations (41 4L + 16 3L) take explicit momentum-product rows
+/// ([`IspPreference::Rows`], route-basis-2 chooser `basis_opt2`), and the
+/// integer Custom node 151 (bebe, owner L4T08-d261f9c2d25e2dac) has an entry
+/// (basis b3: removed J1 lines kept as squares, ISPs `k3.(k1+q)`,
+/// `(k3-k4).q`, `k3.q`), so it is presented in its own family (bebe-basis);
+/// its payload is regenerated in that basis.
+///
 /// Changing this file changes presentations: bump [`P_PRESENTATION_VERSION`]
 /// and the file name together.
 ///
 /// [`P_PRESENTATION_VERSION`]: super::P_PRESENTATION_VERSION
-pub const P_ISP_PREFERENCES_JSON: &str = include_str!("../../data/p/p-isp-preferences.v3.json");
+pub const P_ISP_PREFERENCES_JSON: &str = include_str!("../../data/p/p-isp-preferences.v4.json");
 
 /// Environment variable of the development override of
 /// [`P_ISP_PREFERENCES_JSON`]: a JSON file `{"<node family name>": <preference>, ..}`
