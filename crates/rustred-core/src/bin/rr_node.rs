@@ -22,6 +22,17 @@
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
 //! rr_node replay   --table F.table.jsonl --out DIR [--family F.sym] [--cert F.cert.jsonl] [--cand-dump-dir D]
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
+//! rr_node reduce   --table F.table.jsonl --keys 'K1;K2' --out OUT.json [--masters 'K;..'] [--dims 37/7,-11/5,9/13]
+//!                  [--primes N] [--lower] [--symbolic [--points 80] [--first-d 1001]]
+//!                  (reduce keys with the table's rules to its masters (+ lower-sector keys): exact rationals per d, or
+//!                   N(d)/D(d) with --symbolic; node::mastermap)
+//! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
+//!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
+//!                  [--laporta DOTS,RANK|none] [--check-keys auto|'K;..'|none]
+//!                  (exact old <-> new master map, mutual inverse at 3 d and symbolically, independent Laporta, few-integral
+//!                   check; exit 0 accepted / 1 not accepted)
+//! rr_node mapcheck --old OLD --new NEW --keys auto|'K;..' --out CHECK.json [--old-masters ..] [--new-masters ..] [--dims ..]
+//!                  (few-integral cross-check only: old reduction == new reduction mapped back; exit 0 equal / 1 not)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
@@ -837,10 +848,208 @@ fn cmd_affine(mut a: Args) -> i32 {
     0
 }
 
+fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {
+    use rustred::node::replay::arith::Q;
+    match a.take("--dims") {
+        Some(t) => t
+            .split(',')
+            .map(|x| Q::parse(x).unwrap_or_else(|e| die(&e)))
+            .collect(),
+        None => rustred::node::mastermap::check_dims(),
+    }
+}
+
+fn primes_arg(a: &mut Args, default: usize) -> Vec<u64> {
+    use rustred::node::mastermap::PRIMES;
+    let k: usize = a.parse("--primes").unwrap_or(default);
+    if !(2..=PRIMES.len()).contains(&k) {
+        die(&format!("--primes must be 2..={}", PRIMES.len()));
+    }
+    PRIMES[..k].to_vec()
+}
+
+fn keys_arg(t: &str) -> Vec<Vec<i64>> {
+    rustred::node::mastermap::parse_keys(t).unwrap_or_else(|e| die(&e))
+}
+
+fn load_table(path: &str, masters: Option<String>) -> rustred::node::mastermap::Table {
+    let mut t = rustred::node::mastermap::Table::load(path).unwrap_or_else(|e| die(&e));
+    if let Some(m) = masters {
+        t.masters = keys_arg(&m);
+    }
+    t
+}
+
+fn write_json(path: &str, v: &serde_json::Value) {
+    std::fs::write(path, serde_json::to_string_pretty(v).expect("json"))
+        .unwrap_or_else(|e| die(&format!("{path}: {e}")));
+}
+
+/// `rr_node reduce`: see the header.
+fn cmd_reduce(mut a: Args) -> i32 {
+    use rustred::node::mastermap::{RatFun, key_text};
+    use rustred::node::replay::arith::Q;
+    let table = a.need("--table");
+    let keys = keys_arg(&a.need("--keys"));
+    let out = a.need("--out");
+    let masters = a.take("--masters");
+    let lower = a.flag("--lower");
+    let symbolic = a.flag("--symbolic");
+    let points: i64 = a.parse("--points").unwrap_or(80);
+    let first: i64 = a.parse("--first-d").unwrap_or(1001);
+    let dims = if symbolic {
+        (0..points).map(|k| Q::int((first + k) as i128)).collect()
+    } else {
+        dims_arg(&mut a)
+    };
+    let primes = primes_arg(&mut a, if symbolic { 8 } else { 6 });
+    a.done();
+    let mut t = load_table(&table, masters);
+    let r = t
+        .reduce_mod(&keys, &primes, &dims, lower)
+        .unwrap_or_else(|e| die(&e));
+    let mut doc = serde_json::json!({"tool": "rustred rr_node reduce", "table": table, "masters": t.masters.iter().map(|k| key_text(k)).collect::<Vec<_>>(),
+        "seeds": keys.iter().map(|k| key_text(k)).collect::<Vec<_>>(), "primes": primes.len(), "graph": r.stats});
+    let fmt = |m: &std::collections::BTreeMap<Vec<i64>, RatFun>| -> serde_json::Value {
+        serde_json::Value::Object(m.iter().map(|(k, f)| (key_text(k), f.to_json())).collect())
+    };
+    let mut ok = true;
+    if symbolic {
+        let (fm, f1) = r.fit_part(false).unwrap_or_else(|e| die(&e));
+        doc["masters_symbolic"] = serde_json::json!(fm.iter().map(&fmt).collect::<Vec<_>>());
+        let mut fails: Vec<String> = f1
+            .iter()
+            .map(|(k, e)| format!("{}: {e}", key_text(k)))
+            .collect();
+        if lower {
+            let (fl, f2) = r.fit_part(true).unwrap_or_else(|e| die(&e));
+            doc["lower_symbolic"] = serde_json::json!(fl.iter().map(&fmt).collect::<Vec<_>>());
+            fails.extend(
+                f2.iter()
+                    .map(|(k, e)| format!("lower {}: {e}", key_text(k))),
+            );
+        }
+        ok = fails.is_empty();
+        doc["fit_failures"] = serde_json::json!(fails);
+        doc["first_d"] = serde_json::json!(first);
+        doc["points"] = serde_json::json!(points);
+    } else {
+        doc["dims"] = serde_json::json!(
+            dims.iter()
+                .map(|d| format!("{}/{}", d.n, d.d))
+                .collect::<Vec<_>>()
+        );
+        type PerSeed =
+            Vec<std::collections::BTreeMap<Vec<i64>, Vec<symbolica::domains::rational::Rational>>>;
+        let ex = |m: Result<PerSeed, String>| -> serde_json::Value {
+            let m = m.unwrap_or_else(|e| die(&e));
+            serde_json::json!(
+                m.iter()
+                    .map(|s| s
+                        .iter()
+                        .map(|(k, v)| (
+                            key_text(k),
+                            serde_json::json!(v.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+                        ))
+                        .collect::<serde_json::Map<_, _>>())
+                    .collect::<Vec<_>>()
+            )
+        };
+        doc["masters_exact"] = ex(r.exact_masters());
+        if lower {
+            doc["lower_exact"] = ex(r.exact_lower());
+        }
+    }
+    write_json(&out, &doc);
+    eprintln!(
+        "[reduce] {} seeds, {} keys, {} edges, {:.1}s -> {out}",
+        keys.len(),
+        r.stats["keys"],
+        r.stats["edges"],
+        r.stats["seconds"].as_f64().unwrap_or(0.0)
+    );
+    i32::from(!ok)
+}
+
+fn map_options(a: &mut Args) -> rustred::node::mastermap::MapOptions {
+    use rustred::node::mastermap::MapOptions;
+    let mut o = MapOptions {
+        dims: dims_arg(a),
+        primes: primes_arg(a, 6),
+        ..MapOptions::default()
+    };
+    if a.flag("--no-symbolic") {
+        o.symbolic = false;
+    }
+    o.symbolic_lower = a.flag("--symbolic-lower");
+    if let Some(k) = a.parse("--points") {
+        o.sym_points = k;
+    }
+    if let Some(k) = a.parse("--sym-primes") {
+        o.sym_primes = k;
+    }
+    if let Some(t) = a.take("--laporta") {
+        o.laporta = if t == "none" {
+            None
+        } else {
+            let (x, y) = t
+                .split_once(',')
+                .unwrap_or_else(|| die("--laporta DOTS,RANK"));
+            Some((
+                x.parse().unwrap_or_else(|_| die("--laporta")),
+                y.parse().unwrap_or_else(|_| die("--laporta")),
+            ))
+        };
+    }
+    match a.take("--check-keys").as_deref() {
+        None | Some("auto") => {}
+        Some("none") => o.no_check = true,
+        Some(t) => o.check_keys = Some(keys_arg(t)),
+    }
+    o
+}
+
+/// `rr_node mastermap`: see the header.
+fn cmd_mastermap(mut a: Args) -> i32 {
+    let old = a.need("--old");
+    let new = a.need("--new");
+    let out = a.need("--out");
+    let om = a.take("--old-masters");
+    let nm = a.take("--new-masters");
+    let opt = map_options(&mut a);
+    a.done();
+    let mut o = load_table(&old, om);
+    let mut n = load_table(&new, nm);
+    let doc = rustred::node::mastermap::build_map(&mut o, &mut n, &opt).unwrap_or_else(|e| die(&e));
+    write_json(&out, &doc);
+    let acc = doc["accepted"] == true;
+    eprintln!(
+        "[mastermap] accepted={acc} new_only={} old_only={} -> {out}",
+        doc["new_only"], doc["old_only"]
+    );
+    i32::from(!acc)
+}
+
+/// `rr_node mapcheck`: see the header.
+fn cmd_mapcheck(mut a: Args) -> i32 {
+    let keys = a.need("--keys");
+    let mut items = vec![
+        "--laporta".to_string(),
+        "none".into(),
+        "--no-symbolic".into(),
+        "--check-keys".into(),
+        keys,
+    ];
+    items.append(&mut a.items);
+    cmd_mastermap(Args { items })
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
-        die("usage: rr_node generate|probe|variants|descent|replay ... (see the source header)");
+        die(
+            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|reduce|mastermap|mapcheck ... (see the source header)",
+        );
     }
     let cmd = items.remove(0);
     let a = Args { items };
@@ -853,6 +1062,9 @@ fn main() {
         "predict" => cmd_predict(a),
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
+        "reduce" => cmd_reduce(a),
+        "mastermap" => cmd_mastermap(a),
+        "mapcheck" => cmd_mapcheck(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
