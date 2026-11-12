@@ -438,8 +438,10 @@ fn assemble(
     // census (the census check below verifies it completely, as any census);
     // otherwise the census is written there once computed.
     let checkpoint = std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS").map(std::path::PathBuf::from);
+    let mut fresh = true;
     let census = match &checkpoint {
         Some(path) if path.exists() => {
+            fresh = false;
             let bytes = std::fs::read(path).map_err(|error| {
                 PError::MalformedLibrary(format!("reading {}: {error}", path.display()))
             })?;
@@ -460,7 +462,17 @@ fn assemble(
         }
     };
     clock.lap("census");
-    census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+    // RUSTRED_P_ASSEMBLE_CENSUS_CHECK: `on` (default) checks every census;
+    // `auto` (p5l-library session 2) skips the check of a census computed in
+    // this process, which verified every route it stored, and checks a census
+    // read from a checkpoint.
+    let check_census = match std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_CHECK").as_deref() {
+        Ok("auto") => !fresh,
+        _ => true,
+    };
+    if check_census {
+        census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+    }
     clock.lap("census-check");
 
     // 5. Owners, edge maps and terminals.
