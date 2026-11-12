@@ -726,6 +726,57 @@ impl OrderedStepCache {
         self.options
     }
 
+    /// A directory-less cache that shares this cache's resident shards except
+    /// those `keep` refuses (dry census, R4a): a program that differs from
+    /// this cache's program only in the steps of the refused shards (e.g. one
+    /// owner's rules swapped, same family, presentation and terminals) reuses
+    /// every other recorded step. Shared shards stay shared: records the fork
+    /// inserts into them are visible to both caches, which is sound only
+    /// because both programs give the same step for every identity of a
+    /// shared shard; the caller guarantees that. Refused shards start empty
+    /// in the fork and are never visible to `self`. Shards still on disk are
+    /// not carried over (the fork has no directory).
+    /// `binding` is the binding of the fork's program (identities may differ
+    /// only by version tags such as an ordering heuristic name).
+    pub fn fork_in_memory(
+        &self,
+        binding: OrderedStepCacheBinding,
+        keep: impl Fn(&OrderedStepShard) -> bool,
+        options: OrderedStepCacheOptions,
+    ) -> Arc<Self> {
+        let shards: BTreeMap<OrderedStepShard, Arc<Shard>> = self
+            .shards
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(id, shard)| {
+                keep(id)
+                    && matches!(
+                        shard
+                            .inner
+                            .read()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .state,
+                        ShardState::Resident { .. }
+                    )
+            })
+            .map(|(id, shard)| (*id, Arc::clone(shard)))
+            .collect();
+        let fork = Self::build(binding, options, None, BTreeMap::new());
+        *fork.shards.write().unwrap_or_else(PoisonError::into_inner) = shards;
+        Arc::new(fork)
+    }
+
+    /// The shards resident in memory (dry census, R4a).
+    pub fn resident_shards(&self) -> Vec<OrderedStepShard> {
+        self.shards
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keys()
+            .copied()
+            .collect()
+    }
+
     /// Check a program against this cache before a request uses it.
     pub(crate) fn check_binding(
         &self,
