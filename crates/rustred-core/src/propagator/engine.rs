@@ -303,6 +303,57 @@ enum Sector<'e> {
 /// A lazily searched and authenticated automorphism group (M5 R0 A2).
 type OrbitCell = OnceLock<Result<Arc<OwnerOrbit>, PError>>;
 
+/// fwd-opt: a fast deterministic hasher for the engine's sector and owner
+/// tables (looked up several times per child of every step; the tables are
+/// only read by key, never iterated in order).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EngineHash;
+
+pub(crate) struct EngineHasher(u64);
+
+impl std::hash::Hasher for EngineHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_le_bytes(word));
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        // A final avalanche: the table uses the top and the low bits.
+        let x = self.0;
+        (x ^ (x >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9) ^ (x >> 32)
+    }
+}
+
+impl std::hash::BuildHasher for EngineHash {
+    type Hasher = EngineHasher;
+    #[inline]
+    fn build_hasher(&self) -> EngineHasher {
+        EngineHasher(0)
+    }
+}
+
+type FastMap<K, V> = std::collections::HashMap<K, V, EngineHash>;
+
 pub(crate) struct PEngine {
     shapes: Vec<Shape>,
     /// Slots of every view and terminal key of this library.
@@ -310,14 +361,19 @@ pub(crate) struct PEngine {
     /// Terminals of this library: ids at or above it name nothing.
     terminals: usize,
     phases: PhasePlan,
-    owners: BTreeMap<OwnerClassId, OwnerSlot>,
-    owner_sectors: BTreeMap<(PresentationId, u64), OwnerClassId>,
-    routes: BTreeMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
+    owners: FastMap<OwnerClassId, OwnerSlot>,
+    owner_sectors: FastMap<(PresentationId, u64), OwnerClassId>,
+    /// fwd-opt: the census fate of every sector, indexed (`None`: zero;
+    /// `Some(i)`: routed onto `routed[i]`), so that the per-child sector
+    /// tests need no ordered-map search.
+    fates: FastMap<(PresentationId, u64), Option<u32>>,
+    routed: Vec<(OwnerClassId, SignedAffineLoopMap)>,
+    routes: FastMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
     /// The verified automorphisms of each owner sector, found on the owner's
     /// first canonicalised key (M5 R0 A2).
-    orbits: BTreeMap<OwnerClassId, OrbitCell>,
+    orbits: FastMap<OwnerClassId, OrbitCell>,
     /// The same for every routed sector, carried over from its owner.
-    route_orbits: BTreeMap<(PresentationId, u64), OrbitCell>,
+    route_orbits: FastMap<(PresentationId, u64), OrbitCell>,
     /// The verified automorphisms of the whole line set of each presentation
     /// (indexed by presentation id): they move a Route key across the
     /// subsectors of its presentation, as the vacuum reducer's one family
@@ -346,8 +402,8 @@ impl PEngine {
         let mut order: Vec<_> = census.classes.iter().collect();
         order.sort_by_key(|(class, record)| (record.node.is_none(), record.node, **class));
         let count = u32::try_from(order.len()).unwrap_or(u32::MAX);
-        let mut owners = BTreeMap::new();
-        let mut owner_sectors = BTreeMap::new();
+        let mut owners = FastMap::default();
+        let mut owner_sectors = FastMap::default();
         for (index, (&class, record)) in order.into_iter().enumerate() {
             let (presentation, support) = record.owner;
             let rank = count.saturating_sub(u32::try_from(index).unwrap_or(u32::MAX));
@@ -387,9 +443,25 @@ impl PEngine {
             .map(|(&sector, _)| (sector, OnceLock::new()))
             .collect();
         let presentation_orbits = shapes.iter().map(|_| OnceLock::new()).collect();
+        let mut fates = FastMap::default();
+        let mut routed = Vec::new();
+        for (&sector, fate) in &census.sectors {
+            let fate = match fate {
+                PSectorFate::Zero => None,
+                PSectorFate::Owner { class, map } => {
+                    routed.push((*class, map.clone()));
+                    Some(u32::try_from(routed.len() - 1).map_err(|_| {
+                        PError::MalformedLibrary("too many routed sectors".to_owned())
+                    })?)
+                }
+            };
+            fates.insert(sector, fate);
+        }
         Ok(Self {
             orbits,
             route_orbits,
+            fates,
+            routed,
             presentation_orbits,
             shapes,
             width: (max_arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS),
@@ -525,8 +597,8 @@ impl PEngine {
     /// The fate of a sector of `presentation`. A sector without a fate is a gap
     /// of the census, never a zero.
     fn sector<'e>(
-        &self,
-        library: &'e PLibrary,
+        &'e self,
+        _library: &PLibrary,
         presentation: PresentationId,
         support: u64,
     ) -> Result<Sector<'e>, PError> {
@@ -534,9 +606,12 @@ impl PEngine {
         if let Some(&class) = self.owner_sectors.get(&sector) {
             return Ok(Sector::Owner(class));
         }
-        match library.census().sectors.get(&sector) {
-            Some(PSectorFate::Zero) => Ok(Sector::Zero),
-            Some(PSectorFate::Owner { class, map }) => Ok(Sector::Routed { class: *class, map }),
+        match self.fates.get(&sector) {
+            Some(None) => Ok(Sector::Zero),
+            Some(Some(index)) => {
+                let (class, map) = &self.routed[*index as usize];
+                Ok(Sector::Routed { class: *class, map })
+            }
             None => Err(PError::MalformedLibrary(format!(
                 "sector {support:#x} of presentation {} is not in the census",
                 presentation.0
@@ -1469,9 +1544,9 @@ impl<'l> PStepper<'l> {
         if orbit.actions.is_empty() {
             return Ok(None);
         }
-        let sectors = &self.library.census().sectors;
+        let fates = &self.engine.fates;
         Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            sectors.contains_key(&(presentation, shape.support(image)))
+            fates.contains_key(&(presentation, shape.support(image)))
         }))
     }
 
