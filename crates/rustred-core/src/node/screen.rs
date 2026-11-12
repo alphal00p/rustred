@@ -337,6 +337,21 @@ pub(crate) fn record(measure: ScreenMeasure, decision: ScreenDecision) {
     });
 }
 
+thread_local! {
+    /// seed-pose probe: (basis row, seed shift) of every row of the selected trace, recorded by the case search only
+    /// while a screen is installed (diagnostic; the default engine path never writes it).
+    static TRACE: RefCell<Option<Vec<(usize, Vec<i32>)>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn note_trace(sources: Vec<(usize, Vec<i32>)>) {
+    TRACE.with(|t| *t.borrow_mut() = Some(sources));
+}
+
+/// Drain the trace sources of the last screened selection on this thread (seed-pose probes).
+pub fn take_trace() -> Option<Vec<(usize, Vec<i32>)>> {
+    TRACE.with(|t| t.borrow_mut().take())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

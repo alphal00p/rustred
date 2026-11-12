@@ -482,12 +482,8 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     .map_or(limits.max_depth, |d| d.min(limits.max_depth)),
             );
         }
-        if let CaseSeedSchedule::ShiftShells { last_depth, .. } = seed_schedule {
-            options.max_depth = Some(
-                options
-                    .max_depth
-                    .map_or(*last_depth, |d| d.min(*last_depth)),
-            );
+        if let Some(last_depth) = seed_schedule.last_depth() {
+            options.max_depth = Some(options.max_depth.map_or(last_depth, |d| d.min(last_depth)));
         }
         let start = Instant::now();
         let mut work = RuleTrialStats::default();
@@ -665,7 +661,25 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             .iter()
                             .map(|i| std::mem::take(&mut original_rows[*i]))
                             .collect::<Vec<_>>();
-                        let sources = trace.iter().map(|i| original_sources[*i]).collect();
+                        let sources: Vec<SeedSource<N>> =
+                            trace.iter().map(|i| original_sources[*i]).collect();
+                        if crate::node::screen::active().is_some() {
+                            crate::node::screen::note_trace(
+                                sources
+                                    .iter()
+                                    .map(|s| {
+                                        // full seed displacement from the case point (numeric moves included)
+                                        let delta = (0..N)
+                                            .map(|i| {
+                                                i32::from(s.seed.integral[i].value())
+                                                    - i32::from(initial[i].value())
+                                            })
+                                            .collect();
+                                        (s.basis_row, delta)
+                                    })
+                                    .collect(),
+                            );
+                        }
                         // This case ends at the first matching pivot. Release
                         // nonwinning exact rows before the expensive native solve.
                         drop(original_rows);

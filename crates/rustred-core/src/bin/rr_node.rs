@@ -9,7 +9,7 @@
 //!                  [--case-seed-priority symbolic-isp-first]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
 //!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE]
-//!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
+//!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check] [--pose-probe PROBES.jsonl]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
 //!                  [--cover PATH:UPTO]... [--cand-dump]
@@ -210,6 +210,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.seed_schedule = match v.as_str() {
             "spired" => SeedScheduleName::Spired,
             "symfirst" | "symbolic-first" => SeedScheduleName::SymbolicFirst,
+            "dotsfirst" | "dots-first" => SeedScheduleName::DotsFirst,
             _ => die("--seed-schedule spired|symfirst"),
         };
     }
@@ -232,6 +233,15 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
                 rustred::node::order::family_props(family).len(),
             )
             .unwrap_or_else(|e| die(&format!("--case-seed-priority: {e}")));
+    }
+    // seed-pose probe mode: JSON-lines probes, refuse-all screen, results in OUT/F.poses.jsonl (no table)
+    o.pose_probe = a.take("--pose-probe");
+    // automatic seed-pose rung (default off): measure the default pose, then a small portfolio when it is heavy
+    if a.flag("--seed-pose-rung") {
+        o.seed_pose_rung = true;
+    }
+    if let Some(k) = a.parse("--seed-pose-keep") {
+        o.seed_pose_keep = k;
     }
     if a.flag("--no-symbolic-first-rung") {
         o.symbolic_first_rung = false;
