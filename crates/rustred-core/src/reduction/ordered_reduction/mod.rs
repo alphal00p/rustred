@@ -105,6 +105,10 @@ pub(crate) trait OrderedKernel {
     fn key_view(_key: &Self::Key) -> Option<(OrderedKeyStage<'_>, &IntegralKey)> {
         None
     }
+    /// Called once when the forward pass of a modular request is over,
+    /// before the recorded trace is replayed (no step runs after it):
+    /// adapters may release memory that only the steps use.
+    fn forward_finished(&mut self) {}
     /// Called at both boundaries of every frozen phase, never inside a step.
     /// Adapters without a caller inspector keep this no-op.
     fn inspect_phase(&mut self, _event: OrderedPhaseEvent<'_>) -> Result<(), Self::Error> {
@@ -1303,6 +1307,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         // fwd-opt: light steps end with the request, whatever its outcome.
         kernel.set_light(false);
         output.and_then(|output| {
+            kernel.forward_finished();
             modular_output(weights, output, composer.as_deref()).map_err(Into::into)
         })
     }

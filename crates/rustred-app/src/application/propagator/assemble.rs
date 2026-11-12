@@ -428,9 +428,15 @@ fn assemble(
 
     // 4. The census, strongly complete.
     // Routed sectors store the static-score route maps (P_CENSUS_VERSION 2).
+    // p5l-library-3 (A/B measurement only): RUSTRED_P_ASSEMBLE_ROUTE_MAPS=first
+    // stores the first verified map of every routed sector instead.
+    let route_maps = match std::env::var("RUSTRED_P_ASSEMBLE_ROUTE_MAPS").as_deref() {
+        Ok("first") => PRouteMaps::First,
+        _ => PRouteMaps::StaticScore,
+    };
     let census_options = PCensusOptions {
         threads: options.threads,
-        route_maps: PRouteMaps::StaticScore,
+        route_maps,
         ..PCensusOptions::default()
     };
     // p5l-library session 2: a census checkpoint. RUSTRED_P_ASSEMBLE_CENSUS
