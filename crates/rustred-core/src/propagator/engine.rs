@@ -813,6 +813,32 @@ pub(crate) mod light {
     pub(crate) fn take() -> Vec<(PKey, u64)> {
         OUT.with(|out| std::mem::take(&mut *out.borrow_mut()))
     }
+
+    /// Light children of an Insertion step before canonicalisation: the
+    /// child presentation, the absolute tag and (powers, handle) pairs.
+    pub(crate) type Pending = (
+        super::PresentationId,
+        super::GammaTag,
+        Vec<(Vec<i64>, u64)>,
+    );
+
+    thread_local! {
+        static PENDING: RefCell<Option<Pending>> = const { RefCell::new(None) };
+    }
+
+    /// fwd-opt: an Insertion step hands its memoised children over by handle.
+    pub(crate) fn put_pending(pending: Pending) {
+        PENDING.with(|cell| *cell.borrow_mut() = Some(pending));
+    }
+
+    pub(super) fn take_pending() -> Option<Pending> {
+        PENDING.with(|cell| cell.borrow_mut().take())
+    }
+
+    /// The handle with its sign flipped.
+    pub(crate) fn flip(handle: u64) -> u64 {
+        handle ^ (1 << 62)
+    }
 }
 
 /// fwd-opt: a per-thread, direct-mapped cache of canonical images. The
@@ -831,7 +857,7 @@ mod canon_cache {
 
     use super::PError;
 
-    type Powers = SmallVec<[i64; 16]>;
+    pub(super) type Powers = SmallVec<[i64; 16]>;
 
     struct Entry {
         id: u64,
@@ -880,9 +906,9 @@ mod canon_cache {
         flags: u8,
         powers: &[i64],
         compute: impl FnOnce() -> Result<Option<(Vec<i64>, bool)>, PError>,
-    ) -> Result<Option<(Vec<i64>, bool)>, PError> {
+    ) -> Result<Option<(Powers, bool)>, PError> {
         let Some(bits) = bits() else {
-            return compute();
+            return Ok(compute()?.map(|(image, negative)| (Powers::from_vec(image), negative)));
         };
         let at = (hash(id, powers) >> (64 - bits)) as usize;
         let found = CACHE.with(|cache| {
@@ -898,7 +924,7 @@ mod canon_cache {
                     entry
                         .image
                         .as_ref()
-                        .map(|(image, negative)| (image.to_vec(), *negative)),
+                        .map(|(image, negative)| (image.clone(), *negative)),
                 ),
                 _ => None,
             }
@@ -906,16 +932,14 @@ mod canon_cache {
         if let Some(image) = found {
             return Ok(image);
         }
-        let image = compute()?;
+        let image = compute()?.map(|(image, negative)| (Powers::from_vec(image), negative));
         CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
             if cache.engine == engine && cache.flags == flags && at < cache.entries.len() {
                 cache.entries[at] = Some(Entry {
                     id,
                     powers: Powers::from_slice(powers),
-                    image: image
-                        .as_ref()
-                        .map(|(image, negative)| (Powers::from_slice(image), *negative)),
+                    image: image.clone(),
                 });
             }
         });
@@ -2352,6 +2376,51 @@ impl<'l> PStepper<'l> {
             }
             super::step_memo::put_powers(child.powers);
         }
+        if let Some((presentation, tag, children)) = light::take_pending() {
+            // fwd-opt light Insertion children: canonicalised by handle; a key
+            // met twice (or also among the materialised children) is
+            // materialised and summed, the others stay light.
+            let mut light_pairs: Vec<(PKey, u64)> = Vec::with_capacity(children.len());
+            for (powers, handle) in children {
+                let (key, negative) =
+                    self.route_child_with(presentation, &powers, &tag, false, |b| !b)?;
+                super::step_memo::put_powers(powers);
+                let keep = match self.zero_pruning {
+                    Some(counters) => self.keep_canonical_key(&key, counters)?,
+                    None => true,
+                };
+                if keep {
+                    light_pairs.push((key, if negative { light::flip(handle) } else { handle }));
+                }
+            }
+            light_pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            let materialised: std::collections::HashSet<&PKey> =
+                pairs.iter().map(|(key, _)| key).collect();
+            let mut single = Vec::with_capacity(light_pairs.len());
+            let mut repeated: Vec<(PKey, Coefficient)> = Vec::new();
+            let mut at = 0;
+            while at < light_pairs.len() {
+                let end = at
+                    + light_pairs[at..]
+                        .iter()
+                        .take_while(|(key, _)| *key == light_pairs[at].0)
+                        .count();
+                if end - at == 1 && !materialised.contains(&light_pairs[at].0) {
+                    single.push(light_pairs[at].clone());
+                } else {
+                    for (key, handle) in &light_pairs[at..end] {
+                        let value = OrderedStepper::light_value(self, *handle).ok_or_else(|| {
+                            PError::Contract("a light handle names no memo coefficient".to_owned())
+                        })?;
+                        repeated.push((key.clone(), value));
+                    }
+                }
+                at = end;
+            }
+            drop(materialised);
+            pairs.extend(repeated);
+            light::put(single);
+        }
         step.terms = merge_all(context, &self.limits, pairs)?;
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
@@ -2457,6 +2526,7 @@ impl OrderedStepper for PStepper<'_> {
 
     fn step(&self, key: &PKey) -> (Result<OrderedStep<PKey>, PError>, PAccount) {
         light::clear();
+        drop(light::take_pending());
         let started = self.census.on.then(std::time::Instant::now);
         let (result, mut account) = match key {
             PKey::Route { presentation, view } => {

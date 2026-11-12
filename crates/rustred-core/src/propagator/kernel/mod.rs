@@ -539,6 +539,29 @@ impl ChildKeys<'_> {
             .collect()
     }
 
+    /// fwd-opt light step: the children of [`Self::emit_weights`] as (powers,
+    /// light handle of the memo index) pairs, same order.
+    pub(crate) fn light_children(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Option<u32>],
+        local: bool,
+    ) -> Vec<(Vec<i64>, u64)> {
+        let mut out = Vec::with_capacity(weights.len());
+        for (monomial, weight) in table.monomials.iter().zip(weights) {
+            let Some(weight) = weight else { continue };
+            let mut powers = super::step_memo::take_powers();
+            powers.extend(
+                self.base
+                    .iter()
+                    .zip(&monomial.exponents)
+                    .map(|(power, &exponent)| power - i64::from(exponent)),
+            );
+            out.push((powers, super::engine::light::handle(*weight, false, local)));
+        }
+        out
+    }
+
     /// rr-alloc: [`Self::emit`] from the weights of [`Self::weights`] (as
     /// indices into `values`): the same children in the same order.
     pub(crate) fn emit_weights(

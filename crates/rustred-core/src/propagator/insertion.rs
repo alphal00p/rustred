@@ -336,6 +336,18 @@ impl InsertionStep {
                         })
                     )?;
                     match memo {
+                        // fwd-opt light step: children by (memo index) handle.
+                        Some(memo)
+                            if mode == MemoMode::On && super::engine::light::enabled() =>
+                        {
+                            let local = matches!(memo, step_memo::Held::Local(..));
+                            let children = keys.light_children(&memo.table, &memo.weights, local);
+                            super::engine::light::put_pending((
+                                rule.child.id,
+                                tag.clone(),
+                                children,
+                            ));
+                        }
                         Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
                         }),
