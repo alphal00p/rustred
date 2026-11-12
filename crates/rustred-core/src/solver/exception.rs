@@ -425,7 +425,7 @@ fn native_denominator_branches<const N: usize>(
 ) -> Vec<Vec<CoefficientPolynomial>> {
     let mut factors = Vec::new();
     for denominator in inputs {
-        for (factor, _multiplicity) in denominator.factor() {
+        for (factor, _multiplicity) in checked_factor(&denominator) {
             if contains_index(&factor, indices) {
                 factors.push(primitive(factor));
             }
@@ -492,7 +492,7 @@ fn content_denominator_branches<const N: usize>(
             content = content.gcd(coefficient);
         }
         if !content.is_constant() {
-            for (factor, _multiplicity) in primitive(content.clone()).factor() {
+            for (factor, _multiplicity) in checked_factor(&primitive(content.clone())) {
                 if contains_index(&factor, indices) {
                     branches.push(vec![primitive(factor)]);
                 }
@@ -608,6 +608,58 @@ fn extract_with<const N: usize>(
     branches.sort_unstable_by(InternalOrdering::internal_cmp);
     branches.dedup();
     ExceptionalConditions { branches }
+}
+
+/// guard-fix (helper Y3f): Symbolica's `factor()` with a cheap completeness check: `input / prod factor^mult` must be
+/// the same nonzero constant at two pseudo-random points mod 2^61 - 1 (a lost factor changes the ratio). Panics on a
+/// mismatch: a guard set built from an incomplete factorisation must never be written.
+fn checked_factor(input: &CoefficientPolynomial) -> Vec<(CoefficientPolynomial, usize)> {
+    use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
+    use symbolica::prelude::{Field, Integer, Ring};
+    let factors: Vec<(CoefficientPolynomial, usize)> = input
+        .factor()
+        .into_iter()
+        .map(|(f, m)| (f, m as usize))
+        .collect();
+    let prime: u64 = 2_305_843_009_213_693_951;
+    let field = Zp64::new(prime);
+    let nvars = input.nvars();
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d ^ (input.nterms() as u64);
+    let mut ratios = Vec::new();
+    for _ in 0..8 {
+        if ratios.len() == 2 {
+            break;
+        }
+        let point: Vec<_> = (0..nvars)
+            .map(|_| {
+                state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+                let mut z = state;
+                z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+                Integer::from(1 + (z ^ (z >> 31)) % (prime - 1)).to_finite_field(&field)
+            })
+            .collect();
+        let at = |p: &CoefficientPolynomial| {
+            p.evaluate_with_coeff_map(|c| c.to_finite_field(&field), &point, &field)
+        };
+        let mut product = field.one();
+        for (f, m) in &factors {
+            let v = at(f);
+            for _ in 0..*m {
+                product = field.mul(&product, &v);
+            }
+        }
+        let value = at(input);
+        if field.is_zero(&product) || field.is_zero(&value) {
+            continue;
+        }
+        ratios.push(field.div(&value, &product));
+    }
+    assert!(
+        ratios.len() == 2 && ratios[0] == ratios[1],
+        "guard-fix: factor() of an exception input is not complete (input / product of factors is not constant)"
+    );
+    factors
 }
 
 fn contains_index<const N: usize>(

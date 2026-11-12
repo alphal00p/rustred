@@ -735,6 +735,8 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         box_size: 0,
         box_max: 0,
         dump_weights: false,
+        random_d: false,
+        single_prime: true,
     };
     let ctx = Ctx {
         args: &rargs,

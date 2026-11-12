@@ -131,6 +131,8 @@ pub(super) fn materialize_witnessed<const N: usize>(
                 one,
                 &|value| Ok(denominator_factors(value)),
                 &|poly| variables.restore_polynomial(poly),
+                &|value| variables.restore_coefficient(&ordinary(value, &active)?),
+                &solution,
                 true,
             )?;
             return Ok((solution, witness));

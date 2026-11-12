@@ -207,14 +207,16 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
 
     /// Exact lift of an arbitrary row subset (rows harder-first is best; any order is valid): the first normalized
     /// row whose pivot is `target`, as in the engine's exact replay, with an explicit backend.
+    /// guard-fix (helper Y3c): returns the witness poles of the lift with the row (a rule built from the row must
+    /// carry them as guards, exactly like the engine's own lifts).
     pub fn study_exact_lift(
         &self,
         rows: &[ExactRow<N>],
         target: Integral<N>,
         backend: SymbolicExactBackend,
         observe: impl FnMut(super::super::MaterializationEvent<N>),
-    ) -> Result<ExactRow<N>, SolverError> {
-        exact_materialize_using_with_observer(
+    ) -> Result<(ExactRow<N>, super::super::discovery::WitnessPoles), SolverError> {
+        exact_materialize_witnessed(
             rows,
             &self.order,
             target,

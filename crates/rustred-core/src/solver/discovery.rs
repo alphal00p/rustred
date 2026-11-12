@@ -680,6 +680,9 @@ pub fn exact_materialize_with_observer<const N: usize>(
 
 /// Alternative backends change exact elimination scheduling, not the discovery
 /// trace. They are diagnostics and grant no artifact or closure authority.
+/// guard-fix (Y3c D4d): TEST-ONLY. It drops the witness poles; production lifts use
+/// [`exact_materialize_witnessed`] so that every rule carries them as guards.
+#[cfg(test)]
 #[allow(
     clippy::collapsible_if,
     reason = "the pre-screen hook is one cfg-gated block"
@@ -987,6 +990,8 @@ fn sparse_materialize_witnessed<const N: usize>(
                 one,
                 &|value: &crate::algebra::Coefficient| Ok(vec![value.denominator.clone()]),
                 &|poly| variables.restore_polynomial(poly),
+                &|value: &crate::algebra::Coefficient| variables.restore_coefficient(value),
+                &solution,
                 false,
             )?;
             return Ok((solution, witness));

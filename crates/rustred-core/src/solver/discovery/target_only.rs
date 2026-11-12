@@ -462,6 +462,7 @@ pub(super) fn independent_lower<F: Field>(
 /// independent inputs (square, lower triangular in U-row order), solve the
 /// target U row's weights natively and report their poles. `target_u_row` is
 /// the U row of the target pivot (the last one when the lift stops there).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn witness_of_full_lower<const N: usize, F: Field>(
     rows: &[ExactRow<N>],
     lower: &SparseMatrix<F>,
@@ -469,22 +470,136 @@ pub(super) fn witness_of_full_lower<const N: usize, F: Field>(
     one: F::Element,
     poles: &impl Fn(&F::Element) -> Result<Vec<CoefficientPolynomial>, MaterializationError>,
     restore: &impl Fn(&CoefficientPolynomial) -> Result<CoefficientPolynomial, MaterializationError>,
+    export: &impl Fn(&F::Element) -> Result<Coefficient, MaterializationError>,
+    solution: &ExactRow<N>,
     catch_native: bool,
 ) -> Result<WitnessPoles, MaterializationError> {
     let field = lower.field().clone();
     let (square, inputs) = independent_lower(lower)?;
     let weights = solve_transposed_lower(&square, target_u_row, one, catch_native)?;
+    // guard-fix N1 (helper Y3b): L rows are reducer rows. If the reducer kept no row for an EMPTY input row, the
+    // L row index is the index among the NON-EMPTY input rows: map through that list, never through the raw input
+    // index (an empty row would shift every later one onto the wrong input row and its denominators).
+    let nonempty: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.iter().any(|term| !term.coefficient.is_zero()))
+        .map(|(i, _)| i)
+        .collect();
+    let to_input: Vec<usize> = if lower.nrows() as usize == rows.len() {
+        (0..rows.len()).collect()
+    } else if lower.nrows() as usize == nonempty.len() {
+        nonempty
+    } else {
+        return Err(invalid(
+            "L rows match neither all input rows nor the non-empty ones",
+        ));
+    };
     // Re-index the weights by input row before collecting the poles.
     let mut by_input = SparseMatrix::new(0, rows.len() as u32, field);
+    let input_of = |k: u32| -> Result<u32, MaterializationError> {
+        let l_row = *inputs
+            .get(k as usize)
+            .ok_or_else(|| invalid("weight index outside the independent L rows"))?;
+        to_input
+            .get(l_row)
+            .map(|&i| i as u32)
+            .ok_or_else(|| invalid("L row without an input row"))
+    };
     by_input.add_row(
         weights.values().to_vec(),
         weights
             .col_idcs()
             .iter()
-            .map(|&k| inputs[k as usize] as u32)
-            .collect(),
+            .map(|&k| input_of(k))
+            .collect::<Result<Vec<_>, _>>()?,
     );
+    // guard-fix N3 (helper Y3b): the witness must reproduce the returned (monic) U row: sum_j w_j A_j = U at one
+    // random point mod p (fail closed: a witness that does not is never used for guards).
+    let exported: Vec<(usize, Coefficient)> = by_input
+        .col_idcs()
+        .iter()
+        .zip(by_input.values())
+        .filter(|(_, v)| !by_input.field().is_zero(v))
+        .map(|(&j, v)| Ok((j as usize, export(v)?)))
+        .collect::<Result<_, MaterializationError>>()?;
+    check_witness_at_random_point(rows, &exported, solution)?;
     witness_of(rows, &by_input, poles, restore)
+}
+
+/// guard-fix N3: `sum_j w_j rows[j] == solution` at a deterministic pseudo-random point mod 2^61 - 1, every column
+/// (weights and rows in the ORIGINAL coefficient map). Up to 4 points are tried when a denominator vanishes; Err on a
+/// mismatch or when no regular point is found.
+pub(super) fn check_witness_at_random_point<const N: usize>(
+    rows: &[ExactRow<N>],
+    weights: &[(usize, Coefficient)],
+    solution: &ExactRow<N>,
+) -> Result<(), MaterializationError> {
+    use std::collections::BTreeMap;
+    use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
+    use symbolica::prelude::{Integer, Ring};
+    let Some(first) = solution
+        .iter()
+        .chain(rows.iter().flatten())
+        .next()
+    else {
+        return Ok(());
+    };
+    let nvars = first.coefficient.numerator.variables().len();
+    let prime: u64 = 2_305_843_009_213_693_951;
+    let field = Zp64::new(prime);
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15 ^ (rows.len() as u64) ^ ((weights.len() as u64) << 32);
+    let mut next = move || {
+        // splitmix64
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    };
+    'attempt: for _ in 0..4 {
+        let point: Vec<_> = (0..nvars)
+            .map(|_| Integer::from(1 + next() % (prime - 1)).to_finite_field(&field))
+            .collect();
+        let eval = |c: &Coefficient| -> Option<<Zp64 as symbolica::domains::Set>::Element> {
+            let num = c.numerator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &point, &field);
+            let den = c.denominator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &point, &field);
+            if field.is_zero(&den) {
+                None
+            } else {
+                Some(field.div(&num, &den))
+            }
+        };
+        let mut acc: BTreeMap<Integral<N>, <Zp64 as symbolica::domains::Set>::Element> = BTreeMap::new();
+        for (j, w) in weights {
+            let Some(wv) = eval(w) else { continue 'attempt };
+            let row = rows
+                .get(*j)
+                .ok_or_else(|| invalid("witness weight on a missing input row"))?;
+            for term in row {
+                if term.coefficient.is_zero() {
+                    continue;
+                }
+                let Some(v) = eval(&term.coefficient) else { continue 'attempt };
+                let e = acc.entry(term.integral).or_insert_with(|| field.zero());
+                *e = field.add(e, &field.mul(&wv, &v));
+            }
+        }
+        for term in solution {
+            let Some(v) = eval(&term.coefficient) else { continue 'attempt };
+            let e = acc.entry(term.integral).or_insert_with(|| field.zero());
+            *e = field.sub(e, &v);
+        }
+        if acc.values().any(|v| !field.is_zero(v)) {
+            return Err(invalid(
+                "guard-fix N3: the source weights do not reproduce the lifted row at a random point",
+            ));
+        }
+        return Ok(());
+    }
+    Err(invalid(
+        "guard-fix N3: no regular random point for the witness check",
+    ))
 }
 
 /// Witness poles of `sum_j weights[j] * rows[j]`: the denominators of every

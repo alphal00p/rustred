@@ -62,8 +62,13 @@ impl<const N: usize> Case<N> {
     /// conversion, and every refinement shares the same work budget. Unsupported positive-
     /// power geometry still fails atomically. Returned equality cases can
     /// over-cover outside the explicit rank scope; this is not family closure.
+    ///
+    /// guard-fix (helper Y3f): NOT an emptiness test outside the rank scope. Branches beyond
+    /// `maximum` are not returned, so an `Ok` with empty `cases` does NOT prove that an exceptional branch misses
+    /// the case: never use it for cover, admission or covering checks (use [`Self::intersect_many`]). It has no
+    /// production caller; it is crate-private so that none appears without review.
     #[allow(clippy::result_large_err)]
-    pub fn intersect_many_with_max_numerator_rank(
+    pub(crate) fn intersect_many_with_max_numerator_rank(
         &self,
         conjunction: &[CoefficientPolynomial],
         indices: &[usize; N],

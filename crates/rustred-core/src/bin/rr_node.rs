@@ -28,7 +28,8 @@
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
 //!                  [--extra-points K] [--loci LOCI.jsonl] [--box K [--box-max M]]   (guard-fix: more points per rule; one point ON each
 //!                  listed locus; every valid case point with free coordinates in the box |n| <= K, at most M = 2000)
-//!                  [--dump-weights]   (per cell weights-<d>.json: rows, pivot rows, weights mod P, columns, zero keys)
+//!                  [--dump-weights]   (per cell weights-<d>-<P|P2>.json: rows, pivot rows, weights mod p, columns, zero keys)
+//!                  [--fixed-d] [--single-prime]   (default: d random in F_p per cell unless --dimensions; primes P and P2 = 2^61-31)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
@@ -557,9 +558,13 @@ fn cmd_replay(mut a: Args) -> i32 {
             dims.push(a.items.remove(at));
         }
     }
+    // guard-fix: without --dimensions each cell draws d at random in F_p (3 cells); --fixed-d keeps 17/7 19/7 23/7
+    let fixed_d = a.flag("--fixed-d");
+    let random_d = dims.is_empty() && !fixed_d;
     if dims.is_empty() {
         dims = replay::DIMS.iter().map(|s| s.to_string()).collect();
     }
+    let single_prime = a.flag("--single-prime");
     let args = ReplayArgs {
         family: a.take("--family").map(PathBuf::from),
         table: PathBuf::from(a.need("--table")),
@@ -577,6 +582,8 @@ fn cmd_replay(mut a: Args) -> i32 {
         box_size: a.parse("--box").unwrap_or(0),
         box_max: a.parse("--box-max").unwrap_or(2000),
         dump_weights: a.flag("--dump-weights"),
+        random_d,
+        single_prime,
     };
     a.done();
     let (status, result) = replay::run(&args).unwrap_or_else(|e| die(&e));

@@ -166,7 +166,7 @@ impl<const N: usize> SourceSystem<N> {
         let mut rows = Vec::with_capacity(relations.len());
         let mut conditions = Vec::new();
         for relation in &relations {
-            rows.push(lower_relation(relation, &mut conditions)?);
+            rows.push(lower_relation(relation, &mut conditions, &indices)?);
         }
         let mut fixed = [None; N];
         if active_arity < N {
@@ -493,18 +493,40 @@ fn reference_source_order(row: &RowId, loops: usize, externals: usize) -> (usize
 /// One shared native-polynomial lowering path for ordinary and LI relations.
 /// Retain zero rows too: the reference keeps their source ordinals, and sector
 /// preconditioning already handles empty rows.
+/// guard-fix (helper Y3c/Y3e item f): a polynomial that contains an index variable (`indices` = their positions).
+fn has_index_variable(polynomial: &CoefficientPolynomial, indices: &[usize]) -> bool {
+    polynomial.nvars() > 0
+        && polynomial
+            .exponents_iter()
+            .any(|exponents| indices.iter().any(|&i| i < exponents.len() && exponents[i] != 0))
+}
+
 fn lower_relation<const N: usize>(
     relation: &ParametricRelation,
     conditions: &mut Vec<CoefficientPolynomial>,
+    indices: &[usize],
 ) -> Result<PolynomialRow<N>, SolverError> {
     for condition in relation.nonzero_conditions() {
         let polynomial = condition.polynomial().raw();
+        // guard-fix: source conditions are parameter-only (rule guards never include them); an index-containing
+        // condition would be a validity locus no rule records. Fail closed.
+        if has_index_variable(polynomial, indices) {
+            return Err(SolverError::InvalidInput(
+                "guard-fix: a source nonzero condition contains an index variable".into(),
+            ));
+        }
         if !polynomial.is_constant() && !conditions.contains(polynomial) {
             conditions.push(polynomial.clone());
         }
     }
     let mut row = Vec::with_capacity(relation.terms().len());
     for (shift, coefficient) in relation.terms() {
+        // guard-fix: clearing an index-containing denominator below would hide its zero locus from every guard
+        if has_index_variable(&coefficient.raw().denominator, indices) {
+            return Err(SolverError::InvalidInput(
+                "guard-fix: a source relation coefficient has an index-containing denominator".into(),
+            ));
+        }
         let mut powers = [0_i16; N];
         for (out, value) in powers.iter_mut().zip(shift.values()) {
             *out = i16::try_from(*value).map_err(|_| {

@@ -583,6 +583,14 @@ fn yes() -> bool {
     true
 }
 
+impl NodeOptions {
+    /// guard-fix D1: the guard semantics this run writes and requires of every reused rule (cover tables, cover
+    /// indexes, banks, registry siblings, joins): [`GUARD_VERSION`], or 1 with `--no-witness-guards`.
+    pub fn guard_version(&self) -> u32 {
+        if self.no_witness_guards { 1 } else { GUARD_VERSION }
+    }
+}
+
 impl Default for NodeOptions {
     fn default() -> Self {
         Self {
@@ -1241,6 +1249,8 @@ struct RuleExtras {
     numerical: bool,
     monomials: usize,
     oversized_fallback: bool,
+    /// guard-fix D1: guard semantics of this rule (2 = witness guards, 1 = RHS denominators only)
+    guard_version: u32,
 }
 
 fn write_rule<const N: usize>(
@@ -1302,7 +1312,7 @@ fn write_rule<const N: usize>(
         .map_or("null".to_string(), |v| format!("{v:?}"));
     writeln!(
         f,
-        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{}}}",
+        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{},\"guard_version\":{}}}",
         q(chart),
         q(&format!("{:?}", c.case)),
         fixed.join(","),
@@ -1324,6 +1334,7 @@ fn write_rule<const N: usize>(
         x.oversized_fallback,
         c.hidden_poles.len(),
         strings(witness_loci.iter()),
+        x.guard_version,
     )
     .expect("write rule");
     c.rhs.len()
@@ -1372,7 +1383,8 @@ fn covers<const N: usize>(
 ) -> bool {
     rcase.contains(case).unwrap_or(false)
         && branches.iter().all(
-            |b| matches!(case.intersect_many(b, idx, sector, limits), Ok(r) if r.cases.is_empty()),
+            // guard-fix (Y3c/Y3d): a deferred piece is NOT an empty intersection (fail closed, as union_covered)
+            |b| matches!(case.intersect_many(b, idx, sector, limits), Ok(r) if r.cases.is_empty() && r.deferred.is_empty()),
         )
 }
 
@@ -1866,7 +1878,7 @@ fn run<const N: usize>(
         strings([label.clone()].iter()),
         opts.numeric_depth,
         strings(sources.conditions().iter()),
-        if opts.no_witness_guards { 1 } else { GUARD_VERSION },
+        opts.guard_version(),
     )
     .map_err(|e| e.to_string())?;
     if let Some(ledger) = &terminal_ledger {
@@ -1989,6 +2001,39 @@ fn run<const N: usize>(
     let mut cover: Vec<CoverEntry<N>> = Vec::new();
     for (path, upto) in &opts.cover_tables {
         let text = std::fs::read_to_string(path).map_err(|e| format!("cover table {path}: {e}"))?;
+        // guard-fix D1: cover material of another guard semantics is REFUSED (a pre-fix rule lacks the witness-pole
+        // branches, so as a cover it would suppress the child cases this run must open). Header (absent = 1), and
+        // every rule line that carries its own stamp.
+        {
+            let head: serde_json::Value = text
+                .lines()
+                .next()
+                .and_then(|l| serde_json::from_str(l).ok())
+                .unwrap_or_default();
+            let have = head["guard_version"].as_u64().unwrap_or(1);
+            if have != opts.guard_version() as u64 {
+                return Err(format!(
+                    "cover {path}: guard_version {have} (absent = 1) differs from this run's {}: rule material of other guard semantics is refused (guard-fix D1: a pre-fix rule lacks its witness-pole branches and would suppress child cases); regenerate it with this binary, or run with matching --no-witness-guards",
+                    opts.guard_version()
+                ));
+            }
+            for line in text.lines().filter(|l| l.starts_with("{\"type\":\"rule\"")) {
+                let v: serde_json::Value =
+                    serde_json::from_str(line).map_err(|e| format!("cover table {path}: {e}"))?;
+                if v["index"].as_u64().is_none_or(|i| i as usize >= *upto) {
+                    continue;
+                }
+                if let Some(g) = v["guard_version"].as_u64() {
+                    if g != opts.guard_version() as u64 {
+                        return Err(format!(
+                            "cover {path}: rule {} carries guard_version {g}, this run requires {} (guard-fix D1)",
+                            v["index"],
+                            opts.guard_version()
+                        ));
+                    }
+                }
+            }
+        }
         if terminal_ledger.is_some() {
             let header: serde_json::Value = serde_json::from_str(
                 text.lines()
@@ -2120,15 +2165,18 @@ fn run<const N: usize>(
     }
     // stable key of (presented family, chart, integral order, basis) for the side bank and the shared registry: the
     // source visit order only steers the search, so rules found under another one are valid here (same basis rows)
-    let key = format!(
-        "{:016x}",
-        fnv64(&[
-            presented,
-            &label,
-            &descriptor_json(&opts.order, n),
-            &nb.to_string()
-        ])
-    );
+    // guard-fix D1: a guard_version other than 1 is part of the key (v1 keys stay the legacy key), so banks and
+    // shared-registry pieces of different guard semantics never match
+    let gv_part = format!("guard_version={}", opts.guard_version());
+    let mut key_parts: Vec<&str> = vec![presented, &label];
+    let descriptor = descriptor_json(&opts.order, n);
+    let nb_text = nb.to_string();
+    key_parts.push(&descriptor);
+    key_parts.push(&nb_text);
+    if opts.guard_version() != 1 {
+        key_parts.push(&gv_part);
+    }
+    let key = format!("{:016x}", fnv64(&key_parts));
     let mut registry = match &opts.registry {
         Some(_) if !opts.unsafe_shared_registry => {
             return Err(
@@ -2148,13 +2196,14 @@ fn run<const N: usize>(
         );
         writeln!(
             f,
-            "{{\"type\":\"bank_header\",\"schema\":\"rustred.node.refused_bank.v1\",\"key\":{},\"chart\":{},\"order_name\":{},\"basis\":{nb},\"accept_monomials\":{},\"fallback_monomials\":{},\"fallback_after\":{}}}",
+            "{{\"type\":\"bank_header\",\"schema\":\"rustred.node.refused_bank.v1\",\"key\":{},\"chart\":{},\"order_name\":{},\"basis\":{nb},\"accept_monomials\":{},\"fallback_monomials\":{},\"fallback_after\":{},\"guard_version\":{}}}",
             q(&key),
             q(&label),
             q(&opts.order.name),
             opts.max_rule_monomials.map_or("null".into(), |v| v.to_string()),
             opts.fallback_rule_monomials.map_or("null".into(), |v| v.to_string()),
-            opts.fallback_after
+            opts.fallback_after,
+            opts.guard_version()
         )
         .map_err(|e| e.to_string())?;
         f.flush().map_err(|e| e.to_string())?;
@@ -2178,6 +2227,12 @@ fn run<const N: usize>(
             .next()
             .and_then(|l| serde_json::from_str(l).ok())
             .unwrap_or_default();
+        // guard-fix D1: a bank of another guard semantics is never adopted (header absent = 1)
+        let bank_gv = header["guard_version"].as_u64().unwrap_or(1);
+        if bank_gv != opts.guard_version() as u64 {
+            writeln!(qlog, "{{\"type\":\"bank_skipped\",\"path\":{},\"reason\":\"guard_version {bank_gv} (absent = 1) differs from this run's {}\"}}", q(path), opts.guard_version()).map_err(|e| e.to_string())?;
+            continue;
+        }
         if header["key"].as_str() != Some(key.as_str()) {
             writeln!(qlog, "{{\"type\":\"bank_skipped\",\"path\":{},\"reason\":\"key differs (other family presentation, chart or order)\"}}", q(path)).map_err(|e| e.to_string())?;
             continue;
@@ -2188,6 +2243,14 @@ fn run<const N: usize>(
                 continue;
             };
             if v["type"] != "refused" || v["rule"].is_null() {
+                continue;
+            }
+            // guard-fix D1: a banked rule line stamped with another guard version is never adopted
+            if v["rule"]["guard_version"]
+                .as_u64()
+                .is_some_and(|g| g != opts.guard_version() as u64)
+            {
+                refused += 1;
                 continue;
             }
             let size = v["monomials"].as_u64().unwrap_or(u64::MAX) as usize;
@@ -3809,6 +3872,7 @@ fn rule_extras<const N: usize>(
         numerical,
         monomials: rule_monomials(c),
         oversized_fallback: false,
+        guard_version: if solver.witness_guards() { GUARD_VERSION } else { 1 },
     }
 }
 
@@ -4250,6 +4314,8 @@ mod tests {
                 box_size: 0,
                 box_max: 0,
                 dump_weights: false,
+                random_d: false,
+                single_prime: false,
             };
             let (status, doc) = crate::node::replay::run(&args).unwrap();
             assert_eq!(
@@ -4311,6 +4377,8 @@ mod tests {
             box_size: 0,
             box_max: 0,
                 dump_weights: false,
+                random_d: false,
+                single_prime: false,
         };
         let (status, _) = crate::node::replay::run(&args).unwrap();
         assert_eq!(status, "FAIL");
@@ -4383,6 +4451,8 @@ mod tests {
             box_size: 0,
             box_max: 0,
                 dump_weights: false,
+                random_d: false,
+                single_prime: false,
         };
         crate::node::replay::run(&args).unwrap().0
     }
@@ -4481,6 +4551,136 @@ mod tests {
         for d in [d1, d2, d3] {
             let _ = std::fs::remove_dir_all(&d);
         }
+    }
+
+    fn strip_guard_stamps(table: &str, out: &Path) -> String {
+        // a "pre-fix" copy of a table: no guard_version in the header or any rule line (absent = 1)
+        let text = std::fs::read_to_string(table).unwrap();
+        let mut lines = Vec::new();
+        for l in text.lines() {
+            let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+            if let Some(o) = v.as_object_mut() {
+                o.remove("guard_version");
+            }
+            lines.push(v.to_string());
+        }
+        std::fs::create_dir_all(out).unwrap();
+        let p = out.join("F.table.jsonl");
+        std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+        p.display().to_string()
+    }
+
+    #[test]
+    fn guard_fix_d1_cover_tables_of_other_guard_versions_are_refused() {
+        let root = tmp("d1-cover");
+        let v1o = NodeOptions {
+            no_witness_guards: true,
+            ..quiet()
+        };
+        let v1 = generate(SUNSET, "sunset.sym", &root.join("v1"), &v1o, &mut |_| {}).unwrap();
+        let v2 = generate(SUNSET, "sunset.sym", &root.join("v2"), &quiet(), &mut |_| {}).unwrap();
+        assert!(v1.complete && v2.complete && v1.rules > 0 && v2.rules > 0);
+        let head = |t: &str| -> serde_json::Value {
+            serde_json::from_str(std::fs::read_to_string(t).unwrap().lines().next().unwrap()).unwrap()
+        };
+        assert_eq!(head(&v1.table)["guard_version"], 1);
+        assert_eq!(head(&v2.table)["guard_version"], GUARD_VERSION);
+        // every rule line carries its own stamp
+        for (t, g) in [(&v1.table, 1u64), (&v2.table, GUARD_VERSION as u64)] {
+            for l in std::fs::read_to_string(t).unwrap().lines() {
+                if l.starts_with("{\"type\":\"rule\"") {
+                    let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                    assert_eq!(v["guard_version"].as_u64(), Some(g), "{l}");
+                }
+            }
+        }
+        let sub = vec![CaseSpec {
+            fixed: vec![Some(1), Some(1), None, Some(0), Some(0)],
+            equations: vec![],
+        }];
+        let with_cover = |o: &NodeOptions, cover: &str, rules: usize| NodeOptions {
+            initial: sub.clone(),
+            cover_tables: vec![(cover.to_string(), rules)],
+            ..o.clone()
+        };
+        // a v2 run refuses the v1 table, its cover index, and a stamp-free (pre-fix) table
+        let e = generate(SUNSET, "sunset.sym", &root.join("r1"), &with_cover(&quiet(), &v1.table, v1.rules), &mut |_| {})
+            .unwrap_err();
+        assert!(e.contains("guard_version 1") && e.contains("D1"), "{e}");
+        let pre = strip_guard_stamps(&v2.table, &root.join("pre"));
+        let e = generate(SUNSET, "sunset.sym", &root.join("r3"), &with_cover(&quiet(), &pre, v2.rules), &mut |_| {})
+            .unwrap_err();
+        assert!(e.contains("absent = 1"), "{e}");
+        // a header saying 2 over v1 rule lines (a laundered table) is refused by the rule stamps
+        let laundered = root.join("laundered.table.jsonl");
+        let mut lines: Vec<String> = std::fs::read_to_string(&v1.table).unwrap().lines().map(String::from).collect();
+        let mut h: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+        h["guard_version"] = serde_json::json!(GUARD_VERSION);
+        lines[0] = h.to_string();
+        std::fs::write(&laundered, lines.join("\n") + "\n").unwrap();
+        let e = generate(SUNSET, "sunset.sym", &root.join("r4"), &with_cover(&quiet(), laundered.to_str().unwrap(), v1.rules), &mut |_| {})
+            .unwrap_err();
+        assert!(e.contains("carries guard_version"), "{e}");
+        // matching versions are accepted (v2 over v2, v1 over v1)
+        let ok2 = generate(SUNSET, "sunset.sym", &root.join("r5"), &with_cover(&quiet(), &v2.table, v2.rules), &mut |_| {}).unwrap();
+        assert!(ok2.complete, "{ok2:?}");
+        let ok1 = generate(SUNSET, "sunset.sym", &root.join("r6"), &with_cover(&v1o, &v1.table, v1.rules), &mut |_| {}).unwrap();
+        assert!(ok1.complete, "{ok1:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn guard_fix_d1_banks_of_other_guard_versions_are_never_adopted() {
+        let root = tmp("d1-bank");
+        let bank_opts = |no_witness_guards: bool| NodeOptions {
+            max_rule_monomials: Some(0),
+            fallback_rule_monomials: Some(usize::MAX),
+            fallback_after: 3,
+            no_witness_guards,
+            ..quiet()
+        };
+        let b1 = generate(SUNSET, "sunset.sym", &root.join("b1"), &bank_opts(true), &mut |_| {}).unwrap();
+        let b2 = generate(SUNSET, "sunset.sym", &root.join("b2"), &bank_opts(false), &mut |_| {}).unwrap();
+        assert!(b1.complete && b2.complete);
+        let bank_head = |d: &Path| -> serde_json::Value {
+            serde_json::from_str(std::fs::read_to_string(d.join("F.refused.jsonl")).unwrap().lines().next().unwrap()).unwrap()
+        };
+        assert_eq!(bank_head(&root.join("b1"))["guard_version"], 1);
+        assert_eq!(bank_head(&root.join("b2"))["guard_version"], GUARD_VERSION);
+        assert_ne!(bank_head(&root.join("b1"))["key"], bank_head(&root.join("b2"))["key"]);
+        let adopt = |banks: &str, no_witness_guards: bool, tag: &str| {
+            let o = NodeOptions {
+                max_rule_monomials: None,
+                adopt_banks: vec![root.join(banks).join("F.refused.jsonl").display().to_string()],
+                no_witness_guards,
+                ..quiet()
+            };
+            generate(SUNSET, "sunset.sym", &root.join(tag), &o, &mut |_| {}).unwrap()
+        };
+        assert_eq!(adopt("b1", false, "a12").bank_adopted, 0, "v2 never adopts a v1 bank");
+        assert!(adopt("b2", false, "a22").bank_adopted > 0, "v2 adopts a v2 bank");
+        assert_eq!(adopt("b2", true, "a21").bank_adopted, 0, "v1 never adopts a v2 bank");
+        assert!(adopt("b1", true, "a11").bank_adopted > 0, "v1 adopts a v1 bank");
+        let q = std::fs::read_to_string(root.join("a12/F.queue.jsonl")).unwrap();
+        assert!(q.contains("bank_skipped") && q.contains("guard_version 1"), "{q}");
+        // a header-less-version (pre-fix) bank: absent = 1, refused by a v2 run
+        let pre = root.join("pre");
+        std::fs::create_dir_all(&pre).unwrap();
+        let text = std::fs::read_to_string(root.join("b2/F.refused.jsonl")).unwrap();
+        let mut out = Vec::new();
+        for l in text.lines() {
+            let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+            if let Some(o) = v.as_object_mut() {
+                o.remove("guard_version");
+            }
+            if let Some(o) = v.get_mut("rule").and_then(|r| r.as_object_mut()) {
+                o.remove("guard_version");
+            }
+            out.push(v.to_string());
+        }
+        std::fs::write(pre.join("F.refused.jsonl"), out.join("\n") + "\n").unwrap();
+        assert_eq!(adopt("pre", false, "apre").bank_adopted, 0);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

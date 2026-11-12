@@ -69,6 +69,11 @@ pub struct ReplayArgs {
     /// guard-fix --dump-weights: per cell also write `weights-<d>.json` (source rows, pivot rows, nonzero weights mod
     /// P, column keys, zero-sector keys, desired row) for the exact upgrade of a modular PASS (helper Y24).
     pub dump_weights: bool,
+    /// guard-fix: draw d at random in F_p per cell instead of the fixed `dimensions` (rr_node replay default when
+    /// no --dimensions is given; `--fixed-d` keeps the three fixed values 17/7 19/7 23/7 of p5l-replay.v1).
+    pub random_d: bool,
+    /// guard-fix: run each cell modulo P only (default: P and the second prime P2 = 2^61 - 31).
+    pub single_prime: bool,
 }
 
 impl ReplayArgs {
@@ -159,15 +164,23 @@ fn power_decode(b: i64) -> Result<(bool, i64), Unknown> {
 }
 
 fn strip(r: &Row) -> Row {
+    strip_p(P, r)
+}
+
+fn strip_p(p: u64, r: &Row) -> Row {
     r.iter()
-        .filter(|(_, v)| **v % P != 0)
+        .filter(|(_, v)| **v % p != 0)
         .map(|(k, v)| (k.clone(), *v))
         .collect()
 }
 
 fn addto(r: &mut Row, k: Key, x: u64) {
+    addto_p(P, r, k, x)
+}
+
+fn addto_p(p: u64, r: &mut Row, k: Key, x: u64) {
     let e = r.entry(k).or_insert(0);
-    *e = arith::add(P, *e, x);
+    *e = arith::add(p, *e, x);
 }
 
 fn entries(r: &Row) -> Value {
@@ -386,26 +399,26 @@ fn source_basis(path: &Path, f: &Family) -> Result<(Cert, Value), Unknown> {
     Ok((Cert { rows, basis }, auth))
 }
 
-fn eval_form(form: &[Q], y: &[i64], d: u64) -> Result<u64, Unknown> {
+fn eval_form_p(p: u64, form: &[Q], y: &[i64], d: u64) -> Result<u64, Unknown> {
     let n = y.len();
-    let mut v = form[0].modp(P).ok_or("form pole")?;
+    let mut v = form[0].modp(p).ok_or("form pole")?;
     for i in 0..n {
         if !form[i + 1].is_zero() {
             v = arith::add(
-                P,
+                p,
                 v,
                 arith::mul(
-                    P,
-                    form[i + 1].modp(P).ok_or("form pole")?,
-                    arith::from_i128(P, y[i] as i128),
+                    p,
+                    form[i + 1].modp(p).ok_or("form pole")?,
+                    arith::from_i128(p, y[i] as i128),
                 ),
             );
         }
     }
     Ok(arith::add(
-        P,
+        p,
         v,
-        arith::mul(P, form[n + 1].modp(P).ok_or("form pole")?, d),
+        arith::mul(p, form[n + 1].modp(p).ok_or("form pole")?, d),
     ))
 }
 
@@ -1027,6 +1040,21 @@ fn rows_for(
     cert: Option<&Cert>,
     chart: &str,
 ) -> Result<Built, Unknown> {
+    rows_for_p(P, support, point, recenter, d, f, cert, chart)
+}
+
+/// [`rows_for`] modulo the prime `p` (guard-fix replay hardening: second prime).
+#[allow(clippy::too_many_arguments)]
+fn rows_for_p(
+    p: u64,
+    support: &Support,
+    point: &[i64],
+    recenter: &[i64],
+    d: u64,
+    f: &Family,
+    cert: Option<&Cert>,
+    chart: &str,
+) -> Result<Built, Unknown> {
     let n = f.n;
     let mut out = Built {
         rows: Vec::new(),
@@ -1070,30 +1098,30 @@ fn rows_for(
                 .basis
                 .get(&(chart.to_string(), bid))
                 .ok_or("trace basis missing from authenticated certificate")?;
-            let yp: Vec<u64> = y.iter().map(|&v| arith::from_i128(P, v as i128)).collect();
+            let yp: Vec<u64> = y.iter().map(|&v| arith::from_i128(p, v as i128)).collect();
             let mut row = Row::new();
             for (m, coef) in terms {
-                let cv = coef.at_mod(P, &yp, d)?;
+                let cv = coef.at_mod(p, &yp, d)?;
                 for (delta, form) in &cert.rows[m] {
                     let key: Key = y.iter().zip(delta).map(|(a, b)| a + b).collect();
                     out.universe.insert(key.clone());
-                    addto(&mut row, key, arith::mul(P, cv, eval_form(form, &y, d)?));
+                    addto_p(p, &mut row, key, arith::mul(p, cv, eval_form_p(p, form, &y, d)?));
                 }
             }
-            out.rows.push(strip(&row));
+            out.rows.push(strip_p(p, &row));
             out.labels.push(json!({"basis_row": bid, "at": y}));
         } else {
             if !seen_y.insert(y.clone()) {
                 continue;
             }
-            for (op, r) in f.rows_at(&y, d, P)?.into_iter().enumerate() {
+            for (op, r) in f.rows_at(&y, d, p)?.into_iter().enumerate() {
                 let mut rr = Row::new();
                 for (delta, v) in r {
                     let key: Key = y.iter().zip(&delta).map(|(a, b)| a + b).collect();
                     out.universe.insert(key.clone());
-                    addto(&mut rr, key, v);
+                    addto_p(p, &mut rr, key, v);
                 }
-                out.rows.push(strip(&rr));
+                out.rows.push(strip_p(p, &rr));
                 out.labels
                     .push(json!({"independent_original_operator": op, "at": y}));
             }
@@ -1695,17 +1723,56 @@ fn replay_cells(
 ) -> Result<Vec<Value>, Unknown> {
     let (point, rc, target) = (point.to_vec(), rc.to_vec(), target.clone());
     let mut cells = Vec::new();
-    for (ds, d, dqv) in &ctx.dims {
+    // guard-fix replay hardening (helper Y24): each cell runs at the replay prime P AND the second prime P2
+    // (unless --single-prime); d is either one of the fixed dimensions (--dimensions / --fixed-d) or drawn at random
+    // in F_p per cell (the CLI default), deterministically from (rule, point, cell, prime) so a run is reproducible.
+    let primes: Vec<u64> = if ctx.args.single_prime {
+        vec![P]
+    } else {
+        vec![P, arith::P2]
+    };
+    let cell_dims: Vec<(String, Option<Q>)> = if ctx.args.random_d {
+        (0..ctx.dims.len().max(1))
+            .map(|k| (format!("random{k}"), None))
+            .collect()
+    } else {
+        ctx.dims.iter().map(|(ds, _, q)| (ds.clone(), Some(*q))).collect()
+    };
+    let point_hash = {
+        let mut h: u32 = 0x811c_9dc5;
+        for byte in format!("{}|{}|{:?}", rule.chart, rule.index, point).bytes() {
+            h ^= byte as u32;
+            h = h.wrapping_mul(0x0100_0193);
+        }
+        h
+    };
+    let point_mod = |p: u64| -> Vec<u64> {
+        point.iter().map(|&x| arith::from_i128(p, x as i128)).collect()
+    };
+    for (ck, (ds, dq)) in cell_dims.iter().enumerate() {
+      for &p in &primes {
+        let d: u64 = match dq {
+            Some(q) => q.modp(p).ok_or("dimension pole")?,
+            None => {
+                let mut rng = arith::PyRandom::new(
+                    point_hash ^ (ck as u32).wrapping_mul(0x9e37_79b9) ^ if p == P { 0 } else { 0x5bd1_e995 },
+                );
+                let hi = rng.getrandbits(32) as u64;
+                let lo = rng.getrandbits(32) as u64;
+                2 + ((hi << 32) | lo) % (p - 3)
+            }
+        };
         let mut desired = Row::new();
         desired.insert(target.clone(), 1);
+        let pm = point_mod(p);
         let values: Vec<u64> = coefs
             .iter()
-            .map(|c| c.at_point(P, &point, *dqv))
+            .map(|c| c.at_mod(p, &pm, d))
             .collect::<Result<_, _>>()?;
         for (k, v) in rhskeys.iter().zip(&values) {
-            addto(&mut desired, k.clone(), arith::neg(P, *v));
+            addto_p(p, &mut desired, k.clone(), arith::neg(p, *v));
         }
-        let built = rows_for(sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart)?;
+        let built = rows_for_p(p, sup, &point, &rc, d, ctx.f, ctx.cert, &rule.chart)?;
         let mut universe = built.universe.clone();
         universe.insert(target.clone());
         universe.extend(rhskeys.iter().cloned());
@@ -1717,7 +1784,7 @@ fn replay_cells(
             .cloned()
             .collect();
         let enc = |row: &Row| -> Vec<(usize, u64)> {
-            let mut es: Vec<(usize, u64)> = strip(row)
+            let mut es: Vec<(usize, u64)> = strip_p(p, row)
                 .into_iter()
                 .filter(|(k, _)| !zeros.contains(k))
                 .map(|(k, v)| (ids[&k], v))
@@ -1726,16 +1793,16 @@ fn replay_cells(
             es
         };
         let enc_rows: Vec<Vec<(usize, u64)>> = built.rows.iter().map(enc).collect();
-        let elim = Elim::new(&enc_rows, columns.len(), P)?;
+        let elim = Elim::new(&enc_rows, columns.len(), p)?;
         let enc_desired = enc(&desired);
         let sp = elim.solve(&enc_desired)?;
         let mut raw = desired.clone();
         for (i, w) in &sp.weights {
             for (k, v) in &built.rows[*i] {
-                addto(&mut raw, k.clone(), arith::neg(P, arith::mul(P, *w, *v)));
+                addto_p(p, &mut raw, k.clone(), arith::neg(p, arith::mul(p, *w, *v)));
             }
         }
-        let raw = strip(&raw);
+        let raw = strip_p(p, &raw);
         let bad: Row = raw
             .iter()
             .filter(|(k, _)| !zeros.contains(*k))
@@ -1757,20 +1824,46 @@ fn replay_cells(
         // guard-fix (Y24): the +1 mutant is RE-SOLVED against the same echelon form (rule + delta e_k in the span?).
         // A PASS cell whose mutant is also in the span has no content (the RHS integral k itself lies in the span).
         let mut mutant_desired = desired.clone();
-        addto(&mut mutant_desired, rhskeys[mutidx].clone(), P - 1);
+        addto_p(p, &mut mutant_desired, rhskeys[mutidx].clone(), p - 1);
         let mutant_span = elim.solve(&enc(&mutant_desired))?;
         let mutant_rejected = !mutant_span.in_span;
+        // guard-fix (Y24 control 2): no known nonzero integral lies in the span. Per non-zero sector touched by
+        // the columns, its corner (lines at power 1, ISPs at 0; nonzero for a non-scaleless Euclidean sector) when
+        // it is a column: e_corner in the span would mean the rows (or the zero list) prove a nonzero integral = 0.
+        let mut sectors_touched: BTreeSet<Vec<bool>> = BTreeSet::new();
+        for k in columns.iter().filter(|k| !zeros.contains(*k)) {
+            sectors_touched.insert(k.iter().map(|&x| x >= 1).collect());
+        }
+        let (mut corners_tested, mut corners_in_span) = (0usize, Vec::new());
+        for sec in &sectors_touched {
+            let corner: Key = sec.iter().map(|&a| if a { 1 } else { 0 }).collect();
+            if let Some(&c) = ids.get(&corner) {
+                if zeros.contains(&corner) {
+                    continue;
+                }
+                corners_tested += 1;
+                if elim.solve(&[(c, 1)])?.in_span {
+                    corners_in_span.push(corner);
+                }
+            }
+        }
+        let nonzero_control_ok = corners_in_span.is_empty();
         let nonzero_sector_columns = columns.len() - zeros.len();
         let content = sp.rank < nonzero_sector_columns;
-        let ok = sp.in_span && bad.is_empty() && mutant_rejected;
-        let label = ds.replace('/', "_");
+        let derived = sp.in_span && bad.is_empty();
+        let ok = derived && mutant_rejected && nonzero_control_ok;
+        let plabel = if p == P { "P" } else { "P2" };
+        let label = format!("{}-{plabel}", ds.replace('/', "_"));
         let cell = json!({
-            "dimension": ds, "prime": P, "point": point, "target": target, "recenter": rc, "source_rows": built.rows.len(),
+            "dimension": ds, "dimension_mod_p": d.to_string(), "prime": p, "prime_label": plabel, "point": point,
+            "target": target, "recenter": rc, "source_rows": built.rows.len(),
             "rhs_terms": rhskeys.len(), "full_column_universe": columns.len(), "zero_sector_columns": zeros.len(),
             "nonzero_sector_columns": nonzero_sector_columns,
             "rank_below_nonzero_sector_columns": content,
             "raw_residual": entries(&raw), "nonzero_sector_residual": entries(&bad),
             "mutation": {"rhs_index": mutidx, "coefficient_delta": 1, "same_recomputed_witness": false, "re_solved": true, "rejected": mutant_rejected},
+            "nonzero_integral_control": {"sectors_touched": sectors_touched.len(), "corners_tested": corners_tested,
+                "corners_in_span": corners_in_span, "ok": nonzero_control_ok},
             "elimination": {"status": if sp.in_span { "IN_SPAN" } else { "NOT_IN_SPAN" }, "rank": sp.rank, "weights": sp.weights.len()},
         });
         let cp = out.join(format!("cell-{label}.json"));
@@ -1778,8 +1871,8 @@ fn replay_cells(
             .map_err(|e| e.to_string())?;
         if ctx.args.dump_weights {
             // guard-fix --dump-weights (Y24 exact upgrade): every source row (index, absolute seed, operator / basis
-            // row), the pivot rows, the nonzero weights mod P, the column keys, the zero-sector keys and the desired
-            // rule row mod P (target +1, RHS -c_i), all in the column numbering of this cell.
+            // row), the pivot rows, the nonzero weights mod p, the column keys, the zero-sector keys and the desired
+            // rule row mod p (target +1, RHS -c_i), all in the column numbering of this cell.
             let row_entries: Vec<Value> = built
                 .labels
                 .iter()
@@ -1794,22 +1887,30 @@ fn replay_cells(
             let desired_cols: Vec<Value> = enc_desired.iter().map(|(c, v)| json!([c, v.to_string()])).collect();
             let zero_keys: Vec<&Key> = zeros.iter().collect();
             let dump = json!({
-                "schema": "guard-fix.replay-weights.v1", "prime": P.to_string(), "dimension": ds, "dimension_mod_p": d.to_string(),
+                "schema": "guard-fix.replay-weights.v1", "prime": p.to_string(), "dimension": ds, "dimension_mod_p": d.to_string(),
                 "point": point, "target": target, "recenter": rc, "chart": rule.chart, "rule": rule.index,
                 "rows": row_entries, "pivot_rows": sp.pivot_rows, "rank": sp.rank,
-                "weights": weights, "weights_note": "weights[i] = [row, w mod P as decimal string]; desired - sum w_i row_i = 0 on every nonzero-sector column",
+                "weights": weights, "weights_note": "weights[i] = [row, w mod p as decimal string]; desired - sum w_i row_i = 0 on every nonzero-sector column",
                 "columns": columns, "zero_sector_keys": zero_keys, "desired": desired_cols,
                 "in_span": sp.in_span,
             });
             let wp = out.join(format!("weights-{label}.json"));
             std::fs::write(&wp, serde_json::to_string(&dump).unwrap() + "\n").map_err(|e| e.to_string())?;
         }
-        let summary = json!({"dimension": ds, "result": if ok { "PASS" } else if !(sp.in_span && bad.is_empty()) { "FAIL" } else { "CONTROL_FAILED" }, "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "nonzero_sector_columns": nonzero_sector_columns, "rank_below_nonzero_sector_columns": content, "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": mutant_rejected, "mutation_re_solved": true});
+        let result = if ok {
+            "PASS"
+        } else if !derived {
+            "FAIL"
+        } else {
+            "CONTROL_FAILED"
+        };
+        let summary = json!({"dimension": ds, "prime": plabel, "result": result, "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "nonzero_sector_columns": nonzero_sector_columns, "rank_below_nonzero_sector_columns": content, "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": mutant_rejected, "mutation_re_solved": true, "nonzero_control_ok": nonzero_control_ok, "corners_tested": corners_tested});
         eprintln!(
             "{}",
             json!({"stage": "cell_complete", "chart": rule.chart, "rule": rule.index, "cell": summary})
         );
         cells.push(summary);
+      }
     }
     Ok(cells)
 }

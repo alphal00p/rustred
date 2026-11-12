@@ -10,7 +10,7 @@ use symbolica::prelude::{Field, Integer, Ring};
 use crate::algebra::CoefficientPolynomial;
 
 use super::discovery::{
-    Discovery, DiscoveryStats, exact_materialize_using_with_observer, exact_materialize_witnessed,
+    Discovery, DiscoveryStats, exact_materialize_witnessed,
 };
 use super::instantiate::{canonical_shifts, canonicalize, instantiate, translate_polynomial};
 use super::precondition::{
@@ -155,6 +155,12 @@ pub struct SectorSolver<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> SectorSolver<'a, N> {
+    /// Whether rule exceptions include the witness (source-weight) poles of the lift (guard-fix; table
+    /// `guard_version` 2 when on, 1 when off).
+    pub fn witness_guards(&self) -> bool {
+        self.config.witness_guards
+    }
+
     pub fn new(
         system: &'a SourceSystem<N>,
         sector: [bool; N],

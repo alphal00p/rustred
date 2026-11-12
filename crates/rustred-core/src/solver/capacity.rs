@@ -117,7 +117,12 @@ impl<const A: usize, const B: usize> Mapping<'_, A, B> {
                     })
                     .collect::<Result<_, _>>()?,
                 stats: source.stats,
-                hidden_poles: Vec::new(),
+                // guard-fix (Y3b item b): the witness poles travel through the resize like the exceptions do
+                hidden_poles: source
+                    .hidden_poles
+                    .iter()
+                    .map(|p| self.polynomial(p))
+                    .collect::<Result<_, _>>()?,
             },
             exceptions: ExceptionalConditions {
                 branches: value
@@ -630,6 +635,19 @@ mod tests {
             assert_eq!(shared.candidate.rhs, exact.candidate.rhs);
             assert_eq!(shared.candidate.sources, exact.candidate.sources);
             assert_eq!(shared.exceptions, exact.exceptions);
+            // guard-fix: the witness poles survive the capacity mapping (they feed audits / witness_loci)
+            assert_eq!(
+                shared.candidate.hidden_poles.len(),
+                exact.candidate.hidden_poles.len()
+            );
+            for (a, b) in shared
+                .candidate
+                .hidden_poles
+                .iter()
+                .zip(&exact.candidate.hidden_poles)
+            {
+                assert_eq!(a.to_string(), b.to_string());
+            }
         }
     }
 
