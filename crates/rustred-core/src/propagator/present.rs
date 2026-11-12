@@ -323,6 +323,19 @@ pub enum IspPreference {
     Default,
     /// Unit-row ordinals scanned first.
     Units(Vec<usize>),
+    /// Explicit-row ISPs (route-basis-2): products `left.right` of arbitrary
+    /// integer momenta over `(k_1, .., k_L, q)` (e.g. a parent's slot forms
+    /// mapped into the node), offered first and in this order, then the
+    /// edge pairs, then the unit rows, then the default scan. Each must be
+    /// massless-shaped (no `q` in both factors: constant 0); independence is
+    /// verified by [`IspCompletion`] and the lane contract by the checkers.
+    Rows {
+        rows: Vec<[Vec<i64>; 2]>,
+        #[serde(default)]
+        pairs: Vec<[i64; 2]>,
+        #[serde(default)]
+        units: Vec<usize>,
+    },
     /// Edge-pair products first (`-1` = `q`), then unit-row ordinals.
     Pairs {
         pairs: Vec<[i64; 2]>,
@@ -335,16 +348,46 @@ impl IspPreference {
     fn units(&self) -> &[usize] {
         match self {
             Self::Default => &[],
-            Self::Units(units) | Self::Pairs { units, .. } => units,
+            Self::Units(units) | Self::Pairs { units, .. } | Self::Rows { units, .. } => units,
         }
     }
 
     fn pairs(&self) -> &[[i64; 2]] {
         match self {
-            Self::Pairs { pairs, .. } => pairs,
+            Self::Pairs { pairs, .. } | Self::Rows { pairs, .. } => pairs,
             Self::Default | Self::Units(_) => &[],
         }
     }
+
+    fn rows(&self) -> &[[Vec<i64>; 2]] {
+        match self {
+            Self::Rows { rows, .. } => rows,
+            Self::Default | Self::Units(_) | Self::Pairs { .. } => &[],
+        }
+    }
+}
+
+/// An explicit ISP row of a node with `width = L + 1` momentum columns: the
+/// right width, both factors non-zero, and massless-shaped (the eps family of
+/// a node must have constant-free ISP slots, `family/unit_scale.rs`), so `q`
+/// may occur in at most one factor.
+fn explicit_row(row: &[Vec<i64>; 2], width: usize) -> Result<(Vec<i64>, Vec<i64>), PError> {
+    let [left, right] = row;
+    let bad = |why: &str| {
+        Err(PError::Generation(format!(
+            "explicit ISP row {left:?}.{right:?}: {why}"
+        )))
+    };
+    if left.len() != width || right.len() != width {
+        return bad(&format!("rows of width {width} are required"));
+    }
+    if left.iter().all(|&c| c == 0) || right.iter().all(|&c| c == 0) {
+        return bad("a factor is zero");
+    }
+    if left[width - 1] != 0 && right[width - 1] != 0 {
+        return bad("q in both factors (constant q^2: not massless-shaped)");
+    }
+    Ok((left.clone(), right.clone()))
 }
 
 fn isp_preference(name: &str) -> Result<IspPreference, PError> {
@@ -430,15 +473,17 @@ fn with_isps(
         None => isp_preference(name.as_str())?,
     };
     let width = loops + 1;
-    let pair_rows = preference
-        .pairs()
+    let explicit = preference
+        .rows()
         .iter()
-        .map(|&[a, b]| {
+        .map(|row| explicit_row(row, width));
+    let pair_rows = explicit
+        .chain(preference.pairs().iter().map(|&[a, b]| {
             Ok((
                 pair_momentum(&rows, a, width)?,
                 pair_momentum(&rows, b, width)?,
             ))
-        })
+        }))
         .collect::<Result<Vec<_>, PError>>()?;
     let candidates = pair_rows
         .iter()
@@ -1040,6 +1085,23 @@ mod pair_tests {
         );
         assert_eq!(table["c"].units(), &[2]);
         assert!(table["c"].pairs().is_empty());
+        let rows: BTreeMap<String, IspPreference> = serde_json::from_str(
+            r#"{"r": {"rows": [[[1, -1, 0], [0, 1, 1]]], "pairs": [[0, 1]], "units": [4]}}"#,
+        )
+        .unwrap();
+        assert_eq!(rows["r"].rows(), &[[vec![1, -1, 0], vec![0, 1, 1]]]);
+        assert_eq!(rows["r"].pairs(), &[[0, 1]]);
+        assert_eq!(rows["r"].units(), &[4]);
+        assert!(table["b"].rows().is_empty());
+    }
+
+    #[test]
+    fn explicit_rows_must_be_massless_shaped() {
+        assert!(explicit_row(&[vec![1, -1, 0], vec![0, 1, 1]], 3).is_ok());
+        // (k1 - q).(k2 + q) has the constant -q.q
+        assert!(explicit_row(&[vec![1, 0, -1], vec![0, 1, 1]], 3).is_err());
+        assert!(explicit_row(&[vec![1, 0], vec![0, 1]], 3).is_err());
+        assert!(explicit_row(&[vec![0, 0, 0], vec![0, 1, 0]], 3).is_err());
     }
 
     /// The embedded table (P_PRESENTATION_VERSION 3) parses, names 55 nodes,
