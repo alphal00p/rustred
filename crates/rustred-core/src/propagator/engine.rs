@@ -23,6 +23,7 @@
 //! [`PLaneStep::order_key`]: super::step::PLaneStep::order_key
 //! [`ORDERED_STEP_CACHE_SCHEMA`]: crate::reduction::ORDERED_STEP_CACHE_SCHEMA
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, OnceLock};
 
 use smallvec::SmallVec;
@@ -615,6 +616,11 @@ impl PEngine {
             None => PCensusMode::OFF,
         };
         let shared_memo = super::step_memo::begin(scheduler.threads);
+        // The same process-wide snapshot appends the pruning marker to the
+        // library's step identity, so persistent pruned/unpruned records cannot
+        // be attached or reopened across modes.
+        let zero_pruning =
+            super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -625,6 +631,7 @@ impl PEngine {
                 canonical_routes: library.orbit_canonicalization()
                     && library.route_canonicalization(),
                 prefer_high: library.orbit_prefer_high(),
+                zero_pruning: zero_pruning.as_ref(),
             },
             inspector,
         };
@@ -652,6 +659,17 @@ impl PEngine {
                     "{{\"insertion\":{{\"hits\":{ih},\"misses\":{im},\"entries\":{ie}}},\"route\":{{\"hits\":{rh},\"misses\":{rm},\"entries\":{re}}},\"coefficients\":{distinct}}}"
                 );
             }
+        }
+        if let Some(counters) = zero_pruning
+            .as_ref()
+            .filter(|_| super::library::prune_zero_children_reported())
+        {
+            eprintln!(
+                "rustred.p-zero-pruning.v1 canonical_candidates_before_parent_merge={} known_zero_candidates_pruned={} complete={}",
+                counters.canonical_candidates.load(AtomicOrdering::Relaxed),
+                counters.known_zero.load(AtomicOrdering::Relaxed),
+                output.is_ok(),
+            );
         }
         super::step_memo::end(shared_memo);
         output
@@ -825,6 +843,15 @@ pub(crate) fn routed_sectors(
 }
 
 /// The shared, read-only part of the adapter: pure positions and steps.
+#[derive(Debug, Default)]
+struct ZeroPruningCounters {
+    // These are canonical candidates BEFORE per-parent merging, not the
+    // coalesced emitted children counted by PCensusAgg::ch_zero.
+    canonical_candidates: AtomicU64,
+    known_zero: AtomicU64,
+}
+
+/// The shared, read-only part of the adapter: pure positions and steps.
 #[derive(Clone, Copy)]
 pub(crate) struct PStepper<'l> {
     library: &'l PLibrary,
@@ -838,6 +865,9 @@ pub(crate) struct PStepper<'l> {
     /// The greatest exact image stands for an orbit (the default), else the
     /// least ([`PLibrary::set_orbit_prefer_high`]).
     prefer_high: bool,
+    /// None keeps the historical path byte-for-byte; the opt-in counter is
+    /// request-local and shared only by that request's detached steppers.
+    zero_pruning: Option<&'l ZeroPruningCounters>,
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -1196,7 +1226,9 @@ impl<'l> PStepper<'l> {
             for endpoint in mapped.terms() {
                 let (child, coefficient) =
                     child(endpoint.key().powers(), endpoint.coefficient().clone())?;
-                merge(context, &self.limits, terms, child, coefficient)?;
+                if self.keep_canonical_child(&child, &coefficient)? {
+                    merge(context, &self.limits, terms, child, coefficient)?;
+                }
             }
             Ok(())
         };
@@ -1264,7 +1296,9 @@ impl<'l> PStepper<'l> {
                         .map(|(base, &relative)| base + i64::from(relative)),
                 );
                 let (child, coefficient) = child(&target, values(coefficient))?;
-                merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+                if self.keep_canonical_child(&child, &coefficient)? {
+                    merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+                }
             }
             Ok(())
         })?;
@@ -1618,6 +1652,37 @@ impl<'l> PStepper<'l> {
         self.apply_key(*class, &child.powers, &child.tag, child.coefficient.clone())
     }
 
+    fn keep_canonical_child(
+        &self,
+        child: &PKey,
+        coefficient: &Coefficient,
+    ) -> Result<bool, PError> {
+        let Some(counters) = self.zero_pruning else {
+            return Ok(true);
+        };
+        if coefficient.is_zero() {
+            return Ok(true); // The existing merge erases literal zero weights.
+        }
+        counters
+            .canonical_candidates
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        let PKey::Route { presentation, view } = child else {
+            return Ok(true);
+        };
+        let (powers, _) = self.engine.split(*presentation, view)?;
+        let support = self.engine.shape(*presentation)?.support(powers);
+        // Use exactly the existing census authority. In particular, a gap
+        // propagates its error and is never inferred to be a zero sector.
+        if matches!(
+            self.engine.sector(self.library, *presentation, support)?,
+            Sector::Zero
+        ) {
+            counters.known_zero.fetch_add(1, AtomicOrdering::Relaxed);
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     fn ordered_step(&self, output: PStepOut) -> Result<OrderedStep<PKey>, PError> {
         let context = self.library.coefficient_context();
         let mut step = OrderedStep::default();
@@ -1642,7 +1707,9 @@ impl<'l> PStepper<'l> {
                 )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
-            merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+            if self.keep_canonical_child(&key, &coefficient)? {
+                merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+            }
             super::step_memo::put_powers(child.powers);
         }
         for (terminal, tag, coefficient) in output.terminals {
@@ -2027,6 +2094,7 @@ mod tests {
     use crate::propagator::lane::{LaneRoles, OwnerLane};
     use crate::propagator::library::POwnerSpec;
     use crate::propagator::presentation::{PresentationKind, Slot, SlotLine};
+    use crate::propagator::step::PLaneStep;
 
     const BUBBLE: PresentationId = PresentationId(1);
 
@@ -2061,6 +2129,10 @@ mod tests {
     /// terminal but `Unit`. Keys have the 21 slots of the kite: a view of the
     /// bubble ends in 3 slots of padding, a terminal key in 2.
     fn library() -> (PLibrary, OwnerClassId) {
+        library_with_program(OwnerProgram::Missing { ledger: 0 })
+    }
+
+    fn library_with_program(program: OwnerProgram) -> (PLibrary, OwnerClassId) {
         let context = CoefficientContext::try_new(["d"]).unwrap();
         let mut census = PCensus::default();
         let class = census
@@ -2078,6 +2150,9 @@ mod tests {
                 eps_lines: 0,
             })
             .unwrap();
+        // A one-line massless bubble is scaleless; the other one-line mask
+        // remains absent so the zero-pruning tests also exercise a census gap.
+        census.sectors.insert((BUBBLE, 0b01), PSectorFate::Zero);
         let mut builder = PLibrary::builder(context.clone(), 1..=2);
         builder
             .add_presentation(presentation(
@@ -2110,7 +2185,7 @@ mod tests {
                     custom: None,
                     terminals: Vec::new(),
                 },
-                OwnerProgram::Missing { ledger: 0 },
+                program,
             )
             .unwrap();
         (builder.build().unwrap(), class)
@@ -2152,6 +2227,7 @@ mod tests {
             canonical: true,
             canonical_routes: true,
             prefer_high: false,
+            zero_pruning: None,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -2225,6 +2301,7 @@ mod tests {
             canonical: true,
             canonical_routes: true,
             prefer_high: false,
+            zero_pruning: None,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -2236,5 +2313,340 @@ mod tests {
             stepper.apply_step(class, &pinched),
             Err(PError::MalformedLibrary(_))
         ));
+    }
+
+    #[test]
+    fn known_zero_pruning_preserves_default_tags_conditions_and_cancellation() {
+        let (library, _) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let counters = ZeroPruningCounters::default();
+        let off = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
+            canonical: false,
+            canonical_routes: false,
+            prefer_high: false,
+            zero_pruning: None,
+        };
+        let on = PStepper {
+            zero_pruning: Some(&counters),
+            ..off
+        };
+        let one = library.coefficient_context().one();
+        let tag = GammaTag::from_pairs([(1, 2)]).unwrap();
+        let other_tag = GammaTag::from_pairs([(-1, 3)]).unwrap();
+        let child = |powers: Vec<i64>, tag: &GammaTag, coefficient: Coefficient| PChild {
+            stage: PStage::Route,
+            presentation: BUBBLE,
+            powers,
+            tag: tag.clone(),
+            coefficient,
+        };
+        let output = PStepOut {
+            children: vec![
+                child(vec![1, 0], &tag, one.clone()),
+                child(vec![1, 1], &tag, one.clone()),
+                child(vec![1, 1], &tag, one.clone()),
+                child(vec![1, 1], &tag, -one.clone()),
+                child(vec![1, 1], &other_tag, one.clone()),
+            ],
+            terminals: vec![(PTerminalId(0), tag.clone(), one.clone())],
+            conditions: vec![one.clone()],
+        };
+        let old = off.ordered_step(output.clone()).unwrap();
+        let pruned = on.ordered_step(output).unwrap();
+        let zero = engine.route_key(BUBBLE, &[1, 0], &tag).unwrap();
+        let first = engine.route_key(BUBBLE, &[1, 1], &tag).unwrap();
+        let second = engine.route_key(BUBBLE, &[1, 1], &other_tag).unwrap();
+        // The default has exactly the old three coalesced tagged children.
+        assert_eq!(old.terms.len(), 3);
+        for key in [&zero, &first, &second] {
+            assert_eq!(old.terms.get(key), Some(&one));
+        }
+        assert_eq!(pruned.terms.len(), 2);
+        assert!(!pruned.terms.contains_key(&zero));
+        for key in [&first, &second] {
+            assert_eq!(pruned.terms.get(key), Some(&one));
+        }
+        assert_eq!(pruned.terminals, old.terminals);
+        assert_eq!(pruned.nonzero_conditions, old.nonzero_conditions);
+        assert_eq!(
+            counters.canonical_candidates.load(AtomicOrdering::Relaxed),
+            5
+        );
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 1);
+        assert!(
+            on.route_step(BUBBLE, &engine.view(&[1, 0], &tag).unwrap())
+                .unwrap()
+                .terms
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn known_zero_pruning_refuses_gaps_and_preserves_coefficient_admission() {
+        let (library, _) = library();
+        let engine = PEngine::new(&library).unwrap();
+        let counters = ZeroPruningCounters::default();
+        let stepper = PStepper {
+            library: &library,
+            engine: &engine,
+            limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
+            canonical: false,
+            canonical_routes: false,
+            prefer_high: false,
+            zero_pruning: Some(&counters),
+        };
+        let tag = GammaTag::one();
+        let one = library.coefficient_context().one();
+        let gap = engine.route_key(BUBBLE, &[0, 1], &tag).unwrap();
+        assert!(matches!(
+            stepper.keep_canonical_child(&gap, &one),
+            Err(PError::MalformedLibrary(_))
+        ));
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
+        let foreign = CoefficientContext::try_new(["x"])
+            .unwrap()
+            .parameter("x")
+            .unwrap();
+        let output = PStepOut {
+            children: vec![PChild {
+                stage: PStage::Route,
+                presentation: BUBBLE,
+                powers: vec![1, 0],
+                tag,
+                coefficient: foreign,
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(
+            stepper.ordered_step(output),
+            Err(PError::ContextMismatch)
+        ));
+        assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
+    }
+
+    /// A native fixture with one explicit zero child, two nonzero tagged
+    /// terminals, and a nontrivial condition. It uses the actual Ordered cache,
+    /// canonical keys, coefficient context and terminal decoding.
+    struct PruningCacheLane;
+
+    impl PLaneStep for PruningCacheLane {
+        fn lane(&self) -> OwnerLane {
+            OwnerLane::Custom
+        }
+
+        fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+            let context = cx.library.coefficient_context();
+            let d = context.parameter("d").unwrap();
+            Ok(PStepOut {
+                children: vec![PChild {
+                    stage: PStage::Route,
+                    presentation: BUBBLE,
+                    powers: vec![1, 0],
+                    tag: key.tag.add(&GammaTag::from_pairs([(1, 2)])?),
+                    coefficient: context.one(),
+                }],
+                terminals: vec![
+                    (
+                        PTerminalId(0),
+                        key.tag.add(&GammaTag::from_pairs([(1, 2)])?),
+                        d.clone(),
+                    ),
+                    (
+                        PTerminalId(0),
+                        key.tag.add(&GammaTag::from_pairs([(-1, 3)])?),
+                        context.one(),
+                    ),
+                ],
+                conditions: vec![d],
+            })
+        }
+    }
+
+    /// Run by the parent test in separate processes: no concurrent environment
+    /// mutation, and each process captures the production flag exactly once.
+    #[test]
+    fn known_zero_cache_fixture_process() {
+        use super::super::library::{PReductionRequest, PUncoveredPolicy};
+        use crate::reduction::OrderedStepCacheBinding;
+        use crate::solver::UnresolvedPolicy;
+
+        let Ok(action) = std::env::var("RUSTRED_TEST_PRUNING_CACHE_ACTION") else {
+            return;
+        };
+        let root =
+            std::path::PathBuf::from(std::env::var_os("RUSTRED_TEST_PRUNING_CACHE_ROOT").unwrap());
+        let on = super::super::library::prune_zero_children_enabled();
+        let mode = if on { "on" } else { "off" };
+        let (library, _) = library_with_program(OwnerProgram::Lane(Arc::new(PruningCacheLane)));
+        library.set_orbit_canonicalization(false);
+        let context = library.coefficient_context();
+        let mut legacy = library.identity();
+        assert!(!crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail());
+        legacy.push_str(",P_ADJOINT_TAIL=off");
+        let marker = ",P_PRUNE_ZERO_CHILDREN=on";
+        for (route, high, suffix) in [
+            (true, true, ""),
+            (false, true, "-apply"),
+            (true, false, "-least"),
+            (false, false, "-apply-least"),
+        ] {
+            library.set_orbit_canonicalization(true);
+            library.set_route_canonicalization(route);
+            library.set_orbit_prefer_high(high);
+            assert_eq!(
+                library.step_identity(),
+                format!(
+                    "{},P_ORBIT_CANON_VERSION={}{suffix},P_ADJOINT_TAIL=off{}",
+                    library.identity(),
+                    super::super::P_ORBIT_CANON_VERSION,
+                    if on { marker } else { "" }
+                )
+            );
+        }
+        library.set_orbit_canonicalization(false);
+        let expected_identity = format!("{legacy}{}", if on { marker } else { "" });
+        assert_eq!(library.step_identity(), expected_identity);
+        let binding = library.step_cache_binding().unwrap();
+        assert_eq!(binding.family_fingerprint, expected_identity);
+        let request = |cache| PReductionRequest {
+            inputs: vec![(BUBBLE, IntegralKey::try_new([1, 1]).unwrap(), context.one())],
+            arithmetic: OrderedWeightArithmetic::Exact,
+            scheduler: OrderedSchedulerOptions {
+                threads: 1,
+                ..Default::default()
+            },
+            step_cache: cache,
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: false,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        };
+        if action == "reject-other" {
+            let other_mode = if on { "off" } else { "on" };
+            assert!(matches!(
+                OrderedStepCache::open(root.join(other_mode), binding, Default::default()),
+                Err(ReductionError::OrderedStepCache { .. })
+            ));
+            let other_identity = if on {
+                legacy
+            } else {
+                format!("{legacy}{marker}")
+            };
+            let wrong = OrderedStepCacheBinding::new(
+                crate::reduction::OrderedStepCacheAdapter::PropagatorLibrary,
+                other_identity,
+                context,
+                Some(UnresolvedPolicy::Reject),
+            );
+            assert!(matches!(
+                library.reduce(request(Some(OrderedStepCache::in_memory(
+                    wrong,
+                    Default::default()
+                )))),
+                Err(PError::Engine(ReductionError::OrderedStepCache { .. }))
+            ));
+            return;
+        }
+        assert_eq!(action, "roundtrip");
+        let uncached = library.reduce(request(None)).unwrap();
+        assert_eq!(uncached.terms.len(), 2);
+        assert_eq!(uncached.nonzero_conditions.len(), 1);
+        assert_ne!(uncached.terms[0].tag, uncached.terms[1].tag);
+        let directory = root.join(mode);
+        let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
+        let first = library.reduce(request(Some(Arc::clone(&cold)))).unwrap();
+        let progress = &first.statistics.progress;
+        assert!(progress.processed_keys > 0);
+        assert_eq!(progress.step_cache_hits, 0);
+        assert_eq!(progress.step_cache_misses, progress.processed_keys);
+        let saved = cold.save().unwrap();
+        assert!(saved.records > 0);
+        let warm = OrderedStepCache::open(&directory, binding, Default::default()).unwrap();
+        let second = library.reduce(request(Some(warm))).unwrap();
+        let warm_progress = &second.statistics.progress;
+        assert!(warm_progress.step_cache_hits > 0);
+        assert_eq!(warm_progress.step_cache_hits, warm_progress.processed_keys);
+        assert_eq!(warm_progress.step_cache_misses, 0);
+        for output in [&first, &second] {
+            assert_eq!(output.terms, uncached.terms);
+            assert_eq!(output.nonzero_conditions, uncached.nonzero_conditions);
+            assert_eq!(output.dimension, uncached.dimension);
+        }
+        let terms: Vec<_> = second
+            .terms
+            .iter()
+            .map(|term| {
+                let mut tag = Vec::new();
+                term.tag.encode_dense(&mut tag).unwrap();
+                serde_json::json!({"tag": tag, "coefficient": term.coefficient.to_string()})
+            })
+            .collect();
+        let report = serde_json::json!({
+            "identity": expected_identity,
+            "value": {"dimension": second.dimension, "terms": terms,
+                "conditions": second.nonzero_conditions.iter().map(ToString::to_string).collect::<Vec<_>>()},
+            "cold_misses": progress.step_cache_misses,
+            "warm_hits": warm_progress.step_cache_hits,
+            "warm_misses": warm_progress.step_cache_misses,
+            "saved_records": saved.records,
+        });
+        std::fs::write(
+            root.join(format!("{mode}.json")),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn known_zero_cache_roundtrip_and_mode_isolation() {
+        let keep = std::env::var_os("RUSTRED_TEST_PRUNING_CACHE_ROOT");
+        let root = keep
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("rustred-pruning-cache-{}", std::process::id()))
+            });
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        for action in ["roundtrip", "reject-other"] {
+            for on in [false, true] {
+                let mut child = std::process::Command::new(&executable);
+                child
+                    .args([
+                        "--exact",
+                        "propagator::engine::tests::known_zero_cache_fixture_process",
+                        "--nocapture",
+                    ])
+                    .env("RUSTRED_TEST_PRUNING_CACHE_ACTION", action)
+                    .env("RUSTRED_TEST_PRUNING_CACHE_ROOT", &root)
+                    .env("RUSTRED_ORDERED_ADJOINT_TAIL", "off");
+                if on {
+                    child.env("RUSTRED_P_PRUNE_ZERO_CHILDREN", "1");
+                } else {
+                    child.env_remove("RUSTRED_P_PRUNE_ZERO_CHILDREN");
+                }
+                assert!(child.status().unwrap().success(), "{action}, pruning={on}");
+            }
+        }
+        let off: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("off.json")).unwrap()).unwrap();
+        let on: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("on.json")).unwrap()).unwrap();
+        assert_eq!(off["value"], on["value"]);
+        assert_eq!(
+            on["identity"].as_str().unwrap(),
+            format!(
+                "{},P_PRUNE_ZERO_CHILDREN=on",
+                off["identity"].as_str().unwrap()
+            )
+        );
+        if keep.is_none() {
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }
