@@ -5333,6 +5333,35 @@ mod tests {
     }
 
     #[test]
+    fn known_terminals_refuse_a_compact_cover_index() {
+        // gf-merge control (T266-MERGE-NOTE): a cover index keeps no rule targets, so an active ledger cannot check
+        // it and must refuse it; the full table of the same run is accepted by the ledger check.
+        let cover = generate(SUNSET, "sunset.sym", &tmp("known-index-source"), &quiet(), &mut |_| {}).unwrap();
+        assert!(cover.complete && cover.rules > 0);
+        let index = format!("{}.cover.jsonl", tmp("known-index").display());
+        super::super::registry::write_cover_index(&cover.table, cover.rules, &index).unwrap();
+        let mut opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            cover_tables: vec![(index, cover.rules)],
+            ..quiet()
+        };
+        opts.known_terminals = Some(known_file(
+            "known-index-ledger",
+            &opts,
+            vec![vec![1, 1, 1, 0, 0]],
+        ));
+        let error = generate(SUNSET, "sunset.sym", &tmp("known-index-reject"), &opts, &mut |_| {})
+            .unwrap_err();
+        assert!(error.contains("compact cover index"), "{error}");
+        opts.cover_tables = vec![(cover.table.clone(), cover.rules)];
+        let outcome = generate(SUNSET, "sunset.sym", &tmp("known-index-full"), &opts, &mut |_| {}).unwrap();
+        assert!(outcome.complete, "{outcome:?}");
+    }
+
+    #[test]
     fn known_terminals_native_extra_master_refuses_without_fake_end() {
         let mut opts = NodeOptions {
             initial: vec![CaseSpec {
