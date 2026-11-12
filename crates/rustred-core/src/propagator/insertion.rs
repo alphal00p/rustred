@@ -303,6 +303,7 @@ impl InsertionStep {
                     tag: &tag,
                 };
                 let direct = |output: &mut PStepOut| -> Result<(), PError> {
+                    crate::prof!(InsertionCompute);
                     let table = rule.rewrite.table(&box_powers, &free_powers)?;
                     let weights = self.kernel_weights(alpha, beta, rank, limits)?;
                     keys.emit(&table, &weights, limits, output)
@@ -319,12 +320,16 @@ impl InsertionStep {
                     key.push(beta.integer);
                     key.extend(box_powers.iter().map(|&p| i64::from(p)));
                     key.extend(free_powers.iter().map(|&p| i64::from(p)));
-                    let memo = step_memo::insertion(&key, limits, || {
-                        let table = rule.rewrite.table(&box_powers, &free_powers)?;
-                        let weights = self.kernel_weights(alpha, beta, rank, limits)?;
-                        let weights = keys.weights(&table, &weights, limits)?;
-                        Ok((table, weights))
-                    })?;
+                    let memo = crate::prof_wrap!(
+                        MemoInsertion,
+                        step_memo::insertion(&key, limits, || {
+                            crate::prof!(InsertionCompute);
+                            let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                            let weights = self.kernel_weights(alpha, beta, rank, limits)?;
+                            let weights = keys.weights(&table, &weights, limits)?;
+                            Ok((table, weights))
+                        })
+                    )?;
                     match memo {
                         Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);

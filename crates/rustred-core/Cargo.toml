@@ -26,6 +26,9 @@ capacity-dispatch = []
 weighted-lowering-diagnostics = []
 # Explicit permission to restrict/extend the runtime arity registry at build time.
 runtime-arity-selection = []
+# fwd-profile (opt-in, default off, diagnostics): exclusive phase timer scopes
+# in the ordered p reduction (`prof.rs`); without it every scope is nothing.
+fwd-profile = []
 
 [dependencies]
 bincode.workspace = true

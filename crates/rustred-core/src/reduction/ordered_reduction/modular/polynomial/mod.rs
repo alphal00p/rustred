@@ -294,6 +294,7 @@ impl ImageSource for PolynomialSource<'_> {
         let (trace, basis, outputs, options) = (self.trace, self.basis, self.outputs, self.options);
         let prepared = Instant::now();
         let tables = executor.map(primes.to_vec(), |prime| {
+            crate::prof!(FinTables);
             LaneTables::new(prime, trace, basis)
         })?;
         statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
@@ -323,6 +324,8 @@ impl ImageSource for PolynomialSource<'_> {
         let started = Instant::now();
         let (compose, seed) = (self.compose, self.seed);
         let replay_job = |job: Vec<(usize, LaneTables)>| {
+            #[cfg(feature = "fwd-profile")]
+            let replay_scope = crate::prof::Scope::enter(crate::prof::Cat::FinReplay);
             let begun = Instant::now();
             let (indices, tables): (Vec<usize>, Vec<LaneTables>) = job.into_iter().unzip();
             let parallel = parallel_pool.and_then(|pool| {
@@ -359,6 +362,9 @@ impl ImageSource for PolynomialSource<'_> {
                 },
             };
             let replay_seconds = begun.elapsed().as_secs_f64();
+            #[cfg(feature = "fwd-profile")]
+            drop(replay_scope);
+            crate::prof!(FinCompose);
             // Compose every lane's terminal images (None: unusable prime).
             let composed = match (compose, &replayed) {
                 (Some(program), Ok(replayed)) => Some(

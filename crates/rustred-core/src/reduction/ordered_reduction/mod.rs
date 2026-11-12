@@ -1304,6 +1304,7 @@ fn modular_output(
     output: RawOutput<modular::ModularWeight>,
     composer: Option<&dyn OrderedTerminalComposer>,
 ) -> Result<OrderedOutput, ReductionError> {
+    crate::prof!(FinOutput);
     let (finished, statistics) = weights.finish(output.terms, composer)?;
     modular::report_statistics(&statistics);
     let (terms, composed) = match finished {
@@ -1694,13 +1695,16 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let limits = kernel.limits();
-    let mut state = admit(
-        kernel,
-        weights,
-        request,
-        initial,
-        nonzero_conditions,
-        tail.frontier,
+    let mut state = crate::prof_wrap!(
+        Admit,
+        admit(
+            kernel,
+            weights,
+            request,
+            initial,
+            nonzero_conditions,
+            tail.frontier,
+        )
     )?;
     let mut tail = if tail.enabled {
         TailRun::new(kernel, weights, tail.threads, true)?
@@ -1733,7 +1737,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             output,
             progress,
         } = &mut state;
-        while let Some((node, weight)) = frontier.pop_in_phase(phase) {
+        while let Some((node, weight)) = crate::prof_wrap!(Pop, frontier.pop_in_phase(phase)) {
+            crate::prof!(Loop);
             request.release_pending_frame()?;
             replace_monomials(
                 &mut progress.frontier_coefficient_monomials,
@@ -1743,7 +1748,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             progress.frontier_keys = frontier.len();
             kernel.observe(progress, Some(&node.key))?;
             let source_started = par_clock.now();
-            let checked = steps.step(kernel, frontier, &node, request, work)?;
+            let checked =
+                crate::prof_wrap!(Source, steps.step(kernel, frontier, &node, request, work))?;
             let hashes = steps.take_hashes();
             let term_count = checked.terms.len();
             // rr-par2: children packed/hashed/positioned and coefficient ids
@@ -1792,15 +1798,20 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                     &node.priority,
                                     progress.total_phases,
                                 )?;
-                                let contribution =
-                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                let contribution = crate::prof_wrap_fine!(
+                                    Intern,
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)
+                                )?;
                                 work.record_coalescing_additions(1);
                                 request.record_coalescing_additions(
                                     1,
                                     limits.diagnostic_limit(limits.max_coalescing_additions),
                                 )?;
                                 let old = weights.monomials(existing)?;
-                                let zero = weights.merge(existing, contribution)?;
+                                let zero = crate::prof_wrap_fine!(
+                                    Record,
+                                    weights.merge(existing, contribution)
+                                )?;
                                 let new = if zero {
                                     0
                                 } else {
@@ -1819,22 +1830,27 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                 }
                             }
                             Child::Vacant($key) => {
-                                let position = $position;
+                                let position = crate::prof_wrap!(Position, $position);
                                 check_descent(
                                     &position,
                                     phase,
                                     &node.priority,
                                     progress.total_phases,
                                 )?;
-                                let contribution =
-                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                let contribution = crate::prof_wrap_fine!(
+                                    Intern,
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)
+                                )?;
                                 if weights.contribution_is_zero(&contribution) {
                                     ChildAction::Keep
                                 } else {
                                     request.retain_pending_frame(
                                         limits.diagnostic_limit(limits.max_pending_frames),
                                     )?;
-                                    let inserted = weights.insert(contribution)?;
+                                    let inserted = crate::prof_wrap_fine!(
+                                        Record,
+                                        weights.insert(contribution)
+                                    )?;
                                     replace_monomials(
                                         &mut progress.frontier_coefficient_monomials,
                                         0,
@@ -1865,10 +1881,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         Some(position) => position.clone(),
                         None => kernel.position(vacant)?,
                     });
-                    let removed =
-                        frontier.child_packed_ref(key, &child.packed, child.hash, decide)?;
+                    let removed = crate::prof_wrap_fine!(
+                        Child,
+                        frontier.child_packed_ref(key, &child.packed, child.hash, decide)
+                    )?;
                     if let Some(removed) = removed {
-                        weights.cancel(removed)?;
+                        crate::prof_wrap_fine!(Record, weights.cancel(removed))?;
                         request.release_pending_frame()?;
                         progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                     }
@@ -1903,15 +1921,18 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     Some(position) => position,
                     None => kernel.position(key)?,
                 });
-                let removed = match packed {
-                    Some((packed, hash)) => frontier.child_packed(child, packed, hash, decide)?,
-                    None => frontier.child(child, decide)?,
-                };
+                let removed = crate::prof_wrap_fine!(
+                    Child,
+                    match packed {
+                        Some((packed, hash)) => frontier.child_packed(child, packed, hash, decide),
+                        None => frontier.child(child, decide),
+                    }
+                )?;
                 if disposing {
                     spent.push(coefficient);
                 }
                 if let Some(removed) = removed {
-                    weights.cancel(removed)?;
+                    crate::prof_wrap_fine!(Record, weights.cancel(removed))?;
                     request.release_pending_frame()?;
                     progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                 }
@@ -1921,6 +1942,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     .max(progress.frontier_coefficient_monomials);
             }
             for (index, (terminal, coefficient)) in checked.terminals.into_iter().enumerate() {
+                crate::prof!(Terminal);
                 let hash = hashes.as_ref().map(|hashes| hashes[term_count + index]);
                 let id = ids.get(term_count + index).copied();
                 let contribution = weights.scale_interned(&weight, &coefficient, hash, id)?;
@@ -1974,6 +1996,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             let wall = started.elapsed().as_secs_f64();
             par_clock.phase(phase, par_pops, wall, par_source, wall - par_source);
         }
+        #[cfg(feature = "fwd-profile")]
+        crate::prof::phase_mark(phase);
         if let Some(tail) = &mut tail {
             tail.phase_finished(phase);
         }

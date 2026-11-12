@@ -7,6 +7,9 @@
 //! authored recurrences are not part of the generic production crate and are
 //! not sources of generic parametric identities or future discovered rules.
 
+/// fwd-profile: built-in phase timer (feature `fwd-profile`, default off).
+#[macro_use]
+pub mod prof;
 pub mod algebra;
 #[macro_use]
 pub mod arity;

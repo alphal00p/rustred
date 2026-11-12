@@ -225,7 +225,10 @@ where
                     ));
                 }
             }
-            step => scope.spawn(move |scope| self.budget.run_captured(|| self.step(scope, step))),
+            step => scope.spawn(move |scope| {
+                crate::prof!(FinReplay);
+                self.budget.run_captured(|| self.step(scope, step))
+            }),
         }
     }
 

@@ -792,6 +792,8 @@ pub(crate) fn begin(threads: usize) -> bool {
 /// The request of [`begin`] ends: drop the calling thread's memo entries,
 /// and the shared memo after the last request that used it.
 pub(crate) fn end(counted: bool) {
+    #[cfg(feature = "fwd-profile")]
+    crate::prof::note_memo(counters());
     if counted {
         end_shared();
     }

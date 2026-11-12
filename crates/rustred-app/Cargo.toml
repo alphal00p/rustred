@@ -12,6 +12,9 @@ publish = false
 [features]
 capacity-dispatch = ["rustred/capacity-dispatch"]
 runtime-arity-selection = ["rustred/runtime-arity-selection"]
+# fwd-profile (opt-in, default off, diagnostics): the p reduction's phase timer
+# (rustred `prof.rs`); p_path_census starts it with RUSTRED_FWD_PROFILE=1|2.
+fwd-profile = ["rustred/fwd-profile"]
 default = ["native", "cli", "reconstruction", "mimalloc"]
 native = ["rustred/native"]
 wasm = ["rustred/wasm"]
