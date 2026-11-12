@@ -334,6 +334,7 @@ fn rule_with_keys(
                 .collect(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: Vec::new(),

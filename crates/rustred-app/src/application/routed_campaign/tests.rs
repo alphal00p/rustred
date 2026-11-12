@@ -430,6 +430,7 @@ powers=[1,1,0]
                     rhs: vec![],
                     sources: vec![],
                     stats: Default::default(),
+                    hidden_poles: Vec::new(),
                 },
                 exceptions: ExceptionalConditions {
                     branches: if excluded {
@@ -843,6 +844,7 @@ powers=[1,1,0]
                     rhs,
                     sources: vec![],
                     stats: Default::default(),
+                    hidden_poles: Vec::new(),
                 },
                 exceptions: ExceptionalConditions::default(),
             });

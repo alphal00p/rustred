@@ -48,6 +48,7 @@ fn fixture() -> (Arc<IntegralFamily>, CandidateReducer<1>) {
                 }],
                 sources: vec![],
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions::default(),
         })

@@ -300,6 +300,7 @@ fn finite_replay_hard_native_descent_error_is_not_symbolic_fallback() {
             }],
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

@@ -24,6 +24,7 @@ fn rule<const N: usize>(case: Case<N>, sources: Vec<SeedSource<N>>) -> SectorRul
             sources,
             rhs: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: Default::default(),
     }
@@ -368,6 +369,7 @@ fn tangent_affine_recentered_composition_passes_full_original_replay() {
             rhs,
             sources: vec![SeedSource { basis_row: 0, seed }],
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: Default::default(),
     };

@@ -21,6 +21,7 @@ fn candidate<const N: usize>(
             .collect(),
         sources: Vec::new(),
         stats: SearchStats::default(),
+        hidden_poles: Vec::new(),
     }
 }
 
@@ -528,5 +529,29 @@ fn a_timed_child_is_killed_at_its_timeout_and_failures_are_reported() {
     assert_eq!(
         child::finishes_within(Duration::from_secs(30), || panic!("child panic")),
         NativeGuardTry::ChildFailed
+    );
+}
+
+/// guard-fix: witness poles are guards like RHS denominators (index factors
+/// only; parameter-only factors stay excluded), on both routes, and a rule
+/// with an EMPTY RHS keeps the guards of its witness.
+#[test]
+fn witness_poles_join_the_guards_on_both_routes_and_for_empty_rhs() {
+    use super::extract_exceptions_content;
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    let mut rule = candidate(&context, &[([-1, 0], "1/(n0-1)")]);
+    rule.hidden_poles = vec![
+        context.coefficient_fixture("(n0-n1)*(d-4)").numerator,
+        context.coefficient_fixture("n0-1").numerator,
+    ];
+    let want = expected(&context, &[&["n0-1"], &["n0-n1"]]);
+    assert_eq!(extract_exceptions(&rule, &[1, 2], &[true; 2]).unwrap(), want);
+    let content = extract_exceptions_content(&rule, &[1, 2], &[true; 2], &[false; 2]).unwrap();
+    assert_eq!(content, want);
+    let mut empty = candidate::<2>(&context, &[]);
+    empty.hidden_poles = vec![context.coefficient_fixture("n1+2").numerator];
+    assert_eq!(
+        extract_exceptions(&empty, &[1, 2], &[true; 2]).unwrap(),
+        expected(&context, &[&["n1+2"]])
     );
 }
