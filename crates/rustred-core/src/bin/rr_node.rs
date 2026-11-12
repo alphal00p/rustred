@@ -386,6 +386,9 @@ fn cmd_generate(mut a: Args) -> i32 {
             auto.case_budget = s;
         }
         auto.attempt_cap = a.parse("--attempt-cap");
+        // order-study: R1 (boundary-first) candidate + depth-1-oracle ranking of the probe candidates (default off)
+        auto.oracle_rank = a.flag("--oracle-rank");
+        auto.oracle_top = a.parse("--oracle-top");
         if let Some(s) = a.take("--start-order") {
             opts.order = order_arg(&s, &family, None);
         }
@@ -581,7 +584,8 @@ fn read_cases(path: &str) -> Vec<rustred::node::predict::WeightedCase> {
 
 fn cmd_predict(mut a: Args) -> i32 {
     use rustred::node::predict::{OracleFamily, PredictOptions, predict, table_cases};
-    let family = read(&a.need("--family"));
+    let family_path = a.need("--family");
+    let family = read(&family_path);
     let out = a.need("--out");
     let table = a.take("--table");
     let cases_path = a.take("--cases");
@@ -593,6 +597,30 @@ fn cmd_predict(mut a: Args) -> i32 {
     if let Some(k) = a.parse("--rounds") {
         opts.rounds = k;
     }
+    opts.size_stage = a.flag("--size-stage");
+    // --iterate K --iter-out DIR [--family-path P] [generate flags]: iterated prediction with bounded runs
+    let iterate: Option<usize> = a.parse("--iterate");
+    let iter_setup = iterate.map(|k| {
+        let mut io = rustred::node::auto::IterateOptions {
+            iterations: k,
+            ..Default::default()
+        };
+        if let Some(v) = a.parse("--run-cases") {
+            io.run_cases = v;
+        }
+        if let Some(v) = a.parse("--run-cap") {
+            io.run_cap = v;
+        }
+        if let Some(v) = a.parse("--run-case-budget") {
+            io.case_budget = v;
+        }
+        if let Some(v) = a.parse("--keep-easy") {
+            io.keep_easy = v;
+        }
+        let dir = PathBuf::from(a.need("--iter-out"));
+        let nopts = node_options(&mut a, &family);
+        (io, dir, nopts)
+    });
     a.done();
     let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
     let cases = match (table, cases_path) {
@@ -617,6 +645,29 @@ fn cmd_predict(mut a: Args) -> i32 {
                 .unwrap_or_else(|| (0..fam.n).collect())
         }
     };
+    if let Some((io, dir, nopts)) = iter_setup {
+        let r = rustred::node::auto::predict_iterate(
+            &family,
+            &family_path,
+            &dir,
+            &nopts,
+            &cases,
+            &base,
+            &opts,
+            &io,
+            &mut |m| eprintln!("[rr_node predict-iterate {}] {m}", utc()),
+        )
+        .unwrap_or_else(|e| die(&e));
+        let _ = std::fs::write(&out, serde_json::to_string_pretty(&r).unwrap());
+        println!("{}", r.order.to_json());
+        eprintln!(
+            "[rr_node predict-iterate] converged {} after {} rounds, {:.0} s",
+            r.converged,
+            r.rounds.len(),
+            r.seconds
+        );
+        return i32::from(!r.converged);
+    }
     let p = predict(&fam, &cases, &base, &opts, &mut |m| {
         eprintln!("[rr_node predict {}] {m}", utc())
     })
@@ -638,10 +689,16 @@ fn cmd_predict(mut a: Args) -> i32 {
 }
 
 fn cmd_oracle(mut a: Args) -> i32 {
-    use rustred::node::predict::{OracleCase, OracleFamily};
+    use rustred::node::predict::{OracleCase, OracleFamily, relation_profile};
     let family = read(&a.need("--family"));
     let cases = read_cases(&a.need("--cases"));
     let orders_path = a.need("--orders");
+    // --profile: JSON lines with the selected relation's size profile (degrees by Thiele mod p);
+    // --per-symbol: also per-symbol degrees; --all-pivots: profile every eligible pivot, not only the oracle's choice
+    let profile = a.flag("--profile");
+    let per_symbol = a.flag("--per-symbol");
+    let all_pivots = a.flag("--all-pivots");
+    let max_points: usize = a.parse("--max-points").unwrap_or(80);
     a.done();
     let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
     let orders: Vec<NodeOrder> = read(&orders_path)
@@ -661,14 +718,42 @@ fn cmd_oracle(mut a: Args) -> i32 {
                 .clone()
                 .or_else(|| o.coordinate_priority.clone())
                 .unwrap_or_else(|| (0..fam.n).collect());
-            let d = oc.depth1(&prio);
-            println!(
-                "{i}\t{}\t{}\t{}\t{}",
-                o.name,
-                u8::from(d.rule),
-                d.trace,
-                d.rhs
-            );
+            if !profile {
+                let d = oc.depth1(&prio);
+                println!(
+                    "{i}\t{}\t{}\t{}\t{}",
+                    o.name,
+                    u8::from(d.rule),
+                    d.trace,
+                    d.rhs
+                );
+                continue;
+            }
+            let pivots: Vec<Option<Vec<i32>>> = if all_pivots {
+                oc.eligible_pivots(&prio)
+                    .into_iter()
+                    .map(|p| Some(p.offset))
+                    .collect()
+            } else {
+                vec![None]
+            };
+            for (k, pv) in pivots.iter().enumerate() {
+                let r = relation_profile(
+                    &fam,
+                    &c.fixed,
+                    &c.equations,
+                    &prio,
+                    pv.as_deref(),
+                    per_symbol,
+                    max_points,
+                    1 + i as u64,
+                )
+                .unwrap_or_else(|e| die(&e));
+                println!(
+                    "{}",
+                    serde_json::json!({"case": i, "order": o.name, "pivot_index": k, "profile": r})
+                );
+            }
         }
     }
     0
