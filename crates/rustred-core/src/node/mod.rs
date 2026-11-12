@@ -17,6 +17,7 @@
 // nested `if let` blocks are kept in the ladder / replay code where a let chain would hide the order of the checks
 #![allow(clippy::collapsible_if)]
 
+pub mod affine;
 pub mod auto;
 pub mod descent;
 pub mod domain;

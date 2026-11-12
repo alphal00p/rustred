@@ -321,6 +321,42 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         self.solve_case_with_visit_order(case.into(), options, Some(source_order), observe)
     }
 
+    /// Node-only pass-through to the existing finite scheduled search. No
+    /// mandatory Reference trial, policy change, guard admission or publication.
+    pub(crate) fn solve_case_with_schedule_and_observer(
+        &self,
+        case: impl Into<Case<N>>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+        seed_schedule: &CaseSeedSchedule,
+        observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, SolverError> {
+        let case = case.into();
+        seed_schedule.validate(N)?;
+        let source_order =
+            source_order.or_else(|| self.source_visit_order().map(SourceVisitOrder::ordinals));
+        if let Some(order) = source_order {
+            super::discovery_strategy::validate_visit_order(order, self.basis.len())?;
+        }
+        self.validate_search(&case, options)?;
+        match self
+            .search_attempt_with_schedule(
+                case,
+                options,
+                source_order,
+                None,
+                false,
+                seed_schedule,
+                observe,
+            )
+            .0
+        {
+            Ok(candidate) => Ok(candidate),
+            Err(TrialSearchError::Solver(error)) => Err(error),
+            Err(TrialSearchError::Limit(_)) => unreachable!("unlimited search has no trial cap"),
+        }
+    }
+
     fn solve_case_with_visit_order(
         &self,
         case: Case<N>,
