@@ -948,30 +948,45 @@ where
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
         })
         .collect();
+    // k-way merge of the sorted shard tops with a binary heap of shards
+    // (the shard whose head comes first in pop order at the root).
     let mut heads = vec![0usize; SHARDS];
-    let mut roots = Vec::with_capacity(window);
-    while roots.len() < window {
-        let mut best: Option<usize> = None;
-        for s in 0..SHARDS {
-            let Some(&index) = tops[s].get(heads[s]) else {
-                continue;
-            };
-            best = match best {
-                Some(b) => {
-                    let current = &guards[b].slab[tops[b][heads[b]] as usize];
-                    if cmp(&guards[s].slab[index as usize], current) == Ordering::Less {
-                        Some(s)
-                    } else {
-                        Some(b)
-                    }
-                }
-                None => Some(s),
-            };
+    let head = |s: usize, heads: &[usize]| &guards[s].slab[tops[s][heads[s]] as usize];
+    let before = |a: usize, b: usize, heads: &[usize]| {
+        cmp(head(a, heads), head(b, heads)) == Ordering::Less
+            || (cmp(head(a, heads), head(b, heads)) == Ordering::Equal && a < b)
+    };
+    let mut heap: Vec<usize> = (0..SHARDS).filter(|&s| !tops[s].is_empty()).collect();
+    let sift_down = |heap: &mut Vec<usize>, mut at: usize, heads: &[usize]| loop {
+        let (l, r) = (2 * at + 1, 2 * at + 2);
+        let mut first = at;
+        if l < heap.len() && before(heap[l], heap[first], heads) {
+            first = l;
         }
-        let Some(s) = best else { break };
-        let entry = &guards[s].slab[tops[s][heads[s]] as usize];
-        heads[s] += 1;
+        if r < heap.len() && before(heap[r], heap[first], heads) {
+            first = r;
+        }
+        if first == at {
+            break;
+        }
+        heap.swap(at, first);
+        at = first;
+    };
+    for at in (0..heap.len() / 2).rev() {
+        sift_down(&mut heap, at, &heads);
+    }
+    let mut roots = Vec::with_capacity(window);
+    while roots.len() < window && !heap.is_empty() {
+        let s = heap[0];
+        let entry = head(s, &heads);
         roots.push((K::Key::unpack(&entry.packed), entry.position.clone()));
+        heads[s] += 1;
+        if heads[s] == tops[s].len() {
+            let last = heap.len() - 1;
+            heap.swap(0, last);
+            heap.pop();
+        }
+        sift_down(&mut heap, 0, &heads);
     }
     roots
 }
