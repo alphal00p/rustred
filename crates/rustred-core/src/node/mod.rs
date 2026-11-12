@@ -10,6 +10,8 @@
 //! * [`predict`]: the depth-1 oracle (IBP rows at radius 1, mod p) and the order predictor of one node from its cases;
 //! * [`descent`]: strict-descent check of an assembled rule set under its one declared order;
 //! * [`symmetry`]: the chart's authenticated automorphism group and symmetry rules (sym-gen, default off);
+//! * [`mastermap`]: table reduction at exact / symbolic `d` and exact old <-> new master maps of a node (with an
+//!   independent Laporta and a few-integral cross-check);
 //! * [`replay`]: the independent numeric replay of a table (P61, three values of d, all physical columns, independent
 //!   IBP-span witness, mutation control), semantics of Astra's `p5l-replay.v1`.
 //!
@@ -23,6 +25,7 @@ pub mod auto;
 pub mod descent;
 pub mod domain;
 pub mod driver;
+pub mod mastermap;
 pub mod order;
 pub mod predict;
 pub mod registry;
