@@ -4,6 +4,7 @@
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
+//!                        [--coef-form expanded|factored]
 //! ```
 //!
 //! Converts one `table_dump.v1` rule table of a 5L-campaign node into a Custom
@@ -31,6 +32,11 @@
 //! (slot permutation + unimodular loop map, recorded; a table that is no
 //! relabelling of it is refused); `--order-map` checks an ORDER-MAP.json of
 //! the table (Astra imports) against the header and takes its slot map.
+//!
+//! `--coef-form factored` (coef-form prototype) writes the payload's
+//! coefficient section in the factored format
+//! (`rustred::persistence::FACTORED_TABLE_VERSION`): every reader decodes it to
+//! the identical coefficients; the load-time check runs on the written bytes.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -43,6 +49,10 @@ use rustred::propagator::error::PError;
 use rustred::propagator::presentation::Slot;
 use rustred::propagator::table_import::{
     P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table, slot_map_text,
+};
+use rustred::persistence::{
+    BinaryIoLimits, BinarySection, CoefficientId, DecodedCoefficientTable, FACTORED_TABLE_VERSION,
+    SectionTag, encode_factored_table, encode_program, inspect_program,
 };
 use rustred::propagator::{P_CUSTOM_OWNER_VERSION, P_OWNER_LIBRARY_SEMANTICS};
 
@@ -66,6 +76,7 @@ struct Arguments {
     replay: Option<PathBuf>,
     census_family: Option<PathBuf>,
     order_map: Option<PathBuf>,
+    factored: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -73,6 +84,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut table, mut graph, mut ext, mut label) = (None, None, None, None);
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
     let (mut census_family, mut order_map) = (None, None);
+    let mut factored = false;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -87,6 +99,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--replay" => "--replay",
             "--census-family" => "--census-family",
             "--order-map" => "--order-map",
+            "--coef-form" => "--coef-form",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -100,6 +113,20 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                 census_family = Some(PathBuf::from(next_value(&mut arguments, option)?))
             }
             "--order-map" => order_map = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--coef-form" => {
+                let value = next_utf8_value(&mut arguments, option)?;
+                factored = match value.as_str() {
+                    "factored" => true,
+                    "expanded" => false,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option,
+                            value: value.clone(),
+                            expected: "expanded or factored",
+                        });
+                    }
+                };
+            }
             "--graph" => graph = Some(next_utf8_value(&mut arguments, option)?),
             "--label" => label = Some(next_utf8_value(&mut arguments, option)?),
             "--ext" => {
@@ -137,6 +164,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         replay,
         census_family,
         order_map,
+        factored,
     })
 }
 
@@ -197,8 +225,15 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         },
     };
-    let imported = import_table(&text, &graph, &options).map_err(failed)?;
+    let mut imported = import_table(&text, &graph, &options).map_err(failed)?;
     let import_seconds = started.elapsed().as_secs_f64();
+    let expanded_payload_bytes = imported.payload.len();
+    let mut coef_form_seconds = 0.0;
+    if arguments.factored {
+        let started = Instant::now();
+        imported.payload = factored_payload(&imported.payload)?;
+        coef_form_seconds = started.elapsed().as_secs_f64();
+    }
     let verify_started = Instant::now();
     let check = verify_custom_payload(&imported.presentation, &imported.payload, &imported.meta)
         .map_err(failed)?;
@@ -264,11 +299,15 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "terminals": check.terminals,
         },
         "import_seconds": import_seconds,
+        "coef_form": if arguments.factored { "factored" } else { "expanded" },
+        "coef_form_seconds": coef_form_seconds,
+        "expanded_payload_bytes": expanded_payload_bytes,
         "verify_seconds": verify_seconds,
         "versions": {
             "P_TABLE_IMPORT_VERSION": P_TABLE_IMPORT_VERSION,
             "P_CUSTOM_OWNER_VERSION": P_CUSTOM_OWNER_VERSION,
             "P_OWNER_LIBRARY_SEMANTICS": P_OWNER_LIBRARY_SEMANTICS,
+            "FACTORED_TABLE_VERSION": arguments.factored.then_some(FACTORED_TABLE_VERSION),
         },
     });
     record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
@@ -384,6 +423,67 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         import_seconds,
     )
     .map_err(|error| CliError::OutputIo(error.to_string()))
+}
+
+/// The payload with its coefficient section re-encoded factored, every other
+/// section byte-identical; checked to decode to the identical coefficients.
+fn factored_payload(payload: &[u8]) -> Result<Vec<u8>, CliError> {
+    let io = |error: rustred::persistence::BinaryIoError| {
+        CliError::Input(format!("coef-form factored payload: {error:?}"))
+    };
+    let limits = BinaryIoLimits::default();
+    let envelope = inspect_program(payload, limits).map_err(io)?;
+    let section = |tag| {
+        envelope
+            .section(tag)
+            .ok_or_else(|| CliError::Input("coef-form: payload without coefficient sections".into()))
+    };
+    let state = section(SectionTag::SYMBOLICA_STATE)?;
+    let atoms = section(SectionTag::COEFFICIENTS)?;
+    let table = DecodedCoefficientTable::import_generated(state, atoms, limits).map_err(io)?;
+    let coefficients = (0..table.len())
+        .map(|i| {
+            CoefficientId::try_from_index(i)
+                .and_then(|id| table.coefficient(id).cloned())
+                .map_err(io)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let factored = encode_factored_table(&coefficients).map_err(io)?;
+    let sections: Vec<BinarySection<'_>> = envelope
+        .sections()
+        .iter()
+        .map(|s| BinarySection {
+            tag: s.tag,
+            bytes: if s.tag == SectionTag::COEFFICIENTS {
+                &factored
+            } else {
+                s.bytes
+            },
+        })
+        .collect();
+    let output = encode_program(envelope.kind(), &sections, limits).map_err(io)?;
+    let check = inspect_program(&output, limits).map_err(io)?;
+    let decoded = DecodedCoefficientTable::import_generated(
+        check
+            .section(SectionTag::SYMBOLICA_STATE)
+            .ok_or_else(|| CliError::Input("coef-form: state section lost".into()))?,
+        check
+            .section(SectionTag::COEFFICIENTS)
+            .ok_or_else(|| CliError::Input("coef-form: coefficient section lost".into()))?,
+        limits,
+    )
+    .map_err(io)?;
+    if decoded.len() != coefficients.len() {
+        return Err(CliError::Input("coef-form: coefficient count changed".into()));
+    }
+    for (i, original) in coefficients.iter().enumerate() {
+        let id = CoefficientId::try_from_index(i).map_err(io)?;
+        let value = decoded.coefficient(id).map_err(io)?;
+        if value != original || value.get_variables() != original.get_variables() {
+            return Err(CliError::Input(format!("coef-form: coefficient {i} differs")));
+        }
+    }
+    Ok(output)
 }
 
 #[cfg(test)]

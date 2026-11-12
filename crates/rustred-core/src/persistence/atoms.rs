@@ -315,6 +315,14 @@ impl CoefficientTableBuilder {
 /// Once-decoded coefficients owned by a loaded program.
 pub struct DecodedCoefficientTable {
     coefficients: Vec<Coefficient>,
+    /// coef-form prototype (`RUSTRED_COEF_FORM_LAZY=1`): a factored section
+    /// kept unexpanded; each coefficient is multiplied back on first use.
+    lazy: Option<LazyFactored>,
+}
+
+struct LazyFactored {
+    section: super::factored::FactoredSection,
+    cells: Vec<std::sync::OnceLock<Result<Coefficient, BinaryIoError>>>,
 }
 
 impl DecodedCoefficientTable {
@@ -368,11 +376,29 @@ impl DecodedCoefficientTable {
             // coef-form: factored section (format FACTORED_TABLE_VERSION);
             // decodes to the identical expanded coefficients
             let state_map = import_state(state)?;
+            if super::factored::factored_lazy_expansion() {
+                let section = catch_unwind(AssertUnwindSafe(|| {
+                    super::factored::parse_factored_table(atoms, &state_map, limits)
+                }))
+                .map_err(|_| {
+                    BinaryIoError::Native("factored coefficient import panicked".into())
+                })??;
+                let cells = (0..section.len())
+                    .map(|_| std::sync::OnceLock::new())
+                    .collect();
+                return Ok(Self {
+                    coefficients: Vec::new(),
+                    lazy: Some(LazyFactored { section, cells }),
+                });
+            }
             let coefficients = catch_unwind(AssertUnwindSafe(|| {
                 super::factored::decode_factored_table(atoms, &state_map, limits)
             }))
             .map_err(|_| BinaryIoError::Native("factored coefficient import panicked".into()))??;
-            return Ok(Self { coefficients });
+            return Ok(Self {
+                coefficients,
+                lazy: None,
+            });
         }
         let mut source = atoms;
         let count = read_length(&mut source)?;
@@ -410,21 +436,43 @@ impl DecodedCoefficientTable {
                 normalize_unique,
             )?);
         }
-        Ok(Self { coefficients })
+        Ok(Self {
+            coefficients,
+            lazy: None,
+        })
     }
 
     pub fn coefficient(&self, id: CoefficientId) -> Result<&Coefficient, BinaryIoError> {
+        if let Some(lazy) = &self.lazy {
+            let cell = lazy
+                .cells
+                .get(id.index())
+                .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+            return cell
+                .get_or_init(|| {
+                    catch_unwind(AssertUnwindSafe(|| lazy.section.expand(id.index())))
+                        .unwrap_or_else(|_| {
+                            Err(BinaryIoError::Native(
+                                "factored coefficient expansion panicked".into(),
+                            ))
+                        })
+                })
+                .as_ref()
+                .map_err(Clone::clone);
+        }
         self.coefficients
             .get(id.index())
             .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))
     }
 
     pub fn len(&self) -> usize {
-        self.coefficients.len()
+        self.lazy
+            .as_ref()
+            .map_or(self.coefficients.len(), |lazy| lazy.cells.len())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.coefficients.is_empty()
+        self.len() == 0
     }
 }
 

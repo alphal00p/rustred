@@ -373,6 +373,64 @@ pub(super) fn decode_factored_table(
     state_map: &symbolica::state::StateMap,
     limits: BinaryIoLimits,
 ) -> Result<Vec<Coefficient>, BinaryIoError> {
+    let section = parse_factored_table(atoms, state_map, limits)?;
+    let mut coefficients = Vec::with_capacity(section.len());
+    for i in 0..section.len() {
+        super::resource_checkpoint()?;
+        coefficients.push(section.expand(i)?);
+    }
+    Ok(coefficients)
+}
+
+/// Whether coefficients of a factored section are multiplied back on first
+/// use (`RUSTRED_COEF_FORM_LAZY=1`, coef-form prototype) instead of at load.
+pub fn factored_lazy_expansion() -> bool {
+    std::env::var("RUSTRED_COEF_FORM_LAZY").is_ok_and(|v| v == "1")
+}
+
+/// A parsed factored section: dictionary and factor references, not yet
+/// multiplied back. [`FactoredSection::expand`] gives coefficient `i`,
+/// identical to the eager decoder's.
+pub(super) struct FactoredSection {
+    templates: Vec<Coefficient>,
+    entries: Vec<CoefficientPolynomial>,
+    parts: Vec<(usize, Part, Part)>,
+    limits: BinaryIoLimits,
+}
+
+impl FactoredSection {
+    pub(super) fn len(&self) -> usize {
+        self.parts.len()
+    }
+
+    pub(super) fn expand(&self, i: usize) -> Result<Coefficient, BinaryIoError> {
+        let (map, num, den) = self
+            .parts
+            .get(i)
+            .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+        let template = &self.templates[*map];
+        let mut value = template.clone();
+        value.numerator = multiply(num, |id| &self.entries[id as usize], &template.numerator);
+        value.denominator = multiply(den, |id| &self.entries[id as usize], &template.numerator);
+        if value.denominator.is_zero() {
+            return Err(BinaryIoError::Invalid("factored table zero denominator"));
+        }
+        validate_coefficient_on_map(
+            &value,
+            value.numerator.variables(),
+            self.limits.exact_algebra,
+        )
+        .map_err(super::native_error)?;
+        Ok(value)
+    }
+}
+
+/// Parse a factored section without multiplying any coefficient back.
+pub(super) fn parse_factored_table(
+    atoms: &[u8],
+    state_map: &symbolica::state::StateMap,
+    limits: BinaryIoLimits,
+) -> Result<FactoredSection, BinaryIoError> {
     if !is_factored_table(atoms) {
         return Err(BinaryIoError::Invalid("not a factored coefficient table"));
     }
@@ -412,8 +470,8 @@ pub(super) fn decode_factored_table(
     if count > 0 {
         super::CoefficientId::try_from_index(count - 1)?;
     }
-    super::resource_array::<Coefficient>(count)?;
-    let mut coefficients = Vec::with_capacity(count);
+    super::resource_array::<(usize, Part, Part)>(count)?;
+    let mut parts = Vec::with_capacity(count);
     for _ in 0..count {
         super::resource_checkpoint()?;
         let map = usize::try_from(src.varint()?)
@@ -422,21 +480,17 @@ pub(super) fn decode_factored_table(
             .ok_or(BinaryIoError::Invalid("factored table map reference"))?;
         let num = get_part(&mut src, entries.len(), limits)?;
         let den = get_part(&mut src, entries.len(), limits)?;
-        let template = &templates[map];
-        let mut value = template.clone();
-        value.numerator = multiply(&num, |id| &entries[id as usize], &template.numerator);
-        value.denominator = multiply(&den, |id| &entries[id as usize], &template.numerator);
-        if value.denominator.is_zero() {
-            return Err(BinaryIoError::Invalid("factored table zero denominator"));
-        }
-        validate_coefficient_on_map(&value, value.numerator.variables(), limits.exact_algebra)
-            .map_err(super::native_error)?;
-        coefficients.push(value);
+        parts.push((map, num, den));
     }
     if src.at != atoms.len() {
         return Err(BinaryIoError::Invalid("trailing coefficient table bytes"));
     }
-    Ok(coefficients)
+    Ok(FactoredSection {
+        templates,
+        entries,
+        parts,
+        limits,
+    })
 }
 
 #[cfg(test)]
@@ -511,6 +565,17 @@ mod tests {
             assert_eq!(value.numerator, original.numerator, "numerator {i}");
             assert_eq!(value.denominator, original.denominator, "denominator {i}");
             assert_eq!(value.get_variables(), original.get_variables(), "map {i}");
+        }
+        // per-coefficient expansion (RUSTRED_COEF_FORM_LAZY path), any order
+        let state_map = super::super::atoms::import_state(&encoded.state).unwrap();
+        let section =
+            parse_factored_table(&factored, &state_map, BinaryIoLimits::default()).unwrap();
+        assert_eq!(section.len(), originals.len());
+        for (i, original) in originals.iter().enumerate().rev() {
+            let value = section.expand(i).unwrap();
+            assert_eq!(value.numerator, original.numerator, "lazy numerator {i}");
+            assert_eq!(value.denominator, original.denominator, "lazy denominator {i}");
+            assert_eq!(value.get_variables(), original.get_variables(), "lazy map {i}");
         }
         let lazy = crate::persistence::LazyDecodedCoefficientTable::new(
             encoded.state.clone().into(),
