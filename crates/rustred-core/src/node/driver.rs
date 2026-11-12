@@ -1366,7 +1366,11 @@ pub fn seed_pose_portfolio<const N: usize>(
         ("ref|sf".into(), CaseSeedSchedule::Reference, SymbolicFirst),
         ("ref|dots".into(), CaseSeedSchedule::Reference, DotsFirst),
         ("sym1-rev+|spired".into(), sym(1, &reversed, true), Spired),
-        ("shell2-ff+|spired".into(), shell2(&free_first, true), Spired),
+        (
+            "shell2-ff+|spired".into(),
+            shell2(&free_first, true),
+            Spired,
+        ),
     ]
 }
 
@@ -1404,7 +1408,13 @@ fn measure_pose<const N: usize>(
     let _ = super::screen::take_reports();
     let result = super::screen::with_seed_schedule(Some(in_shell.schedule()), || {
         super::screen::with_screen(Some(screen), || {
-            solver.solve_case_with_schedule_and_observer(case.clone(), options, visit, schedule, |_| {})
+            solver.solve_case_with_schedule_and_observer(
+                case.clone(),
+                options,
+                visit,
+                schedule,
+                |_| {},
+            )
         })
     });
     let reports = super::screen::take_reports();
@@ -1427,9 +1437,15 @@ pub fn choose_seed_pose<const N: usize>(
     keep: f64,
 ) -> Option<SeedPoseChoice> {
     let t = Instant::now();
-    let default_cost =
-        measure_pose(solver, case, options, visit, &CaseSeedSchedule::Reference, node_in_shell)
-            .unwrap_or(f64::INFINITY);
+    let default_cost = measure_pose(
+        solver,
+        case,
+        options,
+        visit,
+        &CaseSeedSchedule::Reference,
+        node_in_shell,
+    )
+    .unwrap_or(f64::INFINITY);
     let mut best = SeedPoseChoice {
         label: "default".into(),
         schedule: CaseSeedSchedule::Reference,
@@ -1515,17 +1531,23 @@ fn pose_probe_run<const N: usize>(
         if line.trim().is_empty() {
             continue;
         }
-        let probe: PoseProbe =
-            serde_json::from_str(line).map_err(|e| format!("pose probe line {}: {e}", line_no + 1))?;
+        let probe: PoseProbe = serde_json::from_str(line)
+            .map_err(|e| format!("pose probe line {}: {e}", line_no + 1))?;
         let (fixed, equations) = if probe.presented {
             (probe.case.fixed.clone(), probe.case.equations.clone())
         } else {
-            opts.order.present_case(&probe.case.fixed, &probe.case.equations)
+            opts.order
+                .present_case(&probe.case.fixed, &probe.case.equations)
         };
         let spec = CaseSpec { fixed, equations };
         let Some(case) = build_case::<N>(&spec, template, idx, sector, n)? else {
-            writeln!(out, "{{\"label\":{},\"line\":{},\"result\":\"empty_case\"}}", q(&probe.label), line_no + 1)
-                .map_err(|e| e.to_string())?;
+            writeln!(
+                out,
+                "{{\"label\":{},\"line\":{},\"result\":\"empty_case\"}}",
+                q(&probe.label),
+                line_no + 1
+            )
+            .map_err(|e| e.to_string())?;
             continue;
         };
         symbolic.max_depth = probe.max_depth.or(opts.max_depth);
