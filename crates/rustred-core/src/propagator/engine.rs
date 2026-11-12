@@ -752,6 +752,114 @@ impl PEngine {
     }
 }
 
+/// fwd-opt: a per-thread, direct-mapped cache of canonical images. The
+/// image of a key under its automorphisms (and the sign) is a pure function
+/// of the engine, the presentation or owner class, the orientation and the
+/// powers; a key reached from many parents (14 contributions per key on
+/// NO3 L4_d2_r8) is canonicalised once per cache residency instead of once per
+/// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
+/// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
+/// Errors are not cached (computed again). Value-neutral.
+mod canon_cache {
+    use std::cell::RefCell;
+    use std::sync::OnceLock;
+
+    use smallvec::SmallVec;
+
+    use super::PError;
+
+    type Powers = SmallVec<[i64; 16]>;
+
+    struct Entry {
+        id: u64,
+        powers: Powers,
+        image: Option<(Powers, bool)>,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        engine: u64,
+        flags: u8,
+        entries: Vec<Option<Entry>>,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    fn bits() -> Option<u32> {
+        static BITS: OnceLock<Option<u32>> = OnceLock::new();
+        *BITS.get_or_init(|| match std::env::var("RUSTRED_P_CANON_CACHE").as_deref() {
+            Ok("0" | "off" | "false") => None,
+            Ok(value) => value
+                .parse::<u32>()
+                .ok()
+                .filter(|b| (4..=24).contains(b))
+                .or(Some(13)),
+            Err(_) => Some(13),
+        })
+    }
+
+    #[inline]
+    fn hash(id: u64, powers: &[i64]) -> u64 {
+        let mut h = id.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        for &power in powers {
+            h = (h.rotate_left(5) ^ power as u64).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+        h ^ (h >> 31)
+    }
+
+    /// The canonical image of `powers` under `id` (a presentation, or an owner
+    /// class with the top bit set), from the cache or `compute`.
+    pub(super) fn lookup(
+        engine: u64,
+        id: u64,
+        flags: u8,
+        powers: &[i64],
+        compute: impl FnOnce() -> Result<Option<(Vec<i64>, bool)>, PError>,
+    ) -> Result<Option<(Vec<i64>, bool)>, PError> {
+        let Some(bits) = bits() else {
+            return compute();
+        };
+        let at = (hash(id, powers) >> (64 - bits)) as usize;
+        let found = CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine != engine || cache.flags != flags || cache.entries.is_empty() {
+                cache.engine = engine;
+                cache.flags = flags;
+                cache.entries.clear();
+                cache.entries.resize_with(1 << bits, || None);
+            }
+            match &cache.entries[at] {
+                Some(entry) if entry.id == id && entry.powers.as_slice() == powers => Some(
+                    entry
+                        .image
+                        .as_ref()
+                        .map(|(image, negative)| (image.to_vec(), *negative)),
+                ),
+                _ => None,
+            }
+        });
+        if let Some(image) = found {
+            return Ok(image);
+        }
+        let image = compute()?;
+        CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine == engine && cache.flags == flags && at < cache.entries.len() {
+                cache.entries[at] = Some(Entry {
+                    id,
+                    powers: Powers::from_slice(powers),
+                    image: image
+                        .as_ref()
+                        .map(|(image, negative)| (Powers::from_slice(image), *negative)),
+                });
+            }
+        });
+        Ok(image)
+    }
+}
+
 /// fwd-opt diagnostics: canonicalisation coverage of the stepped Apply keys
 /// per owner class (`RUSTRED_P_CANON_STATS=<file>`, one JSON line per class
 /// at the end of each request). Per class: keys, keys whose owner has a
@@ -1627,7 +1735,13 @@ impl<'l> PStepper<'l> {
     ) -> Result<(PKey, Coefficient), PError> {
         crate::prof_fine!(CanonApply);
         if self.canonical
-            && let Some((image, negative)) = self.canonical_powers(class, powers)?
+            && let Some((image, negative)) = canon_cache::lookup(
+                self.engine.uid,
+                (1 << 63) | (class.0 & !(1 << 63)),
+                u8::from(self.prefer_high),
+                powers,
+                || self.canonical_powers(class, powers),
+            )?
         {
             // A sign flip of a coefficient the library already sealed: same
             // variables, degrees and sizes, so no new authentication (M5 R0 A2).
@@ -1667,17 +1781,25 @@ impl<'l> PStepper<'l> {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
             // presentation's); each step is exact, the signs compose.
-            let across = self.canonical_in_presentation(presentation, powers)?;
-            let base = across
-                .as_ref()
-                .map_or(powers, |(image, _)| image.as_slice());
-            let inside = self.canonical_route(presentation, base)?;
-            let image = match (across, inside) {
-                (None, None) => None,
-                (Some(across), None) => Some(across),
-                (None, Some(inside)) => Some(inside),
-                (Some((_, first)), Some((image, second))) => Some((image, first != second)),
-            };
+            let image = canon_cache::lookup(
+                self.engine.uid,
+                u64::from(presentation.0),
+                u8::from(self.prefer_high),
+                powers,
+                || {
+                    let across = self.canonical_in_presentation(presentation, powers)?;
+                    let base = across
+                        .as_ref()
+                        .map_or(powers, |(image, _)| image.as_slice());
+                    let inside = self.canonical_route(presentation, base)?;
+                    Ok(match (across, inside) {
+                        (None, None) => None,
+                        (Some(across), None) => Some(across),
+                        (None, Some(inside)) => Some(inside),
+                        (Some((_, first)), Some((image, second))) => Some((image, first != second)),
+                    })
+                },
+            )?;
             if let Some((image, negative)) = image {
                 // A sign flip of a coefficient the library already sealed: same
                 // variables, degrees and sizes, so no new authentication (M5 R0 A2).
