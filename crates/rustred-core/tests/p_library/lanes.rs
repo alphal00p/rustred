@@ -1452,6 +1452,19 @@ fn explicit_row_isps_present_generic_lanes() {
                     assert_eq!(given.slots[..lines], default.slots[..lines]);
                     assert_eq!(isp_rows(&given), reversed);
                     generic += 1;
+                    if generic == 1 {
+                        // q in both factors: constant q^2, refused before completion
+                        let width = usize::from(node.loops) + 1;
+                        let mut kq = vec![0; width];
+                        kq[0] = 1;
+                        kq[width - 1] = -1;
+                        let mut q = vec![0; width];
+                        q[width - 1] = 1;
+                        assert!(matches!(
+                            present_rows(vec![[kq, q]]),
+                            Err(PError::Generation(_))
+                        ));
+                    }
                 }
                 PresentationKind::EpsNode => {
                     let width = usize::from(node.loops) + 1;
@@ -1475,7 +1488,9 @@ fn explicit_row_isps_present_generic_lanes() {
                         pairs.push([a, -1]);
                     }
                     // the massless filter of explicit rows: drop q-q products
-                    pairs.retain(|&[a, b]| momentum(a)[width - 1] == 0 || momentum(b)[width - 1] == 0);
+                    pairs.retain(|&[a, b]| {
+                        momentum(a)[width - 1] == 0 || momentum(b)[width - 1] == 0
+                    });
                     let by_pairs = present_with_isp_preference(
                         node,
                         decision,
@@ -1494,18 +1509,6 @@ fn explicit_row_isps_present_generic_lanes() {
                     eps += 1;
                 }
                 _ => {}
-            }
-            if generic + eps == 1 {
-                let width = usize::from(node.loops) + 1;
-                let mut kq = vec![0; width];
-                kq[0] = 1;
-                kq[width - 1] = -1;
-                let mut q = vec![0; width];
-                q[width - 1] = 1;
-                assert!(matches!(
-                    present_rows(vec![[kq, q]]),
-                    Err(PError::Generation(_))
-                ));
             }
         }
     }

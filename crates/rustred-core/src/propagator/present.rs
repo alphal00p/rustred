@@ -473,10 +473,7 @@ fn with_isps(
         None => isp_preference(name.as_str())?,
     };
     let width = loops + 1;
-    let explicit = preference
-        .rows()
-        .iter()
-        .map(|row| explicit_row(row, width));
+    let explicit = preference.rows().iter().map(|row| explicit_row(row, width));
     let pair_rows = explicit
         .chain(preference.pairs().iter().map(|&[a, b]| {
             Ok((
