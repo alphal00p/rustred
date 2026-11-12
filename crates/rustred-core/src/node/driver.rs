@@ -2389,10 +2389,8 @@ fn run<const N: usize>(
                     } else {
                         None
                     };
-                    if let Some(schedule) = pose
-                        .or(rung_schedule)
-                        .or(resolved.as_ref())
-                        .or(fallback)
+                    if let Some(schedule) =
+                        pose.or(rung_schedule).or(resolved.as_ref()).or(fallback)
                     {
                         let visit = so.visit(nb);
                         solver.solve_case_with_schedule_and_observer(
@@ -4667,6 +4665,96 @@ mod tests {
     }
 
     #[test]
+    fn join_uses_a_covered_region_certificate_only_when_every_case_is_owned_or_covered() {
+        // a stopped run with one deferred region obligation (chart = one of its open cases, a stand-in conjunction);
+        // a COVERED certificate {chart, conjunction, cases} discharges it iff each listed case is empty, owned by a
+        // COMPLETE other run or covered by one rule; a malformed or unowned certificate is not used
+        let root = tmp("covered");
+        let stopped = NodeOptions {
+            max_cases: Some(1),
+            ..quiet()
+        };
+        generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("p1"),
+            &stopped,
+            &mut |_| {},
+        )
+        .unwrap();
+        generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("full"),
+            &quiet(),
+            &mut |_| {},
+        )
+        .unwrap();
+        let mut o1 = obligations(&root.join("p1"));
+        let chart = o1.open[0].case.clone();
+        let conj = serde_json::json!([["n1*n2-3"]]);
+        o1.open.push(crate::node::registry::Obligation {
+            kind: "region".into(),
+            case: chart.clone(),
+            detail: serde_json::json!({"kind": "region", "conjunction": conj}),
+        });
+        o1.write(&root.join("p1/F.obligations.json")).unwrap();
+        let join_with = |cases: serde_json::Value, runs: &[&Path], tag: &str| {
+            let cert = root.join(format!("{tag}.json"));
+            std::fs::write(
+                &cert,
+                serde_json::json!([{"chart": chart, "conjunction": conj, "status": "COVERED",
+                    "method": "test", "cases": cases}])
+                .to_string(),
+            )
+            .unwrap();
+            let opts = crate::node::registry::JoinOptions {
+                runs: runs
+                    .iter()
+                    .map(|d| crate::node::registry::JoinRun {
+                        dir: d.to_path_buf(),
+                        obligations: d.join("F.obligations.json"),
+                        cover_index: None,
+                    })
+                    .collect(),
+                out: root.join(tag),
+                expect_residuals: None,
+                region_proofs: vec![cert],
+                union_depth: 3,
+                write_table: false,
+            };
+            crate::node::registry::join(&opts).unwrap()
+        };
+        let (p1, full) = (root.join("p1"), root.join("full"));
+        // (a) the listed case is owned by the complete run: discharged by the certificate, with an edge
+        let j = join_with(serde_json::json!([chart]), &[&p1, &full], "a");
+        assert_eq!(j.verdict, "closed", "{j:?}");
+        assert_eq!(j.discharged.get("region_covered:test"), Some(&1), "{j:?}");
+        // (b) a malformed piece (wrong arity): certificate not used; the region falls through to the ownership step
+        let j = join_with(
+            serde_json::json!([{"fixed": [null], "equations": []}]),
+            &[&p1, &full],
+            "b",
+        );
+        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        // (c) no complete owner and no single covering rule: the certificate cannot discharge, the region stays open
+        let j = join_with(
+            serde_json::json!([{"fixed": [null, null, null, null, null], "equations": []}]),
+            &[&p1],
+            "c",
+        );
+        assert_eq!(j.verdict, "open", "{j:?}");
+        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        assert!(
+            j.unresolved
+                .iter()
+                .any(|u| u["obligation"]["kind"] == "region"),
+            "{j:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn join_rejects_a_two_cycle_of_stopped_runs() {
         // two stopped runs of the whole chart: each one's open obligations lie in the other's initial case, so each
         // "discharges" the other: an unresolved strongly connected component (cf. Astra's T212 2-cycle); rejected
@@ -5162,6 +5250,16 @@ mod tests {
         }
         let queue = std::fs::read_to_string(strict_dir.join("F.queue.jsonl")).unwrap();
         assert!(queue.contains("\"type\":\"numeric_shared_refused\""));
+        // the refused endpoint is not lost: it stays an open obligation of the run (re-pooled by the next wave)
+        let o = obligations(&strict_dir);
+        assert_eq!(o.state, "stopped");
+        assert!(
+            o.open
+                .iter()
+                .any(|x| x.kind == "numerical" && x.case.fixed == fixed),
+            "{:?}",
+            o.open
+        );
         let table = std::fs::read_to_string(&strict.table).unwrap();
         assert!(!table.contains("\"type\":\"residual\""));
         let _ = std::fs::remove_dir_all(legacy_dir);
