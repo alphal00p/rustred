@@ -116,6 +116,7 @@ fn fixed_feedback_actual_descendants_keep_above_entry_rank_and_increased_dots() 
                 }],
                 sources: vec![],
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions::default(),
         })

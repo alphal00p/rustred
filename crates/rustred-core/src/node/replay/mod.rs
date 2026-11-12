@@ -51,6 +51,20 @@ pub struct ReplayArgs {
     pub out: PathBuf,
     pub dimensions: Vec<String>,
     pub sample_attempts: usize,
+    /// guard-fix hardening: replay this many ADDITIONAL distinct valid points per rule from the same deterministic
+    /// search (0 = the single point of p5l-replay.v1). The rule passes only if every point passes.
+    pub extra_points: usize,
+    /// guard-fix hardening: JSONL of `{"chart":C,"index":I,"loci":["poly",...]}` (e.g. a rule's hidden source-weight
+    /// poles from `rr_node witness`): per locus one more point ON the locus (inside the case, valid, off the rule's
+    /// exceptions). A locus that is already one of the rule's exception branches is reported as `guarded`.
+    /// Rule records carrying `witness_loci` (strings) are treated the same way.
+    pub loci: Option<PathBuf>,
+    /// guard-fix box replay: replay EVERY valid integer point of the rule's case whose free coordinates lie in the
+    /// box |n| <= K on their chart side (n = 1..K on a positive axis, n = 0..-(K-1) on a non-positive one; pivot
+    /// coordinates from the case equations, integral only), off the rule's exceptions and RHS poles; 0 = off.
+    pub box_size: usize,
+    /// Cap on box points per rule (deterministic lexicographic prefix; the record says when it was hit).
+    pub box_max: usize,
 }
 
 impl ReplayArgs {
@@ -156,6 +170,7 @@ fn entries(r: &Row) -> Value {
     Value::Array(strip(r).into_iter().map(|(k, v)| json!([k, v])).collect())
 }
 
+#[derive(Clone)]
 struct Rule {
     raw: Value,
     chart: String,
@@ -816,14 +831,76 @@ fn point_valid(
     Ok(())
 }
 
-fn sample(
+/// Every valid integer point of the rule's case in the box of [`ReplayArgs::box_size`] (lexicographic over the
+/// free coordinates), at most `cap`; the bool says whether the cap cut the enumeration.
+fn box_points(
+    rule: &Rule,
+    dims: &[Q],
+    chart: Option<&Value>,
+    coefs: &[Expr],
+    size: usize,
+    cap: usize,
+) -> Result<(Vec<Vec<i64>>, bool), Unknown> {
+    let n = rule.fixed.len();
+    let (rows, piv) = rref_equations(rule, n)?;
+    let free: Vec<usize> = (0..n).filter(|i| !piv.contains(i)).collect();
+    let bits: Vec<char> = rule.chart.chars().collect();
+    let size = size.max(1) as i64;
+    let value = |i: usize, k: i64| if bits.get(i) == Some(&'1') { 1 + k } else { -k };
+    let mut counter = vec![0i64; free.len()];
+    let mut found = Vec::new();
+    loop {
+        let mut p = vec![Q::ZERO; n];
+        for (slot, &i) in free.iter().enumerate() {
+            p[i] = Q::int(value(i, counter[slot]) as i128);
+        }
+        for (row, &i) in rows.iter().zip(&piv).rev() {
+            let mut v = row[n];
+            for &j in &free {
+                v = v.sub(row[j].mul(p[j])?)?;
+            }
+            p[i] = v;
+        }
+        if p.iter().all(|x| x.d == 1) {
+            let pt: Vec<i64> = p.iter().map(|x| x.n as i64).collect();
+            if point_valid(rule, &pt, dims, chart, coefs).is_ok() {
+                if found.len() >= cap {
+                    return Ok((found, true));
+                }
+                found.push(pt);
+            }
+        }
+        // odometer over the free coordinates
+        let mut slot = 0;
+        loop {
+            if slot == counter.len() {
+                return Ok((found, false));
+            }
+            counter[slot] += 1;
+            if counter[slot] < size {
+                break;
+            }
+            counter[slot] = 0;
+            slot += 1;
+        }
+    }
+}
+
+/// Up to `want` distinct valid points of the deterministic search (provided samples: the first valid one only),
+/// optionally restricted to the zero set of `locus` (an affine locus joins the RREF system; a nonlinear one filters),
+/// skipping `avoid`. Err when none is found (never an emptiness proof).
+#[allow(clippy::too_many_arguments)]
+fn sample_points(
     rule: &Rule,
     b: &Value,
     dims: &[Q],
     chart: Option<&Value>,
     coefs: &[Expr],
     attempts: usize,
-) -> Result<(Vec<i64>, String), Unknown> {
+    want: usize,
+    locus: Option<(&str, &Expr)>,
+    avoid: &[Vec<i64>],
+) -> Result<(Vec<Vec<i64>>, String), Unknown> {
     let n = rule.fixed.len();
     let ps = match b.get("points") {
         Some(v) => Some(v),
@@ -846,20 +923,34 @@ fn sample(
                 .map(|a| a.iter().filter_map(Value::as_i64).collect());
             match pt {
                 Some(pt) => match point_valid(rule, &pt, dims, chart, coefs) {
-                    Ok(()) => return Ok((pt, "provided exact integer sample".into())),
+                    Ok(()) if locus.is_none() && !avoid.contains(&pt) => {
+                        return Ok((vec![pt], "provided exact integer sample".into()));
+                    }
+                    Ok(()) => errors.push("provided sample already used or off the locus".into()),
                     Err(e) => errors.push(e),
                 },
                 None => errors.push("sample must be complete integer physical vector".into()),
             }
         }
-        return Err(format!(
-            "provided samples invalid/poles: {}",
-            errors.join("; ")
-        ));
+        if locus.is_none() && avoid.is_empty() {
+            return Err(format!(
+                "provided samples invalid/poles: {}",
+                errors.join("; ")
+            ));
+        }
     }
-    let (rows, piv) = rref_equations(rule, n)?;
+    let mut extended = rule.clone();
+    let affine_locus = match locus {
+        Some((text, e)) if e.degree()? <= 1 && !e.has_d() => {
+            extended.equations.push(text.to_string());
+            true
+        }
+        _ => false,
+    };
+    let (rows, piv) = rref_equations(&extended, n)?;
     let free: Vec<usize> = (0..n).filter(|i| !piv.contains(i)).collect();
     let mut rng = arith::PyRandom::new((0x525332 + rule.index) as u32);
+    let mut found: Vec<Vec<i64>> = Vec::new();
     let bits: Vec<char> = rule.chart.chars().collect();
     let mut last = String::new();
     for trial in 0..attempts {
@@ -883,13 +974,36 @@ fn sample(
             continue;
         }
         let pt: Vec<i64> = p.iter().map(|x| x.n as i64).collect();
+        if found.contains(&pt) || avoid.contains(&pt) {
+            continue;
+        }
+        if let Some((_, e)) = locus.filter(|_| !affine_locus) {
+            if !e.is_zero_at(&pt, Q::ZERO)? {
+                continue;
+            }
+        }
         match point_valid(rule, &pt, dims, chart, coefs) {
-            Ok(()) => return Ok((pt, "deterministic affine-RREF integer search".into())),
+            Ok(()) => {
+                found.push(pt);
+                if found.len() >= want {
+                    break;
+                }
+            }
             Err(e) => last = e,
         }
     }
-    Err(format!(
-        "no valid non-pole integer sample in bounded search; not an emptiness proof; last=['{last}']"
+    if found.is_empty() {
+        return Err(format!(
+            "no valid non-pole integer sample in bounded search; not an emptiness proof; last=['{last}']"
+        ));
+    }
+    Ok((
+        found,
+        if locus.is_some() {
+            "deterministic affine-RREF integer search ON a witness locus".into()
+        } else {
+            "deterministic affine-RREF integer search".into()
+        },
     ))
 }
 
@@ -1231,8 +1345,146 @@ fn replay_rule(
     ctx: &Ctx,
     chart: Option<&Value>,
     out: &Path,
+    loci: &[String],
+) -> Result<Value, Unknown> {
+    let n = ctx.f.n;
+    let coefs: Vec<Expr> = rule
+        .rhs
+        .iter()
+        .map(|(_, c)| Expr::parse(c, n))
+        .collect::<Result<_, _>>()?;
+    let dq: Vec<Q> = ctx.dims.iter().map(|x| x.2).collect();
+    let attempts = ctx.args.sample_attempts;
+    let (mut points, kind) = sample_points(
+        rule,
+        b,
+        &dq,
+        chart,
+        &coefs,
+        attempts,
+        1 + ctx.args.extra_points,
+        None,
+        &[],
+    )?;
+    let first = points.remove(0);
+    let mut main = replay_point(rule, b, ctx, out, &first, kind.clone())?;
+    let (boxed, box_capped) = if ctx.args.box_size > 0 {
+        box_points(rule, &dq, chart, &coefs, ctx.args.box_size, ctx.args.box_max)?
+    } else {
+        (Vec::new(), false)
+    };
+    if points.is_empty() && loci.is_empty() && ctx.args.box_size == 0 {
+        return Ok(main);
+    }
+    // guard-fix hardening: more generic points, then one point ON each witness locus
+    let mut extra = Vec::new();
+    let mut used = vec![first];
+    let mut todo: Vec<(Vec<i64>, String, Option<String>)> = points
+        .into_iter()
+        .map(|p| (p, kind.clone(), None))
+        .collect();
+    let mut loci_report = Vec::new();
+    for text in loci {
+        let e = match Expr::parse(text, n) {
+            Ok(e) => e,
+            Err(err) => {
+                loci_report.push(json!({"locus": text, "status": "UNKNOWN", "reason": err}));
+                continue;
+            }
+        };
+        // a locus with d: the index guard is where it vanishes for EVERY d (its d-coefficients); a constant
+        // nonzero d-coefficient makes that empty. Not sampled here (the rule's exceptions carry the index part).
+        if e.has_d() {
+            loci_report.push(json!({"locus": text, "status": "parameter"}));
+            continue;
+        }
+        // a locus that is one of the rule's own exception branches is guarded by construction
+        if rule.exceptions.iter().any(|branch| branch.len() == 1 && same_poly(&branch[0], text, n)) {
+            loci_report.push(json!({"locus": text, "status": "guarded"}));
+            continue;
+        }
+        let avoid: Vec<Vec<i64>> = used.iter().chain(todo.iter().map(|t| &t.0)).cloned().collect();
+        match sample_points(rule, b, &dq, chart, &coefs, attempts, 1, Some((text, &e)), &avoid) {
+            Ok((mut ps, k)) => todo.push((ps.remove(0), k, Some(text.clone()))),
+            Err(err) => loci_report.push(json!({"locus": text, "status": "no_point", "reason": err})),
+        }
+    }
+    let box_total = boxed.len();
+    for point in boxed {
+        if !used.contains(&point) && !todo.iter().any(|t| t.0 == point) {
+            todo.push((point, "box enumeration".into(), None));
+        }
+    }
+    for (k, (point, kind, locus)) in todo.into_iter().enumerate() {
+        let dir = out.join(format!("p{}", k + 1));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let mut v = match replay_point(rule, b, ctx, &dir, &point, kind) {
+            Ok(v) => v,
+            Err(e) => json!({"status": "UNKNOWN", "reason": e, "point": point}),
+        };
+        if let Some(l) = &locus {
+            v["locus"] = json!(l);
+            loci_report.push(json!({"locus": l, "status": v["status"], "point": point}));
+        }
+        used.push(point);
+        extra.push(v);
+    }
+    let statuses: Vec<String> = std::iter::once(&main)
+        .chain(extra.iter())
+        .map(|v| v["status"].as_str().unwrap_or("UNKNOWN").to_string())
+        .collect();
+    let overall = if statuses.iter().any(|s| s.starts_with("FAIL")) {
+        "FAIL_RS2_RS3_SAMPLED".to_string()
+    } else if statuses.iter().all(|s| s == "PASS_RS2_RS3_SAMPLED") {
+        "PASS_RS2_RS3_SAMPLED".to_string()
+    } else {
+        statuses[0].clone()
+    };
+    main["first_point_status"] = main["status"].clone();
+    main["status"] = json!(overall);
+    main["extra_points"] = Value::Array(extra);
+    main["loci"] = Value::Array(loci_report);
+    if ctx.args.box_size > 0 {
+        main["box"] = json!({"size": ctx.args.box_size, "points": box_total, "capped": box_capped,
+            "max": ctx.args.box_max});
+    }
+    Ok(main)
+}
+
+/// Equal polynomials up to a nonzero constant factor (two-prime check at a few points).
+fn same_poly(a: &str, b: &str, n: usize) -> bool {
+    let (Ok(x), Ok(y)) = (Expr::parse(a, n), Expr::parse(b, n)) else {
+        return false;
+    };
+    // compare x/y at a few deterministic points: constant ratio and same zero pattern
+    let mut ratio: Option<(u64, u64)> = None;
+    for t in 1..=6i64 {
+        let point: Vec<i64> = (0..n as i64).map(|i| (t * 7 + i * 3) % 11 - 5).collect();
+        let (Ok(u), Ok(v)) = (x.at_point(P, &point, Q::int(t as i128 + 2)), y.at_point(P, &point, Q::int(t as i128 + 2))) else {
+            return false;
+        };
+        match ratio {
+            None => ratio = Some((u, v)),
+            Some((u0, v0)) => {
+                if arith::mul(P, u, v0) != arith::mul(P, u0, v) {
+                    return false;
+                }
+            }
+        }
+    }
+    ratio.is_some_and(|(u, v)| (u == 0) == (v == 0))
+}
+
+fn replay_point(
+    rule: &Rule,
+    b: &Value,
+    ctx: &Ctx,
+    out: &Path,
+    point: &[i64],
+    sample_kind: String,
 ) -> Result<Value, Unknown> {
     let started = Instant::now();
+    let point = point.to_vec();
     let n = ctx.f.n;
     if let Some(x) = b.get("fixed") {
         if x != &rule.raw["fixed"] {
@@ -1249,8 +1501,6 @@ fn replay_rule(
         .iter()
         .map(|(_, c)| Expr::parse(c, n))
         .collect::<Result<_, _>>()?;
-    let dq: Vec<Q> = ctx.dims.iter().map(|x| x.2).collect();
-    let (point, sample_kind) = sample(rule, b, &dq, chart, &coefs, ctx.args.sample_attempts)?;
     let target = key_at(&parse_integral(&rule.target, n)?, &point);
     let rhskeys: Vec<Key> = rule
         .rhs
@@ -1585,6 +1835,22 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             ),
         };
         let bindings = get_bindings(&args.bindings)?;
+        let mut loci_of: HashMap<(String, usize), Vec<String>> = HashMap::new();
+        if let Some(path) = &args.loci {
+            let text = std::fs::read_to_string(path).map_err(|e| format!("loci: {e}"))?;
+            for line in text.lines().filter(|l| !l.trim().is_empty()) {
+                let v: Value = serde_json::from_str(line).map_err(|e| format!("loci json: {e}"))?;
+                let key = (
+                    v["chart"].as_str().unwrap_or_default().to_string(),
+                    v["index"].as_u64().ok_or("loci record without index")? as usize,
+                );
+                let list = v["loci"].as_array().ok_or("loci record without loci")?;
+                loci_of
+                    .entry(key)
+                    .or_default()
+                    .extend(list.iter().filter_map(|x| x.as_str().map(str::to_string)));
+            }
+        }
         let dims: Vec<(String, u64, Q)> = args
             .dimensions
             .iter()
@@ -1607,7 +1873,18 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             let mut rec = json!({"chart": rule.chart, "index": rule.index, "rule_record_blake3": blake3::hash(canonical.as_bytes()).to_hex().to_string(),
                 "dimensions": args.dimensions, "rhs_terms": rule.rhs.len(), "fixed": rule.raw["fixed"], "equations": rule.equations});
             let outcome = binding_for(&bindings, rule)
-                .and_then(|b| replay_rule(rule, &b, &ctx, charts.get(&rule.chart), &rd));
+                .and_then(|b| {
+                    let mut loci: Vec<String> = loci_of
+                        .get(&(rule.chart.clone(), rule.index))
+                        .cloned()
+                        .unwrap_or_default();
+                    if let Some(own) = rule.raw["witness_loci"].as_array() {
+                        loci.extend(own.iter().filter_map(|x| x.as_str().map(str::to_string)));
+                    }
+                    loci.sort();
+                    loci.dedup();
+                    replay_rule(rule, &b, &ctx, charts.get(&rule.chart), &rd, &loci)
+                });
             match outcome {
                 Ok(v) => {
                     for (k, x) in v.as_object().unwrap() {

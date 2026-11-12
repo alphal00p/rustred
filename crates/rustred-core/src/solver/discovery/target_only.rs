@@ -13,18 +13,19 @@ use symbolica::domains::SelfRing;
 use symbolica::prelude::Z;
 use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
 
-use crate::algebra::Coefficient;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 use super::variables::FrameVariables;
 use super::{
     ExactField, ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent,
-    Term, factorized,
+    Term, WitnessPoles, factorized,
 };
 
 fn invalid(reason: &'static str) -> MaterializationError {
     MaterializationError::TargetOnlyInvalidDecomposition(reason)
 }
 
+#[cfg(test)]
 pub(super) fn materialize<const N: usize>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
@@ -33,7 +34,19 @@ pub(super) fn materialize<const N: usize>(
     variables: &FrameVariables,
     observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
-    materialize_in_field(
+    materialize_witnessed(rows, columns, order, target_column, variables, observe).map(|(r, _)| r)
+}
+
+/// [`materialize`] plus the denominators of its source weights ([`WitnessPoles`]).
+pub(super) fn materialize_witnessed<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
+    materialize_in_field_witnessed(
         rows,
         columns,
         order,
@@ -41,12 +54,15 @@ pub(super) fn materialize<const N: usize>(
         ExactField::new(Z),
         &|value| variables.map_coefficient(value),
         &|value| variables.restore_coefficient(value),
+        &|value: &Coefficient| Ok(vec![value.denominator.clone()]),
+        &|poly| variables.restore_polynomial(poly),
         false,
         observe,
     )
 }
 
 /// Explicit native-field composition; no automatic backend selection.
+#[cfg(test)]
 pub(super) fn materialize_factorized<const N: usize>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
@@ -55,9 +71,23 @@ pub(super) fn materialize_factorized<const N: usize>(
     variables: &FrameVariables,
     observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    materialize_factorized_witnessed(rows, columns, order, target_column, variables, observe)
+        .map(|(r, _)| r)
+}
+
+/// [`materialize_factorized`] plus its weight denominators: every irreducible
+/// denominator factor of the native factorized weights, one entry each.
+pub(super) fn materialize_factorized_witnessed<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
     use symbolica::domains::factorized_rational_polynomial::FactorizedRationalPolynomialField;
     let active = variables.active_variables();
-    materialize_in_field(
+    materialize_in_field_witnessed(
         rows,
         columns,
         order,
@@ -65,6 +95,8 @@ pub(super) fn materialize_factorized<const N: usize>(
         FactorizedRationalPolynomialField::<_, u16>::new(Z, active.clone()),
         &|value| factorized::factor(variables.map_coefficient(value)?, &active),
         &|value| variables.restore_coefficient(&factorized::ordinary(value, &active)?),
+        &|value| Ok(factorized::denominator_factors(value)),
+        &|poly| variables.restore_polynomial(poly),
         true,
         observe,
     )
@@ -72,6 +104,7 @@ pub(super) fn materialize_factorized<const N: usize>(
 
 /// Shared schedule over a native field. The closures only transport coefficients;
 /// every algebraic operation remains in Symbolica's reducer/matrix services.
+#[cfg(test)]
 fn materialize_in_field<const N: usize, F: Field>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
@@ -81,8 +114,40 @@ fn materialize_in_field<const N: usize, F: Field>(
     import: &impl Fn(&Coefficient) -> Result<F::Element, MaterializationError>,
     export: &impl Fn(&F::Element) -> Result<Coefficient, MaterializationError>,
     catch_native: bool,
-    mut observe: impl FnMut(MaterializationEvent<N>),
+    observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    materialize_in_field_witnessed(
+        rows,
+        columns,
+        order,
+        target_column,
+        field,
+        import,
+        export,
+        &|_| Ok(Vec::new()),
+        &|poly| Ok(poly.clone()),
+        catch_native,
+        observe,
+    )
+    .map(|(r, _)| r)
+}
+
+/// The shared schedule; `poles` maps one native weight to its denominator
+/// polynomials in the ORIGINAL coefficient map (see [`WitnessPoles`]).
+#[allow(clippy::too_many_arguments, reason = "native-field transport closures")]
+fn materialize_in_field_witnessed<const N: usize, F: Field>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    field: F,
+    import: &impl Fn(&Coefficient) -> Result<F::Element, MaterializationError>,
+    export: &impl Fn(&F::Element) -> Result<Coefficient, MaterializationError>,
+    poles: &impl Fn(&F::Element) -> Result<Vec<CoefficientPolynomial>, MaterializationError>,
+    restore: &impl Fn(&CoefficientPolynomial) -> Result<CoefficientPolynomial, MaterializationError>,
+    catch_native: bool,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
     // Admit the full reconstruction width, not only the smaller target block.
     // The sentinel convention is shared with the full sparse backends.
     u32::try_from(columns.len())
@@ -156,6 +221,7 @@ fn materialize_in_field<const N: usize, F: Field>(
         observe(MaterializationEvent::TargetWeightsFinished {
             nonzero_weights: weights.nvalues(),
         });
+        let witness = witness_of(&rows[..prefix_len], &weights, poles, restore)?;
         // Do not retain the full exact L/U alongside the reconstructed A.
         drop(reducer);
         observe(MaterializationEvent::TargetReconstructionStarted {
@@ -175,7 +241,7 @@ fn materialize_in_field<const N: usize, F: Field>(
         observe(MaterializationEvent::TargetReconstructionFinished {
             output_terms: result.len(),
         });
-        return Ok(result);
+        return Ok((result, witness));
     }
     Err(MaterializationError::TargetNotPivot)
 }
@@ -365,6 +431,93 @@ fn reconstruct<const N: usize, F: Field>(
             })
         })
         .collect()
+}
+
+/// The rows of a `LuLMode::Full` L that belong to independent inputs (square,
+/// lower triangular in U-row order) and the input row of each.
+pub(super) fn independent_lower<F: Field>(
+    lower: &SparseMatrix<F>,
+) -> Result<(SparseMatrix<F>, Vec<usize>), MaterializationError> {
+    let mut square = SparseMatrix::new(0, lower.ncols(), lower.field().clone());
+    let mut inputs = Vec::new();
+    for input in 0..lower.nrows() as usize {
+        let (start, end) = (lower.row_ptrs()[input], lower.row_ptrs()[input + 1]);
+        // An independent input ends with its diagonal: column = its own U row.
+        if end > start && lower.col_idcs()[end - 1] as usize == inputs.len() {
+            square.add_row(
+                lower.values()[start..end].to_vec(),
+                lower.col_idcs()[start..end].to_vec(),
+            );
+            inputs.push(input);
+        }
+    }
+    if inputs.len() != lower.ncols() as usize {
+        return Err(invalid("full L does not have one diagonal per U row"));
+    }
+    Ok((square, inputs))
+}
+
+/// Witness of a full-row GPLU with `LuLMode::Full` that may have skipped
+/// dependent inputs (sparse and factorized backends): keep the L rows of the
+/// independent inputs (square, lower triangular in U-row order), solve the
+/// target U row's weights natively and report their poles. `target_u_row` is
+/// the U row of the target pivot (the last one when the lift stops there).
+pub(super) fn witness_of_full_lower<const N: usize, F: Field>(
+    rows: &[ExactRow<N>],
+    lower: &SparseMatrix<F>,
+    target_u_row: usize,
+    one: F::Element,
+    poles: &impl Fn(&F::Element) -> Result<Vec<CoefficientPolynomial>, MaterializationError>,
+    restore: &impl Fn(&CoefficientPolynomial) -> Result<CoefficientPolynomial, MaterializationError>,
+    catch_native: bool,
+) -> Result<WitnessPoles, MaterializationError> {
+    let field = lower.field().clone();
+    let (square, inputs) = independent_lower(lower)?;
+    let weights = solve_transposed_lower(&square, target_u_row, one, catch_native)?;
+    // Re-index the weights by input row before collecting the poles.
+    let mut by_input = SparseMatrix::new(0, rows.len() as u32, field);
+    by_input.add_row(
+        weights.values().to_vec(),
+        weights
+            .col_idcs()
+            .iter()
+            .map(|&k| inputs[k as usize] as u32)
+            .collect(),
+    );
+    witness_of(rows, &by_input, poles, restore)
+}
+
+/// Witness poles of `sum_j weights[j] * rows[j]`: the denominators of every
+/// nonzero weight plus the input denominators of the rows they multiply.
+pub(super) fn witness_of<const N: usize, F: Field>(
+    rows: &[ExactRow<N>],
+    weights: &SparseMatrix<F>,
+    poles: &impl Fn(&F::Element) -> Result<Vec<CoefficientPolynomial>, MaterializationError>,
+    restore: &impl Fn(&CoefficientPolynomial) -> Result<CoefficientPolynomial, MaterializationError>,
+) -> Result<WitnessPoles, MaterializationError> {
+    use symbolica::domains::InternalOrdering;
+    // native-map denominators, deduplicated BEFORE the map restoration (weights share most factors)
+    let mut native = Vec::new();
+    let mut denominators = Vec::new();
+    for (&row, value) in weights.col_idcs().iter().zip(weights.values()) {
+        if weights.field().is_zero(value) {
+            continue;
+        }
+        native.extend(poles(value)?.into_iter().filter(|p| !p.is_constant()));
+        if let Some(row) = rows.get(row as usize) {
+            denominators.extend(
+                row.iter()
+                    .filter(|term| !term.coefficient.denominator.is_constant())
+                    .map(|term| term.coefficient.denominator.clone()),
+            );
+        }
+    }
+    native.sort_unstable_by(InternalOrdering::internal_cmp);
+    native.dedup();
+    for poly in &native {
+        denominators.push(restore(poly)?);
+    }
+    Ok(WitnessPoles::recorded(denominators))
 }
 
 fn column_id<const N: usize>(

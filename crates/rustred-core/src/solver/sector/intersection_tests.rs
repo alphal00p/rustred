@@ -19,6 +19,7 @@ fn guarded<const N: usize>(context: &CoefficientContext, branches: &[&[&str]]) -
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions {
             branches: branches

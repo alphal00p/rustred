@@ -305,6 +305,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .collect(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         };
         let weight_poles = extract_exceptions(&weight_candidate, indices, self.order.sector())
             .map_err(|error| failed(format!("weight poles: {error}")))?

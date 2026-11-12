@@ -68,6 +68,7 @@ fn saved_saturatable_affine_chart_keeps_declared_layout_and_exact_application() 
                     }],
                     sources: vec![source.clone()],
                     stats: SearchStats::default(),
+                    hidden_poles: Vec::new(),
                 },
                 exceptions: ExceptionalConditions {
                     branches: Vec::new(),

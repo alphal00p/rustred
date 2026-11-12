@@ -397,6 +397,7 @@ fn original_rule_pole_is_checked_before_any_sample_can_appear_solved() {
             }],
             sources: vec![],
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

@@ -27,6 +27,7 @@ fn descent_uses_entire_excluded_conjunction_without_cancelling_zero_over_zero() 
             }],
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

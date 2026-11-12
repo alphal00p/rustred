@@ -217,6 +217,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             discovery: probe.as_ref().map(|p| p.discovery.stats()),
                             ..Default::default()
                         },
+                        hidden_poles: Vec::new(),
                     });
                     stats.direct_rules += 1;
                     pending[index] = false;
@@ -311,6 +312,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         exact_materialization: exact_elapsed,
                         discovery: stats.discovery,
                     },
+                    hidden_poles: Vec::new(),
                 });
             }
         }

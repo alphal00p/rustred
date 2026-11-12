@@ -42,6 +42,12 @@ use crate::solver::{
 /// Table schema of node tables: table_dump.v1 records plus node fields (header `node_order`, rule `recenter`, ...).
 pub const SCHEMA: &str = "table_dump.v1";
 pub const NODE_SCHEMA: &str = "rustred.node.v1";
+/// Guard semantics of a node table (header `guard_version`; absent = 1).
+/// 1: rule exceptions = index denominators of the final RHS + activation boundaries only.
+/// 2 (guard-fix, 2026-11-12): + the index-containing factors of the source-weight denominators of the lift that
+///    produced each rule (and of a direct hit's pivot), so a rule is never used where its witness proves nothing.
+///    Tables written with `--no-witness-guards` say 1.
+pub const GUARD_VERSION: u32 = 2;
 
 /// Optional per-current-Case priority for an existing finite shell schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -475,6 +481,10 @@ pub struct NodeOptions {
     /// The unfinished points stay explicit obligations; this does not classify any of them as masters.
     #[serde(default, skip_serializing_if = "is_false")]
     pub strict_numeric_search: bool,
+    /// guard-fix: switch OFF the witness-pole guards (default ON = every lift's source-weight poles join the
+    /// rule's exceptions, `GUARD_VERSION` 2). Off reproduces the old RHS-denominator-only guards: A/B only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_witness_guards: bool,
     /// Seed schedule of the whole node (`SymbolicFirst` = p5l-lift-trace's in-shell order); default SpIRed.
     #[serde(default)]
     pub seed_schedule: SeedScheduleName,
@@ -594,6 +604,7 @@ impl Default for NodeOptions {
             cand_dump: false,
             numeric_depth: 2,
             strict_numeric_search: false,
+            no_witness_guards: false,
             seed_schedule: SeedScheduleName::Spired,
             case_seed_schedule: None,
             case_seed_priority: None,
@@ -1271,6 +1282,19 @@ fn write_rule<const N: usize>(
         .collect();
     seeds.sort();
     seeds.dedup();
+    // guard-fix: the index-containing witness poles (canonical frame, unfactored, primitive up to sign), for audits
+    // and replay hardening; their factors are already among `exceptions`. Very long ones are elided.
+    let witness_loci: Vec<String> = c
+        .hidden_poles
+        .iter()
+        .map(|p| p.to_string())
+        .filter(|t| {
+            t.as_bytes()
+                .windows(2)
+                .any(|w| w[0] == b'n' && w[1].is_ascii_digit())
+        })
+        .map(|t| if t.len() > 4000 { "elided".to_string() } else { t })
+        .collect();
     let opt = |v: &Option<Vec<i16>>| v.as_ref().map_or("null".to_string(), |v| format!("{v:?}"));
     let raw = x
         .raw_pivot
@@ -1278,7 +1302,7 @@ fn write_rule<const N: usize>(
         .map_or("null".to_string(), |v| format!("{v:?}"));
     writeln!(
         f,
-        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{}}}",
+        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{}}}",
         q(chart),
         q(&format!("{:?}", c.case)),
         fixed.join(","),
@@ -1298,6 +1322,8 @@ fn write_rule<const N: usize>(
         x.numerical,
         x.monomials,
         x.oversized_fallback,
+        c.hidden_poles.len(),
+        strings(witness_loci.iter()),
     )
     .expect("write rule");
     c.rhs.len()
@@ -1820,7 +1846,7 @@ fn run<const N: usize>(
     let options_json = serde_json::to_string(opts).map_err(|e| e.to_string())?;
     writeln!(
         out,
-        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"node_options\":{options_json}}}",
+        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"guard_version\":{},\"node_options\":{options_json}}}",
         q(SCHEMA),
         q(NODE_SCHEMA),
         q(fam.name()),
@@ -1840,6 +1866,7 @@ fn run<const N: usize>(
         strings([label.clone()].iter()),
         opts.numeric_depth,
         strings(sources.conditions().iter()),
+        if opts.no_witness_guards { 1 } else { GUARD_VERSION },
     )
     .map_err(|e| e.to_string())?;
     if let Some(ledger) = &terminal_ledger {
@@ -1906,6 +1933,7 @@ fn run<const N: usize>(
         // the shared numeric solve follows the chosen backend (Astra: it used to default to Sparse regardless)
         numerical_exact_backend: numerical_backend(exact_backend),
         seed_schedule: opts.seed_schedule.schedule(),
+        witness_guards: !opts.no_witness_guards,
         ..Default::default()
     };
     let t1 = Instant::now();
@@ -4217,6 +4245,10 @@ mod tests {
                     .map(|s| s.to_string())
                     .collect(),
                 sample_attempts: 128,
+                extra_points: 0,
+                loci: None,
+                box_size: 0,
+                box_max: 0,
             };
             let (status, doc) = crate::node::replay::run(&args).unwrap();
             assert_eq!(
@@ -4273,6 +4305,10 @@ mod tests {
                 .map(|s| s.to_string())
                 .collect(),
             sample_attempts: 128,
+            extra_points: 0,
+            loci: None,
+            box_size: 0,
+            box_max: 0,
         };
         let (status, _) = crate::node::replay::run(&args).unwrap();
         assert_eq!(status, "FAIL");
@@ -4340,6 +4376,10 @@ mod tests {
                 .map(|s| s.to_string())
                 .collect(),
             sample_attempts: 2048,
+            extra_points: 0,
+            loci: None,
+            box_size: 0,
+            box_max: 0,
         };
         crate::node::replay::run(&args).unwrap().0
     }

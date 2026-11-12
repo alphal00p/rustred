@@ -45,6 +45,45 @@ pub use semi_numerical::{
 #[cfg(all(test, feature = "reconstruction"))]
 mod source_weight_pipeline_tests;
 
+/// Witness poles of one exact lift (guard-fix, 2026-11-12).
+///
+/// A lift returns `row = sum_j w_j(n) * rows[j]` for source weights `w_j`.
+/// The selected rows are polynomial combinations of the source relations, so
+/// at any point where no `w_j` (and no input denominator of a row with a
+/// nonzero weight) has a pole, specialising the sum is a valid relation. Where
+/// some `w_j` has a pole, THIS witness proves nothing, even if every final
+/// coefficient is regular there (the pole cancelled in the product; e.g. the
+/// single row `x*(T+L)` gives `T+L` with weight `1/x`). These denominators
+/// (original coefficient map, RAW lift frame, unfiltered) must therefore be
+/// guards of any rule built from the row, exactly like its RHS denominators.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WitnessPoles {
+    /// Non-constant denominator polynomials, primitive-free, sorted, unique.
+    pub denominators: Vec<crate::algebra::CoefficientPolynomial>,
+    /// False when the backend kept no witness (diagnostic backends: dense
+    /// fraction-free, semi-numerical). Such a row is only generically proven.
+    pub recorded: bool,
+}
+
+impl WitnessPoles {
+    pub(super) fn recorded(
+        mut denominators: Vec<crate::algebra::CoefficientPolynomial>,
+    ) -> Self {
+        use symbolica::domains::InternalOrdering;
+        denominators.retain(|d| !d.is_constant());
+        denominators.sort_unstable_by(InternalOrdering::internal_cmp);
+        denominators.dedup();
+        Self {
+            denominators,
+            recorded: true,
+        }
+    }
+
+    pub(super) fn unrecorded<T>(value: T) -> (T, Self) {
+        (value, Self::default())
+    }
+}
+
 /// Exact lifting for a single symbolic target. Shared numerical-tail lifting
 /// remains sparse; this diagnostic choice does not change source discovery.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -652,8 +691,31 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     backend: SymbolicExactBackend,
     coefficient_order: CoefficientVariableOrder,
     source_priority: &[usize],
-    mut observe: impl FnMut(MaterializationEvent<N>),
+    observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    exact_materialize_witnessed(
+        rows,
+        order,
+        target,
+        backend,
+        coefficient_order,
+        source_priority,
+        observe,
+    )
+    .map(|(row, _)| row)
+}
+
+/// [`exact_materialize_using_with_observer`] that also returns the witness
+/// poles of the lift (guard-fix, see [`WitnessPoles`]). The row is identical.
+pub(super) fn exact_materialize_witnessed<const N: usize>(
+    rows: &[ExactRow<N>],
+    order: &IntegralOrder<N>,
+    target: Integral<N>,
+    backend: SymbolicExactBackend,
+    coefficient_order: CoefficientVariableOrder,
+    source_priority: &[usize],
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
     let mut columns = Vec::new();
     for (row_id, row) in rows.iter().enumerate() {
         if !row
@@ -721,13 +783,27 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         }
     }
     if backend == SymbolicExactBackend::SparseFactorized {
-        return factorized::materialize(rows, &columns, order, target_column, &variables, observe);
+        return factorized::materialize_witnessed(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            observe,
+        );
     }
     if backend == SymbolicExactBackend::SparseTargetOnly {
-        return target_only::materialize(rows, &columns, order, target_column, &variables, observe);
+        return target_only::materialize_witnessed(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            observe,
+        );
     }
     if backend == SymbolicExactBackend::SparseTargetOnlyFactorized {
-        return target_only::materialize_factorized(
+        return target_only::materialize_factorized_witnessed(
             rows,
             &columns,
             order,
@@ -757,7 +833,8 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             max_attempts,
             max_primes,
             observe,
-        );
+        )
+        .map(WitnessPoles::unrecorded);
     }
     #[cfg(feature = "reconstruction")]
     if let SymbolicExactBackend::Sampled {
@@ -772,7 +849,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             _ => 0,
         };
         if rows.len() < min_rows {
-            return target_only::materialize_factorized(
+            return target_only::materialize_factorized_witnessed(
                 rows,
                 &columns,
                 order,
@@ -820,7 +897,8 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             max_cached_values,
             max_weight_slots,
             observe,
-        );
+        )
+        .map(WitnessPoles::unrecorded);
     }
     if let SymbolicExactBackend::DenseFractionFree { max_matrix_entries } = backend {
         return fraction_free::materialize(
@@ -831,9 +909,90 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             &variables,
             max_matrix_entries,
             observe,
-        );
+        )
+        .map(WitnessPoles::unrecorded);
     }
-    sparse_materialize(rows, &columns, order, target_column, &variables, observe)
+    sparse_materialize_witnessed(rows, &columns, order, target_column, &variables, observe)
+}
+
+/// The ordinary sparse backend with `LuLMode::Full`, returning the source-weight
+/// poles of its target row as well ([`WitnessPoles`]); same pivots and row.
+fn sparse_materialize_witnessed<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &variables::FrameVariables,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
+    let native_columns = columns
+        .len()
+        .checked_add(1)
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or(MaterializationError::TooManyColumns)?;
+    let field = ExactField::new(Z);
+    let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::Full);
+    let mut values = Vec::new();
+    let mut column_ids = Vec::new();
+    let mut one = None;
+    for (ordinal, row) in rows.iter().enumerate() {
+        values.clear();
+        column_ids.clear();
+        for term in row {
+            if !term.coefficient.is_zero() {
+                let column = columns
+                    .binary_search_by(|column| order.compare(column, &term.integral))
+                    .expect("exact column union contains every row integral");
+                let mapped = variables.map_coefficient(&term.coefficient)?;
+                if one.is_none() {
+                    one = Some(crate::algebra::Coefficient::from(mapped.numerator.one()));
+                }
+                values.push(mapped);
+                column_ids.push(column as u32);
+            }
+        }
+        observe(MaterializationEvent::RowStarted {
+            row: ordinal + 1,
+            input_nonzeros: values.len(),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        let pivot = reducer.add_row(&values, &column_ids);
+        observe(MaterializationEvent::RowFinished {
+            row: ordinal + 1,
+            pivot: pivot.map(|column| columns[column as usize]),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        if pivot == Some(target_column as u32) {
+            let u = reducer.u();
+            let last = u.nrows() as usize - 1;
+            let start = u.row_ptrs()[last];
+            let end = u.row_ptrs()[last + 1];
+            let solution = u.col_idcs()[start..end]
+                .iter()
+                .zip(&u.values()[start..end])
+                .map(|(&column, coefficient)| {
+                    Ok(Term {
+                        integral: columns[column as usize],
+                        coefficient: variables.restore_coefficient(coefficient)?,
+                    })
+                })
+                .collect::<Result<_, MaterializationError>>()?;
+            let one = one.ok_or(MaterializationError::TargetNotPivot)?;
+            let witness = target_only::witness_of_full_lower(
+                &rows[..=ordinal],
+                reducer.l(),
+                last,
+                one,
+                &|value: &crate::algebra::Coefficient| Ok(vec![value.denominator.clone()]),
+                &|poly| variables.restore_polynomial(poly),
+                false,
+            )?;
+            return Ok((solution, witness));
+        }
+    }
+    Err(MaterializationError::TargetNotPivot)
 }
 
 /// Materialize the ordinary sparse exact backend after the backend-dispatch

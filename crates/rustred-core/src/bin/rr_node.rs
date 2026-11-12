@@ -12,15 +12,22 @@
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
+//!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
 //!                  [--sample-easy K] [--rounds K]   (one coordinate priority for the node; see node::predict)
 //! rr_node oracle   --family F.sym --cases CASES.jsonl --orders ORDERS.jsonl   (depth-1 rule per case x order, TSV)
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
+//! rr_node witness  --table F.table.jsonl --rules 0-9,12 --out DIR [--family F.sym] [--case-budget S]
+//!                  (guard-fix: re-lift each rule's case alone under the table's own node options with the witness
+//!                  guards ON; per rule DIR/WITNESS.jsonl gets same_rule, witness_loci, hidden_branches = new exception
+//!                  branches minus the table's; DIR/LOCI.jsonl feeds `replay --loci`)
 //! rr_node replay   --table F.table.jsonl --out DIR [--family F.sym] [--cert F.cert.jsonl] [--cand-dump-dir D]
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
+//!                  [--extra-points K] [--loci LOCI.jsonl] [--box K [--box-max M]]   (guard-fix: more points per rule; one point ON each
+//!                  listed locus; every valid case point with free coordinates in the box |n| <= K, at most M = 2000)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
@@ -331,6 +338,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if let Some(path) = a.take("--known-terminals") {
         o.known_terminals = Some(KnownTerminalsFile::read(path).unwrap_or_else(|e| die(&e)));
     }
+    // guard-fix: witness-pole guards are ON by default; this restores the old RHS-only guards (A/B only)
+    o.no_witness_guards = a.flag("--no-witness-guards");
     if let Some(d) = a.parse("--numeric-depth") {
         o.numeric_depth = d;
     }
@@ -562,6 +571,10 @@ fn cmd_replay(mut a: Args) -> i32 {
         out: PathBuf::from(a.need("--out")),
         dimensions: dims,
         sample_attempts: a.parse("--sample-attempts").unwrap_or(128),
+        extra_points: a.parse("--extra-points").unwrap_or(0),
+        loci: a.take("--loci").map(PathBuf::from),
+        box_size: a.parse("--box").unwrap_or(0),
+        box_max: a.parse("--box-max").unwrap_or(2000),
     };
     a.done();
     let (status, result) = replay::run(&args).unwrap_or_else(|e| die(&e));
@@ -816,6 +829,125 @@ fn cmd_affine(mut a: Args) -> i32 {
     0
 }
 
+/// guard-fix: hidden witness poles of existing table rules. Each selected rule's case is lifted again ALONE (its
+/// fixed values + equations as the only initial case, max one case, no covers/registry/banks/dumps) under the node
+/// options recorded in the table header, with the witness guards on; when the new rule equals the table rule (same
+/// target, RHS and seeds) its witness poles are the table rule's hidden poles.
+fn cmd_witness(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let out = PathBuf::from(a.need("--out"));
+    let rules = ReplayArgs::parse_rules(&a.need("--rules")).unwrap_or_else(|e| die(&e));
+    let family_override = a.take("--family");
+    let budget: Option<u64> = a.parse("--case-budget");
+    a.done();
+    let text = read(&table);
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or_default())
+        .unwrap_or_else(|e| die(&format!("{table}: header: {e}")));
+    let family_path = family_override
+        .or_else(|| header["family_file"].as_str().map(str::to_string))
+        .unwrap_or_else(|| die("table header has no family_file; pass --family"));
+    let family = read(&family_path);
+    let base: NodeOptions = serde_json::from_value(header["node_options"].clone())
+        .unwrap_or_else(|e| die(&format!("{table}: node_options: {e}")));
+    if base.order.slot_permutation.is_some() {
+        die("witness: tables with a slot permutation are not supported (case records are in presented slots)");
+    }
+    std::fs::create_dir_all(&out).unwrap_or_else(|e| die(&e.to_string()));
+    let mut report = String::new();
+    let mut loci = String::new();
+    for line in lines {
+        let r: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if r["type"] != "rule" {
+            continue;
+        }
+        let index = r["index"].as_u64().unwrap_or(u64::MAX) as usize;
+        if rules.as_ref().is_some_and(|w| !w.contains(&index)) {
+            continue;
+        }
+        let fixed: Vec<Option<i64>> = r["fixed"]
+            .as_array()
+            .map(|v| v.iter().map(|x| x.as_i64()).collect())
+            .unwrap_or_default();
+        let equations: Vec<String> = r["equations"]
+            .as_array()
+            .map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let mut opts = base.clone();
+        opts.initial = vec![CaseSpec { fixed, equations }];
+        opts.max_cases = Some(1);
+        opts.cover_tables = Vec::new();
+        opts.cand_dump = false;
+        opts.registry = None;
+        opts.unsafe_shared_registry = false;
+        opts.adopt_banks = Vec::new();
+        opts.refused_bank = false;
+        opts.no_witness_guards = false;
+        if budget.is_some() {
+            opts.case_budget_exit = budget;
+        }
+        let dir = out.join(format!("r{index}"));
+        let _ = std::fs::create_dir_all(&dir);
+        let outcome = generate(&family, &family_path, &dir, &opts, &mut |_| {});
+        let new_rule: Option<serde_json::Value> = outcome.as_ref().ok().and_then(|o| {
+            std::fs::read_to_string(&o.table).ok().and_then(|t| {
+                t.lines()
+                    .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                    .find(|v| v["type"] == "rule")
+            })
+        });
+        let same = new_rule.as_ref().is_some_and(|n| {
+            n["target"] == r["target"] && n["rhs"] == r["rhs"] && n["seeds"] == r["seeds"]
+        });
+        let old_exc = r["exceptions"].as_array().cloned().unwrap_or_default();
+        let new_exc = new_rule
+            .as_ref()
+            .and_then(|n| n["exceptions"].as_array().cloned())
+            .unwrap_or_default();
+        let hidden: Vec<serde_json::Value> = new_exc
+            .iter()
+            .filter(|b| !old_exc.contains(b))
+            .cloned()
+            .collect();
+        let witness_loci = new_rule
+            .as_ref()
+            .map(|n| n["witness_loci"].clone())
+            .unwrap_or(serde_json::Value::Null);
+        let rec = serde_json::json!({
+            "chart": r["chart"], "index": index, "same_rule": same,
+            "error": outcome.as_ref().err(),
+            "witness_poles": new_rule.as_ref().map(|n| n["witness_poles"].clone()),
+            "witness_loci": witness_loci, "hidden_branches": hidden,
+            "exceptions_table": old_exc, "exceptions_witnessed": new_exc,
+        });
+        eprintln!("{}", serde_json::to_string(&rec).unwrap());
+        report.push_str(&serde_json::to_string(&rec).unwrap());
+        report.push('\n');
+        if same {
+            // single-polynomial hidden branches are loci the replay can sample on
+            let list: Vec<&str> = hidden
+                .iter()
+                .filter_map(|b| b.as_array().filter(|b| b.len() == 1).and_then(|b| b[0].as_str()))
+                .collect();
+            if !list.is_empty() {
+                loci.push_str(
+                    &serde_json::to_string(
+                        &serde_json::json!({"chart": r["chart"], "index": index, "loci": list}),
+                    )
+                    .unwrap(),
+                );
+                loci.push('\n');
+            }
+        }
+    }
+    std::fs::write(out.join("WITNESS.jsonl"), report).unwrap_or_else(|e| die(&e.to_string()));
+    std::fs::write(out.join("LOCI.jsonl"), loci).unwrap_or_else(|e| die(&e.to_string()));
+    0
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
@@ -832,6 +964,7 @@ fn main() {
         "predict" => cmd_predict(a),
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
+        "witness" => cmd_witness(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

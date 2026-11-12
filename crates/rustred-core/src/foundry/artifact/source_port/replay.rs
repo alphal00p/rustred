@@ -338,6 +338,7 @@ pub(super) fn replay_rule_retaining<const N: usize>(
             rhs: normalized_weights,
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         };
         let exceptions =
             extract_exceptions(&weight_candidate, system.index_variables(), order.sector())

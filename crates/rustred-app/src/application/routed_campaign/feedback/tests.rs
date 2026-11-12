@@ -205,6 +205,7 @@ fn actual_above_entry_rank_successor_is_nominated_without_positive_power_narrowi
             }],
             sources: vec![],
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

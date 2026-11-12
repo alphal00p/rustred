@@ -19,13 +19,17 @@ use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::{IntegerRing, PolyVariable, Z};
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
-use crate::algebra::Coefficient;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 use super::variables::FrameVariables;
-use super::{ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term};
+use super::{
+    ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term,
+    WitnessPoles,
+};
 
 pub(super) type NativeCoefficient = FactorizedRationalPolynomial<IntegerRing, u16>;
 
+#[cfg(test)]
 pub(super) fn materialize<const N: usize>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
@@ -43,6 +47,106 @@ pub(super) fn materialize<const N: usize>(
         &mut observe,
     )?;
     Ok(result.remove(0).1)
+}
+
+/// [`materialize`] with `LuLMode::Full` and the target row's source-weight
+/// poles ([`WitnessPoles`]). Same rows, columns, pivots and result row.
+pub(super) fn materialize_witnessed<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<(ExactRow<N>, WitnessPoles), MaterializationError> {
+    let native_columns = columns
+        .len()
+        .checked_add(1)
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or(MaterializationError::TooManyColumns)?;
+    let active = variables.active_variables();
+    let field = FactorizedRationalPolynomialField::<_, u16>::new(Z, active.clone());
+    let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::Full);
+    let mut values = Vec::new();
+    let mut column_ids = Vec::new();
+    let mut one = None;
+    for (ordinal, row) in rows.iter().enumerate() {
+        values.clear();
+        column_ids.clear();
+        for term in row {
+            if term.coefficient.denominator.is_zero() {
+                return Err(MaterializationError::InvalidFactorizedCoefficient(
+                    "zero input denominator",
+                ));
+            }
+            if term.coefficient.is_zero() {
+                continue;
+            }
+            let column = columns
+                .binary_search_by(|column| order.compare(column, &term.integral))
+                .expect("exact column union contains every row integral");
+            let coefficient = variables.map_coefficient(&term.coefficient)?;
+            if one.is_none() {
+                one = Some(factor(coefficient.numerator.one().into(), &active)?);
+            }
+            values.push(factor(coefficient, &active)?);
+            column_ids.push(column as u32);
+        }
+        observe(MaterializationEvent::RowStarted {
+            row: ordinal + 1,
+            input_nonzeros: values.len(),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        let pivot = native("reducing an exact source row", || {
+            reducer.add_row(&values, &column_ids)
+        })?;
+        observe(MaterializationEvent::RowFinished {
+            row: ordinal + 1,
+            pivot: pivot.map(|column| columns[column as usize]),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        if pivot == Some(target_column as u32) {
+            let u = reducer.u();
+            let last = u.nrows() as usize - 1;
+            let start = u.row_ptrs()[last];
+            let end = u.row_ptrs()[last + 1];
+            let solution = u.col_idcs()[start..end]
+                .iter()
+                .zip(&u.values()[start..end])
+                .map(|(&column, value)| {
+                    let coefficient = ordinary(value, &active)?;
+                    Ok(Term {
+                        integral: columns[column as usize],
+                        coefficient: variables.restore_coefficient(&coefficient)?,
+                    })
+                })
+                .collect::<Result<_, MaterializationError>>()?;
+            let one = one.ok_or(MaterializationError::TargetNotPivot)?;
+            let witness = super::target_only::witness_of_full_lower(
+                &rows[..=ordinal],
+                reducer.l(),
+                last,
+                one,
+                &|value| Ok(denominator_factors(value)),
+                &|poly| variables.restore_polynomial(poly),
+                true,
+            )?;
+            return Ok((solution, witness));
+        }
+    }
+    Err(MaterializationError::TargetNotPivot)
+}
+
+/// Every irreducible denominator factor of a native factorized value (Symbolica
+/// factors denominators on inversion), in the native (active) map.
+pub(super) fn denominator_factors(value: &NativeCoefficient) -> Vec<CoefficientPolynomial> {
+    value
+        .denominators
+        .iter()
+        .map(|(factor, _)| factor.clone())
+        .collect()
 }
 
 /// Share native elimination across requested pivots without expanding any

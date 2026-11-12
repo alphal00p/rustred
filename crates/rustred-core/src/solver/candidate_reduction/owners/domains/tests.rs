@@ -43,6 +43,7 @@ fn formula<const N: usize>(
                 .collect(),
             sources: vec![],
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     }

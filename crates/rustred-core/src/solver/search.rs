@@ -4,10 +4,15 @@ use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
+use symbolica::domains::InternalOrdering;
 use symbolica::prelude::{Field, Integer, Ring};
 
-use super::discovery::{Discovery, DiscoveryStats, exact_materialize_using_with_observer};
-use super::instantiate::{canonicalize, instantiate};
+use crate::algebra::CoefficientPolynomial;
+
+use super::discovery::{
+    Discovery, DiscoveryStats, exact_materialize_using_with_observer, exact_materialize_witnessed,
+};
+use super::instantiate::{canonical_shifts, canonicalize, instantiate, translate_polynomial};
 use super::precondition::{
     PreconditionProvenance, precondition_with_provenance, precondition_with_variable_order,
 };
@@ -50,6 +55,13 @@ pub struct SectorConfig<const N: usize> {
     pub rule_selection: RuleSelectionPolicy,
     /// Seed order inside each L1 shell of the symbolic case search (opt-in; default SpIRed chronology).
     pub seed_schedule: super::SeedSchedule,
+    /// guard-fix (default ON): carry the source-weight poles of every lift
+    /// into [`RuleCandidate::hidden_poles`] (and so into the rule's guards).
+    /// A backend that keeps no witness (dense fraction-free, semi-numerical)
+    /// is re-lifted with the witnessed target-only factorized backend, whose
+    /// row and witness are used. Off = the old
+    /// RHS-denominator-only guards (A/B and legacy reproduction only).
+    pub witness_guards: bool,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -66,6 +78,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             source_discovery: SourceDiscoveryStrategy::default(),
             rule_selection: RuleSelectionPolicy::default(),
             seed_schedule: super::SeedSchedule::default(),
+            witness_guards: true,
         }
     }
 }
@@ -121,6 +134,15 @@ pub struct RuleCandidate<const N: usize> {
     pub rhs: ExactRow<N>,
     pub sources: Vec<SeedSource<N>>,
     pub stats: SearchStats,
+    /// guard-fix (2026-11-12): witness poles of the lift that produced this
+    /// candidate, in the candidate's CANONICAL frame (same variable map as the
+    /// RHS coefficients): the denominators of the source weights
+    /// (`discovery::WitnessPoles`), and for a direct hit the winning row's
+    /// pivot. Where one vanishes the retained witness proves nothing, even if
+    /// every final RHS coefficient is regular there. Guard extraction treats
+    /// their index-containing factors exactly like RHS denominators. Empty for
+    /// hand-built candidates and with `SectorConfig::witness_guards` off.
+    pub hidden_poles: Vec<CoefficientPolynomial>,
 }
 
 /// One sector-local preconditioned source basis. Construct once, then reuse
@@ -611,6 +633,23 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         terms: row.len(),
                         direct_hit: true,
                     });
+                    let hidden_poles = if self.config.witness_guards {
+                        // The single row is its own witness (weight 1/pivot): its pivot and
+                        // input denominators may cancel from the normalised RHS.
+                        let shifts = canonical_shifts(&leading.integral);
+                        let mut poles: Vec<_> = row
+                            .iter()
+                            .map(|term| &term.coefficient.denominator)
+                            .chain(std::iter::once(&leading.coefficient.numerator))
+                            .filter(|poly| !poly.is_constant())
+                            .map(|poly| translate_polynomial(poly, &self.system.indices, &shifts))
+                            .collect();
+                        poles.sort_unstable_by(InternalOrdering::internal_cmp);
+                        poles.dedup();
+                        poles
+                    } else {
+                        Vec::new()
+                    };
                     let (target, rhs) = canonicalize(row, &self.system.indices)?;
                     stats.discovery = probe.as_ref().map(|p: &Probe<N>| p.discovery.stats());
                     return Ok(RuleCandidate {
@@ -619,6 +658,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         rhs,
                         sources: vec![source],
                         stats: *stats,
+                        hidden_poles,
                     });
                 }
                 if case.is_numerical()
@@ -680,7 +720,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         });
                         let exact_start = Instant::now();
                         work.exact_lifts += 1;
-                        let exact = exact_materialize_using_with_observer(
+                        let exact = exact_materialize_witnessed(
                             &selected,
                             &self.order,
                             pivot,
@@ -690,7 +730,57 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             |event| observe(SearchEvent::ExactProgress(event)),
                         );
                         stats.exact_materialization = exact_start.elapsed();
-                        let exact = exact.map_err(SolverError::exact_replay)?;
+                        let (mut exact, mut witness) = exact.map_err(SolverError::exact_replay)?;
+                        if self.config.witness_guards && !witness.recorded {
+                            // guard-fix: the diagnostic backends (dense fraction-free,
+                            // semi-numerical) keep no source weights. Re-lift the same selected
+                            // rows with the witnessed target-only factorized backend and take its
+                            // row and witness: the rule is then exactly the one the production
+                            // backend proves, guards included. A different row is reported.
+                            let (lifted, lifted_witness) = exact_materialize_witnessed(
+                                &selected,
+                                &self.order,
+                                pivot,
+                                SymbolicExactBackend::SparseTargetOnlyFactorized,
+                                self.config.coefficient_variable_order,
+                                self.system.coefficient_order(),
+                                |event| observe(SearchEvent::ExactProgress(event)),
+                            )
+                            .map_err(SolverError::exact_replay)?;
+                            if !lifted_witness.recorded {
+                                return Err(SolverError::ExactReplay(
+                                    "guard-fix: witness re-lift kept no source-weight witness"
+                                        .into(),
+                                )
+                                .into());
+                            }
+                            if canonicalize(exact.clone(), &self.system.indices)?
+                                != canonicalize(lifted.clone(), &self.system.indices)?
+                            {
+                                eprintln!(
+                                    "guard-fix: backend {:?} row differs from the witnessed target-only row; the witnessed row is used",
+                                    self.config.symbolic_exact_backend
+                                );
+                            }
+                            exact = lifted;
+                            witness = lifted_witness;
+                        }
+                        let hidden_poles = if self.config.witness_guards {
+                            let head = exact.first().ok_or_else(|| {
+                                SolverError::ExactReplay("empty winning row".into())
+                            })?;
+                            let shifts = canonical_shifts(&head.integral);
+                            let mut poles: Vec<_> = witness
+                                .denominators
+                                .iter()
+                                .map(|poly| translate_polynomial(poly, &self.system.indices, &shifts))
+                                .collect();
+                            poles.sort_unstable_by(InternalOrdering::internal_cmp);
+                            poles.dedup();
+                            poles
+                        } else {
+                            Vec::new()
+                        };
                         observe(SearchEvent::CanonicalizationStarted {
                             terms: exact.len(),
                             direct_hit: false,
@@ -704,6 +794,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             rhs,
                             sources,
                             stats: *stats,
+                            hidden_poles,
                         });
                     }
                 }

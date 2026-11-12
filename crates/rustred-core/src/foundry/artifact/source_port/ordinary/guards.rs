@@ -41,6 +41,7 @@ pub(super) fn preserves_domain<const N: usize>(
             .collect(),
         sources: Vec::new(),
         stats: Default::default(),
+        hidden_poles: Vec::new(),
     };
     let exceptions = extract_exceptions(&candidate, indices, sector).map_err(error)?;
     if exceptions.branches.is_empty() {

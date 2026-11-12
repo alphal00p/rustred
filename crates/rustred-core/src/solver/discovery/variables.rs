@@ -136,6 +136,22 @@ impl FrameVariables {
         Self::remap(value, &self.active, &self.original)
     }
 
+    /// [`Self::restore_coefficient`] of one polynomial in the active map (a witness pole).
+    pub(super) fn restore_polynomial(
+        &self,
+        value: &crate::algebra::CoefficientPolynomial,
+    ) -> Result<crate::algebra::CoefficientPolynomial, MaterializationError> {
+        if value.variables() != &self.active {
+            return Err(MaterializationError::CoefficientVariableMapMismatch);
+        }
+        if self.active == self.original {
+            return Ok(value.clone());
+        }
+        value
+            .rearrange_with_growth(&self.original)
+            .map_err(MaterializationError::CoefficientVariableRemap)
+    }
+
     fn validate_map(
         value: &Coefficient,
         expected: &Arc<Vec<PolyVariable>>,

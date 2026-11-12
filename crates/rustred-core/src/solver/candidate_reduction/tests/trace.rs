@@ -27,6 +27,7 @@ fn fixed<const N: usize>(
                 .collect(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     }

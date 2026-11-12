@@ -920,6 +920,7 @@ fn declared_affine_chart_and_saved_order_match_the_existing_evaluator() {
                 }],
                 sources: vec![],
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions::default(),
         };

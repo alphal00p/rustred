@@ -228,6 +228,32 @@ pub(crate) fn canonicalize<const N: usize>(
     Ok((target, rhs))
 }
 
+/// The raw-frame shifts that [`canonicalize`] applies to a winning row.
+pub(crate) fn canonical_shifts<const N: usize>(head: &Integral<N>) -> [i16; N] {
+    std::array::from_fn(|i| {
+        if head[i].is_symbolic() {
+            -head[i].value()
+        } else {
+            0
+        }
+    })
+}
+
+/// [`translate`] of one polynomial (a witness pole) by the same shifts.
+pub(crate) fn translate_polynomial<const N: usize>(
+    value: &CoefficientPolynomial,
+    indices: &[usize; N],
+    shifts: &[i16; N],
+) -> CoefficientPolynomial {
+    let mut result = value.clone();
+    for (variable, shift) in indices.iter().zip(shifts) {
+        if *shift != 0 {
+            result = result.shift_var(*variable, &Integer::from(*shift));
+        }
+    }
+    result
+}
+
 pub(crate) fn translate<const N: usize>(
     coefficient: &Coefficient,
     indices: &[usize; N],

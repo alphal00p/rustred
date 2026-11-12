@@ -193,6 +193,7 @@ pub fn encode_checked_priority_owner_with_policy<const N: usize>(
         rhs,
         sources: Vec::new(), // No fabricated canonical/seeded source provenance.
         stats: SearchStats::default(),
+        hidden_poles: Vec::new(),
     };
     let proof =
         check_original_source_combination(&family, proposal, proof_limits).map_err(error)?;

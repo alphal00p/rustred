@@ -93,7 +93,7 @@ pub fn extract_exceptions_two_sided<const N: usize>(
     two_sided: &[bool; N],
 ) -> Result<ExceptionalConditions, ExceptionError> {
     preflight(candidate, indices, sector, two_sided)?;
-    if candidate.rhs.is_empty() {
+    if candidate.rhs.is_empty() && candidate.hidden_poles.is_empty() {
         // No coefficient variable map exists in an empty RHS and there are
         // no denominators or terms capable of activating another sector.
         return Ok(ExceptionalConditions::default());
@@ -119,7 +119,7 @@ pub fn extract_exceptions_content<const N: usize>(
     two_sided: &[bool; N],
 ) -> Result<ExceptionalConditions, ExceptionError> {
     preflight(candidate, indices, sector, two_sided)?;
-    if candidate.rhs.is_empty() {
+    if candidate.rhs.is_empty() && candidate.hidden_poles.is_empty() {
         return Ok(ExceptionalConditions::default());
     }
     catch_unwind(AssertUnwindSafe(|| {
@@ -323,10 +323,20 @@ fn preflight<const N: usize>(
             ));
         }
     }
-    let Some(first) = candidate.rhs.first() else {
-        return Ok(());
+    let variables = match (candidate.rhs.first(), candidate.hidden_poles.first()) {
+        (Some(first), _) => first.coefficient.numerator.variables(),
+        (None, Some(pole)) => pole.variables(),
+        (None, None) => return Ok(()),
     };
-    let variables = first.coefficient.numerator.variables();
+    if candidate
+        .hidden_poles
+        .iter()
+        .any(|pole| pole.variables() != variables || pole.is_zero())
+    {
+        return Err(ExceptionError::InvalidInput(
+            "witness poles must be nonzero and share the RHS variable map",
+        ));
+    }
     if indices.iter().any(|&position| position >= variables.len()) {
         return Err(ExceptionError::InvalidInput(
             "index-variable position is outside the coefficient variable map",
@@ -390,11 +400,15 @@ fn guard_inputs<const N: usize>(
     candidate: &RuleCandidate<N>,
     indices: &[usize; N],
 ) -> Vec<CoefficientPolynomial> {
+    // guard-fix: the witness poles of the lift (source-weight denominators,
+    // direct-hit pivot) are guards exactly like the RHS denominators: on such a
+    // locus the retained witness proves nothing even where the RHS is regular.
     let mut denominators: Vec<_> = candidate
         .rhs
         .iter()
         .filter(|term| !term.coefficient.is_zero())
         .map(|term| &term.coefficient.denominator)
+        .chain(candidate.hidden_poles.iter())
         .filter(|denominator| contains_index(denominator, indices))
         .map(|denominator| primitive(denominator.clone()))
         .collect();
@@ -522,7 +536,12 @@ fn extract_with<const N: usize>(
     two_sided: &[bool; N],
     content_route: bool,
 ) -> ExceptionalConditions {
-    let template = &candidate.rhs[0].coefficient.numerator;
+    let template = candidate
+        .rhs
+        .first()
+        .map(|term| &term.coefficient.numerator)
+        .or(candidate.hidden_poles.first())
+        .expect("callers return early without RHS terms and witness poles");
     let parameter_positions: Vec<_> = (0..template.nvars())
         .filter(|position| !indices.contains(position))
         .collect();

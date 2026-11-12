@@ -14,6 +14,7 @@ fn fixture() -> (CoefficientContext, SectorRule<2>, IntegralOrder<2>) {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };
@@ -144,6 +145,7 @@ fn finite_zero_proof_budget_is_fail_closed_not_partial_coverage() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };
@@ -217,6 +219,7 @@ pub(super) fn affine_fixture() -> (
                 },
             }],
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: Default::default(),
     };
@@ -322,6 +325,7 @@ fn affine_zero_projection_discards_only_impossible_activation_cells() {
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };
@@ -412,6 +416,7 @@ fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
             rhs: vec![activating.clone()],
             sources: Vec::new(),
             stats: Default::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions::default(),
     };

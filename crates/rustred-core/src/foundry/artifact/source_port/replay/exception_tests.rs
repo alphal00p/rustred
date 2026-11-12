@@ -18,6 +18,7 @@ fn candidate<const N: usize>(case: Case<N>) -> RuleCandidate<N> {
         rhs: Vec::new(),
         sources: Vec::new(),
         stats: Default::default(),
+        hidden_poles: Vec::new(),
     }
 }
 

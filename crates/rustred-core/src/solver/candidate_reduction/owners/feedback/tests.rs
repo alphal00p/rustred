@@ -57,6 +57,7 @@ fn retained_guarded_rule_chart_is_in_prepared_overlay_byte_admission() {
                     rhs: vec![],
                     sources: vec![],
                     stats: SearchStats::default(),
+                    hidden_poles: Vec::new(),
                 },
                 exceptions: ExceptionalConditions::default(),
             }],

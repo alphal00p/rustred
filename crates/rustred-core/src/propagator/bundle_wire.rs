@@ -900,6 +900,7 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
                 rhs,
                 sources,
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions { branches },
         })
