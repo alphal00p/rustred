@@ -41,10 +41,10 @@ use std::time::Instant;
 
 use rustred::algebra::{Coefficient, CoefficientContext};
 use rustred::family::IntegralKey;
+use rustred::propagator::PresentationId;
 use rustred::propagator::error::PError;
 use rustred::propagator::library::{PInspector, PLibrary, PReductionRequest, PUncoveredPolicy};
 use rustred::propagator::presentation::{AffineSlotForm, Slot};
-use rustred::propagator::PresentationId;
 use rustred::reduction::{
     ModularCommon, OrderedPhaseBoundary, OrderedPhaseEvent, OrderedSchedulerOptions,
     OrderedStepCache, OrderedStepCacheOptions, OrderedStepStage, OrderedWeightArithmetic,
@@ -265,7 +265,10 @@ fn changed_owners(base: &Path, candidate: &Path) -> (BTreeSet<u64>, Vec<String>)
             .unwrap_or_default()
     };
     let mut changed = BTreeSet::new();
-    let (a, b) = (files(&base.join("owners")), files(&candidate.join("owners")));
+    let (a, b) = (
+        files(&base.join("owners")),
+        files(&candidate.join("owners")),
+    );
     for name in a.keys().chain(b.keys()) {
         if a.get(name) != b.get(name) {
             changed.insert(class_of(name).unwrap_or_else(|| panic!("owner file {name}")));
@@ -461,7 +464,11 @@ fn overlay(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut manifest: LibraryManifest =
         serde_json::from_slice(&std::fs::read(base.join(LIBRARY_FILE))?)?;
-    let ordering_name = manifest.files.ordering.clone().ok_or("BASE has no ordering")?;
+    let ordering_name = manifest
+        .files
+        .ordering
+        .clone()
+        .ok_or("BASE has no ordering")?;
     let base_ordering: OrderingFile =
         serde_json::from_slice(&std::fs::read(base.join(&ordering_name))?)?;
     std::fs::create_dir(&output)?;
@@ -495,7 +502,12 @@ fn overlay(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let residuals = |s: &rustred::propagator::custom::CustomPayloadSummary| {
             s.charts
                 .iter()
-                .map(|c| (c.chart, c.residuals.iter().cloned().collect::<BTreeSet<_>>()))
+                .map(|c| {
+                    (
+                        c.chart,
+                        c.residuals.iter().cloned().collect::<BTreeSet<_>>(),
+                    )
+                })
                 .collect::<BTreeMap<_, _>>()
         };
         if old.family_fingerprint != new.family_fingerprint
@@ -586,7 +598,11 @@ fn overlay(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             verify_descent: false,
         },
     )?;
-    eprintln!("[overlay] {} loads: {}", output.display(), loaded.identity());
+    eprintln!(
+        "[overlay] {} loads: {}",
+        output.display(),
+        loaded.identity()
+    );
     Ok(())
 }
 
