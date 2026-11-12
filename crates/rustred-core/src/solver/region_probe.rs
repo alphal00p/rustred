@@ -22,6 +22,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::poly::groebner::GroebnerBasis;
 use symbolica::poly::polynomial::MultivariatePolynomial;
+use symbolica::poly::{GrevLexOrder, LexOrder};
 use symbolica::domains::RingOps;
 use symbolica::prelude::{Factorize, Field, Ring};
 use std::sync::RwLock;
@@ -95,8 +96,43 @@ fn attempt(
         if system.iter().any(|p| p.is_constant()) {
             return false;
         }
-        let basis = GroebnerBasis::new(&system, false).system;
-        let basis: Vec<ZpPoly> = basis.into_iter().filter(|p| !p.is_zero()).collect();
+        // t266-4: the basis in GREVLEX order. `ZpPoly` carries the default lex order, and a lex basis of a
+        // positive-dimensional region (R05.0.0 / R77.0 of T266: quartics with 14-digit coefficients) exhausted a 10 GB
+        // cap within a minute; any basis of the same ideal serves here (univariate elements, constants, the variables
+        // still occurring), so the cheaper order is taken and converted back.
+        let grevlex: Vec<MultivariatePolynomial<Zp64, u16, GrevLexOrder>> =
+            system.iter().map(|p| p.reorder::<GrevLexOrder>()).collect();
+        let gbasis: Vec<_> = GroebnerBasis::new(&grevlex, false)
+            .system
+            .into_iter()
+            .filter(|p| !p.is_zero())
+            .collect();
+        // zero-dimensional (every occurring variable has a pure power among the leading monomials): no free choice is
+        // left, so a univariate element is needed; the lex basis of a zero-dimensional ideal has one and is cheap
+        let occ: Vec<usize> = {
+            let mut v: Vec<usize> = gbasis.iter().flat_map(|p| {
+                (0..p.nvars()).filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0)).collect::<Vec<_>>()
+            }).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let zero_dim = !occ.is_empty()
+            && occ.iter().all(|&x| {
+                gbasis.iter().any(|p| {
+                    let lm = p.last_exponents();
+                    lm[x] != 0 && lm.iter().enumerate().all(|(y, e)| y == x || *e == 0)
+                })
+            });
+        let has_uni = gbasis.iter().any(|p| {
+            (0..p.nvars()).filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0)).count() == 1
+        });
+        let basis: Vec<ZpPoly> = if zero_dim && !has_uni {
+            let lex: Vec<ZpPoly> = gbasis.iter().map(|p| p.reorder::<LexOrder>()).collect();
+            GroebnerBasis::new(&lex, false).system.into_iter().filter(|p| !p.is_zero()).collect()
+        } else {
+            gbasis.into_iter().map(|p| p.reorder::<LexOrder>()).collect()
+        };
         if basis.is_empty() {
             return true;
         }
