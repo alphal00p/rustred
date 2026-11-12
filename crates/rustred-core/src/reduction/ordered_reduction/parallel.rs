@@ -61,7 +61,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use rayon::prelude::*;
@@ -960,6 +960,64 @@ struct Prep {
     intern: Option<std::sync::Arc<super::modular::SharedIntern>>,
     /// Interned coefficients freed here, placeholders handed on.
     hollow: bool,
+    /// fwd-opt: light steps on the workers (lean prestaging only): singly
+    /// met memo children come by handle and get their shared-table id from
+    /// the worker's handle cache of this request (`light_request`), without
+    /// a coefficient copy, hash or table lookup per edge.
+    light: bool,
+    light_request: u64,
+}
+
+/// Pipelined requests with light steps started in this process (keys the
+/// workers' handle caches).
+static LIGHT_REQUESTS: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// fwd-opt: this worker's shared-memo handles of the current pipelined
+    /// request -> (shared-table id, zero, interning hash).
+    static LIGHT_IDS: std::cell::RefCell<(u64, HashMap<u64, (u32, bool, u64), super::FrontierHash>)> =
+        std::cell::RefCell::new((u64::MAX, HashMap::with_hasher(super::FrontierHash::Fx)));
+}
+
+/// `RUSTRED_ORDERED_PIPELINED_LIGHT=on|off` (fwd-opt; default on): light
+/// steps on the workers of the pipelined source (lean prestaging only).
+fn pipelined_light_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_PIPELINED_LIGHT").unwrap_or(true))
+}
+
+/// The shared-table id, zero test and interning hash of the coefficient a
+/// light handle names (shared-memo handles cached per worker and request).
+fn light_id<S: OrderedStepper>(
+    stepper: &S,
+    table: &super::modular::SharedIntern,
+    request: u64,
+    handle: u64,
+) -> (u32, bool, u64) {
+    let resolve = || {
+        let coefficient = stepper
+            .light_value(handle)
+            .expect("a light handle names a memo coefficient");
+        let hash = super::modular::coefficient_hash(&coefficient);
+        (table.id(&coefficient, hash), coefficient.is_zero(), hash)
+    };
+    if crate::propagator::engine::light::is_local(handle) {
+        // A thread-local memo may be cleared within a request: no cache.
+        return resolve();
+    }
+    LIGHT_IDS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.0 != request {
+            cache.0 = request;
+            cache.1.clear();
+        }
+        if let Some(&found) = cache.1.get(&handle) {
+            return found;
+        }
+        let found = resolve();
+        cache.1.insert(handle, found);
+        found
+    })
 }
 
 type PrestagedOf<S> = super::Prestaged<
@@ -985,6 +1043,93 @@ where
 
 /// The steps of `roots` and of their same-phase descendants at or above
 /// `threshold` (`close_window`), with the same-phase children below it.
+/// fwd-opt: the lean prestaging of one step with light children (as the
+/// lean branch of [`compute_window`], children in the key order of the full
+/// step): positions, window/below candidates, packed keys and shared-table
+/// ids; light children never materialise their coefficient.
+#[allow(clippy::type_complexity)]
+fn light_prestage<S: OrderedStepper>(
+    stepper: &S,
+    table: &super::modular::SharedIntern,
+    request: u64,
+    parent: &S::Key,
+    mut step: OrderedStep<S::Key>,
+    found: &mut Vec<Candidate<S>>,
+    threshold: &Scheduled<S::Key, S::Priority>,
+) -> (
+    OrderedStep<S::Key>,
+    Vec<Candidate<S>>,
+    Vec<u64>,
+    Option<PrestagedOf<S>>,
+)
+where
+    S::Key: super::FrontierKey,
+{
+    use std::hash::BuildHasher;
+    let mut light = stepper.take_light().into_iter().peekable();
+    let mut materialised = std::mem::take(&mut step.terms).into_iter().peekable();
+    let count = materialised.len() + light.len();
+    let mut below = Vec::new();
+    let mut children = Vec::with_capacity(count);
+    let mut ids = Vec::with_capacity(count + step.terminals.len());
+    let mut hashes = Vec::with_capacity(count + step.terminals.len());
+    loop {
+        let take_light = match (materialised.peek(), light.peek()) {
+            (None, None) => break,
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (Some((a, _)), Some((b, _))) => b < a,
+        };
+        let (child, (id, zero, hash)) = if take_light {
+            let (child, handle) = light.next().expect("peeked");
+            (child, light_id(stepper, table, request, handle))
+        } else {
+            let (child, coefficient) = materialised.next().expect("peeked");
+            let hash = super::modular::coefficient_hash(&coefficient);
+            let id = crate::prof_wrap_fine!(Intern, table.id(&coefficient, hash));
+            (child, (id, coefficient.is_zero(), hash))
+        };
+        let later = stepper.later_phase(parent, &child);
+        let position = crate::prof_wrap!(Position, stepper.position(&child)).ok();
+        if !later && let Some(position) = &position {
+            if at_or_above(position, &child, threshold) {
+                found.push((child.clone(), position.clone()));
+            } else if position.phase == threshold.phase.0 {
+                below.push((child.clone(), position.clone()));
+            }
+        }
+        hashes.push(hash);
+        ids.push((id, zero));
+        let packed = super::FrontierKey::pack(&child);
+        let hash = super::FrontierHash::Fx.hash_one(&packed);
+        children.push(super::PreChild {
+            key: Some(child),
+            packed,
+            hash,
+            position,
+        });
+    }
+    for coefficient in step.terminals.values_mut() {
+        let hash = super::modular::coefficient_hash(coefficient);
+        hashes.push(hash);
+        ids.push((
+            crate::prof_wrap_fine!(Intern, table.id(coefficient, hash)),
+            coefficient.is_zero(),
+        ));
+        let hollow = Coefficient {
+            numerator: coefficient.numerator.zero(),
+            denominator: coefficient.numerator.zero(),
+        };
+        drop(std::mem::replace(coefficient, hollow));
+    }
+    let prestaged = super::Prestaged {
+        children,
+        ids,
+        lean: true,
+    };
+    (step, below, hashes, Some(prestaged))
+}
+
 fn compute_window<S: OrderedStepper>(
     workers: &Workers,
     stepper: &S,
@@ -1006,6 +1151,19 @@ where
         counters.as_ref(),
         |parent, _, mut step, found| {
             crate::prof!(Prestage);
+            if prep.light
+                && let Some(table) = &prep.intern
+            {
+                return light_prestage(
+                    stepper,
+                    table,
+                    prep.light_request,
+                    parent,
+                    step,
+                    found,
+                    &threshold,
+                );
+            }
             let mut below = Vec::new();
             let mut positions = Vec::new();
             if prep.children {
@@ -1229,6 +1387,8 @@ where
                 children: prestage,
                 intern: None,
                 hollow: false,
+                light: false,
+                light_request: 0,
             },
             prestaged: None,
             ahead: None,
@@ -1382,6 +1542,18 @@ where
 
     fn configure_prestage(&mut self, prepacked: bool) {
         self.prep.children = self.prestage && prepacked;
+        // fwd-opt: light steps on the workers when every step is prestaged
+        // lean (ids only; this pool's threads end with the request).
+        let light = self.prep.children
+            && self.prep.hollow
+            && self.prep.intern.is_some()
+            && pipelined_light_enabled();
+        if light {
+            self.prep.light = true;
+            self.prep.light_request = LIGHT_REQUESTS.fetch_add(1, Ordering::Relaxed);
+            let stepper = self.stepper;
+            self.workers.broadcast(|| stepper.set_light(true));
+        }
     }
 
     fn dispose_prestaged(&mut self, spent: Vec<super::PrestagedFor<K>>) {
