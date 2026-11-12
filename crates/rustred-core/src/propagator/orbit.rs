@@ -86,8 +86,13 @@ impl OwnerOrbit {
         keep: impl Fn(&[i64]) -> bool,
     ) -> Option<(Vec<i64>, bool)> {
         let n = powers.len();
-        let mut scratch: smallvec::SmallVec<[i64; 32]> = smallvec::SmallVec::from_elem(0, n);
-        let mut best: Option<(smallvec::SmallVec<[i64; 32]>, bool)> = None;
+        // fwd-opt: two image buffers, the best one named by index (no copy of
+        // an image buffer per improvement).
+        let mut images: [smallvec::SmallVec<[i64; 32]>; 2] = [
+            smallvec::SmallVec::from_elem(0, n),
+            smallvec::SmallVec::from_elem(0, n),
+        ];
+        let mut best: Option<(usize, bool)> = None;
         for (action, inverse) in self.actions.iter().zip(&self.inverses) {
             if action.len() < n || inverse.len() < n {
                 continue;
@@ -100,7 +105,7 @@ impl OwnerOrbit {
             {
                 continue;
             }
-            let bound = best.as_ref().map_or(powers, |(image, _)| image.as_slice());
+            let bound = best.map_or(powers, |(at, _)| images[at].as_slice());
             let mut below = false;
             for (target, &bound) in bound.iter().enumerate() {
                 let source = inverse[target];
@@ -119,14 +124,15 @@ impl OwnerOrbit {
             if !below {
                 continue;
             }
-            let Some(negative) = Self::image_into(action, powers, &mut scratch) else {
+            let free = best.map_or(0, |(at, _)| 1 - at);
+            let Some(negative) = Self::image_into(action, powers, &mut images[free]) else {
                 continue;
             };
-            if keep(&scratch) {
-                best = Some((scratch.clone(), negative));
+            if keep(&images[free]) {
+                best = Some((free, negative));
             }
         }
-        best.map(|(image, negative)| (image.into_vec(), negative))
+        best.map(|(at, negative)| (images[at].to_vec(), negative))
     }
 
     /// [`Self::image`] written into `out` (resized to `powers.len()`), without

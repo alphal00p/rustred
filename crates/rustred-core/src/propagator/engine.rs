@@ -98,10 +98,18 @@ impl PView {
     }
 
     /// The slots, decoded.
+    #[inline(always)]
     pub(crate) fn slots(&self) -> ViewSlots {
         let mut slots = ViewSlots::new();
         self.packed.decode_into(&mut slots);
         slots
+    }
+
+    /// fwd-opt: the slots decoded into the caller's `out` (no 520-byte
+    /// `ViewSlots` move per call, which the hot paths paid as a `memmove`).
+    #[inline(always)]
+    pub(crate) fn slots_into(&self, out: &mut ViewSlots) {
+        self.packed.decode_into(out);
     }
 
     /// The view as an `IntegralKey`, built on first use.
@@ -135,7 +143,9 @@ impl Ord for PView {
 impl std::hash::Hash for PView {
     /// The hash of the slot slice, as `IntegralKey`'s.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.slots().as_slice().hash(state);
+        let mut slots = ViewSlots::new();
+        self.slots_into(&mut slots);
+        slots.as_slice().hash(state);
     }
 }
 
@@ -517,7 +527,7 @@ impl PEngine {
     /// [`PError::TagOutOfRange`].
     fn view(&self, powers: &[i64], tag: &GammaTag) -> Result<PView, PError> {
         let mut slots = ViewSlots::new();
-        slots.extend_from_slice(powers);
+        slots.extend(powers.iter().copied());
         tag.encode_dense_into(&mut slots)?;
         if slots.len() > self.width {
             return Err(PError::MalformedLibrary(format!(
@@ -1578,7 +1588,8 @@ impl<'l> PStepper<'l> {
     }
 
     fn route_t(&self, presentation: PresentationId, view: &PView) -> Result<usize, PError> {
-        let slots = view.slots();
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
         let (powers, _) = self.engine.split(presentation, &slots)?;
         let shape = self.engine.shape(presentation)?;
         Ok(shape.line_count(shape.support(powers)))
@@ -2337,7 +2348,8 @@ impl<'l> PStepper<'l> {
         let PKey::Route { presentation, view } = child else {
             return Ok(true);
         };
-        let slots = view.slots();
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
         let (powers, _) = self.engine.split(*presentation, &slots)?;
         let support = self.engine.shape(*presentation)?.support(powers);
         // Use exactly the existing census authority. In particular, a gap

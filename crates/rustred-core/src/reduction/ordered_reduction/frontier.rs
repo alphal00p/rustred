@@ -183,9 +183,15 @@ impl CompactPowers {
         out.clear();
         match self {
             Self::Inline { powers, .. } => {
-                out.extend(powers[..self.len()].iter().map(|&p| i64::from(p)));
+                // fwd-opt: one resize and a plain widening loop (was a
+                // per-element `extend`, 2.5 % of the 16-thread worker time).
+                let n = self.len();
+                out.resize(n, 0);
+                for (slot, &power) in out.iter_mut().zip(&powers[..n]) {
+                    *slot = i64::from(power);
+                }
             }
-            Self::Wide { powers, .. } => out.extend_from_slice(powers),
+            Self::Wide { powers, .. } => out.extend(powers.iter().copied()),
         }
     }
 
