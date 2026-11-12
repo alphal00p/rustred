@@ -511,6 +511,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         if let Some(last_depth) = seed_schedule.last_depth() {
             options.max_depth = Some(options.max_depth.map_or(last_depth, |d| d.min(last_depth)));
         }
+        // seed-fixed-dot: a fixed-dot shell searches its own shell (bounded by its seed budget)
+        if let Some(depth) = seed_schedule.owns_depth() {
+            options.max_depth = Some(depth);
+        }
         let start = Instant::now();
         let mut work = RuleTrialStats::default();
         let mut result = self.search_attempt_inner(

@@ -534,6 +534,17 @@ pub struct NodeOptions {
     /// Smallest trace (rows) the gate measures; smaller traces lift as without the rung.
     #[serde(default = "seed_pose_min_rows_default")]
     pub seed_pose_min_rows: usize,
+    /// seed-fixed-dot (inside the rung only): after the portfolio, at most this many FIXED-DOT poses
+    /// ([`fixed_dot_poses`]: one L1 shell 3 with one fixed line first, bounded seed count) are measured when no
+    /// portfolio pose reached `seed_pose_keep`. `None` = [`FIXED_DOT_POSES_DEFAULT`]; `Some(0)` = off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_pose_fixed_dot: Option<usize>,
+    /// Seed budget of one fixed-dot pose (`None` = [`FIXED_DOT_SEEDS_DEFAULT`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_pose_fixed_dot_seeds: Option<u32>,
+    /// Measure the fixed-dot poses BEFORE the portfolio on cases with a dotted fixed line (value >= 2).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub seed_pose_fixed_dot_first: bool,
     /// Lift ladder rung 1 (coordinator ruling 2026-11-11T04:17Z): a case whose lift the screen refused is searched
     /// again with the `SymbolicFirst` seed schedule (same presentation, same seed ball) before other source orders;
     /// the order portfolio (node level, [`super::auto`]) is the next rung.
@@ -688,6 +699,9 @@ impl Default for NodeOptions {
             seed_pose_keep: seed_pose_keep_default(),
             seed_pose_trigger: seed_pose_trigger_default(),
             seed_pose_min_rows: seed_pose_min_rows_default(),
+            seed_pose_fixed_dot: None,
+            seed_pose_fixed_dot_seeds: None,
+            seed_pose_fixed_dot_first: false,
             symbolic_first_rung: true,
             empty_domain_check: true,
             max_rule_monomials: None,
@@ -1951,6 +1965,110 @@ pub fn seed_pose_portfolio<const N: usize>(
     poses
 }
 
+/// Fixed-dot poses measured by the rung by default (seed-fixed-dot).
+pub const FIXED_DOT_POSES_DEFAULT: usize = 4;
+/// Seed budget of one fixed-dot pose (Astra's T265 pose: 2,504 sector-valid seeds in its shell; the relation was
+/// selected after ~460).
+pub const FIXED_DOT_SEEDS_DEFAULT: u32 = 1_500;
+/// The L1 shell of a fixed-dot pose (Astra T265: shell 3 = one fixed dot + an L1-2 move of the free axes).
+pub const FIXED_DOT_DEPTH: u32 = 3;
+
+/// Fixed-dot configuration of the rung.
+#[derive(Clone, Debug)]
+pub struct FixedDotConfig {
+    pub poses: usize,
+    pub max_seeds: u32,
+    pub first: bool,
+    /// The node order's final tie priority over the presented slots (None = legacy = identity).
+    pub priority: Option<Vec<usize>>,
+}
+
+impl FixedDotConfig {
+    pub fn from_options(opts: &NodeOptions) -> Self {
+        Self {
+            poses: opts.seed_pose_fixed_dot.unwrap_or(FIXED_DOT_POSES_DEFAULT),
+            max_seeds: opts
+                .seed_pose_fixed_dot_seeds
+                .unwrap_or(FIXED_DOT_SEEDS_DEFAULT),
+            first: opts.seed_pose_fixed_dot_first,
+            priority: opts.order.coordinate_priority.clone(),
+        }
+    }
+
+}
+
+/// The fixed lines of a case (value >= 1; ISPs never lead a fixed-dot pose) in the order the fixed-dot poses try
+/// them: the LEAST significant line of the node order's tie priority first (`priority` = most significant first;
+/// None = the legacy identity). [M] seed-fixed-dot probes: on the 3 cases where a fixed-dot pose wins (T265 goal
+/// under pred_n13_last, T265 #17 and T230 #11 under the legacy order) the best line is among the first 3 of this
+/// order (lines 13 / 13 / 9); dotted lines first was refuted (T265 #17 dotted line 2: 531 RHS vs 96-142).
+pub fn fixed_dot_axes<const N: usize>(
+    case: &Case<N>,
+    phys: &[bool; N],
+    priority: Option<&[usize]>,
+) -> Vec<usize> {
+    let fixed = case.fixed();
+    let rank = |i: usize| priority.map_or(i, |p| p.iter().position(|&a| a == i).unwrap_or(i));
+    let mut lines: Vec<usize> = (0..N)
+        .filter(|&i| phys[i] && matches!(fixed[i], Some(v) if v >= 1))
+        .collect();
+    lines.sort_by_key(|&i| std::cmp::Reverse(rank(i)));
+    lines
+}
+
+/// seed-fixed-dot poses of a case: for each fixed line `a` of [`fixed_dot_axes`] (at most `k`), one shell
+/// L1 = 3 ([`CaseSeedSchedule::FixedDotShell`]) with axis priority [a, free axes (equation-coupled first), the
+/// other fixed lines, the remaining axes], positive first, at most `max_seeds` seeds, SpIRed in-shell order.
+/// Source seeds leave the target face by a dot on `a`; the selected pivot is still on the case.
+pub fn fixed_dot_poses<const N: usize>(
+    case: &Case<N>,
+    phys: &[bool; N],
+    k: usize,
+    max_seeds: u32,
+    priority: Option<&[usize]>,
+) -> Vec<(String, CaseSeedSchedule, SeedScheduleName)> {
+    let fixed = case.fixed();
+    let free: Vec<usize> = (0..N).filter(|&i| fixed[i].is_none()).collect();
+    let coupled = |axis: usize| {
+        case.affine().is_some_and(|affine| {
+            let mut unit = [0i16; N];
+            unit[axis] = 1;
+            !affine.is_tangent(&unit)
+        })
+    };
+    let free: Vec<usize> = free
+        .iter()
+        .copied()
+        .filter(|&a| coupled(a))
+        .chain(free.iter().copied().filter(|&a| !coupled(a)))
+        .collect();
+    let lines = fixed_dot_axes(case, phys, priority);
+    if free.is_empty() {
+        return Vec::new();
+    }
+    lines
+        .iter()
+        .take(k)
+        .map(|&a| {
+            let mut prio = vec![a];
+            prio.extend(free.iter().copied());
+            prio.extend(lines.iter().copied().filter(|&b| b != a));
+            let rest: Vec<usize> = (0..N).filter(|i| !prio.contains(i)).collect();
+            prio.extend(rest);
+            (
+                format!("fixdot{a}-shell{FIXED_DOT_DEPTH}+|spired"),
+                CaseSeedSchedule::FixedDotShell {
+                    depth: FIXED_DOT_DEPTH,
+                    axis_priority: prio,
+                    positive_first: true,
+                    max_seeds,
+                },
+                SeedScheduleName::Spired,
+            )
+        })
+        .collect()
+}
+
 /// Result of the seed-pose rung.
 pub struct SeedPoseChoice {
     pub label: String,
@@ -2013,6 +2131,7 @@ pub fn choose_seed_pose<const N: usize>(
     node_in_shell: SeedScheduleName,
     keep: f64,
     known_default: Option<f64>,
+    fixed_dot: FixedDotConfig,
 ) -> Option<SeedPoseChoice> {
     let t = Instant::now();
     // seed-rung: the gated normal search already measured the default relation (no second search for it)
@@ -2037,7 +2156,27 @@ pub fn choose_seed_pose<const N: usize>(
         seconds: 0.0,
     };
     if default_cost > keep {
-        for (label, schedule, in_shell) in seed_pose_portfolio(case, phys) {
+        // seed-fixed-dot: the fixed-dot poses follow the portfolio (or precede it with `first` on a case with a
+        // dotted fixed line); every pose is measured the same way, the cheapest wins, early stop at `keep`
+        let dots = fixed_dot_poses(
+            case,
+            phys,
+            fixed_dot.poses,
+            fixed_dot.max_seeds,
+            fixed_dot.priority.as_deref(),
+        );
+        let dotted = case
+            .fixed()
+            .iter()
+            .zip(phys.iter())
+            .any(|(v, &p)| p && matches!(*v, Some(x) if x >= 2));
+        let portfolio = seed_pose_portfolio(case, phys);
+        let poses: Vec<_> = if fixed_dot.first && dotted {
+            dots.into_iter().chain(portfolio).collect()
+        } else {
+            portfolio.into_iter().chain(dots).collect()
+        };
+        for (label, schedule, in_shell) in poses {
             best.probes += 1;
             if let Some(cost) = measure_pose(solver, case, options, visit, &schedule, in_shell) {
                 if cost < best.cost {
@@ -3029,6 +3168,7 @@ fn run<const N: usize>(
                     opts.seed_schedule,
                     opts.seed_pose_keep,
                     known,
+                    FixedDotConfig::from_options(opts),
                 )
             };
             let report = |choice: &SeedPoseChoice, gated: bool| {
@@ -5905,6 +6045,54 @@ mod tests {
         let q = seed_pose_portfolio(&coordinate, &physical);
         assert_eq!(q.len(), 4);
         assert_eq!(q[0].0, "ref|sf");
+    }
+
+    #[test]
+    fn fixed_dot_poses_lead_with_one_fixed_line_least_significant_first() {
+        let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
+            .unwrap();
+        // lines 0..3, ISPs 4, 5; line 1 dotted (2), line 2 boundary (1), ISP 4 fixed 0
+        let physical = [true, true, true, true, false, false];
+        let spec = CaseSpec {
+            fixed: vec![None, Some(2), Some(1), None, Some(0), None],
+            equations: vec!["n3-n5".into()],
+        };
+        let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
+            .unwrap()
+            .unwrap();
+        // least significant first: legacy identity -> line 2 before line 1; priority [2, 1, ..] -> 1 before 2
+        assert_eq!(fixed_dot_axes(&affine, &physical, None), vec![2, 1]);
+        let prio = [2, 1, 0, 3, 4, 5];
+        assert_eq!(fixed_dot_axes(&affine, &physical, Some(&prio)), vec![1, 2]);
+        let p = fixed_dot_poses(&affine, &physical, 4, 100, Some(&prio));
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].0, "fixdot1-shell3+|spired");
+        assert_eq!(
+            p[0].1,
+            CaseSeedSchedule::FixedDotShell {
+                depth: 3,
+                axis_priority: vec![1, 3, 5, 0, 2, 4],
+                positive_first: true,
+                max_seeds: 100,
+            }
+        );
+        assert_eq!(p[0].2, SeedScheduleName::Spired);
+        assert_eq!(fixed_dot_poses(&affine, &physical, 1, 100, None).len(), 1);
+        assert!(fixed_dot_poses(&affine, &physical, 0, 100, None).is_empty());
+        // no free axis: nothing to search
+        let point = Case::from(
+            CoordinateCase::new([Some(1), Some(2), Some(1), Some(1), Some(0), Some(0)]).unwrap(),
+        );
+        assert!(fixed_dot_poses(&point, &physical, 4, 100, None).is_empty());
+        // the options default serialises nothing new (table headers of rung-off runs stay byte-identical)
+        let o = NodeOptions::default();
+        let json = serde_json::to_string(&o).unwrap();
+        assert!(!json.contains("fixed_dot"));
+        let cfg = FixedDotConfig::from_options(&o);
+        assert_eq!(
+            (cfg.poses, cfg.max_seeds, cfg.first, cfg.priority.is_none()),
+            (FIXED_DOT_POSES_DEFAULT, FIXED_DOT_SEEDS_DEFAULT, false, true)
+        );
     }
 
     #[test]

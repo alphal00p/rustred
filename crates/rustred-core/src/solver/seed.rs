@@ -32,6 +32,19 @@ pub enum CaseSeedSchedule {
         axis_priority: Vec<usize>,
         positive_first: bool,
     },
+    /// seed-fixed-dot (p-integral, Astra T265 2026-11-12): exactly ONE L1 shell `depth` (as `ShiftShells` with
+    /// `first_depth == last_depth == depth`) under `axis_priority`, which puts a FIXED axis first, so the shell's
+    /// first seeds carry a dot on that fixed axis: source seeds LEAVE the target face (numeric axes still stay in
+    /// their sign sector). Rows seeded one unit above the face on a fixed line reach face columns through the
+    /// basis terms that lower that line (T265: -e11+e9 at e11+e2+e6 gives the pivot column e2+e6+e9). At most
+    /// `max_seeds` seeds are offered (then the stream ends: an exhausted search). The shell is the schedule's own
+    /// depth: it replaces the caller's `max_depth` for this schedule (the seed count is its budget).
+    FixedDotShell {
+        depth: u32,
+        axis_priority: Vec<usize>,
+        positive_first: bool,
+        max_seeds: u32,
+    },
 }
 
 impl CaseSeedSchedule {
@@ -40,6 +53,7 @@ impl CaseSeedSchedule {
         match self {
             Self::Reference => None,
             Self::ShiftShells { last_depth, .. } => Some(*last_depth),
+            Self::FixedDotShell { depth, .. } => Some(*depth),
             Self::SymbolicShells {
                 symbolic_depth,
                 then_full,
@@ -63,6 +77,19 @@ impl CaseSeedSchedule {
                 ..
             } => (first_depth, last_depth, axis_priority),
             Self::SymbolicShells { axis_priority, .. } => (&0, &0, axis_priority),
+            Self::FixedDotShell {
+                depth,
+                axis_priority,
+                max_seeds,
+                ..
+            } => {
+                if *max_seeds == 0 {
+                    return Err(SolverError::InvalidInput(
+                        "fixed-dot shell needs a positive seed budget".into(),
+                    ));
+                }
+                (depth, depth, axis_priority)
+            }
         };
         if first_depth > last_depth {
             return Err(SolverError::InvalidInput(
@@ -444,6 +471,19 @@ pub(super) struct CaseSeedStream<const N: usize> {
     symbolic: Option<(u32, bool, Seeds<N>)>,
     /// SymbolicShells phase 2: skip symbolic-only seeds of depth <= this (already offered).
     skip_symbolic_upto: Option<u32>,
+    /// FixedDotShell: seeds still offered (None = unbounded).
+    seeds_left: Option<u32>,
+}
+
+impl CaseSeedSchedule {
+    /// The search depth a schedule imposes on its caller: a fixed-dot shell owns its depth (its budget is the seed
+    /// count), every other schedule is capped by the caller's `max_depth`.
+    pub fn owns_depth(&self) -> Option<u32> {
+        match self {
+            Self::FixedDotShell { depth, .. } => Some(*depth),
+            _ => None,
+        }
+    }
 }
 
 impl<const N: usize> Seeds<N> {
@@ -468,6 +508,7 @@ impl<const N: usize> CaseSeedStream<N> {
         let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided);
         let mut first_depth = 0;
         let mut symbolic = None;
+        let mut seeds_left = None;
         let arrange = |inner: &mut Seeds<N>, axis_priority: &[usize], positive_first: bool| {
             inner.positive_first = positive_first;
             let mut priorities = [0; N];
@@ -497,6 +538,16 @@ impl<const N: usize> CaseSeedStream<N> {
                 arrange(&mut inner, axis_priority, *positive_first);
                 symbolic = Some((*symbolic_depth, *then_full, inner.clone()));
             }
+            CaseSeedSchedule::FixedDotShell {
+                depth,
+                axis_priority,
+                positive_first,
+                max_seeds,
+            } => {
+                first_depth = *depth;
+                seeds_left = Some(*max_seeds);
+                arrange(&mut inner, axis_priority, *positive_first);
+            }
         }
         Ok(Self {
             inner,
@@ -504,6 +555,7 @@ impl<const N: usize> CaseSeedStream<N> {
             search_max_depth: None,
             symbolic,
             skip_symbolic_upto: None,
+            seeds_left,
         })
     }
 
@@ -556,6 +608,15 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
                 || self.inner.depth() >= self.first_depth
                 || seed.is_err()
             {
+                // FixedDotShell: the seed budget ends the stream (an exhausted search, never a partial shell claim)
+                if let Some(left) = self.seeds_left.as_mut() {
+                    if seed.is_ok() && self.inner.depth() >= self.first_depth {
+                        if *left == 0 {
+                            return None;
+                        }
+                        *left -= 1;
+                    }
+                }
                 return Some(seed);
             }
         }
@@ -726,6 +787,74 @@ mod tests {
         ] {
             assert!(schedule.validate(2).is_err());
         }
+    }
+
+    #[test]
+    fn fixed_dot_shell_offers_one_shell_fixed_axis_first_and_stops_at_its_budget() {
+        // axis 1 fixed at 1 (a line), axes 0 and 2 symbolic
+        let initial = Integral::new([
+            Power::new(true, 0).unwrap(),
+            Power::new(false, 1).unwrap(),
+            Power::new(true, 0).unwrap(),
+        ]);
+        let schedule = |max_seeds| CaseSeedSchedule::FixedDotShell {
+            depth: 3,
+            axis_priority: vec![1, 0, 2],
+            positive_first: true,
+            max_seeds,
+        };
+        assert_eq!(schedule(5).last_depth(), Some(3));
+        assert_eq!(schedule(5).owns_depth(), Some(3));
+        assert_eq!(CaseSeedSchedule::Reference.owns_depth(), None);
+        assert!(schedule(0).validate(3).is_err());
+        let all: Vec<_> = CaseSeedStream::new(
+            initial,
+            [true; 3],
+            [false; 3],
+            [false; 3],
+            &schedule(10_000),
+        )
+        .unwrap()
+        .with_search_max_depth(Some(3))
+        .map(Result::unwrap)
+        .take_while(|s| {
+            s.integral
+                .powers()
+                .iter()
+                .zip(initial.powers())
+                .map(|(p, q)| (p.value() - q.value()).unsigned_abs() as u32)
+                .sum::<u32>()
+                <= 3
+        })
+        .collect();
+        assert!(!all.is_empty());
+        // every seed is in shell 3 and stays in the line's sector; the first one is three dots on the fixed line
+        for seed in &all {
+            let l1: u32 = seed
+                .integral
+                .powers()
+                .iter()
+                .zip(initial.powers())
+                .map(|(p, q)| (p.value() - q.value()).unsigned_abs() as u32)
+                .sum();
+            assert_eq!(l1, 3);
+            assert!(seed.integral[1].value() >= 1);
+        }
+        assert_eq!(all[0].integral[1].value(), 4);
+        let capped: Vec<_> =
+            CaseSeedStream::new(initial, [true; 3], [false; 3], [false; 3], &schedule(3))
+                .unwrap()
+                .with_search_max_depth(Some(3))
+                .collect();
+        assert_eq!(capped.len(), 3);
+        assert_eq!(
+            capped
+                .into_iter()
+                .map(Result::unwrap)
+                .map(|s| s.integral)
+                .collect::<Vec<_>>(),
+            all.iter().take(3).map(|s| s.integral).collect::<Vec<_>>()
+        );
     }
 
     #[test]

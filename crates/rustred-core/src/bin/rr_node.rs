@@ -10,7 +10,8 @@
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
 //!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check] [--pose-probe PROBES.jsonl]
-//!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]]
+//!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]
+//!                   [--seed-pose-fixed-dot K] [--seed-pose-fixed-dot-seeds M] [--seed-pose-fixed-dot-first]]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
 //!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
@@ -270,6 +271,18 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     }
     if let Some(k) = a.parse("--seed-pose-min-rows") {
         o.seed_pose_min_rows = k;
+    }
+    // seed-fixed-dot (inside the rung): K fixed-dot poses (one fixed line first, L1 shell 3, <= M seeds each);
+    // default K = 4, M = 1500; 0 = off; --seed-pose-fixed-dot-first measures them before the portfolio on cases
+    // with a dotted fixed line
+    if let Some(k) = a.parse("--seed-pose-fixed-dot") {
+        o.seed_pose_fixed_dot = Some(k);
+    }
+    if let Some(m) = a.parse("--seed-pose-fixed-dot-seeds") {
+        o.seed_pose_fixed_dot_seeds = Some(m);
+    }
+    if a.flag("--seed-pose-fixed-dot-first") {
+        o.seed_pose_fixed_dot_first = true;
     }
     if a.flag("--no-symbolic-first-rung") {
         o.symbolic_first_rung = false;
