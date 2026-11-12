@@ -383,17 +383,24 @@ pub struct Obligations {
     pub region: Option<Vec<String>>,
 }
 
-/// A region-restricted run (`Obligations::region`) owns exactly its region: a deferred-region obligation on its
-/// initial chart with the same conjunction. Any other run owns by initial-case containment alone.
+/// A region-restricted run (`Obligations::region`) owns exactly its region: a deferred-region obligation (or an
+/// exceptional-branch obligation of a rebuilt queue, `branch` with `polys`) with the same conjunction whose chart lies
+/// in the run's initial case. The chart containment itself is checked by the join on the built cases (as for every
+/// owner), so a run on a RELAXED chart (one affine chart equation dropped: a superset of the chart) owns the region
+/// too: its territory V(conjunction) & relaxed chart contains V(conjunction) & chart (t266-3). Any other run owns by
+/// initial-case containment alone.
 pub(crate) fn region_owner_ok(owner: &Obligations, ob: &Obligation) -> bool {
     match &owner.region {
         None => true,
         Some(conj) => {
-            ob.kind == "region"
-                && owner.initial.contains(&ob.case)
-                && ob.detail["conjunction"]
-                    .as_array()
-                    .is_some_and(|a| a.iter().map(|x| x.as_str()).eq(conj.iter().map(|c| Some(c.as_str()))))
+            let polys = match ob.kind.as_str() {
+                "region" => &ob.detail["conjunction"],
+                "branch" => &ob.detail["polys"],
+                _ => return false,
+            };
+            polys
+                .as_array()
+                .is_some_and(|a| a.iter().map(|x| x.as_str()).eq(conj.iter().map(|c| Some(c.as_str()))))
         }
     }
 }
@@ -1522,9 +1529,24 @@ mod region_owner_tests {
             detail: serde_json::Value::Null,
         };
         assert!(!region_owner_ok(&run, &pending));
+        // the chart is not compared here: the join checks containment of the obligation's chart in the run's
+        // initial case on the built cases (a relaxed-chart region run owns the region on every sub-chart)
         let mut other_chart = region_ob(&["n0^2-n2"]);
         other_chart.case.fixed[1] = Some(2);
-        assert!(!region_owner_ok(&run, &other_chart));
+        assert!(region_owner_ok(&run, &other_chart));
+        // a rebuilt exceptional-branch obligation with the same polynomials is the same region
+        let branch = Obligation {
+            kind: "branch".into(),
+            case: chart(),
+            detail: serde_json::json!({"branch": 3, "polys": ["n0^2-n2"]}),
+        };
+        assert!(region_owner_ok(&run, &branch));
+        let other_branch = Obligation {
+            kind: "branch".into(),
+            case: chart(),
+            detail: serde_json::json!({"branch": 3, "polys": ["n0-n2^2"]}),
+        };
+        assert!(!region_owner_ok(&run, &other_branch));
         // an ordinary run owns by initial-case containment alone (checked by the join)
         run.region = None;
         assert!(region_owner_ok(&run, &pending));
