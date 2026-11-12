@@ -16,7 +16,8 @@ use rustred::propagator::lane::{
     BubbleRoles, CarpetRoles, LaneDecision, LaneRoles, OwnerLane, TriangleRoles,
 };
 use rustred::propagator::present::{
-    IspPreference, edge_map, present, present_node, present_with_isp_preference, top_topology,
+    IspPreference, P_ISP_PREFERENCES_JSON, edge_map, present, present_node,
+    present_with_isp_preference, top_topology,
 };
 use rustred::propagator::presentation::{
     EdgeKind, EdgeMap, Presentation, PresentationKind, Slot, SlotIsp, check_carpet_contract,
@@ -41,16 +42,18 @@ const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/p_library/g
 // Insertion owners): the 2L/3L dumps change only in their header line.
 // P_PRESENTATION_VERSION 3 (M5 batch 4, route bases): edge-pair ISPs of the
 // generic presentations of the table; the 2L dump changes in its header only.
+// P_PRESENTATION_VERSION 4 (M5 batch 5, explicit-row ISPs + bebe entry): the
+// 2L dump changes in its header only, the 3L dump in its header and one line.
 const DUMP_PINS: (u32, [(u8, &str); 2]) = (
-    3,
+    4,
     [
         (
             2,
-            "9c1c5bb98184eb80386448f94a112d4ab3c11c28ea0bea2d4792aadc4705ac8b",
+            "99379039f0eb3be9de91a9d9e1b60ffba9d7d80aeca817c45ae41865b7d1d74e",
         ),
         (
             3,
-            "6170032ceba9a50f86e99eaa25f3e0b4def9994880d9b3d3a5ddb43ee0dae719",
+            "7b7dde08c5603d15ed5b6467bc3bd8cfe7ee86738b26c0cd5711e1439cbf866d",
         ),
     ],
 );
@@ -343,6 +346,25 @@ fn check_contract(presentation: &Presentation, decision: &LaneDecision) {
     }
 }
 
+/// The factors of the explicit ISP rows (`IspPreference::Rows`) of the
+/// node's entry in the embedded ISP table (P_PRESENTATION_VERSION 4), empty
+/// without an entry.
+fn table_rows(node: &NodeInfo) -> Vec<Vec<i64>> {
+    static TABLE: OnceLock<serde_json::Value> = OnceLock::new();
+    let table = TABLE.get_or_init(|| serde_json::from_str(P_ISP_PREFERENCES_JSON).unwrap());
+    let Some(rows) = table[format!("p_node_{}", node.key.to_hex())]["rows"].as_array() else {
+        return Vec::new();
+    };
+    rows.iter()
+        .flat_map(|pair| pair.as_array().unwrap().iter())
+        .map(|factor| {
+            (factor.as_array().unwrap().iter())
+                .map(|c| c.as_i64().unwrap())
+                .collect()
+        })
+        .collect()
+}
+
 /// The rows conserve momentum on the node's graph and the eps units are the
 /// graph's, line by line; the ISPs are unit rows (nonzero rows on a
 /// scheme-adapted presentation).
@@ -391,7 +413,10 @@ fn assert_routes_the_graph(node: &NodeInfo, presentation: &Presentation) {
                             }
                             Slot::Isp(_) => false,
                         });
-                assert!(unit || line, "{name}: ISP factor {row:?}");
+                // P_PRESENTATION_VERSION 4 (M5 batch 5, route-basis-2): or one
+                // of the explicit rows of the node's entry in the ISP table.
+                let explicit = table_rows(node).iter().any(|r| r == row);
+                assert!(unit || line || explicit, "{name}: ISP factor {row:?}");
             }
         }
     }
@@ -1387,7 +1412,10 @@ fn edge_pair_isps_present_eps_nodes() {
             let Some(default) = built.presentation(node.index) else {
                 continue;
             };
-            if default.kind != PresentationKind::EpsNode {
+            // An integer Custom node with an ISP-table entry (bebe-basis,
+            // P_PRESENTATION_VERSION 4) is presented as an EpsNode from its
+            // entry; like an Induced node it ignores a given preference.
+            if default.kind != PresentationKind::EpsNode || node.eps_lines == 0 {
                 continue;
             }
             let lines = default

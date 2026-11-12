@@ -1131,6 +1131,18 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=3,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "aa936cca66fb9f4cd3fccef93f877f9dcb1807195bccb7ace840cfd1688e8c9b",
     ),
+    // M5 batch 5 (P_PRESENTATION_VERSION 4: explicit-row ISPs + the bebe
+    // entry): the identity line changes; scope 1-3 also one presentation.
+    (
+        "1-2",
+        "p-library:scope=1-2:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=4,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "a6af7784fe858069aca088c3deb55025b37124ebf0088706b37c0b90dc612ce6",
+    ),
+    (
+        "1-3",
+        "p-library:scope=1-3:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=4,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "251f84b10bef6306b3f939ba17986844f5df1cb160c083c53ce43c9b37f91d1e",
+    ),
 ];
 
 fn check_inventory(scope: &str, assembled: &AssembledLibrary) {
@@ -2919,8 +2931,9 @@ fn p_validate_traces_a_hundred_keys_per_loop_count_at_scope_one_to_three() {
             // 1_490 and 3L 409_663 / 58_440 / 335_988 before.
             (2, 100, 1_025, 217, 845),
             // P_PRESENTATION_VERSION 3 (M5 batch 4, route bases): 3L
-            // 265_734 / 40_322 / 210_612 before.
-            (3, 100, 205_050, 31_654, 159_049)
+            // 265_734 / 40_322 / 210_612 before. P_PRESENTATION_VERSION 4
+            // (M5 batch 5, explicit-row ISPs): 205_050 / 31_654 / 159_049 before.
+            (3, 100, 207_616, 31_802, 161_605)
         ]
     );
 }

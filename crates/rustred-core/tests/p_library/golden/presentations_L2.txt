@@ -1,4 +1,4 @@
-# Node presentations and rule edge maps of the 2L DAG, P_PRESENTATION_VERSION 3.
+# Node presentations and rule edge maps of the 2L DAG, P_PRESENTATION_VERSION 4.
 # Momenta over (k_1, .., k_L, q).
 node d43 0104000001010001010000020100000301000102010001030100 L=2 t=5 lane=Triangle kind=TriangleAdapted roles=Triangle(TriangleRoles { b: 0, a: [1, 3], c: [2, 4], k_loop: 0 })
    0 line [ 1  0  0] eps 0

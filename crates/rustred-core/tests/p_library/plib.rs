@@ -546,7 +546,7 @@ fn a_stale_record_of_an_unknown_terminal_is_refused() {
 fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
     const BASE: &str = "p-library:scope=1-1:\
          P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,\
-         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=3,\
+         P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=4,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
          P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,\
