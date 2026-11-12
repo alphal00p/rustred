@@ -545,6 +545,7 @@ impl PEngine {
 
     /// The weighted Route keys of `inputs`, checked one by one: a cancelled
     /// input is checked like every other.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     pub(crate) fn initial(
         &self,
         library: &PLibrary,
@@ -593,6 +594,7 @@ impl PEngine {
     /// Run one request; the terminal keys of the output are [`PTerminalCodec`]
     /// keys.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     pub(crate) fn run(
         &self,
         library: &PLibrary,
@@ -1115,6 +1117,7 @@ impl<'l> PStepper<'l> {
         })
     }
 
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     fn route_step(
         &self,
         presentation: PresentationId,

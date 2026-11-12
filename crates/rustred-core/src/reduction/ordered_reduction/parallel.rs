@@ -1094,7 +1094,7 @@ where
             .remove(&node.key)
             .ok_or_else(|| invariant("a pipelined ordered step is missing"))?;
         kernel.absorb(&node.key, account, request, work)?;
-        self.hashes = Some(hashes).filter(|_| result.is_ok());
+        self.hashes = result.is_ok().then_some(hashes);
         result
     }
 
