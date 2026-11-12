@@ -586,6 +586,47 @@ fn cmd_replay(mut a: Args) -> i32 {
     }
 }
 
+/// `rr_node locus-rank --table T --out DIR [--rules all|I,A-Z,CHART:I] [--chart C] [--family F] [--max-flats 64]
+/// [--full] [--extra-loci FILE] [--keep-cells] [--no-replay] [--point-tries 600] [--dimensions D..]`:
+/// guard-theory's decisive locus test (seed-coordinate suspect flats, one full-seed-system replay per flat);
+/// writes DIR/RESULTS.jsonl + DIR/SUMMARY.json. Exit 0 = every rule PASS_ALL_FLATS, 1 = some FAIL, 2 = otherwise.
+fn cmd_locus_rank(mut a: Args) -> i32 {
+    use rustred::node::replay::locus::{LocusArgs, run};
+    let mut dims = Vec::new();
+    if let Some(at) = a.items.iter().position(|x| x == "--dimensions") {
+        a.items.remove(at);
+        while at < a.items.len() && !a.items[at].starts_with("--") {
+            dims.push(a.items.remove(at));
+        }
+    }
+    if dims.is_empty() {
+        dims = replay::DIMS.iter().map(|s| s.to_string()).collect();
+    }
+    let args = LocusArgs {
+        family: a.take("--family").map(PathBuf::from),
+        table: PathBuf::from(a.need("--table")),
+        out: PathBuf::from(a.need("--out")),
+        rules: LocusArgs::parse_rules(&a.take("--rules").unwrap_or_else(|| "all".into()))
+            .unwrap_or_else(|e| die(&e)),
+        chart: a.take("--chart"),
+        dimensions: dims,
+        max_flats: a.parse("--max-flats").unwrap_or(64),
+        full: a.flag("--full"),
+        extra_loci: a.take("--extra-loci").map(PathBuf::from),
+        keep_cells: a.flag("--keep-cells"),
+        no_replay: a.flag("--no-replay"),
+        point_tries: a.parse("--point-tries").unwrap_or(600),
+    };
+    a.done();
+    let (status, summary) = run(&args).unwrap_or_else(|e| die(&e));
+    println!("{}", serde_json::json!({"status": status, "verdicts": summary["verdicts"], "rules": summary["rules"], "seconds": summary["seconds"], "out": args.out}));
+    match status.as_str() {
+        "PASS_ALL_FLATS" => 0,
+        "FAIL" => 1,
+        _ => 2,
+    }
+}
+
 fn utc() -> String {
     let s = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -956,7 +997,7 @@ fn cmd_witness(mut a: Args) -> i32 {
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
-        die("usage: rr_node generate|probe|variants|descent|replay ... (see the source header)");
+        die("usage: rr_node generate|probe|variants|descent|replay|locus-rank ... (see the source header)");
     }
     let cmd = items.remove(0);
     let a = Args { items };
@@ -970,6 +1011,7 @@ fn main() {
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
         "witness" => cmd_witness(a),
+        "locus-rank" => cmd_locus_rank(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

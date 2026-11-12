@@ -21,6 +21,7 @@
 pub mod arith;
 pub mod expr;
 pub mod family;
+pub mod locus;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
