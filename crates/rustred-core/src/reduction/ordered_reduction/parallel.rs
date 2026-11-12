@@ -809,12 +809,34 @@ type Candidate<S> = (
     OrderedPosition<<S as OrderedStepper>::Priority>,
 );
 
+/// rr-par2: what the workers prepare per step besides the interning hashes.
+#[derive(Clone, Default)]
+struct Prep {
+    /// Children packed, hashed (Fx) and positioned (`PreChild`).
+    children: bool,
+    /// Step coefficients interned into the recorder's shared table.
+    intern: Option<std::sync::Arc<super::modular::SharedIntern>>,
+    /// Interned coefficients freed here, placeholders handed on.
+    hollow: bool,
+}
+
+type PrestagedOf<S> = super::Prestaged<
+    <S as OrderedStepper>::Key,
+    <<S as OrderedStepper>::Key as super::FrontierKey>::Packed,
+    <S as OrderedStepper>::Priority,
+>;
+
+type StepEntry<S> = (StepOf<S>, Vec<u64>, Option<PrestagedOf<S>>);
+
 /// A window computed by the workers: its steps, its threshold, and the
 /// same-phase children of its steps below the threshold (the candidates of
 /// the next window).
-struct Computed<S: OrderedStepper> {
+struct Computed<S: OrderedStepper>
+where
+    S::Key: super::FrontierKey,
+{
     /// Built by the thread that computed the window (not the scheduler).
-    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
+    steps: HashMap<S::Key, StepEntry<S>, super::FrontierHash>,
     threshold: Scheduled<S::Key, S::Priority>,
     below: Vec<Candidate<S>>,
 }
@@ -826,7 +848,12 @@ fn compute_window<S: OrderedStepper>(
     stepper: &S,
     roots: Vec<Candidate<S>>,
     threshold: Scheduled<S::Key, S::Priority>,
-) -> Computed<S> {
+    prep: &Prep,
+) -> Computed<S>
+where
+    S::Key: super::FrontierKey,
+{
+    use std::hash::BuildHasher;
     let stats = super::parstats::enabled();
     let counters = stats.then(WindowCounters::default);
     let started = stats.then(std::time::Instant::now);
@@ -835,29 +862,96 @@ fn compute_window<S: OrderedStepper>(
         stepper,
         roots,
         counters.as_ref(),
-        |parent, _, step, found| {
+        |parent, _, mut step, found| {
             let mut below = Vec::new();
+            let mut positions = Vec::new();
+            if prep.children {
+                positions.reserve(step.terms.len());
+            }
             for child in step.terms.keys() {
-                if stepper.later_phase(parent, child) {
+                let later = stepper.later_phase(parent, child);
+                if later && !prep.children {
                     continue;
                 }
-                if let Ok(position) = stepper.position(child) {
-                    if at_or_above(&position, child, &threshold) {
-                        found.push((child.clone(), position));
+                let position = stepper.position(child).ok();
+                if !later && let Some(position) = &position {
+                    if at_or_above(position, child, &threshold) {
+                        found.push((child.clone(), position.clone()));
                     } else if position.phase == threshold.phase.0 {
-                        below.push((child.clone(), position));
+                        below.push((child.clone(), position.clone()));
                     }
+                }
+                if prep.children {
+                    positions.push(position);
                 }
             }
             // The recorder's interning hashes, computed here instead of on
             // the sequential merge (terms in order, then terminals).
-            let hashes = step
+            let hashes: Vec<u64> = step
                 .terms
                 .values()
                 .chain(step.terminals.values())
                 .map(super::modular::coefficient_hash)
                 .collect();
-            (step, below, hashes)
+            let ids: Vec<(u32, bool)> = match &prep.intern {
+                Some(table) => step
+                    .terms
+                    .values()
+                    .chain(step.terminals.values())
+                    .zip(&hashes)
+                    .map(|(coefficient, &hash)| {
+                        (table.id(coefficient, hash), coefficient.is_zero())
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
+            // Lean: the terms move into the prepared children (keys) and the
+            // ids (coefficients); the coefficients are freed here.
+            let lean = prep.children && prep.hollow && prep.intern.is_some();
+            let mut children = Vec::with_capacity(positions.len());
+            if lean {
+                for ((child, coefficient), position) in
+                    std::mem::take(&mut step.terms).into_iter().zip(positions)
+                {
+                    drop(coefficient);
+                    let packed = super::FrontierKey::pack(&child);
+                    let hash = super::FrontierHash::Fx.hash_one(&packed);
+                    children.push(super::PreChild {
+                        key: Some(child),
+                        packed,
+                        hash,
+                        position,
+                    });
+                }
+            } else if prep.children {
+                for (child, position) in step.terms.keys().zip(positions) {
+                    let packed = super::FrontierKey::pack(child);
+                    let hash = super::FrontierHash::Fx.hash_one(&packed);
+                    children.push(super::PreChild {
+                        key: None,
+                        packed,
+                        hash,
+                        position,
+                    });
+                }
+            }
+            if prep.hollow && prep.intern.is_some() {
+                // Free the coefficients on the thread that allocated them;
+                // the scheduler reads them through `ids` only.
+                for coefficient in step.terms.values_mut().chain(step.terminals.values_mut()) {
+                    let hollow = Coefficient {
+                        numerator: coefficient.numerator.zero(),
+                        denominator: coefficient.numerator.zero(),
+                    };
+                    drop(std::mem::replace(coefficient, hollow));
+                }
+            }
+            let prestaged = (prep.children || prep.intern.is_some()).then_some(super::Prestaged {
+                children,
+                ids,
+                lean,
+            });
+            (step, below, hashes, prestaged)
         },
     );
     if let (Some(started), Some(counters)) = (started, &counters) {
@@ -875,18 +969,23 @@ fn compute_window<S: OrderedStepper>(
         );
     }
     let mut below = Vec::new();
-    let steps = detached
-        .into_iter()
-        .map(|step| {
-            let mut hashes = Vec::new();
-            let result = step.result.map(|(step, mut children, computed)| {
-                below.append(&mut children);
-                hashes = computed;
-                step
-            });
-            (step.key, ((result, step.account), hashes))
-        })
-        .collect();
+    let hasher = if prep.children {
+        super::FrontierHash::Fx
+    } else {
+        super::FrontierHash::Sip(std::hash::RandomState::new())
+    };
+    let mut steps = HashMap::with_capacity_and_hasher(detached.len(), hasher);
+    steps.extend(detached.into_iter().map(|step| {
+        let mut hashes = Vec::new();
+        let mut prestaged = None;
+        let result = step.result.map(|(step, mut children, computed, prepared)| {
+            below.append(&mut children);
+            hashes = computed;
+            prestaged = prepared;
+            step
+        });
+        (step.key, ((result, step.account), hashes, prestaged))
+    }));
     Computed {
         steps,
         threshold,
@@ -901,7 +1000,11 @@ fn speculate<S: OrderedStepper>(
     stepper: &S,
     mut candidates: Vec<Candidate<S>>,
     window_keys: usize,
-) -> Option<Computed<S>> {
+    prep: &Prep,
+) -> Option<Computed<S>>
+where
+    S::Key: super::FrontierKey,
+{
     use rayon::slice::ParallelSliceMut;
     workers.pool.install(|| {
         candidates.par_sort_unstable_by(|a, b| (&b.1.priority, &b.0).cmp(&(&a.1.priority, &a.0)))
@@ -914,7 +1017,9 @@ fn speculate<S: OrderedStepper>(
         priority: position.priority,
         key,
     };
-    Some(compute_window(workers, stepper, candidates, threshold))
+    Some(compute_window(
+        workers, stepper, candidates, threshold, prep,
+    ))
 }
 
 /// Steps computed ahead by the workers for the sequential scheduler, in a
@@ -932,14 +1037,21 @@ fn speculate<S: OrderedStepper>(
 /// functions of their key (see the module docs), so this changes only which
 /// thread computes a step and when; the scheduler applies exactly the
 /// accounts of the keys it expands, in its order.
-pub(super) struct Pipelined<'scope, 'p, S: OrderedStepper> {
+pub(super) struct Pipelined<'scope, 'p, S: OrderedStepper>
+where
+    S::Key: super::FrontierKey,
+{
     scope: &'p rayon::Scope<'scope>,
     workers: &'scope Workers,
     stepper: &'scope S,
     window_keys: usize,
-    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
+    steps: HashMap<S::Key, StepEntry<S>, super::FrontierHash>,
     /// The hashes of the step returned last.
     hashes: Option<Vec<u64>>,
+    /// rr-par2: what the workers prepare, and what they prepared for the
+    /// step returned last.
+    prep: Prep,
+    prestaged: Option<PrestagedOf<S>>,
     /// The phase and the receiver of the window being computed ahead.
     ahead: Option<(usize, std::sync::mpsc::Receiver<Option<Computed<S>>>)>,
 }
@@ -961,8 +1073,14 @@ where
             workers,
             stepper,
             window_keys,
-            steps: HashMap::new(),
+            steps: HashMap::with_hasher(super::FrontierHash::Fx),
             hashes: None,
+            prep: Prep {
+                children: super::prestage_enabled(),
+                intern: None,
+                hollow: false,
+            },
+            prestaged: None,
             ahead: None,
         }
     }
@@ -981,31 +1099,38 @@ where
         }
         let phase = threshold.phase.0;
         let mut candidates = below;
-        candidates.extend(
-            frontier
-                .iter()
-                .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
-                .skip_while(|(scheduled, _)| **scheduled >= threshold)
-                .take(self.window_keys)
-                .map(|(scheduled, _)| {
-                    (
-                        scheduled.key.clone(),
-                        OrderedPosition {
-                            phase,
-                            priority: scheduled.priority.clone(),
-                        },
-                    )
-                }),
-        );
+        if self.prep.children {
+            // rr-par2: the same candidates, without materialising the keys
+            // at or above the threshold and without ordering a later phase.
+            candidates.extend(frontier.phase_candidates(phase, &threshold, self.window_keys));
+        } else {
+            candidates.extend(
+                frontier
+                    .iter()
+                    .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+                    .skip_while(|(scheduled, _)| **scheduled >= threshold)
+                    .take(self.window_keys)
+                    .map(|(scheduled, _)| {
+                        (
+                            scheduled.key.clone(),
+                            OrderedPosition {
+                                phase,
+                                priority: scheduled.priority.clone(),
+                            },
+                        )
+                    }),
+            );
+        }
         if candidates.is_empty() {
             return;
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         let (workers, stepper, window_keys) = (self.workers, self.stepper, self.window_keys);
+        let prep = self.prep.clone();
         self.scope.spawn(move |_| {
             let computed = workers
                 .budget
-                .run_captured(|| speculate(workers, stepper, candidates, window_keys));
+                .run_captured(|| speculate(workers, stepper, candidates, window_keys, &prep));
             let _ = sender.send(computed);
         });
         self.ahead = Some((phase, receiver));
@@ -1069,7 +1194,7 @@ where
             ));
             threshold = scheduled.into_owned();
         }
-        let computed = compute_window(self.workers, self.stepper, roots, threshold);
+        let computed = compute_window(self.workers, self.stepper, roots, threshold, &self.prep);
         self.adopt(computed, frontier);
     }
 }
@@ -1079,6 +1204,8 @@ where
     K: ConcurrentOrderedKernel,
     S: OrderedStepper<Key = K::Key, Priority = K::Priority, Error = K::Error, Account = K::Account>
         + Sync,
+    K::Key: 'scope,
+    K::Priority: 'scope,
 {
     fn step<W>(
         &mut self,
@@ -1089,13 +1216,31 @@ where
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<K::Key>, K::Error> {
         self.obtain(frontier, node);
-        let ((result, account), hashes) = self
+        let ((result, account), hashes, prestaged) = self
             .steps
             .remove(&node.key)
             .ok_or_else(|| invariant("a pipelined ordered step is missing"))?;
         kernel.absorb(&node.key, account, request, work)?;
         self.hashes = result.is_ok().then_some(hashes);
+        self.prestaged = prestaged.filter(|_| result.is_ok());
         result
+    }
+
+    fn take_prestaged(&mut self) -> Option<super::PrestagedFor<K>> {
+        self.prestaged.take()
+    }
+
+    fn configure_prestage(&mut self, prepacked: bool) {
+        self.prep.children = super::prestage_enabled() && prepacked;
+    }
+
+    fn dispose_prestaged(&mut self, spent: Vec<super::PrestagedFor<K>>) {
+        self.scope.spawn(move |_| drop(spent));
+    }
+
+    fn attach_intern(&mut self, table: std::sync::Arc<super::modular::SharedIntern>, hollow: bool) {
+        self.prep.intern = Some(table);
+        self.prep.hollow = hollow;
     }
 
     fn threads(&self) -> usize {

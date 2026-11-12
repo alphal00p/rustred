@@ -541,6 +541,17 @@ pub(crate) trait OrderedWeights {
     ) -> Result<Self::Contribution, ReductionError> {
         self.scale(weight, coefficient)
     }
+    /// rr-par2: `scale_hashed` with the coefficient's id in the shared intern
+    /// table (`modular::SharedIntern`) when a worker interned it.
+    fn scale_interned(
+        &mut self,
+        weight: &Self::Weight,
+        coefficient: &Coefficient,
+        hash: Option<u64>,
+        _id: Option<(u32, bool)>,
+    ) -> Result<Self::Contribution, ReductionError> {
+        self.scale_hashed(weight, coefficient, hash)
+    }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
@@ -1212,6 +1223,11 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
     } else {
         let mut weights = recorder;
+        if prestage_enabled()
+            && let Some(table) = weights.shared_intern()
+        {
+            source.attach_intern(table, !tail.enabled && hollow_enabled());
+        }
         run_inner(
             kernel,
             &mut weights,
@@ -1365,7 +1381,86 @@ trait StepSource<K: OrderedKernel> {
     fn dispose(&mut self, spent: Vec<Coefficient>) {
         drop(spent);
     }
+
+    /// rr-par2: what the workers prepared for the step just returned (children
+    /// packed, hashed and positioned; coefficient ids of `attach_intern`'s table).
+    fn take_prestaged(&mut self) -> Option<PrestagedFor<K>> {
+        None
+    }
+
+    /// rr-par2: whether the frontier probes keys packed and hashed by the
+    /// workers (`Frontier::takes_prepacked`); called once, before any step.
+    fn configure_prestage(&mut self, _prepacked: bool) {}
+
+    /// rr-par2: drop spent prepared children (on another thread).
+    fn dispose_prestaged(&mut self, spent: Vec<PrestagedFor<K>>) {
+        drop(spent);
+    }
+
+    /// rr-par2: the recorder's shared coefficient table; a source that can
+    /// intern step coefficients on its workers reports their ids. `hollow`:
+    /// the scheduler reads step coefficients only through the ids (no tail
+    /// journal), so the workers may free them after interning.
+    fn attach_intern(&mut self, _table: std::sync::Arc<modular::SharedIntern>, _hollow: bool) {}
 }
+
+/// rr-par2 (`RUSTRED_ORDERED_PRESTAGE=1`, with `RUSTRED_ORDERED_PIPELINE=1`):
+/// the workers that compute a step also prepare what the sequential merge
+/// needs per child, so that the scheduler thread only probes and records.
+pub(crate) fn prestage_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_ORDERED_PRESTAGE").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
+/// rr-par2 (`RUSTRED_ORDERED_HOLLOW=1`, with `RUSTRED_ORDERED_PRESTAGE=1`):
+/// the worker that interned a step's coefficients frees them (where they were
+/// allocated) and hands the scheduler placeholders; the scheduler uses the
+/// ids and zero tests.
+pub(crate) fn hollow_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_ORDERED_HOLLOW").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
+/// rr-par2: one term child of a step, packed and hashed with the Fx frontier
+/// hash, and its certified position when it could be computed (the position
+/// is a pure function of the key: `None` leaves it, and its error, to the
+/// scheduler).
+pub(crate) struct PreChild<K, C, P> {
+    /// The key itself, moved out of the step (`Prestaged::lean` only).
+    pub(crate) key: Option<K>,
+    pub(crate) packed: C,
+    pub(crate) hash: u64,
+    pub(crate) position: Option<OrderedPosition<P>>,
+}
+
+/// rr-par2: the prepared children (terms in order; empty when not prepared)
+/// and coefficient ids with their zero tests (terms in order, then
+/// terminals; empty when no table). With `hollow`, the step's coefficients
+/// were freed by the worker after interning and replaced by placeholders:
+/// only the ids and zero tests carry them.
+pub(crate) struct Prestaged<K, C, P> {
+    pub(crate) children: Vec<PreChild<K, C, P>>,
+    pub(crate) ids: Vec<(u32, bool)>,
+    /// The step's terms were moved into `children` (keys) and `ids`
+    /// (coefficients): its term map is empty, its terminals hollow.
+    pub(crate) lean: bool,
+}
+
+type PrestagedFor<K> = Prestaged<
+    <K as OrderedKernel>::Key,
+    <<K as OrderedKernel>::Key as FrontierKey>::Packed,
+    <K as OrderedKernel>::Priority,
+>;
 
 /// The adapter's own step, computed when the key is popped.
 struct Inline;
@@ -1610,6 +1705,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     let mut par_clock = parstats::ForwardClock::new();
     let disposing = steps.disposes();
     let mut spent: Vec<Coefficient> = Vec::new();
+    steps.configure_prestage(state.frontier.takes_prepacked());
+    let mut spent_prestaged: Vec<PrestagedFor<K>> = Vec::new();
+    // A placeholder for coefficients carried by ids only (`Prestaged::lean`).
+    let placeholder = context.zero();
     for phase in 0..state.progress.total_phases {
         let phase_started = par_clock.now();
         let (mut par_pops, mut par_source) = (0u64, 0.0f64);
@@ -1640,6 +1739,22 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             let checked = steps.step(kernel, frontier, &node, request, work)?;
             let hashes = steps.take_hashes();
             let term_count = checked.terms.len();
+            // rr-par2: children packed/hashed/positioned and coefficient ids
+            // from the workers (same values the code below would compute).
+            let mut prestaged = steps.take_prestaged();
+            let lean = prestaged.as_ref().is_some_and(|p| p.lean);
+            let (mut prepared, ids) = match prestaged.as_mut() {
+                Some(p) if !lean => (
+                    (frontier.takes_prepacked() && p.children.len() == term_count)
+                        .then(|| std::mem::take(&mut p.children).into_iter()),
+                    std::mem::take(&mut p.ids),
+                ),
+                _ => (None, Vec::new()),
+            };
+            let term_count = match &prestaged {
+                Some(p) if lean => p.children.len(),
+                _ => term_count,
+            };
             if let Some(started) = source_started {
                 par_pops += 1;
                 par_source += started.elapsed().as_secs_f64();
@@ -1651,76 +1766,140 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 guards.intern(nonzero_conditions, condition, |_| Ok(()))?;
             }
             weights.begin_step(&weight)?;
+            // rr-par2: the merge of one term child (shared by the loop over
+            // the step's terms and the lean loop over prepared children).
+            macro_rules! decide {
+                ($coefficient:expr, $hash:expr, $id:expr, $key:ident => $position:expr) => {
+                    |found: Child<'_, K::Key, K::Priority, A::Weight>| {
+                        Ok::<_, K::Error>(match found {
+                            Child::Occupied {
+                                phase: entered,
+                                priority,
+                                weight: existing,
+                            } => {
+                                // A pending key keeps the position certified at entry.
+                                check_descent_parts(
+                                    entered,
+                                    priority,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
+                                )?;
+                                let contribution =
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                work.record_coalescing_additions(1);
+                                request.record_coalescing_additions(
+                                    1,
+                                    limits.diagnostic_limit(limits.max_coalescing_additions),
+                                )?;
+                                let old = weights.monomials(existing)?;
+                                let zero = weights.merge(existing, contribution)?;
+                                let new = if zero {
+                                    0
+                                } else {
+                                    weights.monomials(existing)?
+                                };
+                                replace_monomials(
+                                    &mut progress.frontier_coefficient_monomials,
+                                    old,
+                                    new,
+                                )?;
+                                if zero {
+                                    ChildAction::Remove
+                                } else {
+                                    progress.merged_terms = progress.merged_terms.saturating_add(1);
+                                    ChildAction::Keep
+                                }
+                            }
+                            Child::Vacant($key) => {
+                                let position = $position;
+                                check_descent(
+                                    &position,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
+                                )?;
+                                let contribution =
+                                    weights.scale_interned(&weight, $coefficient, $hash, $id)?;
+                                if weights.contribution_is_zero(&contribution) {
+                                    ChildAction::Keep
+                                } else {
+                                    request.retain_pending_frame(
+                                        limits.diagnostic_limit(limits.max_pending_frames),
+                                    )?;
+                                    let inserted = weights.insert(contribution)?;
+                                    replace_monomials(
+                                        &mut progress.frontier_coefficient_monomials,
+                                        0,
+                                        weights.monomials(&inserted)?,
+                                    )?;
+                                    ChildAction::Insert(Pending {
+                                        position,
+                                        weight: inserted,
+                                    })
+                                }
+                            }
+                        })
+                    }
+                };
+            }
+            if lean && let Some(p) = &prestaged {
+                for (index, child) in p.children.iter().enumerate() {
+                    let (id, zero) = p.ids[index];
+                    if zero {
+                        continue;
+                    }
+                    let key = child
+                        .key
+                        .as_ref()
+                        .ok_or_else(|| invariant("a lean step child lost its key"))?;
+                    progress.emitted_terms = progress.emitted_terms.saturating_add(1);
+                    let decide = decide!(&placeholder, None, Some((id, zero)), vacant => match &child.position {
+                        Some(position) => position.clone(),
+                        None => kernel.position(vacant)?,
+                    });
+                    let removed =
+                        frontier.child_packed_ref(key, &child.packed, child.hash, decide)?;
+                    if let Some(removed) = removed {
+                        weights.cancel(removed)?;
+                        request.release_pending_frame()?;
+                        progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
+                    }
+                    progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
+                    progress.peak_frontier_coefficient_monomials = progress
+                        .peak_frontier_coefficient_monomials
+                        .max(progress.frontier_coefficient_monomials);
+                }
+            }
+            let ids = match &prestaged {
+                Some(p) if lean => &p.ids,
+                _ => &ids,
+            };
             for (index, (child, coefficient)) in checked.terms.into_iter().enumerate() {
-                if coefficient.is_zero() {
+                let pre = prepared.as_mut().and_then(Iterator::next);
+                let id = ids.get(index).copied();
+                if id.map_or_else(|| coefficient.is_zero(), |(_, zero)| zero) {
                     continue;
                 }
                 let hash = hashes.as_ref().map(|hashes| hashes[index]);
+                let (packed, mut preposition) = match pre {
+                    Some(PreChild {
+                        packed,
+                        hash,
+                        position,
+                        ..
+                    }) => (Some((packed, hash)), position),
+                    None => (None, None),
+                };
                 progress.emitted_terms = progress.emitted_terms.saturating_add(1);
-                let removed = frontier.child(child, |found| {
-                    Ok::<_, K::Error>(match found {
-                        Child::Occupied {
-                            phase: entered,
-                            priority,
-                            weight: existing,
-                        } => {
-                            // A pending key keeps the position certified at entry.
-                            check_descent_parts(
-                                entered,
-                                priority,
-                                phase,
-                                &node.priority,
-                                progress.total_phases,
-                            )?;
-                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
-                            work.record_coalescing_additions(1);
-                            request.record_coalescing_additions(
-                                1,
-                                limits.diagnostic_limit(limits.max_coalescing_additions),
-                            )?;
-                            let old = weights.monomials(existing)?;
-                            let zero = weights.merge(existing, contribution)?;
-                            let new = if zero {
-                                0
-                            } else {
-                                weights.monomials(existing)?
-                            };
-                            replace_monomials(
-                                &mut progress.frontier_coefficient_monomials,
-                                old,
-                                new,
-                            )?;
-                            if zero {
-                                ChildAction::Remove
-                            } else {
-                                progress.merged_terms = progress.merged_terms.saturating_add(1);
-                                ChildAction::Keep
-                            }
-                        }
-                        Child::Vacant(key) => {
-                            let position = kernel.position(key)?;
-                            check_descent(&position, phase, &node.priority, progress.total_phases)?;
-                            let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
-                            if weights.contribution_is_zero(&contribution) {
-                                ChildAction::Keep
-                            } else {
-                                request.retain_pending_frame(
-                                    limits.diagnostic_limit(limits.max_pending_frames),
-                                )?;
-                                let inserted = weights.insert(contribution)?;
-                                replace_monomials(
-                                    &mut progress.frontier_coefficient_monomials,
-                                    0,
-                                    weights.monomials(&inserted)?,
-                                )?;
-                                ChildAction::Insert(Pending {
-                                    position,
-                                    weight: inserted,
-                                })
-                            }
-                        }
-                    })
-                })?;
+                let decide = decide!(&coefficient, hash, id, key => match preposition.take() {
+                    Some(position) => position,
+                    None => kernel.position(key)?,
+                });
+                let removed = match packed {
+                    Some((packed, hash)) => frontier.child_packed(child, packed, hash, decide)?,
+                    None => frontier.child(child, decide)?,
+                };
                 if disposing {
                     spent.push(coefficient);
                 }
@@ -1736,7 +1915,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             }
             for (index, (terminal, coefficient)) in checked.terminals.into_iter().enumerate() {
                 let hash = hashes.as_ref().map(|hashes| hashes[term_count + index]);
-                let contribution = weights.scale_hashed(&weight, &coefficient, hash)?;
+                let id = ids.get(term_count + index).copied();
+                let contribution = weights.scale_interned(&weight, &coefficient, hash, id)?;
                 if weights.contribution_is_zero(&contribution) {
                     continue;
                 }
@@ -1754,7 +1934,19 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             }
             weights.end_step(weight);
             if spent.len() >= 4096 {
-                steps.dispose(std::mem::take(&mut spent));
+                let capacity = if lean || prepared.is_some() { 4096 } else { 0 };
+                steps.dispose(std::mem::replace(&mut spent, Vec::with_capacity(capacity)));
+            }
+            if let Some(p) = prestaged {
+                if disposing {
+                    spent_prestaged.push(p);
+                    if spent_prestaged.len() >= 256 {
+                        steps.dispose_prestaged(std::mem::replace(
+                            &mut spent_prestaged,
+                            Vec::with_capacity(256),
+                        ));
+                    }
+                }
             }
             progress.processed_keys = progress.processed_keys.saturating_add(1);
             progress.frontier_keys = frontier.len();

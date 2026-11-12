@@ -33,7 +33,7 @@ use std::hash::{BuildHasher, Hash};
 
 use hashbrown::HashTable;
 
-use super::{FrontierHash, Pending, Scheduled};
+use super::{FrontierHash, OrderedPosition, Pending, Scheduled};
 use crate::family::IntegralKey;
 use crate::reduction::ReductionError;
 
@@ -41,7 +41,7 @@ use crate::reduction::ReductionError;
 /// `pack` must be injective (equal packed forms exactly for equal keys) and
 /// `cmp_packed` must order packed forms as `Ord` orders the keys.
 pub(crate) trait FrontierKey: Clone + Ord + Hash {
-    type Packed: Clone + Eq + Hash;
+    type Packed: Clone + Eq + Hash + Send + Sync;
     fn pack(&self) -> Self::Packed;
     fn unpack(packed: &Self::Packed) -> Self;
     fn cmp_packed(a: &Self::Packed, b: &Self::Packed) -> Ordering;
@@ -766,6 +766,30 @@ impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
     }
 }
 
+impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
+    /// rr-par2: the walk of the subtrees under `roots` (heap positions none
+    /// of which is an ancestor of another), in pop order.
+    fn from_roots(
+        heap: &'h [u32],
+        slots: &'h [Option<Slot<K::Packed, W>>],
+        priorities: &'h Priorities<P>,
+        mut roots: Vec<usize>,
+    ) -> Self {
+        let cmp = |&a: &usize, &b: &usize| {
+            Packed::<K, P, W>::cmp_ids(slots, priorities, heap[a], heap[b])
+        };
+        for i in (0..roots.len() / 2).rev() {
+            sift_down(&mut roots, i, &cmp);
+        }
+        Self {
+            heap,
+            slots,
+            priorities,
+            aux: roots,
+        }
+    }
+}
+
 impl<K: FrontierKey, P: Clone + Ord + Hash, W> Iterator for HeapWalk<'_, K, P, W> {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
@@ -901,6 +925,150 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
         }
     }
 
+    /// rr-par2: whether a key packed and hashed elsewhere with the Fx frontier
+    /// hash ([`FrontierHash::Fx`]) can be probed here ([`Self::child_packed`]):
+    /// a packed frontier with the Fx hash.
+    pub(crate) fn takes_prepacked(&self) -> bool {
+        matches!(self, Self::Packed(p) if matches!(p.hasher, FrontierHash::Fx))
+    }
+
+    /// rr-par2: the first `n` pending keys of `phase` below `threshold`, in pop
+    /// order, with their positions: what
+    /// `iter().take_while(phase).skip_while(>= threshold).take(n)` yields, without
+    /// materialising the skipped entries and without ordering a later phase.
+    pub(crate) fn phase_candidates(
+        &self,
+        phase: usize,
+        threshold: &Scheduled<K, P>,
+        n: usize,
+    ) -> Vec<(K, OrderedPosition<P>)> {
+        let position = |scheduled: &Scheduled<K, P>| OrderedPosition {
+            phase,
+            priority: scheduled.priority.clone(),
+        };
+        let p = match self {
+            Self::Classic(_) => {
+                return self
+                    .iter()
+                    .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+                    .skip_while(|(scheduled, _)| **scheduled >= *threshold)
+                    .take(n)
+                    .map(|(scheduled, _)| (scheduled.key.clone(), position(&scheduled)))
+                    .collect();
+            }
+            Self::Packed(p) => p,
+        };
+        let mut out = Vec::new();
+        if phase >= p.buckets.len() || n == 0 || threshold.phase.0 != phase {
+            return out;
+        }
+        let bound = threshold.key.pack();
+        let at_or_above = |id: u32| {
+            let slot = p.slot(id);
+            p.priorities
+                .get(slot.priority)
+                .cmp(&threshold.priority)
+                .then_with(|| K::cmp_packed(&slot.key, &bound))
+                != Ordering::Less
+        };
+        let ids: Box<dyn Iterator<Item = u32> + '_> = if p.buckets[phase].heap {
+            // The entries at or above the threshold form a subtree at the
+            // top of the heap: find the positions just below it (one
+            // comparison per visited entry), then walk best-first from them.
+            let heap = &p.buckets[phase].ids;
+            let mut stack = if heap.is_empty() {
+                vec![]
+            } else {
+                vec![0usize]
+            };
+            let mut roots = Vec::new();
+            while let Some(at) = stack.pop() {
+                if at_or_above(heap[at]) {
+                    stack.extend(
+                        [2 * at + 1, 2 * at + 2]
+                            .into_iter()
+                            .filter(|&c| c < heap.len()),
+                    );
+                } else {
+                    roots.push(at);
+                }
+            }
+            Box::new(HeapWalk::<K, P, W>::from_roots(
+                heap,
+                &p.slots,
+                &p.priorities,
+                roots,
+            ))
+        } else {
+            Box::new(p.ordered_ids(phase).into_iter())
+        };
+        let mut skipping = !p.buckets[phase].heap;
+        for id in ids {
+            let slot = p.slot(id);
+            if slot.weight.is_none() {
+                continue;
+            }
+            let priority = p.priorities.get(slot.priority);
+            if skipping {
+                if at_or_above(id) {
+                    continue;
+                }
+                skipping = false;
+            }
+            out.push((
+                K::unpack(&slot.key),
+                OrderedPosition {
+                    phase,
+                    priority: priority.clone(),
+                },
+            ));
+            if out.len() == n {
+                break;
+            }
+        }
+        out
+    }
+
+    /// rr-par2: [`Self::child`] for a key already packed and hashed (Fx) by a
+    /// worker. Only for frontiers that [`Self::takes_prepacked`].
+    pub(crate) fn child_packed<E>(
+        &mut self,
+        key: K,
+        packed: K::Packed,
+        hash: u64,
+        f: impl FnOnce(Child<'_, K, P, W>) -> Result<ChildAction<P, W>, E>,
+    ) -> Result<Option<W>, E> {
+        let Self::Packed(p) = self else {
+            return self.child(key, f);
+        };
+        debug_assert_eq!(
+            hash,
+            p.hash(&packed),
+            "a prepacked key carries its frontier hash"
+        );
+        p.child_at(&key, hash, PackedArg::Owned(packed), f)
+    }
+
+    /// rr-par2: [`Self::child_packed`] for a borrowed key and packed key (the
+    /// packed key is cloned only when the key is admitted).
+    pub(crate) fn child_packed_ref<E>(
+        &mut self,
+        key: &K,
+        packed: &K::Packed,
+        hash: u64,
+        f: impl FnOnce(Child<'_, K, P, W>) -> Result<ChildAction<P, W>, E>,
+    ) -> Result<Option<W>, E> {
+        let Self::Packed(p) = self else {
+            return self.child(key.clone(), f);
+        };
+        debug_assert_eq!(
+            hash,
+            p.hash(packed),
+            "a prepacked key carries its frontier hash"
+        );
+        p.child_at(key, hash, PackedArg::Borrowed(packed), f)
+    }
+
     /// One child contribution: `f` sees the pending entry of `key`, or its
     /// absence, and decides. Returns the removed weight on `Remove`.
     pub(crate) fn child<E>(
@@ -937,40 +1105,74 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
             Self::Packed(p) => {
                 let packed = key.pack();
                 let hash = p.hash(&packed);
-                let found = p.find(hash, &packed);
-                let current = p.current;
-                if let Some(id) = found
-                    && let Some(slot) = p.slots[id as usize].as_mut()
-                    && let Some(weight) = slot.weight.as_mut()
-                {
-                    let later = slot.phase as usize > current;
-                    let action = f(Child::Occupied {
-                        phase: slot.phase as usize,
-                        priority: p.priorities.get(slot.priority),
-                        weight,
-                    })?;
-                    return Ok(match action {
-                        ChildAction::Remove => {
-                            if later {
-                                p.later_cancels += 1;
-                            }
-                            let slot = p.slots[id as usize].as_mut().expect("live slot");
-                            p.live -= 1;
-                            slot.weight.take()
-                        }
-                        _ => {
-                            if later {
-                                p.later_merges += 1;
-                            }
-                            None
-                        }
-                    });
-                }
-                if let ChildAction::Insert(pending) = f(Child::Vacant(&key))? {
-                    p.insert(hash, packed, pending);
-                }
-                Ok(None)
+                p.child_at(&key, hash, PackedArg::Owned(packed), f)
             }
+        }
+    }
+}
+
+impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
+    fn child_at<E>(
+        &mut self,
+        key: &K,
+        hash: u64,
+        packed: PackedArg<'_, K::Packed>,
+        f: impl FnOnce(Child<'_, K, P, W>) -> Result<ChildAction<P, W>, E>,
+    ) -> Result<Option<W>, E> {
+        let p = self;
+        let found = p.find(hash, packed.get());
+        let current = p.current;
+        if let Some(id) = found
+            && let Some(slot) = p.slots[id as usize].as_mut()
+            && let Some(weight) = slot.weight.as_mut()
+        {
+            let later = slot.phase as usize > current;
+            let action = f(Child::Occupied {
+                phase: slot.phase as usize,
+                priority: p.priorities.get(slot.priority),
+                weight,
+            })?;
+            return Ok(match action {
+                ChildAction::Remove => {
+                    if later {
+                        p.later_cancels += 1;
+                    }
+                    let slot = p.slots[id as usize].as_mut().expect("live slot");
+                    p.live -= 1;
+                    slot.weight.take()
+                }
+                _ => {
+                    if later {
+                        p.later_merges += 1;
+                    }
+                    None
+                }
+            });
+        }
+        if let ChildAction::Insert(pending) = f(Child::Vacant(key))? {
+            p.insert(hash, packed.into_owned(), pending);
+        }
+        Ok(None)
+    }
+}
+
+/// A packed key passed by value or borrowed (cloned only when stored).
+enum PackedArg<'a, C: Clone> {
+    Owned(C),
+    Borrowed(&'a C),
+}
+
+impl<C: Clone> PackedArg<'_, C> {
+    fn get(&self) -> &C {
+        match self {
+            Self::Owned(packed) => packed,
+            Self::Borrowed(packed) => packed,
+        }
+    }
+    fn into_owned(self) -> C {
+        match self {
+            Self::Owned(packed) => packed,
+            Self::Borrowed(packed) => packed.clone(),
         }
     }
 }
@@ -1059,6 +1261,29 @@ mod tests {
                 let order_c: Vec<_> = classic.iter().map(|(s, w)| (s.into_owned(), *w)).collect();
                 let order_p: Vec<_> = packed.iter().map(|(s, w)| (s.into_owned(), *w)).collect();
                 assert_eq!(order_c, order_p);
+                // rr-par2: speculation candidates below every threshold of
+                // this phase equal the iterator's.
+                for (threshold, _) in order_c.iter().filter(|(s, _)| s.phase.0 == phase) {
+                    for n in [1, 3, 1000] {
+                        let expected: Vec<_> = classic
+                            .iter()
+                            .take_while(|(s, _)| s.phase.0 == phase)
+                            .skip_while(|(s, _)| **s >= *threshold)
+                            .take(n)
+                            .map(|(s, _)| {
+                                (
+                                    s.key.clone(),
+                                    OrderedPosition {
+                                        phase,
+                                        priority: s.priority,
+                                    },
+                                )
+                            })
+                            .collect();
+                        assert_eq!(packed.phase_candidates(phase, threshold, n), expected);
+                        assert_eq!(classic.phase_candidates(phase, threshold, n), expected);
+                    }
+                }
                 loop {
                     let (a, b) = (classic.pop_in_phase(phase), packed.pop_in_phase(phase));
                     assert_eq!(a, b);

@@ -580,6 +580,140 @@ pub(crate) struct ModularRecorder {
     modular_round: Option<usize>,
     /// One replay job on the whole pool (`OrderedTuning::par_replay`).
     par_replay: bool,
+    /// rr-par2: the table the workers intern step coefficients into, and per
+    /// shard the reference of each of its ids once the sequence reached it.
+    shared: Option<std::sync::Arc<SharedIntern>>,
+    shared_refs: Vec<Vec<u32>>,
+}
+
+/// rr-par2: shards of [`SharedIntern`] (low bits of an id).
+const INTERN_SHARD_BITS: u32 = 6;
+const INTERN_SHARDS: usize = 1 << INTERN_SHARD_BITS;
+/// `shared_refs` entry of an id the sequence has not reached.
+const UNREACHED: u32 = u32::MAX;
+
+/// One distinct step coefficient of [`SharedIntern`]: the value, its hash
+/// ([`coefficient_hash`]) and what the recorder computes for a new value
+/// (validation, constant test and probe values), computed by the worker
+/// that met the value first.
+pub(crate) struct InternEntry {
+    coefficient: Coefficient,
+    hash: u64,
+    probe: Result<(bool, [Fe; PROBES]), ReductionError>,
+}
+
+/// rr-par2 (`RUSTRED_ORDERED_PRESTAGE=1`): a concurrent table of the
+/// distinct step coefficients of one request, filled by the workers that
+/// compute the steps. An id names an equivalence class of `==`, exactly the
+/// classes of the recorder's own table; the recorder still assigns its
+/// references in the order of the sequential merge (first occurrence), so the
+/// trace is the one recorded without the table. The workers do the hashing,
+/// the equality probes, the validation and the probe evaluation of new
+/// values; the scheduler then maps an id to its reference with one index.
+pub(crate) struct SharedIntern {
+    context: CoefficientContext,
+    limits: ExactAlgebraLimits,
+    probe_field: Zp64,
+    probe_points: [Fe; PROBES],
+    shards: Vec<std::sync::Mutex<InternShard>>,
+}
+
+#[derive(Default)]
+struct InternShard {
+    table: HashTable<u32>,
+    entries: Vec<std::sync::Arc<InternEntry>>,
+}
+
+impl SharedIntern {
+    fn shard_of(hash: u64) -> usize {
+        ((hash >> 40) as usize) & (INTERN_SHARDS - 1)
+    }
+
+    fn lock(&self, shard: usize) -> std::sync::MutexGuard<'_, InternShard> {
+        self.shards[shard]
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The id of `coefficient` (hash `hash` = [`coefficient_hash`]).
+    pub(crate) fn id(&self, coefficient: &Coefficient, hash: u64) -> u32 {
+        let shard = Self::shard_of(hash);
+        let find = |guard: &InternShard| {
+            let entries = &guard.entries;
+            guard
+                .table
+                .find(hash, |&index| {
+                    entries[index as usize].coefficient == *coefficient
+                })
+                .copied()
+        };
+        if let Some(index) = find(&self.lock(shard)) {
+            return (index << INTERN_SHARD_BITS) | shard as u32;
+        }
+        // A new value: validate and evaluate outside the lock.
+        let probe = self
+            .context
+            .validate_with_limits(coefficient, self.limits)
+            .map_err(ReductionError::from)
+            .and_then(|()| {
+                let dense = DenseRational::from_coefficient(coefficient);
+                let values = evaluate_probe(&self.probe_field, &self.probe_points, &dense)?;
+                Ok((dense.is_constant(), values))
+            });
+        let mut guard = self.lock(shard);
+        if let Some(index) = find(&guard) {
+            return (index << INTERN_SHARD_BITS) | shard as u32;
+        }
+        let index = u32::try_from(guard.entries.len())
+            .ok()
+            .filter(|&index| index < (1 << (32 - INTERN_SHARD_BITS)) - 1)
+            .expect("fewer than 2^26 distinct step coefficients per intern shard");
+        guard.entries.push(std::sync::Arc::new(InternEntry {
+            coefficient: coefficient.clone(),
+            hash,
+            probe,
+        }));
+        let InternShard { table, entries } = &mut *guard;
+        table.insert_unique(hash, index, |&i| entries[i as usize].hash);
+        (index << INTERN_SHARD_BITS) | shard as u32
+    }
+
+    fn entry(&self, id: u32) -> std::sync::Arc<InternEntry> {
+        let shard = id as usize & (INTERN_SHARDS - 1);
+        std::sync::Arc::clone(&self.lock(shard).entries[(id >> INTERN_SHARD_BITS) as usize])
+    }
+}
+
+/// The probe values of an exact coefficient: its value at the probe points
+/// modulo the probe prime.
+fn evaluate_probe(
+    field: &Zp64,
+    points: &[Fe; PROBES],
+    dense: &DenseRational,
+) -> Result<[Fe; PROBES], ReductionError> {
+    if dense.is_constant() {
+        let numerator = reduce(field, &dense.numerator[0]);
+        let denominator = reduce(field, &dense.denominator[0]);
+        if field.is_zero(&denominator) {
+            return Err(error(
+                "probe prime divides a constant coefficient denominator",
+            ));
+        }
+        return Ok([field.div(&numerator, &denominator); PROBES]);
+    }
+    let numerator: Vec<Fe> = dense.numerator.iter().map(|c| reduce(field, c)).collect();
+    let denominator: Vec<Fe> = dense.denominator.iter().map(|c| reduce(field, c)).collect();
+    let mut values = [field.zero(); PROBES];
+    for (value, &x) in values.iter_mut().zip(points) {
+        let den = field::horner(field, &denominator, x);
+        if field.is_zero(&den) {
+            return Err(error(
+                "a probe point is a pole of a step coefficient; change the seed",
+            ));
+        }
+        *value = field.div(&field::horner(field, &numerator, x), &den);
+    }
+    Ok(values)
 }
 
 impl ModularRecorder {
@@ -613,6 +747,15 @@ impl ModularRecorder {
         let probe_field = Zp64::new(prime);
         let probe_points =
             std::array::from_fn(|_| probe_field.to_element(rng.random_range(2..prime)));
+        let shared = super::prestage_enabled().then(|| {
+            std::sync::Arc::new(SharedIntern {
+                context: context.clone(),
+                limits: limits.exact_algebra,
+                probe_field: probe_field.clone(),
+                probe_points,
+                shards: (0..INTERN_SHARDS).map(|_| Default::default()).collect(),
+            })
+        });
         Ok(Self {
             common,
             lifter,
@@ -637,35 +780,65 @@ impl ModularRecorder {
             started: Instant::now(),
             modular_round: None,
             par_replay: false,
+            shared,
+            shared_refs: vec![Vec::new(); INTERN_SHARDS],
         })
     }
 
-    fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefRef, ReductionError> {
-        self.intern_hashed(coefficient, FxBuild.hash_one(coefficient))
+    /// rr-par2: the table step sources intern into (prestage only).
+    pub(crate) fn shared_intern(&self) -> Option<std::sync::Arc<SharedIntern>> {
+        self.shared.clone()
     }
 
-    /// `intern` with the coefficient's hash ([`coefficient_hash`]).
-    fn intern_hashed(
+    /// The reference of a shared-table id: from the cache once the sequence
+    /// reached the id, else interned now exactly as `intern_hashed` would
+    /// intern the value (same table probe, same validation and probe results).
+    fn intern_id(&mut self, id: u32) -> Result<CoefRef, ReductionError> {
+        let shard = id as usize & (INTERN_SHARDS - 1);
+        let index = (id >> INTERN_SHARD_BITS) as usize;
+        if let Some(&reference) = self.shared_refs[shard].get(index)
+            && reference != UNREACHED
+        {
+            self.lookups += 1;
+            return Ok(CoefRef(reference));
+        }
+        let entry = self
+            .shared
+            .as_ref()
+            .ok_or_else(|| error("a shared coefficient id without its table"))?
+            .entry(id);
+        let reference = self.intern_entry(&entry)?;
+        let refs = &mut self.shared_refs[shard];
+        if refs.len() <= index {
+            refs.resize(index + 1, UNREACHED);
+        }
+        refs[index] = reference.0;
+        Ok(reference)
+    }
+
+    /// `intern_hashed` of an entry whose validation and probe were computed
+    /// by a worker.
+    fn intern_entry(&mut self, entry: &InternEntry) -> Result<CoefRef, ReductionError> {
+        self.lookups += 1;
+        let entries = &self.entries;
+        if let Some(&index) = self.table.find(entry.hash, |&index| {
+            entries[index as usize] == entry.coefficient
+        }) {
+            return Ok(self.entry_refs[index as usize]);
+        }
+        let (constant, values) = entry.probe.clone()?;
+        self.push_new(&entry.coefficient, entry.hash, constant, values)
+    }
+
+    /// Store a new distinct coefficient (validated, with its probe values).
+    fn push_new(
         &mut self,
         coefficient: &Coefficient,
         hash: u64,
+        constant: bool,
+        values: [Fe; PROBES],
     ) -> Result<CoefRef, ReductionError> {
-        self.lookups += 1;
-        let entries = &self.entries;
-        if let Some(&index) = self
-            .table
-            .find(hash, |&index| entries[index as usize] == *coefficient)
-        {
-            return Ok(self.entry_refs[index as usize]);
-        }
-        // Validation depends only on the value, so one check per distinct
-        // coefficient covers every occurrence.
-        self.context
-            .validate_with_limits(coefficient, self.limits)
-            .map_err(ReductionError::from)?;
-        let dense = DenseRational::from_coefficient(coefficient);
-        let values = self.evaluate_probe(&dense)?;
-        let reference = if dense.is_constant() {
+        let reference = if constant {
             self.constant_probe.push(values[0]);
             let reference = CoefRef(self.constant_count | CONSTANT_FLAG);
             self.constant_count += 1;
@@ -693,33 +866,38 @@ impl ModularRecorder {
         Ok(reference)
     }
 
+    fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefRef, ReductionError> {
+        self.intern_hashed(coefficient, FxBuild.hash_one(coefficient))
+    }
+
+    /// `intern` with the coefficient's hash ([`coefficient_hash`]).
+    fn intern_hashed(
+        &mut self,
+        coefficient: &Coefficient,
+        hash: u64,
+    ) -> Result<CoefRef, ReductionError> {
+        self.lookups += 1;
+        let entries = &self.entries;
+        if let Some(&index) = self
+            .table
+            .find(hash, |&index| entries[index as usize] == *coefficient)
+        {
+            return Ok(self.entry_refs[index as usize]);
+        }
+        // Validation depends only on the value, so one check per distinct
+        // coefficient covers every occurrence.
+        self.context
+            .validate_with_limits(coefficient, self.limits)
+            .map_err(ReductionError::from)?;
+        let dense = DenseRational::from_coefficient(coefficient);
+        let values = self.evaluate_probe(&dense)?;
+        self.push_new(coefficient, hash, dense.is_constant(), values)
+    }
+
     /// The probe values of an exact coefficient: its value at the probe
     /// points modulo the probe prime.
     fn evaluate_probe(&self, dense: &DenseRational) -> Result<[Fe; PROBES], ReductionError> {
-        let field = &self.probe_field;
-        if dense.is_constant() {
-            let numerator = reduce(field, &dense.numerator[0]);
-            let denominator = reduce(field, &dense.denominator[0]);
-            if field.is_zero(&denominator) {
-                return Err(error(
-                    "probe prime divides a constant coefficient denominator",
-                ));
-            }
-            return Ok([field.div(&numerator, &denominator); PROBES]);
-        }
-        let numerator: Vec<Fe> = dense.numerator.iter().map(|c| reduce(field, c)).collect();
-        let denominator: Vec<Fe> = dense.denominator.iter().map(|c| reduce(field, c)).collect();
-        let mut values = [field.zero(); PROBES];
-        for (value, x) in values.iter_mut().zip(self.probe_points) {
-            let den = field::horner(field, &denominator, x);
-            if field.is_zero(&den) {
-                return Err(error(
-                    "a probe point is a pole of a step coefficient; change the seed",
-                ));
-            }
-            *value = field.div(&field::horner(field, &numerator, x), &den);
-        }
-        Ok(values)
+        evaluate_probe(&self.probe_field, &self.probe_points, dense)
     }
 
     #[inline]
@@ -1133,6 +1311,24 @@ impl OrderedWeights for ModularRecorder {
         };
         let zero = coefficient.is_zero();
         let reference = self.intern_hashed(coefficient, hash)?;
+        Ok(ModularContribution {
+            coefficient: reference,
+            probe: self.scaled(weight, reference),
+            zero,
+        })
+    }
+
+    fn scale_interned(
+        &mut self,
+        weight: &ModularWeight,
+        coefficient: &Coefficient,
+        hash: Option<u64>,
+        id: Option<(u32, bool)>,
+    ) -> Result<ModularContribution, ReductionError> {
+        let Some((id, zero)) = id.filter(|_| self.shared.is_some()) else {
+            return self.scale_hashed(weight, coefficient, hash);
+        };
+        let reference = self.intern_id(id)?;
         Ok(ModularContribution {
             coefficient: reference,
             probe: self.scaled(weight, reference),

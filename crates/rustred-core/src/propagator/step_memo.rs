@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use smallvec::SmallVec;
 
-use crate::algebra::{Coefficient, ExactAlgebraLimits};
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
 use super::error::PError;
 
@@ -236,9 +236,10 @@ fn rehome_enabled() -> bool {
 }
 
 thread_local! {
-    /// A zero polynomial owning this thread's polynomial context, and the
-    /// variable map it was made for.
-    static HOME: RefCell<Option<crate::algebra::CoefficientPolynomial>> = const { RefCell::new(None) };
+    /// Zero polynomials owning this thread's polynomial contexts, one per
+    /// variable map met recently (rr-par2: several families' maps alternate;
+    /// one slot was rebuilt on every alternation).
+    static HOME: RefCell<Vec<crate::algebra::CoefficientPolynomial>> = const { RefCell::new(Vec::new()) };
 }
 
 /// rr-alloc, the 16-thread lever: `coefficient` with both polynomials on
@@ -255,18 +256,24 @@ pub(crate) fn rehome(coefficient: &Coefficient) -> Coefficient {
     HOME.with(|home| {
         let mut home = home.borrow_mut();
         let variables = coefficient.numerator.variables();
-        let fits = home.as_ref().is_some_and(|zero| {
+        let at = match home.iter().position(|zero| {
             std::sync::Arc::ptr_eq(zero.variables(), variables)
                 && zero.ring() == coefficient.numerator.ring()
-        });
-        if !fits {
-            *home = Some(crate::algebra::CoefficientPolynomial::new(
-                coefficient.numerator.ring(),
-                None,
-                std::sync::Arc::clone(variables),
-            ));
-        }
-        let zero = home.as_ref().expect("set above");
+        }) {
+            Some(at) => at,
+            None => {
+                if home.len() >= HOME_SLOTS {
+                    home.remove(0);
+                }
+                home.push(crate::algebra::CoefficientPolynomial::new(
+                    coefficient.numerator.ring(),
+                    None,
+                    std::sync::Arc::clone(variables),
+                ));
+                home.len() - 1
+            }
+        };
+        let zero = &home[at];
         let moved = |polynomial: &crate::algebra::CoefficientPolynomial| {
             if !std::sync::Arc::ptr_eq(polynomial.variables(), variables) {
                 return polynomial.clone();
@@ -279,6 +286,63 @@ pub(crate) fn rehome(coefficient: &Coefficient) -> Coefficient {
         Coefficient {
             numerator: moved(&coefficient.numerator),
             denominator: moved(&coefficient.denominator),
+        }
+    })
+}
+
+/// `RUSTRED_P_HOME_CONTEXT=1` (rr-par2, switch; default off): Insertion
+/// weights are computed on a copy of the coefficient context whose template
+/// lives on this thread's polynomial context ([`with_home_context`]).
+fn home_context_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_P_HOME_CONTEXT").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
+thread_local! {
+    /// This thread's copies of the coefficient contexts seen recently by
+    /// [`with_home_context`] (same names and variable map, template rehomed).
+    static HOME_CONTEXT: RefCell<Vec<CoefficientContext>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Variable maps (and contexts) remembered per thread.
+const HOME_SLOTS: usize = 16;
+
+/// rr-par2: `f` on `context`, or (switch on) on its copy whose constants
+/// (`zero`, `one`, `integer`, ...) are made on this thread's polynomial
+/// context. Every polynomial derived from the library context clones and
+/// drops the one `Arc` of that context, from every worker; derived from the
+/// copy they touch only this thread's. Same ring, same variable map (the same
+/// `Arc`), so every value, comparison and hash is the one of `context`.
+pub(crate) fn with_home_context<R>(
+    context: &CoefficientContext,
+    f: impl FnOnce(&CoefficientContext) -> R,
+) -> R {
+    // One-thread requests (marked by `begin`) have no reference counts to
+    // share: measured +12..+37 % at one thread with the copy.
+    if !home_context_enabled() || SINGLE.with(std::cell::Cell::get) {
+        return f(context);
+    }
+    HOME_CONTEXT.with(|home| {
+        let find = |home: &[CoefficientContext]| home.iter().position(|c| c.shares_maps(context));
+        if find(&home.borrow()).is_none()
+            && let Ok(mut slots) = home.try_borrow_mut()
+        {
+            if slots.len() >= HOME_SLOTS {
+                slots.remove(0);
+            }
+            slots.push(context.with_template(rehome(context.template())));
+        }
+        match home.try_borrow() {
+            Ok(guard) => match find(&guard) {
+                Some(at) => f(&guard[at]),
+                None => f(context),
+            },
+            Err(_) => f(context),
         }
     })
 }
@@ -504,25 +568,41 @@ struct Shard {
 }
 
 pub(crate) struct SharedMemo {
-    limits: std::sync::Mutex<Option<ExactAlgebraLimits>>,
+    /// The limits of the first request (rr-par2: set once, read lock-free).
+    limits: OnceLock<ExactAlgebraLimits>,
     shards: Box<[std::sync::RwLock<Shard>]>,
     entries: AtomicU64,
     #[allow(clippy::type_complexity)] // chunked append-only coefficient table (rr-par)
     chunks: Box<[OnceLock<Box<[OnceLock<Coefficient>]>>]>,
-    index: std::sync::Mutex<HashMap<Coefficient, u32>>,
+    /// rr-par2: the coefficient index, sharded by value (Fx hash), and the
+    /// next free index. Index numbering follows the arrival order of the
+    /// threads (as with one lock); the values the indices name do not.
+    index: Box<[std::sync::Mutex<HashMap<Coefficient, u32, FxLiteBuild>>]>,
+    next: std::sync::atomic::AtomicUsize,
     stats: [AtomicU64; 4],
+}
+
+#[derive(Clone, Copy, Default)]
+struct FxLiteBuild;
+
+impl std::hash::BuildHasher for FxLiteBuild {
+    type Hasher = FxLite;
+    fn build_hasher(&self) -> FxLite {
+        FxLite(0)
+    }
 }
 
 impl SharedMemo {
     fn new() -> Self {
         Self {
-            limits: std::sync::Mutex::new(None),
+            limits: OnceLock::new(),
             shards: (0..SHARDS).map(|_| Default::default()).collect(),
             entries: AtomicU64::new(0),
             chunks: (0..SHARED_COEFFICIENTS / CHUNK)
                 .map(|_| OnceLock::new())
                 .collect(),
-            index: std::sync::Mutex::new(HashMap::new()),
+            index: (0..SHARDS).map(|_| Default::default()).collect(),
+            next: std::sync::atomic::AtomicUsize::new(0),
             stats: Default::default(),
         }
     }
@@ -536,8 +616,7 @@ impl SharedMemo {
 
     /// The memo applies to requests with the limits of its first request.
     fn admits(&self, limits: ExactAlgebraLimits) -> bool {
-        let mut held = self.limits.lock().unwrap_or_else(|e| e.into_inner());
-        *held.get_or_insert(limits) == limits
+        *self.limits.get_or_init(|| limits) == limits
     }
 
     fn get<V>(
@@ -578,11 +657,16 @@ impl SharedMemo {
 
     /// The index of `coefficient` in the table; `None` when it is full.
     fn intern(&self, coefficient: &Coefficient) -> Option<u32> {
-        let mut index = self.index.lock().unwrap_or_else(|e| e.into_inner());
+        use std::hash::BuildHasher;
+        let shard = (FxLiteBuild.hash_one(coefficient) >> 32) as usize % SHARDS;
+        let mut index = self.index[shard].lock().unwrap_or_else(|e| e.into_inner());
         if let Some(&found) = index.get(coefficient) {
             return Some(found);
         }
-        let next = index.len();
+        if self.next.load(Ordering::Relaxed) >= SHARED_COEFFICIENTS {
+            return None;
+        }
+        let next = self.next.fetch_add(1, Ordering::Relaxed);
         if next >= SHARED_COEFFICIENTS {
             return None;
         }
@@ -610,7 +694,7 @@ impl SharedMemo {
             route += shard.route.len() as u64;
         }
         let stat = |i: usize| self.stats[i].load(Ordering::Relaxed);
-        let distinct = self.index.lock().unwrap_or_else(|e| e.into_inner()).len() as u64;
+        let distinct = (self.next.load(Ordering::Relaxed) as u64).min(SHARED_COEFFICIENTS as u64);
         [
             stat(0),
             stat(1),
