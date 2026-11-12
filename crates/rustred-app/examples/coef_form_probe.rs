@@ -74,7 +74,8 @@ fn read_varint(src: &[u8], at: &mut usize) -> u64 {
 }
 fn put_integer(out: &mut Vec<u8>, c: &Integer) {
     match c {
-        Integer::Single(i) => {
+        // zigzag in 63 bits (the tag bit takes one): |i| < 2^61
+        Integer::Single(i) if i.unsigned_abs() < (1u64 << 61) => {
             let z = ((*i << 1) ^ (*i >> 63)) as u64;
             varint(out, z << 1);
         }
@@ -271,6 +272,32 @@ fn specialize_exact(c: &Coefficient, base: usize, idx: &[i64]) -> Coefficient {
     };
     let (num, den) = (spec(&c.numerator), spec(&c.denominator));
     <Coefficient as FromNumeratorAndDenominator<_, _, u16>>::from_num_den(num, den, &Z, true)
+}
+/// Index specialisation of one polynomial term by term (the package's
+/// method, no normalisation).
+fn specialize_poly(p: &Poly, base: usize, idx: &[i64]) -> Poly {
+    let mut out = p.zero_with_capacity(p.nterms());
+    let mut exps = vec![0u16; p.nvars()];
+    for i in 0..p.nterms() {
+        let e = p.exponents(i);
+        let mut c = p.coefficients[i].clone();
+        for (pos, &val) in idx.iter().enumerate() {
+            let x = e[base + pos];
+            if x != 0 {
+                c = c * Integer::from(val).pow(u64::from(x));
+            }
+        }
+        exps[..base].copy_from_slice(&e[..base]);
+        out.append_monomial(c, &exps);
+    }
+    out
+}
+fn part_poly(part: &FPart, spec: &HashMap<u32, Poly>, one: &Poly) -> Poly {
+    let mut acc = one.clone().mul_coeff(part.content.clone());
+    for &(id, e) in &part.factors {
+        acc = acc * &spec[&id].pow(e as usize);
+    }
+    acc
 }
 fn horner_d(f: &Zp64, p: &Poly, d: Fe) -> Fe {
     // dense in d (variable 0); other exponents are zero after specialisation
@@ -489,13 +516,62 @@ fn main() {
     put("mem_denfactored_bytes", mem_denfactored.into());
     drop(z_bytes);
 
+    // ---- size ruling per rule (monomials): expanded = sum of num+den terms
+    // of its RHS coefficients (as today); denfactored = numerator terms + terms
+    // of the distinct denominator factors it uses + one per reference;
+    // factored = terms of the distinct dictionary factors it uses + one per
+    // reference ----
+    {
+        let mut over = serde_json::Map::new();
+        let bands = [1_000_000usize, 10_000_000];
+        let mut counts = [[0usize; 2]; 3];
+        let mut listed = Vec::new();
+        for (r, ids) in table.rules.iter().enumerate() {
+            let mut all: Vec<u32> = Vec::new();
+            let mut dens: Vec<u32> = Vec::new();
+            let mut refs = 0usize;
+            let mut num_terms = 0usize;
+            for &i in ids {
+                let f = &fcoefs[i as usize];
+                all.extend(f.num.factors.iter().chain(&f.den.factors).map(|x| x.0));
+                dens.extend(f.den.factors.iter().map(|x| x.0));
+                refs += f.num.factors.len() + f.den.factors.len() + 2;
+                num_terms += coefs[i as usize].numerator.nterms();
+            }
+            all.sort_unstable();
+            all.dedup();
+            dens.sort_unstable();
+            dens.dedup();
+            let fac: usize = all.iter().map(|&u| dict.polys[u as usize].nterms()).sum::<usize>() + refs;
+            let den: usize = num_terms + dens.iter().map(|&u| dict.polys[u as usize].nterms()).sum::<usize>() + ids.len();
+            let sizes = [rule_terms[r], den, fac];
+            for (k, s) in sizes.iter().enumerate() {
+                for (b, &band) in bands.iter().enumerate() {
+                    if *s > band {
+                        counts[k][b] += 1;
+                    }
+                }
+            }
+            if rule_terms[r] > 1_000_000 {
+                listed.push(serde_json::json!([r, sizes[0], sizes[1], sizes[2]]));
+            }
+        }
+        for (k, name) in ["expanded", "denfactored", "factored"].iter().enumerate() {
+            over.insert(format!("{name}_over_1M"), counts[k][0].into());
+            over.insert(format!("{name}_over_10M"), counts[k][1].into());
+        }
+        over.insert("rules_over_1M_expanded_den_factored".into(), listed.into());
+        put("size_ruling", serde_json::Value::Object(over));
+    }
+
     // ---- rule sample ----
     let mut rng = Rng(0x9e3779b97f4a7c15);
     let mut order: Vec<usize> = (0..table.rules.len()).collect();
     order.sort_by_key(|&r| std::cmp::Reverse(rule_terms[r]));
     let mut sample: Vec<usize> = order.iter().copied().filter(|&r| rule_terms[r] <= eval_cap).take(rule_sample / 10).collect();
     let rest: Vec<usize> = order.iter().copied().filter(|&r| rule_terms[r] <= eval_cap && !sample.contains(&r)).collect();
-    while sample.len() < rule_sample.min(sample.len() + rest.len()) {
+    let target = rule_sample.min(sample.len() + rest.len());
+    while sample.len() < target {
         let r = rest[(rng.next() as usize) % rest.len()];
         if !sample.contains(&r) {
             sample.push(r);
@@ -528,6 +604,7 @@ fn main() {
 
     let (mut ta, mut tb, mut tc, mut td, mut tc0) = (0f64, 0f64, 0f64, 0f64, 0f64);
     let (mut a_spec, mut a_horner) = (0f64, 0f64);
+    let (mut te, mut te0, mut e_checked) = (0f64, 0f64, 0usize);
     let mut checked = 0usize;
     let mut a_checked = 0usize;
     let mut a_skipped = 0usize;
@@ -691,6 +768,47 @@ fn main() {
                     mismatches += 1;
                 }
             }
+            // E: exact specialisation of the fully factored form (each used
+            // dictionary factor specialised once per application, products,
+            // NO GCD); E0: numerator expanded (term by term) + denominator
+            // factors specialised once, NO GCD. Same Z[d] num/den up to a
+            // common factor: values compared as ratios mod p with A.
+            let one = coefs[0].numerator.one();
+            let t = Instant::now();
+            let spec: HashMap<u32, Poly> =
+                used.iter().map(|&u| (u, specialize_poly(&dict.polys[u as usize], base, &idx))).collect();
+            let ve: Vec<(Poly, Poly)> = ids
+                .iter()
+                .map(|&i| {
+                    let c = &fcoefs[i as usize];
+                    (part_poly(&c.num, &spec, &one), part_poly(&c.den, &spec, &one))
+                })
+                .collect();
+            te += t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let dspec: HashMap<u32, Poly> =
+                dused.iter().map(|&u| (u, specialize_poly(&dict.polys[u as usize], base, &idx))).collect();
+            let ve0: Vec<(Poly, Poly)> = ids
+                .iter()
+                .map(|&i| {
+                    let c = &fcoefs[i as usize];
+                    (specialize_poly(&coefs[i as usize].numerator, base, &idx), part_poly(&c.den, &dspec, &one))
+                })
+                .collect();
+            te0 += t.elapsed().as_secs_f64();
+            for (j, a) in vals.iter().enumerate() {
+                if f.is_zero(&a.1) {
+                    continue;
+                }
+                let ra = f.div(&a.0, &a.1);
+                for v in [&ve[j], &ve0[j]] {
+                    let (n, d) = (horner_d(f, &v.0, point[0]), horner_d(f, &v.1, point[0]));
+                    e_checked += 1;
+                    if f.is_zero(&d) || f.div(&n, &d) != ra {
+                        mismatches += 1;
+                    }
+                }
+            }
             let _ = pi;
         }
     }
@@ -701,6 +819,9 @@ fn main() {
     put("A_exact_us_per_rule", us(ta, a_applications).into());
     put("A_specialise_gcd_us_per_rule", us(a_spec, a_applications).into());
     put("A_horner_us_per_rule", us(a_horner, a_applications).into());
+    put("E_factored_exact_nogcd_us_per_rule", us(te, a_applications).into());
+    put("E0_denfactored_exact_nogcd_us_per_rule", us(te0, a_applications).into());
+    put("values_checked_E", e_checked.into());
     put("B_expanded_mod_us_per_rule", us(tb, applications).into());
     put("C_factored_mod_us_per_rule", us(tc, applications).into());
     put("C0_denfactored_mod_us_per_rule", us(tc0, applications).into());
