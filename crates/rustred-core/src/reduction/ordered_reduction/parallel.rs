@@ -911,7 +911,7 @@ where
                     .zip(&hashes)
                     .map(|(coefficient, &hash)| {
                         (
-                            crate::prof_wrap!(Intern, table.id(coefficient, hash)),
+                            crate::prof_wrap_fine!(Intern, table.id(coefficient, hash)),
                             coefficient.is_zero(),
                         )
                     })

@@ -1798,7 +1798,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                     &node.priority,
                                     progress.total_phases,
                                 )?;
-                                let contribution = crate::prof_wrap!(
+                                let contribution = crate::prof_wrap_fine!(
                                     Intern,
                                     weights.scale_interned(&weight, $coefficient, $hash, $id)
                                 )?;
@@ -1808,7 +1808,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                     limits.diagnostic_limit(limits.max_coalescing_additions),
                                 )?;
                                 let old = weights.monomials(existing)?;
-                                let zero = crate::prof_wrap!(
+                                let zero = crate::prof_wrap_fine!(
                                     Record,
                                     weights.merge(existing, contribution)
                                 )?;
@@ -1837,7 +1837,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                     &node.priority,
                                     progress.total_phases,
                                 )?;
-                                let contribution = crate::prof_wrap!(
+                                let contribution = crate::prof_wrap_fine!(
                                     Intern,
                                     weights.scale_interned(&weight, $coefficient, $hash, $id)
                                 )?;
@@ -1847,8 +1847,10 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                                     request.retain_pending_frame(
                                         limits.diagnostic_limit(limits.max_pending_frames),
                                     )?;
-                                    let inserted =
-                                        crate::prof_wrap!(Record, weights.insert(contribution))?;
+                                    let inserted = crate::prof_wrap_fine!(
+                                        Record,
+                                        weights.insert(contribution)
+                                    )?;
                                     replace_monomials(
                                         &mut progress.frontier_coefficient_monomials,
                                         0,
@@ -1879,12 +1881,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         Some(position) => position.clone(),
                         None => kernel.position(vacant)?,
                     });
-                    let removed = crate::prof_wrap!(
+                    let removed = crate::prof_wrap_fine!(
                         Child,
                         frontier.child_packed_ref(key, &child.packed, child.hash, decide)
                     )?;
                     if let Some(removed) = removed {
-                        crate::prof_wrap!(Record, weights.cancel(removed))?;
+                        crate::prof_wrap_fine!(Record, weights.cancel(removed))?;
                         request.release_pending_frame()?;
                         progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                     }
@@ -1919,7 +1921,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     Some(position) => position,
                     None => kernel.position(key)?,
                 });
-                let removed = crate::prof_wrap!(
+                let removed = crate::prof_wrap_fine!(
                     Child,
                     match packed {
                         Some((packed, hash)) => frontier.child_packed(child, packed, hash, decide),
@@ -1930,7 +1932,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     spent.push(coefficient);
                 }
                 if let Some(removed) = removed {
-                    crate::prof_wrap!(Record, weights.cancel(removed))?;
+                    crate::prof_wrap_fine!(Record, weights.cancel(removed))?;
                     request.release_pending_frame()?;
                     progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                 }

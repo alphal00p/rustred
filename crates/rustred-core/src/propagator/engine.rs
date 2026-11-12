@@ -689,7 +689,7 @@ pub(super) fn merge<K: Ord>(
     coefficient: Coefficient,
 ) -> Result<(), PError> {
     use std::collections::btree_map::Entry;
-    crate::prof!(StepMerge);
+    crate::prof_fine!(StepMerge);
     if coefficient.is_zero() {
         return Ok(());
     }
@@ -1382,7 +1382,7 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
-        crate::prof!(CanonApply);
+        crate::prof_fine!(CanonApply);
         if self.canonical
             && let Some((image, negative)) = self.canonical_powers(class, powers)?
         {
@@ -1392,7 +1392,7 @@ impl<'l> PStepper<'l> {
             return Ok((
                 PKey::Apply {
                     class,
-                    view: crate::prof_wrap!(CanonKey, self.engine.view(&image, tag))?,
+                    view: crate::prof_wrap_fine!(CanonKey, self.engine.view(&image, tag))?,
                 },
                 coefficient,
             ));
@@ -1400,7 +1400,7 @@ impl<'l> PStepper<'l> {
         Ok((
             PKey::Apply {
                 class,
-                view: crate::prof_wrap!(CanonKey, self.engine.view(powers, tag))?,
+                view: crate::prof_wrap_fine!(CanonKey, self.engine.view(powers, tag))?,
             },
             coefficient,
         ))
@@ -1419,7 +1419,7 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
-        crate::prof!(CanonRoute);
+        crate::prof_fine!(CanonRoute);
         if self.canonical_routes {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
@@ -1440,13 +1440,16 @@ impl<'l> PStepper<'l> {
                 // variables, degrees and sizes, so no new authentication (M5 R0 A2).
                 let coefficient = if negative { -coefficient } else { coefficient };
                 return Ok((
-                    crate::prof_wrap!(CanonKey, self.engine.route_key(presentation, &image, tag))?,
+                    crate::prof_wrap_fine!(
+                        CanonKey,
+                        self.engine.route_key(presentation, &image, tag)
+                    )?,
                     coefficient,
                 ));
             }
         }
         Ok((
-            crate::prof_wrap!(CanonKey, self.engine.route_key(presentation, powers, tag))?,
+            crate::prof_wrap_fine!(CanonKey, self.engine.route_key(presentation, powers, tag))?,
             coefficient,
         ))
     }
@@ -1691,7 +1694,7 @@ impl<'l> PStepper<'l> {
         child: &PKey,
         coefficient: &Coefficient,
     ) -> Result<bool, PError> {
-        crate::prof!(CanonZero);
+        crate::prof_fine!(CanonZero);
         let Some(counters) = self.zero_pruning else {
             return Ok(true);
         };

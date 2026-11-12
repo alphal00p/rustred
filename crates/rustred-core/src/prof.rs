@@ -16,9 +16,11 @@
 //! the reduce wall time). Ticks are converted to seconds with the counter
 //! rate measured between [`start`] and [`report`].
 //!
-//! Level 1 counts allocator calls (count only); level 2 also times them as
-//! the pseudo-category `alloc` (two counter reads per call: expensive, a
-//! separate run).
+//! Level 1 opens the per-step scopes only (coarse, the overhead budget) and
+//! counts allocator calls; level 2 also opens the fine per-child scopes
+//! ([`prof_fine!`]: frontier insert, interning, trace record, orbit
+//! canonicalisation, key packing, zero pruning, step-local merge); level 3
+//! also times every allocator call as the pseudo-category `alloc`.
 //!
 //! Nothing here changes a decision of the run: it only reads clocks.
 
@@ -31,6 +33,27 @@ macro_rules! prof {
         #[cfg(feature = "fwd-profile")]
         let _prof_scope = $crate::prof::Scope::enter($crate::prof::Cat::$cat);
     };
+}
+
+/// A fine scope (per child/edge, millions per request): open only at level
+/// >= 2, a load and a branch at level 1.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! prof_fine {
+    ($cat:ident) => {
+        #[cfg(feature = "fwd-profile")]
+        let _prof_scope = $crate::prof::Scope::enter_fine($crate::prof::Cat::$cat);
+    };
+}
+
+/// `$body` inside a fine scope of category `$cat`.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! prof_wrap_fine {
+    ($cat:ident, $body:expr) => {{
+        $crate::prof_fine!($cat);
+        $body
+    }};
 }
 
 /// `$body` inside a scope of category `$cat`.
@@ -302,6 +325,15 @@ mod imp {
             }
             Self(push(cat as u8))
         }
+
+        /// A fine scope: open only at level >= 2.
+        #[inline(always)]
+        pub fn enter_fine(cat: Cat) -> Self {
+            if !ON.load(Relaxed) || LEVEL.load(Relaxed) < 2 {
+                return Self(false);
+            }
+            Self(push(cat as u8))
+        }
     }
 
     impl Drop for Scope {
@@ -336,7 +368,7 @@ mod imp {
     /// Allocator hook (level 2): time the call as `alloc`. Never allocates.
     #[inline(always)]
     pub fn alloc_enter() -> bool {
-        if !ON.load(Relaxed) || LEVEL.load(Relaxed) < 2 {
+        if !ON.load(Relaxed) || LEVEL.load(Relaxed) < 3 {
             return false;
         }
         LOCAL
