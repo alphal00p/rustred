@@ -312,6 +312,23 @@ pub(crate) enum WarmTask {
     PresentationOrbit(PresentationId),
 }
 
+/// `RUSTRED_P_WARM_LEVELS=n` (fwd-opt, default 3): setup tasks only for
+/// sectors with at least `top - n` lines (`top`: the most lines of a
+/// reached presentation). The first phases have few keys and wait for their
+/// setup one step at a time; later phases have enough parallel steps to
+/// hide theirs, where tasks for sectors no step needs would only compete
+/// (measured on NO3 L4_d2_r8 at 16 threads: every level warmed cost
+/// +220 MB and slowed the scheduler).
+fn warm_levels() -> usize {
+    static LEVELS: OnceLock<usize> = OnceLock::new();
+    *LEVELS.get_or_init(|| {
+        std::env::var("RUSTRED_P_WARM_LEVELS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3)
+    })
+}
+
 /// `RUSTRED_P_WARM_MAX=n` (fwd-opt): at most `n` setup tasks per request
 /// (default 4096; the most lines first).
 fn warm_max() -> usize {
@@ -769,6 +786,9 @@ impl PEngine {
         // The most lines first (the order the phases need them), then a fixed
         // order (hash-map iteration order is not one).
         tasks.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let top = tasks.first().map_or(0, |task| task.0);
+        let floor = top.saturating_sub(warm_levels());
+        tasks.retain(|task| task.0 >= floor);
         tasks.truncate(warm_max());
         tasks.into_iter().map(|(_, task)| task).collect()
     }
