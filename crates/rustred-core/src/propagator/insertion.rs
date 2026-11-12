@@ -337,9 +337,7 @@ impl InsertionStep {
                     )?;
                     match memo {
                         // fwd-opt light step: children by (memo index) handle.
-                        Some(memo)
-                            if mode == MemoMode::On && super::engine::light::enabled() =>
-                        {
+                        Some(memo) if mode == MemoMode::On && super::engine::light::enabled() => {
                             let local = matches!(memo, step_memo::Held::Local(..));
                             let children = keys.light_children(&memo.table, &memo.weights, local);
                             super::engine::light::put_pending((

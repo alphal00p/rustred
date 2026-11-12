@@ -816,11 +816,7 @@ pub(crate) mod light {
 
     /// Light children of an Insertion step before canonicalisation: the
     /// child presentation, the absolute tag and (powers, handle) pairs.
-    pub(crate) type Pending = (
-        super::PresentationId,
-        super::GammaTag,
-        Vec<(Vec<i64>, u64)>,
-    );
+    pub(crate) type Pending = (super::PresentationId, super::GammaTag, Vec<(Vec<i64>, u64)>);
 
     thread_local! {
         static PENDING: RefCell<Option<Pending>> = const { RefCell::new(None) };
@@ -2390,7 +2386,14 @@ impl<'l> PStepper<'l> {
                     None => true,
                 };
                 if keep {
-                    light_pairs.push((key, if negative { light::flip(handle) } else { handle }));
+                    light_pairs.push((
+                        key,
+                        if negative {
+                            light::flip(handle)
+                        } else {
+                            handle
+                        },
+                    ));
                 }
             }
             light_pairs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -2409,9 +2412,12 @@ impl<'l> PStepper<'l> {
                     single.push(light_pairs[at].clone());
                 } else {
                     for (key, handle) in &light_pairs[at..end] {
-                        let value = OrderedStepper::light_value(self, *handle).ok_or_else(|| {
-                            PError::Contract("a light handle names no memo coefficient".to_owned())
-                        })?;
+                        let value =
+                            OrderedStepper::light_value(self, *handle).ok_or_else(|| {
+                                PError::Contract(
+                                    "a light handle names no memo coefficient".to_owned(),
+                                )
+                            })?;
                         repeated.push((key.clone(), value));
                     }
                 }
