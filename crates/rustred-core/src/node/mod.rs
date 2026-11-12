@@ -24,5 +24,6 @@ pub mod domain;
 pub mod driver;
 pub mod order;
 pub mod predict;
+pub mod registry;
 pub mod replay;
 pub mod screen;
