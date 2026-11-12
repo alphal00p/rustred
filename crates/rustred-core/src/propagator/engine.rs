@@ -787,7 +787,7 @@ mod canon_cache {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
     }
 
-    fn bits() -> Option<u32> {
+    pub(super) fn bits() -> Option<u32> {
         static BITS: OnceLock<Option<u32>> = OnceLock::new();
         *BITS.get_or_init(|| match std::env::var("RUSTRED_P_CANON_CACHE").as_deref() {
             Ok("0" | "off" | "false") => None,
@@ -857,6 +857,77 @@ mod canon_cache {
             }
         });
         Ok(image)
+    }
+}
+
+/// fwd-opt: a per-thread, direct-mapped cache of Apply key priorities (the
+/// owner's order key: a pure function of the engine, the class and the
+/// packed key). A key reached from many parents has its position computed
+/// once per cache residency. Same switch as [`canon_cache`]
+/// (`RUSTRED_P_CANON_CACHE`). Errors are not cached. Value-neutral.
+mod order_cache {
+    use std::cell::RefCell;
+    use std::hash::BuildHasher;
+
+    use super::{EngineHash, PError, PPriority};
+    use crate::reduction::ordered_reduction::CompactPowers;
+
+    struct Entry {
+        class: u64,
+        packed: CompactPowers,
+        priority: PPriority,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        engine: u64,
+        entries: Vec<Option<Entry>>,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    pub(super) fn lookup(
+        engine: u64,
+        class: u64,
+        packed: &CompactPowers,
+        compute: impl FnOnce() -> Result<PPriority, PError>,
+    ) -> Result<PPriority, PError> {
+        let Some(bits) = super::canon_cache::bits() else {
+            return compute();
+        };
+        let hash = EngineHash.hash_one((class, packed));
+        let at = (hash >> (64 - bits)) as usize;
+        let found = CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine != engine || cache.entries.is_empty() {
+                cache.engine = engine;
+                cache.entries.clear();
+                cache.entries.resize_with(1 << bits, || None);
+            }
+            match &cache.entries[at] {
+                Some(entry) if entry.class == class && entry.packed == *packed => {
+                    Some(entry.priority.clone())
+                }
+                _ => None,
+            }
+        });
+        if let Some(priority) = found {
+            return Ok(priority);
+        }
+        let priority = compute()?;
+        CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine == engine && at < cache.entries.len() {
+                cache.entries[at] = Some(Entry {
+                    class,
+                    packed: packed.clone(),
+                    priority: priority.clone(),
+                });
+            }
+        });
+        Ok(priority)
     }
 }
 
@@ -1436,18 +1507,20 @@ impl<'l> PStepper<'l> {
                 order: POrderKey::Lexicographic(Default::default()),
             });
         };
-        let slot = self.engine.owner(*class)?;
-        let slots = view.slots();
-        let (powers, _) = self.engine.split(slot.presentation, &slots)?;
-        let owner = self.owner(*class)?;
-        let order = match owner.program(self.library)? {
-            OwnerProgram::Lane(lane) => lane.order_key(&self.context(owner), powers)?,
-            // The step of this key is the typed error, unless the key cancels.
-            OwnerProgram::Missing { .. } => default_order_key(&owner.spec, powers)?,
-        };
-        Ok(PPriority {
-            rank: slot.rank,
-            order,
+        order_cache::lookup(self.engine.uid, class.0, &view.packed, || {
+            let slot = self.engine.owner(*class)?;
+            let slots = view.slots();
+            let (powers, _) = self.engine.split(slot.presentation, &slots)?;
+            let owner = self.owner(*class)?;
+            let order = match owner.program(self.library)? {
+                OwnerProgram::Lane(lane) => lane.order_key(&self.context(owner), powers)?,
+                // The step of this key is the typed error, unless the key cancels.
+                OwnerProgram::Missing { .. } => default_order_key(&owner.spec, powers)?,
+            };
+            Ok(PPriority {
+                rank: slot.rank,
+                order,
+            })
         })
     }
 
