@@ -377,6 +377,25 @@ pub struct Obligations {
     pub residual_keys: Vec<String>,
     #[serde(default)]
     pub source: String,
+    /// Region-restricted run (t266-regions, `NodeOptions::region`): its initial case is the chart of exactly this
+    /// deferred region (conjunction strings as in the region obligation); the run owns the region, not the chart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<Vec<String>>,
+}
+
+/// A region-restricted run (`Obligations::region`) owns exactly its region: a deferred-region obligation on its
+/// initial chart with the same conjunction. Any other run owns by initial-case containment alone.
+pub(crate) fn region_owner_ok(owner: &Obligations, ob: &Obligation) -> bool {
+    match &owner.region {
+        None => true,
+        Some(conj) => {
+            ob.kind == "region"
+                && owner.initial.contains(&ob.case)
+                && ob.detail["conjunction"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().map(|x| x.as_str()).eq(conj.iter().map(|c| Some(c.as_str()))))
+        }
+    }
 }
 
 impl Obligations {
@@ -729,6 +748,7 @@ fn reconstruct<const N: usize>(
     let mut refused: Vec<Obligation> = Vec::new();
     let mut leased: Vec<Obligation> = Vec::new();
     let mut initial: Vec<CaseSpec> = Vec::new();
+    let mut region: Option<Vec<String>> = None;
     let (mut pops, mut rules, mut lines) = (0usize, 0usize, 0usize);
     let spec_of = |v: &serde_json::Value| -> CaseSpec {
         CaseSpec {
@@ -748,6 +768,7 @@ fn reconstruct<const N: usize>(
         };
         match v["type"].as_str() {
             Some("initial") => initial.push(spec_of(&v["case"])),
+            Some("region_run") => region = Some(str_list(&v["conjunction"])),
             Some("pool_claim") => initial.push(spec_of(&v["case"])),
             Some("lease") => {
                 let spec = spec_of(&v["case"]);
@@ -926,6 +947,7 @@ fn reconstruct<const N: usize>(
         rules,
         residual_keys: vec![],
         source: run_dir.display().to_string(),
+        region,
     })
 }
 
@@ -1138,7 +1160,7 @@ fn join_impl<const N: usize>(
         equations: vec![],
     };
     let roots: Vec<usize> = (0..obls.len())
-        .filter(|&k| obls[k].initial.contains(&whole))
+        .filter(|&k| obls[k].region.is_none() && obls[k].initial.contains(&whole))
         .collect();
     if roots.is_empty() {
         report
@@ -1246,6 +1268,7 @@ fn join_impl<const N: usize>(
                         };
                         let owner = (0..obls.len()).find(|&j| {
                             j != k
+                                && obls[j].region.is_none()
                                 && obls[j].state == "complete"
                                 && initials[j]
                                     .iter()
@@ -1292,6 +1315,7 @@ fn join_impl<const N: usize>(
             let mut owners: Vec<usize> = (0..obls.len())
                 .filter(|&j| {
                     j != k
+                        && region_owner_ok(&obls[j], ob)
                         && initials[j]
                             .iter()
                             .any(|ic| ic.contains(&case).unwrap_or(false))
@@ -1459,4 +1483,60 @@ fn write_joined_table(
         "harness": "rustred node join (rr-registry)", "state": "joined", "runs": opts.runs.len()})).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
+}
+
+#[cfg(test)]
+mod region_owner_tests {
+    use super::{Obligation, Obligations, region_owner_ok};
+    use crate::node::driver::CaseSpec;
+
+    fn chart() -> CaseSpec {
+        CaseSpec {
+            fixed: vec![None, Some(1), None],
+            equations: vec!["n0-n2-1".into()],
+        }
+    }
+
+    fn region_ob(conj: &[&str]) -> Obligation {
+        Obligation {
+            kind: "region".into(),
+            case: chart(),
+            detail: serde_json::json!({"conjunction": conj}),
+        }
+    }
+
+    /// t266-regions: a region-restricted run owns exactly its (chart, conjunction) region, nothing else on the chart.
+    #[test]
+    fn region_restricted_run_owns_only_its_region() {
+        let mut run = Obligations {
+            initial: vec![chart()],
+            region: Some(vec!["n0^2-n2".into()]),
+            ..Default::default()
+        };
+        assert!(region_owner_ok(&run, &region_ob(&["n0^2-n2"])));
+        assert!(!region_owner_ok(&run, &region_ob(&["n0^2-n2", "n0-3"])));
+        assert!(!region_owner_ok(&run, &region_ob(&["n0-n2^2"])));
+        let pending = Obligation {
+            kind: "pending".into(),
+            case: chart(),
+            detail: serde_json::Value::Null,
+        };
+        assert!(!region_owner_ok(&run, &pending));
+        let mut other_chart = region_ob(&["n0^2-n2"]);
+        other_chart.case.fixed[1] = Some(2);
+        assert!(!region_owner_ok(&run, &other_chart));
+        // an ordinary run owns by initial-case containment alone (checked by the join)
+        run.region = None;
+        assert!(region_owner_ok(&run, &pending));
+        // the restriction survives the F.obligations.json round trip; absent field = unrestricted
+        let text = serde_json::to_string(&Obligations {
+            region: Some(vec!["n0^2-n2".into()]),
+            ..Default::default()
+        })
+        .unwrap();
+        let back: Obligations = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.region, Some(vec!["n0^2-n2".to_string()]));
+        let plain: Obligations = serde_json::from_str(&serde_json::to_string(&Obligations::default()).unwrap()).unwrap();
+        assert_eq!(plain.region, None);
+    }
 }
