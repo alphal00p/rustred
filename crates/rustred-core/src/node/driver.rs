@@ -2433,6 +2433,7 @@ fn run<const N: usize>(
                     "known terminals: cover {path} is a compact cover index (no rule targets); pass the full table"
                 ));
             }
+            use std::io::BufRead as _;
             let f = std::fs::File::open(path).map_err(|e| format!("cover table {path}: {e}"))?;
             let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
             let mut line = String::new();
@@ -3167,6 +3168,7 @@ fn run<const N: usize>(
                             n,
                             opts.union_cover_depth,
                             &mut outcome.union_covered,
+                            terminal_ledger.as_ref(),
                         );
                     }
                     qlog.flush().map_err(|e| e.to_string())?;
@@ -3278,6 +3280,7 @@ fn run<const N: usize>(
                     n,
                     opts.union_cover_depth,
                     &mut outcome.union_covered,
+                    terminal_ledger.as_ref(),
                 );
             }
             qlog.flush().map_err(|e| e.to_string())?;
