@@ -160,6 +160,9 @@ pub(crate) struct OrderedTuning {
     pub prestage: bool,
     /// rr-par2 hollow steps (M5 batch 4: on for p requests; needs prestage).
     pub hollow: bool,
+    /// fwd-opt: TFORM-style layered forward pass (`RUSTRED_ORDERED_LAYERED`,
+    /// default off; recorded arithmetics only).
+    pub layered: bool,
 }
 
 impl OrderedSchedulerOptions {
@@ -187,6 +190,7 @@ impl OrderedSchedulerOptions {
             par_replay: super::par_replay_environment().unwrap_or(p),
             prestage: super::prestage_environment().unwrap_or(p),
             hollow: super::hollow_environment().unwrap_or(p),
+            layered: super::layered::environment().unwrap_or(false),
         }
     }
 }
@@ -471,9 +475,90 @@ impl Workers {
     }
 }
 
+impl Workers {
+    /// fwd-opt: `f(i)` for every `i < n` on the workers (one task per index,
+    /// inside the request's resource budgets).
+    pub(super) fn for_each_index(&self, n: usize, f: impl Fn(usize) + Sync + Send) {
+        let budget = &self.budget;
+        self.pool.install(|| {
+            (0..n)
+                .into_par_iter()
+                .with_max_len(1)
+                .for_each(|index| budget.run_captured(|| f(index)))
+        });
+    }
+
+    /// fwd-opt: the worker count.
+    pub(super) fn threads(&self) -> usize {
+        self.pool.current_num_threads()
+    }
+}
+
+/// fwd-opt (layered mode): one computed step of a window closure.
+pub(super) struct ClosureStep<K, P, X, E, A> {
+    pub key: K,
+    pub position: OrderedPosition<P>,
+    pub result: Result<X, E>,
+    /// Taken when the scheduler absorbs it.
+    pub account: Option<A>,
+}
+
+/// fwd-opt (layered mode): the steps of `roots` (the greatest pending keys
+/// of their phase, greatest first) and of every same-phase descendant at or
+/// above the last root, computed on the workers ([`close_window`]); `detach`
+/// converts a step on its worker and reports its same-phase children at or
+/// above the threshold. Roots come first, the other keys follow in no
+/// particular order. Window statistics as for the pipelined source.
+pub(super) fn layered_closure<S, X, F>(
+    workers: &Workers,
+    stepper: &S,
+    roots: Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    detach: F,
+) -> Vec<ClosureStep<S::Key, S::Priority, X, S::Error, S::Account>>
+where
+    S: OrderedStepper,
+    X: Send,
+    F: Fn(
+            &S::Key,
+            &OrderedPosition<S::Priority>,
+            OrderedStep<S::Key>,
+            &mut Vec<(S::Key, OrderedPosition<S::Priority>)>,
+        ) -> X
+        + Sync
+        + Send,
+{
+    let stats = super::parstats::enabled();
+    let counters = stats.then(WindowCounters::default);
+    let started = stats.then(std::time::Instant::now);
+    let detached = close_window(workers, stepper, roots, counters.as_ref(), detach);
+    if let (Some(started), Some(counters)) = (started, &counters) {
+        use super::parstats::{SOURCE, nanos};
+        SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+        SOURCE
+            .window_nanos
+            .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+        SOURCE
+            .computed
+            .fetch_add(detached.len() as u64, Ordering::Relaxed);
+        SOURCE.step_nanos.fetch_add(
+            counters.step_nanos.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+    detached
+        .into_iter()
+        .map(|step| ClosureStep {
+            key: step.key,
+            position: step.position,
+            result: step.result,
+            account: Some(step.account),
+        })
+        .collect()
+}
+
 /// Window threshold comparison: `true` iff a same-phase key with this
 /// position is popped before `threshold` (or is `threshold`).
-fn at_or_above<K: Ord, P: Ord>(
+pub(super) fn at_or_above<K: Ord, P: Ord>(
     position: &OrderedPosition<P>,
     key: &K,
     threshold: &Scheduled<K, P>,

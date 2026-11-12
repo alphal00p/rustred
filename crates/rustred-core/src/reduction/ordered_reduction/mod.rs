@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, btree_map};
 pub(crate) mod arithmetic;
 pub mod composition;
 mod frontier;
+mod layered;
 pub(crate) mod memstats;
 mod modular;
 mod parallel;
@@ -1021,6 +1022,8 @@ struct TailOptions {
     prestage: bool,
     /// rr-par2: the scheduler reads step coefficients through their ids only.
     hollow: bool,
+    /// fwd-opt: TFORM-style layered forward pass (`layered`).
+    layered: bool,
 }
 
 impl TailOptions {
@@ -1047,6 +1050,7 @@ impl TailOptions {
             par_replay: tuning.par_replay,
             prestage: tuning.prestage && tuning.pipeline && threads > 1,
             hollow: tuning.hollow,
+            layered: tuning.layered,
         }
     }
 }
@@ -1119,6 +1123,18 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
     scheduler.validate()?;
     let scheduler = scheduler.resolve_profile(OrderedProfile::Generic);
     let tail = TailOptions::of(&scheduler, scheduler.threads);
+    // fwd-opt: the layered mode runs the same algorithm at every thread count.
+    if layered::eligible(kernel, &arithmetic, &tail) {
+        return layered::run(
+            kernel,
+            request,
+            initial,
+            nonzero_conditions,
+            arithmetic,
+            scheduler.threads,
+            tail,
+        );
+    }
     if scheduler.threads == 1 || kernel.limits().diagnostics_enabled || kernel.stepper().is_none() {
         return run_sequential(
             kernel,

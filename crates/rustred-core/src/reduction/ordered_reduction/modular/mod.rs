@@ -166,6 +166,17 @@ pub(super) struct Op {
 }
 
 impl Op {
+    /// fwd-opt: an op of the layered mode whose coefficient is still a raw
+    /// shared-table id (`ModularRecorder::layered_map_refs` numbers it).
+    pub(super) fn layered(tag: OpTag, slot: u32, raw: u32) -> Self {
+        Self::new(tag, slot, CoefRef(raw))
+    }
+
+    /// fwd-opt: an op without a coefficient (`Pop`, `Cancel`, `TermCancel`).
+    pub(super) fn bare(tag: OpTag, slot: u32) -> Self {
+        Self::new(tag, slot, CoefRef(CONSTANT_FLAG))
+    }
+
     fn new(tag: OpTag, slot: u32, coefficient: CoefRef) -> Self {
         Self {
             word: ((tag as u32) << SLOT_BITS) | slot,
@@ -1233,6 +1244,111 @@ pub(crate) enum Finished {
     Terminals(BTreeMap<IntegralKey, Coefficient>),
     /// The composed outputs of the caller's plan.
     Composed(ComposedTerminals),
+}
+
+/// fwd-opt: the probe values of one weight or coefficient (layered mode).
+pub(crate) type Probe = [Fe; PROBES];
+
+/// fwd-opt: the probe field, for zero decisions taken off the recorder
+/// (layered mode: shard-wise merges on the workers).
+#[derive(Clone)]
+pub(crate) struct ProbeField(Zp64);
+
+impl ProbeField {
+    /// `weight * coefficient`, probe by probe.
+    #[inline]
+    pub(crate) fn scale(&self, weight: &Probe, coefficient: &Probe) -> Probe {
+        std::array::from_fn(|i| self.0.mul(&weight[i], &coefficient[i]))
+    }
+
+    /// `existing += added`; whether every probe of the sum is zero (the
+    /// recorder's `merge` decision).
+    #[inline]
+    pub(crate) fn add_is_zero(&self, existing: &mut Probe, added: &Probe) -> bool {
+        for (value, added) in existing.iter_mut().zip(added) {
+            *value = self.0.add(&*value, added);
+        }
+        existing.iter().all(|value| self.0.is_zero(value))
+    }
+}
+
+impl ModularWeight {
+    /// fwd-opt: a weight held in `slot` with probe values `probe` (layered
+    /// mode: slots are numbered by the layered frontier's shards).
+    pub(crate) fn layered(slot: u32, probe: Probe) -> Self {
+        Self { slot, probe }
+    }
+
+    pub(crate) fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    pub(crate) fn probe(&self) -> &Probe {
+        &self.probe
+    }
+
+    pub(crate) fn probe_mut(&mut self) -> &mut Probe {
+        &mut self.probe
+    }
+}
+
+impl SharedIntern {
+    /// fwd-opt: [`Self::id`] and the probe values of the value (zero
+    /// probes when the value fails validation or its probe: the recorder
+    /// reports that error when the sequence reaches the id).
+    pub(crate) fn id_probe(&self, coefficient: &Coefficient, hash: u64) -> (u32, Probe) {
+        let id = self.id(coefficient, hash);
+        let shard = id as usize & (INTERN_SHARDS - 1);
+        let guard = self.lock(shard);
+        let probe = match &guard.entries[(id >> INTERN_SHARD_BITS) as usize].probe {
+            Ok((_, values)) => *values,
+            Err(_) => [self.probe_field.zero(); PROBES],
+        };
+        (id, probe)
+    }
+}
+
+impl ModularRecorder {
+    /// fwd-opt: the probe field of this recorder.
+    pub(crate) fn probe_field(&self) -> ProbeField {
+        ProbeField(self.probe_field.clone())
+    }
+
+    /// fwd-opt: frontier slots `0..slots` may be live (layered mode).
+    pub(crate) fn layered_slots(&mut self, slots: u32) {
+        self.next_slot = self.next_slot.max(slots);
+    }
+
+    /// fwd-opt: terminal accumulators `0..slots` were used (layered mode).
+    pub(crate) fn layered_terminal_slots(&mut self, slots: u32) {
+        self.terminal_slots = self.terminal_slots.max(slots);
+    }
+
+    /// fwd-opt: `len` more ops (placeholders), to be written by the caller.
+    pub(super) fn layered_append(&mut self, len: usize) -> &mut [Op] {
+        let start = self.ops.len();
+        self.ops.resize(start + len, Op::bare(OpTag::Pop, 0));
+        &mut self.ops[start..]
+    }
+
+    /// fwd-opt: number the raw shared-table ids of `ops[from..]` in sequence
+    /// order (first occurrence), as `scale_interned` numbers them inline.
+    pub(super) fn layered_map_refs(&mut self, from: usize) -> Result<(), ReductionError> {
+        let mut ops = std::mem::take(&mut self.ops);
+        let result = (|| {
+            for op in &mut ops[from..] {
+                if matches!(
+                    op.tag(),
+                    OpTag::Init | OpTag::New | OpTag::Add | OpTag::TermNew | OpTag::TermAdd
+                ) {
+                    op.coefficient = self.intern_id(op.coefficient.0)?;
+                }
+            }
+            Ok(())
+        })();
+        self.ops = ops;
+        result
+    }
 }
 
 impl ModularRecorder {
