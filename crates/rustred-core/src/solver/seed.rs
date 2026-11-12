@@ -18,18 +18,51 @@ pub enum CaseSeedSchedule {
         axis_priority: Vec<usize>,
         positive_first: bool,
     },
+    /// seed-pose (p-integral R3a): first every seed that moves ONLY symbolic (free) coordinates, in increasing L1
+    /// shells up to `symbolic_depth` (numeric coordinates, i.e. dots of lines and numerators of ISPs fixed by the
+    /// case, stay at their case value); then, when `then_full`, the complete Reference stream up to `last_depth`
+    /// without the seeds already offered. Axis priority / sign order as in `ShiftShells`. Rationale: the rows of
+    /// numeric-moving seeds (dots on boundary lines, numerators on zero ISPs) carry the hardest keys; offered first
+    /// they become the GPLU pivots that every later row is reduced against, so the first matching pivot's trace
+    /// closure drags them in (T162: 1,268 rows / degree 18 vs 39 rows / degree 2 without them).
+    SymbolicShells {
+        symbolic_depth: u32,
+        then_full: bool,
+        last_depth: u32,
+        axis_priority: Vec<usize>,
+        positive_first: bool,
+    },
 }
 
 impl CaseSeedSchedule {
+    /// The last shell this schedule searches (None = unbounded Reference).
+    pub fn last_depth(&self) -> Option<u32> {
+        match self {
+            Self::Reference => None,
+            Self::ShiftShells { last_depth, .. } => Some(*last_depth),
+            Self::SymbolicShells {
+                symbolic_depth,
+                then_full,
+                last_depth,
+                ..
+            } => Some(if *then_full {
+                (*last_depth).max(*symbolic_depth)
+            } else {
+                *symbolic_depth
+            }),
+        }
+    }
+
     pub fn validate(&self, arity: usize) -> Result<(), SolverError> {
-        let Self::ShiftShells {
-            first_depth,
-            last_depth,
-            axis_priority,
-            ..
-        } = self
-        else {
-            return Ok(());
+        let (first_depth, last_depth, axis_priority) = match self {
+            Self::Reference => return Ok(()),
+            Self::ShiftShells {
+                first_depth,
+                last_depth,
+                axis_priority,
+                ..
+            } => (first_depth, last_depth, axis_priority),
+            Self::SymbolicShells { axis_priority, .. } => (&0, &0, axis_priority),
         };
         if first_depth > last_depth {
             return Err(SolverError::InvalidInput(
@@ -264,6 +297,9 @@ pub enum SeedSchedule {
     /// value (numerator powers): (dots, numerators) ascending, stable in the SpIRed chronology. p5l-lift-trace (T159, T244):
     /// the corner pivot is reached with a 10-20x smaller trace whose exact lift is instantaneous.
     SymbolicFirst,
+    /// seed-pose: within each L1 shell, symbolic-only seeds first, then by (numerators, dots) ascending: dot moves
+    /// BEFORE numerator moves (the mirror of `SymbolicFirst` for cases whose free axes are lines).
+    DotsFirst,
 }
 
 /// A seed stream that reports the L1 shell of its most recently emitted seed.
@@ -366,7 +402,14 @@ impl<const N: usize, I: ShellSeedSource<N>> ScheduledSeeds<N, I> {
                 None => break,
             }
         }
-        shell.sort_by_key(|s| self.key(s));
+        if self.schedule == SeedSchedule::DotsFirst {
+            shell.sort_by_key(|s| {
+                let (dots, numerators) = self.key(s);
+                (dots + numerators > 0, numerators, dots)
+            });
+        } else {
+            shell.sort_by_key(|s| self.key(s));
+        }
         self.shell_depth = depth;
         self.shell = shell.into();
     }
@@ -397,6 +440,20 @@ pub(super) struct CaseSeedStream<const N: usize> {
     inner: Seeds<N>,
     first_depth: u32,
     search_max_depth: Option<u32>,
+    /// SymbolicShells: Some((symbolic_depth, then_full, fresh full stream)) while in the symbolic-only phase.
+    symbolic: Option<(u32, bool, Seeds<N>)>,
+    /// SymbolicShells phase 2: skip symbolic-only seeds of depth <= this (already offered).
+    skip_symbolic_upto: Option<u32>,
+}
+
+impl<const N: usize> Seeds<N> {
+    /// True when the current seed moves no numeric coordinate.
+    fn symbolic_only(&self, seed: &Seed<N>) -> bool {
+        (0..N).all(|i| {
+            let p = self.initial[i];
+            p.is_symbolic() || seed.integral[i].value() == p.value()
+        })
+    }
 }
 
 impl<const N: usize> CaseSeedStream<N> {
@@ -410,25 +467,43 @@ impl<const N: usize> CaseSeedStream<N> {
         schedule.validate(N)?;
         let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided);
         let mut first_depth = 0;
-        if let CaseSeedSchedule::ShiftShells {
-            first_depth: first,
-            axis_priority,
-            positive_first,
-            ..
-        } = schedule
-        {
-            first_depth = *first;
-            inner.positive_first = *positive_first;
+        let mut symbolic = None;
+        let arrange = |inner: &mut Seeds<N>, axis_priority: &[usize], positive_first: bool| {
+            inner.positive_first = positive_first;
             let mut priorities = [0; N];
             for (priority, &axis) in axis_priority.iter().enumerate() {
                 priorities[axis] = priority;
             }
             inner.active[..inner.active_count].sort_by_key(|&axis| priorities[axis]);
+        };
+        match schedule {
+            CaseSeedSchedule::Reference => {}
+            CaseSeedSchedule::ShiftShells {
+                first_depth: first,
+                axis_priority,
+                positive_first,
+                ..
+            } => {
+                first_depth = *first;
+                arrange(&mut inner, axis_priority, *positive_first);
+            }
+            CaseSeedSchedule::SymbolicShells {
+                symbolic_depth,
+                then_full,
+                axis_priority,
+                positive_first,
+                ..
+            } => {
+                arrange(&mut inner, axis_priority, *positive_first);
+                symbolic = Some((*symbolic_depth, *then_full, inner.clone()));
+            }
         }
         Ok(Self {
             inner,
             first_depth,
             search_max_depth: None,
+            symbolic,
+            skip_symbolic_upto: None,
         })
     }
 
@@ -446,8 +521,33 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
     type Item = Result<Seed<N>, PowerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // SymbolicShells phase 1: symbolic-only seeds up to the symbolic depth; then the full stream (phase 2)
+        // without them. Depths reported by `depth()` are those of the current phase's stream.
+        while let Some((depth_cap, then_full, _)) = self.symbolic.as_ref().map(|s| (s.0, s.1, ())) {
+            match self.inner.next() {
+                Some(Ok(seed)) if self.inner.depth() <= depth_cap => {
+                    if self.inner.symbolic_only(&seed) {
+                        return Some(Ok(seed));
+                    }
+                }
+                Some(Err(e)) => return Some(Err(e)),
+                _ => {
+                    let (_, _, fresh) = self.symbolic.take().expect("phase 1");
+                    if !then_full {
+                        return None;
+                    }
+                    self.inner = fresh;
+                    self.skip_symbolic_upto = Some(depth_cap);
+                }
+            }
+        }
         loop {
             let seed = self.inner.next()?;
+            if let (Some(cap), Ok(s)) = (self.skip_symbolic_upto, &seed) {
+                if self.inner.depth() <= cap && self.inner.symbolic_only(s) {
+                    continue;
+                }
+            }
             // Expose the first over-budget shell to the caller's existing
             // depth check, rather than filtering up to a larger first_depth.
             if self
