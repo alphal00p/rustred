@@ -358,6 +358,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                                 discovery: probe.as_ref().map(|p| p.discovery.stats()),
                                 ..Default::default()
                             },
+                                hidden_poles: Vec::new(),
                         });
                         stats.direct_rules += 1;
                         pending[index] = false;
