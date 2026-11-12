@@ -66,6 +66,9 @@ pub struct ReplayArgs {
     pub box_size: usize,
     /// Cap on box points per rule (deterministic lexicographic prefix; the record says when it was hit).
     pub box_max: usize,
+    /// guard-fix --dump-weights: per cell also write `weights-<d>.json` (source rows, pivot rows, nonzero weights mod
+    /// P, column keys, zero-sector keys, desired row) for the exact upgrade of a modular PASS (helper Y24).
+    pub dump_weights: bool,
 }
 
 impl ReplayArgs {
@@ -1233,6 +1236,132 @@ pub struct Span {
     pub rank: usize,
     pub weights: BTreeMap<usize, u64>,
     pub remainder: Vec<(usize, u64)>,
+    /// source row index of every pivot, in elimination order (guard-fix --dump-weights)
+    pub pivot_rows: Vec<usize>,
+}
+
+fn sparse_subtract(p: u64, a: &[(usize, u64)], b: &[(usize, u64)], f: u64) -> Vec<(usize, u64)> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        if j == b.len() || (i < a.len() && a[i].0 < b[j].0) {
+            out.push(a[i]);
+            i += 1;
+        } else if i == a.len() || b[j].0 < a[i].0 {
+            let v = arith::mul(p, f, b[j].1);
+            if v != 0 {
+                out.push((b[j].0, p - v));
+            }
+            j += 1;
+        } else {
+            let v = arith::sub(p, a[i].1, arith::mul(p, f, b[j].1));
+            if v != 0 {
+                out.push((a[i].0, v));
+            }
+            i += 1;
+            j += 1;
+        }
+    }
+    out
+}
+
+/// The row echelon form of the replay rows (insertion order), reusable for several desired vectors
+/// (the rule row and its re-solved mutants).
+pub struct Elim<'r> {
+    rows: &'r [Vec<(usize, u64)>],
+    prime: u64,
+    ps: Vec<ElimPivot>,
+    bycol: Vec<Option<usize>>,
+}
+
+struct ElimPivot {
+    row: Vec<(usize, u64)>,
+    source: usize,
+    inverse: u64,
+    deps: Vec<(usize, u64)>,
+}
+
+impl<'r> Elim<'r> {
+    pub fn new(rows: &'r [Vec<(usize, u64)>], ncols: usize, prime: u64) -> Result<Self, Unknown> {
+        let mut ps: Vec<ElimPivot> = Vec::new();
+        let mut bycol: Vec<Option<usize>> = vec![None; ncols];
+        for (rid, original) in rows.iter().enumerate() {
+            let mut r = original.clone();
+            let mut deps = Vec::new();
+            while let Some(&(c, f)) = r.first() {
+                let Some(k) = bycol[c] else { break };
+                deps.push((k, f));
+                r = sparse_subtract(prime, &r, &ps[k].row, f);
+            }
+            if let Some(&(c, lead)) = r.first() {
+                let iv = arith::inv(prime, lead).ok_or("zero inversion")?;
+                for t in r.iter_mut() {
+                    t.1 = arith::mul(prime, t.1, iv);
+                }
+                bycol[c] = Some(ps.len());
+                ps.push(ElimPivot {
+                    row: r,
+                    source: rid,
+                    inverse: iv,
+                    deps,
+                });
+            }
+        }
+        Ok(Elim {
+            rows,
+            prime,
+            ps,
+            bycol,
+        })
+    }
+
+    pub fn rank(&self) -> usize {
+        self.ps.len()
+    }
+
+    pub fn solve(&self, desired: &[(usize, u64)]) -> Result<Span, Unknown> {
+        let p = self.prime;
+        let mut rem = desired.to_vec();
+        let mut alpha = vec![0u64; self.ps.len()];
+        while let Some(&(c, f)) = rem.first() {
+            let Some(k) = self.bycol.get(c).copied().flatten() else {
+                break;
+            };
+            alpha[k] = arith::add(p, alpha[k], f);
+            rem = sparse_subtract(p, &rem, &self.ps[k].row, f);
+        }
+        let mut weights = vec![0u64; self.rows.len()];
+        for i in (0..self.ps.len()).rev() {
+            let w = arith::mul(p, alpha[i], self.ps[i].inverse);
+            weights[self.ps[i].source] = arith::add(p, weights[self.ps[i].source], w);
+            for &(j, f) in &self.ps[i].deps {
+                if j >= i {
+                    return Err("non-DAG dependency".into());
+                }
+                alpha[j] = arith::sub(p, alpha[j], arith::mul(p, w, f));
+            }
+        }
+        let mut replay = desired.to_vec();
+        for (j, w) in weights.iter().enumerate() {
+            if *w != 0 {
+                replay = sparse_subtract(p, &replay, &self.rows[j], *w);
+            }
+        }
+        if replay != rem {
+            return Err("independent original-row product differs from elimination remainder".into());
+        }
+        Ok(Span {
+            in_span: rem.is_empty(),
+            rank: self.ps.len(),
+            weights: weights
+                .into_iter()
+                .enumerate()
+                .filter(|(_, w)| *w != 0)
+                .collect(),
+            remainder: rem,
+            pivot_rows: self.ps.iter().map(|q| q.source).collect(),
+        })
+    }
 }
 
 pub fn span(
@@ -1240,97 +1369,7 @@ pub fn span(
     desired: &[(usize, u64)],
     ncols: usize,
 ) -> Result<Span, Unknown> {
-    fn subtract(a: &[(usize, u64)], b: &[(usize, u64)], f: u64) -> Vec<(usize, u64)> {
-        let mut out = Vec::with_capacity(a.len() + b.len());
-        let (mut i, mut j) = (0, 0);
-        while i < a.len() || j < b.len() {
-            if j == b.len() || (i < a.len() && a[i].0 < b[j].0) {
-                out.push(a[i]);
-                i += 1;
-            } else if i == a.len() || b[j].0 < a[i].0 {
-                let v = arith::mul(P, f, b[j].1);
-                if v != 0 {
-                    out.push((b[j].0, P - v));
-                }
-                j += 1;
-            } else {
-                let v = arith::sub(P, a[i].1, arith::mul(P, f, b[j].1));
-                if v != 0 {
-                    out.push((a[i].0, v));
-                }
-                i += 1;
-                j += 1;
-            }
-        }
-        out
-    }
-    struct Pivot {
-        row: Vec<(usize, u64)>,
-        source: usize,
-        inverse: u64,
-        deps: Vec<(usize, u64)>,
-    }
-    let mut ps: Vec<Pivot> = Vec::new();
-    let mut bycol: Vec<Option<usize>> = vec![None; ncols];
-    for (rid, original) in rows.iter().enumerate() {
-        let mut r = original.clone();
-        let mut deps = Vec::new();
-        while let Some(&(c, f)) = r.first() {
-            let Some(k) = bycol[c] else { break };
-            deps.push((k, f));
-            r = subtract(&r, &ps[k].row, f);
-        }
-        if let Some(&(c, lead)) = r.first() {
-            let iv = arith::inv(P, lead).ok_or("zero inversion")?;
-            for t in r.iter_mut() {
-                t.1 = arith::mul(P, t.1, iv);
-            }
-            bycol[c] = Some(ps.len());
-            ps.push(Pivot {
-                row: r,
-                source: rid,
-                inverse: iv,
-                deps,
-            });
-        }
-    }
-    let mut rem = desired.to_vec();
-    let mut alpha = vec![0u64; ps.len()];
-    while let Some(&(c, f)) = rem.first() {
-        let Some(k) = bycol[c] else { break };
-        alpha[k] = arith::add(P, alpha[k], f);
-        rem = subtract(&rem, &ps[k].row, f);
-    }
-    let mut weights = vec![0u64; rows.len()];
-    for i in (0..ps.len()).rev() {
-        let w = arith::mul(P, alpha[i], ps[i].inverse);
-        weights[ps[i].source] = arith::add(P, weights[ps[i].source], w);
-        for &(j, f) in &ps[i].deps {
-            if j >= i {
-                return Err("non-DAG dependency".into());
-            }
-            alpha[j] = arith::sub(P, alpha[j], arith::mul(P, w, f));
-        }
-    }
-    let mut replay = desired.to_vec();
-    for (j, w) in weights.iter().enumerate() {
-        if *w != 0 {
-            replay = subtract(&replay, &rows[j], *w);
-        }
-    }
-    if replay != rem {
-        return Err("independent original-row product differs from elimination remainder".into());
-    }
-    Ok(Span {
-        in_span: rem.is_empty(),
-        rank: ps.len(),
-        weights: weights
-            .into_iter()
-            .enumerate()
-            .filter(|(_, w)| *w != 0)
-            .collect(),
-        remainder: rem,
-    })
+    Elim::new(rows, ncols, P)?.solve(desired)
 }
 
 struct Ctx<'a> {
@@ -1568,8 +1607,12 @@ fn replay_point(
     }
     let (rc, cells) = last.ok_or("no recenter candidate replayed")?;
     let pass = cells.iter().all(|c| c["result"] == "PASS");
+    let fail = cells.iter().any(|c| c["result"] == "FAIL");
+    // FAIL = the rule row is not in the span of these seeds' rows at this point (not derived from these seeds; NOT a
+    // statement that the rule is false). CONTROL_FAILED = in the span, but so is the re-solved +1 mutant: no content.
     Ok(json!({
-        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
+        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else if fail { "FAIL_RS2_RS3_SAMPLED" } else { "UNKNOWN_CONTROL_FAILED" },
+        "fail_meaning": "FAIL = not derived from these seeds at this point (mod-P span test); not evidence that the rule is false",
         "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
         "recenter_tried": tried,
         "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
@@ -1683,7 +1726,9 @@ fn replay_cells(
             es
         };
         let enc_rows: Vec<Vec<(usize, u64)>> = built.rows.iter().map(enc).collect();
-        let sp = span(&enc_rows, &enc(&desired), columns.len())?;
+        let elim = Elim::new(&enc_rows, columns.len(), P)?;
+        let enc_desired = enc(&desired);
+        let sp = elim.solve(&enc_desired)?;
         let mut raw = desired.clone();
         for (i, w) in &sp.weights {
             for (k, v) in &built.rows[*i] {
@@ -1709,25 +1754,57 @@ fn replay_cells(
             .zip(&values)
             .position(|(k, v)| !zeros.contains(k) && *v != 0)
             .ok_or("no nonzero non-scaleless RHS coefficient for required +1 mutation")?;
-        let mut mutant = raw.clone();
-        addto(&mut mutant, rhskeys[mutidx].clone(), P - 1);
-        let mutbad: Row = strip(&mutant)
-            .into_iter()
-            .filter(|(k, _)| !zeros.contains(k))
-            .collect();
-        let ok = sp.in_span && bad.is_empty() && !mutbad.is_empty();
+        // guard-fix (Y24): the +1 mutant is RE-SOLVED against the same echelon form (rule + delta e_k in the span?).
+        // A PASS cell whose mutant is also in the span has no content (the RHS integral k itself lies in the span).
+        let mut mutant_desired = desired.clone();
+        addto(&mut mutant_desired, rhskeys[mutidx].clone(), P - 1);
+        let mutant_span = elim.solve(&enc(&mutant_desired))?;
+        let mutant_rejected = !mutant_span.in_span;
+        let nonzero_sector_columns = columns.len() - zeros.len();
+        let content = sp.rank < nonzero_sector_columns;
+        let ok = sp.in_span && bad.is_empty() && mutant_rejected;
         let label = ds.replace('/', "_");
         let cell = json!({
             "dimension": ds, "prime": P, "point": point, "target": target, "recenter": rc, "source_rows": built.rows.len(),
             "rhs_terms": rhskeys.len(), "full_column_universe": columns.len(), "zero_sector_columns": zeros.len(),
+            "nonzero_sector_columns": nonzero_sector_columns,
+            "rank_below_nonzero_sector_columns": content,
             "raw_residual": entries(&raw), "nonzero_sector_residual": entries(&bad),
-            "mutation": {"rhs_index": mutidx, "coefficient_delta": 1, "same_recomputed_witness": true, "re_solved": false, "rejected": !mutbad.is_empty()},
+            "mutation": {"rhs_index": mutidx, "coefficient_delta": 1, "same_recomputed_witness": false, "re_solved": true, "rejected": mutant_rejected},
             "elimination": {"status": if sp.in_span { "IN_SPAN" } else { "NOT_IN_SPAN" }, "rank": sp.rank, "weights": sp.weights.len()},
         });
         let cp = out.join(format!("cell-{label}.json"));
         std::fs::write(&cp, serde_json::to_string_pretty(&cell).unwrap() + "\n")
             .map_err(|e| e.to_string())?;
-        let summary = json!({"dimension": ds, "result": if ok { "PASS" } else { "FAIL" }, "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": !mutbad.is_empty()});
+        if ctx.args.dump_weights {
+            // guard-fix --dump-weights (Y24 exact upgrade): every source row (index, absolute seed, operator / basis
+            // row), the pivot rows, the nonzero weights mod P, the column keys, the zero-sector keys and the desired
+            // rule row mod P (target +1, RHS -c_i), all in the column numbering of this cell.
+            let row_entries: Vec<Value> = built
+                .labels
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    let mut v = l.clone();
+                    v["row"] = json!(i);
+                    v
+                })
+                .collect();
+            let weights: Vec<Value> = sp.weights.iter().map(|(i, w)| json!([i, w.to_string()])).collect();
+            let desired_cols: Vec<Value> = enc_desired.iter().map(|(c, v)| json!([c, v.to_string()])).collect();
+            let zero_keys: Vec<&Key> = zeros.iter().collect();
+            let dump = json!({
+                "schema": "guard-fix.replay-weights.v1", "prime": P.to_string(), "dimension": ds, "dimension_mod_p": d.to_string(),
+                "point": point, "target": target, "recenter": rc, "chart": rule.chart, "rule": rule.index,
+                "rows": row_entries, "pivot_rows": sp.pivot_rows, "rank": sp.rank,
+                "weights": weights, "weights_note": "weights[i] = [row, w mod P as decimal string]; desired - sum w_i row_i = 0 on every nonzero-sector column",
+                "columns": columns, "zero_sector_keys": zero_keys, "desired": desired_cols,
+                "in_span": sp.in_span,
+            });
+            let wp = out.join(format!("weights-{label}.json"));
+            std::fs::write(&wp, serde_json::to_string(&dump).unwrap() + "\n").map_err(|e| e.to_string())?;
+        }
+        let summary = json!({"dimension": ds, "result": if ok { "PASS" } else if !(sp.in_span && bad.is_empty()) { "FAIL" } else { "CONTROL_FAILED" }, "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "nonzero_sector_columns": nonzero_sector_columns, "rank_below_nonzero_sector_columns": content, "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": mutant_rejected, "mutation_re_solved": true});
         eprintln!(
             "{}",
             json!({"stage": "cell_complete", "chart": rule.chart, "rule": rule.index, "cell": summary})

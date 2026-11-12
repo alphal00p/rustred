@@ -4249,6 +4249,7 @@ mod tests {
                 loci: None,
                 box_size: 0,
                 box_max: 0,
+                dump_weights: false,
             };
             let (status, doc) = crate::node::replay::run(&args).unwrap();
             assert_eq!(
@@ -4309,6 +4310,7 @@ mod tests {
             loci: None,
             box_size: 0,
             box_max: 0,
+                dump_weights: false,
         };
         let (status, _) = crate::node::replay::run(&args).unwrap();
         assert_eq!(status, "FAIL");
@@ -4380,6 +4382,7 @@ mod tests {
             loci: None,
             box_size: 0,
             box_max: 0,
+                dump_weights: false,
         };
         crate::node::replay::run(&args).unwrap().0
     }

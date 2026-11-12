@@ -15,7 +15,8 @@
 //!   suspect, off exceptions and RHS poles) and the replay of [`super`] at that point with ALL original IBP rows at
 //!   the exported seeds (3 d, mod P, +1 mutation control).
 //!
-//! Verdict per rule: FAIL (some flat fails: that point is a counterexample of the rule), PASS_ALL_FLATS (every flat
+//! Verdict per rule: FAIL (some flat fails: at that point the rule is NOT DERIVED FROM THESE SEEDS; not evidence that
+//! it is false), PASS_ALL_FLATS (every flat
 //! passes; `_CAPPED` when the flat cap was hit), UNKNOWN (no control point, a replay refused, or a malformed
 //! rule). PASS_ALL_FLATS is a complete validity statement for the case only under Conjecture C (every codim-1 rank
 //! drop of the full seed system that is not an RHS pole lies on S); a FAIL needs no conjecture.
@@ -733,6 +734,7 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         loci: None,
         box_size: 0,
         box_max: 0,
+        dump_weights: false,
     };
     let ctx = Ctx {
         args: &rargs,
@@ -868,7 +870,7 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
     let summary = json!({"schema": "rustred.locus-rank.v1", "tool": VERSION, "table": args.table, "status": status,
         "rules": rules.len(), "verdicts": counts, "dimensions": args.dimensions, "prime": P,
         "seconds": started.elapsed().as_secs_f64(),
-        "scope": "FAIL = counterexample point (mod-P span test, 3 d). PASS_ALL_FLATS = every seed-coordinate flat passes at a generic point; complete for the case only under Conjecture C (notes/guard-theory.md)."});
+        "scope": "FAIL = a point where the rule is not derived from these seeds (mod-P span test); not evidence that the rule is false. PASS_ALL_FLATS = PASS on generic points of the tested flats only (Monte-Carlo evidence, not a certificate); the suspect list is not complete (helper Y1/Y11)."});
     std::fs::write(args.out.join("SUMMARY.json"), serde_json::to_string_pretty(&summary).unwrap() + "\n")
         .map_err(|e| e.to_string())?;
     Ok((status, summary))

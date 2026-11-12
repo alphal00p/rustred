@@ -28,6 +28,7 @@
 //!                  [--bindings B.json] [--rules all|0-9,12] [--chart MASK] [--dimensions 17/7 19/7 23/7] [--sample-attempts 128]
 //!                  [--extra-points K] [--loci LOCI.jsonl] [--box K [--box-max M]]   (guard-fix: more points per rule; one point ON each
 //!                  listed locus; every valid case point with free coordinates in the box |n| <= K, at most M = 2000)
+//!                  [--dump-weights]   (per cell weights-<d>.json: rows, pivot rows, weights mod P, columns, zero keys)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
@@ -575,6 +576,7 @@ fn cmd_replay(mut a: Args) -> i32 {
         loci: a.take("--loci").map(PathBuf::from),
         box_size: a.parse("--box").unwrap_or(0),
         box_max: a.parse("--box-max").unwrap_or(2000),
+        dump_weights: a.flag("--dump-weights"),
     };
     a.done();
     let (status, result) = replay::run(&args).unwrap_or_else(|e| die(&e));
