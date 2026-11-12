@@ -62,6 +62,16 @@ pub(crate) trait OrderedStepCacheKernel: OrderedKernel {
     fn step_cache_hit(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
         Ok(())
     }
+    /// Re-derive the parts of a replayed step that depend on program data a
+    /// shared (forked) cache may predate (dry census, R4a: the orbit
+    /// representatives of children of owners whose order changed). The
+    /// default returns the step unchanged.
+    fn step_cache_refresh(
+        &self,
+        step: OrderedStep<Self::Key>,
+    ) -> Result<OrderedStep<Self::Key>, Self::Error> {
+        Ok(step)
+    }
 }
 
 /// The cache hooks of a concurrent adapter, evaluated on the scheduler's
@@ -294,7 +304,7 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
             })?;
         let record = match lookup {
             Lookup::Hit(step) => {
-                let step = step?;
+                let step = self.inner.step_cache_refresh(step?)?;
                 self.counters.hits += 1;
                 self.inner.step_cache_hit(key)?;
                 return Ok(step);
