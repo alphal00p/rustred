@@ -73,6 +73,369 @@ impl CaseSeedPriority {
     }
 }
 
+/// An immutable, caller-declared terminal ledger. Reading computes the SHA256 of the actual file;
+/// neither a declaration nor its source references prove that an integral is a master.
+#[derive(Clone, Debug)]
+pub struct KnownTerminalsFile {
+    path: String,
+    sha256: String,
+    ledger: TerminalLedger,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TerminalLedger {
+    schema: String,
+    frame: TerminalFrame,
+    original_family_source_sha256: String,
+    node_order: serde_json::Value,
+    chart_presented: String,
+    terminals: Vec<TerminalDeclaration>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+enum TerminalFrame {
+    ORIGINAL,
+    PRESENTED,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TerminalDeclaration {
+    powers: Vec<i64>,
+    sources: Vec<TerminalSource>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalSource {
+    kind: TerminalSourceKind,
+    reference: String,
+    sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum TerminalSourceKind {
+    #[serde(rename = "old-table-master")]
+    OldTableMaster,
+    #[serde(rename = "exact-master-map")]
+    ExactMasterMap,
+    #[serde(rename = "lp-count")]
+    LpCount,
+}
+
+impl KnownTerminalsFile {
+    pub fn read(path: impl AsRef<Path>) -> Result<Self, String> {
+        let path = path.as_ref();
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("known terminals {}: {e}", path.display()))?;
+        let ledger: TerminalLedger =
+            serde_json::from_slice(&bytes).map_err(|e| format!("known terminals: {e}"))?;
+        let valid_hash = |s: &str| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit());
+        if ledger.schema != "rustred.node.known-terminals.v1" || ledger.terminals.is_empty() {
+            return Err("known terminals: unsupported schema or empty ledger".into());
+        }
+        if !valid_hash(&ledger.original_family_source_sha256) {
+            return Err("known terminals: malformed family SHA256".into());
+        }
+        for t in &ledger.terminals {
+            if t.sources.is_empty()
+                || t.sources
+                    .iter()
+                    .any(|s| s.reference.trim().is_empty() || !valid_hash(&s.sha256))
+            {
+                return Err("known terminals: every key requires nonempty typed source references and SHA256".into());
+            }
+        }
+        Ok(Self {
+            path: path.display().to_string(),
+            sha256: terminal_sha256(&bytes),
+            ledger,
+        })
+    }
+}
+
+impl Serialize for KnownTerminalsFile {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.path)
+    }
+}
+
+impl<'de> Deserialize<'de> for KnownTerminalsFile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let path = String::deserialize(deserializer)?;
+        Self::read(path).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Residual authority for active ledgers, explicitly separate from native master discovery.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeclaredTerminalLedger {
+    authority: String,
+    file: String,
+    file_sha256: String,
+    input_frame: String,
+    chart_presented: String,
+    terminals: Vec<DeclaredTerminal>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct DeclaredTerminal {
+    key: String,
+    powers_presented: Vec<i64>,
+    sources: Vec<TerminalSource>,
+}
+
+impl KnownTerminalsFile {
+    fn bind<const N: usize>(
+        &self,
+        original: &str,
+        opts: &NodeOptions,
+        sector: &[bool; N],
+        n: usize,
+    ) -> Result<DeclaredTerminalLedger, String> {
+        let l = &self.ledger;
+        if !l
+            .original_family_source_sha256
+            .eq_ignore_ascii_case(&terminal_sha256(original.as_bytes()))
+            || l.node_order != serde_json::to_value(&opts.order).map_err(|e| e.to_string())?
+            || l.chart_presented != mask_string(&sector[..n])
+        {
+            return Err(
+                "known terminals: original family, node order or presented chart differs".into(),
+            );
+        }
+        let mut terminals = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for t in &l.terminals {
+            if t.powers.len() != n {
+                return Err("known terminals: key arity differs".into());
+            }
+            let values: Vec<i64> = match l.frame {
+                TerminalFrame::PRESENTED => t.powers.clone(),
+                TerminalFrame::ORIGINAL => match &opts.order.slot_permutation {
+                    Some(p) => p.iter().map(|&i| t.powers[i]).collect(),
+                    None => t.powers.clone(),
+                },
+            };
+            if values.iter().enumerate().any(|(i, &v)| {
+                !(crate::solver::Power::MIN as i64..=crate::solver::Power::MAX as i64).contains(&v)
+                    || (v > 0) != sector[i]
+            }) {
+                return Err("known terminals: malformed or off-chart key".into());
+            }
+            let powers = std::array::from_fn(|i| if i < n { values[i] as i16 } else { 0 });
+            let key = Integral::<N>::numeric(powers)
+                .map_err(|e| e.to_string())?
+                .to_string();
+            if !seen.insert(key.clone()) {
+                return Err("known terminals: duplicate key".into());
+            }
+            terminals.push(DeclaredTerminal {
+                key,
+                powers_presented: values,
+                sources: t.sources.clone(),
+            });
+        }
+        Ok(DeclaredTerminalLedger {
+            authority: "DECLARED_NON_NATIVE".into(),
+            file: self.path.clone(),
+            file_sha256: self.sha256.clone(),
+            input_frame: match l.frame {
+                TerminalFrame::ORIGINAL => "ORIGINAL",
+                TerminalFrame::PRESENTED => "PRESENTED",
+            }
+            .into(),
+            chart_presented: l.chart_presented.clone(),
+            terminals,
+        })
+    }
+}
+
+impl DeclaredTerminalLedger {
+    fn is_point<const N: usize>(&self, case: &Case<N>, n: usize) -> bool {
+        case.is_numerical()
+            && self.terminals.iter().any(|t| {
+                (0..n).all(|i| case.fixed()[i].map(i64::from) == Some(t.powers_presented[i]))
+            })
+    }
+
+    /// Evaluate the actual target frame, equality domain and complete OR-of-AND exception set.
+    /// No RHS inspection is needed: an applicable zero-RHS rule also contradicts a declaration.
+    fn check_rule<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        case: &Case<N>,
+        branches: &[Vec<CoefficientPolynomial>],
+        idx: &[usize; N],
+        sector: &[bool; N],
+        n: usize,
+        source: &str,
+    ) -> Result<(), String> {
+        for t in &self.terminals {
+            let mut at = [0i16; N];
+            let mut matches = true;
+            for i in 0..n {
+                let p = target.powers()[i];
+                let value = if p.is_symbolic() {
+                    t.powers_presented[i] - i64::from(p.value())
+                } else {
+                    if t.powers_presented[i] != i64::from(p.value()) {
+                        matches = false;
+                        break;
+                    }
+                    i64::from(p.value())
+                };
+                if (value > 0) != sector[i]
+                    || case.fixed()[i].is_some_and(|v| i64::from(v) != value)
+                {
+                    matches = false;
+                    break;
+                }
+                // Coordinates are values, not compact encoded powers. A shifted parameter can exceed Power.
+                at[i] = i16::try_from(value)
+                    .map_err(|_| "known terminals: target parameter overflow")?;
+            }
+            if !matches {
+                continue;
+            }
+            let at_zero = |p: &CoefficientPolynomial| {
+                let mut p = p.clone();
+                for i in 0..n {
+                    p = p.replace(idx[i], &symbolica::domains::integer::Integer::from(at[i]));
+                }
+                p.is_zero()
+            };
+            if case
+                .affine()
+                .is_some_and(|a| a.equations().iter().any(|p| !at_zero(p)))
+            {
+                continue;
+            }
+            if branches.iter().any(|b| b.iter().all(&at_zero)) {
+                continue;
+            }
+            return Err(format!(
+                "known terminals: {source} reduces declared key {}; declaration is not a master proof",
+                t.key
+            ));
+        }
+        Ok(())
+    }
+
+    fn check_raw_rule<const N: usize>(
+        &self,
+        v: &serde_json::Value,
+        template: &CoefficientPolynomial,
+        idx: &[usize; N],
+        sector: &[bool; N],
+        n: usize,
+        source: &str,
+    ) -> Result<(), String> {
+        let target = super::descent::parse_key::<N>(
+            v["target"]
+                .as_str()
+                .ok_or("known terminals: missing cover target")?,
+        )?;
+        let fixed: Vec<Option<i64>> = serde_json::from_value(v["fixed"].clone())
+            .map_err(|e| format!("known terminals: cover fixed: {e}"))?;
+        let equations: Vec<String> = serde_json::from_value(v["equations"].clone())
+            .map_err(|e| format!("known terminals: cover equations: {e}"))?;
+        let Some(case) = build_case::<N>(&CaseSpec { fixed, equations }, template, idx, sector, n)?
+        else {
+            return Ok(());
+        };
+        let bs: Vec<Vec<String>> = serde_json::from_value(v["exceptions"].clone())
+            .map_err(|e| format!("known terminals: cover exceptions: {e}"))?;
+        let branches = bs
+            .into_iter()
+            .map(|b| {
+                b.into_iter()
+                    .map(|p| {
+                        parse_index_poly(&p, template, idx)
+                            .ok_or_else(|| format!("known terminals: unsupported exception {p}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.check_rule(&target, &case, &branches, idx, sector, n, source)
+    }
+
+    fn accept_native_residual(&self, key: &str) -> Result<(), String> {
+        if self.terminals.iter().any(|t| t.key == key) {
+            Ok(())
+        } else {
+            Err(format!(
+                "known terminals: native residual {key} is outside the declared set"
+            ))
+        }
+    }
+}
+
+// SHA256 is local to file provenance; no new dependency or trusted self-reported digest.
+fn terminal_sha256(bytes: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let mut data = bytes.to_vec();
+    data.push(0x80);
+    while data.len() % 64 != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&(bytes.len() as u64).wrapping_mul(8).to_be_bytes());
+    for block in data.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes(block[4 * i..4 * i + 4].try_into().unwrap());
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let t1 = hh
+                .wrapping_add(e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25))
+                .wrapping_add((e & f) ^ (!e & g))
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let t2 = (a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22))
+                .wrapping_add((a & b) ^ (a & c) ^ (b & c));
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        for (v, x) in h.iter_mut().zip([a, b, c, d, e, f, g, hh]) {
+            *v = v.wrapping_add(x);
+        }
+    }
+    h.iter().map(|v| format!("{v:08x}")).collect()
+}
+
 /// Options of one node (chart) generation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeOptions {
@@ -100,8 +463,15 @@ pub struct NodeOptions {
     pub case_budget_exit: Option<u64>,
     /// Earlier rules (FirstValid order) pruning queued cases: (table path, rules 0..upto).
     pub cover_tables: Vec<(String, usize)>,
+    /// Explicit caller-declared terminals, not native master discovery. Empty ledgers are rejected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_terminals: Option<KnownTerminalsFile>,
     pub cand_dump: bool,
     pub numeric_depth: u32,
+    /// Refuse exhausted per-point numeric searches instead of entering the unscreened shared numeric solve.
+    /// The unfinished points stay explicit obligations; this does not classify any of them as masters.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_numeric_search: bool,
     /// Seed schedule of the whole node (`SymbolicFirst` = p5l-lift-trace's in-shell order); default SpIRed.
     #[serde(default)]
     pub seed_schedule: SeedScheduleName,
@@ -167,6 +537,10 @@ pub struct NodeOptions {
     pub unsafe_shared_registry: bool,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 fn three() -> usize {
     3
 }
@@ -213,8 +587,10 @@ impl Default for NodeOptions {
             retry_source_orders: vec![SourceOrder::Reverse],
             case_budget_exit: None,
             cover_tables: Vec::new(),
+            known_terminals: None,
             cand_dump: false,
             numeric_depth: 2,
+            strict_numeric_search: false,
             seed_schedule: SeedScheduleName::Spired,
             case_seed_schedule: None,
             case_seed_priority: None,
@@ -289,6 +665,11 @@ pub enum StopReason {
         covered: usize,
         charts: Vec<CaseSpec>,
     },
+    /// Per-point numeric searches exhausted or were screened out, and strict mode forbids the shared fallback.
+    /// Cases are in PRESENTED slots and remain open, including any possible genuine masters.
+    NumericSearchRefused {
+        cases: Vec<CaseSpec>,
+    },
     Error(String),
 }
 
@@ -300,6 +681,8 @@ pub struct NodeOutcome {
     pub rhs_terms: usize,
     pub residuals: usize,
     pub residual_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_ledger: Option<DeclaredTerminalLedger>,
     pub deferred_regions: usize,
     pub deferred_branches: usize,
     pub symbolic_cases: usize,
@@ -622,6 +1005,9 @@ pub fn generate(
     opts: &NodeOptions,
     events: &mut dyn FnMut(&NodeEvent),
 ) -> Result<NodeOutcome, String> {
+    if opts.known_terminals.is_some() && opts.registry.is_some() {
+        return Err("known terminals: the legacy shared registry lacks actual target authority; ledger + registry is unsupported".into());
+    }
     let presented = opts.order.present_family(family_text)?;
     let fam = compile_family(&presented)?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
@@ -1396,6 +1782,11 @@ fn run<const N: usize>(
         None => top,
     };
     let label = mask_string(&base[..n]);
+    let terminal_ledger = opts
+        .known_terminals
+        .as_ref()
+        .map(|file| file.bind(original_text, opts, &base, n))
+        .transpose()?;
     let analyzer =
         zero::Analyzer::try_unrestricted(fam).map_err(|e| format!("zero analyzer: {e:?}"))?;
     let scope: Vec<usize> = (0..n).filter(|&i| top[i]).collect();
@@ -1448,6 +1839,15 @@ fn run<const N: usize>(
         strings(sources.conditions().iter()),
     )
     .map_err(|e| e.to_string())?;
+    if let Some(ledger) = &terminal_ledger {
+        writeln!(
+            out,
+            "{}",
+            serde_json::json!({"type":"terminal_ledger","provenance":ledger})
+        )
+        .map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+    }
     writeln!(
         out,
         "{{\"type\":\"zero_sectors\",\"scope\":\"downset\",\"count\":{},\"masks\":{}}}",
@@ -1466,9 +1866,15 @@ fn run<const N: usize>(
         .collect();
     let mut outcome = NodeOutcome {
         table: table_path.display().to_string(),
+        terminal_ledger: terminal_ledger.clone(),
         ..Default::default()
     };
     if zeros.contains(&base) {
+        if terminal_ledger.is_some() {
+            return Err(
+                "known terminals: a proved-zero chart cannot declare terminal masters".into(),
+            );
+        }
         writeln!(
             out,
             "{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":true}}",
@@ -1552,12 +1958,51 @@ fn run<const N: usize>(
     let mut cover: Vec<CoverEntry<N>> = Vec::new();
     for (path, upto) in &opts.cover_tables {
         let text = std::fs::read_to_string(path).map_err(|e| format!("cover table {path}: {e}"))?;
+        if terminal_ledger.is_some() {
+            let header: serde_json::Value = serde_json::from_str(
+                text.lines()
+                    .next()
+                    .ok_or("known terminals: empty cover table")?,
+            )
+            .map_err(|e| format!("known terminals: cover header: {e}"))?;
+            let order: serde_json::Value = serde_json::from_str(&descriptor_json(&opts.order, n))
+                .map_err(|e| e.to_string())?;
+            let conditions: Vec<String> = sources
+                .conditions()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            if header["family_source"] != presented
+                || header["order"] != order
+                || header["source_conditions"] != serde_json::json!(conditions)
+                || !header["charts"]
+                    .as_array()
+                    .is_some_and(|charts| charts.iter().any(|c| c == &label))
+            {
+                return Err(format!(
+                    "known terminals: cover {path} family/order/chart/source conditions differ"
+                ));
+            }
+        }
         let (mut loaded, mut skipped) = (0usize, 0usize);
         for line in text.lines().filter(|l| l.starts_with("{\"type\":\"rule\"")) {
             let v: serde_json::Value =
                 serde_json::from_str(line).map_err(|e| format!("cover table {path}: {e}"))?;
             if v["index"].as_u64().is_none_or(|i| i as usize >= *upto) {
                 continue;
+            }
+            if let Some(ledger) = &terminal_ledger {
+                if v["chart"] != label {
+                    return Err(format!("known terminals: cover {path} rule chart differs"));
+                }
+                ledger.check_raw_rule(
+                    &v,
+                    &template,
+                    &idx,
+                    &sector,
+                    n,
+                    &format!("cover {path}#{}", v["index"]),
+                )?;
             }
             let spec = CaseSpec {
                 fixed: v["fixed"]
@@ -1762,8 +2207,17 @@ fn run<const N: usize>(
         n: usize,
         union_depth: u32,
         union_count: &mut usize,
+        terminal_ledger: Option<&DeclaredTerminalLedger>,
     ) {
         let from = from.map_or("null".into(), |x| x.to_string());
+        if terminal_ledger.is_some_and(|ledger| ledger.is_point(&case, n)) {
+            let _ = writeln!(
+                qlog,
+                "{{\"type\":\"declared_terminal\",\"authority\":\"DECLARED_NON_NATIVE\",\"from_rule\":{from},\"case\":{}}}",
+                case_json(&case, n)
+            );
+            return;
+        }
         for (label, rc, branches) in cover {
             if covers(rc, branches, &case, idx, sector, limits) {
                 let _ = writeln!(
@@ -1876,6 +2330,7 @@ fn run<const N: usize>(
             n,
             opts.union_cover_depth,
             &mut outcome.union_covered,
+            terminal_ledger.as_ref(),
         );
     }
     qlog.flush().map_err(|e| e.to_string())?;
@@ -1997,6 +2452,13 @@ fn run<const N: usize>(
             break;
         }
         let current = pending.remove(0);
+        if terminal_ledger
+            .as_ref()
+            .is_some_and(|ledger| ledger.is_point(&current, n))
+        {
+            writeln!(qlog, "{{\"type\":\"declared_terminal\",\"authority\":\"DECLARED_NON_NATIVE\",\"case\":{}}}", case_json(&current, n)).map_err(|e| e.to_string())?;
+            continue;
+        }
         if opts.case_budget_exit.is_some() {
             let fixed_json = |f: &CoordinateCase<N>| {
                 serde_json::to_string(&CaseSpec {
@@ -2055,6 +2517,19 @@ fn run<const N: usize>(
                 break;
             };
             let rhs_terms = line["rhs"].as_array().map_or(0, |a| a.len());
+            if let Some(ledger) = &terminal_ledger {
+                if let Err(e) = ledger.check_raw_rule(
+                    &line,
+                    &template,
+                    &idx,
+                    &sector,
+                    n,
+                    &format!("bank {src}"),
+                ) {
+                    error = Some(e);
+                    break;
+                }
+            }
             writeln!(
                 out,
                 "{}",
@@ -2146,6 +2621,7 @@ fn run<const N: usize>(
                     n,
                     opts.union_cover_depth,
                     &mut outcome.union_covered,
+                    terminal_ledger.as_ref(),
                 );
             }
             qlog.flush().map_err(|e| e.to_string())?;
@@ -2212,6 +2688,7 @@ fn run<const N: usize>(
                                 n,
                                 opts.union_cover_depth,
                                 &mut outcome.union_covered,
+                                terminal_ledger.as_ref(),
                             );
                         }
                     }
@@ -2636,6 +3113,20 @@ fn run<const N: usize>(
             }
             outcome.rule_scores.push(score);
         }
+        if let Some(ledger) = &terminal_ledger {
+            if let Err(e) = ledger.check_rule(
+                &rule.candidate.target,
+                &rule.candidate.case,
+                &rule.exceptions.branches,
+                &idx,
+                &sector,
+                n,
+                &format!("new rule {index}"),
+            ) {
+                error = Some(e);
+                break;
+            }
+        }
         terms += write_rule(&mut out, &label, index, &rule, &extras, n);
         out.flush().map_err(|e| e.to_string())?;
         branches_total += rule.exceptions.branches.len();
@@ -2764,6 +3255,7 @@ fn run<const N: usize>(
                 n,
                 opts.union_cover_depth,
                 &mut outcome.union_covered,
+                terminal_ledger.as_ref(),
             );
         }
         qlog.flush().map_err(|e| e.to_string())?;
@@ -2778,7 +3270,9 @@ fn run<const N: usize>(
     }
     *WATCH.lock().unwrap() = None;
     // ---- numeric endpoints: one by one under the node's source order and exact backend; exhausted ones in bulk
-    let mut residual_keys: Vec<String> = Vec::new();
+    let mut residual_keys: Vec<String> = terminal_ledger.as_ref().map_or_else(Vec::new, |l| {
+        l.terminals.iter().map(|t| t.key.clone()).collect()
+    });
     if error.is_none() && stop.is_none() && !numerical.is_empty() {
         outcome.numerical_cases = numerical.len();
         let options = SearchOptions {
@@ -2787,6 +3281,13 @@ fn run<const N: usize>(
         };
         let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
         for point in numerical.clone() {
+            if terminal_ledger
+                .as_ref()
+                .is_some_and(|ledger| ledger.is_point(&Case::from(point), n))
+            {
+                writeln!(qlog, "{{\"type\":\"declared_terminal\",\"authority\":\"DECLARED_NON_NATIVE\",\"key\":{}}}", q(&point.integral().to_string())).map_err(|e| e.to_string())?;
+                continue;
+            }
             let case = Case::from(point);
             let fixed: Vec<i64> = point.fixed()[..n]
                 .iter()
@@ -2894,6 +3395,20 @@ fn run<const N: usize>(
                         searched.source_order,
                         true,
                     );
+                    if let Some(ledger) = &terminal_ledger {
+                        if let Err(e) = ledger.check_rule(
+                            &rule.candidate.target,
+                            &rule.candidate.case,
+                            &rule.exceptions.branches,
+                            &idx,
+                            &sector,
+                            n,
+                            &format!("new rule {index}"),
+                        ) {
+                            error = Some(e);
+                            break;
+                        }
+                    }
                     terms += write_rule(&mut out, &label, index, &rule, &extras, n);
                     out.flush().map_err(|e| e.to_string())?;
                     if opts.cand_dump {
@@ -2909,7 +3424,11 @@ fn run<const N: usize>(
                 Err(SolverError::SearchExhausted { .. }) => {
                     events(&NodeEvent::NumericalPoint {
                         fixed: fixed.clone(),
-                        outcome: "exhausted; shared solve".into(),
+                        outcome: if opts.strict_numeric_search {
+                            "exhausted; strict numeric search refuses shared solve".into()
+                        } else {
+                            "exhausted; shared solve".into()
+                        },
                     });
                     writeln!(
                         qlog,
@@ -2924,47 +3443,113 @@ fn run<const N: usize>(
                 }
             }
         }
-        if error.is_none() && !exhausted.is_empty() {
+        if error.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
+            let cases: Vec<CaseSpec> = exhausted
+                .iter()
+                .map(|point| case_spec(&Case::from(*point), n))
+                .collect();
+            writeln!(
+                qlog,
+                "{{\"type\":\"numeric_shared_refused\",\"cases\":{}}}",
+                serde_json::to_string(&cases).map_err(|e| e.to_string())?
+            )
+            .map_err(|e| e.to_string())?;
+            stop = Some(StopReason::NumericSearchRefused { cases });
+        }
+        if error.is_none() && stop.is_none() && !exhausted.is_empty() {
             outcome.numeric_bulk_fallback = exhausted.len();
             let visit = node_source.visit(nb);
             match solver.solve_numeric_cases_with_source_order(exhausted, options, visit.as_deref())
             {
                 Ok(result) => {
-                    for candidate in result.rules {
-                        let nl: Vec<String> = candidate
-                            .rhs
-                            .iter()
-                            .filter(|t| {
-                                solver.ordering().compare(&candidate.target, &t.integral)
-                                    != Ordering::Less
-                            })
-                            .map(|t| t.integral.to_string())
-                            .collect();
-                        outcome.not_lower.extend(nl);
-                        let exceptions = extract_exceptions(&candidate, &idx, &sector)
-                            .map_err(|e| format!("numerical exceptions: {e:?}"))?;
-                        let rule = SectorRule {
-                            candidate,
-                            exceptions,
-                            dispatch_policy: Default::default(),
-                        };
-                        let index = rules.len() + adopted_rules;
-                        let extras = rule_extras(
-                            &solver,
-                            &rule,
-                            None,
-                            0.0,
-                            format!("shared:{}", node_source.label()),
-                            true,
-                        );
-                        terms += write_rule(&mut out, &label, index, &rule, &extras, n);
-                        if opts.cand_dump {
-                            write_cand_dump(out_dir, index, &rule.candidate, n)?;
+                    // Check the entire returned batch before exporting any shared-solve rule.
+                    if let Some(ledger) = &terminal_ledger {
+                        for candidate in &result.rules {
+                            let exceptions =
+                                extract_exceptions(candidate, &idx, &sector).map_err(|e| {
+                                    format!("known terminals: numerical exceptions: {e:?}")
+                                })?;
+                            if let Err(e) = ledger.check_rule(
+                                &candidate.target,
+                                &candidate.case,
+                                &exceptions.branches,
+                                &idx,
+                                &sector,
+                                n,
+                                "shared numeric result",
+                            ) {
+                                error = Some(e);
+                                break;
+                            }
                         }
-                        rules.push(rule);
+                        for residual in &result.residuals {
+                            if let Err(e) =
+                                ledger.accept_native_residual(&residual.integral().to_string())
+                            {
+                                error = Some(e);
+                                break;
+                            }
+                        }
                     }
-                    for r in &result.residuals {
-                        residual_keys.push(r.integral().to_string());
+                    if error.is_none() {
+                        for candidate in result.rules {
+                            let nl: Vec<String> = candidate
+                                .rhs
+                                .iter()
+                                .filter(|t| {
+                                    solver.ordering().compare(&candidate.target, &t.integral)
+                                        != Ordering::Less
+                                })
+                                .map(|t| t.integral.to_string())
+                                .collect();
+                            outcome.not_lower.extend(nl);
+                            let exceptions = extract_exceptions(&candidate, &idx, &sector)
+                                .map_err(|e| format!("numerical exceptions: {e:?}"))?;
+                            let rule = SectorRule {
+                                candidate,
+                                exceptions,
+                                dispatch_policy: Default::default(),
+                            };
+                            let index = rules.len() + adopted_rules;
+                            let extras = rule_extras(
+                                &solver,
+                                &rule,
+                                None,
+                                0.0,
+                                format!("shared:{}", node_source.label()),
+                                true,
+                            );
+                            if let Some(ledger) = &terminal_ledger {
+                                if let Err(e) = ledger.check_rule(
+                                    &rule.candidate.target,
+                                    &rule.candidate.case,
+                                    &rule.exceptions.branches,
+                                    &idx,
+                                    &sector,
+                                    n,
+                                    &format!("new rule {index}"),
+                                ) {
+                                    error = Some(e);
+                                    break;
+                                }
+                            }
+                            terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+                            if opts.cand_dump {
+                                write_cand_dump(out_dir, index, &rule.candidate, n)?;
+                            }
+                            rules.push(rule);
+                        }
+                        for r in &result.residuals {
+                            let key = r.integral().to_string();
+                            if let Some(ledger) = &terminal_ledger {
+                                if let Err(e) = ledger.accept_native_residual(&key) {
+                                    error = Some(e);
+                                    break;
+                                }
+                            } else {
+                                residual_keys.push(key);
+                            }
+                        }
                     }
                 }
                 Err(e) => error = Some(format!("numerical (shared): {e:?}")),
@@ -3028,13 +3613,24 @@ fn run<const N: usize>(
         }
     }
     for key in &residual_keys {
-        writeln!(
-            out,
-            "{{\"type\":\"residual\",\"chart\":{},\"key\":{}}}",
-            q(&label),
-            q(key)
-        )
-        .map_err(|e| e.to_string())?;
+        if let Some(ledger) = &terminal_ledger {
+            let terminal = ledger
+                .terminals
+                .iter()
+                .find(|t| &t.key == key)
+                .ok_or("known terminals: residual set differs")?;
+            writeln!(out, "{}", serde_json::json!({"type":"residual", "chart":label, "key":key,
+                "authority":"DECLARED_NON_NATIVE", "file":ledger.file, "file_sha256":ledger.file_sha256,
+                "sources":terminal.sources})).map_err(|e| e.to_string())?;
+        } else {
+            writeln!(
+                out,
+                "{{\"type\":\"residual\",\"chart\":{},\"key\":{}}}",
+                q(&label),
+                q(key)
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
     let seconds = t2.elapsed().as_secs_f64();
     if let Some(e) = &error {
@@ -3051,9 +3647,26 @@ fn run<const N: usize>(
         writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{},\"stop\":{reason}}}", q(&label), q("node stopped (see stop)")).map_err(|e| e.to_string())?;
         events(&NodeEvent::Stopped { reason });
     }
+    let active_partial = terminal_ledger.is_some()
+        && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
+    let chart_record = if active_partial {
+        "chart_partial"
+    } else {
+        "chart_end"
+    };
+    let end_record = if active_partial { "partial" } else { "end" };
+    let terminal_note = if let Some(ledger) = &terminal_ledger {
+        format!(
+            ",\"terminal_ledger\":{},\"terminal_ledger_provenance\":{}",
+            q("terminal ledger declared (non-native)"),
+            serde_json::to_string(ledger).map_err(|e| e.to_string())?
+        )
+    } else {
+        String::new()
+    };
     writeln!(
         out,
-        "{{\"type\":\"chart_end\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches_total},\"residuals\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{},\"discarded_cases\":{discarded},\"finite_case_policy\":\"node-queue\",\"deferred_cases\":0,\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions}}}",
+        "{{\"type\":\"{chart_record}\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches_total},\"residuals\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{},\"discarded_cases\":{discarded},\"finite_case_policy\":\"node-queue\",\"deferred_cases\":0,\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions}}}",
         q(&label),
         rules.len() + adopted_rules,
         residual_keys.len(),
@@ -3063,7 +3676,7 @@ fn run<const N: usize>(
     let chart_errors = usize::from(error.is_some() || stop.is_some());
     writeln!(
         out,
-        "{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver (rr-consolidate)\",\"native_descent_not_lower\":{}}}",
+        "{{\"type\":\"{end_record}\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver (rr-consolidate)\",\"native_descent_not_lower\":{}{terminal_note}}}",
         rules.len() + adopted_rules,
         residual_keys.len(),
         t_total.elapsed().as_secs_f64(),
@@ -3072,11 +3685,16 @@ fn run<const N: usize>(
     )
     .map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
-    writeln!(cert, "{{\"type\":\"cert_end\",\"ok\":0,\"failed\":0,\"skipped\":{},\"weights\":0,\"rules_with_weight_poles\":0,\"seconds\":{:.3},\"vmhwm_kb\":{}}}", rules.len() + adopted_rules, t_total.elapsed().as_secs_f64(), vmhwm_kb()).map_err(|e| e.to_string())?;
+    let cert_record = if active_partial {
+        "cert_partial"
+    } else {
+        "cert_end"
+    };
+    writeln!(cert, "{{\"type\":\"{cert_record}\",\"ok\":0,\"failed\":0,\"skipped\":{},\"weights\":0,\"rules_with_weight_poles\":0,\"seconds\":{:.3},\"vmhwm_kb\":{}}}", rules.len() + adopted_rules, t_total.elapsed().as_secs_f64(), vmhwm_kb()).map_err(|e| e.to_string())?;
     cert.flush().map_err(|e| e.to_string())?;
     writeln!(
         qlog,
-        "{{\"type\":\"end\",\"error\":{},\"rules\":{},\"residuals\":{},\"seconds\":{seconds:.3}}}",
+        "{{\"type\":\"{end_record}\",\"error\":{},\"rules\":{},\"residuals\":{},\"seconds\":{seconds:.3}}}",
         error.as_deref().map_or("null".to_string(), q),
         rules.len() + adopted_rules,
         residual_keys.len()
@@ -3221,6 +3839,330 @@ mod tests {
             admit_try: None,
             ..NodeOptions::default()
         }
+    }
+
+    fn known_file(tag: &str, opts: &NodeOptions, points: Vec<Vec<i64>>) -> KnownTerminalsFile {
+        let dir = tmp(tag);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("terminals.json");
+        let value = serde_json::json!({
+            "schema":"rustred.node.known-terminals.v1", "frame":"ORIGINAL",
+            "original_family_source_sha256":terminal_sha256(SUNSET.as_bytes()),
+            "node_order":opts.order, "chart_presented":"11100",
+            "terminals":points.into_iter().map(|powers| serde_json::json!({"powers":powers,
+                "sources":[{"kind":"old-table-master","reference":"genuine-test-control", "sha256":"a".repeat(64)}]})).collect::<Vec<_>>()
+        });
+        std::fs::write(&file, serde_json::to_vec(&value).unwrap()).unwrap();
+        KnownTerminalsFile::read(file).unwrap()
+    }
+
+    #[test]
+    fn known_terminals_sha256_vectors_and_default_bytes() {
+        assert_eq!(
+            terminal_sha256(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            terminal_sha256(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            terminal_sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+        let old = serde_json::to_value(NodeOptions::default()).unwrap();
+        assert!(old.get("known_terminals").is_none());
+        let round: NodeOptions = serde_json::from_value(old.clone()).unwrap();
+        assert!(round.known_terminals.is_none());
+        assert_eq!(old, serde_json::to_value(round).unwrap());
+        assert!(
+            serde_json::to_value(NodeOutcome::default())
+                .unwrap()
+                .get("terminal_ledger")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn known_terminals_bind_once_and_refuse_malformed_inputs() {
+        let opts = NodeOptions {
+            order: NodeOrder {
+                name: "swapped".into(),
+                slot_permutation: Some(vec![0, 1, 2, 4, 3]),
+                ..NodeOrder::identity()
+            },
+            ..quiet()
+        };
+        let file = known_file("known-bind", &opts, vec![vec![1, 1, 1, 0, -2]]);
+        let sector = [true, true, true, false, false];
+        let bound = file.bind::<5>(SUNSET, &opts, &sector, 5).unwrap();
+        assert_eq!(bound.terminals[0].powers_presented, vec![1, 1, 1, -2, 0]);
+        assert_eq!(
+            bound.file_sha256,
+            terminal_sha256(&std::fs::read(&file.path).unwrap())
+        );
+        assert!(file.bind::<5>("different", &opts, &sector, 5).is_err());
+        assert!(file.bind::<5>(SUNSET, &quiet(), &sector, 5).is_err());
+        assert!(file.bind::<5>(SUNSET, &opts, &[true; 5], 5).is_err());
+        let raw: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&file.path).unwrap()).unwrap();
+        for bad in [
+            serde_json::json!({"terminals":[]}),
+            serde_json::json!({"frame":"GUESSED"}),
+            serde_json::json!({"terminals":[{"powers":[1,1,1,0,0],"sources":[]}]}),
+            serde_json::json!({"original_family_source_sha256":"not-a-hash"}),
+        ] {
+            let mut changed = raw.clone();
+            for (k, v) in bad.as_object().unwrap() {
+                changed[k] = v.clone();
+            }
+            std::fs::write(&file.path, serde_json::to_vec(&changed).unwrap()).unwrap();
+            assert!(KnownTerminalsFile::read(&file.path).is_err());
+        }
+        for points in [
+            vec![vec![1, 1, 1, 0]],
+            vec![vec![1, 0, 1, 0, 0]],
+            vec![vec![1, 1, 1, 0, 0]; 2],
+        ] {
+            let file = known_file("known-bad-key", &opts, points);
+            assert!(file.bind::<5>(SUNSET, &opts, &sector, 5).is_err());
+        }
+    }
+
+    #[test]
+    fn known_terminals_real_point_is_never_searched_and_remains_declared() {
+        let mut opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            strict_numeric_search: true,
+            numeric_depth: 0,
+            ..quiet()
+        };
+        opts.known_terminals = Some(known_file("known-master", &opts, vec![vec![1, 1, 1, 0, 0]]));
+        let mut searched = 0;
+        let dir = tmp("known-skip");
+        let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |event| {
+            if matches!(
+                event,
+                NodeEvent::NumericalPoint { .. } | NodeEvent::CaseStarted { .. }
+            ) {
+                searched += 1;
+            }
+        })
+        .unwrap();
+        assert!(outcome.complete, "{outcome:?}");
+        assert_eq!(
+            (
+                searched,
+                outcome.symbolic_cases,
+                outcome.numerical_cases,
+                outcome.numeric_bulk_fallback,
+                outcome.rules,
+                outcome.residuals
+            ),
+            (0, 0, 0, 0, 0, 1)
+        );
+        let table = std::fs::read_to_string(&outcome.table).unwrap();
+        assert!(table.contains("terminal ledger declared (non-native)"));
+        let residual: serde_json::Value = table
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .find(|v: &serde_json::Value| v["type"] == "residual")
+            .unwrap();
+        assert_eq!(residual["authority"], "DECLARED_NON_NATIVE");
+        assert_eq!(
+            residual["file_sha256"],
+            outcome.terminal_ledger.as_ref().unwrap().file_sha256
+        );
+    }
+
+    #[test]
+    fn known_terminals_legacy_registry_refuses_before_terminal_skip() {
+        let mut opts = quiet();
+        opts.known_terminals = Some(known_file(
+            "known-registry-ledger",
+            &opts,
+            vec![vec![1, 1, 1, 0, 0]],
+        ));
+        opts.registry = Some((tmp("known-registry").display().to_string(), "test".into()));
+        opts.unsafe_shared_registry = true;
+        opts.initial = vec![CaseSpec {
+            fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+            equations: vec![],
+        }];
+        let mut events = 0;
+        let out = tmp("known-registry-reject");
+        let error = generate(SUNSET, "sunset.sym", &out, &opts, &mut |_| {
+            events += 1;
+        })
+        .unwrap_err();
+        assert!(error.contains("lacks actual target authority"), "{error}");
+        assert_eq!(events, 0);
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn known_terminals_target_frame_full_guards_and_empty_rhs_conflicts() {
+        let opts = quiet();
+        let ledger = known_file("known-target", &opts, vec![vec![1, 1, 1, 0, 0]])
+            .bind::<5>(SUNSET, &opts, &[true, true, true, false, false], 5)
+            .unwrap();
+        let family = compile_family(SUNSET).unwrap();
+        let sources = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
+        let idx = *sources.index_variables();
+        let template = &sources.rows()[0].iter().next().unwrap().coefficient;
+        let sector = [true, true, true, false, false];
+        let face = Case::from(CoordinateCase::<5>::generic());
+        let shifted = super::super::descent::parse_key::<5>("I(n0-1,n1,n2,n3,n4)").unwrap();
+        // Applies at n0=2, not n0=1. Guard extraction and target recentering cannot be interchanged.
+        let guard = parse_index_poly("n0-2", template, &idx).unwrap();
+        assert!(
+            ledger
+                .check_rule(
+                    &shifted,
+                    &face,
+                    &[vec![guard.clone()]],
+                    &idx,
+                    &sector,
+                    5,
+                    "protected"
+                )
+                .is_ok()
+        );
+        assert!(
+            ledger
+                .check_rule(&shifted, &face, &[], &idx, &sector, 5, "even zero RHS")
+                .unwrap_err()
+                .contains("reduces declared key")
+        );
+        let other = parse_index_poly("n1-2", template, &idx).unwrap();
+        assert!(
+            ledger
+                .check_rule(
+                    &shifted,
+                    &face,
+                    &[vec![guard, other]],
+                    &idx,
+                    &sector,
+                    5,
+                    "AND guard"
+                )
+                .is_err()
+        );
+        let raw = serde_json::json!({"target":"I(n0-1,n1,n2,n3,n4)","fixed":[null,null,null,null,null],"equations":[],"exceptions":[],"rhs":[]});
+        assert!(
+            ledger
+                .check_raw_rule(&raw, template, &idx, &sector, 5, "adopted zero RHS")
+                .is_err()
+        );
+        let affine = build_case::<5>(
+            &CaseSpec {
+                fixed: vec![None; 5],
+                equations: vec!["n0-3".into()],
+            },
+            template,
+            &idx,
+            &sector,
+            5,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            ledger
+                .check_rule(
+                    &shifted,
+                    &affine,
+                    &[],
+                    &idx,
+                    &sector,
+                    5,
+                    "disjoint equality"
+                )
+                .is_ok()
+        );
+        assert!(ledger.accept_native_residual("I(2,1,1,0,0)").is_err());
+    }
+
+    #[test]
+    fn known_terminals_initial_cover_and_future_numeric_rule_are_errors() {
+        let cover_dir = tmp("known-cover-source");
+        let cover = generate(SUNSET, "sunset.sym", &cover_dir, &quiet(), &mut |_| {}).unwrap();
+        assert!(cover.complete && cover.rules > 0);
+        let mut opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(2), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            cover_tables: vec![(cover.table.clone(), cover.rules)],
+            ..quiet()
+        };
+        opts.known_terminals = Some(known_file(
+            "known-cover-ledger",
+            &opts,
+            vec![vec![2, 1, 1, 0, 0]],
+        ));
+        let error = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-cover-reject"),
+            &opts,
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(error.contains("reduces declared key"), "{error}");
+        // The declared point is not an initial target. A newly discovered generic rule must still protect it.
+        opts.cover_tables.clear();
+        opts.initial.clear();
+        let outcome = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-future-reject"),
+            &opts,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(!outcome.complete);
+        assert!(
+            matches!(&outcome.stop,Some(StopReason::Error(e)) if e.contains("reduces declared key")),
+            "{outcome:?}"
+        );
+        let table = std::fs::read_to_string(&outcome.table).unwrap();
+        assert!(table.contains("\"type\":\"partial\""));
+        assert!(!table.contains("\"type\":\"end\""));
+    }
+
+    #[test]
+    fn known_terminals_native_extra_master_refuses_without_fake_end() {
+        let mut opts = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            numeric_depth: 0,
+            ..quiet()
+        };
+        // A deliberately wrong declared inventory must not absorb a native residual from another point.
+        opts.known_terminals = Some(known_file(
+            "known-extra-ledger",
+            &opts,
+            vec![vec![2, 1, 1, 0, 0]],
+        ));
+        let result = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-extra-reject"),
+            &opts,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(!result.complete);
+        assert!(
+            matches!(&result.stop,Some(StopReason::Error(e)) if e.contains("outside the declared set")),
+            "{result:?}"
+        );
+        assert_eq!(result.residual_keys, vec!["I(2,1,1,0,0)"]);
     }
 
     #[test]
@@ -3854,6 +4796,80 @@ mod tests {
         ] {
             assert!(parse_case_seed_schedule(&invalid, 2).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn strict_numeric_search_defaults_preserve_legacy_options() {
+        let opts = NodeOptions::default();
+        let mut legacy = serde_json::to_value(&opts).unwrap();
+        assert!(!opts.strict_numeric_search);
+        assert!(legacy.get("strict_numeric_search").is_none());
+        let read: NodeOptions = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(!read.strict_numeric_search);
+        let strict = NodeOptions {
+            strict_numeric_search: true,
+            ..opts
+        };
+        assert_eq!(
+            serde_json::to_value(&strict).unwrap()["strict_numeric_search"],
+            true
+        );
+        legacy["strict_numeric_search"] = serde_json::json!(false);
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<NodeOptions>(legacy).unwrap()).unwrap(),
+            serde_json::to_value(NodeOptions::default()).unwrap()
+        );
+    }
+
+    #[test]
+    fn strict_numeric_search_refuses_real_exhausted_dispatch_without_master_claim() {
+        let fixed = vec![Some(1), Some(1), Some(1), Some(0), Some(0)];
+        let base = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: fixed.clone(),
+                equations: vec![],
+            }],
+            numeric_depth: 0,
+            ..quiet()
+        };
+        // A depth-zero per-point search has no relation. The legacy shared solver may still classify residuals.
+        let legacy_dir = tmp("numeric-legacy");
+        let legacy = generate(SUNSET, "sunset.sym", &legacy_dir, &base, &mut |_| {}).unwrap();
+        assert!(legacy.complete, "{legacy:?}");
+        assert_eq!(legacy.numeric_bulk_fallback, 1);
+        assert_eq!(legacy.rules, 0);
+        assert_eq!(legacy.residuals, 1);
+
+        let strict_dir = tmp("numeric-strict");
+        let strict = generate(
+            SUNSET,
+            "sunset.sym",
+            &strict_dir,
+            &NodeOptions {
+                strict_numeric_search: true,
+                ..base
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(!strict.complete);
+        assert_eq!(strict.numeric_bulk_fallback, 0);
+        assert_eq!(strict.rules, 0);
+        assert_eq!(strict.residuals, 0);
+        match &strict.stop {
+            Some(StopReason::NumericSearchRefused { cases }) => {
+                assert_eq!(cases.len(), 1);
+                assert_eq!(cases[0].fixed, fixed);
+                assert!(cases[0].equations.is_empty());
+            }
+            other => panic!("expected retained open numeric case, got {other:?}"),
+        }
+        let queue = std::fs::read_to_string(strict_dir.join("F.queue.jsonl")).unwrap();
+        assert!(queue.contains("\"type\":\"numeric_shared_refused\""));
+        let table = std::fs::read_to_string(&strict.table).unwrap();
+        assert!(!table.contains("\"type\":\"residual\""));
+        let _ = std::fs::remove_dir_all(legacy_dir);
+        let _ = std::fs::remove_dir_all(strict_dir);
     }
 
     #[test]
