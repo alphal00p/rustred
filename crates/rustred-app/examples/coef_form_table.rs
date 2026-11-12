@@ -37,12 +37,14 @@
 //! `"coef_form":"factored-text.v1"` (TABLE_COEF_FORM); every other byte of
 //! every record is unchanged. Each written coefficient is re-parsed and must
 //! equal the original (numerator and denominator), else the run aborts.
+#![recursion_limit = "512"]
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
 
 use rustred::algebra::{Coefficient, CoefficientPolynomial};
@@ -56,9 +58,6 @@ type Poly = CoefficientPolynomial;
 
 /// Version tag of the factored coefficient text written by `--write`.
 const TABLE_COEF_FORM: &str = "factored-text.v1";
-/// Abandoned (timed-out) factorisation workers after which no further
-/// factorisation is attempted in this run.
-const MAX_ABANDONED: usize = 16;
 
 // ---------- byte helpers (compact binary, as coef_form_probe) ----------
 
@@ -220,6 +219,8 @@ struct CInfo {
     den: Part,
     terms: u64,
     has_whole: bool,
+    /// parsed by the big-coefficient path (whole parts = original text)
+    big: bool,
 }
 struct Entry {
     terms: u64,
@@ -247,7 +248,13 @@ struct State {
     distinct_terms: u64,
     timeout: std::time::Duration,
     timeouts: u64,
-    abandoned: usize,
+    worker: Worker,
+    part_cache: HashMap<u128, Part>,
+    part_hits: u64,
+    big_text: usize,
+    big_coefs: u64,
+    big_fallbacks: u64,
+    unchecked: u64,
 }
 
 impl State {
@@ -307,46 +314,23 @@ impl State {
                 factors: vec![(self.entry(p, true), 1)],
             };
         }
+        let mut ptext = String::new();
+        print_poly(p, &self.names, &mut ptext);
+        let ph = hash128(ptext.as_bytes());
+        if let Some(part) = self.part_cache.get(&ph) {
+            self.part_hits += 1;
+            return part.clone();
+        }
         let t = Instant::now();
         // Symbolica's multivariate factorisation is pathologically slow on a
         // few polynomials (T064: > 25 min on one call): each call runs in a
-        // worker thread with a time budget; past it the polynomial is kept
-        // whole (counted in full) and the worker is abandoned. After
-        // `MAX_ABANDONED` abandoned workers no further call is attempted.
-        if self.abandoned >= MAX_ABANDONED {
-            self.whole_polys += 1;
-            self.timeouts += 1;
-            return Part {
-                content: Integer::one(),
-                factors: vec![(self.entry(p, true), 1)],
-            };
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (tid_tx, tid_rx) = std::sync::mpsc::channel();
-        let q = p.clone();
-        std::thread::Builder::new()
-            .stack_size(64 << 20)
-            .spawn(move || {
-                let tid = std::fs::read_link("/proc/thread-self")
-                    .ok()
-                    .and_then(|l| l.file_name().map(|n| n.to_string_lossy().to_string()));
-                let _ = tid_tx.send(tid);
-                let _ = tx.send(q.factor());
-            })
-            .expect("factor worker");
-        let factored = match rx.recv_timeout(self.timeout) {
-            Ok(f) => f,
-            Err(_) => {
-                // the abandoned worker keeps running until the process ends:
-                // lowest priority, so it no longer competes with this run
-                if let Ok(Some(tid)) = tid_rx.recv() {
-                    let _ = Command::new("renice")
-                        .args(["-n", "19", "-p", &tid])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                self.abandoned += 1;
+        // worker PROCESS (this binary, --factor-worker) with a time budget;
+        // past it the worker is killed (no leaked CPU or memory) and the
+        // polynomial is kept whole (counted in full). Results are cached per
+        // polynomial, so a slow polynomial costs its budget once per table.
+        let factored = match self.worker.factor(&ptext, self.timeout, &self.vars, self.names.len()) {
+            Some(f) => f,
+            None => {
                 self.timeouts += 1;
                 self.whole_polys += 1;
                 self.factor_s += t.elapsed().as_secs_f64();
@@ -355,10 +339,12 @@ impl State {
                     p.nterms(),
                     t.elapsed().as_secs_f64()
                 );
-                return Part {
+                let part = Part {
                     content: Integer::one(),
                     factors: vec![(self.entry(p, true), 1)],
                 };
+                self.part_cache.insert(ph, part.clone());
+                return part;
             }
         };
         let mut content = Integer::one();
@@ -379,21 +365,32 @@ impl State {
         self.max_factor_s = self.max_factor_s.max(dt);
         if check != *p {
             self.whole_polys += 1;
-            return Part {
+            let part = Part {
                 content: Integer::one(),
                 factors: vec![(self.entry(p, true), 1)],
             };
+            self.part_cache.insert(ph, part.clone());
+            return part;
         }
         self.factored_polys += 1;
         let mut factors: Vec<(u32, u32)> = fs.iter().map(|(f, e)| (self.entry(f, false), *e)).collect();
         factors.sort_unstable();
-        Part { content, factors }
+        let part = Part { content, factors };
+        self.part_cache.insert(ph, part.clone());
+        part
     }
 
     fn info(&mut self, text: &str) -> CInfo {
         let h = hash128(text.as_bytes());
         if let Some(c) = self.cache.get(&h) {
             return c.clone();
+        }
+        if text.len() > self.big_text {
+            if let Some(info) = self.info_big(text) {
+                self.cache.insert(h, info.clone());
+                return info;
+            }
+            self.big_fallbacks += 1;
         }
         let c = self.parse(text);
         self.buf.clear();
@@ -429,20 +426,116 @@ impl State {
             den,
             terms,
             has_whole,
+            big: false,
         };
         self.cache.insert(h, info.clone());
         info
     }
 
+    fn write_parts(&mut self, num: &Part, den: &Part) {
+        self.buf.clear();
+        for part in [num, den] {
+            put_integer(&mut self.buf, &part.content);
+            varint(&mut self.buf, part.factors.len() as u64);
+            for &(f, e) in &part.factors {
+                varint(&mut self.buf, u64::from(f));
+                varint(&mut self.buf, u64::from(e));
+            }
+        }
+        let b = std::mem::take(&mut self.buf);
+        self.comp_fac.write(&b);
+        self.buf = b;
+    }
+
+    /// A coefficient whose text exceeds `big_text` bytes: split at the top
+    /// level into numerator / denominator text; a part above `big_text` is
+    /// never handed to Symbolica (memory): its terms are counted and
+    /// compact-encoded from the text and it is one whole dictionary entry; a
+    /// smaller part is parsed and factored as usual. `None`: text outside the
+    /// expanded num/den shape (caller falls back to Symbolica).
+    fn info_big(&mut self, text: &str) -> Option<CInfo> {
+        let (nt, dt) = split_num_den(text)?;
+        for part in [nt, dt] {
+            if part.len() > self.big_text {
+                scan_terms(part, &self.names, None)?;
+            }
+        }
+        let (num, n_terms) = self.big_part(nt);
+        let (den, d_terms) = self.big_part(dt);
+        self.write_parts(&num, &den);
+        let terms = n_terms + d_terms;
+        self.distinct_coefs += 1;
+        self.distinct_terms += terms;
+        self.big_coefs += 1;
+        let has_whole = num
+            .factors
+            .iter()
+            .chain(&den.factors)
+            .any(|&(id, _)| self.dict[id as usize].whole);
+        Some(CInfo {
+            num,
+            den,
+            terms,
+            has_whole,
+            big: true,
+        })
+    }
+
+    fn big_part(&mut self, s: &str) -> (Part, u64) {
+        if s.len() <= self.big_text {
+            let c = self.parse(s);
+            assert!(c.denominator.is_one(), "big-path part {s:.200} is not a polynomial");
+            self.buf.clear();
+            put_poly(&mut self.buf, &c.numerator);
+            let b = std::mem::take(&mut self.buf);
+            self.comp_exp.write(&b);
+            self.buf = b;
+            let part = self.factor_part(&c.numerator);
+            return (part, c.numerator.nterms() as u64);
+        }
+        let h = hash128(s.as_bytes());
+        let known = self.index.get(&h).copied();
+        let mut bytes = Vec::new();
+        let terms = scan_terms(s, &self.names, Some(&mut bytes)).expect("checked");
+        self.comp_exp.write(&bytes);
+        let id = match known {
+            Some(id) => id,
+            None => {
+                self.comp_fac.write(&bytes);
+                let id = self.dict.len() as u32;
+                self.dict.push(Entry {
+                    terms,
+                    whole: true,
+                    text: None,
+                });
+                self.index.insert(h, id);
+                id
+            }
+        };
+        self.whole_polys += 1;
+        (
+            Part {
+                content: Integer::one(),
+                factors: vec![(id, 1)],
+            },
+            terms,
+        )
+    }
+
     /// Factored text of one coefficient (`original` for whole entries).
     fn text(&mut self, info: &CInfo, original: &str) -> String {
-        let parsed = if info.has_whole {
+        let parsed = if info.has_whole && !info.big {
             Some(self.parse(original))
         } else {
             None
         };
+        let split = if info.big {
+            split_num_den(original)
+        } else {
+            None
+        };
         let mut out = String::new();
-        let part_text = |part: &Part, whole: Option<&Poly>, st: &State, out: &mut String| {
+        let part_text = |part: &Part, whole: Whole<'_>, st: &State, out: &mut String| {
             let one = Integer::one();
             let minus = -Integer::one();
             let mut first = true;
@@ -458,9 +551,11 @@ impl State {
                 }
                 first = false;
                 out.push('(');
-                match &st.dict[id as usize].text {
-                    Some(t) => out.push_str(t),
-                    None => print_poly(whole.expect("whole polynomial"), &st.names, out),
+                match (&st.dict[id as usize].text, whole) {
+                    (Some(t), _) => out.push_str(t),
+                    (None, Whole::Poly(p)) => print_poly(p, &st.names, out),
+                    (None, Whole::Text(t)) => out.push_str(t),
+                    (None, Whole::None) => panic!("whole polynomial without its text"),
                 }
                 out.push(')');
                 if e > 1 {
@@ -468,31 +563,262 @@ impl State {
                 }
             }
         };
-        part_text(
-            &info.num,
-            parsed.as_ref().map(|c| &c.numerator),
-            self,
-            &mut out,
-        );
+        let (whole_num, whole_den) = match (&parsed, &split) {
+            (Some(c), _) => (Whole::Poly(&c.numerator), Whole::Poly(&c.denominator)),
+            (None, Some((n, d))) => (Whole::Text(n), Whole::Text(d)),
+            _ => (Whole::None, Whole::None),
+        };
+        part_text(&info.num, whole_num, &*self, &mut out);
         let den_one = info.den.factors.is_empty() && info.den.content == Integer::one();
         if !den_one {
             out.push_str("/(");
-            part_text(
-                &info.den,
-                parsed.as_ref().map(|c| &c.denominator),
-                self,
-                &mut out,
-            );
+            part_text(&info.den, whole_den, &*self, &mut out);
             out.push(')');
         }
         out
     }
 }
 
+#[derive(Clone, Copy)]
+enum Whole<'a> {
+    None,
+    Poly(&'a Poly),
+    Text(&'a str),
+}
+
+/// Strip one pair of parentheses enclosing all of `s`.
+fn strip_outer(s: &str) -> &str {
+    let s = s.trim();
+    let b = s.as_bytes();
+    if b.first() != Some(&b'(') || b.last() != Some(&b')') {
+        return s;
+    }
+    let mut depth = 0i64;
+    for (i, &c) in b.iter().enumerate() {
+        match c {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 && i + 1 != b.len() {
+                    return s;
+                }
+            }
+            _ => {}
+        }
+    }
+    &s[1..s.len() - 1]
+}
+
+/// Whether `s` has a top-level '+'/'-' after its first character.
+fn top_level_sum(s: &str) -> bool {
+    let mut depth = 0i64;
+    for (i, c) in s.bytes().enumerate() {
+        match c {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b'+' | b'-' if depth == 0 && i > 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// `num/den` of an expanded coefficient text, each a polynomial text (outer
+/// parentheses removed); `den` = "1" without a division. `None` otherwise.
+fn split_num_den(text: &str) -> Option<(&str, &str)> {
+    let t = text.trim();
+    let mut depth = 0i64;
+    let mut slash = None;
+    for (i, c) in t.bytes().enumerate() {
+        match c {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b'/' if depth == 0 => {
+                if slash.is_some() {
+                    return None;
+                }
+                slash = Some(i);
+            }
+            _ => {}
+        }
+    }
+    let (n, d) = match slash {
+        Some(i) => (&t[..i], &t[i + 1..]),
+        None => (t, "1"),
+    };
+    fn check(x: &str, division: bool) -> Option<&str> {
+        let inner = strip_outer(x);
+        if inner.len() == x.trim().len() && top_level_sum(inner) && division {
+            return None; // `a+b/(c)`: not a num/den split
+        }
+        if inner.contains('(') {
+            return None;
+        }
+        Some(inner)
+    }
+    Some((check(n, slash.is_some())?, check(d, slash.is_some())?))
+}
+
+/// Terms of an expanded polynomial text (`[+-] [int] (* (int | var[^int]))*`
+/// summed); with `out`, the compact encoding (as `put_poly`) is appended.
+/// `None`: anything else (parentheses, rationals, unknown symbols).
+fn scan_terms(s: &str, names: &[String], mut out: Option<&mut Vec<u8>>) -> Option<u64> {
+    let b = s.as_bytes();
+    let mut i = 0usize;
+    let mut terms = 0u64;
+    let mut body = Vec::new();
+    let mut exps: Vec<(usize, u64)> = Vec::new();
+    let skip = |i: &mut usize| {
+        while *i < b.len() && b[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    };
+    let digits = |i: &mut usize| -> Option<(usize, usize)> {
+        let st = *i;
+        while *i < b.len() && b[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        (*i > st).then_some((st, *i))
+    };
+    skip(&mut i);
+    while i < b.len() {
+        let mut neg = false;
+        if b[i] == b'+' || b[i] == b'-' {
+            neg = b[i] == b'-';
+            i += 1;
+            skip(&mut i);
+        }
+        let mut coef: Option<(usize, usize)> = None;
+        exps.clear();
+        loop {
+            skip(&mut i);
+            if i < b.len() && b[i].is_ascii_digit() {
+                if coef.is_some() {
+                    return None;
+                }
+                coef = Some(digits(&mut i)?);
+            } else if i < b.len() && (b[i] == b'd' || b[i] == b'n') {
+                let v = if b[i] == b'd' {
+                    i += 1;
+                    0
+                } else {
+                    i += 1;
+                    let (x, y) = digits(&mut i)?;
+                    s[x..y].parse::<usize>().ok()? + 1
+                };
+                if v >= names.len() || (i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_')) {
+                    return None;
+                }
+                skip(&mut i);
+                let mut e = 1u64;
+                if i < b.len() && b[i] == b'^' {
+                    i += 1;
+                    skip(&mut i);
+                    let (x, y) = digits(&mut i)?;
+                    e = s[x..y].parse().ok()?;
+                }
+                match exps.iter_mut().find(|(w, _)| *w == v) {
+                    Some(slot) => slot.1 += e,
+                    None => exps.push((v, e)),
+                }
+            } else {
+                return None;
+            }
+            skip(&mut i);
+            if i < b.len() && b[i] == b'*' {
+                i += 1;
+                continue;
+            }
+            break;
+        }
+        if i < b.len() && b[i] != b'+' && b[i] != b'-' {
+            return None;
+        }
+        terms += 1;
+        if let Some(out) = out.as_deref_mut() {
+            let text = match coef {
+                Some((x, y)) => &s[x..y],
+                None => "1",
+            };
+            let value: Integer = if neg {
+                format!("-{text}").parse().ok()?
+            } else {
+                text.parse().ok()?
+            };
+            body.clear();
+            put_integer(&mut body, &value);
+            exps.sort_unstable();
+            varint(&mut body, exps.len() as u64);
+            for &(v, e) in &exps {
+                varint(&mut body, v as u64);
+                varint(&mut body, e);
+            }
+            out.extend_from_slice(&body);
+        }
+    }
+    if let Some(out) = out {
+        // put_poly order: nterms first
+        let mut head = Vec::new();
+        varint(&mut head, terms);
+        out.splice(0..0, head);
+    }
+    Some(terms)
+}
+
+/// (key, coefficient) of every RHS term, as slices of `body` (no escapes);
+/// `None` if the array is not of that plain shape.
+fn rhs_items(body: &[u8], a: usize, b: usize) -> Option<Vec<(&str, &str)>> {
+    let s = std::str::from_utf8(&body[a..b]).ok()?;
+    if s.contains('\\') {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    let ws = |i: &mut usize| {
+        while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    };
+    let expect = |i: &mut usize, c: u8| -> Option<()> {
+        ws(i);
+        (bytes.get(*i) == Some(&c)).then(|| *i += 1)
+    };
+    let string = |i: &mut usize| -> Option<&str> {
+        expect(i, b'"')?;
+        let st = *i;
+        let end = st + bytes[st..].iter().position(|&c| c == b'"')?;
+        *i = end + 1;
+        Some(&s[st..end])
+    };
+    let mut out = Vec::new();
+    expect(&mut i, b'[')?;
+    ws(&mut i);
+    if bytes.get(i) == Some(&b']') {
+        return Some(out);
+    }
+    loop {
+        expect(&mut i, b'[')?;
+        let key = string(&mut i)?;
+        expect(&mut i, b',')?;
+        let coef = string(&mut i)?;
+        expect(&mut i, b']')?;
+        out.push((key, coef));
+        ws(&mut i);
+        match bytes.get(i) {
+            Some(b',') => i += 1,
+            Some(b']') => return Some(out),
+            _ => return None,
+        }
+    }
+}
+
 /// Byte span of the `"rhs":[...]` array value in a rule record.
 fn rhs_span(line: &[u8]) -> Option<(usize, usize)> {
-    let key = b"\"rhs\":";
-    let start = line.windows(key.len()).position(|w| w == key)? + key.len();
+    let key = b"\"rhs\"";
+    let mut start = line.windows(key.len()).position(|w| w == key)? + key.len();
+    while start < line.len() && (line[start].is_ascii_whitespace() || line[start] == b':') {
+        start += 1;
+    }
     let mut depth = 0i64;
     let mut in_str = false;
     let mut i = start;
@@ -519,6 +845,135 @@ fn rhs_span(line: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
+/// The `type` of a record whose first key is `"type"` (compact or spaced JSON).
+fn record_type(body: &[u8]) -> &[u8] {
+    let skip = |b: &[u8], mut i: usize| {
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    let mut i = skip(body, 0);
+    if body.get(i) != Some(&b'{') {
+        return b"";
+    }
+    i = skip(body, i + 1);
+    if !body[i..].starts_with(b"\"type\"") {
+        return b"";
+    }
+    i = skip(body, i + 6);
+    if body.get(i) != Some(&b':') {
+        return b"";
+    }
+    i = skip(body, i + 1);
+    if body.get(i) != Some(&b'"') {
+        return b"";
+    }
+    let end = body[i + 1..]
+        .iter()
+        .position(|&c| c == b'"')
+        .map_or(i + 1, |k| i + 1 + k);
+    &body[i + 1..end]
+}
+
+// ---------- factorisation worker process ----------
+
+/// A child process of this binary (`--factor-worker NVARS`): one polynomial
+/// text per line on stdin, answers `F <exp> <factor text>` lines then `END`.
+#[derive(Default)]
+struct Worker {
+    child: Option<(Child, std::process::ChildStdin, Receiver<Option<String>>)>,
+    spawned: u64,
+    killed: u64,
+}
+impl Worker {
+    fn factor(
+        &mut self,
+        text: &str,
+        timeout: std::time::Duration,
+        vars: &Arc<Vec<PolyVariable>>,
+        nvars: usize,
+    ) -> Option<Vec<(Poly, usize)>> {
+        if self.child.is_none() {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--factor-worker", &(nvars - 1).to_string()])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("factor worker");
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let (tx, rx) = channel();
+            std::thread::spawn(move || {
+                for l in BufReader::new(stdout).lines() {
+                    if tx.send(l.ok()).is_err() {
+                        break;
+                    }
+                }
+                let _ = tx.send(None);
+            });
+            self.child = Some((child, stdin, rx));
+            self.spawned += 1;
+        }
+        let deadline = Instant::now() + timeout;
+        let (_, stdin, rx) = self.child.as_mut().unwrap();
+        let mut ok = stdin.write_all(text.as_bytes()).is_ok() && stdin.write_all(b"\n").is_ok() && stdin.flush().is_ok();
+        let mut out = Vec::new();
+        while ok {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(left) {
+                Ok(Some(l)) if l == "END" => return Some(out),
+                Ok(Some(l)) => {
+                    let mut it = l.splitn(3, ' ');
+                    let (_, e, f) = (it.next(), it.next().unwrap(), it.next().unwrap());
+                    let c = try_parse!(f)
+                        .unwrap()
+                        .as_view()
+                        .try_to_rational_polynomial(&Q, &Z, Some(vars.clone()))
+                        .unwrap();
+                    assert!(c.denominator.is_one());
+                    out.push((c.numerator, e.parse().unwrap()));
+                }
+                _ => ok = false,
+            }
+        }
+        let (mut child, _, _) = self.child.take().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        self.killed += 1;
+        None
+    }
+}
+
+fn factor_worker(arity: usize) {
+    let mut names = vec!["d".to_string()];
+    names.extend((0..arity).map(|k| format!("n{k}")));
+    let vars: Arc<Vec<PolyVariable>> = Arc::new(names.iter().map(|s| PolyVariable::Symbol(symbol!(s.as_str()))).collect());
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout().lock();
+    let mut line = String::new();
+    let mut lock = stdin.lock();
+    loop {
+        line.clear();
+        if lock.read_line(&mut line).unwrap() == 0 {
+            return;
+        }
+        let c = try_parse!(line.trim())
+            .unwrap()
+            .as_view()
+            .try_to_rational_polynomial(&Q, &Z, Some(vars.clone()))
+            .unwrap();
+        let mut s = String::new();
+        for (f, e) in c.numerator.factor() {
+            s.clear();
+            print_poly(&f, &names, &mut s);
+            writeln!(out, "F {e} {s}").unwrap();
+        }
+        writeln!(out, "END").unwrap();
+        out.flush().unwrap();
+    }
+}
+
 fn vmhwm() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .unwrap_or_default()
@@ -529,8 +984,28 @@ fn vmhwm() -> u64 {
         * 1024
 }
 
+/// Value of a top-level scalar field `"key": value` of a record (spaced or compact JSON).
+fn field(body: &[u8], key: &str) -> String {
+    let k = format!("\"{key}\"");
+    let k = k.as_bytes();
+    let Some(p) = body.windows(k.len()).position(|w| w == k) else {
+        return String::new();
+    };
+    let mut i = p + k.len();
+    while i < body.len() && (body[i].is_ascii_whitespace() || body[i] == b':') {
+        i += 1;
+    }
+    let rest = &body[i..];
+    let end = rest.iter().position(|&c| c == b',' || c == b'}').unwrap_or(rest.len());
+    String::from_utf8_lossy(&rest[..end]).trim().trim_matches('"').to_string()
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--factor-worker") {
+        factor_worker(args[2].parse().unwrap());
+        return;
+    }
     let input = &args[1];
     let report = &args[2];
     let mut label = std::path::Path::new(input)
@@ -539,6 +1014,15 @@ fn main() {
         .map_or("table".into(), |s| s.to_string_lossy().to_string());
     let mut write: Option<String> = None;
     let mut zstd = true;
+    // --only FILE: lines `chart:index`; only these rules are measured
+    // (others are passed through, counted as bytes only)
+    let mut only: Option<std::collections::HashSet<String>> = None;
+    // --budget-s S: stop after the first rule finishing past S seconds
+    // (report `complete: false` and the input bytes read)
+    let mut budget: Option<f64> = None;
+    let mut bytes_read = 0u64;
+    let mut complete = true;
+    let mut skipped_rules = 0u64;
     let mut i = 3;
     while i < args.len() {
         match args[i].as_str() {
@@ -551,6 +1035,21 @@ fn main() {
                 i += 1;
             }
             "--no-zstd" => zstd = false,
+            "--only" => {
+                only = Some(
+                    std::fs::read_to_string(&args[i + 1])
+                        .unwrap()
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .map(|l| l.trim().to_string())
+                        .collect(),
+                );
+                i += 1;
+            }
+            "--budget-s" => {
+                budget = Some(args[i + 1].parse().unwrap());
+                i += 1;
+            }
             o => panic!("unknown option {o}"),
         }
         i += 1;
@@ -584,9 +1083,15 @@ fn main() {
         if n == 0 {
             break;
         }
+        if budget.is_some_and(|b| started.elapsed().as_secs_f64() > b) {
+            complete = false;
+            break;
+        }
+        bytes_read += n as u64;
         in_text.write(&line);
         let body: &[u8] = line.strip_suffix(b"\n").unwrap_or(&line);
-        if body.starts_with(b"{\"type\":\"header\"") {
+        let kind = record_type(body);
+        if kind == b"header" {
             let h: serde_json::Value = serde_json::from_slice(body).unwrap();
             let arity = h["denominators"]
                 .as_u64()
@@ -623,20 +1128,33 @@ fn main() {
                         .map_or(60.0, |s| s.parse().unwrap()),
                 ),
                 timeouts: 0,
-                abandoned: 0,
+                worker: Worker::default(),
+                part_cache: HashMap::new(),
+                part_hits: 0,
+                big_text: std::env::var("COEF_FORM_BIG_TEXT")
+                    .ok()
+                    .map_or(1 << 20, |s| s.parse().unwrap()),
+                big_coefs: 0,
+                big_fallbacks: 0,
+                unchecked: 0,
             });
-            let tag = b"{\"type\":\"header\",";
+            // `"coef_form"` right after the type value (type stays the first key)
+            let at = line
+                .windows(8)
+                .position(|w| w == b"\"header\"")
+                .expect("header type")
+                + 8;
             let mut out = Vec::with_capacity(line.len() + 40);
-            out.extend_from_slice(tag);
-            write!(out, "\"coef_form\":\"{TABLE_COEF_FORM}\",").unwrap();
-            out.extend_from_slice(&line[tag.len()..]);
+            out.extend_from_slice(&line[..at]);
+            write!(out, ",\"coef_form\":\"{TABLE_COEF_FORM}\"").unwrap();
+            out.extend_from_slice(&line[at..]);
             out_text.write(&out);
             if let Some(w) = &mut writer {
                 w.write_all(&out).unwrap();
             }
             continue;
         }
-        if !body.starts_with(b"{\"type\":\"rule\"") {
+        if kind != b"rule" {
             out_text.write(&line);
             if let Some(w) = &mut writer {
                 w.write_all(&line).unwrap();
@@ -644,15 +1162,44 @@ fn main() {
             continue;
         }
         let s = st.as_mut().expect("rule before header");
+        if let Some(o) = &only {
+            if !o.contains(&format!("{}:{}", field(body, "chart"), field(body, "index"))) {
+                skipped_rules += 1;
+                out_text.write(&line);
+                if let Some(w) = &mut writer {
+                    w.write_all(&line).unwrap();
+                }
+                continue;
+            }
+        }
         rules += 1;
         let (a, b) = rhs_span(body).expect("rhs");
-        let rhs: Vec<(String, String)> = serde_json::from_slice(&body[a..b]).unwrap();
+        // (key, coefficient) byte ranges; serde only for escaped strings
+        let items: Vec<(String, String)>;
+        let spans: Vec<(&str, &str)> = match rhs_items(body, a, b) {
+            Some(v) => v,
+            None => {
+                items = serde_json::from_slice(&body[a..b]).unwrap();
+                items.iter().map(|(k, c)| (k.as_str(), c.as_str())).collect()
+            }
+        };
         let audit = sign_count(&body[a..]);
         let mut expanded = 0u64;
         let mut refs = 0u64;
         let mut ids: Vec<u32> = Vec::new();
-        let mut new_rhs: Vec<(String, String)> = Vec::with_capacity(rhs.len());
-        for (key, coef) in &rhs {
+        // the factored record, streamed piece by piece (no copy of the record)
+        let mut out_len = 0usize;
+        let mut text_est = sign_count(&body[b..]);
+        let mut emit = |piece: &[u8], sink: &mut Sink, w: &mut Option<BufWriter<std::fs::File>>| {
+            out_len += piece.len();
+            sink.write(piece);
+            if let Some(w) = w {
+                w.write_all(piece).unwrap();
+            }
+        };
+        emit(&body[..a], &mut out_text, &mut writer);
+        emit(b"[", &mut out_text, &mut writer);
+        for (k, &(key, coef)) in spans.iter().enumerate() {
             occurrences += 1;
             let info = s.info(coef);
             expanded += info.terms;
@@ -662,18 +1209,33 @@ fn main() {
             let text = s.text(&info, coef);
             write_s += t.elapsed().as_secs_f64();
             if writer.is_some() {
-                // exact identity of the written coefficient
-                let t = Instant::now();
-                let a = s.parse(coef);
-                let b = s.parse(&text);
-                assert!(
-                    a.numerator == b.numerator && a.denominator == b.denominator,
-                    "factored text differs: {coef:.200} vs {text:.200}"
-                );
-                check_s += t.elapsed().as_secs_f64();
+                if info.big {
+                    s.unchecked += 1;
+                } else {
+                    // exact identity of the written coefficient
+                    let t = Instant::now();
+                    let x = s.parse(coef);
+                    let y = s.parse(&text);
+                    assert!(
+                        x.numerator == y.numerator && x.denominator == y.denominator,
+                        "factored text differs: {coef:.200} vs {text:.200}"
+                    );
+                    check_s += t.elapsed().as_secs_f64();
+                }
             }
-            new_rhs.push((key.clone(), text));
+            text_est += sign_count(key.as_bytes()) + sign_count(text.as_bytes());
+            let piece = format!(
+                "{}[{},{}]",
+                if k == 0 { "" } else { "," },
+                serde_json::to_string(key).unwrap(),
+                serde_json::to_string(&text).unwrap()
+            );
+            emit(piece.as_bytes(), &mut out_text, &mut writer);
         }
+        emit(b"]", &mut out_text, &mut writer);
+        emit(&body[b..], &mut out_text, &mut writer);
+        emit(b"\n", &mut out_text, &mut writer);
+        let out_len = out_len - 1;
         ids.sort_unstable();
         ids.dedup();
         let whole: u64 = ids
@@ -682,17 +1244,6 @@ fn main() {
             .map(|&i| s.dict[i as usize].terms)
             .sum();
         let factored: u64 = ids.iter().map(|&i| s.dict[i as usize].terms).sum::<u64>() + refs;
-        let rhs_text = serde_json::to_vec(&new_rhs).unwrap();
-        let mut out = Vec::with_capacity(a + rhs_text.len() + (body.len() - b) + 1);
-        out.extend_from_slice(&body[..a]);
-        out.extend_from_slice(&rhs_text);
-        out.extend_from_slice(&body[b..]);
-        let text_est = sign_count(&out[a..]);
-        out.push(b'\n');
-        out_text.write(&out);
-        if let Some(w) = &mut writer {
-            w.write_all(&out).unwrap();
-        }
         let m = [audit, expanded, factored, text_est];
         for k in 0..4 {
             totals[k] += m[k];
@@ -704,23 +1255,10 @@ fn main() {
             }
         }
         if audit > 1_000_000 || expanded > 1_000_000 {
-            let field = |key: &[u8]| -> String {
-                body.windows(key.len())
-                    .position(|w| w == key)
-                    .map(|p| {
-                        let rest = &body[p + key.len()..];
-                        let end = rest
-                            .iter()
-                            .position(|&c| c == b',' || c == b'}')
-                            .unwrap_or(rest.len());
-                        String::from_utf8_lossy(&rest[..end]).trim_matches('"').to_string()
-                    })
-                    .unwrap_or_default()
-            };
             largest.push(serde_json::json!({
-                "chart": field(b"\"chart\":"), "index": field(b"\"index\":"), "audit": audit, "expanded": expanded,
+                "chart": field(body, "chart"), "index": field(body, "index"), "audit": audit, "expanded": expanded,
                 "factored": factored, "factored_whole": whole, "text": text_est,
-                "record_bytes": body.len(), "factored_record_bytes": out.len() - 1,
+                "record_bytes": body.len(), "factored_record_bytes": out_len,
             }));
         }
     }
@@ -752,7 +1290,12 @@ fn main() {
         "whole_entries": s.dict.iter().filter(|e| e.whole).count(),
         "whole_terms": s.dict.iter().filter(|e| e.whole).map(|e| e.terms).sum::<u64>(),
         "factored_polys": s.factored_polys, "whole_polys": s.whole_polys,
+        "complete": complete, "bytes_read": bytes_read, "skipped_rules": skipped_rules,
+        "only": only.as_ref().map(|o| o.len()), "budget_s": budget,
+        "factor_cache_hits": s.part_hits, "factor_workers_spawned": s.worker.spawned, "factor_workers_killed": s.worker.killed,
         "factor_timeouts": s.timeouts, "factor_timeout_s": s.timeout.as_secs_f64(),
+        "big_text_bytes": s.big_text, "big_coefficients": s.big_coefs, "big_fallbacks": s.big_fallbacks,
+        "unchecked_written_big_coefficients": s.unchecked,
         "sizes": sizes, "rules_over_1M": largest,
         "parse_s": s.parse_s, "factor_and_multiply_back_s": s.factor_s, "max_poly_factor_s": s.max_factor_s,
         "factored_text_s": write_s, "text_check_s": check_s, "written": write,
