@@ -11,7 +11,7 @@
 //!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
@@ -30,7 +30,9 @@ use std::path::{Path, PathBuf};
 
 use rustred::node::auto::{AutoOptions, ProbeOptions, generate_auto, probe};
 use rustred::node::descent::check_table_file;
-use rustred::node::driver::{CaseSpec, NodeOptions, SeedScheduleName, generate};
+use rustred::node::driver::{
+    CaseSpec, KnownTerminalsFile, NodeOptions, SeedScheduleName, generate,
+};
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
@@ -300,6 +302,9 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         .collect();
     o.cand_dump = a.flag("--cand-dump");
     o.strict_numeric_search = a.flag("--strict-numeric-search");
+    if let Some(path) = a.take("--known-terminals") {
+        o.known_terminals = Some(KnownTerminalsFile::read(path).unwrap_or_else(|e| die(&e)));
+    }
     if let Some(d) = a.parse("--numeric-depth") {
         o.numeric_depth = d;
     }
@@ -399,7 +404,11 @@ fn cmd_generate(mut a: Args) -> i32 {
             );
         }
     }
-    println!("{}", serde_json::to_string(&serde_json::json!({"complete": outcome.complete, "rules": outcome.rules, "residuals": outcome.residuals, "stop": outcome.stop, "seconds": outcome.seconds, "table": outcome.table})).unwrap());
+    let mut summary = serde_json::json!({"complete": outcome.complete, "rules": outcome.rules, "residuals": outcome.residuals, "stop": outcome.stop, "seconds": outcome.seconds, "table": outcome.table});
+    if let Some(ledger) = &outcome.terminal_ledger {
+        summary["terminal_ledger"] = serde_json::to_value(ledger).expect("terminal provenance");
+    }
+    println!("{}", serde_json::to_string(&summary).unwrap());
     i32::from(!outcome.complete)
 }
 
@@ -577,5 +586,30 @@ mod strict_numeric_tests {
             args.done();
             assert_eq!(options.strict_numeric_search, enabled);
         }
+    }
+
+    #[test]
+    fn known_terminals_cli_loads_actual_file_and_is_opt_in() {
+        let path =
+            std::env::temp_dir().join(format!("rr-node-known-cli-{}.json", std::process::id()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({
+            "schema":"rustred.node.known-terminals.v1", "frame":"ORIGINAL",
+            "original_family_source_sha256":"a".repeat(64), "node_order":NodeOrder::identity(),
+            "chart_presented":"1", "terminals":[{"powers":[1], "sources":[{
+                "kind":"lp-count", "reference":"test caller declaration", "sha256":"b".repeat(64)}]}]
+        })).unwrap()).unwrap();
+        let mut args = Args {
+            items: vec!["--known-terminals".into(), path.display().to_string()],
+        };
+        let options = node_options(&mut args, "");
+        args.done();
+        assert!(options.known_terminals.is_some());
+        assert_eq!(
+            serde_json::to_value(options).unwrap()["known_terminals"],
+            path.display().to_string()
+        );
+        let mut args = Args { items: vec![] };
+        assert!(node_options(&mut args, "").known_terminals.is_none());
+        std::fs::remove_file(path).unwrap();
     }
 }
