@@ -672,6 +672,13 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "7025792b23b3d6aea9c2ed61be1d89f33dc87e78c9aae790128dfee9611e6b02",
     ),
+    // M5 batch 4: route-basis ISP preferences (P_PRESENTATION_VERSION 3); same
+    // owners and counts, new identity.
+    (
+        "1-4",
+        "The scope 1-4 p library program (M3-T8c). Counts are compared by name; RUSTRED_P_BLESS=1 rewrites this file.",
+        "9ab626505bf812796907fbf01b0c1a84a56f274421a2fa0c25da7292430c3201",
+    ),
 ];
 
 /// The golden inventory: equal by name for the counts, then as a whole, and
