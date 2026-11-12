@@ -28,6 +28,9 @@ pub struct LazyDecodedCoefficientTable {
     frames: Vec<Range<usize>>,
     limits: BinaryIoLimits,
     imported: Mutex<Imported>,
+    /// coef-form: a factored section (`factored::is_factored_table`) is
+    /// decoded whole at construction; entries are admitted on first access.
+    factored: Option<Vec<Coefficient>>,
 }
 
 impl LazyDecodedCoefficientTable {
@@ -62,6 +65,31 @@ impl LazyDecodedCoefficientTable {
                 .ok_or(BinaryIoError::Invalid("coefficient byte count overflow"))?,
             limits.max_program_bytes,
         )?;
+        let head = atoms
+            .slice(0..atoms.len().min(8))?
+            .read()?
+            .as_ref()
+            .to_vec();
+        if super::factored::is_factored_table(&head) {
+            let state_bytes = state.read()?.as_ref().to_vec();
+            let atom_bytes = atoms.read()?.as_ref().to_vec();
+            let state_map = super::atoms::import_state(&state_bytes)?;
+            let coefficients = catch_unwind(AssertUnwindSafe(|| {
+                super::factored::decode_factored_table(&atom_bytes, &state_map, limits)
+            }))
+            .map_err(|_| BinaryIoError::Native("factored coefficient import panicked".into()))??;
+            return Ok(Self {
+                state,
+                atoms,
+                frames: Vec::new(),
+                limits,
+                imported: Mutex::new(Imported {
+                    state: Some(state_map),
+                    coefficients: BTreeMap::new(),
+                }),
+                factored: Some(coefficients),
+            });
+        }
         let mut source = ByteCursor::shared(&atoms);
         let count = source.length()?;
         limits.check_count(
@@ -118,14 +146,15 @@ impl LazyDecodedCoefficientTable {
                 state: None,
                 coefficients: BTreeMap::new(),
             }),
+            factored: None,
         })
     }
 
     pub fn len(&self) -> usize {
-        self.frames.len()
+        self.factored.as_ref().map_or(self.frames.len(), Vec::len)
     }
     pub fn is_empty(&self) -> bool {
-        self.frames.is_empty()
+        self.len() == 0
     }
     pub(crate) fn index_owned_bytes(&self) -> Result<usize, BinaryIoError> {
         self.frames
@@ -167,6 +196,23 @@ impl LazyDecodedCoefficientTable {
         id: CoefficientId,
         admit: impl FnOnce(&Coefficient) -> Result<(), BinaryIoError>,
     ) -> Result<Arc<Coefficient>, BinaryIoError> {
+        if let Some(factored) = &self.factored {
+            let decoded = factored
+                .get(id.index())
+                .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+            let mut imported = self
+                .imported
+                .lock()
+                .map_err(|_| BinaryIoError::Native("lazy coefficient lock poisoned".into()))?;
+            if let Some(value) = imported.coefficients.get(&id.index()) {
+                return Ok(value.clone());
+            }
+            let value = Arc::new(decoded.clone());
+            admit(&value)?;
+            super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
+            imported.coefficients.insert(id.index(), value.clone());
+            return Ok(value);
+        }
         let frame = self
             .frames
             .get(id.index())

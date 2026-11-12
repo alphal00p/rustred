@@ -11,6 +11,7 @@ mod catalog;
 mod compare;
 mod envelope;
 mod error;
+mod factored;
 mod family;
 pub mod finite_work;
 mod lazy;
@@ -34,6 +35,10 @@ pub(crate) use error::{
     native_encode_error, native_io_error, resource_allocation, resource_array, resource_checkpoint,
 };
 pub(crate) use error::{native_error, resource_failure};
+pub use factored::{
+    FACTOR_TERM_CAP, FACTORED_TABLE_MAGIC, FACTORED_TABLE_VERSION, encode_factored_table,
+    is_factored_table,
+};
 pub use family::NativeFamilyRecord;
 pub use lazy::LazyDecodedCoefficientTable;
 pub use limits::BinaryIoLimits;
