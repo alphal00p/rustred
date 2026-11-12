@@ -536,7 +536,8 @@ pub struct NodeOptions {
     pub seed_pose_min_rows: usize,
     /// seed-fixed-dot (inside the rung only): after the portfolio, at most this many FIXED-DOT poses
     /// ([`fixed_dot_poses`]: one L1 shell 3 with one fixed line first, bounded seed count) are measured when no
-    /// portfolio pose reached `seed_pose_keep`. `None` = [`FIXED_DOT_POSES_DEFAULT`]; `Some(0)` = off.
+    /// portfolio pose reached `seed_pose_keep`, led by one free-first shell-3 pose that gates them
+    /// ([`FIXED_DOT_GATE_RHS`]). `None` = [`FIXED_DOT_POSES_DEFAULT`]; `Some(0)` = off (lead included).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_pose_fixed_dot: Option<usize>,
     /// Seed budget of one fixed-dot pose (`None` = [`FIXED_DOT_SEEDS_DEFAULT`]).
@@ -1972,6 +1973,12 @@ pub const FIXED_DOT_POSES_DEFAULT: usize = 4;
 pub const FIXED_DOT_SEEDS_DEFAULT: u32 = 1_500;
 /// The L1 shell of a fixed-dot pose (Astra T265: shell 3 = one fixed dot + an L1-2 move of the free axes).
 pub const FIXED_DOT_DEPTH: u32 = 3;
+/// The fixed-line poses run only when the free-first shell-3 lead measured a relation of at most this many RHS
+/// terms. [M] seed-fixed-dot probes (19 cases): every case where a shell-3 pose gave a small relation had a lead
+/// of <= 313 RHS (T265 goal 313, T230 #11 286, T265 #17 242, T225 G04 124, T165 #11 34, T225 G01 20, T266 R45 16,
+/// T165 #14 11); on every other case the lead had >= 544 RHS (or none) and no fixed line gave a usable relation
+/// (T163 544 ... T183 4,376; T228 none), while the fixed-line poses cost 140-3,300 s of probes there.
+pub const FIXED_DOT_GATE_RHS: usize = 400;
 
 /// Fixed-dot configuration of the rung.
 #[derive(Clone, Debug)]
@@ -2043,13 +2050,27 @@ pub fn fixed_dot_poses<const N: usize>(
         .chain(free.iter().copied().filter(|&a| !coupled(a)))
         .collect();
     let lines = fixed_dot_axes(case, phys, priority);
-    if free.is_empty() {
+    if free.is_empty() || k == 0 {
         return Vec::new();
     }
-    lines
-        .iter()
-        .take(k)
-        .map(|&a| {
+    // [M] seed-fixed-dot probe4: shell 3 ALONE with the free axes first (no fixed line first) is the cheapest pose
+    // (7-45 s modular) and already gives the small relation on T266 R45 (16 RHS), T165 #11 (34), T225 r38 (20);
+    // it leads, then one pose per fixed line (at most k).
+    let mut ff = free.clone();
+    ff.extend(lines.iter().copied());
+    ff.extend((0..N).filter(|i| !free.contains(i) && !lines.contains(i)));
+    let lead = (
+        format!("shell{FIXED_DOT_DEPTH}-ff+|spired"),
+        CaseSeedSchedule::FixedDotShell {
+            depth: FIXED_DOT_DEPTH,
+            axis_priority: ff,
+            positive_first: true,
+            max_seeds,
+        },
+        SeedScheduleName::Spired,
+    );
+    std::iter::once(lead)
+        .chain(lines.iter().take(k).map(|&a| {
             let mut prio = vec![a];
             prio.extend(free.iter().copied());
             prio.extend(lines.iter().copied().filter(|&b| b != a));
@@ -2065,7 +2086,7 @@ pub fn fixed_dot_poses<const N: usize>(
                 },
                 SeedScheduleName::Spired,
             )
-        })
+        }))
         .collect()
 }
 
@@ -2089,6 +2110,18 @@ fn measure_pose<const N: usize>(
     schedule: &CaseSeedSchedule,
     in_shell: SeedScheduleName,
 ) -> Option<f64> {
+    measure_pose_rhs(solver, case, options, visit, schedule, in_shell).map(|(cost, _)| cost)
+}
+
+/// [`measure_pose`] with the RHS count of the measured relation: Some((cost, rhs terms)).
+fn measure_pose_rhs<const N: usize>(
+    solver: &SectorSolver<N>,
+    case: &Case<N>,
+    options: SearchOptions,
+    visit: Option<&[usize]>,
+    schedule: &CaseSeedSchedule,
+    in_shell: SeedScheduleName,
+) -> Option<(f64, usize)> {
     let screen = LiftScreen {
         min_rows: 0,
         min_target_block: 0,
@@ -2115,8 +2148,10 @@ fn measure_pose<const N: usize>(
     let reports = super::screen::take_reports();
     let _ = super::screen::take_trace();
     match result {
-        Ok(candidate) => Some(candidate.rhs.len() as f64),
-        Err(_) => reports.last().map(|r| relation_cost(&r.measure)),
+        Ok(candidate) => Some((candidate.rhs.len() as f64, candidate.rhs.len())),
+        Err(_) => reports
+            .last()
+            .map(|r| (relation_cost(&r.measure), r.measure.rhs_terms)),
     }
 }
 
@@ -2176,9 +2211,18 @@ pub fn choose_seed_pose<const N: usize>(
         } else {
             portfolio.into_iter().chain(dots).collect()
         };
+        // the free-first shell-3 lead gates the fixed-line poses (FIXED_DOT_GATE_RHS)
+        let mut skip_lines = false;
         for (label, schedule, in_shell) in poses {
+            if skip_lines && label.starts_with("fixdot") {
+                continue;
+            }
             best.probes += 1;
-            if let Some(cost) = measure_pose(solver, case, options, visit, &schedule, in_shell) {
+            let measured = measure_pose_rhs(solver, case, options, visit, &schedule, in_shell);
+            if label.starts_with(&format!("shell{FIXED_DOT_DEPTH}-ff")) {
+                skip_lines = measured.is_none_or(|(_, rhs)| rhs > FIXED_DOT_GATE_RHS);
+            }
+            if let Some((cost, _)) = measured {
                 if cost < best.cost {
                     best.label = label;
                     best.schedule = schedule;
@@ -6051,11 +6095,12 @@ mod tests {
     fn fixed_dot_poses_lead_with_one_fixed_line_least_significant_first() {
         let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
             .unwrap();
-        // lines 0..3, ISPs 4, 5; line 1 dotted (2), line 2 boundary (1), ISP 4 fixed 0
+        // lines 0..3, ISPs 4, 5; line 1 dotted (2), line 2 boundary (1), ISP 4 fixed 0; free lines 0 = 3 coupled
+        // (an equation between a line and an ISP would empty the case: lines >= 1, ISPs <= 0)
         let physical = [true, true, true, true, false, false];
         let spec = CaseSpec {
             fixed: vec![None, Some(2), Some(1), None, Some(0), None],
-            equations: vec!["n3-n5".into()],
+            equations: vec!["n3-n0".into()],
         };
         let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
             .unwrap()
@@ -6065,19 +6110,30 @@ mod tests {
         let prio = [2, 1, 0, 3, 4, 5];
         assert_eq!(fixed_dot_axes(&affine, &physical, Some(&prio)), vec![1, 2]);
         let p = fixed_dot_poses(&affine, &physical, 4, 100, Some(&prio));
-        assert_eq!(p.len(), 2);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0].0, "shell3-ff+|spired");
+        assert_eq!(
+            p[0].1,
+            CaseSeedSchedule::FixedDotShell {
+                depth: 3,
+                axis_priority: vec![0, 3, 5, 1, 2, 4],
+                positive_first: true,
+                max_seeds: 100,
+            }
+        );
+        let p = p[1..].to_vec();
         assert_eq!(p[0].0, "fixdot1-shell3+|spired");
         assert_eq!(
             p[0].1,
             CaseSeedSchedule::FixedDotShell {
                 depth: 3,
-                axis_priority: vec![1, 3, 5, 0, 2, 4],
+                axis_priority: vec![1, 0, 3, 5, 2, 4],
                 positive_first: true,
                 max_seeds: 100,
             }
         );
         assert_eq!(p[0].2, SeedScheduleName::Spired);
-        assert_eq!(fixed_dot_poses(&affine, &physical, 1, 100, None).len(), 1);
+        assert_eq!(fixed_dot_poses(&affine, &physical, 1, 100, None).len(), 2);
         assert!(fixed_dot_poses(&affine, &physical, 0, 100, None).is_empty());
         // no free axis: nothing to search
         let point = Case::from(
