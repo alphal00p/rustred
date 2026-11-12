@@ -609,6 +609,13 @@ pub struct NodeOptions {
     /// region only (`F.obligations.json` `region`), not its whole chart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<Vec<String>>,
+    /// sym-gen (2026-11-12, default off; notes/sym-gen.md): the chart's authenticated automorphism group
+    /// ([`super::symmetry`]) closes every queued case (symbolic or numeric endpoint) whose keys it maps strictly
+    /// lower in the node order by ONE symmetry record `I(a) = s I(g a)` (`"type":"sym"`, a descent step with unit
+    /// coefficient and no exceptions), and every case it proves zero (`g a = a`, sign -1) by a `"type":"sym_zero"`
+    /// record; such cases are never searched. The group goes into a `"type":"symmetry_group"` record.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub symmetry: bool,
 }
 
 fn lease_wait() -> u64 {
@@ -720,6 +727,7 @@ impl Default for NodeOptions {
             case_seed_rung: None,
             slim_rules: false,
             region: None,
+            symmetry: false,
         }
     }
 }
@@ -872,6 +880,13 @@ pub struct NodeOutcome {
     /// seed-rung: numeric endpoints closed by a deeper search (`numeric_depth_max`; written only when > 0).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub numeric_deeper: usize,
+    /// sym-gen: cases closed by symmetry records (symbolic / numeric endpoints) and zero-by-symmetry records.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_rules: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_numeric: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sym_zeros: usize,
     pub not_lower: Vec<String>,
     pub stop: Option<StopReason>,
     pub seconds: f64,
@@ -2407,6 +2422,93 @@ fn run<const N: usize>(
         .map_err(|e| e.to_string())?;
     }
     cert.flush().map_err(|e| e.to_string())?;
+    // sym-gen: the chart's automorphism group and the node order as linear forms on the chart (cross-checked)
+    let symmetry: Option<(super::symmetry::NodeGroup, super::symmetry::ChartForms)> = if opts.symmetry
+    {
+        let chart: Vec<bool> = base[..n].to_vec();
+        let t = Instant::now();
+        let group = super::symmetry::node_group(presented, &chart)?;
+        let forms = super::symmetry::ChartForms::from_order(solver.ordering(), &chart)
+            .ok_or("symmetry: the node order is not modelled on this chart (cuts / two-sided axes)")?;
+        let bad = forms.mismatches(solver.ordering(), &chart, &group, 20_000);
+        if bad > 0 {
+            return Err(format!(
+                "symmetry: the chart forms disagree with the node order on {bad} of 20000 sampled pairs"
+            ));
+        }
+        writeln!(
+            out,
+            "{{\"type\":\"symmetry_group\",\"chart\":{},\"seconds\":{:.3},\"forms_checked\":20000,\"group\":{}}}",
+            q(&label),
+            t.elapsed().as_secs_f64(),
+            group.to_json()
+        )
+        .map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        Some((group, forms))
+    } else {
+        None
+    };
+    // a symmetry / zero record for a case (fixed values) the group decides; `None` when it decides nothing
+    let sym_record = |spec: &CaseSpec, index: usize, numerical: bool| -> Option<(String, bool)> {
+        use super::symmetry::{CaseVerdict, case_verdict, image_pattern, least_image};
+        let (group, forms) = symmetry.as_ref()?;
+        let fixed = &spec.fixed;
+        let verdict = if numerical {
+            let key: Vec<i64> = fixed.iter().map(|v| v.unwrap_or(0)).collect();
+            match least_image(group, forms, &key) {
+                Some((e, _, _)) => CaseVerdict::Lower { element: e },
+                None => case_verdict(group, forms, fixed),
+            }
+        } else {
+            case_verdict(group, forms, fixed)
+        };
+        let (kind, element) = match verdict {
+            CaseVerdict::Lower { element } => ("sym", element),
+            CaseVerdict::Zero { element } => ("sym_zero", element),
+            CaseVerdict::None => return None,
+        };
+        let e = &group.elements[element];
+        let target = format!(
+            "I({})",
+            fixed
+                .iter()
+                .enumerate()
+                .map(|(i, v)| v.map_or(format!("n{i}"), |x| x.to_string()))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let flipped_free = (0..fixed.len())
+            .any(|i| fixed[i].is_none() && matches!(e.action[i], Some((_, true))));
+        let sign = if flipped_free {
+            "key".to_string()
+        } else {
+            let odd = (0..fixed.len()).fold(false, |odd, i| match (e.action[i], fixed[i]) {
+                (Some((_, true)), Some(v)) => odd ^ (v % 2 != 0),
+                _ => odd,
+            });
+            if odd { "-".into() } else { "+".into() }
+        };
+        let fixed_json: Vec<String> = fixed
+            .iter()
+            .map(|v| v.map_or("null".to_string(), |x| x.to_string()))
+            .collect();
+        Some((
+            format!(
+                "{{\"type\":{},\"chart\":{},\"index\":{index},\"fixed\":[{}],\"equations\":{},\"target\":{},\"image\":{},\"element\":{element},\"action\":{},\"matrix\":{:?},\"sign\":{},\"numerical\":{numerical}}}",
+                q(kind),
+                q(&label),
+                fixed_json.join(","),
+                strings(spec.equations.iter()),
+                q(&target),
+                q(&image_pattern(e, fixed)),
+                e.action_json(),
+                e.matrix,
+                q(&sign)
+            ),
+            kind == "sym_zero",
+        ))
+    };
     let limits = CaseIntersectionLimits::default();
     let mut symbolic = SectorSolveOptions::default().symbolic;
     if opts.max_depth.is_some() {
@@ -3547,6 +3649,30 @@ fn run<const N: usize>(
             qlog.flush().map_err(|e| e.to_string())?;
             continue;
         }
+        // sym-gen: a case the chart's group maps strictly lower (or proves zero) is closed by one symmetry record
+        if let Some((line, zero)) = sym_record(&spec, rules.len() + adopted_rules, false) {
+            writeln!(out, "{line}").map_err(|e| e.to_string())?;
+            out.flush().map_err(|e| e.to_string())?;
+            writeln!(
+                qlog,
+                "{{\"type\":\"sym_closed\",\"index\":{},\"zero\":{zero},\"case\":{}}}",
+                rules.len() + adopted_rules,
+                case_json(&current, n)
+            )
+            .map_err(|e| e.to_string())?;
+            if zero {
+                outcome.sym_zeros += 1;
+            } else {
+                outcome.sym_rules += 1;
+            }
+            cover.push((
+                format!("sym:{}", rules.len() + adopted_rules),
+                current.clone(),
+                Vec::new(),
+            ));
+            adopted_rules += 1;
+            continue;
+        }
         // integer domain before any lift: empty -> no rule needed; finite -> point cases (numeric endpoints), each
         // dropped when an earlier rule covers it (union-aware coverage on finite domains)
         if opts.empty_domain_check && !current.is_numerical() {
@@ -4332,6 +4458,31 @@ fn run<const N: usize>(
                 .map_err(|e| e.to_string())?;
                 continue;
             }
+            // sym-gen: a point the chart's group maps lower (its orbit minimum) or proves zero: one symmetry record
+            if let Some((line, zero)) =
+                sym_record(&case_spec(&case, n), rules.len() + adopted_rules, true)
+            {
+                writeln!(out, "{line}").map_err(|e| e.to_string())?;
+                out.flush().map_err(|e| e.to_string())?;
+                writeln!(
+                    qlog,
+                    "{{\"type\":\"sym_closed\",\"index\":{},\"zero\":{zero},\"numerical\":true,\"fixed\":{fixed:?}}}",
+                    rules.len() + adopted_rules
+                )
+                .map_err(|e| e.to_string())?;
+                if zero {
+                    outcome.sym_zeros += 1;
+                } else {
+                    outcome.sym_numeric += 1;
+                }
+                cover.push((
+                    format!("sym:{}", rules.len() + adopted_rules),
+                    case.clone(),
+                    Vec::new(),
+                ));
+                adopted_rules += 1;
+                continue;
+            }
             // every numeric path honours the node's source order (then the retry source orders) and its exact
             // backend; a point the per-point search exhausts or refuses under all of them goes to the shared solve.
             // seed-rung: with the seed-pose rung on, a numeric endpoint runs the symbolic cases' lift ladder (first
@@ -4841,9 +4992,17 @@ fn run<const N: usize>(
     } else {
         String::new()
     };
+    let sym_fields = if opts.symmetry {
+        format!(
+            ",\"sym_rules\":{},\"sym_numeric\":{},\"sym_zeros\":{}",
+            outcome.sym_rules, outcome.sym_numeric, outcome.sym_zeros
+        )
+    } else {
+        String::new()
+    };
     writeln!(
         out,
-        "{{\"type\":\"{chart_record}\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches_total},\"residuals\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{},\"discarded_cases\":{discarded},\"finite_case_policy\":\"node-queue\",\"deferred_cases\":0,\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions}}}",
+        "{{\"type\":\"{chart_record}\",\"chart\":{},\"seconds\":{seconds:.3},\"rules\":{},\"rhs_terms\":{terms},\"branches\":{branches_total},\"residuals\":{},\"symbolic_cases\":{symbolic_cases},\"numerical_cases\":{},\"discarded_cases\":{discarded},\"finite_case_policy\":\"node-queue\",\"deferred_cases\":0,\"deferred_branches\":{deferred_branches},\"deferred_regions\":{deferred_regions}{sym_fields}}}",
         q(&label),
         rules.len() + adopted_rules,
         residual_keys.len(),

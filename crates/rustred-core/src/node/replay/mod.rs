@@ -1646,6 +1646,112 @@ fn family_check(header: &Value, text: &str, f: &Family) -> Result<(), Unknown> {
 
 /// Run the replay; writes `OUT/RESULT.json` and per rule `OUT/<chart>-r<index>/RESULT.json`.
 /// Returns the overall status (`PASS_RS2_RS3_SAMPLED`, `FAIL`, `UNKNOWN`) and the result document.
+/// Exact check of a sym-gen record (`"type":"sym"` / `"sym_zero"`): the matrix `T` (row-vector convention over
+/// `(k_1, .., k_L, q)`) sends `q` to `+-q` and the loop momenta unimodularly (`|det A| = 1`: unit Jacobian); every
+/// slot of the record's action is mapped EXACTLY: `c_i T = +-c_t` (a squared propagator never changes sign, so the
+/// action's flip must be false), chart lines onto chart lines; a slot without image is fixed at 0 on the case.
+/// Then `D_i(k T) = D_t(k)` for every mapped slot and the change of variables proves `I(a) = I(g a)` on the case.
+/// A `sym_zero` record must be a pointwise fixed point with an odd flipped power (impossible for squares: FAIL).
+/// Descent of a `sym` record is the descent gate's (rr_node descent), not this check.
+pub fn check_symmetry_record(r: &Value, f: &Family) -> Result<(), String> {
+    let n = f.n;
+    let l = f.loops;
+    let w = l + 1;
+    let m: Vec<i64> = r["matrix"]
+        .as_array()
+        .ok_or("no matrix")?
+        .iter()
+        .map(|x| x.as_i64().ok_or("matrix entry"))
+        .collect::<Result<_, _>>()?;
+    if m.len() != w * w {
+        return Err(format!("matrix of {} entries, expected {}", m.len(), w * w));
+    }
+    if (0..l).any(|j| m[l * w + j] != 0) || m[l * w + l].abs() != 1 {
+        return Err("q is not mapped to +-q".into());
+    }
+    let a: Vec<Vec<i128>> = (0..l)
+        .map(|i| (0..l).map(|j| i128::from(m[i * w + j])).collect())
+        .collect();
+    let det = det_i128(a);
+    if det.abs() != 1 {
+        return Err(format!("loop part has determinant {det}"));
+    }
+    let chart: Vec<bool> = r["chart"]
+        .as_str()
+        .ok_or("no chart")?
+        .chars()
+        .map(|c| c == '1')
+        .collect();
+    let fixed: Vec<Option<i64>> = r["fixed"]
+        .as_array()
+        .ok_or("no fixed")?
+        .iter()
+        .map(|x| x.as_i64())
+        .collect();
+    let action = r["action"].as_array().ok_or("no action")?;
+    if chart.len() != n || fixed.len() != n || action.len() != n {
+        return Err("record arity".into());
+    }
+    let mut seen = vec![false; n];
+    for i in 0..n {
+        if action[i].is_null() {
+            if fixed[i] != Some(0) {
+                return Err(format!("slot {i} has no image but is not fixed at 0"));
+            }
+            continue;
+        }
+        let t = action[i][0].as_u64().ok_or("action target")? as usize;
+        let flip = action[i][1].as_bool().ok_or("action flip")?;
+        if t >= n || std::mem::replace(&mut seen[t], true) {
+            return Err(format!("slot {i}: target {t} invalid or repeated"));
+        }
+        if flip {
+            return Err(format!("slot {i}: a squared propagator cannot change sign"));
+        }
+        if chart[i] != chart[t] {
+            return Err(format!("slot {i}: chart line / non-line mismatch with {t}"));
+        }
+        let ci = f.momentum(i).ok_or("momentum")?;
+        let ct = f.momentum(t).ok_or("momentum")?;
+        let image: Vec<i64> = (0..w)
+            .map(|col| (0..w).map(|row| ci[row] * m[row * w + col]).sum())
+            .collect();
+        let minus: Vec<i64> = ct.iter().map(|x| -x).collect();
+        if image != ct && image != minus {
+            return Err(format!("slot {i}: image momentum {image:?} is not +-{ct:?}"));
+        }
+    }
+    if r["type"] == "sym_zero" {
+        // squared propagators never flip: no sign, no zero by symmetry
+        return Err("zero by symmetry needs a sign flip (impossible with squared propagators)".into());
+    }
+    Ok(())
+}
+
+fn det_i128(mut a: Vec<Vec<i128>>) -> i128 {
+    let n = a.len();
+    let mut sign = 1i128;
+    let mut prev = 1i128;
+    for k in 0..n {
+        if a[k][k] == 0 {
+            match (k + 1..n).find(|&r| a[r][k] != 0) {
+                Some(r) => {
+                    a.swap(k, r);
+                    sign = -sign;
+                }
+                None => return 0,
+            }
+        }
+        for i in k + 1..n {
+            for j in k + 1..n {
+                a[i][j] = (a[i][j] * a[k][k] - a[i][k] * a[k][j]) / prev;
+            }
+        }
+        prev = a[k][k];
+    }
+    if n == 0 { 1 } else { sign * a[n - 1][n - 1] }
+}
+
 pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
     if args.out.exists() {
         return Err("output directory already exists".into());
@@ -1658,6 +1764,7 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
         let mut header: Option<Value> = None;
         let mut charts: HashMap<String, Value> = HashMap::new();
         let mut rules: Vec<Rule> = Vec::new();
+        let mut syms: Vec<Value> = Vec::new();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             let r: Value = serde_json::from_str(line).map_err(|e| format!("table json: {e}"))?;
             match r["type"].as_str() {
@@ -1680,11 +1787,21 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
                         rules.push(rule_from(&r)?);
                     }
                 }
+                Some("sym") | Some("sym_zero") => {
+                    let idx = r["index"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let chart_ok = args
+                        .chart
+                        .as_ref()
+                        .is_none_or(|c| r["chart"].as_str() == Some(c));
+                    if chart_ok && args.rules.as_ref().is_none_or(|w| w.contains(&idx)) {
+                        syms.push(r);
+                    }
+                }
                 _ => {}
             }
         }
         let header = header
-            .filter(|_| !rules.is_empty())
+            .filter(|_| !rules.is_empty() || !syms.is_empty())
             .ok_or("no header/selected rules")?;
         let family_text = match &args.family {
             Some(p) => std::fs::read_to_string(p).map_err(|e| format!("family: {e}"))?,
@@ -1778,6 +1895,23 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             );
             recs.push(rec);
         }
+        // sym-gen records: the momentum map is checked EXACTLY on the family (integer arithmetic, no solver code)
+        for r in &syms {
+            let mut rec = json!({"chart": r["chart"], "index": r["index"], "type": r["type"], "fixed": r["fixed"],
+                "image": r["image"], "rhs_terms": 1});
+            match check_symmetry_record(r, &f) {
+                Ok(()) => rec["status"] = json!("PASS_SYM_EXACT"),
+                Err(e) => {
+                    rec["status"] = json!("FAIL_SYM_EXACT");
+                    rec["reason"] = json!(e);
+                }
+            }
+            eprintln!(
+                "{}",
+                json!({"stage": "sym_complete", "chart": r["chart"], "index": r["index"], "status": rec["status"], "reason": rec.get("reason")})
+            );
+            recs.push(rec);
+        }
         Ok(vec![auth, Value::Array(recs)])
     })();
     let status = match inner {
@@ -1791,7 +1925,10 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             result["rules"] = Value::Array(recs);
             if ss.iter().any(|s| s.starts_with("FAIL")) {
                 "FAIL".to_string()
-            } else if ss.iter().all(|s| s == "PASS_RS2_RS3_SAMPLED") {
+            } else if ss
+                .iter()
+                .all(|s| s == "PASS_RS2_RS3_SAMPLED" || s == "PASS_SYM_EXACT")
+            {
                 "PASS_RS2_RS3_SAMPLED".to_string()
             } else {
                 "UNKNOWN".to_string()
@@ -1808,7 +1945,13 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             .as_array()
             .map_or(0, |r| r.iter().filter(|x| x["status"] == s).count())
     };
-    result["counts"] = json!({"PASS": counts("PASS_RS2_RS3_SAMPLED"), "FAIL": counts("FAIL_RS2_RS3_SAMPLED"), "UNKNOWN": counts("UNKNOWN")});
+    let mut c = json!({"PASS": counts("PASS_RS2_RS3_SAMPLED"), "FAIL": counts("FAIL_RS2_RS3_SAMPLED"), "UNKNOWN": counts("UNKNOWN")});
+    let (ps, fs) = (counts("PASS_SYM_EXACT"), counts("FAIL_SYM_EXACT"));
+    if ps + fs > 0 {
+        c["PASS_SYM"] = json!(ps);
+        c["FAIL_SYM"] = json!(fs);
+    }
+    result["counts"] = c;
     std::fs::write(
         args.out.join("RESULT.json"),
         serde_json::to_string_pretty(&result).unwrap() + "\n",

@@ -186,6 +186,7 @@ pub fn check_table_file(
     let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
     let mut header = None;
     let mut rules: Vec<(String, String, String, Vec<String>)> = Vec::new();
+    let mut syms: Vec<SymRecord> = Vec::new();
     for line in std::io::BufReader::with_capacity(1 << 22, file).lines() {
         let line = line.map_err(|e| format!("{path}: {e}"))?;
         let line = line.as_str();
@@ -208,6 +209,25 @@ pub fn check_table_file(
                     .collect();
                 rules.push((chart, label, target, rhs));
             }
+            Some("sym") => {
+                let chart = v["chart"].as_str().unwrap_or_default().to_string();
+                let label = format!("{}#{}", chart, v["index"]);
+                let fixed: Vec<Option<i64>> = v["fixed"]
+                    .as_array()
+                    .ok_or("sym fixed")?
+                    .iter()
+                    .map(|x| x.as_i64())
+                    .collect();
+                let action: Vec<Option<(usize, bool)>> = v["action"]
+                    .as_array()
+                    .ok_or("sym action")?
+                    .iter()
+                    .map(|a| {
+                        Some((a.get(0)?.as_u64()? as usize, a.get(1)?.as_bool()?))
+                    })
+                    .collect();
+                syms.push((chart, label, fixed, action));
+            }
             _ => {}
         }
     }
@@ -219,7 +239,7 @@ pub fn check_table_file(
     let arity = header["denominators"]
         .as_u64()
         .ok_or("header denominators")? as usize;
-    let report = match arity {
+    let mut report = match arity {
         5 => check_keyed::<5>(&order, arity, &rules),
         9 => check_keyed::<9>(&order, arity, &rules),
         12 => check_keyed::<12>(&order, arity, &rules),
@@ -227,7 +247,90 @@ pub fn check_table_file(
         20 => check_keyed::<20>(&order, arity, &rules),
         other => Err(format!("arity {other} not compiled in the descent check")),
     }?;
+    if !syms.is_empty() {
+        let s = match arity {
+            5 => check_sym::<5>(&order, arity, &syms),
+            9 => check_sym::<9>(&order, arity, &syms),
+            12 => check_sym::<12>(&order, arity, &syms),
+            14 => check_sym::<14>(&order, arity, &syms),
+            20 => check_sym::<20>(&order, arity, &syms),
+            other => Err(format!("arity {other} not compiled in the descent check")),
+        }?;
+        report.rules += s.rules;
+        report.terms += s.terms;
+        report.not_lower.extend(s.not_lower);
+    }
     Ok((order, report))
+}
+
+/// A sym-gen symmetry record: (chart, label, fixed values of its case, slot action).
+pub type SymRecord = (String, String, Vec<Option<i64>>, Vec<Option<(usize, bool)>>);
+
+/// sym-gen: every `"type":"sym"` record `I(a) = s I(g a)` must lower EVERY key of its case strictly in the one
+/// declared order. The order on the chart is written as linear forms ([`super::symmetry::ChartForms`], cross-checked
+/// against [`IntegralOrder::compare`] on random keys and their images under the records' actions); the record
+/// descends when the first form whose difference `w.a - w.(g a)` is not identically zero on the case is a constant
+/// of the harder sign (the driver's own criterion, re-derived here from the record alone).
+pub fn check_sym<const N: usize>(
+    order: &NodeOrder,
+    arity: usize,
+    syms: &[SymRecord],
+) -> Result<DescentReport, String> {
+    use super::symmetry::{CaseVerdict, ChartForms, NodeGroup, SymElement, case_verdict};
+    let mut total = DescentReport::default();
+    let mut charts: Vec<&str> = syms.iter().map(|r| r.0.as_str()).collect();
+    charts.sort_unstable();
+    charts.dedup();
+    for chart in charts {
+        let bits: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+        if bits.len() != arity {
+            return Err(format!("chart {chart}: arity {}", bits.len()));
+        }
+        let mut sector = [false; N];
+        sector[..arity].copy_from_slice(&bits);
+        let io = integral_order::<N>(order, sector, arity)?;
+        let forms = ChartForms::from_order(&io, &bits)
+            .ok_or("sym records: the order is not modelled on this chart")?;
+        let mine: Vec<&SymRecord> = syms.iter().filter(|r| r.0 == chart).collect();
+        let all = NodeGroup {
+            elements: mine
+                .iter()
+                .map(|r| SymElement {
+                    matrix: Vec::new(),
+                    action: r.3.clone(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let bad = forms.mismatches(&io, &bits, &all, 20_000);
+        if bad > 0 {
+            return Err(format!(
+                "sym records: chart forms disagree with the order on {bad} sampled pairs"
+            ));
+        }
+        for (_, label, fixed, action) in mine {
+            total.rules += 1;
+            total.terms += 1;
+            let one = NodeGroup {
+                elements: vec![SymElement {
+                    matrix: Vec::new(),
+                    action: action.clone(),
+                }],
+                ..Default::default()
+            };
+            if fixed.len() != arity
+                || action.len() != arity
+                || case_verdict(&one, &forms, fixed) != (CaseVerdict::Lower { element: 0 })
+            {
+                total.not_lower.push(NotLower {
+                    rule: label.clone(),
+                    target: format!("{fixed:?}"),
+                    term: "symmetry image".into(),
+                });
+            }
+        }
+    }
+    Ok(total)
 }
 
 /// Keyed rules (chart, label, target, rhs keys) under one order; the chart mask is each rule's sector.

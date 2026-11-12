@@ -17,6 +17,8 @@
 //!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--numeric-depth K] [--numeric-depth-max K]
 //!                  [--known-terminals FILE]   (Astra: declared masters, never searched; with --registry: refused)
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
+//!                  [--symmetry]
+//! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -416,6 +418,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if let Some(d) = a.parse("--numeric-depth-max") {
         o.numeric_depth_max = Some(d);
     }
+    // sym-gen (default off): symmetry rules / zero records for cases the chart's automorphisms lower
+    o.symmetry = a.flag("--symmetry");
     let _ = family;
     o
 }
@@ -1106,6 +1110,33 @@ fn cmd_witness(mut a: Args) -> i32 {
     0
 }
 
+/// `rr_node symmetry --family F.sym [--chart MASK]`: the authenticated automorphism group of the chart (default: the
+/// physical lines of the family) as JSON (sym-gen census).
+fn cmd_symmetry(mut a: Args) -> i32 {
+    let text = read(&a.need("--family"));
+    let chart = a.take("--chart");
+    a.done();
+    let chart: Vec<bool> = match chart {
+        Some(m) => m.chars().map(|c| c == '1').collect(),
+        None => rustred::node::order::physical_slots(&text),
+    };
+    let t = std::time::Instant::now();
+    match rustred::node::symmetry::node_group(&text, &chart) {
+        Ok(g) => {
+            let json = g.to_json();
+            println!(
+                "{{\"ok\":true,\"seconds\":{:.3},\"group\":{json}}}",
+                t.elapsed().as_secs_f64()
+            );
+            0
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({"ok": false, "error": e}));
+            1
+        }
+    }
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
@@ -1128,6 +1159,7 @@ fn main() {
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
         "witness" => cmd_witness(a),
+        "symmetry" => cmd_symmetry(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
