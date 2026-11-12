@@ -1275,6 +1275,37 @@ pub(crate) fn take_rule_hit() -> Option<(u64, u32)> {
     LAST_RULE.with(std::cell::Cell::take)
 }
 
+/// [`zero_certificates`], computed once per process for each family and
+/// support (p5l-library-3): a lazily loaded Custom program evicted under its
+/// library's program budget is rebuilt on its next use, and the zero analysis
+/// (exact Symanzik determinants per subsector) was most of a 5L rebuild. The
+/// proofs depend only on the family and the support; an entry keeps its
+/// family alive, so the address key is never reused by another family.
+fn cached_zero_certificates(
+    presentation: &Presentation,
+    support: u64,
+) -> Result<Vec<zero::Certificate>, PError> {
+    type Entry = (
+        Arc<crate::family::IntegralFamily>,
+        Arc<Vec<zero::Certificate>>,
+    );
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(usize, u64), Entry>>,
+    > = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (Arc::as_ptr(&presentation.family) as usize, support);
+    if let Some((_, proofs)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(proofs.as_ref().clone());
+    }
+    let proofs = Arc::new(zero_certificates(presentation, support)?);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key)
+        .or_insert_with(|| (Arc::clone(&presentation.family), Arc::clone(&proofs)));
+    Ok(proofs.as_ref().clone())
+}
+
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
 fn zero_certificates(
@@ -1466,7 +1497,7 @@ fn build<const N: usize>(
             )));
         }
     }
-    let proofs = zero_certificates(presentation, support)?;
+    let proofs = cached_zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
         finite_case_policy: FiniteCasePolicy::SearchFinite,
