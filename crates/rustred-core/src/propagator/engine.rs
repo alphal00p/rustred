@@ -788,6 +788,51 @@ pub(super) fn merge<K: Ord>(
     Ok(())
 }
 
+/// fwd-opt: the step-local merge of a whole child list at once: the same
+/// map as `merge` applied pair by pair (exact sums are canonical; a key whose
+/// sum is zero is absent), built by one sort and a bulk insert instead of a
+/// B-tree insertion per child.
+pub(super) fn merge_all<K: Ord>(
+    context: &CoefficientContext,
+    limits: &ReductionLimits,
+    mut pairs: Vec<(K, Coefficient)>,
+) -> Result<BTreeMap<K, Coefficient>, PError> {
+    // `RUSTRED_P_SORTED_MERGE=off`: the pair-by-pair B-tree merge (control).
+    static SORTED: OnceLock<bool> = OnceLock::new();
+    if !*SORTED.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_P_SORTED_MERGE").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    }) {
+        let mut terms = BTreeMap::new();
+        for (key, coefficient) in pairs {
+            merge(context, limits, &mut terms, key, coefficient)?;
+        }
+        return Ok(terms);
+    }
+    pairs.retain(|(_, coefficient)| !coefficient.is_zero());
+    // Stable: equal keys keep their emission order (the order of the sums).
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut merged: Vec<(K, Coefficient)> = Vec::with_capacity(pairs.len());
+    let mut zeros = false;
+    for (key, coefficient) in pairs {
+        match merged.last_mut() {
+            Some((last, sum)) if (*last).cmp(&key) == std::cmp::Ordering::Equal => {
+                *sum = context
+                    .try_add(sum, &coefficient, limits.exact_algebra)
+                    .map_err(algebra)?;
+                zeros |= sum.is_zero();
+            }
+            _ => merged.push((key, coefficient)),
+        }
+    }
+    if zeros {
+        merged.retain(|(_, coefficient)| !coefficient.is_zero());
+    }
+    Ok(merged.into_iter().collect())
+}
+
 /// The route of a sector as an exact, verified transport.
 fn compile_route(
     source: &Presentation,
@@ -1369,6 +1414,7 @@ impl<'l> PStepper<'l> {
             ));
         }
         let mut target: SmallVec<[i64; 24]> = SmallVec::new();
+        let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(expansion.coefficients.len());
         super::step_memo::coefficients_of(&expansion, |values| -> Result<(), PError> {
             crate::prof!(RouteChildren);
             for (relative, &coefficient) in expansion
@@ -1384,11 +1430,12 @@ impl<'l> PStepper<'l> {
                 );
                 let (child, coefficient) = child(&target, values(coefficient))?;
                 if self.keep_canonical_child(&child, &coefficient)? {
-                    merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+                    pairs.push((child, coefficient));
                 }
             }
             Ok(())
         })?;
+        step.terms = merge_all(context, &self.limits, pairs)?;
         if mode == super::step_memo::MemoMode::Check {
             let mut reference = BTreeMap::new();
             direct(&mut reference)?;
@@ -1801,6 +1848,7 @@ impl<'l> PStepper<'l> {
         crate::prof!(ChildAssembly);
         let context = self.library.coefficient_context();
         let mut step = OrderedStep::default();
+        let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(output.children.len());
         for child in output.children {
             if !context.contains(&child.coefficient) {
                 return Err(PError::ContextMismatch);
@@ -1823,10 +1871,11 @@ impl<'l> PStepper<'l> {
                 PStage::Apply => self.apply_child(&child)?,
             };
             if self.keep_canonical_child(&key, &coefficient)? {
-                merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+                pairs.push((key, coefficient));
             }
             super::step_memo::put_powers(child.powers);
         }
+        step.terms = merge_all(context, &self.limits, pairs)?;
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
                 return Err(PError::ContextMismatch);
