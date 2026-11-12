@@ -775,6 +775,8 @@ fn point_valid(
                 }
             }
         };
+        // eps (two-sided) axes: the guard constrains the integer part of the exponent the same way
+        let g = g.strip_prefix("two_sided:").map(str::to_string).unwrap_or(g);
         if !["n>=1", "n<=0", "n:any", "any", "n in Z"].contains(&g.as_str()) {
             return Err(format!("unsupported chart guard {g}"));
         }
@@ -1246,17 +1248,6 @@ fn replay_rule(
         .collect::<Result<_, _>>()?;
     let dq: Vec<Q> = ctx.dims.iter().map(|x| x.2).collect();
     let (point, sample_kind) = sample(rule, b, &dq, chart, &coefs, ctx.args.sample_attempts)?;
-    let (rc, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(|(rc, a)| {
-        support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (rc, a, s, m))
-    }) {
-        Ok(x) => x,
-        Err(e) if e.starts_with("missing symbolic raw pivot/recenter") && rule.direct_hit => {
-            let dm: Vec<(String, u64)> = ctx.dims.iter().map(|x| (x.0.clone(), x.1)).collect();
-            let (rc, s, m) = reconstruct_direct(rule, &point, &dm, ctx.f, ctx.cert, &coefs)?;
-            (rc, "independent sampled one-source-row reconstruction; not an authenticated native raw pivot".to_string(), s, m)
-        }
-        Err(e) => return Err(e),
-    };
     let target = key_at(&parse_integral(&rule.target, n)?, &point);
     let rhskeys: Vec<Key> = rule
         .rhs
@@ -1266,6 +1257,128 @@ fn replay_rule(
     if ctx.f.zero_key(&target) {
         return Err("target is independently scaleless; not a nonzero-rule test".into());
     }
+    let (candidates, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(|(rc, a)| {
+        support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (vec![rc], a, s, m))
+    }) {
+        Ok(x) => x,
+        Err(e)
+            if e.starts_with("missing symbolic raw pivot/recenter")
+                && rule.direct_hit
+                && !(recenter_search() && ctx.cert.is_none()) =>
+        {
+            let dm: Vec<(String, u64)> = ctx.dims.iter().map(|x| (x.0.clone(), x.1)).collect();
+            let (rc, s, m) = reconstruct_direct(rule, &point, &dm, ctx.f, ctx.cert, &coefs)?;
+            (vec![rc], "independent sampled one-source-row reconstruction; not an authenticated native raw pivot".to_string(), s, m)
+        }
+        Err(e) if e.starts_with("missing symbolic raw pivot/recenter") && recenter_search() => {
+            // p5l-close: no recenter authority (table_dump tables). Span membership at a point does not depend
+            // on how the seeds were placed, so the recenter may be SEARCHED: candidates are the translations that
+            // put the target and every non-scaleless RHS key into the key universe of the exported seeds' original
+            // IBPs; each candidate is replayed in full (3 d, mutation control) and the first PASS is the witness.
+            let (s, m) = support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert)?;
+            let rhsvals: Vec<u64> = coefs
+                .iter()
+                .map(|c| c.at_point(P, &point, ctx.dims[0].2))
+                .collect::<Result<_, _>>()?;
+            let cands = recenter_candidates(&s, &point, ctx, &target, &rhskeys, &rhsvals, rule)?;
+            if cands.is_empty() {
+                return Err("recenter search: no translation puts target and RHS into the seed universe".into());
+            }
+            let k = cands.len();
+            (cands, format!("span-verified recenter search ({k} candidates; RR_REPLAY_RECENTER_SEARCH)"), s, m)
+        }
+        Err(e) => return Err(e),
+    };
+    let mut tried = Vec::new();
+    let mut last = None;
+    for rc in candidates.iter().take(recenter_search_limit()) {
+        let cells = replay_cells(rule, ctx, &point, rc, &sup, &coefs, &target, &rhskeys, out)?;
+        let pass = cells.iter().all(|c| c["result"] == "PASS");
+        tried.push(json!({"recenter": rc, "pass": pass}));
+        last = Some((rc.clone(), cells));
+        if pass {
+            break;
+        }
+    }
+    let (rc, cells) = last.ok_or("no recenter candidate replayed")?;
+    let pass = cells.iter().all(|c| c["result"] == "PASS");
+    Ok(json!({
+        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
+        "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
+        "recenter_tried": tried,
+        "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
+    }))
+}
+
+fn recenter_search() -> bool {
+    std::env::var("RR_REPLAY_RECENTER_SEARCH").is_ok_and(|v| v == "1")
+}
+
+fn recenter_search_limit() -> usize {
+    std::env::var("RR_REPLAY_RECENTER_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(6)
+}
+
+/// Translations r (zero on numeric axes of the target) with target - r and every non-scaleless RHS key - r in the
+/// key universe of the support placed with recenter 0; sorted by |r|_1.
+fn recenter_candidates(
+    sup: &Support,
+    point: &[i64],
+    ctx: &Ctx,
+    target: &Key,
+    rhskeys: &[Key],
+    rhsvals: &[u64],
+    rule: &Rule,
+) -> Result<Vec<Vec<i64>>, Unknown> {
+    let n = ctx.f.n;
+    let zero = vec![0i64; n];
+    let d = ctx.dims.first().ok_or("no dimension")?.1;
+    let built = rows_for(sup, point, &zero, d, ctx.f, ctx.cert, &rule.chart)?;
+    let pat = parse_integral(&rule.target, n)?;
+    let numeric: Vec<bool> = pat.iter().map(|(ax, _)| ax.is_none()).collect();
+    let mut cands: Vec<Vec<i64>> = built
+        .universe
+        .iter()
+        .map(|u| target.iter().zip(u).map(|(t, u)| t - u).collect::<Vec<i64>>())
+        .filter(|r: &Vec<i64>| r.iter().zip(&numeric).all(|(x, num)| !num || *x == 0))
+        .collect();
+    cands.sort_by_key(|r| (r.iter().map(|x| x.abs()).sum::<i64>(), r.clone()));
+    cands.dedup();
+    // a RHS key with a nonzero coefficient at this point must be touched by the rows (a vanishing coefficient
+    // drops its term); ranking only: if no candidate meets every RHS key, the target-only candidates are tried
+    // in |r|_1 order (each is a full span check, so a wrong translation can only fail, never pass)
+    let score = |r: &Vec<i64>| -> usize {
+        rhskeys
+            .iter()
+            .zip(rhsvals)
+            .filter(|(k, v)| {
+                **v != 0 && !ctx.f.zero_key(k) && {
+                    let u: Key = k.iter().zip(r).map(|(a, b)| a - b).collect();
+                    !built.universe.contains(&u)
+                }
+            })
+            .count()
+    };
+    let mut scored: Vec<(usize, Vec<i64>)> = cands.into_iter().map(|r| (score(&r), r)).collect();
+    scored.sort_by_key(|(m, r)| (*m, r.iter().map(|x| x.abs()).sum::<i64>()));
+    Ok(scored.into_iter().map(|(_, r)| r).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replay_cells(
+    rule: &Rule,
+    ctx: &Ctx,
+    point: &[i64],
+    rc: &[i64],
+    sup: &Support,
+    coefs: &[Expr],
+    target: &Key,
+    rhskeys: &[Key],
+    out: &Path,
+) -> Result<Vec<Value>, Unknown> {
+    let (point, rc, target) = (point.to_vec(), rc.to_vec(), target.clone());
     let mut cells = Vec::new();
     for (ds, d, dqv) in &ctx.dims {
         let mut desired = Row::new();
@@ -1277,7 +1390,7 @@ fn replay_rule(
         for (k, v) in rhskeys.iter().zip(&values) {
             addto(&mut desired, k.clone(), arith::neg(P, *v));
         }
-        let built = rows_for(&sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart)?;
+        let built = rows_for(sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart)?;
         let mut universe = built.universe.clone();
         universe.insert(target.clone());
         universe.extend(rhskeys.iter().cloned());
@@ -1349,12 +1462,7 @@ fn replay_rule(
         );
         cells.push(summary);
     }
-    let pass = cells.iter().all(|c| c["result"] == "PASS");
-    Ok(json!({
-        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
-        "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
-        "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
-    }))
+    Ok(cells)
 }
 
 fn family_check(header: &Value, text: &str, f: &Family) -> Result<(), Unknown> {
