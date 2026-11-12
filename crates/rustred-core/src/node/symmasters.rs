@@ -902,20 +902,23 @@ fn one_sample(
     let t_pass_t = t0.elapsed().as_secs_f64();
 
     // ---- pass M
-    let low: Vec<Key> =
-        opt.prefer
-            .iter()
-            .chain(opt.masters.iter())
-            .cloned()
-            .fold(vec![], |mut acc, k| {
-                if !acc.contains(&k) {
-                    acc.push(k);
-                }
-                acc
-            });
+    // kept-most first: the preferred keys in the given order, then the masters from the last one back (columns are
+    // eliminated from the largest weight down, so position 0 is kept longest). Before this fix the preferred keys
+    // were eliminated BEFORE the masters (`--prefer` had the opposite effect).
+    let low: Vec<Key> = opt
+        .prefer
+        .iter()
+        .chain(opt.masters.iter().rev())
+        .cloned()
+        .fold(vec![], |mut acc, k| {
+            if !acc.contains(&k) {
+                acc.push(k);
+            }
+            acc
+        });
     let wm = |k: &Key| -> (i64, i64, i64, i64, Key) {
         if let Some(pos) = low.iter().position(|m| m == k) {
-            return (0, -(pos as i64), 0, 0, k.clone());
+            return (0, pos as i64, 0, 0, k.clone());
         }
         let (dd, rr) = dr(mask, k);
         (1, dd + rr, rr, dd, k.clone())
@@ -1648,6 +1651,52 @@ mod tests {
             doc["certificate"]
         );
         assert_eq!(esc["status"], "UNSATURATED", "{esc:#}");
+    }
+
+    /// `--prefer` keeps the preferred key in the V_G basis (Y6: p5l-basis picks pole-free masters); without it the
+    /// last table master is kept. T265: masters dot D2, dot D3, corner; D2 and D3 lie in one orbit.
+    #[test]
+    #[ignore = "five-loop Laporta (seconds in release, minutes in debug)"]
+    fn prefer_key_is_kept_in_the_vg_basis() {
+        let (fam, mask) = node_family("T265").expect("testdata family");
+        let key = |dot: Option<usize>| -> Key {
+            (0..mask.len())
+                .map(|s| i64::from(mask[s]) + i64::from(dot == Some(s)))
+                .collect()
+        };
+        let (d2, d3, corner) = (key(Some(1)), key(Some(2)), key(None));
+        let mut o = t266_opts(1, 2);
+        o.masters = vec![d2.clone(), d3.clone(), corner.clone()];
+        let (doc, ok) = run(&fam, &mask, &o).unwrap();
+        assert!(ok, "{}", doc["certificate"]);
+        let basis = |doc: &Value| -> Vec<String> {
+            doc["VG_basis"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(doc["dim_VG"], 2);
+        assert!(
+            basis(&doc).contains(&key_text(&corner)),
+            "{:?}",
+            basis(&doc)
+        );
+        assert!(
+            basis(&doc).contains(&key_text(&d3)),
+            "default keeps the later master: {:?}",
+            basis(&doc)
+        );
+        o.prefer = vec![d2.clone()];
+        let (doc, ok) = run(&fam, &mask, &o).unwrap();
+        assert!(ok, "{}", doc["certificate"]);
+        assert!(
+            basis(&doc).contains(&key_text(&d2)),
+            "--prefer: {:?}",
+            basis(&doc)
+        );
+        assert!(!basis(&doc).contains(&key_text(&d3)), "{:?}", basis(&doc));
     }
 
     /// Five-loop nodes against mcount_sym (REPORT A5, box (1,2), interior dots + rank <= 1): IBP / exact rows.
