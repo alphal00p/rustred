@@ -33,6 +33,11 @@
 //!                   check; exit 0 accepted / 1 not accepted)
 //! rr_node mapcheck --old OLD --new NEW --keys auto|'K;..' --out CHECK.json [--old-masters ..] [--new-masters ..] [--dims ..]
 //!                  (few-integral cross-check only: old reduction == new reduction mapped back; exit 0 equal / 1 not)
+//! rr_node symmasters (--table F.table.jsonl | --family F.sym --mask BITS) --out OUT.json [--masters 'K;..'] [--prefer 'K;..']
+//!                  [--box DOTS,RANK] [--inner T] [--dims ..] [--primes N] [--isp-exact-seeds] [--threads N]
+//!                  (masters modulo the top sector's symmetry group: IBP + exact symmetry rows at ISP-free seeds, trace
+//!                   certificate dim V^G = |V_G basis|, exact map of the masters onto the V_G basis; node::symmasters;
+//!                   exit 0 certificate holds / 1 not)
 //! ```
 //! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
@@ -1030,6 +1035,98 @@ fn cmd_mastermap(mut a: Args) -> i32 {
     i32::from(!acc)
 }
 
+/// `rr_node symmasters`: see the header.
+fn cmd_symmasters(mut a: Args) -> i32 {
+    use rustred::node::replay::family::Family;
+    use rustred::node::symmasters::{Options, run};
+    // parsed once here to fail early on a bad family
+    let out = a.need("--out");
+    let table = a.take("--table");
+    let family = a.take("--family");
+    let mask_arg = a.take("--mask");
+    let masters = a.take("--masters");
+    let prefer = a.take("--prefer").map(|t| keys_arg(&t)).unwrap_or_default();
+    let (dots, rank) = match a.take("--box") {
+        None => (1, 2),
+        Some(t) => {
+            let (x, y) = t.split_once(',').unwrap_or_else(|| die("--box DOTS,RANK"));
+            (
+                x.parse().unwrap_or_else(|_| die("--box")),
+                y.parse().unwrap_or_else(|_| die("--box")),
+            )
+        }
+    };
+    let inner: Option<i64> = a.parse("--inner");
+    let dims = dims_arg(&mut a);
+    let primes = primes_arg(&mut a, 3);
+    let isp_exact_seeds = a.flag("--isp-exact-seeds");
+    let threads: usize = a.parse("--threads").unwrap_or(1);
+    a.done();
+    let (src, mask, mut mlist, origin) = match (table, family) {
+        (Some(t), None) => {
+            let tb = load_table(&t, masters.clone());
+            let src = tb.family_text().unwrap_or_else(|e| die(&e));
+            let mask = match &mask_arg {
+                Some(m) => m.chars().map(|c| c == '1').collect(),
+                None => tb.mask.clone(),
+            };
+            (src, mask, tb.masters.clone(), t)
+        }
+        (None, Some(f)) => {
+            let src = std::fs::read_to_string(&f).unwrap_or_else(|e| die(&format!("{f}: {e}")));
+            let mask: Vec<bool> = mask_arg
+                .unwrap_or_else(|| die("--family needs --mask"))
+                .chars()
+                .map(|c| c == '1')
+                .collect();
+            (src, mask, masters.as_deref().map(keys_arg).unwrap_or_default(), f)
+        }
+        _ => die("give exactly one of --table / --family"),
+    };
+    Family::parse(&src).unwrap_or_else(|e| die(&e));
+    let in_sector = |k: &Vec<i64>| {
+        k.len() == mask.len()
+            && k.iter()
+                .zip(&mask)
+                .all(|(&x, &m)| if m { x >= 1 } else { x <= 0 })
+    };
+    let outside: Vec<String> = mlist
+        .iter()
+        .filter(|k| !in_sector(k))
+        .map(|k| rustred::node::mastermap::key_text(k))
+        .collect();
+    mlist.retain(|k| in_sector(k));
+    let mask_l = mask.clone();
+    let dr = move |k: &Vec<i64>| -> i64 {
+        k.iter()
+            .zip(&mask_l)
+            .map(|(&x, &m)| if m { x - 1 } else { -x })
+            .sum()
+    };
+    let inner = inner.unwrap_or_else(|| mlist.iter().map(&dr).max().unwrap_or(1).max(1));
+    let opt = Options {
+        dots,
+        rank,
+        inner,
+        dims,
+        primes,
+        masters: mlist,
+        prefer,
+        isp_exact_seeds,
+        threads,
+    };
+    let (mut doc, ok) = run(&src, &mask, &opt).unwrap_or_else(|e| die(&e));
+    doc["source"] = serde_json::json!(origin);
+    doc["masters_outside_sector"] = serde_json::json!(outside);
+    write_json(&out, &doc);
+    eprintln!(
+        "[symmasters] |G|={} V={} V^G(trace)={} V_G={} ok={ok} {:.1}s -> {out}",
+        doc["group"]["order_lines"], doc["dim_V"], doc["dim_VG_trace"], doc["dim_VG"],
+        doc["seconds"].as_f64().unwrap_or(0.0)
+    );
+    i32::from(!ok)
+}
+
 /// `rr_node mapcheck`: see the header.
 fn cmd_mapcheck(mut a: Args) -> i32 {
     let keys = a.need("--keys");
@@ -1048,7 +1145,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|reduce|mastermap|mapcheck ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|reduce|mastermap|mapcheck|symmasters ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -1065,6 +1162,7 @@ fn main() {
         "reduce" => cmd_reduce(a),
         "mastermap" => cmd_mastermap(a),
         "mapcheck" => cmd_mapcheck(a),
+        "symmasters" => cmd_symmasters(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

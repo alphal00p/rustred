@@ -270,6 +270,11 @@ impl Family {
         })
     }
 
+    /// Momentum coefficients of every propagator: `momenta()[i][v]`, `v` over the loop momenta then `q`.
+    pub fn momenta(&self) -> &[Vec<i64>] {
+        &self.c
+    }
+
     /// The L(L+1) IBP rows at base exponents `a` (integers), shift 0, dimension `d` (field element), mod p.
     /// Each row maps an offset (relative to `a`) to its coefficient.
     pub fn rows_at(
