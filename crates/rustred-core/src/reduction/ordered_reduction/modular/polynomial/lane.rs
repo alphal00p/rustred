@@ -132,10 +132,18 @@ impl Lane {
 
     /// Product of dense polynomials.
     pub fn poly_mul(&self, a: &[u64], b: &[u64]) -> Raw {
+        let mut product = vec![];
+        self.poly_mul_into(a, b, &mut product);
+        product
+    }
+
+    /// rr-alloc: [`Self::poly_mul`] into a reused buffer.
+    pub fn poly_mul_into(&self, a: &[u64], b: &[u64], product: &mut Raw) {
+        product.clear();
         if a.is_empty() || b.is_empty() {
-            return vec![];
+            return;
         }
-        let mut product = vec![0; a.len() + b.len() - 1];
+        product.resize(a.len() + b.len() - 1, 0);
         for (i, &x) in a.iter().enumerate() {
             if x == 0 {
                 continue;
@@ -144,43 +152,65 @@ impl Lane {
                 *p = self.add(*p, self.mul(x, y));
             }
         }
-        Self::trim(&mut product);
-        product
+        Self::trim(product);
     }
 
     /// `a + b`.
     pub fn poly_add(&self, a: &[u64], b: &[u64]) -> Raw {
+        let mut sum = vec![];
+        self.poly_add_into(a, b, &mut sum);
+        sum
+    }
+
+    /// rr-alloc: [`Self::poly_add`] into a reused buffer.
+    pub fn poly_add_into(&self, a: &[u64], b: &[u64], sum: &mut Raw) {
         let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
-        let mut sum = long.to_vec();
+        sum.clear();
+        sum.extend_from_slice(long);
         for (s, &x) in sum.iter_mut().zip(short) {
             *s = self.add(*s, x);
         }
-        Self::trim(&mut sum);
-        sum
+        Self::trim(sum);
     }
 
     /// `a - b`.
     pub fn poly_sub(&self, a: &[u64], b: &[u64]) -> Raw {
-        let mut difference = a.to_vec();
+        let mut difference = vec![];
+        self.poly_sub_into(a, b, &mut difference);
+        difference
+    }
+
+    /// rr-alloc: [`Self::poly_sub`] into a reused buffer.
+    pub fn poly_sub_into(&self, a: &[u64], b: &[u64], difference: &mut Raw) {
+        difference.clear();
+        difference.extend_from_slice(a);
         if difference.len() < b.len() {
             difference.resize(b.len(), 0);
         }
         for (d, &x) in difference.iter_mut().zip(b) {
             *d = self.sub(*d, x);
         }
-        Self::trim(&mut difference);
-        difference
+        Self::trim(difference);
     }
 
     /// Quotient and remainder of `a` by a monic `m` (no inversion).
     pub fn divrem_monic(&self, a: &[u64], m: &[u64]) -> (Raw, Raw) {
+        let (mut quotient, mut remainder) = (vec![], vec![]);
+        self.divrem_monic_into(a, m, &mut quotient, &mut remainder);
+        (quotient, remainder)
+    }
+
+    /// rr-alloc: [`Self::divrem_monic`] into reused buffers.
+    pub fn divrem_monic_into(&self, a: &[u64], m: &[u64], quotient: &mut Raw, remainder: &mut Raw) {
         let degree = m.len() - 1;
-        let mut remainder = a.to_vec();
-        Self::trim(&mut remainder);
+        remainder.clear();
+        remainder.extend_from_slice(a);
+        quotient.clear();
+        Self::trim(remainder);
         if remainder.len() <= degree {
-            return (vec![], remainder);
+            return;
         }
-        let mut quotient = vec![0; remainder.len() - degree];
+        quotient.resize(remainder.len() - degree, 0);
         for shift in (0..quotient.len()).rev() {
             let factor = remainder[shift + degree];
             quotient[shift] = factor;
@@ -193,9 +223,8 @@ impl Lane {
             remainder[shift + degree] = 0;
         }
         remainder.truncate(degree);
-        Self::trim(&mut remainder);
-        Self::trim(&mut quotient);
-        (quotient, remainder)
+        Self::trim(remainder);
+        Self::trim(quotient);
     }
 
     /// Make `polynomial` monic; returns the inverse of its former leading

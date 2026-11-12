@@ -286,6 +286,12 @@ impl OrderedStepper for TailStepper<'_> {
 
 impl ConcurrentOrderedKernel for TailKernel<'_> {
     type Account = IntegralKey;
+    type Detached = crate::reduction::ordered_reduction::NoDetached<
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Key,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Priority,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Error,
+        Self::Account,
+    >;
     type Stepper<'s>
         = TailStepper<'s>
     where
@@ -447,6 +453,7 @@ fn schedulers(adjoint_tail: bool) -> Vec<OrderedSchedulerOptions> {
             threads,
             window_keys,
             adjoint_tail,
+            profile: Default::default(),
         })
         .collect()
 }

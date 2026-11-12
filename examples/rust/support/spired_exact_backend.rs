@@ -59,6 +59,7 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
         }
         #[cfg(feature = "reconstruction")]
         "semi-numerical" if limit.is_none() => Ok(SymbolicExactBackend::SemiNumerical {
+            diagnostics_enabled: false,
             max_degree: env_positive_u16("RUSTRED_SPIRED_RECON_MAX_DEGREE", 128)?,
             max_probes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PROBES", 200_000)?,
             max_attempts: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_ATTEMPTS", 4)?,

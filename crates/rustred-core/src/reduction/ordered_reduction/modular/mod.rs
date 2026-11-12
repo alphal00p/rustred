@@ -120,6 +120,12 @@ impl Lifter {
     }
 }
 
+/// rr-par: the hash the recorder interns `coefficient` under, so that the
+/// workers can compute it ahead of the sequential merge (`Pipelined`).
+pub(crate) fn coefficient_hash(coefficient: &Coefficient) -> u64 {
+    FxBuild.hash_one(coefficient)
+}
+
 /// Interned coefficient reference; the top bit marks a constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CoefRef(u32);
@@ -202,6 +208,78 @@ impl Trace {
         }
         (self.slots, self.terminal_slots).hash(&mut hasher);
         hasher.finish()
+    }
+}
+
+impl Trace {
+    /// rr-par diagnostics: the dataflow structure of the trace. A step is a
+    /// `Pop` with the products that follow it; it can run once every write
+    /// (`Init`, `New`, `Add`) into the popped value has run. Reports the
+    /// number of steps, the number of dependency levels, the critical path
+    /// in operations (each operation costs 1) and the total operations, so
+    /// the parallelism available to a replay pass is `ops / critical`.
+    fn dataflow_profile(&self) -> String {
+        // Per slot: (level, finish time in ops) of the value it holds.
+        let mut slot_state = vec![(0u32, 0u64); self.slots];
+        let mut terminal_finish = vec![0u64; self.terminal_slots];
+        let (mut steps, mut levels, mut critical) = (0u64, 0u32, 0u64);
+        let (mut level, mut start, mut clock) = (0u32, 0u64, 0u64);
+        let mut histogram: std::collections::BTreeMap<u32, u64> = Default::default();
+        let mut step_ops = 0u64;
+        let flush = |level: u32, ops: u64, histogram: &mut std::collections::BTreeMap<u32, u64>| {
+            if ops > 0 {
+                *histogram.entry(level).or_default() += 1;
+            }
+        };
+        for op in &self.ops {
+            let slot = op.slot();
+            match op.tag() {
+                OpTag::Init => slot_state[slot] = (0, 1),
+                OpTag::Pop => {
+                    flush(level, step_ops, &mut histogram);
+                    steps += 1;
+                    step_ops = 0;
+                    let (value_level, ready) = slot_state[slot];
+                    level = value_level + 1;
+                    levels = levels.max(level);
+                    start = ready;
+                    clock = start;
+                    slot_state[slot] = (0, 0);
+                }
+                OpTag::New => {
+                    clock += 1;
+                    step_ops += 1;
+                    slot_state[slot] = (level, clock);
+                }
+                OpTag::Add => {
+                    clock += 1;
+                    step_ops += 1;
+                    let state = &mut slot_state[slot];
+                    *state = (state.0.max(level), state.1.max(clock));
+                }
+                OpTag::Cancel => slot_state[slot] = (0, 0),
+                OpTag::TermNew | OpTag::TermAdd => {
+                    clock += 1;
+                    step_ops += 1;
+                    terminal_finish[slot] = terminal_finish[slot].max(clock);
+                }
+                OpTag::TermCancel => {}
+            }
+            critical = critical.max(clock);
+        }
+        flush(level, step_ops, &mut histogram);
+        let _ = start;
+        // Width per level: steps at that level; summarize by deciles.
+        let widths: Vec<u64> = histogram.values().copied().collect();
+        let max_width = widths.iter().copied().max().unwrap_or(0);
+        let narrow = widths.iter().filter(|&&w| w < 16).count();
+        format!(
+            "{{\"stage\":\"dataflow\",\"ops\":{},\"steps\":{steps},\"levels\":{levels},\
+             \"critical_ops\":{critical},\"parallelism\":{:.2},\"max_level_width\":{max_width},\
+             \"levels_narrower_than_16\":{narrow}}}",
+            self.ops.len(),
+            self.ops.len() as f64 / critical.max(1) as f64,
+        )
     }
 }
 
@@ -498,9 +576,25 @@ pub(crate) struct ModularRecorder {
     terminal_slots: u32,
     lookups: usize,
     started: Instant,
+    /// First round of a polynomial lift (`OrderedTuning::modular_round`).
+    modular_round: Option<usize>,
+    /// One replay job on the whole pool (`OrderedTuning::par_replay`).
+    par_replay: bool,
 }
 
 impl ModularRecorder {
+    /// The first round of a polynomial lift: `Some(n)` requests at least `n`
+    /// primes (one pass of up to `lanes` lanes) whatever the thread count.
+    pub(crate) fn set_modular_round(&mut self, round: Option<usize>) {
+        self.modular_round = round;
+    }
+
+    /// rr-par: replay jobs run on the whole modular pool
+    /// (`OrderedTuning::par_replay`).
+    pub(crate) fn set_par_replay(&mut self, par_replay: bool) {
+        self.par_replay = par_replay;
+    }
+
     pub(crate) fn try_new(
         context: &CoefficientContext,
         limits: ReductionLimits,
@@ -541,12 +635,22 @@ impl ModularRecorder {
             terminal_slots: 0,
             lookups: 0,
             started: Instant::now(),
+            modular_round: None,
+            par_replay: false,
         })
     }
 
     fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefRef, ReductionError> {
+        self.intern_hashed(coefficient, FxBuild.hash_one(coefficient))
+    }
+
+    /// `intern` with the coefficient's hash ([`coefficient_hash`]).
+    fn intern_hashed(
+        &mut self,
+        coefficient: &Coefficient,
+        hash: u64,
+    ) -> Result<CoefRef, ReductionError> {
         self.lookups += 1;
-        let hash = FxBuild.hash_one(coefficient);
         let entries = &self.entries;
         if let Some(&index) = self
             .table
@@ -734,6 +838,9 @@ impl ModularRecorder {
             jobs_on_caller_only: true,
             ..Default::default()
         };
+        if super::parstats::enabled() {
+            super::parstats::write(&trace.dataflow_profile());
+        }
         if let Some(digest) = statistics.trace_digest {
             // The recorded trace before its (long) replay, so that runs stopped
             // during reconstruction can still be compared.
@@ -830,6 +937,8 @@ impl ModularRecorder {
                         options,
                         program,
                         self.common.seed,
+                        self.modular_round,
+                        self.par_replay,
                     );
                     let lifted = lift::lift(
                         &mut source,
@@ -877,6 +986,25 @@ impl ModularRecorder {
         }
         statistics.pool_threads = executor.pool_threads();
         (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
+        if super::parstats::enabled() {
+            super::parstats::write(&format!(
+                "{{\"stage\":\"finish\",\"threads\":{},\"record_seconds\":{:.6},\
+                 \"finish_seconds\":{:.6},\"prepare_seconds\":{:.6},\"factor_seconds\":{:.6},\
+                 \"replay_seconds\":{:.6},\"replay_cpu_seconds\":{:.6},\"lift_seconds\":{:.6},\
+                 \"passes\":{},\"lanes_replayed\":{},\"ops\":{}}}",
+                self.common.threads,
+                record_seconds,
+                prepare.elapsed().as_secs_f64(),
+                statistics.prepare_seconds,
+                statistics.factor_seconds,
+                statistics.replay_seconds,
+                statistics.replay_cpu_seconds,
+                statistics.lift_seconds,
+                statistics.passes,
+                statistics.lanes_replayed,
+                statistics.ops,
+            ));
+        }
         let coefficients = lifted?.coefficients;
         Ok((finished(coefficients, labels), statistics))
     }
@@ -917,10 +1045,44 @@ pub(crate) enum Finished {
     Composed(ComposedTerminals),
 }
 
+impl ModularRecorder {
+    /// rr-frontier diagnostics: the resident tables of the forward pass
+    /// (trace ops, interned exact coefficients, probes, slots).
+    pub(crate) fn memstats(&self) -> serde_json::Value {
+        use super::memstats::{block, measure_clone};
+        use std::mem::size_of;
+        let entries_heap: usize = self.entries.iter().map(super::coefficient_heap_bytes).sum();
+        serde_json::json!({
+            "ops": self.ops.len(),
+            "ops_capacity": self.ops.capacity(),
+            "op_size": size_of::<Op>(),
+            "ops_bytes": block(self.ops.as_ptr(), self.ops.capacity()),
+            "entries": self.entries.len(),
+            "entries_vec_bytes": block(self.entries.as_ptr(), self.entries.capacity()),
+            "entries_heap_bytes": entries_heap,
+            "entries_clone_bytes": measure_clone(|| self.entries.clone()),
+            "entry_refs_bytes": block(self.entry_refs.as_ptr(), self.entry_refs.capacity()),
+            "entry_hashes_bytes": block(self.entry_hashes.as_ptr(), self.entry_hashes.capacity()),
+            "table_capacity": self.table.capacity(),
+            "constant_probe_bytes": block(self.constant_probe.as_ptr(), self.constant_probe.capacity()),
+            "polynomial_probe_bytes": block(self.polynomial_probe.as_ptr(), self.polynomial_probe.capacity()),
+            "free_slots": self.free_slots.len(),
+            "free_slots_bytes": block(self.free_slots.as_ptr(), self.free_slots.capacity()),
+            "next_slot": self.next_slot,
+            "terminal_slots": self.terminal_slots,
+            "weight_size": size_of::<ModularWeight>(),
+        })
+    }
+}
+
 impl OrderedWeights for ModularRecorder {
     type Weight = ModularWeight;
     type Contribution = ModularContribution;
     type Probe = [Fe; PROBES];
+
+    fn memstats(&self) -> serde_json::Value {
+        ModularRecorder::memstats(self)
+    }
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<ModularWeight, ReductionError> {
         let reference = self.intern(&coefficient)?;
@@ -953,6 +1115,24 @@ impl OrderedWeights for ModularRecorder {
     ) -> Result<ModularContribution, ReductionError> {
         let zero = coefficient.is_zero();
         let reference = self.intern(coefficient)?;
+        Ok(ModularContribution {
+            coefficient: reference,
+            probe: self.scaled(weight, reference),
+            zero,
+        })
+    }
+
+    fn scale_hashed(
+        &mut self,
+        weight: &ModularWeight,
+        coefficient: &Coefficient,
+        hash: Option<u64>,
+    ) -> Result<ModularContribution, ReductionError> {
+        let Some(hash) = hash else {
+            return self.scale(weight, coefficient);
+        };
+        let zero = coefficient.is_zero();
+        let reference = self.intern_hashed(coefficient, hash)?;
         Ok(ModularContribution {
             coefficient: reference,
             probe: self.scaled(weight, reference),

@@ -1600,6 +1600,79 @@ fn scope_one_to_three_payloads_and_layer_fail_closed() {
     );
 }
 
+/// M5 batch 2 (m5-a2-canon): the saved automorphism groups (`orbits.rrbin`)
+/// restore exactly the groups the run-time search authenticates: with orbit
+/// canonicalisation on, a library with them reduces every request to the same
+/// result (terms, conditions and path statistics) as without them, and to the
+/// same terms as with canonicalisation off. They are not in the identity; a
+/// verified load ignores them.
+#[test]
+fn saved_orbits_restore_the_searched_groups_and_change_no_value() {
+    use rustred_app::propagator::ordering::{write_orbits, write_routes};
+    let assembled = scope_two();
+    let requests = random_requests(assembled, |_| keys(60));
+    let fast = PLibraryOptions {
+        verify_descent: false,
+    };
+    let (_scratch, directory) = written(assembled, "saved-orbits");
+    write_routes(&directory).unwrap();
+    let plain = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    assert!(plain.saved_orbits().is_none());
+    let (saved, nontrivial) = write_orbits(&directory).unwrap();
+    assert!(
+        saved > 0 && nontrivial > 0,
+        "{saved} saved, {nontrivial} nontrivial"
+    );
+    let loaded = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    assert_eq!(
+        loaded.saved_orbits().map(|orbits| orbits.len()),
+        Some(saved)
+    );
+    assert_eq!(loaded.identity(), plain.identity());
+    // Saved groups switch canonicalisation on by default (M5 batch 2); a
+    // library without them keeps the old default and step identity.
+    assert_eq!(
+        plain.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_DEFAULT
+    );
+    assert_eq!(
+        loaded.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS
+    );
+    loaded.set_orbit_canonicalization(plain.orbit_canonicalization());
+    assert_eq!(loaded.step_identity(), plain.step_identity());
+    let off = reductions(&plain, &requests, false);
+    for library in [&plain, &loaded] {
+        library.set_orbit_canonicalization(true);
+    }
+    let searched = reductions(&plain, &requests, false);
+    let restored = reductions(&loaded, &requests, false);
+    assert_eq!(restored, searched);
+    for (on, off) in restored.iter().zip(&off) {
+        assert_eq!(on.terms, off.terms);
+    }
+    assert!(
+        restored
+            .iter()
+            .zip(&off)
+            .any(|(on, off)| on.statistics != off.statistics),
+        "canonicalisation changed no path: the test exercises no group"
+    );
+    // The verified load does not trust the saved groups but searches them:
+    // canonicalisation is on as in the fast load, with the same step identity,
+    // so both loads share one step cache (vakint's built-in, listed and
+    // unlisted external-data routes; M5 batch 2).
+    let verified = load(&directory).unwrap();
+    assert!(verified.saved_orbits().is_none());
+    assert_eq!(
+        verified.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS
+    );
+    let fresh = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    assert_eq!(verified.step_identity(), fresh.step_identity());
+    assert_eq!(reductions(&verified, &requests, false), restored);
+}
+
 /// p artefact v2 (M5 m5-1l3l, notes/artifact-ordering.SPEC.md): an ordering
 /// under every heuristic, and the saved route verifications, give exactly the
 /// reductions of the unordered program; the identity carries the ordering

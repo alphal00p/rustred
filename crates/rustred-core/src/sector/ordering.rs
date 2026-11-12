@@ -221,6 +221,17 @@ impl Ord for ComplexityKey {
 }
 
 impl ComplexityKey {
+    /// rr-frontier diagnostics: allocator bytes of the shared coordinate
+    /// buffer (the `Arc` block and the vector's block).
+    pub(crate) fn shared_heap_bytes(&self) -> usize {
+        use crate::reduction::ordered_reduction::memstats::block;
+        // ArcInner is repr(C) { strong, weak, data }: the block starts two
+        // words before the data.
+        let inner = (Arc::as_ptr(&self.index_excess) as *const u8)
+            .wrapping_sub(2 * std::mem::size_of::<usize>());
+        block(inner, 1) + block(self.index_excess.as_ptr(), self.index_excess.capacity())
+    }
+
     pub fn policy(&self) -> OrderingPolicy {
         self.policy.clone()
     }

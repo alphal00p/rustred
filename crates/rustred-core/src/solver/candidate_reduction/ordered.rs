@@ -259,6 +259,12 @@ impl<const N: usize> OrderedStepper for Stepper<'_, N> {
 
 impl<const N: usize> ConcurrentOrderedKernel for Kernel<'_, '_, N> {
     type Account = Account;
+    type Detached = crate::reduction::ordered_reduction::NoDetached<
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Key,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Priority,
+        <Self as crate::reduction::ordered_reduction::OrderedKernel>::Error,
+        Self::Account,
+    >;
     type Stepper<'s>
         = Stepper<'s, N>
     where
@@ -910,6 +916,7 @@ mod tests {
             threads: 1,
             window_keys: 1,
             adjoint_tail: false,
+            profile: Default::default(),
         };
         for arithmetic in [
             OrderedWeightArithmetic::Exact,
@@ -931,6 +938,7 @@ mod tests {
                     threads,
                     window_keys,
                     adjoint_tail: false,
+                    profile: Default::default(),
                 };
                 let cache = OrderedStepCache::in_memory(binding.clone(), Default::default());
                 reducer.set_ordered_step_cache(Some(cache.clone())).unwrap();

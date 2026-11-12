@@ -11,9 +11,11 @@ pub mod error;
 pub mod families;
 pub mod lane;
 pub mod library;
+pub(crate) mod orbit;
 pub mod path_census;
 pub mod presentation;
 pub mod programs;
+pub mod saved_orbits;
 pub mod saved_routes;
 pub mod step;
 pub mod tag;
@@ -28,6 +30,8 @@ pub mod carpet;
 pub mod insertion;
 pub mod kernel;
 pub mod series_parallel;
+// rr-alloc: per-thread step coefficient memos (RUSTRED_P_STEP_MEMO).
+pub(crate) mod step_memo;
 
 // Lane decision and presentations (M2-T3).
 pub mod decide;
@@ -46,12 +50,17 @@ pub mod scheme;
 pub mod custom;
 // The candidate bundle's wire records, reader and restore (M3-T7d).
 pub mod bundle_wire;
+// table_dump.v1 rule tables as Custom payloads (p5l-converter).
+pub mod table_import;
 
 // Descent certificate (M2-T8a).
 pub mod descent;
 
 // Basis layer onto the Forcer masters (M2-T9).
 pub mod basis;
+
+// Static-score route-map choice (M5 maps, p5l-maps-rs).
+pub mod route_choice;
 
 // The topology crate: signatures below name its types, and the app crate
 // reaches them through this path. Its version enters `p_versions()`.
@@ -61,11 +70,12 @@ pub use rustred_topology::P_TOPOLOGY_VERSION;
 /// Generated content and the meaning of a recorded step.
 pub const P_OWNER_LIBRARY_SEMANTICS: &str = "rustred-p-owner-library-2026-11-05";
 pub const P_CLASS_KEY_VERSION: u32 = 1;
-/// 2 (M5 combined 4L package, route maps (a)): the routed sectors of a
-/// package may carry generation-time route maps `T M` (the census map composed
-/// with an automorphism of the owner sector, chosen for the fewest routed terms
-/// by a traffic-free static score, each verified by `class::verify_route`;
-/// examples/p_route_maps.rs); the engine follows the stored maps strictly.
+/// 2 (M5 combined 4L package, route maps (a); p5l-maps-rs in M5 batch 2): a
+/// package assembly stores, for every routed sector, the static-score route map
+/// `T M` (the first route composed with an automorphism of the owner sector,
+/// fewest routed terms by a traffic-free static score, verified by
+/// `class::verify_route`; `census::PRouteMaps::StaticScore`, chosen inside the
+/// assembly since batch 2); the engine follows the stored maps strictly.
 pub const P_CENSUS_VERSION: u32 = 2;
 /// The `present` and `edge_map` algorithms. 2 (M5 combined 4L package, ISP
 /// choice (b)): the embedded `present::P_ISP_PREFERENCES` re-complete the ISPs
@@ -88,7 +98,16 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// default (`"default": true`), so a library assembled without
 /// `RUSTRED_P_SCHEMES` puts these three owners on the Scheme lane; the
 /// rank-gated Custom no1 of B2 is the fallback (`RUSTRED_P_SCHEMES=none`).
-pub const P_SCHEME_TEMPLATE_VERSION: u32 = 2;
+/// 3 (M5 batch 2, m5-schemes-2): permutation rules (`"kind": "permutation"`),
+/// `eq:`/`distinct` conditions and `"dispatch": "terms"`; no2 is embedded and on
+/// by default (Forcer's SchemeZno2 with its three relabelling rules); haha and
+/// bubu carry their parametric certificates (45/51, 36/99). no6 is not embedded
+/// (keys outside Forcer's reach need a fallback): its Custom owner stays.
+/// M5 no6: no6 is embedded with the shipped Custom no6 rules as the fallback
+/// of the keys outside its reach (`"fallback": "custom"`). 4 (M5 batch 2,
+/// coordinator 15:38Z): no6 is on by default (Scheme lane: no1, haha, bubu,
+/// no2, no6).
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 4;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
 /// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
@@ -99,10 +118,37 @@ pub const P_CUSTOM_OWNER_VERSION: u32 = 2;
 /// ordering keeps its identity; one with an ordering appends
 /// `,P_ORDERING_VERSION=<v>:<heuristic>` (`PLibrary::identity`).
 pub const P_ORDERING_VERSION: u32 = 1;
+/// The content of `data/p/p-families-5L.v1.json` (the 64 five-loop tops,
+/// [`families::P_FAMILIES_5L_V1_JSON`]) and the 5L families built from it (gap
+/// G9 of p5l-converter, M5 batch 3). Not a `p_versions()` entry, so every
+/// scope 1-4 package (identity, manifest, census versions) is unchanged: a
+/// library whose scope reaches 5 loops appends `,P_FAMILIES_5L_VERSION=<v>`
+/// to its identity (`PLibrary::identity`). Bump it with every change of the
+/// 5L families file or of how its tops are presented.
+pub const P_FAMILIES_5L_VERSION: u32 = 1;
 pub const P_ORDERING_SCHEMA: &str = "rustred.p-ordering.v1";
 pub const P_LIBRARY_SCHEMA: &str = "rustred.p-owner-library.v1";
 pub const P_FAMILIES_SCHEMA: &str = "rustred.p-families.v1";
 pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
+/// Orbit canonicalisation of Apply keys (M5 R0 A2): the automorphism search,
+/// its authentication and the choice of representative. It enters
+/// [`library::PLibrary::step_identity`] only while canonicalisation is on, so a
+/// library with it off keeps the step caches it had before; the library
+/// identity ([`library::PLibrary::identity`]) never carries it.
+pub const P_ORBIT_CANON_VERSION: u32 = 3;
+/// Whether a new [`library::PLibrary`] canonicalises keys under orbits
+/// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction
+/// path, the step identity and the step records are the ones without A2.
+pub const P_ORBIT_CANON_DEFAULT: bool = false;
+/// Whether a new [`library::PLibrary`] that carries saved automorphism
+/// groups (`orbits.rrbin`, [`library::PLibraryBuilder::set_saved_orbits`])
+/// canonicalises keys under orbits. On (M5 batch 2, measured 2026-11-11 on the
+/// combined 1-4 package, 12 cells, values identical): 16 threads -17 % cold and
+/// -15 % warm wall, peak RSS -1..-14 %; 1 thread -5.7 % instructions. A
+/// library without saved groups keeps [`P_ORBIT_CANON_DEFAULT`] (the run-time
+/// group search costs more cold time than it saves on small requests), so
+/// the step identity, and the step caches, of such a library do not change.
+pub const P_ORBIT_CANON_WITH_SAVED_ORBITS: bool = true;
 
 const _: () = assert!(P_GAMMA_TAG_WIDTH == 2 * P_GAMMA_TAG_MAX_M as usize);
 

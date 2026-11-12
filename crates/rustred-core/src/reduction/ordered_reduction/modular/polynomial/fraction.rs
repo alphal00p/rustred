@@ -98,6 +98,12 @@ pub(super) struct Factorized<'a> {
     /// Per lane: `f^e`, and `(h^e)^-1 mod g`, for the nonlinear paths.
     power_cache: Vec<HashMap<(u32, u32), Raw>>,
     inverse_cache: Vec<HashMap<(u32, u32, u32), Raw>>,
+    /// rr-alloc: reused buffers of the nonlinear division paths.
+    scratch: Scratch,
+    /// rr-alloc: the chain block being divided (reused).
+    chain_block: Raw,
+    /// rr-par: spent weight buffers for reuse (`RUSTRED_MODULAR_REPLAY_POOL`).
+    pool: Option<std::cell::RefCell<Pools>>,
     /// Scalars of every constant coefficient, lanes adjacent.
     constant_scalars: Vec<Scalar>,
     /// `(start, length)` in `numerator_table` of every polynomial
@@ -107,7 +113,76 @@ pub(super) struct Factorized<'a> {
     zero_scalars: Vec<Scalar>,
 }
 
+/// Spent coefficient and chain buffers of one replay arithmetic.
+#[derive(Default)]
+struct Pools {
+    data: Vec<Vec<u64>>,
+    chains: Vec<Vec<Chain>>,
+}
+
+/// Buffers kept per pool, and the largest buffer kept (words).
+const POOL_BUFFERS: usize = 256;
+const POOL_WORDS: usize = 1 << 16;
+
+/// `RUSTRED_MODULAR_REPLAY_POOL=1` (rr-par, switch; unset = off): the replay
+/// arithmetic reuses the coefficient and chain buffers of spent weights
+/// (popped weights, cached powers, replaced layouts, product temporaries)
+/// instead of allocating new ones for every operation. A reused buffer is
+/// cleared and zero-filled exactly as a new one: values are unchanged.
+fn replay_pool_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_MODULAR_REPLAY_POOL").as_deref(),
+            Ok("1" | "on")
+        )
+    })
+}
+
 impl<'a> Factorized<'a> {
+    /// A zero-filled coefficient buffer of `len` words.
+    fn zeroed(&self, len: usize) -> Vec<u64> {
+        match &self.pool {
+            Some(pool) => {
+                let mut data = pool.borrow_mut().data.pop().unwrap_or_default();
+                data.clear();
+                data.resize(len, 0);
+                data
+            }
+            None => vec![0; len],
+        }
+    }
+
+    /// An empty chain list.
+    fn chain_list(&self, capacity: usize) -> Vec<Chain> {
+        match &self.pool {
+            Some(pool) => {
+                let mut chains = pool.borrow_mut().chains.pop().unwrap_or_default();
+                chains.clear();
+                chains.reserve(capacity);
+                chains
+            }
+            None => Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Keep the buffers of a spent weight for reuse.
+    pub(super) fn recycle_fraction(&self, weight: Fraction) {
+        let Some(pool) = &self.pool else {
+            return;
+        };
+        let mut pool = pool.borrow_mut();
+        if weight.data.capacity() > 0
+            && weight.data.capacity() <= POOL_WORDS
+            && pool.data.len() < POOL_BUFFERS
+        {
+            pool.data.push(weight.data);
+        }
+        if weight.chains.capacity() > 0 && pool.chains.len() < POOL_BUFFERS {
+            pool.chains.push(weight.chains);
+        }
+    }
+
     pub fn new(lanes: &'a [LaneTables], basis: &'a Basis, max_degree: usize) -> Self {
         assert!(!lanes.is_empty());
         let width = lanes.len();
@@ -142,6 +217,9 @@ impl<'a> Factorized<'a> {
             powers: vec![],
             power_cache: lanes.iter().map(|_| HashMap::new()).collect(),
             inverse_cache: lanes.iter().map(|_| HashMap::new()).collect(),
+            scratch: Scratch::default(),
+            chain_block: vec![],
+            pool: replay_pool_enabled().then(Default::default),
             constant_scalars,
             numerator_scalars,
             numerator_table,
@@ -179,7 +257,7 @@ impl<'a> Factorized<'a> {
             poly,
             chains,
             positions: offset,
-            data: vec![0; offset * self.width()],
+            data: self.zeroed(offset * self.width()),
         })
     }
 
@@ -324,11 +402,13 @@ impl<'a> Factorized<'a> {
 
     /// `scale * source` with the layout of `source`.
     fn scaled(&self, source: &Fraction, scale: Scale) -> Fraction {
+        let mut chains = self.chain_list(source.chains.len());
+        chains.extend_from_slice(&source.chains);
         let mut result = Fraction {
             poly: source.poly,
-            chains: source.chains.clone(),
+            chains,
             positions: source.positions,
-            data: vec![0; source.data.len()],
+            data: self.zeroed(source.data.len()),
         };
         self.kernel(&mut result.data, &source.data, self.scalars(scale), true);
         result
@@ -353,7 +433,9 @@ impl<'a> Factorized<'a> {
         if !self.segments(destination, source, &mut segments) {
             let (poly, chains) = self.union(destination, source);
             self.segments = segments;
-            *destination = self.relayout(destination, poly, chains)?;
+            let widened = self.relayout(destination, poly, chains)?;
+            let spent = std::mem::replace(destination, widened);
+            self.recycle_fraction(spent);
             segments = std::mem::take(&mut self.segments);
             let covered = self.segments(destination, source, &mut segments);
             debug_assert!(covered);
@@ -374,7 +456,7 @@ impl<'a> Factorized<'a> {
 
     /// The smallest layout covering both weights.
     fn union(&self, a: &Fraction, b: &Fraction) -> (usize, Vec<Chain>) {
-        let mut chains = Vec::with_capacity(a.chains.len() + b.chains.len());
+        let mut chains = self.chain_list(a.chains.len() + b.chains.len());
         let (mut i, mut j) = (0, 0);
         while i < a.chains.len() || j < b.chains.len() {
             match (a.chains.get(i), b.chains.get(j)) {
@@ -433,7 +515,8 @@ impl<'a> Factorized<'a> {
         if !changed {
             return;
         }
-        let chains = kept.iter().map(|(c, e)| Chain::new(c.factor, *e)).collect();
+        let mut chains = self.chain_list(kept.len());
+        chains.extend(kept.iter().map(|(c, e)| Chain::new(c.factor, *e)));
         let mut trimmed = self
             .layout(poly, chains)
             .expect("a trimmed layout is within the bounds of the original");
@@ -443,7 +526,8 @@ impl<'a> Factorized<'a> {
             let (f, t) = (old.offset as usize * width, new.offset as usize * width);
             trimmed.data[t..t + len].copy_from_slice(&weight.data[f..f + len]);
         }
-        *weight = trimmed;
+        let spent = std::mem::replace(weight, trimmed);
+        self.recycle_fraction(spent);
     }
 
     /// `d * source`.
@@ -452,11 +536,13 @@ impl<'a> Factorized<'a> {
             return Ok(Fraction::default());
         }
         let width = self.width();
-        let chains = source
-            .chains
-            .iter()
-            .map(|c| Chain::new(c.factor, c.exponent))
-            .collect();
+        let mut chains = self.chain_list(source.chains.len());
+        chains.extend(
+            source
+                .chains
+                .iter()
+                .map(|c| Chain::new(c.factor, c.exponent)),
+        );
         // The result's layout is the source's shifted by one position.
         let mut result = self.layout(source.poly + 1, chains)?;
         let from = &source.data;
@@ -518,7 +604,7 @@ impl<'a> Factorized<'a> {
         index: usize,
     ) -> Result<Fraction, ReductionError> {
         let factors = &self.basis.coefficients[index].factors;
-        let mut merged = Vec::with_capacity(chains.len() + factors.len());
+        let mut merged = self.chain_list(chains.len() + factors.len());
         let (mut i, mut j) = (0, 0);
         while i < chains.len() || j < factors.len() {
             match (chains.get(i), factors.get(j)) {
@@ -664,13 +750,19 @@ impl<'a> Factorized<'a> {
                     w[at(poly - 1)] = 0;
                     w[at(g_offset)] = lane.add(w[at(g_offset)], carry);
                 } else {
-                    let part: Raw = (0..poly).map(|i| w[at(i)]).collect();
-                    let (quotient, remainder) =
-                        lane.divrem_monic(&part, &tables.basis.monic[g as usize]);
+                    let s = &mut self.scratch;
+                    s.part.clear();
+                    s.part.extend((0..poly).map(|i| w[at(i)]));
+                    lane.divrem_monic_into(
+                        &s.part,
+                        &tables.basis.monic[g as usize],
+                        &mut s.q,
+                        &mut s.r,
+                    );
                     for i in 0..poly {
-                        w[at(i)] = quotient.get(i).copied().unwrap_or(0);
+                        w[at(i)] = s.q.get(i).copied().unwrap_or(0);
                     }
-                    for (i, &r) in remainder.iter().enumerate() {
+                    for (i, &r) in s.r.iter().enumerate() {
                         w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
                     }
                 }
@@ -695,20 +787,23 @@ impl<'a> Factorized<'a> {
                     w[at(g_offset)] = lane.sub(w[at(g_offset)], next);
                     continue;
                 }
-                let mut block: Raw = (0..exponent * degree).map(|i| w[at(offset + i)]).collect();
-                let residue = divide_chain(
+                let block = &mut self.chain_block;
+                block.clear();
+                block.extend((0..exponent * degree).map(|i| w[at(offset + i)]));
+                divide_chain(
                     tables,
                     &mut self.power_cache[l],
                     &mut self.inverse_cache[l],
                     chain.factor,
                     exponent,
-                    &mut block,
+                    block,
                     g,
+                    &mut self.scratch,
                 )?;
                 for (i, &value) in block.iter().enumerate() {
                     w[at(offset + i)] = value;
                 }
-                for (i, &r) in residue.iter().enumerate() {
+                for (i, &r) in self.scratch.c.iter().enumerate() {
                     w[at(g_offset + i)] = lane.add(w[at(g_offset + i)], r);
                 }
             }
@@ -719,10 +814,27 @@ impl<'a> Factorized<'a> {
     }
 }
 
+/// rr-alloc: reused buffers of [`divide_chain`] and the nonlinear part
+/// division (the replay allocated a fresh vector for every intermediate).
+#[derive(Default)]
+struct Scratch {
+    dense: Raw,
+    t0: Raw,
+    block: Raw,
+    q: Raw,
+    r: Raw,
+    b: Raw,
+    c: Raw,
+    numerator: Raw,
+    part: Raw,
+}
+
 /// Divide the chain `a = (a_1, ..., a_e)` of `h` (`A / h^e` with
 /// `A = sum_j a_j h^(e-j)`) by a basis factor `g` coprime to `h`:
 /// `A / (h^e g) = B / h^e + C / g` with `C = A (h^e)^-1 mod g` and
-/// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and returns `C`.
+/// `B = (A - C h^e) / g`. Overwrites `a` with the chain of `B` and leaves
+/// `C` in `s.c`.
+#[allow(clippy::too_many_arguments)]
 fn divide_chain(
     tables: &LaneTables,
     powers: &mut HashMap<(u32, u32), Raw>,
@@ -731,11 +843,12 @@ fn divide_chain(
     exponent: usize,
     a: &mut [u64],
     g: u32,
-) -> Result<Raw, ReductionError> {
+    s: &mut Scratch,
+) -> Result<(), ReductionError> {
     let lane = &tables.lane;
     let hm = &tables.basis.monic[h as usize];
     let gm = &tables.basis.monic[g as usize];
-    let dense = to_dense(lane, a, hm, exponent);
+    to_dense_into(lane, a, hm, exponent, &mut s.dense, &mut s.t0, &mut s.block);
     let power = powers
         .entry((h, exponent as u32))
         .or_insert_with(|| lane.poly_pow(hm, exponent));
@@ -746,44 +859,78 @@ fn divide_chain(
                 .ok_or_else(|| error("basis factor images are not coprime"))?,
         ),
     };
-    let c = lane
-        .divrem_monic(
-            &lane.poly_mul(&lane.divrem_monic(&dense, gm).1, inverse),
-            gm,
-        )
-        .1;
-    let numerator = lane.poly_sub(&dense, &lane.poly_mul(&c, power));
-    let (b, remainder) = lane.divrem_monic(&numerator, gm);
-    if !remainder.is_empty() {
+    // C = ((A mod g) inverse) mod g
+    lane.divrem_monic_into(&s.dense, gm, &mut s.q, &mut s.r);
+    lane.poly_mul_into(&s.r, inverse, &mut s.t0);
+    lane.divrem_monic_into(&s.t0, gm, &mut s.q, &mut s.c);
+    // B = (A - C h^e) / g
+    lane.poly_mul_into(&s.c, power, &mut s.t0);
+    lane.poly_sub_into(&s.dense, &s.t0, &mut s.numerator);
+    lane.divrem_monic_into(&s.numerator, gm, &mut s.b, &mut s.r);
+    if !s.r.is_empty() {
         return Err(error("partial-fraction division left a remainder"));
     }
-    expand(lane, b, hm, exponent, a);
-    Ok(c)
+    expand_into(lane, &mut s.b, hm, exponent, a, &mut s.q, &mut s.r);
+    Ok(())
 }
 
 /// `A = sum_j a_j h^(e-j)` from the chain `a_1, ..., a_e`.
 fn to_dense(lane: &Lane, a: &[u64], h: &[u64], exponent: usize) -> Raw {
-    let degree = h.len() - 1;
-    let mut dense: Raw = vec![];
-    for j in 0..exponent {
-        let mut block = a[j * degree..(j + 1) * degree].to_vec();
-        Lane::trim(&mut block);
-        dense = lane.poly_add(&lane.poly_mul(&dense, h), &block);
-    }
+    let (mut dense, mut t0, mut block) = (vec![], vec![], vec![]);
+    to_dense_into(lane, a, h, exponent, &mut dense, &mut t0, &mut block);
     dense
 }
 
+/// rr-alloc: [`to_dense`] into reused buffers.
+fn to_dense_into(
+    lane: &Lane,
+    a: &[u64],
+    h: &[u64],
+    exponent: usize,
+    dense: &mut Raw,
+    t0: &mut Raw,
+    block: &mut Raw,
+) {
+    let degree = h.len() - 1;
+    dense.clear();
+    for j in 0..exponent {
+        block.clear();
+        block.extend_from_slice(&a[j * degree..(j + 1) * degree]);
+        Lane::trim(block);
+        lane.poly_mul_into(dense, h, t0);
+        lane.poly_add_into(t0, block, dense);
+    }
+}
+
 /// Write the chain `a_1, ..., a_e` of `B = sum_j a_j h^(e-j)`
-/// (`deg B < e deg h`) into `chain`.
-fn expand(lane: &Lane, mut b: Raw, h: &[u64], exponent: usize, chain: &mut [u64]) {
+/// (`deg B < e deg h`) into `chain` (`b` is consumed as scratch).
+fn expand_into(
+    lane: &Lane,
+    b: &mut Raw,
+    h: &[u64],
+    exponent: usize,
+    chain: &mut [u64],
+    quotient: &mut Raw,
+    remainder: &mut Raw,
+) {
     let degree = h.len() - 1;
     chain.fill(0);
     for j in (0..exponent).rev() {
-        let (quotient, remainder) = lane.divrem_monic(&b, h);
-        chain[j * degree..j * degree + remainder.len()].copy_from_slice(&remainder);
-        b = quotient;
+        lane.divrem_monic_into(b, h, quotient, remainder);
+        chain[j * degree..j * degree + remainder.len()].copy_from_slice(remainder);
+        std::mem::swap(b, quotient);
     }
     debug_assert!(b.is_empty());
+}
+
+impl super::parallel::Summable for Factorized<'_> {
+    fn add_weight(
+        &mut self,
+        destination: &mut Fraction,
+        source: &Fraction,
+    ) -> Result<(), ReductionError> {
+        self.axpy(destination, source, Scale::One)
+    }
 }
 
 impl Representation for Factorized<'_> {
@@ -824,7 +971,17 @@ impl Representation for Factorized<'_> {
 
     fn activate(&mut self, active: &mut Fraction) {
         self.trim(active);
-        self.powers.clear();
+        if self.pool.is_some() {
+            for power in std::mem::take(&mut self.powers) {
+                self.recycle_fraction(power);
+            }
+        } else {
+            self.powers.clear();
+        }
+    }
+
+    fn recycle(&mut self, weight: Fraction) {
+        self.recycle_fraction(weight);
     }
 
     fn product(&mut self, active: &Fraction, c: CoefRef) -> Result<Fraction, ReductionError> {
@@ -846,10 +1003,13 @@ impl Representation for Factorized<'_> {
         }
         let product = self.polynomial_product(active, c.index())?;
         if destination.positions == 0 {
-            *destination = product;
+            let spent = std::mem::replace(destination, product);
+            self.recycle_fraction(spent);
             Ok(())
         } else {
-            self.axpy(destination, &product, Scale::One)
+            let added = self.axpy(destination, &product, Scale::One);
+            self.recycle_fraction(product);
+            added
         }
     }
 

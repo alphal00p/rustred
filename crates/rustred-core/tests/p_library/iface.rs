@@ -35,8 +35,8 @@ use rustred::propagator::topology::{
     ChildMode, Dag, DagEdge, NodeInfo, PTopo, canonical, reduction_graph,
 };
 use rustred::propagator::{
-    NodeIndex, OwnerClassId, P_FAMILIES_SCHEMA, P_FAMILIES_VERSION, P_GAMMA_TAG_WIDTH, PTerminalId,
-    PresentationId, p_versions,
+    NodeIndex, OwnerClassId, P_FAMILIES_5L_VERSION, P_FAMILIES_SCHEMA, P_FAMILIES_VERSION,
+    P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId, p_versions,
 };
 use symbolica::prelude::Rational;
 
@@ -489,6 +489,32 @@ fn the_library_exposes_what_it_was_built_from() {
 }
 
 /// `a.b` for a symmetric matrix of the scalar products of `(k_1, .., k_L, q)`.
+/// G9 (M5 batch 3): the 5L families version enters the identity of a library
+/// whose scope reaches 5 loops, and no other: scope 1-4 identities (and so
+/// every shipped package and step cache) are unchanged.
+#[test]
+fn only_a_five_loop_scope_names_the_5l_families_version() {
+    let identity = |scope: RangeInclusive<u8>| {
+        let mut builder = PLibrary::builder(context(), scope);
+        builder.set_census(PCensus::default()).unwrap();
+        builder.build().unwrap().identity()
+    };
+    let tag = format!(",P_FAMILIES_5L_VERSION={P_FAMILIES_5L_VERSION}");
+    let versions: Vec<String> = p_versions()
+        .into_iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect();
+    assert_eq!(
+        identity(1..=4),
+        format!("p-library:scope=1-4:{}", versions.join(","))
+    );
+    assert_eq!(
+        identity(1..=5),
+        format!("p-library:scope=1-5:{}{tag}", versions.join(","))
+    );
+    assert!(identity(5..=5).ends_with(&tag));
+}
+
 fn evaluate(gram: &[Vec<i64>], a: &[i64], b: &[i64]) -> i64 {
     let mut value = 0;
     for (i, &x) in a.iter().enumerate() {

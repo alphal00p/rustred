@@ -69,9 +69,9 @@ use symbolica::license::LicenseManager;
 use symbolica::utils::resources::ResourceBudget;
 
 use super::{
-    Admitted, Frontier, OrderedKernel, OrderedPhaseBoundary, OrderedPosition, OrderedStep,
-    OrderedWeights, Pending, RawOutput, Scheduled, StepSource, TailRun, admit, check_descent,
-    invariant, replace_monomials,
+    Admitted, Frontier, FrontierLayout, FrontierMode, OrderedKernel, OrderedPhaseBoundary,
+    OrderedPosition, OrderedStep, OrderedWeights, Pending, RawOutput, Scheduled, StepSource,
+    TailRun, admit, check_descent, invariant, replace_monomials,
 };
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
@@ -110,6 +110,77 @@ pub struct OrderedSchedulerOptions {
     /// every request: `0`/`off`/`false` disables it, `1`/`on`/`true`
     /// enables it (callers without the option wired, e.g. Vakint).
     pub adjoint_tail: bool,
+    /// Value-neutral performance profile (M5 batch 2, see
+    /// [`OrderedProfile`]); `Auto` lets the adapter choose.
+    pub profile: OrderedProfile,
+}
+
+/// Value-neutral performance settings of a request (M5 batch 2): the
+/// frontier layout and hash, the adjoint tail and the first round of a
+/// modular polynomial lift. Terms, conditions and counters are identical
+/// under every profile; only time and memory change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OrderedProfile {
+    /// The adapter decides: p library requests (`PLibrary::reduce`) run
+    /// `P`, every other request runs `Generic`.
+    #[default]
+    Auto,
+    /// The historical settings: classic frontier with SipHash, the adjoint
+    /// tail as `adjoint_tail` says, a first modular round of one prime per
+    /// thread.
+    Generic,
+    /// p requests (measured by rr-prof and rr-frontier on the 4L package):
+    /// phased packed frontier (keys stored once, later phases unsorted),
+    /// Fx frontier hash, adjoint tail OFF (it logged every step: -28..-38 %
+    /// peak RSS at 1 thread), a first modular round of 4 primes in one
+    /// replay pass (-20 % cycles at 1 thread, -54..-71 % RSS at 16).
+    P,
+}
+
+/// The settings a request runs with: its profile (with `Auto` resolved by
+/// the caller), then the environment overrides
+/// `RUSTRED_ORDERED_FRONTIER=classic|compact|phased`,
+/// `RUSTRED_ORDERED_FRONTIER_HASH=fx|sip`,
+/// `RUSTRED_ORDERED_ADJOINT_TAIL=on|off`, `RUSTRED_MODULAR_POLY_ROUND=n`
+/// (`0`/`off`: one prime per thread), `RUSTRED_ORDERED_PIPELINE=on|off` and
+/// `RUSTRED_MODULAR_PAR_REPLAY=on|off`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OrderedTuning {
+    pub frontier: super::frontier::FrontierMode,
+    pub fx_hash: bool,
+    pub adjoint_tail: bool,
+    pub modular_round: Option<usize>,
+    /// rr-par pipelined step source (M5 batch 3: on for p requests).
+    pub pipeline: bool,
+    /// rr-par parallel modular replay (M5 batch 3: on for p requests).
+    pub par_replay: bool,
+}
+
+impl OrderedSchedulerOptions {
+    /// `self` with an `Auto` profile resolved to `profile`.
+    pub fn resolve_profile(mut self, profile: OrderedProfile) -> Self {
+        if self.profile == OrderedProfile::Auto {
+            self.profile = profile;
+        }
+        self
+    }
+
+    pub(crate) fn tuning(&self) -> OrderedTuning {
+        use super::frontier::FrontierMode;
+        let p = self.profile == OrderedProfile::P;
+        OrderedTuning {
+            frontier: FrontierMode::environment().unwrap_or(if p {
+                FrontierMode::Phased
+            } else {
+                FrontierMode::Classic
+            }),
+            fx_hash: super::frontier_hash_environment().unwrap_or(p),
+            adjoint_tail: super::tail::environment().unwrap_or(self.adjoint_tail && !p),
+            modular_round: super::modular_round_environment().unwrap_or(p.then_some(4)),
+            pipeline: super::pipeline_environment().unwrap_or(p),
+            par_replay: super::par_replay_environment().unwrap_or(p),
+        }
+    }
 }
 
 impl Default for OrderedSchedulerOptions {
@@ -118,6 +189,7 @@ impl Default for OrderedSchedulerOptions {
             threads: 1,
             window_keys: 4096,
             adjoint_tail: true,
+            profile: OrderedProfile::Auto,
         }
     }
 }
@@ -214,8 +286,23 @@ pub(crate) trait ConcurrentOrderedKernel:
     where
         Self: 's;
 
+    /// rr-par: a stepper that does not borrow the kernel, for computing
+    /// steps on the workers while the scheduler keeps using the kernel
+    /// (`Pipelined`). Adapters without one name [`NoDetached`].
+    type Detached: OrderedStepper<
+            Key = Self::Key,
+            Priority = Self::Priority,
+            Error = Self::Error,
+            Account = Self::Account,
+        > + Sync;
+
     /// The shared stepper, or `None` to keep this request sequential.
     fn stepper(&self) -> Option<Self::Stepper<'_>>;
+
+    /// The detached stepper (`None`: the pipelined source is not used).
+    fn detached_stepper(&self) -> Option<Self::Detached> {
+        None
+    }
 
     /// Apply the account of one detached step exactly where the sequential
     /// scheduler would have performed the step: `request` and `work` are the
@@ -227,6 +314,32 @@ pub(crate) trait ConcurrentOrderedKernel:
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<(), Self::Error>;
+}
+
+/// The detached stepper of an adapter that has none (never constructed).
+pub(crate) struct NoDetached<K, P, E, A>(
+    std::convert::Infallible,
+    std::marker::PhantomData<fn() -> (K, P, E, A)>,
+);
+
+impl<K, P, E, A> OrderedStepper for NoDetached<K, P, E, A>
+where
+    K: Clone + Ord + Hash + Send + Sync,
+    P: Clone + Ord + Send + Sync,
+    E: From<ReductionError> + Send,
+    A: Send,
+{
+    type Key = K;
+    type Priority = P;
+    type Error = E;
+    type Account = A;
+
+    fn position(&self, _: &K) -> Result<OrderedPosition<P>, E> {
+        match self.0 {}
+    }
+    fn step(&self, _: &K) -> (Result<OrderedStep<K>, E>, A) {
+        match self.0 {}
+    }
 }
 
 /// Weight arithmetic whose products and merges are pure functions of their
@@ -327,6 +440,15 @@ impl Workers {
         })
     }
 
+    /// rr-par: run `op` on the calling thread inside a scope whose spawned
+    /// jobs run on the workers (`Pipelined`).
+    pub(super) fn in_place_scope<'scope, R>(
+        &self,
+        op: impl FnOnce(&rayon::Scope<'scope>) -> R,
+    ) -> R {
+        self.pool.in_place_scope(op)
+    }
+
     /// `f` on every item on the workers. Item costs are very uneven (merges
     /// of exact rational functions), so every item is its own task: a
     /// contiguous range never runs on one thread while the others idle.
@@ -387,6 +509,9 @@ where
         + Sync
         + Send,
 {
+    if roots.len() < inline_window() {
+        return close_window_inline(stepper, roots, counters, &detach);
+    }
     let closure = Closure {
         stepper,
         detach: &detach,
@@ -421,6 +546,74 @@ where
         .map(|step| step.expect("every root step completes in the scope"))
         .chain(discovered)
         .collect()
+}
+
+/// `RUSTRED_ORDERED_INLINE_WINDOW=n` (rr-par, switch; unset = 0 = off): a
+/// window with fewer than `n` roots is closed on the calling thread instead
+/// of the workers (`close_window_inline`). Small requests (the many small
+/// reductions of a physics expression) then pay no pool dispatch and wake-up
+/// per window; the steps are the same pure functions of their keys.
+fn inline_window() -> usize {
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_ORDERED_INLINE_WINDOW")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
+/// `close_window` on the calling thread: the roots in their order, then
+/// their same-phase descendants at or above the threshold.
+fn close_window_inline<S, X, F>(
+    stepper: &S,
+    roots: Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    counters: Option<&WindowCounters>,
+    detach: &F,
+) -> Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>
+where
+    S: OrderedStepper,
+    F: Fn(
+        &S::Key,
+        &OrderedPosition<S::Priority>,
+        OrderedStep<S::Key>,
+        &mut Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    ) -> X,
+{
+    let mut seen: HashSet<S::Key> = roots.iter().map(|(key, _)| key.clone()).collect();
+    let mut out = Vec::with_capacity(roots.len());
+    let mut pending = Vec::new();
+    let mut step = |key: S::Key,
+                    position: OrderedPosition<S::Priority>,
+                    pending: &mut Vec<(S::Key, OrderedPosition<S::Priority>)>| {
+        let _timer = counters.map(|counters| CpuTimer::new(&counters.step_nanos));
+        let (result, account) = stepper.step(&key);
+        let mut found = Vec::new();
+        let result = result.map(|step| detach(&key, &position, step, &mut found));
+        for (child, position) in found {
+            if seen.insert(child.clone()) {
+                pending.push((child, position));
+            }
+        }
+        Detached {
+            key,
+            position,
+            result,
+            account,
+        }
+    };
+    for (key, position) in roots {
+        out.push(step(key, position, &mut pending));
+    }
+    let mut discovered = 0u64;
+    while let Some((key, position)) = pending.pop() {
+        discovered += 1;
+        out.push(step(key, position, &mut pending));
+    }
+    if let Some(counters) = counters {
+        counters.discovered.fetch_add(discovered, Ordering::Relaxed);
+    }
+    out
 }
 
 /// Shared state of one window closure (`close_window`).
@@ -520,7 +713,7 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
                 priority: node.priority.clone(),
             },
         )];
-        let mut threshold = node;
+        let mut threshold = std::borrow::Cow::Borrowed(node);
         for (scheduled, _) in frontier
             .iter()
             .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
@@ -538,18 +731,21 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
         let stepper = kernel
             .stepper()
             .ok_or_else(|| invariant("concurrent ordered adapter lost its stepper"))?;
+        let stats = super::parstats::enabled();
+        let counters = stats.then(WindowCounters::default);
+        let started = stats.then(std::time::Instant::now);
         let detached = close_window(
             self.workers,
             &stepper,
             roots,
-            None,
+            counters.as_ref(),
             |parent, _, step, found| {
                 for child in step.terms.keys() {
                     if stepper.later_phase(parent, child) {
                         continue;
                     }
                     if let Ok(position) = stepper.position(child)
-                        && at_or_above(&position, child, threshold)
+                        && at_or_above(&position, child, &threshold)
                     {
                         found.push((child.clone(), position));
                     }
@@ -557,6 +753,20 @@ impl<'w, K: ConcurrentOrderedKernel> Prefetched<'w, K> {
                 step
             },
         );
+        if let (Some(started), Some(counters)) = (started, &counters) {
+            use super::parstats::{SOURCE, nanos};
+            SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+            SOURCE
+                .window_nanos
+                .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+            SOURCE
+                .computed
+                .fetch_add(detached.len() as u64, Ordering::Relaxed);
+            SOURCE.step_nanos.fetch_add(
+                counters.step_nanos.load(Ordering::Relaxed),
+                Ordering::Relaxed,
+            );
+        }
         for step in detached {
             self.steps.insert(step.key, (step.result, step.account));
         }
@@ -582,6 +792,328 @@ impl<K: ConcurrentOrderedKernel> StepSource<K> for Prefetched<'_, K> {
             .ok_or_else(|| invariant("a prefetched ordered step is missing"))?;
         kernel.absorb(&node.key, account, request, work)?;
         result
+    }
+
+    fn threads(&self) -> usize {
+        self.workers.pool.current_num_threads()
+    }
+}
+
+type StepOf<S> = (
+    Result<OrderedStep<<S as OrderedStepper>::Key>, <S as OrderedStepper>::Error>,
+    <S as OrderedStepper>::Account,
+);
+
+type Candidate<S> = (
+    <S as OrderedStepper>::Key,
+    OrderedPosition<<S as OrderedStepper>::Priority>,
+);
+
+/// A window computed by the workers: its steps, its threshold, and the
+/// same-phase children of its steps below the threshold (the candidates of
+/// the next window).
+struct Computed<S: OrderedStepper> {
+    /// Built by the thread that computed the window (not the scheduler).
+    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
+    threshold: Scheduled<S::Key, S::Priority>,
+    below: Vec<Candidate<S>>,
+}
+
+/// The steps of `roots` and of their same-phase descendants at or above
+/// `threshold` (`close_window`), with the same-phase children below it.
+fn compute_window<S: OrderedStepper>(
+    workers: &Workers,
+    stepper: &S,
+    roots: Vec<Candidate<S>>,
+    threshold: Scheduled<S::Key, S::Priority>,
+) -> Computed<S> {
+    let stats = super::parstats::enabled();
+    let counters = stats.then(WindowCounters::default);
+    let started = stats.then(std::time::Instant::now);
+    let detached = close_window(
+        workers,
+        stepper,
+        roots,
+        counters.as_ref(),
+        |parent, _, step, found| {
+            let mut below = Vec::new();
+            for child in step.terms.keys() {
+                if stepper.later_phase(parent, child) {
+                    continue;
+                }
+                if let Ok(position) = stepper.position(child) {
+                    if at_or_above(&position, child, &threshold) {
+                        found.push((child.clone(), position));
+                    } else if position.phase == threshold.phase.0 {
+                        below.push((child.clone(), position));
+                    }
+                }
+            }
+            // The recorder's interning hashes, computed here instead of on
+            // the sequential merge (terms in order, then terminals).
+            let hashes = step
+                .terms
+                .values()
+                .chain(step.terminals.values())
+                .map(super::modular::coefficient_hash)
+                .collect();
+            (step, below, hashes)
+        },
+    );
+    if let (Some(started), Some(counters)) = (started, &counters) {
+        use super::parstats::{SOURCE, nanos};
+        SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+        SOURCE
+            .window_nanos
+            .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+        SOURCE
+            .computed
+            .fetch_add(detached.len() as u64, Ordering::Relaxed);
+        SOURCE.step_nanos.fetch_add(
+            counters.step_nanos.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+    let mut below = Vec::new();
+    let steps = detached
+        .into_iter()
+        .map(|step| {
+            let mut hashes = Vec::new();
+            let result = step.result.map(|(step, mut children, computed)| {
+                below.append(&mut children);
+                hashes = computed;
+                step
+            });
+            (step.key, ((result, step.account), hashes))
+        })
+        .collect();
+    Computed {
+        steps,
+        threshold,
+        below,
+    }
+}
+
+/// The next window from its candidates: the greatest `window_keys` of them
+/// (deduplicated), closed under same-phase descent above the last.
+fn speculate<S: OrderedStepper>(
+    workers: &Workers,
+    stepper: &S,
+    mut candidates: Vec<Candidate<S>>,
+    window_keys: usize,
+) -> Option<Computed<S>> {
+    use rayon::slice::ParallelSliceMut;
+    workers.pool.install(|| {
+        candidates.par_sort_unstable_by(|a, b| (&b.1.priority, &b.0).cmp(&(&a.1.priority, &a.0)))
+    });
+    candidates.dedup_by(|a, b| a.0 == b.0);
+    candidates.truncate(window_keys);
+    let (key, position) = candidates.last()?.clone();
+    let threshold = Scheduled {
+        phase: std::cmp::Reverse(position.phase),
+        priority: position.priority,
+        key,
+    };
+    Some(compute_window(workers, stepper, candidates, threshold))
+}
+
+/// Steps computed ahead by the workers for the sequential scheduler, in a
+/// pipeline (rr-par): while the scheduler merges and records the steps of
+/// one window, the workers compute the next one.
+///
+/// A window is closed as in [`Prefetched`]. When the scheduler starts on a
+/// window with threshold `t`, the next window is speculated from the
+/// greatest pending keys of the phase below `t` and the same-phase children
+/// below `t` of the window's steps: every key the sequential scheduler can
+/// pop after the window is one of those or a descendant of one. The greatest
+/// `window_keys` of them, closed under descent above the last (`t'`), hold
+/// every key popped between `t` and `t'`; a popped key that is not computed
+/// (below `t'`, or a new phase) starts a window synchronously. Steps are pure
+/// functions of their key (see the module docs), so this changes only which
+/// thread computes a step and when; the scheduler applies exactly the
+/// accounts of the keys it expands, in its order.
+pub(super) struct Pipelined<'scope, 'p, S: OrderedStepper> {
+    scope: &'p rayon::Scope<'scope>,
+    workers: &'scope Workers,
+    stepper: &'scope S,
+    window_keys: usize,
+    steps: HashMap<S::Key, (StepOf<S>, Vec<u64>)>,
+    /// The hashes of the step returned last.
+    hashes: Option<Vec<u64>>,
+    /// The phase and the receiver of the window being computed ahead.
+    ahead: Option<(usize, std::sync::mpsc::Receiver<Option<Computed<S>>>)>,
+}
+
+impl<'scope, 'p, S> Pipelined<'scope, 'p, S>
+where
+    S: OrderedStepper + Sync,
+    S::Key: super::FrontierKey,
+    S::Priority: Hash,
+{
+    pub(super) fn new(
+        scope: &'p rayon::Scope<'scope>,
+        workers: &'scope Workers,
+        stepper: &'scope S,
+        window_keys: usize,
+    ) -> Self {
+        Self {
+            scope,
+            workers,
+            stepper,
+            window_keys,
+            steps: HashMap::new(),
+            hashes: None,
+            ahead: None,
+        }
+    }
+
+    /// Adopt a computed window and start computing the next one.
+    fn adopt<W>(&mut self, computed: Computed<S>, frontier: &Frontier<S::Key, S::Priority, W>) {
+        let Computed {
+            steps,
+            threshold,
+            below,
+        } = computed;
+        // The leftover steps (dead keys) are dropped on the workers.
+        let spent = std::mem::replace(&mut self.steps, steps);
+        if !spent.is_empty() {
+            self.scope.spawn(move |_| drop(spent));
+        }
+        let phase = threshold.phase.0;
+        let mut candidates = below;
+        candidates.extend(
+            frontier
+                .iter()
+                .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+                .skip_while(|(scheduled, _)| **scheduled >= threshold)
+                .take(self.window_keys)
+                .map(|(scheduled, _)| {
+                    (
+                        scheduled.key.clone(),
+                        OrderedPosition {
+                            phase,
+                            priority: scheduled.priority.clone(),
+                        },
+                    )
+                }),
+        );
+        if candidates.is_empty() {
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (workers, stepper, window_keys) = (self.workers, self.stepper, self.window_keys);
+        self.scope.spawn(move |_| {
+            let computed = workers
+                .budget
+                .run_captured(|| speculate(workers, stepper, candidates, window_keys));
+            let _ = sender.send(computed);
+        });
+        self.ahead = Some((phase, receiver));
+    }
+
+    /// Ensure that the step of `node` is computed.
+    fn obtain<W>(
+        &mut self,
+        frontier: &Frontier<S::Key, S::Priority, W>,
+        node: &Scheduled<S::Key, S::Priority>,
+    ) {
+        if self.steps.contains_key(&node.key) {
+            return;
+        }
+        let stats = super::parstats::enabled();
+        if let Some((phase, receiver)) = self.ahead.take()
+            && phase == node.phase.0
+        {
+            let waited = stats.then(std::time::Instant::now);
+            let computed = receiver.recv().ok().flatten();
+            if let Some(waited) = waited {
+                super::parstats::SOURCE
+                    .wait_nanos
+                    .fetch_add(super::parstats::nanos(waited.elapsed()), Ordering::Relaxed);
+            }
+            if let Some(computed) = computed {
+                let hit = computed.steps.contains_key(&node.key);
+                if hit {
+                    if stats {
+                        super::parstats::SOURCE
+                            .speculative_hits
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    self.adopt(computed, frontier);
+                    return;
+                }
+            }
+        }
+        // A window from the popped key and the greatest pending keys after
+        // it, computed now (as `Prefetched::refill`).
+        let phase = node.phase.0;
+        let mut roots = vec![(
+            node.key.clone(),
+            OrderedPosition {
+                phase,
+                priority: node.priority.clone(),
+            },
+        )];
+        let mut threshold = node.clone();
+        for (scheduled, _) in frontier
+            .iter()
+            .take_while(|(scheduled, _)| scheduled.phase.0 == phase)
+            .take(self.window_keys.saturating_sub(1))
+        {
+            roots.push((
+                scheduled.key.clone(),
+                OrderedPosition {
+                    phase,
+                    priority: scheduled.priority.clone(),
+                },
+            ));
+            threshold = scheduled.into_owned();
+        }
+        let computed = compute_window(self.workers, self.stepper, roots, threshold);
+        self.adopt(computed, frontier);
+    }
+}
+
+impl<'scope, 'p, K, S> StepSource<K> for Pipelined<'scope, 'p, S>
+where
+    K: ConcurrentOrderedKernel,
+    S: OrderedStepper<Key = K::Key, Priority = K::Priority, Error = K::Error, Account = K::Account>
+        + Sync,
+{
+    fn step<W>(
+        &mut self,
+        kernel: &mut K,
+        frontier: &Frontier<K::Key, K::Priority, W>,
+        node: &Scheduled<K::Key, K::Priority>,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<OrderedStep<K::Key>, K::Error> {
+        self.obtain(frontier, node);
+        let ((result, account), hashes) = self
+            .steps
+            .remove(&node.key)
+            .ok_or_else(|| invariant("a pipelined ordered step is missing"))?;
+        kernel.absorb(&node.key, account, request, work)?;
+        self.hashes = result.is_ok().then_some(hashes);
+        result
+    }
+
+    fn threads(&self) -> usize {
+        self.workers.pool.current_num_threads()
+    }
+
+    fn take_hashes(&mut self) -> Option<Vec<u64>> {
+        self.hashes.take()
+    }
+
+    /// The scheduler hands its spent step coefficients back: they were
+    /// allocated by the workers and are freed there.
+    fn disposes(&self) -> bool {
+        true
+    }
+
+    fn dispose(&mut self, spent: Vec<Coefficient>) {
+        self.scope.spawn(move |_| drop(spent));
     }
 }
 
@@ -1370,8 +1902,19 @@ pub(super) fn run_concurrent<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     workers: &Workers,
     window_keys: usize,
     adjoint_tail: bool,
+    fx_hash: bool,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
-    let mut state = admit(kernel, weights, request, initial, nonzero_conditions)?;
+    let mut state = admit(
+        kernel,
+        weights,
+        request,
+        initial,
+        nonzero_conditions,
+        FrontierLayout {
+            mode: FrontierMode::Classic,
+            fx_hash,
+        },
+    )?;
     // Value weights rewrite nothing; a persistent tail table can still
     // close the tail (see `tail`). Kernels that ask for it log the tail as
     // the sequential journal does, so that a populating table completes and
@@ -1761,7 +2304,7 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
     }
     let terminal_keys_before = state.output.len();
     for item in &mut items {
-        item.pending = state.frontier.pending.remove(&item.key);
+        item.pending = state.frontier.classic_mut()?.pending.remove(&item.key);
     }
     for item in &mut terminal_items {
         item.existing = state.output.remove(&item.key);
@@ -1909,14 +2452,14 @@ fn run_window<K: ConcurrentOrderedKernel, A: ConcurrentWeights>(
                 .map(|pending| &pending.position)
                 .or(position.as_ref())
                 .ok_or_else(|| invariant("an inserted ordered key has no position"))?;
-            state.frontier.order.insert(Scheduled {
+            state.frontier.classic_mut()?.order.insert(Scheduled {
                 phase: std::cmp::Reverse(position.phase),
                 priority: position.priority.clone(),
                 key: key.clone(),
             });
         }
         if let Some(pending) = pending {
-            state.frontier.pending.insert(key, pending);
+            state.frontier.classic_mut()?.pending.insert(key, pending);
         }
     }
     for item in terminal_items {
@@ -2500,8 +3043,17 @@ mod tests {
         }
     }
 
-    impl ConcurrentOrderedKernel for LatticeKernel<'_> {
+    impl<'a> ConcurrentOrderedKernel for LatticeKernel<'a> {
         type Account = ReductionStatistics;
+        type Detached = LatticeStepper<'a>;
+
+        fn detached_stepper(&self) -> Option<LatticeStepper<'a>> {
+            Some(LatticeStepper {
+                lattice: self.lattice,
+                threads: self.threads,
+                stepped: self.stepped,
+            })
+        }
         type Stepper<'s>
             = LatticeStepper<'s>
         where
@@ -2561,7 +3113,17 @@ mod tests {
         }
     }
 
-    impl ConcurrentStepCacheKernel for LatticeKernel<'_> {
+    impl<'a> ConcurrentStepCacheKernel for LatticeKernel<'a> {
+        fn detached_shard(_: &LatticeStepper<'a>, key: &IntegralKey) -> Option<OrderedStepShard> {
+            lattice_shard(key)
+        }
+        fn detached_key(
+            _: &LatticeStepper<'a>,
+            stage: NodeStage,
+            integral: IntegralKey,
+        ) -> Result<IntegralKey, ReductionError> {
+            lattice_key(stage, integral)
+        }
         fn stepper_shard<'s>(_: &LatticeStepper<'s>, key: &IntegralKey) -> Option<OrderedStepShard>
         where
             Self: 's,

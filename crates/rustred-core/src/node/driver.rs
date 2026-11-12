@@ -102,6 +102,10 @@ pub struct NodeOptions {
     pub cover_tables: Vec<(String, usize)>,
     pub cand_dump: bool,
     pub numeric_depth: u32,
+    /// Refuse exhausted per-point numeric searches instead of entering the unscreened shared numeric solve.
+    /// The unfinished points stay explicit obligations; this does not classify any of them as masters.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_numeric_search: bool,
     /// Seed schedule of the whole node (`SymbolicFirst` = p5l-lift-trace's in-shell order); default SpIRed.
     #[serde(default)]
     pub seed_schedule: SeedScheduleName,
@@ -183,8 +187,20 @@ pub struct NodeOptions {
     /// presented family, chart and order only): a case contained in a sibling rule's case is CLAIMED by that sibling
     /// and skipped (the sibling closes its exceptional children), and sibling rules act as cover rules for children.
     /// The node is complete only when every piece completes; its table is the union of the pieces' tables.
+    ///
+    /// DISABLED unless `unsafe_shared_registry` is set (M5 batch 3, coordinator ruling 2026-11-11 17:37Z): pop
+    /// pruning transfers ownership of a case by case containment, not by a valid-domain proof; the final join does
+    /// not yet keep exception-child dependencies, and the registry key does not bind the full source basis and
+    /// certificate provenance. Until that is fixed a node run with `registry` set and the switch off is refused.
     #[serde(default)]
     pub registry: Option<(String, String)>,
+    /// Opt-in for the experimental shared case registry (default off; see `registry`).
+    #[serde(default)]
+    pub unsafe_shared_registry: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 fn seed_pose_keep_default() -> f64 {
@@ -249,6 +265,7 @@ impl Default for NodeOptions {
             cover_tables: Vec::new(),
             cand_dump: false,
             numeric_depth: 2,
+            strict_numeric_search: false,
             seed_schedule: SeedScheduleName::Spired,
             case_seed_schedule: None,
             case_seed_priority: None,
@@ -266,6 +283,7 @@ impl Default for NodeOptions {
             adopt_banks: Vec::new(),
             union_cover_depth: 2,
             registry: None,
+            unsafe_shared_registry: false,
         }
     }
 }
@@ -326,6 +344,11 @@ pub enum StopReason {
         regions: usize,
         covered: usize,
         charts: Vec<CaseSpec>,
+    },
+    /// Per-point numeric searches exhausted or were screened out, and strict mode forbids the shared fallback.
+    /// Cases are in PRESENTED slots and remain open, including any possible genuine masters.
+    NumericSearchRefused {
+        cases: Vec<CaseSpec>,
     },
     Error(String),
 }
@@ -2075,6 +2098,14 @@ fn run<const N: usize>(
         ])
     );
     let mut registry = match &opts.registry {
+        Some(_) if !opts.unsafe_shared_registry => {
+            return Err(
+                "the shared case registry is disabled (ownership by case containment is not a \
+                        valid-domain proof; M5 batch 3): set unsafe_shared_registry (rr_node \
+                        --unsafe-shared-registry) to run it experimentally"
+                    .to_string(),
+            );
+        }
         Some((dir, piece)) => Some(Registry::open(dir, piece, &key)?),
         None => None,
     };
@@ -3419,7 +3450,11 @@ fn run<const N: usize>(
                 Err(SolverError::SearchExhausted { .. }) => {
                     events(&NodeEvent::NumericalPoint {
                         fixed: fixed.clone(),
-                        outcome: "exhausted; shared solve".into(),
+                        outcome: if opts.strict_numeric_search {
+                            "exhausted; strict numeric search refuses shared solve".into()
+                        } else {
+                            "exhausted; shared solve".into()
+                        },
                     });
                     writeln!(
                         qlog,
@@ -3434,7 +3469,20 @@ fn run<const N: usize>(
                 }
             }
         }
-        if error.is_none() && !exhausted.is_empty() {
+        if error.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
+            let cases: Vec<CaseSpec> = exhausted
+                .iter()
+                .map(|point| case_spec(&Case::from(*point), n))
+                .collect();
+            writeln!(
+                qlog,
+                "{{\"type\":\"numeric_shared_refused\",\"cases\":{}}}",
+                serde_json::to_string(&cases).map_err(|e| e.to_string())?
+            )
+            .map_err(|e| e.to_string())?;
+            stop = Some(StopReason::NumericSearchRefused { cases });
+        }
+        if error.is_none() && stop.is_none() && !exhausted.is_empty() {
             outcome.numeric_bulk_fallback = exhausted.len();
             let visit = node_source.visit(nb);
             match solver.solve_numeric_cases_with_source_order(exhausted, options, visit.as_deref())
@@ -4121,14 +4169,31 @@ mod tests {
         // two pieces of the sunset chart through the registry: the second sees the first's rules and both close
         let fam_dir = tmp("registry-node");
         let dir = fam_dir.display().to_string();
+        let refused = NodeOptions {
+            registry: Some((dir.clone(), "p0".into())),
+            ..quiet()
+        };
+        assert!(
+            generate(
+                SUNSET,
+                "sunset.sym",
+                &fam_dir.join("p0"),
+                &refused,
+                &mut |_| {}
+            )
+            .is_err(),
+            "the registry is refused without the experimental switch (M5 batch 3)"
+        );
         let p1 = NodeOptions {
             registry: Some((dir.clone(), "p1".into())),
+            unsafe_shared_registry: true,
             ..quiet()
         };
         let r1 = generate(SUNSET, "sunset.sym", &fam_dir.join("p1"), &p1, &mut |_| {}).unwrap();
         assert!(r1.complete);
         let p2 = NodeOptions {
             registry: Some((dir, "p2".into())),
+            unsafe_shared_registry: true,
             ..quiet()
         };
         let r2 = generate(SUNSET, "sunset.sym", &fam_dir.join("p2"), &p2, &mut |_| {}).unwrap();
@@ -4378,6 +4443,80 @@ mod tests {
         ] {
             assert!(parse_case_seed_schedule(&invalid, 2).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn strict_numeric_search_defaults_preserve_legacy_options() {
+        let opts = NodeOptions::default();
+        let mut legacy = serde_json::to_value(&opts).unwrap();
+        assert!(!opts.strict_numeric_search);
+        assert!(legacy.get("strict_numeric_search").is_none());
+        let read: NodeOptions = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(!read.strict_numeric_search);
+        let strict = NodeOptions {
+            strict_numeric_search: true,
+            ..opts
+        };
+        assert_eq!(
+            serde_json::to_value(&strict).unwrap()["strict_numeric_search"],
+            true
+        );
+        legacy["strict_numeric_search"] = serde_json::json!(false);
+        assert_eq!(
+            serde_json::to_value(serde_json::from_value::<NodeOptions>(legacy).unwrap()).unwrap(),
+            serde_json::to_value(NodeOptions::default()).unwrap()
+        );
+    }
+
+    #[test]
+    fn strict_numeric_search_refuses_real_exhausted_dispatch_without_master_claim() {
+        let fixed = vec![Some(1), Some(1), Some(1), Some(0), Some(0)];
+        let base = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: fixed.clone(),
+                equations: vec![],
+            }],
+            numeric_depth: 0,
+            ..quiet()
+        };
+        // A depth-zero per-point search has no relation. The legacy shared solver may still classify residuals.
+        let legacy_dir = tmp("numeric-legacy");
+        let legacy = generate(SUNSET, "sunset.sym", &legacy_dir, &base, &mut |_| {}).unwrap();
+        assert!(legacy.complete, "{legacy:?}");
+        assert_eq!(legacy.numeric_bulk_fallback, 1);
+        assert_eq!(legacy.rules, 0);
+        assert_eq!(legacy.residuals, 1);
+
+        let strict_dir = tmp("numeric-strict");
+        let strict = generate(
+            SUNSET,
+            "sunset.sym",
+            &strict_dir,
+            &NodeOptions {
+                strict_numeric_search: true,
+                ..base
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(!strict.complete);
+        assert_eq!(strict.numeric_bulk_fallback, 0);
+        assert_eq!(strict.rules, 0);
+        assert_eq!(strict.residuals, 0);
+        match &strict.stop {
+            Some(StopReason::NumericSearchRefused { cases }) => {
+                assert_eq!(cases.len(), 1);
+                assert_eq!(cases[0].fixed, fixed);
+                assert!(cases[0].equations.is_empty());
+            }
+            other => panic!("expected retained open numeric case, got {other:?}"),
+        }
+        let queue = std::fs::read_to_string(strict_dir.join("F.queue.jsonl")).unwrap();
+        assert!(queue.contains("\"type\":\"numeric_shared_refused\""));
+        let table = std::fs::read_to_string(&strict.table).unwrap();
+        assert!(!table.contains("\"type\":\"residual\""));
+        let _ = std::fs::remove_dir_all(legacy_dir);
+        let _ = std::fs::remove_dir_all(strict_dir);
     }
 
     #[test]

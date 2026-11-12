@@ -19,8 +19,8 @@ use std::time::Instant;
 use rustred::algebra::CoefficientContext;
 use rustred::propagator::PresentationId;
 use rustred::propagator::census::{
-    CENSUS_NO_LEDGER, P_CENSUS_SCHEMA, PCensus, PCensusCounts, PCensusOptions, PSectorFate,
-    SignedAffineLoopMap, p_census,
+    CENSUS_NO_LEDGER, P_CENSUS_SCHEMA, PCensus, PCensusCounts, PCensusOptions, PRouteMaps,
+    PSectorFate, SignedAffineLoopMap, p_census,
 };
 use rustred::propagator::class::{ClassLimits, classify};
 use rustred::propagator::error::PError;
@@ -2235,18 +2235,20 @@ fn the_four_loop_dag_is_complete() {
         census.counts(&library.presentations).unwrap()
     );
 
-    // All 10,938 pairs take five minutes: the twins and a sample stay. (10,654
+    // All 10,989 pairs take five minutes: the twins and a sample stay. (10,654
     // before the Diamond lane: the 4 diamond-adapted presentations add pairs;
-    // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones.)
+    // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones;
+    // 10,938 before no2 and no6 joined the Scheme lane in M5 batch 2.)
     assert_eq!(
         assert_traded_nodes_are_refused(&library, &census, 64),
-        (10_938, 172)
+        (10_989, 172)
     );
 
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
     // are the 183 of the tops. The 4L sectors are those of the Diamond- and
     // Scheme-lane presentations (176,608 / 156,045 / 20,563 with the diamonds
-    // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane), as
+    // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane;
+    // 171,488 / 152,304 / 19,184 before no2 and no6 joined it), as
     // in golden/inventory_1-4.txt.
     assert_eq!(
         count_rows(&census.counts(&library.presentations).unwrap()),
@@ -2254,7 +2256,97 @@ fn the_four_loop_dag_is_complete() {
             (1, 7, 16, 9, 7, 6),
             (2, 30, 298, 211, 87, 29),
             (3, 125, 8_216, 6_794, 1_422, 92),
-            (4, 291, 171_488, 152_304, 19_184, 183),
+            (4, 291, 170_464, 151_608, 18_856, 183),
         ]
+    );
+}
+
+/// Static-score route maps (M5 maps, p5l-maps-rs): the census of
+/// `PRouteMaps::StaticScore` is the first-route census with each routed
+/// sector's map replaced by `route_choice::choose_static`'s choice (the same
+/// classes, owners and fates), it is strongly complete (every route verified
+/// again), it does not depend on the thread count, and it lowers the static
+/// score of the scope-1-3 routes.
+#[test]
+fn static_score_route_maps_are_the_choices_of_choose_static() {
+    use rustred::propagator::route_choice::{
+        FormBasis, RouteDecision, choose_static, sector_automorphisms, static_score,
+    };
+    let library = production_library(3);
+    let first = p_census(&library.presentations, Some(&library.dag), &options()).unwrap();
+    let static_options = |threads| PCensusOptions {
+        threads,
+        route_maps: PRouteMaps::StaticScore,
+        ..PCensusOptions::default()
+    };
+    let chosen = p_census(
+        &library.presentations,
+        Some(&library.dag),
+        &static_options(4),
+    )
+    .unwrap();
+    assert_eq!(
+        p_census(
+            &library.presentations,
+            Some(&library.dag),
+            &static_options(1)
+        )
+        .unwrap(),
+        chosen
+    );
+    chosen
+        .check_complete_with(
+            &library.presentations,
+            Some(&library.dag),
+            &static_options(4),
+        )
+        .unwrap();
+    assert_eq!(chosen.classes, first.classes);
+    let by_id = |id: PresentationId| {
+        library
+            .presentations
+            .iter()
+            .find(|p| p.id == id)
+            .unwrap()
+            .clone()
+    };
+    let (mut changed, mut before, mut after) = (0, 0_u64, 0_u64);
+    for (&(id, support), fate) in &first.sectors {
+        let (class, map) = match fate {
+            PSectorFate::Zero => {
+                assert_eq!(chosen.sectors[&(id, support)], PSectorFate::Zero);
+                continue;
+            }
+            PSectorFate::Owner { class, map } => (*class, map),
+        };
+        let owner = first.classes[&class].owner;
+        let expected = if (id, support) == owner {
+            map.clone()
+        } else {
+            let group = sector_automorphisms(&by_id(owner.0), owner.1).unwrap();
+            let basis = FormBasis::of(&by_id(owner.0)).unwrap().unwrap();
+            let source = by_id(id);
+            before += static_score(&source, support, map, &basis).unwrap().0;
+            let decided = match choose_static(&source, support, map, &group, &basis).unwrap() {
+                RouteDecision::Changed(c) => {
+                    changed += 1;
+                    c.map
+                }
+                RouteDecision::Kept | RouteDecision::TrivialGroup => map.clone(),
+            };
+            after += static_score(&source, support, &decided, &basis).unwrap().0;
+            decided
+        };
+        assert_eq!(
+            chosen.sectors[&(id, support)],
+            PSectorFate::Owner {
+                class,
+                map: expected
+            }
+        );
+    }
+    assert!(
+        changed > 0 && after < before,
+        "{changed} changed, {before} -> {after}"
     );
 }

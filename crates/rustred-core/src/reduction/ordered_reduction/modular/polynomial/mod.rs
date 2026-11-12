@@ -28,6 +28,7 @@ mod basis;
 mod dense;
 mod fraction;
 mod lane;
+mod parallel;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -65,6 +66,10 @@ pub(super) trait Representation {
     ) -> Result<(), ReductionError>;
     /// Zero in every lane.
     fn is_zero(&self, weight: &Self::Weight) -> bool;
+    /// A weight that is no longer needed (rr-par: its buffers may be reused).
+    fn recycle(&mut self, weight: Self::Weight) {
+        drop(weight);
+    }
     /// Resident field elements (memory census).
     fn words(&self, weight: &Self::Weight) -> usize;
     /// Reduced image of one lane.
@@ -147,7 +152,8 @@ fn replay<R: Representation>(
         };
         match tag {
             OpTag::Pop => {
-                active = std::mem::take(target);
+                let spent = std::mem::replace(&mut active, std::mem::take(target));
+                representation.recycle(spent);
                 representation.activate(&mut active);
             }
             OpTag::Cancel | OpTag::TermCancel => {
@@ -158,7 +164,8 @@ fn replay<R: Representation>(
                          in a polynomial replay",
                     ));
                 }
-                *target = R::Weight::default();
+                let spent = std::mem::take(target);
+                representation.recycle(spent);
             }
             OpTag::Init => *target = representation.coefficient(op.coefficient)?,
             OpTag::New | OpTag::TermNew => {
@@ -226,9 +233,15 @@ pub(super) struct PolynomialSource<'a> {
     /// `Z_p(d)` (inside the replay job) before the lift.
     compose: Option<&'a Program>,
     seed: u64,
+    /// First round (`OrderedTuning::modular_round`; `None`: one prime per
+    /// thread).
+    round: Option<usize>,
+    /// rr-par: one replay job on the whole pool (`OrderedTuning::par_replay`).
+    par_replay: bool,
 }
 
 impl<'a> PolynomialSource<'a> {
+    #[allow(clippy::too_many_arguments)] // the replay inputs of one lift (trace, outputs, basis, options, composition, seed, round, parallel replay)
     pub fn new(
         trace: &'a Trace,
         outputs: &'a [usize],
@@ -236,6 +249,8 @@ impl<'a> PolynomialSource<'a> {
         options: PolynomialOptions,
         compose: Option<&'a Program>,
         seed: u64,
+        round: Option<usize>,
+        par_replay: bool,
     ) -> Self {
         Self {
             trace,
@@ -245,6 +260,8 @@ impl<'a> PolynomialSource<'a> {
             structure: Arc::new(()),
             compose,
             seed,
+            round,
+            par_replay,
         }
     }
 
@@ -253,6 +270,16 @@ impl<'a> PolynomialSource<'a> {
         &self.structure
     }
 }
+
+// The first round (rr-prof's `RUSTRED_MODULAR_POLY_ROUND`, M5 batch 2: 4 for
+// p requests, `OrderedTuning::modular_round`): every image round requests at
+// least `n` primes and at most `max(n, lanes)`, whatever the thread count,
+// instead of between `threads` and `max(threads, lanes)`. One thread then
+// replays the first `n` primes (up to `lanes`) in one pass instead of
+// doubling from one prime; many threads replay `n` primes instead of one per
+// thread (fewer discarded images and fewer concurrent weight stores). Images
+// depend only on their prime and the lift consumes them in prime order, so
+// the result is the same for every value.
 
 impl ImageSource for PolynomialSource<'_> {
     type Structure = ();
@@ -275,8 +302,18 @@ impl ImageSource for PolynomialSource<'_> {
             .enumerate()
             .filter_map(|(index, tables)| tables.map(|tables| (index, tables)))
             .collect();
+        // rr-par: one job at a time on the whole pool (factorized weights).
+        let par_replay = self.par_replay;
+        let parallel_pool = executor
+            .pool()
+            .filter(|_| par_replay && options.denominators == PolynomialDenominators::Factorized);
+        let job_threads = if parallel_pool.is_some() {
+            1
+        } else {
+            executor.threads()
+        };
         let mut jobs = vec![];
-        for size in job_sizes(usable.len(), executor.threads(), options.lanes)
+        for size in job_sizes(usable.len(), job_threads, options.lanes)
             .into_iter()
             .rev()
         {
@@ -285,22 +322,41 @@ impl ImageSource for PolynomialSource<'_> {
         jobs.reverse();
         let started = Instant::now();
         let (compose, seed) = (self.compose, self.seed);
-        let results = executor.map(jobs, |job| {
+        let replay_job = |job: Vec<(usize, LaneTables)>| {
             let begun = Instant::now();
             let (indices, tables): (Vec<usize>, Vec<LaneTables>) = job.into_iter().unzip();
-            let replayed = match options.denominators {
-                PolynomialDenominators::Factorized => replay(
+            let parallel = parallel_pool.and_then(|pool| {
+                parallel::replay_parallel(
                     trace,
                     outputs,
                     tables.len(),
-                    &mut Factorized::new(&tables, basis, options.max_degree),
-                ),
-                PolynomialDenominators::Dense => replay(
-                    trace,
-                    outputs,
-                    tables.len(),
-                    &mut Dense::new(&tables, basis, options.max_degree),
-                ),
+                    pool,
+                    executor.budget(),
+                    || Factorized::new(&tables, basis, options.max_degree),
+                )
+            });
+            let replayed = match parallel {
+                Some(replayed) => replayed.map(|replayed| Replayed {
+                    images: replayed.images,
+                    peak_words: 0,
+                    cancel_checks: replayed.cancel_checks,
+                    segment_seconds: vec![0.0; trace.phase_starts.len() + 1],
+                    segment_volume: vec![0.0; trace.phase_starts.len() + 1],
+                }),
+                None => match options.denominators {
+                    PolynomialDenominators::Factorized => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Factorized::new(&tables, basis, options.max_degree),
+                    ),
+                    PolynomialDenominators::Dense => replay(
+                        trace,
+                        outputs,
+                        tables.len(),
+                        &mut Dense::new(&tables, basis, options.max_degree),
+                    ),
+                },
             };
             let replay_seconds = begun.elapsed().as_secs_f64();
             // Compose every lane's terminal images (None: unusable prime).
@@ -318,11 +374,30 @@ impl ImageSource for PolynomialSource<'_> {
             };
             let compose_seconds = begun.elapsed().as_secs_f64() - replay_seconds;
             (indices, replayed, composed, replay_seconds, compose_seconds)
-        })?;
+        };
+        let results = if parallel_pool.is_some() {
+            // Jobs one after the other, each spread over the pool.
+            let mut results = Vec::with_capacity(jobs.len());
+            for job in jobs {
+                resources::checkpoint()?;
+                executor.note_caller();
+                results.push(replay_job(job));
+            }
+            results
+        } else {
+            executor.map(jobs, replay_job)?
+        };
         statistics.replay_seconds += started.elapsed().as_secs_f64();
         let mut images: Vec<Option<PrimeImages<()>>> = primes.iter().map(|_| None).collect();
         for (indices, replayed, composed, seconds, compose_seconds) in results {
             let replayed = replayed?;
+            if crate::reduction::ordered_reduction::parstats::enabled() {
+                crate::reduction::ordered_reduction::parstats::write(&format!(
+                    "{{\"stage\":\"replay_job\",\"lanes\":{},\"seconds\":{seconds:.6},\"jobs\":{}}}",
+                    indices.len(),
+                    primes.len()
+                ));
+            }
             statistics.replay_cpu_seconds += seconds;
             statistics.composition_cpu_seconds += compose_seconds;
             let composed = composed.transpose()?;
@@ -382,12 +457,21 @@ impl ImageSource for PolynomialSource<'_> {
     /// can stop early. Few threads share one replay among up to `lanes`
     /// primes.
     fn round_capacity(&self, threads: usize) -> usize {
-        threads.max(self.options.lanes)
+        match self.round {
+            Some(round) => round.max(self.options.lanes),
+            // rr-par: a parallel pass replays `lanes` primes on all threads.
+            None if self.par_replay && threads > 1 => self.options.lanes,
+            None => threads.max(self.options.lanes),
+        }
     }
 
     /// The first round already occupies every thread with one prime.
     fn round_minimum(&self, threads: usize) -> usize {
-        threads
+        match self.round {
+            Some(round) => round,
+            None if self.par_replay && threads > 1 => self.options.lanes,
+            None => threads,
+        }
     }
 
     /// A verification is a full replay: computing it within a

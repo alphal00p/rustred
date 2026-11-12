@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
 use rustred::family::IntegralKey;
-use rustred::propagator::census::{PCensusOptions, p_census};
+use rustred::propagator::census::{PCensusOptions, PRouteMaps, p_census};
 use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
 use rustred::propagator::diamond::{DiamondError, DiamondTemplate};
@@ -50,8 +50,8 @@ use rustred::propagator::triangle::{TemplateError, TriangleTemplate};
 use rustred::propagator::{NodeIndex, OwnerClassId, PTerminalId, PresentationId};
 use rustred::reduction::ReductionLimits;
 
-use super::CustomPayloads;
 use super::generate::{CustomOwnerPayload, custom_owner_lp_count, generate_custom_owner};
+use super::{CustomPayloads, ImportedCustomNode};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssembleOptions {
@@ -399,6 +399,20 @@ fn assemble(
             }
         }
         let index = NodeIndex(node.index);
+        if decision.lane == OwnerLane::Custom
+            && let Some(imported) = imported_node(&custom, node.key.as_bytes())
+        {
+            // p5l-library: the import's presentation (its table family) replaces
+            // the node presentation; the payload is bound to that family.
+            let mut adapted = imported.presentation.clone();
+            adapted.id = id;
+            adapted.node = Some(rustred::propagator::presentation::NodeRef {
+                index,
+                graph_key: Arc::clone(&node.key.0),
+            });
+            adapted.validate()?;
+            presentation = Some(adapted);
+        }
         let presentation = presentation.map(|p| {
             presentations.push(Arc::new(p));
             id
@@ -413,8 +427,10 @@ fn assemble(
     clock.lap("present");
 
     // 4. The census, strongly complete.
+    // Routed sectors store the static-score route maps (P_CENSUS_VERSION 2).
     let census_options = PCensusOptions {
         threads: options.threads,
+        route_maps: PRouteMaps::StaticScore,
         ..PCensusOptions::default()
     };
     let census = p_census(&presentations, Some(&dag), &census_options)?;
@@ -474,15 +490,45 @@ fn assemble(
                 spec.terminals
                     .push(builder.add_terminal(PTerminal::Residual { owner: class, key })?);
             }
+            // M5 no6: a scheme with `"fallback": "custom"` carries the node's
+            // Custom payload (generated on its induced Custom presentation);
+            // the Scheme program closes the keys its rules do not take with it.
+            if rustred::propagator::scheme::scheme_fallback(info)? {
+                let induced = present(
+                    info,
+                    &CUSTOM,
+                    &tops,
+                    PresentationId(u32::MAX),
+                    tops[0].family.coefficient_context(),
+                )?;
+                let payload = custom_payload(
+                    &custom,
+                    &label,
+                    &induced,
+                    recount
+                        .as_mut()
+                        .map(|(filter, recounts)| (*filter, &mut **recounts)),
+                )?;
+                spec.payload = Some(CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)));
+                spec.custom = Some(payload.meta.clone());
+                payloads.insert(label, payload);
+            }
         } else if spec.lane == OwnerLane::Custom {
-            let payload = custom_payload(
-                &custom,
-                &label,
-                &presentations[owner_presentation.0 as usize],
-                recount
-                    .as_mut()
-                    .map(|(filter, recounts)| (*filter, &mut **recounts)),
-            )?;
+            let owner = &presentations[owner_presentation.0 as usize];
+            let imported = (owner.node.as_ref())
+                .and_then(|reference| imported_node(&custom, &reference.graph_key));
+            let payload = if let Some(imported) = imported {
+                imported.payload.clone()
+            } else {
+                custom_payload(
+                    &custom,
+                    &label,
+                    owner,
+                    recount
+                        .as_mut()
+                        .map(|(filter, recounts)| (*filter, &mut **recounts)),
+                )?
+            };
             custom_owner(&mut builder, &mut spec, &payload)?;
             payloads.insert(label, payload);
         } else {
@@ -540,6 +586,17 @@ fn assemble(
     })
 }
 
+/// The imported Custom node of `graph_key`, if `custom` has one.
+fn imported_node<'a>(
+    custom: &'a CustomPayloads,
+    graph_key: &[u8],
+) -> Option<&'a ImportedCustomNode> {
+    match custom {
+        CustomPayloads::Imported { imported, .. } => imported.get(graph_key),
+        _ => None,
+    }
+}
+
 fn too_many() -> PError {
     PError::MalformedLibrary("too many presentations".to_owned())
 }
@@ -554,7 +611,10 @@ fn custom_payload(
 ) -> Result<CustomOwnerPayload, PError> {
     match custom {
         CustomPayloads::Generate(options) => generate_custom_owner(presentation, options),
-        CustomPayloads::Provided(payloads) => {
+        CustomPayloads::Provided(payloads)
+        | CustomPayloads::Imported {
+            provided: payloads, ..
+        } => {
             let payload = payloads.get(label).cloned().ok_or_else(|| {
                 PError::MalformedLibrary(format!(
                     "no payload is provided for the Custom owner {label}"

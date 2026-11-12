@@ -227,6 +227,46 @@ mod wasm_tests {
 }
 
 /// Poll the shared request budget before and after native exact arithmetic.
+///
+/// `RUSTRED_EXACT_CHECKPOINT_STRIDE=n` (rr-prof, switch; unset or `1` = every
+/// call, as before): poll on every `n`-th call of a thread only. Exact
+/// coefficient operations poll twice per operation; under an RSS or time
+/// budget each poll reads a clock and the budget stack (Symbolica), which was
+/// ~20 % of a 4L p reduction with an RSS ceiling even with sampled RSS. A
+/// stride delays the detection of an exhausted budget (or a cancellation) by
+/// at most `n - 1` small coefficient operations of that thread; every other
+/// poll in the engine is unchanged.
 pub(crate) fn checkpoint_exact() -> Result<(), ExactAlgebraError> {
+    let stride = checkpoint_stride();
+    if stride > 1 {
+        let skip = EXACT_POLLS.with(|polls| {
+            let next = polls.get() + 1;
+            if next >= stride {
+                polls.set(0);
+                false
+            } else {
+                polls.set(next);
+                true
+            }
+        });
+        if skip {
+            return Ok(());
+        }
+    }
     symbolica::utils::resources::checkpoint().map_err(ExactAlgebraError::Resource)
+}
+
+thread_local! {
+    static EXACT_POLLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn checkpoint_stride() -> u32 {
+    static STRIDE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *STRIDE.get_or_init(|| {
+        std::env::var("RUSTRED_EXACT_CHECKPOINT_STRIDE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|&stride| stride > 0)
+            .unwrap_or(1)
+    })
 }

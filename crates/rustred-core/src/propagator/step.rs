@@ -24,11 +24,15 @@ pub trait PLaneStep: Send + Sync {
     }
 }
 
+/// The entries of [`POrderKey::Lexicographic`].
+pub type OrderEntries = smallvec::SmallVec<[i64; 4]>;
+
 /// Position of a key among the keys of one owner, larger first.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum POrderKey {
-    /// Compared entry by entry.
-    Lexicographic(Vec<i64>),
+    /// Compared entry by entry (rr-alloc: inline up to 4 entries, no heap
+    /// allocation per priority; the order is that of the entries).
+    Lexicographic(OrderEntries),
     /// The order of a generated rule set.
     Complexity(ComplexityKey),
 }
@@ -37,7 +41,7 @@ pub enum POrderKey {
 /// owner `n_b + n_c1 + n_c2`, which every step lowers, then the distance
 /// `Sum_{n > 0} (n - 1) + Sum_{n <= 0} |n|` from the corner of the sector.
 pub fn default_order_key(owner: &POwnerSpec, powers: &[i64]) -> Result<POrderKey, PError> {
-    let mut key = Vec::with_capacity(2);
+    let mut key = OrderEntries::new();
     if let LaneRoles::Triangle(roles) = owner.roles {
         let mut lowered = 0_i64;
         for slot in [roles.b, roles.c[0], roles.c[1]] {

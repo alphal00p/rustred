@@ -870,22 +870,21 @@ impl<K: OrderedKernel> TailRun<K> {
                 .and_then(|weight| weights.tail_probe(weight));
             let mut entries = Vec::with_capacity(keys.len());
             for (key, value) in keys.iter().zip(&values) {
-                let pending = state
+                let pending_weight = state
                     .frontier
-                    .pending
                     .remove(key)
                     .ok_or_else(|| invariant("a pending tail key vanished"))?;
                 request.release_pending_frame()?;
                 replace_monomials(
                     &mut state.progress.frontier_coefficient_monomials,
-                    weights.monomials(&pending.weight)?,
+                    weights.monomials(&pending_weight)?,
                     0,
                 )?;
-                let slot = A::tail_slot(&pending.weight)
+                let slot = A::tail_slot(&pending_weight)
                     .ok_or_else(|| invariant("recorded weight without a slot"))?;
                 if !value.is_zero() {
                     let probe = weights
-                        .tail_probe(&pending.weight)
+                        .tail_probe(&pending_weight)
                         .ok_or_else(|| invariant("recorded weight without a probe"))?;
                     let factor = weights.tail_probe_coefficient(value)?;
                     weights.tail_probe_add_product(&mut sum, &probe, &factor);
@@ -932,18 +931,17 @@ impl<K: OrderedKernel> TailRun<K> {
             // emissions.
             let progress = &mut state.progress;
             for (key, value) in keys.iter().zip(values) {
-                let pending = state
+                let pending_weight = state
                     .frontier
-                    .pending
                     .remove(key)
                     .ok_or_else(|| invariant("a pending tail key vanished"))?;
                 request.release_pending_frame()?;
                 replace_monomials(
                     &mut progress.frontier_coefficient_monomials,
-                    weights.monomials(&pending.weight)?,
+                    weights.monomials(&pending_weight)?,
                     0,
                 )?;
-                let weight = pending.weight;
+                let weight = pending_weight;
                 weights.begin_step(&weight)?;
                 if !value.is_zero() {
                     let terminal = terminal
@@ -971,7 +969,7 @@ impl<K: OrderedKernel> TailRun<K> {
         let (processed, emitted) = swept.unwrap_or((keys.len(), closed_emissions));
         progress.processed_keys = progress.processed_keys.saturating_add(processed);
         progress.emitted_terms = progress.emitted_terms.saturating_add(emitted);
-        state.frontier.order.clear();
+        state.frontier.clear_order();
         progress.frontier_keys = 0;
         progress.terminal_keys = state.output.len();
         kernel.observe(progress, None)?;

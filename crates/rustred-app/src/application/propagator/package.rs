@@ -14,13 +14,13 @@
 //! presentations (kind, loops, slots, node, family name and fingerprint), the
 //! DAG, the census, edge maps, terminals, owners with their Custom payloads as
 //! canonical rule dumps, and the basis map row by row; never Symbolica wire
-//! ids or payload bytes. Two choices a package may make after the assembly
-//! (M5 combined) are not differences: a routed sector stored with another
-//! admissible route map onto the same owner class (P_CENSUS_VERSION 2, both
-//! maps verified by `class::verify_route`), and a rule ordering (p artefact
-//! v2: identities are compared without the ordering tag; two different
-//! orderings differ). Neither changes a value; both are bound to caches by the
-//! identity.
+//! ids or payload bytes. A rule ordering added to a package after the
+//! assembly (p artefact v2) is not a difference: identities are compared
+//! without the ordering tag (two different orderings differ). Route maps are
+//! compared exactly: since M5 batch 2 the assembly itself stores the
+//! static-score route maps (`census::PRouteMaps::StaticScore`), so a package
+//! equals its assembly sector by sector (M5 combined's tolerance for verified
+//! alternative maps is gone).
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,17 +29,13 @@ use std::sync::Arc;
 use rustred::family::IntegralFamily;
 use rustred::persistence::{BinaryIoLimits, SectionTag, inspect_program};
 use rustred::propagator::basis::{PBasisLayer, PBasisOptions, with_derived_basis_layer};
-use rustred::propagator::census::PSectorFate;
-use rustred::propagator::class::{ClassLimits, classify, verify_route};
 use rustred::propagator::custom::custom_payload_dump;
 use rustred::propagator::error::PError;
 use rustred::propagator::families::PFamiliesFile;
 use rustred::propagator::library::{PLibrary, PTerm, PTerminal};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::tag::GammaTag;
-use rustred::propagator::{
-    OwnerClassId, P_LIBRARY_SCHEMA, PTerminalId, PresentationId, p_versions,
-};
+use rustred::propagator::{OwnerClassId, P_LIBRARY_SCHEMA, PTerminalId, p_versions};
 
 use super::CustomPayloads;
 use super::assemble::{
@@ -241,6 +237,7 @@ pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<
             layer,
             ordering: None,
             routes: None,
+            orbits: None,
         },
         presentations,
         nodes: (assembled.nodes.iter())
@@ -399,10 +396,7 @@ pub fn p_library_differences(a: &PLibrary, b: &PLibrary) -> Result<Vec<String>, 
     }
     if census_a.sectors != census_b.sectors {
         let count = (census_a.sectors.iter())
-            .filter(|(sector, fate)| {
-                census_b.sectors.get(sector) != Some(fate)
-                    && !alternative_routes(a, b, sector, fate).unwrap_or(false)
-            })
+            .filter(|(sector, fate)| census_b.sectors.get(sector) != Some(fate))
             .count()
             + (census_b.sectors.keys())
                 .filter(|sector| !census_a.sectors.contains_key(sector))
@@ -489,62 +483,6 @@ pub fn p_library_differences(a: &PLibrary, b: &PLibrary) -> Result<Vec<String>, 
         _ => differ("basis map on one side only".to_owned()),
     }
     Ok(out)
-}
-
-/// Whether the routed sector `sector` of `a` (fate `fate`) and the same sector
-/// of `b` route onto the same owner class through two different stored maps
-/// that are both admissible routes (`class::verify_route`: unit Jacobian,
-/// monomial line actions, equal shifts, the same owner support). Since
-/// P_CENSUS_VERSION 2 a package may store a generation-time route map `T M`
-/// (examples/p_route_maps.rs); its values are those of the assembled map.
-fn alternative_routes(
-    a: &PLibrary,
-    b: &PLibrary,
-    sector: &(PresentationId, u64),
-    fate: &PSectorFate,
-) -> Result<bool, PError> {
-    let (
-        PSectorFate::Owner { class, map },
-        Some(PSectorFate::Owner {
-            class: other_class,
-            map: other_map,
-        }),
-    ) = (fate, b.census().sectors.get(sector))
-    else {
-        return Ok(false);
-    };
-    let Some(record) = a.census().classes.get(class) else {
-        return Ok(false);
-    };
-    if class != other_class
-        || b.census().classes.get(class) != Some(record)
-        || *sector == record.owner
-    {
-        return Ok(false);
-    }
-    let limits = ClassLimits::default();
-    let (presentation, support) = *sector;
-    let (owner, owner_support) = record.owner;
-    let sides = [(a, map), (b, other_map)];
-    for (library, candidate) in sides {
-        let presentations = library.presentations();
-        let (Some(source_p), Some(owner_p)) = (
-            presentations.get(presentation.0 as usize),
-            presentations.get(owner.0 as usize),
-        ) else {
-            return Ok(false);
-        };
-        let (Some(source), Some(target)) = (
-            classify(source_p, support & !source_p.forced_axes(), &limits)?,
-            classify(owner_p, owner_support & !owner_p.forced_axes(), &limits)?,
-        ) else {
-            return Ok(false);
-        };
-        if verify_route(&source, &target, candidate, &limits)?.as_ref() != Some(candidate) {
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }
 
 /// `a` and `b` are the same library program, see [`p_library_differences`].

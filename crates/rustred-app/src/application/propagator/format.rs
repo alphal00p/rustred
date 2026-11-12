@@ -708,6 +708,10 @@ pub struct FilesRecord {
     /// `rustred::propagator::saved_routes`), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routes: Option<String>,
+    /// p artefact v2 (M5 batch 2): saved verified automorphism groups
+    /// (`orbits.rrbin`, `rustred::propagator::saved_orbits`), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orbits: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

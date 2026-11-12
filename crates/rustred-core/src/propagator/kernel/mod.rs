@@ -130,8 +130,9 @@ pub(crate) fn write_memo<K: Eq + Hash, V: Clone>(
 /// encoded after every add (`GammaTag::add`).
 pub(crate) fn absolute_tag(tag: &GammaTag, relative: &GammaTag) -> Result<GammaTag, PError> {
     let absolute = tag.add(relative);
-    let mut slots = Vec::with_capacity(P_GAMMA_TAG_WIDTH);
-    absolute.encode_dense(&mut slots)?;
+    // The range check of the encoding, on the stack (rr-alloc).
+    let mut slots = SmallVec::<[i64; P_GAMMA_TAG_WIDTH]>::new();
+    absolute.encode_dense_into(&mut slots)?;
     Ok(absolute)
 }
 
@@ -199,7 +200,10 @@ pub(crate) fn owner_edges(
 
 /// The numerators of `slots`: their powers, negated. An ISP at a positive power
 /// has no kernel.
-pub(crate) fn numerator_powers(powers: &[i64], slots: &[usize]) -> Result<Vec<u32>, PError> {
+pub(crate) fn numerator_powers(
+    powers: &[i64],
+    slots: &[usize],
+) -> Result<SmallVec<[u32; 16]>, PError> {
     slots
         .iter()
         .map(|&slot| {
@@ -490,12 +494,13 @@ impl ChildKeys<'_> {
             if self.negate {
                 weight = self.context.try_neg(&weight, limits).map_err(algebra)?;
             }
-            let powers = self
-                .base
-                .iter()
-                .zip(&monomial.exponents)
-                .map(|(power, &exponent)| power - i64::from(exponent))
-                .collect();
+            let mut powers = super::step_memo::take_powers();
+            powers.extend(
+                self.base
+                    .iter()
+                    .zip(&monomial.exponents)
+                    .map(|(power, &exponent)| power - i64::from(exponent)),
+            );
             output.children.push(PChild {
                 stage: PStage::Route,
                 presentation: self.child.id,
@@ -505,6 +510,62 @@ impl ChildKeys<'_> {
             });
         }
         Ok(())
+    }
+}
+
+impl ChildKeys<'_> {
+    /// rr-alloc: the weights [`Self::emit`] gives the monomials of `table`, in
+    /// table order, `None` where the weight is zero, signs applied.
+    pub(crate) fn weights(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Coefficient],
+        limits: ExactAlgebraLimits,
+    ) -> Result<Vec<Option<Coefficient>>, PError> {
+        table
+            .monomials
+            .iter()
+            .map(|monomial| {
+                let weight = table_weight(self.context, monomial, weights, limits)?;
+                if weight.is_zero() {
+                    return Ok(None);
+                }
+                Ok(Some(if self.negate {
+                    self.context.try_neg(&weight, limits).map_err(algebra)?
+                } else {
+                    weight
+                }))
+            })
+            .collect()
+    }
+
+    /// rr-alloc: [`Self::emit`] from the weights of [`Self::weights`] (as
+    /// indices into `values`): the same children in the same order.
+    pub(crate) fn emit_weights(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Option<u32>],
+        values: &dyn Fn(u32) -> Coefficient,
+        output: &mut PStepOut,
+    ) {
+        for (monomial, weight) in table.monomials.iter().zip(weights) {
+            let Some(weight) = weight else { continue };
+            let weight = values(*weight);
+            let mut powers = super::step_memo::take_powers();
+            powers.extend(
+                self.base
+                    .iter()
+                    .zip(&monomial.exponents)
+                    .map(|(power, &exponent)| power - i64::from(exponent)),
+            );
+            output.children.push(PChild {
+                stage: PStage::Route,
+                presentation: self.child.id,
+                powers,
+                tag: self.tag.clone(),
+                coefficient: weight,
+            });
+        }
     }
 }
 

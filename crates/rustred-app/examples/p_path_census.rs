@@ -11,8 +11,13 @@
 //!   P_CENSUS_MAX_KEYS=N     stop once N keys were popped (sizing)
 //!   P_CENSUS_FORWARD_ONLY=1 stop at the end of the forward pass (the inspector errs at the last phase
 //!                           boundary, before the modular replay): DAG sizing at about half the cost
+//!   P_ORBIT_CANON=on|off    orbit canonicalisation of Apply and Route keys (M5 R0 A2; unset: the library default)
+//!   P_ORBIT_CANON_ROUTES=off  canonicalise Apply keys only
+//!   P_ORBIT_REP=min         the least exact image represents an orbit (default: the greatest)
+//!   P_CENSUS_WARMUP=1       run the request once without census first (per-process setup warm), then measure
 //!   R0_LINES=a-b            keep only inputs whose support has a..=b lines
 //!   R0_NUMERATOR, R0_POWERS override the cell's numerator and top powers
+//!   P_RSS_LIMIT_GB=x        run the request inside a Symbolica ResourceBudget with that RSS ceiling (as vakint)
 //!
 //! Writes into <out dir>: inputs.tsv, phases.jsonl, preduction.txt (rustred.p-reduction.canonical.v1,
 //! the T-VAL golden format, `p_path_census/canonical.rs`), summary.json, and with the census on:
@@ -39,6 +44,175 @@ use symbolica::prelude::Rational;
 
 #[path = "p_path_census/canonical.rs"]
 mod canonical;
+
+// rr-prof: with the opt-in `mimalloc` feature of rustred-app, the probe uses
+// mimalloc as its global allocator (and, through the crate's `override`
+// feature, as the process C malloc), as the `rustred` binary does (N3).
+// On by default since M5 batch 2; `alloc-count` replaces it.
+#[cfg(all(feature = "mimalloc", not(feature = "alloc-count")))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// rr-frontier: with the opt-in `alloc-count` feature, the probe counts its
+// Rust heap allocations over the system allocator (alloc_count.json).
+#[cfg(feature = "alloc-count")]
+mod alloc_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    pub static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static REALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static BYTES: AtomicU64 = AtomicU64::new(0);
+    pub struct Counting;
+    // SAFETY: forwards every call to the system allocator unchanged.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(0, layout.size());
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(layout.size() as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(0, layout.size());
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            REALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(new_size as u64, Relaxed);
+            #[cfg(feature = "alloc-sites")]
+            super::alloc_sites::sample(1, new_size);
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+    pub fn snapshot() -> serde_json::Value {
+        serde_json::json!({
+            "allocs": ALLOCS.load(Relaxed),
+            "reallocs": REALLOCS.load(Relaxed),
+            "bytes": BYTES.load(Relaxed),
+        })
+    }
+}
+
+// rr-alloc: with the opt-in `alloc-sites` feature (implies `alloc-count`),
+// every allocation/reallocation inside the reduce call is sampled with
+// probability 1/P_ALLOC_SAMPLE (default 97, per-thread xorshift) and its
+// return addresses (libgcc `_Unwind_Backtrace`, at most 96 frames) are
+// aggregated; alloc_sites.tsv (count, bytes, kind, PIE-relative addresses)
+// and maps.txt are written at the end for offline symbolisation
+// (addr2line -i -f -C). Diagnostics only: never in a production binary.
+#[cfg(feature = "alloc-sites")]
+mod alloc_sites {
+    use std::cell::Cell;
+    use std::collections::HashMap;
+    use std::ffi::{c_int, c_void};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+
+    const DEPTH: usize = 96;
+    pub static ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static PERIOD: AtomicU64 = AtomicU64::new(97);
+    type Stack = (u8, Vec<usize>);
+    static TABLE: Mutex<Option<HashMap<Stack, (u64, u64)>>> = Mutex::new(None);
+    thread_local! {
+        static BUSY: Cell<bool> = const { Cell::new(false) };
+        static RNG: Cell<u64> = const { Cell::new(0) };
+    }
+    #[repr(C)]
+    struct UnwindContext {
+        _private: [u8; 0],
+    }
+    type TraceFn = extern "C" fn(*mut UnwindContext, *mut c_void) -> c_int;
+    unsafe extern "C" {
+        fn _Unwind_Backtrace(trace: TraceFn, arg: *mut c_void) -> c_int;
+        fn _Unwind_GetIP(context: *mut UnwindContext) -> usize;
+    }
+    struct Frames {
+        ips: [usize; DEPTH],
+        len: usize,
+    }
+    extern "C" fn push(context: *mut UnwindContext, arg: *mut c_void) -> c_int {
+        // SAFETY: arg is the &mut Frames passed below; context is valid during the callback.
+        let frames = unsafe { &mut *(arg as *mut Frames) };
+        let ip = unsafe { _Unwind_GetIP(context) };
+        if ip == 0 || frames.len == DEPTH {
+            return 5;
+        }
+        frames.ips[frames.len] = ip;
+        frames.len += 1;
+        0
+    }
+    #[inline]
+    pub fn sample(kind: u8, bytes: usize) {
+        if !ENABLED.load(Relaxed) {
+            return;
+        }
+        let take = RNG.with(|rng| {
+            let mut x = rng.get();
+            if x == 0 {
+                x = 0x9E37_79B9_7F4A_7C15 ^ (rng as *const _ as u64);
+            }
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            rng.set(x);
+            x % PERIOD.load(Relaxed) == 0
+        });
+        if !take || BUSY.with(|b| b.replace(true)) {
+            return;
+        }
+        let mut frames = Frames {
+            ips: [0; DEPTH],
+            len: 0,
+        };
+        // SAFETY: plain libgcc unwinder call with a callback that only writes into `frames`.
+        unsafe { _Unwind_Backtrace(push, &mut frames as *mut Frames as *mut c_void) };
+        {
+            let key = (kind, frames.ips[..frames.len].to_vec());
+            let mut table = TABLE.lock().unwrap();
+            let entry = table
+                .get_or_insert_with(HashMap::new)
+                .entry(key)
+                .or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += bytes as u64;
+        }
+        BUSY.with(|b| b.set(false));
+    }
+    pub fn dump(out: &std::path::Path) {
+        ENABLED.store(false, Relaxed);
+        BUSY.with(|b| b.set(true));
+        let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+        let exe = std::fs::read_link("/proc/self/exe").unwrap();
+        let exe = exe.to_string_lossy().to_string();
+        let base = maps
+            .lines()
+            .find(|l| l.ends_with(&exe))
+            .map(|l| usize::from_str_radix(l.split('-').next().unwrap(), 16).unwrap())
+            .unwrap_or(0);
+        std::fs::write(out.join("maps.txt"), &maps).unwrap();
+        let table = TABLE.lock().unwrap().take().unwrap_or_default();
+        let mut text = format!(
+            "# period {} exe {exe} base {base:#x}\n",
+            PERIOD.load(Relaxed)
+        );
+        for ((kind, ips), (count, bytes)) in table {
+            let ips: Vec<String> = ips
+                .iter()
+                .map(|&ip| format!("{:x}", ip.wrapping_sub(base).wrapping_sub(1)))
+                .collect();
+            text.push_str(&format!("{count}\t{bytes}\t{kind}\t{}\n", ips.join(",")));
+        }
+        std::fs::write(out.join("alloc_sites.tsv"), text).unwrap();
+    }
+}
 
 type Input = (PresentationId, IntegralKey, Coefficient);
 
@@ -217,6 +391,23 @@ fn arithmetic(name: &str, threads: usize) -> OrderedWeightArithmetic {
     }
 }
 
+/// CPU seconds (user + system) of this process so far (/proc/self/stat):
+/// with floating foreign load on a shared CPU, the 1-thread comparison
+/// that wall time cannot give (M5 batch 2).
+fn cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    (ticks(11) + ticks(12)) / 100.0
+}
+
 fn rss() -> (u64, u64) {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
@@ -326,7 +517,20 @@ fn main() {
     )
     .unwrap();
     let load_seconds = t_load.elapsed().as_secs_f64();
+    let load_cpu_seconds = cpu_seconds();
+    #[cfg(feature = "alloc-count")]
+    let alloc_after_load = alloc_count::snapshot();
     let (_, load_vmhwm) = rss();
+    let orbit_canon = match std::env::var("P_ORBIT_CANON").as_deref() {
+        Ok("off") => false,
+        Ok("on") => true,
+        _ => library.orbit_canonicalization(),
+    };
+    library.set_orbit_canonicalization(orbit_canon);
+    let route_canon = std::env::var("P_ORBIT_CANON_ROUTES").map_or(true, |v| v != "off");
+    library.set_route_canonicalization(route_canon);
+    let prefer_high = std::env::var("P_ORBIT_REP").as_deref() != Ok("min");
+    library.set_orbit_prefer_high(prefer_high);
     let cell = cell(&fixture, cell_name, filter);
     let mut inputs = inputs(&library, &cell);
     if let Ok(range) = std::env::var("R0_LINES") {
@@ -346,7 +550,7 @@ fn main() {
         });
     }
     eprintln!(
-        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}",
+        "[census] load {load_seconds:.2} s; {cell_name} tops {:?}; {} inputs; census {census_on}; orbit canonicalisation {orbit_canon}",
         cell.tops,
         inputs.len()
     );
@@ -414,8 +618,52 @@ fn main() {
         .max()
         .unwrap_or(0);
     probe.last_phase = 2 * max_lines + 1;
+    // P_CENSUS_WARMUP=1: one plain request first (no inspector, no step cache), so the measured request
+    // finds the per-process setup (compiled routes, orbit groups) done, as in a long-lived vakint process.
+    let warmup_seconds = (std::env::var("P_CENSUS_WARMUP").as_deref() == Ok("1")).then(|| {
+        let t_warm = Instant::now();
+        library
+            .reduce(PReductionRequest {
+                inputs: inputs.clone(),
+                arithmetic: arithmetic(arith, threads),
+                scheduler: OrderedSchedulerOptions::with_threads(threads),
+                step_cache: None,
+                uncovered: PUncoveredPolicy::Reject,
+                onto_masters: true,
+                limits: ReductionLimits::default(),
+                inspector: None,
+            })
+            .unwrap();
+        let seconds = t_warm.elapsed().as_secs_f64();
+        eprintln!("[census] warm-up request {seconds:.2} s");
+        seconds
+    });
+    // P_RSS_LIMIT_GB=x (rr-prof): run the request inside a Symbolica
+    // ResourceBudget with that process-RSS ceiling, as vakint does with
+    // VAKINT_TEST_P4L_CASE_RSS_GB: measures the cost of the cooperative RSS
+    // checks. Unset = no budget (unchanged).
+    let rss_budget = std::env::var("P_RSS_LIMIT_GB").ok().map(|gb| {
+        let gb: f64 = gb.parse().expect("P_RSS_LIMIT_GB");
+        symbolica::utils::resources::ResourceBudget::new(
+            symbolica::utils::resources::ResourceLimits {
+                max_process_rss_bytes: Some((gb * 1e9) as u64),
+                ..Default::default()
+            },
+        )
+    });
+    #[cfg(feature = "alloc-sites")]
+    {
+        if let Ok(period) = std::env::var("P_ALLOC_SAMPLE") {
+            alloc_sites::PERIOD.store(
+                period.parse().unwrap(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        alloc_sites::ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let t_reduce = Instant::now();
-    let result = library.reduce(PReductionRequest {
+    let cpu_before_reduce = cpu_seconds();
+    let request = PReductionRequest {
         inputs: inputs.clone(),
         arithmetic: arithmetic(arith, threads),
         scheduler: OrderedSchedulerOptions::with_threads(threads),
@@ -424,14 +672,25 @@ fn main() {
         onto_masters: true,
         limits: ReductionLimits::default(),
         inspector: Some(&mut probe),
-    });
+    };
+    let result = match &rss_budget {
+        Some(budget) => budget.run(|| library.reduce(request)),
+        None => library.reduce(request),
+    };
     let reduce_seconds = t_reduce.elapsed().as_secs_f64();
+    let reduce_cpu_seconds = cpu_seconds() - cpu_before_reduce;
+    #[cfg(feature = "alloc-sites")]
+    alloc_sites::dump(&out);
+    #[cfg(feature = "alloc-count")]
+    let alloc_after_reduce = alloc_count::snapshot();
     let (vmrss, vmhwm) = rss();
     // P_WARM=1 (M5 1L-3L): the same request again in this process, without
     // inspector or census, after the cold one prepared routes and owner
     // programs: the warm time of a long-lived process (vakint).
+    let mut warm_cpu_seconds = None;
     let warm_seconds = flag("P_WARM").then(|| {
         let t_warm = Instant::now();
+        let cpu_before_warm = cpu_seconds();
         let warm = library.reduce(PReductionRequest {
             inputs: inputs.clone(),
             arithmetic: arithmetic(arith, threads),
@@ -443,6 +702,7 @@ fn main() {
             inspector: None,
         });
         let seconds = t_warm.elapsed().as_secs_f64();
+        warm_cpu_seconds = Some(cpu_seconds() - cpu_before_warm);
         if let (Ok(cold), Ok(warm)) = (&result, &warm) {
             assert_eq!(
                 canonical::canonical_text(cold),
@@ -474,11 +734,13 @@ fn main() {
 
     let mut summary = serde_json::json!({
         "cell": cell_name, "tops": filter, "threads": threads, "arithmetic": arith, "inputs": inputs.len(),
-        "census": census_on, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
-        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds,
+        "census": census_on, "orbit_canonicalization": orbit_canon, "orbit_prefer_high": prefer_high, "route_canonicalization": route_canon, "keep_apply_keys": keep_keys, "forward_only": forward_only, "max_keys": max_keys,
+        "status": status, "terms": terms, "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "warmup_seconds": warmup_seconds,
         "vmrss_kb": vmrss, "vmhwm_kb": vmhwm, "schema": canonical::CANONICAL_SCHEMA,
         "load_vmhwm_kb": load_vmhwm, "warm_seconds": warm_seconds,
         "process_seconds": t_main.elapsed().as_secs_f64(),
+        "reduce_cpu_seconds": reduce_cpu_seconds, "warm_cpu_seconds": warm_cpu_seconds,
+        "process_cpu_seconds": cpu_seconds(), "load_cpu_seconds": load_cpu_seconds,
     });
     if let Some(p) = progress {
         summary["processed"] = p.processed_keys.into();
@@ -753,6 +1015,13 @@ fn main() {
     std::fs::write(
         out.join("summary.json"),
         serde_json::to_string_pretty(&summary).unwrap(),
+    )
+    .unwrap();
+    #[cfg(feature = "alloc-count")]
+    std::fs::write(
+        out.join("alloc_count.json"),
+        serde_json::json!({"after_load": alloc_after_load, "after_reduce": alloc_after_reduce, "end": alloc_count::snapshot()})
+            .to_string(),
     )
     .unwrap();
     println!("{summary}");

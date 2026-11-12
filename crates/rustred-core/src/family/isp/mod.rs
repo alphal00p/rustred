@@ -8,6 +8,6 @@ mod rank;
 #[cfg(test)]
 mod tests;
 
-pub use completion::IspCompletion;
+pub use completion::{IspCompletion, IspSource};
 pub use error::IspCompletionError;
 pub use model::{IspCompletionLimits, IspCompletionStats};

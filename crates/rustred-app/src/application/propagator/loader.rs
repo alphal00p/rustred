@@ -74,9 +74,10 @@ use super::format::{
     owner_file,
 };
 use super::generate::CustomOwnerPayload;
-use super::ordering::{ORDERING_FILE, ROUTES_FILE, read_ordering};
+use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
 use super::package::payload_save_format;
 use super::{PLibraryOptions, PLibrarySource};
+use rustred::propagator::saved_orbits::PSavedOrbits;
 use rustred::propagator::saved_routes::PSavedRoutes;
 
 /// The files of one package.
@@ -267,6 +268,13 @@ fn check_payload(
             "the payload of {} holds {held:?}, {LIBRARY_FILE} records {recorded:?}",
             owner.class
         )));
+    }
+    // M5 no6: a Scheme owner's payload is its Custom fallback, bound to the
+    // node's Custom (induced) presentation, not to the owner's; its family
+    // and its residual (the owner's corner) are checked when the Scheme
+    // program is built (`SchemeStep::from_owner`).
+    if matches!(owner.lane, LaneRecord::Scheme) {
+        return Ok(());
     }
     if let Some(fingerprint) = fingerprint
         && summary.family_fingerprint != fingerprint
@@ -851,7 +859,24 @@ pub fn load_p_library(
             builder.set_saved_routes(PSavedRoutes::decode(&files.read(ROUTES_FILE)?)?);
         }
     }
+    if let Some(file) = &manifest.files.orbits {
+        if file != ORBITS_FILE {
+            return Err(malformed(format!("{LIBRARY_FILE}: orbits file {file}")));
+        }
+        // The verified load searches and authenticates every group itself.
+        if !options.verify_descent {
+            builder.set_saved_orbits(PSavedOrbits::decode(&files.read(ORBITS_FILE)?)?);
+        }
+    }
     let library = builder.build()?;
+    // A package that carries orbits.rrbin runs with orbit canonicalisation on
+    // whatever the load (M5 batch 2): the verified load searches the same
+    // groups at run time instead of trusting the file, so both loads have one
+    // step identity and share step caches (the saved groups are the searched
+    // ones: package::saved_orbits_restore_the_searched_groups_and_change_no_value).
+    if manifest.files.orbits.is_some() && options.verify_descent {
+        library.set_orbit_canonicalization(rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS);
+    }
 
     if library.identity() != manifest.identity {
         return Err(malformed(format!(

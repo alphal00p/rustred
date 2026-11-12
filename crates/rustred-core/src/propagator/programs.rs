@@ -61,7 +61,11 @@ pub fn lane_program(library: &PLibrary, owner: &POwnerSpec) -> Result<OwnerProgr
             owner.class.0, owner.presentation.0
         ))
     };
-    if owner.lane != OwnerLane::Custom && (owner.payload.is_some() || owner.custom.is_some()) {
+    // M5 no6: a Scheme owner may carry its node's Custom payload as the
+    // fallback of the keys its rules do not take (`SchemeStep::from_owner`).
+    if !matches!(owner.lane, OwnerLane::Custom | OwnerLane::Scheme)
+        && (owner.payload.is_some() || owner.custom.is_some())
+    {
         return Err(malformed(format!(
             "the lane {:?} carries a Custom payload",
             owner.lane

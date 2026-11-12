@@ -55,7 +55,7 @@ use super::custom::{CustomPayloadSummary, inspect_custom_payload};
 use super::error::PError;
 use super::lane::{LaneRoles, OwnerLane};
 use super::library::{OwnerProgram, PLibrary, POwner, POwnerSpec, PTerminal};
-use super::presentation::{EdgeKind, Presentation, Slot, verify_edge_map};
+use super::presentation::{EdgeKind, Presentation, PresentationKind, Slot, verify_edge_map};
 use super::step::{PKeyView, PLaneStep, POrderKey, PStage, PStepContext};
 use super::tag::GammaTag;
 use super::{OwnerClassId, PresentationId};
@@ -364,6 +364,17 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
                         spec.terminals.len()
                     )));
                 }
+                // M5 no6: the Custom fallback (payload) of a Scheme owner:
+                // its guard, its residual (= the owner's corner) and its
+                // transport are checked by the build; here the item-2
+                // witness box: every child of a fallback step is strictly
+                // lower in the Custom order on the fallback's sector, or on
+                // a strict subsector of it. The Scheme step closes the
+                // fallback's sector locally, so it never returns a key of
+                // its own sector: scheme and fallback cannot cycle.
+                if let Some(fallback) = super::scheme::scheme_fallback_program(library, spec)? {
+                    check_fallback_witnesses(library, spec, &fallback, &mut report)?;
+                }
             }
             OwnerLane::Custom => {
                 check_custom_guard(library, spec)?;
@@ -459,7 +470,7 @@ fn check_custom_order(
 /// subsectors for Route children, which item 2 checks per RHS term; sector-
 /// first induction (the vacuum reducer's `is_support_primary` consumers) is
 /// not used on the p path.
-fn is_rank_gated(policy: &OrderingPolicy, support: u64) -> bool {
+pub(super) fn is_rank_gated(policy: &OrderingPolicy, support: u64) -> bool {
     let Some(program) = policy.program() else {
         return false;
     };
@@ -598,6 +609,61 @@ fn check_custom_witnesses(
     Ok(())
 }
 
+/// Item 2 on the Custom fallback of a Scheme owner (M5 no6), on the same
+/// witness box as a Custom owner of the fallback's presentation and support.
+fn check_fallback_witnesses(
+    library: &PLibrary,
+    spec: &POwnerSpec,
+    fallback: &super::scheme::SchemeFallback,
+    report: &mut DescentReport,
+) -> Result<(), PError> {
+    let (program, target, support) = fallback.program();
+    let presentation = library.presentation(target);
+    let limits = ReductionLimits::default();
+    let residuals = program.residual_keys();
+    let fail = |key: &[i64], detail: String| {
+        malformed(format!(
+            "Scheme owner {:016x}, fallback key {key:?}: {detail}",
+            spec.class.0
+        ))
+    };
+    let keys = custom_witness_keys(presentation.slots.len(), support, 0);
+    for key in &keys {
+        let order = program.order(key)?;
+        match program.apply(spec.class, key, &limits)? {
+            super::custom::PFallbackApplied::Residual => {
+                if !residuals
+                    .iter()
+                    .any(|residual| residual.powers() == key.as_slice())
+                {
+                    return Err(fail(key, "a terminal that is no residual".to_owned()));
+                }
+            }
+            super::custom::PFallbackApplied::Children { children, .. } => {
+                for (child, _) in &children {
+                    let child_support = support_of(presentation, child);
+                    let witness = if child_support == support {
+                        if program.order(child)? >= order {
+                            return Err(fail(key, format!("the child {child:?} does not descend")));
+                        }
+                        DescentWitness::SameSectorStrict
+                    } else if child_support & !support == 0 {
+                        DescentWitness::Subsector
+                    } else {
+                        return Err(fail(
+                            key,
+                            format!("the child {child:?} on support {child_support:#x}"),
+                        ));
+                    };
+                    *report.witnesses.entry(witness).or_default() += 1;
+                }
+            }
+        }
+    }
+    report.witness_keys += keys.len();
+    Ok(())
+}
+
 /// Item 4 for a rule lane: the trivial node at one loop, else one rule edge into
 /// `L - 1` loops and fewer lines.
 fn check_rule_owner(
@@ -621,7 +687,15 @@ fn check_rule_owner(
         &[edge] => {
             let map = &library.edge_maps()[edge];
             let child = library.presentation(map.child);
-            let child_lines = child.lines().count();
+            // An Induced child's lines are its sector's (p5l-library: 5L Insertion
+            // rule edges into integer Custom nodes); the top's other lines are slots.
+            let child_lines = match child.kind {
+                PresentationKind::Induced { mask, .. } => child
+                    .lines()
+                    .filter(|(index, _)| mask >> index & 1 == 1)
+                    .count(),
+                _ => child.lines().count(),
+            };
             if map.kind != kind || map.parent != parent.id {
                 return Err(fail(format!("edge map {edge} is {:?}", map.kind)));
             }

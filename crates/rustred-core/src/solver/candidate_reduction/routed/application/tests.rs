@@ -2482,6 +2482,7 @@ fn ordered_layered_route_composes_with_the_adjoint_tail_and_its_table() {
             threads,
             window_keys: 2,
             adjoint_tail: tail,
+            profile: Default::default(),
         });
         application.set_ordered_step_cache(cache).unwrap();
         take_reported();
@@ -2625,6 +2626,7 @@ fn ordered_tail_tables_on_disk_compose_across_route_layerings() {
             threads: 1,
             window_keys: 2,
             adjoint_tail: tail,
+            profile: Default::default(),
         });
         application.set_ordered_step_cache(cache).unwrap();
         take_reported();

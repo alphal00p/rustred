@@ -27,7 +27,7 @@ use rustred::propagator::testing::{
 };
 use rustred::propagator::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
 use rustred::reduction::{
-    ModularCommon, OrderedKeyStage, OrderedSchedulerOptions, OrderedStepCache,
+    ModularCommon, OrderedKeyStage, OrderedProfile, OrderedSchedulerOptions, OrderedStepCache,
     OrderedStepCacheAdapter, OrderedStepCacheBinding, OrderedWeightArithmetic, PolynomialOptions,
     ReductionError, ReductionLimits, SampledOptions,
 };
@@ -409,7 +409,7 @@ fn a_warm_run_replays_every_step_with_the_same_result() {
     let context = library.coefficient_context();
     let binding = library.step_cache_binding().unwrap();
     assert_eq!(binding.adapter, OrderedStepCacheAdapter::PropagatorLibrary);
-    assert_eq!(binding.family_fingerprint, library.identity());
+    assert_eq!(binding.family_fingerprint, library.step_identity());
     assert_eq!(binding.context_variables, ["d"]);
     assert_eq!(binding.unresolved_policy, Some(UnresolvedPolicy::Reject));
 
@@ -508,7 +508,11 @@ fn a_stale_record_of_an_unknown_terminal_is_refused() {
         .unwrap();
     let old = builder.build().unwrap();
     let (new, _) = one_owner_library(Arc::new(EchoLane));
+    // Same reduction settings (the fake lanes keep canonicalisation off), so
+    // the two share one step cache binding.
+    old.set_orbit_canonicalization(new.orbit_canonicalization());
     assert_eq!(new.identity(), old.identity());
+    assert_eq!(new.step_identity(), old.step_identity());
     assert_eq!(new.terminals().len(), 1);
 
     for scheduler in [no_tail(), OrderedSchedulerOptions::default()] {
@@ -533,46 +537,67 @@ fn a_stale_record_of_an_unknown_terminal_is_refused() {
 }
 
 /// The record bytes and the identity of the reference program: a changed record
-/// needs a changed `P_*` version, and with it a new identity here.
+/// needs a changed `P_*` version, and with it a new identity here. Orbit
+/// canonicalisation (M5 R0 A2, opt-in) changes the records and adds
+/// `P_ORBIT_CANON_VERSION` to the step identity (never to the library identity
+/// that `library.json` records); switched off, both identities and the records
+/// are the ones from before it.
 #[test]
 fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
-    let library = one_loop_reference_library().unwrap();
-    assert_eq!(
-        library.identity(),
-        "p-library:scope=1-1:\
+    const BASE: &str = "p-library:scope=1-1:\
          P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,\
          P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
-         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=2,P_CUSTOM_OWNER_VERSION=2,\
+         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
-         P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1"
-    );
-    let context = library.coefficient_context();
-    let directory = scratch("golden");
-    let cache = OrderedStepCache::open(
-        &directory,
-        library.step_cache_binding().unwrap(),
-        Default::default(),
-    )
-    .unwrap();
-    let mut run = request(
-        ROUTINGS
-            .into_iter()
-            .flat_map(|routing| lowered(context, routing, 2, 2, 2))
-            .collect(),
-    );
-    run.scheduler = no_tail();
-    run.step_cache = Some(Arc::clone(&cache));
-    library.reduce(run).unwrap();
-    cache.save().unwrap();
-    assert_eq!(
-        records_digest(&directory),
-        "e06d50fd1bc0e8e681c69ba2eb2dc406c0da56ebc6b2acb40ceab845345c8e64",
-        "the recorded p steps changed: bump the P_* version whose meaning changed"
-    );
-    std::fs::remove_dir_all(&directory).unwrap();
+         P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1";
+    for (on, identity, digest) in [
+        (
+            false,
+            format!("{BASE},P_ADJOINT_TAIL=off"),
+            "5aecae8b35436a5417ff98ff6902578604eebaad556bc846b2f092a65e67cd26",
+        ),
+        (
+            true,
+            format!("{BASE},P_ORBIT_CANON_VERSION=3,P_ADJOINT_TAIL=off"),
+            ORBIT_CANON_RECORDS_DIGEST,
+        ),
+    ] {
+        let library = one_loop_reference_library().unwrap();
+        library.set_orbit_canonicalization(on);
+        assert_eq!(library.identity(), BASE);
+        assert_eq!(library.step_identity(), identity);
+        let context = library.coefficient_context();
+        let directory = scratch(if on { "golden-orbit" } else { "golden" });
+        let cache = OrderedStepCache::open(
+            &directory,
+            library.step_cache_binding().unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+        let mut run = request(
+            ROUTINGS
+                .into_iter()
+                .flat_map(|routing| lowered(context, routing, 2, 2, 2))
+                .collect(),
+        );
+        run.scheduler = no_tail();
+        run.step_cache = Some(Arc::clone(&cache));
+        library.reduce(run).unwrap();
+        cache.save().unwrap();
+        assert_eq!(
+            records_digest(&directory),
+            digest,
+            "the recorded p steps changed: bump the P_* version whose meaning changed"
+        );
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
 }
+
+/// The records of the reference program with orbit canonicalisation on.
+const ORBIT_CANON_RECORDS_DIGEST: &str =
+    "0abd5420a83a5531d420befd18cdd7a2899c586a42340a72241004d96ce62e6b";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {
@@ -754,7 +779,11 @@ fn routed_kite(context: &CoefficientContext) -> (PLibrary, BTreeMap<Vec<i64>, PT
             OwnerProgram::Lane(Arc::new(ResidualLane(terminals.clone()))),
         )
         .unwrap();
-    (builder.build().unwrap(), terminals)
+    // Fake lanes: their values are not symmetric under the automorphisms of
+    // the presentation, so orbit canonicalisation (M5 R0 A2) stays off here.
+    let library = builder.build().unwrap();
+    library.set_orbit_canonicalization(false);
+    (library, terminals)
 }
 
 #[test]
@@ -892,7 +921,11 @@ fn route_tag_library(context: &CoefficientContext) -> (PLibrary, BTreeMap<Vec<i6
             ))),
         )
         .unwrap();
-    (builder.build().unwrap(), terminals)
+    // Fake lanes: their values are not symmetric under the automorphisms of
+    // the presentation, so orbit canonicalisation (M5 R0 A2) stays off here.
+    let library = builder.build().unwrap();
+    library.set_orbit_canonicalization(false);
+    (library, terminals)
 }
 
 #[test]
@@ -935,6 +968,8 @@ fn a_route_keeps_its_tag_and_pinches_onto_another_owner() {
             threads,
             window_keys: 8,
             adjoint_tail: true,
+            // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+            profile: OrderedProfile::Generic,
         };
         assert_eq!(library.reduce(run).unwrap().terms, expected);
     }
@@ -1094,7 +1129,11 @@ fn library_with_program(program: OwnerProgram) -> (PLibrary, OwnerClassId) {
     builder
         .add_owner_with_program(owner_spec(class, 0, OwnerLane::Custom), program)
         .unwrap();
-    (builder.build().unwrap(), class)
+    // Fake lanes: their values are not symmetric under the automorphisms of
+    // the presentation, so orbit canonicalisation (M5 R0 A2) stays off here.
+    let library = builder.build().unwrap();
+    library.set_orbit_canonicalization(false);
+    (library, class)
 }
 
 fn bubble_input(library: &PLibrary) -> Vec<(PresentationId, IntegralKey, Coefficient)> {
@@ -1520,6 +1559,8 @@ fn conditions_reach_the_output_on_every_path() {
                     threads,
                     window_keys: 8,
                     adjoint_tail,
+                    // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+                    profile: OrderedProfile::Generic,
                 };
                 same_result(&library.reduce(run).unwrap(), &base);
             }
@@ -1737,7 +1778,10 @@ fn the_default_order_key_lets_a_triangle_step_descend() {
             ))),
         )
         .unwrap();
+    // Fake lanes: their values are not symmetric under the automorphisms of
+    // the presentation, so orbit canonicalisation (M5 R0 A2) stays off here.
     let library = builder.build().unwrap();
+    library.set_orbit_canonicalization(false);
     let reduced = library
         .reduce(request(vec![(
             PresentationId(0),
@@ -2158,7 +2202,11 @@ fn chain_library() -> PLibrary {
             )
             .unwrap();
     }
-    builder.build().unwrap()
+    // Fake lanes: their values are not symmetric under the automorphisms of
+    // the presentation, so orbit canonicalisation (M5 R0 A2) stays off here.
+    let library = builder.build().unwrap();
+    library.set_orbit_canonicalization(false);
+    library
 }
 
 fn chain_input(context: &CoefficientContext) -> Vec<(PresentationId, IntegralKey, Coefficient)> {
@@ -2207,6 +2255,8 @@ fn keys_of_mixed_length_pass_every_path() {
                     threads,
                     window_keys: 8,
                     adjoint_tail,
+                    // Generic: the tail runs as `adjoint_tail` says (the p profile turns it off).
+                    profile: OrderedProfile::Generic,
                 };
                 let reduced = library.reduce(run).unwrap();
                 assert_eq!(reduced.terms, expected, "{arithmetic:?} {threads}");
@@ -2230,7 +2280,12 @@ fn keys_of_mixed_length_pass_every_path() {
     let cold = OrderedStepCache::open(&directory, binding.clone(), Default::default()).unwrap();
     let mut run = request(inputs.clone());
     run.arithmetic = modular_polynomial(4);
-    run.scheduler = OrderedSchedulerOptions::with_threads(4);
+    // Generic: the p profile turns the adjoint tail off, and with it the tail
+    // table this chain tests (M5 batch 2).
+    run.scheduler = OrderedSchedulerOptions {
+        profile: OrderedProfile::Generic,
+        ..OrderedSchedulerOptions::with_threads(4)
+    };
     run.step_cache = Some(Arc::clone(&cold));
     let first = library.reduce(run).unwrap();
     assert_eq!(first.terms, expected);
@@ -2251,6 +2306,7 @@ fn keys_of_mixed_length_pass_every_path() {
         run.scheduler = OrderedSchedulerOptions {
             threads: 4,
             adjoint_tail,
+            profile: OrderedProfile::Generic,
             ..Default::default()
         };
         run.step_cache = Some(Arc::clone(&warm));
@@ -2596,4 +2652,60 @@ fn key_bytes_per_recorded_identity() {
     assert_eq!(identity_widths(&directory), BTreeSet::from([28]));
     assert!(saved.records > 0);
     std::fs::remove_dir_all(&directory).unwrap();
+}
+
+/// M5 R0 A2: orbit canonicalisation merges the symmetric copies of an Apply
+/// key and changes no value. On the reference bubble `G(a, b) = G(b, a)` (the
+/// swap `k -> q - k` is the owner's automorphism), so `G(2, 1)` and `G(1, 2)`
+/// become one Apply key; the swapped presentation routes onto the same
+/// representative. Exact and modular, one and sixteen threads.
+#[test]
+fn orbit_canonicalisation_merges_symmetric_keys_and_changes_no_value() {
+    let library = one_loop_reference_library().unwrap();
+    assert_eq!(
+        library.orbit_canonicalization(),
+        rustred::propagator::P_ORBIT_CANON_DEFAULT
+    );
+    let context = library.coefficient_context().clone();
+    let inputs = vec![
+        (REFERENCE_TOP, key(&[2, 1]), context.one()),
+        (REFERENCE_TOP, key(&[1, 2]), context.integer(3)),
+        (REFERENCE_TOP, key(&[3, 1]), context.integer(5)),
+        (REFERENCE_TOP, key(&[1, 3]), context.integer(-7)),
+        (REFERENCE_SWAPPED, key(&[2, 3]), context.integer(2)),
+        (REFERENCE_TOP, key(&[3, 2]), context.one()),
+    ];
+    let reduce = |on: bool, arithmetic, scheduler| {
+        library.set_orbit_canonicalization(on);
+        let mut run = request(inputs.clone());
+        run.arithmetic = arithmetic;
+        run.scheduler = scheduler;
+        library.reduce(run).unwrap()
+    };
+    let off = reduce(
+        false,
+        OrderedWeightArithmetic::Exact,
+        OrderedSchedulerOptions::default(),
+    );
+    assert!(!off.terms.is_empty());
+    for (arithmetic, scheduler) in [
+        (
+            OrderedWeightArithmetic::Exact,
+            OrderedSchedulerOptions::default(),
+        ),
+        (modular_polynomial(1), OrderedSchedulerOptions::default()),
+        (OrderedWeightArithmetic::Exact, sixteen_threads()),
+        (modular_polynomial(16), sixteen_threads()),
+    ] {
+        let on = reduce(true, arithmetic, scheduler);
+        same_result(&on, &off);
+        assert!(
+            on.statistics.progress.processed_keys < off.statistics.progress.processed_keys,
+            "{} keys on, {} off",
+            on.statistics.progress.processed_keys,
+            off.statistics.progress.processed_keys
+        );
+        assert!(on.statistics.work.rule_applications() < off.statistics.work.rule_applications());
+    }
+    library.set_orbit_canonicalization(rustred::propagator::P_ORBIT_CANON_DEFAULT);
 }

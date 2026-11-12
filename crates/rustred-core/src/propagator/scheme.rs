@@ -47,11 +47,15 @@ use crate::algebra::{
     Coefficient, CoefficientContext, ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits,
     IndexedCoefficient, IndexedCoefficientContext,
 };
+use crate::family::IntegralKey;
 use crate::identity::{ParametricIbpGenerator, RowId};
 use crate::reduction::{ReductionError, ReductionLimits};
+use crate::sector::symmetry::integral_transport::{ExpansionLimits, Prepared};
 
+use super::census::{PSectorFate, SignedAffineLoopMap};
+use super::custom::{PCustomFallback, PFallbackApplied, build_custom_fallback};
 use super::error::PError;
-use super::lane::{LaneRoles, OwnerLane, SchemeRoles};
+use super::lane::{LaneDecision, LaneRoles, OwnerLane, SchemeRoles};
 use super::library::{PLibrary, POwnerSpec};
 use super::presentation::{NodeRef, Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut};
@@ -63,6 +67,11 @@ pub const EMBEDDED_SCHEMES: &[(&str, &str)] = &[
     ("no1", include_str!("schemes/no1.json")),
     ("haha", include_str!("schemes/haha.json")),
     ("bubu", include_str!("schemes/bubu.json")),
+    ("no2", include_str!("schemes/no2.json")),
+    // M5 no6: Forcer's no6 scheme with the shipped Custom no6 rules as the
+    // fallback of the keys outside its reach; off by default
+    // (`RUSTRED_P_SCHEMES=...,no6` puts it on the lane).
+    ("no6", include_str!("schemes/no6.json")),
 ];
 
 #[derive(Debug)]
@@ -101,6 +110,10 @@ fn indexed(error: IndexedAlgebraError) -> PError {
 
 fn exact(error: crate::algebra::ExactAlgebraError) -> PError {
     ReductionError::ExactAlgebra(error).into()
+}
+
+fn exact_error(error: crate::algebra::ExactAlgebraError) -> PError {
+    exact(error)
 }
 
 type PolyRecord = Vec<(Vec<u32>, String)>;
@@ -143,6 +156,27 @@ struct RuleRecord {
     /// pivot, provenance): carried verbatim, read by tools and reports.
     #[serde(default)]
     meta: serde_json::Value,
+    /// `"permutation"`: a relabelling `I(n) = sign I(m)`, `m_b = n_{source[b]}`
+    /// (Forcer's `id Z(n) = Z(sigma n)` rules), certified by `momentum_map`.
+    #[serde(default)]
+    kind: Option<String>,
+    /// 1-based Forcer slots: child slot `b` takes the key's power of slot
+    /// `source[b]`.
+    #[serde(default)]
+    source: Option<Vec<usize>>,
+    /// The unimodular change of variables `v -> A v`, `v = (k_1..k_L, q)`,
+    /// with `A^T Q_{source[b]} A = +-Q_b` for every slot form present.
+    #[serde(default)]
+    momentum_map: Option<Vec<Vec<i64>>>,
+    /// Pairs of 1-based Forcer slots that must differ (FORM
+    /// `if (match(Z(.., nK?!{nA?}, ..)))`).
+    #[serde(default)]
+    distinct: Option<Vec<(usize, usize)>>,
+    /// `"terms"`: a rule with both a certified `relation` and Forcer's `terms`
+    /// dispatches on the terms (cheaper per step); the program build checks
+    /// that the terms are the relation divided by its pivot, exactly.
+    #[serde(default)]
+    dispatch: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -195,6 +229,15 @@ struct SchemeFile {
     default: bool,
     verify_order: Vec<String>,
     rules: Vec<RuleRecord>,
+    /// 1-based Forcer slots: after the `order` rows, the rank, the line sum
+    /// and `|n_a|` in this order decide between symmetric representatives
+    /// (a scheme with permutation rules needs it).
+    #[serde(default)]
+    tiebreak: Vec<usize>,
+    /// M5 no6: `"custom"` = keys no rule takes are closed by the node's
+    /// Custom payload (the assembly attaches it to the Scheme owner).
+    #[serde(default)]
+    fallback: Option<String>,
 }
 
 /// One slot condition of a Forcer pattern, `lo <= n <= hi`.
@@ -218,6 +261,8 @@ impl Cond {
             // FORM `n?!{nK?}`: free here, the pair is a rule-level condition.
             Some("any") => (i64::MIN, i64::MAX),
             Some(text) if text.starts_with("ne:") => (i64::MIN, i64::MAX),
+            // FORM repeated wildcard: the slot equals an earlier one.
+            Some(text) if text.starts_with("eq:") => (i64::MIN, i64::MAX),
             // FORM `n?{>=K}`.
             Some(text) if text.starts_with("ge:") => {
                 let k: i64 = text[3..]
@@ -279,6 +324,12 @@ struct ParsedRule {
     pattern: Vec<Cond>,
     /// Pairs of Forcer slots that must differ (FORM `n?!{nK?}`).
     distinct: Vec<(usize, usize)>,
+    /// Pairs of Forcer slots that must be equal (FORM `n?,..,n?`).
+    equal: Vec<(usize, usize)>,
+    /// A permutation rule: `(source, momentum map)`, Forcer slots, 0-based.
+    permutation: Option<(Vec<usize>, Vec<Vec<i64>>)>,
+    /// Dispatch on Forcer's terms although a relation is given (`"dispatch": "terms"`).
+    dispatch_terms: bool,
     master: bool,
     relation: Vec<(Vec<i64>, Poly)>,
     certificate: Option<Vec<(Generator, Vec<i64>, Poly)>>,
@@ -304,6 +355,10 @@ struct Scheme {
     default: bool,
     verify_order: Vec<String>,
     rules: Vec<ParsedRule>,
+    /// 0-based Forcer slots of the tie-break rows.
+    tiebreak: Vec<usize>,
+    /// M5 no6: the owner carries the node's Custom payload as its fallback.
+    fallback: bool,
 }
 
 fn parse_scheme(json: &str) -> Result<Scheme, String> {
@@ -341,17 +396,78 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             .map(Cond::parse)
             .collect::<Result<Vec<_>, _>>()?;
         let mut distinct = Vec::new();
+        let mut equal = Vec::new();
         for (a, value) in record.pattern.iter().enumerate() {
-            if let Some(other) = value.as_str().and_then(|text| text.strip_prefix("ne:")) {
-                let k: usize = other
-                    .parse()
-                    .map_err(|_| format!("pattern entry {value}"))?;
-                if k == 0 || k > slots {
-                    return Err(format!("pattern entry {value}"));
+            for (prefix, out) in [("ne:", &mut distinct), ("eq:", &mut equal)] {
+                if let Some(other) = value.as_str().and_then(|text| text.strip_prefix(prefix)) {
+                    let k: usize = other
+                        .parse()
+                        .map_err(|_| format!("pattern entry {value}"))?;
+                    if k == 0 || k > slots || k - 1 == a {
+                        return Err(format!("pattern entry {value}"));
+                    }
+                    out.push((a, k - 1));
                 }
-                distinct.push((a, k - 1));
             }
         }
+        for &(a, b) in record.distinct.iter().flatten() {
+            if a == 0 || b == 0 || a > slots || b > slots || a == b {
+                return Err(format!("rule {}: distinct pair ({a}, {b})", record.name));
+            }
+            distinct.push((a - 1, b - 1));
+        }
+        let permutation = match record.kind.as_deref() {
+            None => None,
+            Some("permutation") => {
+                let source = record
+                    .source
+                    .as_ref()
+                    .ok_or("a permutation rule without a source")?;
+                let map = record
+                    .momentum_map
+                    .clone()
+                    .ok_or("a permutation rule without a momentum map")?;
+                let lines = file.lines.len();
+                let mut seen = vec![false; slots];
+                if source.len() != slots {
+                    return Err(format!(
+                        "rule {}: {} source entries for {slots} slots",
+                        record.name,
+                        source.len()
+                    ));
+                }
+                let mut zero_based = Vec::with_capacity(slots);
+                for (b, &a) in source.iter().enumerate() {
+                    if a == 0 || a > slots || seen[a - 1] || ((a - 1) < lines) != (b < lines) {
+                        return Err(format!(
+                            "rule {}: source {source:?} is not a permutation of lines and ISPs",
+                            record.name
+                        ));
+                    }
+                    seen[a - 1] = true;
+                    zero_based.push(a - 1);
+                }
+                let width = usize::from(file.loops) + 1;
+                if map.len() != width || map.iter().any(|row| row.len() != width) {
+                    return Err(format!(
+                        "rule {}: a momentum map that is not {width} x {width}",
+                        record.name
+                    ));
+                }
+                if record.master
+                    || record.relation.is_some()
+                    || record.terms.is_some()
+                    || record.certificate.is_some()
+                {
+                    return Err(format!(
+                        "rule {}: a permutation rule with terms",
+                        record.name
+                    ));
+                }
+                Some((zero_based, map))
+            }
+            Some(other) => return Err(format!("rule {}: kind {other}", record.name)),
+        };
         let mut relation = Vec::new();
         for (shift, poly) in record.relation.iter().flatten() {
             relation.push((shift.clone(), Poly::parse(poly)?));
@@ -403,6 +519,13 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             name: record.name.clone(),
             pattern,
             distinct,
+            equal,
+            permutation,
+            dispatch_terms: match record.dispatch.as_deref() {
+                None => false,
+                Some("terms") => true,
+                Some(other) => return Err(format!("rule {}: dispatch {other}", record.name)),
+            },
             master: record.master,
             relation,
             certificate,
@@ -411,6 +534,21 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             meta: record.meta.clone(),
         });
     }
+    let mut tiebreak = Vec::with_capacity(file.tiebreak.len());
+    for &a in &file.tiebreak {
+        if a == 0 || a > slots || tiebreak.contains(&(a - 1)) {
+            return Err(format!("tiebreak slot {a}"));
+        }
+        tiebreak.push(a - 1);
+    }
+    if tiebreak.is_empty() && rules.iter().any(|rule| rule.permutation.is_some()) {
+        return Err("permutation rules without tiebreak rows".to_owned());
+    }
+    let fallback = match file.fallback.as_deref() {
+        None => false,
+        Some("custom") => true,
+        Some(other) => return Err(format!("fallback {other:?}")),
+    };
     Ok(Scheme {
         name: file.scheme,
         loops: file.loops,
@@ -422,6 +560,8 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         default: file.default,
         verify_order: file.verify_order,
         rules,
+        tiebreak,
+        fallback,
     })
 }
 
@@ -513,6 +653,12 @@ pub fn scheme_names() -> Result<Vec<(String, bool)>, PError> {
         .iter()
         .map(|s| (s.name.clone(), enabled(s)))
         .collect())
+}
+
+/// Whether the scheme of `node` closes the keys no rule takes with the node's
+/// Custom payload (M5 no6, `"fallback": "custom"`).
+pub fn scheme_fallback(node: &NodeInfo) -> Result<bool, PError> {
+    Ok(scheme_at(node)?.fallback)
 }
 
 /// Whether the scheme of `node` ends in a master (the corner terminal).
@@ -640,6 +786,12 @@ pub struct SchemeRule {
     pattern: Vec<Cond>,
     /// Presentation slots that must differ.
     distinct: Vec<(usize, usize)>,
+    /// Presentation slots that must be equal.
+    equal: Vec<(usize, usize)>,
+    /// A permutation rule (presentation slots): the child's slot `b` takes the
+    /// key's power of slot `source[b]`; the sign is `(-1)^(m_b)` for every
+    /// `b` in `flips` (`m` the child).
+    permutation: Option<Permutation>,
     pub master: bool,
     /// `(shift, r_s)`, the zero shift first.
     terms: Vec<(Vec<i64>, IndexedCoefficient)>,
@@ -651,6 +803,13 @@ pub struct SchemeRule {
     pub meta: serde_json::Value,
 }
 
+/// A relabelling rule in presentation slots.
+#[derive(Clone, Debug)]
+struct Permutation {
+    source: Vec<usize>,
+    flips: Vec<usize>,
+}
+
 /// How a rule is verified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verification {
@@ -660,6 +819,9 @@ pub enum Verification {
     Certificate,
     /// Exact replay at numeric index points through an independent p library.
     Replay,
+    /// A permutation rule whose momentum map is checked exactly: a unimodular
+    /// change of loop momenta carrying every slot form onto +- its image.
+    Symmetry,
     /// Neither: refused unless `RUSTRED_P_SCHEME_UNVERIFIED=1`.
     None,
 }
@@ -670,6 +832,8 @@ enum Row {
     Rank,
     LineSum,
     Linear(Vec<i64>, Option<Regime>),
+    /// `|n_slot|` (a tie-break row between symmetric representatives).
+    Abs(usize),
 }
 
 /// The rules of one scheme on its presentation, each checked against the
@@ -679,7 +843,7 @@ pub struct SchemeTemplate {
     name: String,
     presentation: PresentationId,
     context: IndexedCoefficientContext,
-    #[allow(dead_code)] // the Forcer -> presentation slot map, kept with the template (Debug)
+    /// The Forcer -> presentation slot map.
     perm: Vec<usize>,
     lines: usize,
     order: Vec<Row>,
@@ -904,7 +1068,8 @@ impl SchemeTemplate {
             }
             let mut terms = Vec::new();
             let mut raw = Vec::new();
-            if !rule.master && rule.relation.is_empty() {
+            let on_terms = rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty();
+            if !rule.master && (rule.relation.is_empty() || on_terms) {
                 for (shift, num, dens) in &rule.raw {
                     let mut factors = Vec::with_capacity(dens.len());
                     for (den, power) in dens {
@@ -915,6 +1080,17 @@ impl SchemeTemplate {
                         builder.poly(num, parity(shift))?,
                         factors,
                     ));
+                }
+                if on_terms
+                    && !terms_match_relation(
+                        &context,
+                        &raw,
+                        &converted[&rule.name],
+                        layout.perm.len(),
+                    )?
+                {
+                    // The certificate proves the relation, not these terms.
+                    verified.insert(rule.name.clone(), false);
                 }
             } else if !rule.master {
                 let map = &converted[&rule.name];
@@ -929,8 +1105,34 @@ impl SchemeTemplate {
                         .map(|(shift, value)| (shift.clone(), value.clone())),
                 );
             }
+            let permutation = match &rule.permutation {
+                None => None,
+                Some((source, map)) => match symmetry_flips(scheme, rule, source, map) {
+                    Ok(flips) => Some((
+                        Permutation {
+                            source: {
+                                let mut out = vec![0; layout.perm.len()];
+                                for (b, &a) in source.iter().enumerate() {
+                                    out[layout.perm[b]] = layout.perm[a];
+                                }
+                                out
+                            },
+                            flips: flips.iter().map(|&b| layout.perm[b]).collect(),
+                        },
+                        true,
+                    )),
+                    Err(reason) => {
+                        return Err(SchemeError::Mismatch(format!(
+                            "rule {}: {reason}",
+                            rule.name
+                        )));
+                    }
+                },
+            };
             let verification = if rule.master {
                 Verification::Master
+            } else if permutation.as_ref().is_some_and(|(_, ok)| *ok) {
+                Verification::Symmetry
             } else if verified.get(&rule.name) == Some(&true) {
                 Verification::Certificate
             } else if rule
@@ -948,6 +1150,10 @@ impl SchemeTemplate {
                 distinct: (rule.distinct.iter())
                     .map(|&(a, b)| (layout.perm[a], layout.perm[b]))
                     .collect(),
+                equal: (rule.equal.iter())
+                    .map(|&(a, b)| (layout.perm[a], layout.perm[b]))
+                    .collect(),
+                permutation: permutation.map(|(p, _)| p),
                 master: rule.master,
                 terms,
                 raw,
@@ -957,7 +1163,7 @@ impl SchemeTemplate {
             });
         }
         let lines = scheme.lines.len();
-        let order = (scheme.order.iter())
+        let mut order: Vec<Row> = (scheme.order.iter())
             .map(|row| match row {
                 OrderRow::Rank => Row::Rank,
                 OrderRow::LineSum => Row::LineSum,
@@ -970,6 +1176,13 @@ impl SchemeTemplate {
                 }
             })
             .collect();
+        if !scheme.tiebreak.is_empty() {
+            // Rank and line sum first: each class is finite, so the |n| rows
+            // keep the order well founded.
+            order.push(Row::Rank);
+            order.push(Row::LineSum);
+            order.extend(scheme.tiebreak.iter().map(|&a| Row::Abs(layout.perm[a])));
+        }
         let template = Self {
             name: scheme.name.clone(),
             presentation: p.id,
@@ -984,7 +1197,7 @@ impl SchemeTemplate {
     }
 
     /// The order key of an Apply key (lines >= 1, ISPs <= 0).
-    fn order(&self, powers: &[i64]) -> Vec<i64> {
+    fn order(&self, powers: &[i64]) -> super::step::OrderEntries {
         let rank: i64 = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
         let regime = if rank > 0 {
             Regime::RankPositive
@@ -999,6 +1212,7 @@ impl SchemeTemplate {
                     w.iter().zip(powers).map(|(w, p)| w * p).sum()
                 }
                 Row::Linear(..) => 0,
+                Row::Abs(slot) => powers[*slot].abs(),
             })
             .collect()
     }
@@ -1048,6 +1262,11 @@ impl SchemeTemplate {
         &self.name
     }
 
+    /// Forcer slot `a` (0-based) -> presentation slot.
+    pub fn forcer_slots(&self) -> &[usize] {
+        &self.perm
+    }
+
     pub fn rules(&self) -> &[SchemeRule] {
         &self.rules
     }
@@ -1055,6 +1274,159 @@ impl SchemeTemplate {
     pub fn presentation(&self) -> PresentationId {
         self.presentation
     }
+}
+
+/// Forcer's terms `c_s = num_s / Prod den^e` (RustRed sign) are the relation
+/// divided by its pivot: `rel_s Prod den^e + num_s rel_0 = 0` for every shift,
+/// exactly in `Q(d)[n]` (a shift missing on one side counts as zero there).
+#[allow(clippy::type_complexity)] // (shift, numerator, denominator powers) rows of the scheme file
+fn terms_match_relation(
+    context: &IndexedCoefficientContext,
+    raw: &[(Vec<i64>, IndexedCoefficient, Vec<(IndexedCoefficient, u32)>)],
+    relation: &BTreeMap<Vec<i64>, IndexedCoefficient>,
+    slots: usize,
+) -> Result<bool, PError> {
+    let zero = vec![0_i64; slots];
+    let Some(pivot) = relation.get(&zero) else {
+        return Ok(false);
+    };
+    for (shift, value) in relation {
+        if *shift != zero && !value.is_zero() && !raw.iter().any(|(s, _, _)| s == shift) {
+            return Ok(false);
+        }
+    }
+    for (shift, num, dens) in raw {
+        let mut product = context.one();
+        for (den, power) in dens {
+            for _ in 0..*power {
+                product = context.mul(&product, den).map_err(indexed)?;
+            }
+        }
+        let mut total = context.mul(num, pivot).map_err(indexed)?;
+        if let Some(value) = relation.get(shift) {
+            let term = context.mul(value, &product).map_err(indexed)?;
+            total = context.add(&total, &term).map_err(indexed)?;
+        }
+        if !total.is_zero() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The determinant of a small integer matrix (fraction-free elimination).
+fn integer_det(matrix: &[Vec<i128>]) -> i128 {
+    let n = matrix.len();
+    let mut m = matrix.to_vec();
+    let (mut sign, mut previous) = (1_i128, 1_i128);
+    for k in 0..n {
+        if m[k][k] == 0 {
+            let Some(p) = (k + 1..n).find(|&r| m[r][k] != 0) else {
+                return 0;
+            };
+            m.swap(k, p);
+            sign = -sign;
+        }
+        for i in k + 1..n {
+            for j in k + 1..n {
+                m[i][j] = (m[i][j] * m[k][k] - m[i][k] * m[k][j]) / previous;
+            }
+        }
+        previous = m[k][k];
+    }
+    sign * m[n - 1][n - 1]
+}
+
+/// Checks a permutation rule's momentum map in Forcer coordinates: `A`'s
+/// last row is `(0, .., 0, +-1)` (q -> +-q), its loop block is unimodular,
+/// and `A^T Q_{source[b]} A = s_b Q_b` for every child slot `b` whose source
+/// slot is not fixed at 0 on the rule's domain (`2Q = 2 m m^T` for a line,
+/// `2Q = l r^T + r l^T` for an ISP; `s_b = -1` only on ISPs). Returns the
+/// flipped child slots (0-based Forcer slots).
+fn symmetry_flips(
+    scheme: &Scheme,
+    rule: &ParsedRule,
+    source: &[usize],
+    map: &[Vec<i64>],
+) -> Result<Vec<usize>, String> {
+    let width = map.len();
+    let last = &map[width - 1];
+    if last[..width - 1].iter().any(|&x| x != 0) || last[width - 1].abs() != 1 {
+        return Err("the momentum map does not send q to +-q".to_owned());
+    }
+    let block: Vec<Vec<i128>> = (map[..width - 1].iter())
+        .map(|row| row[..width - 1].iter().map(|&x| i128::from(x)).collect())
+        .collect();
+    if integer_det(&block).abs() != 1 {
+        return Err("the momentum map is not unimodular".to_owned());
+    }
+    let lines = scheme.lines.len();
+    let form = |slot: usize| -> Vec<Vec<i128>> {
+        let (l, r): (Vec<i128>, Vec<i128>) = if slot < lines {
+            let m: Vec<i128> = scheme.lines[slot]
+                .momentum
+                .iter()
+                .map(|&x| i128::from(x))
+                .collect();
+            (m.clone(), m)
+        } else {
+            let isp = &scheme.isps[slot - lines];
+            (
+                isp.left.iter().map(|&x| i128::from(x)).collect(),
+                isp.right.iter().map(|&x| i128::from(x)).collect(),
+            )
+        };
+        (0..width)
+            .map(|i| (0..width).map(|j| l[i] * r[j] + r[i] * l[j]).collect())
+            .collect()
+    };
+    let a: Vec<Vec<i128>> = map
+        .iter()
+        .map(|row| row.iter().map(|&x| i128::from(x)).collect())
+        .collect();
+    let transform = |q: &[Vec<i128>]| -> Vec<Vec<i128>> {
+        // A^T Q A
+        (0..width)
+            .map(|i| {
+                (0..width)
+                    .map(|j| {
+                        let mut total = 0;
+                        for k in 0..width {
+                            for l in 0..width {
+                                total += a[k][i] * q[k][l] * a[l][j];
+                            }
+                        }
+                        total
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let mut flips = Vec::new();
+    for (b, &src) in source.iter().enumerate() {
+        if rule.pattern[src].fixed() == Some(0) {
+            continue;
+        }
+        let image = transform(&form(src));
+        let target = form(b);
+        if image == target {
+            continue;
+        }
+        let negated: Vec<Vec<i128>> = target
+            .iter()
+            .map(|row| row.iter().map(|x| -x).collect())
+            .collect();
+        if b >= lines && image == negated {
+            flips.push(b);
+            continue;
+        }
+        return Err(format!(
+            "the momentum map does not carry slot {} onto slot {}",
+            src + 1,
+            b + 1
+        ));
+    }
+    Ok(flips)
 }
 
 /// One rule as the static descent witness sees it.
@@ -1076,6 +1448,9 @@ fn order_delta(order: &[Row], lines: usize, shift: &[i64], regime: Regime) -> Ve
                 w.iter().zip(shift).map(|(w, s)| w * s).sum()
             }
             Row::Linear(..) => 0,
+            // On Apply keys lines are >= 1 and ISPs <= 0.
+            Row::Abs(slot) if *slot < lines => shift[*slot],
+            Row::Abs(slot) => -shift[*slot],
         })
         .collect()
 }
@@ -1150,6 +1525,267 @@ pub struct SchemeStep {
     template: SchemeTemplate,
     lines: usize,
     allow_unverified: bool,
+    fallback: Option<SchemeFallback>,
+}
+
+/// M5 no6: the node's Custom program closing the keys no scheme rule takes.
+///
+/// The payload was generated on the Custom presentation of the node, an
+/// induced presentation whose slots are those of a top (`target`): its keys
+/// are keys of that top. A key of the scheme presentation is transported onto
+/// `(target, support)` by the inverse of the census map of that sector (onto
+/// this owner, verified exactly), then closed by the Custom rules INSIDE the
+/// step: same-sector children stay in the closure (each strictly lower in the
+/// Custom order), subsector children leave as Route keys of `target`, the
+/// residual (the node corner, checked at build to be the scheme's corner) is
+/// the owner's corner terminal. The step never hands a same-sector key back,
+/// so no cycle between the two rule sets can form.
+#[derive(Debug)]
+pub struct SchemeFallback {
+    program: Arc<dyn PCustomFallback>,
+    target: PresentationId,
+    support: u64,
+    into: Prepared,
+}
+
+impl SchemeFallback {
+    /// The Custom program, its presentation and its owner support.
+    pub fn program(&self) -> (&Arc<dyn PCustomFallback>, PresentationId, u64) {
+        (&self.program, self.target, self.support)
+    }
+}
+
+/// `A^-1` of a unimodular integer matrix (`n x n`, row major), by cofactors.
+fn unimodular_inverse(matrix: &[i64], n: usize) -> Option<Vec<i64>> {
+    fn det(m: &[i64], n: usize) -> i128 {
+        if n == 1 {
+            return i128::from(m[0]);
+        }
+        let mut total = 0_i128;
+        for column in 0..n {
+            let minor: Vec<i64> = (1..n)
+                .flat_map(|r| (0..n).filter(move |&c| c != column).map(move |c| (r, c)))
+                .map(|(r, c)| m[r * n + c])
+                .collect();
+            let sign = if column % 2 == 0 { 1 } else { -1 };
+            total += sign * i128::from(m[column]) * det(&minor, n - 1);
+        }
+        total
+    }
+    if matrix.len() != n * n || n == 0 {
+        return None;
+    }
+    let d = det(matrix, n);
+    if d != 1 && d != -1 {
+        return None;
+    }
+    let mut inverse = vec![0_i64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            // inverse[i][j] = d * (-1)^(i+j) * det(minor without row j, column i)
+            let minor: Vec<i64> = (0..n)
+                .filter(|&r| r != j)
+                .flat_map(|r| (0..n).filter(move |&c| c != i).map(move |c| (r, c)))
+                .map(|(r, c)| matrix[r * n + c])
+                .collect();
+            let cofactor = if n == 1 { 1 } else { det(&minor, n - 1) };
+            let sign = if (i + j) % 2 == 0 { 1 } else { -1 };
+            inverse[i * n + j] = i64::try_from(d * sign * cofactor).ok()?;
+        }
+    }
+    Some(inverse)
+}
+
+/// The inverse of a census map: `k_in = A k_out + b q_out`, `q_in = s q_out`
+/// gives `k_out = A^-1 k_in - s A^-1 b q_in`, `q_out = s q_in`.
+fn inverse_map(map: &SignedAffineLoopMap) -> Result<SignedAffineLoopMap, PError> {
+    let n = usize::from(map.loops_in);
+    if map.loops_out != map.loops_in {
+        return Err(PError::Contract(format!(
+            "a {}->{} loop map has no inverse",
+            map.loops_in, map.loops_out
+        )));
+    }
+    let a = unimodular_inverse(&map.loop_linear, n).ok_or_else(|| {
+        PError::Contract(format!(
+            "the loop map {:?} is not unimodular",
+            map.loop_linear
+        ))
+    })?;
+    let s = i64::from(map.external_sign);
+    let b: Vec<i64> = (0..n)
+        .map(|i| {
+            -s * (0..n)
+                .map(|j| a[i * n + j] * map.loop_external[j])
+                .sum::<i64>()
+        })
+        .collect();
+    Ok(SignedAffineLoopMap {
+        loops_in: map.loops_out,
+        loops_out: map.loops_in,
+        loop_linear: a.into(),
+        loop_external: b.into(),
+        external_sign: map.external_sign,
+    })
+}
+
+const CUSTOM_DECISION: LaneDecision = LaneDecision {
+    lane: OwnerLane::Custom,
+    roles: LaneRoles::None,
+    trivial: false,
+};
+
+/// The top presentation whose slots are those of `node`'s Custom (induced)
+/// presentation, and the induced mask.
+fn fallback_top(library: &PLibrary, node: &NodeInfo) -> Result<(PresentationId, u64), PError> {
+    let tops: Vec<Arc<Presentation>> = (library.presentations().iter())
+        .take_while(|p| matches!(p.kind, PresentationKind::Top { .. }))
+        .cloned()
+        .collect();
+    let induced = super::present::present(
+        node,
+        &CUSTOM_DECISION,
+        &tops,
+        PresentationId(u32::MAX),
+        library.coefficient_context(),
+    )?;
+    let PresentationKind::Induced { top, mask } = induced.kind else {
+        return Err(PError::Contract(format!(
+            "the Custom presentation of node {} is not induced",
+            node.index
+        )));
+    };
+    let held = library
+        .presentations()
+        .get(top.0 as usize)
+        .ok_or_else(|| PError::Contract(format!("the fallback top {} is unknown", top.0)))?;
+    if held.slots != induced.slots || held.loops != induced.loops {
+        return Err(PError::Contract(format!(
+            "the Custom presentation of node {} is not top {}'s slots",
+            node.index, top.0
+        )));
+    }
+    Ok((top, mask))
+}
+
+/// The Custom fallback of a Scheme owner that carries a payload (M5 no6).
+fn build_fallback(
+    library: &PLibrary,
+    owner: &POwnerSpec,
+    node: &NodeInfo,
+    own: &Presentation,
+) -> Result<Option<SchemeFallback>, PError> {
+    let (payload, meta) = match (&owner.payload, &owner.custom) {
+        (None, None) => return Ok(None),
+        (Some(payload), Some(meta)) => (payload, meta),
+        _ => {
+            return Err(PError::MalformedLibrary(format!(
+                "the Scheme owner {:016x} has a payload without meta or meta without payload",
+                owner.class.0
+            )));
+        }
+    };
+    if !scheme_fallback(node)? {
+        return Err(PError::MalformedLibrary(format!(
+            "the Scheme owner {:016x} carries a Custom payload, its scheme has no fallback",
+            owner.class.0
+        )));
+    }
+    let (target, mask) = fallback_top(library, node)?;
+    let presentation = library.presentation(target);
+    let bytes = payload.bytes()?;
+    let program =
+        build_custom_fallback(presentation, &bytes, meta, library.rule_order(owner.class))?;
+    let support = program.support();
+    if support != mask {
+        return Err(PError::MalformedLibrary(format!(
+            "the fallback payload of {:016x} is on support {support:#x}, the node's Custom sector is {mask:#x}",
+            owner.class.0
+        )));
+    }
+    let map = match library.census().sectors.get(&(target, support)) {
+        Some(PSectorFate::Owner { class, map }) if *class == owner.class => map,
+        _ => {
+            return Err(PError::MalformedLibrary(format!(
+                "sector ({}, {support:#x}) is not routed onto the Scheme owner {:016x}",
+                target.0, owner.class.0
+            )));
+        }
+    };
+    let own_support = own.lines().fold(0_u64, |m, (slot, _)| m | 1 << slot);
+    let inverse = inverse_map(map)?;
+    let verified = super::engine::verify_route(own, presentation, &inverse, own_support)?;
+    let into = super::engine::transport_of(own, presentation, verified, own_support, support)?;
+    // The residuals: exactly one, the node corner, equal to this owner's corner.
+    let residuals = program.residual_keys();
+    let corner = IntegralKey::try_new(super::basis::node_corner(own))
+        .map_err(|error| PError::Contract(error.to_string()))?;
+    let mapped = into.transport(&corner, ExpansionLimits::default())?;
+    let one = own.family.coefficient_context().one();
+    let exact = matches!(mapped.terms(), [endpoint]
+        if residuals.len() == 1
+            && endpoint.key() == &residuals[0]
+            && endpoint.coefficient() == &one);
+    if !exact {
+        return Err(PError::MalformedLibrary(format!(
+            "the fallback residuals {:?} of {:016x} are not this owner's corner {:?}",
+            residuals
+                .iter()
+                .map(IntegralKey::powers)
+                .collect::<Vec<_>>(),
+            owner.class.0,
+            corner.powers()
+        )));
+    }
+    Ok(Some(SchemeFallback {
+        program,
+        target,
+        support,
+        into,
+    }))
+}
+
+/// The Custom fallback program of a Scheme `owner` (M5 no6), for the descent
+/// certificate: `None` for an owner without a payload.
+pub fn scheme_fallback_program(
+    library: &PLibrary,
+    owner: &POwnerSpec,
+) -> Result<Option<SchemeFallback>, PError> {
+    let index = owner
+        .node
+        .ok_or_else(|| PError::Contract("a scheme owner without a node".to_owned()))?;
+    let dag = library
+        .topology()
+        .ok_or_else(|| PError::Contract("a scheme owner without a topology".to_owned()))?;
+    let node = dag
+        .nodes
+        .get(index.0 as usize)
+        .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
+    build_fallback(
+        library,
+        owner,
+        node,
+        library.presentation(owner.presentation),
+    )
+}
+
+/// Distinct keys the fallback closed in this process (diagnostics,
+/// `RUSTRED_P_SCHEME_FALLBACK_LOG=1`: one stderr line per distinct key).
+fn log_fallback(scheme: &str, powers: &[i64], states: usize, routes: usize) {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    static ON: OnceLock<bool> = OnceLock::new();
+    static SEEN: OnceLock<Mutex<HashSet<Vec<i64>>>> = OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var("RUSTRED_P_SCHEME_FALLBACK_LOG").is_ok_and(|v| v == "1")) {
+        return;
+    }
+    let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    if seen
+        .lock()
+        .is_ok_and(|mut seen| seen.insert(powers.to_vec()))
+    {
+        eprintln!("[scheme-fallback] {scheme} {powers:?} states={states} routes={routes}");
+    }
 }
 
 impl SchemeStep {
@@ -1163,6 +1799,7 @@ impl SchemeStep {
             template,
             lines,
             allow_unverified,
+            fallback: None,
         })
     }
 
@@ -1194,10 +1831,149 @@ impl SchemeStep {
             .nodes
             .get(index.0 as usize)
             .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
-        Ok(Self::new(
-            Arc::clone(library.presentation(owner.presentation)),
-            node,
-        )?)
+        let presentation = Arc::clone(library.presentation(owner.presentation));
+        let fallback = build_fallback(library, owner, node, &presentation)?;
+        let mut step = Self::new(presentation, node)?;
+        step.fallback = fallback;
+        Ok(step)
+    }
+
+    /// The Custom fallback, if the owner carries one (M5 no6).
+    pub fn fallback(&self) -> Option<&SchemeFallback> {
+        self.fallback.as_ref()
+    }
+
+    /// Close `key` (no scheme rule takes it) with the Custom fallback.
+    fn close(
+        &self,
+        fallback: &SchemeFallback,
+        cx: Option<&PStepContext<'_>>,
+        key: &PKeyView<'_>,
+        limits: &ReductionLimits,
+    ) -> Result<PStepOut, PError> {
+        let base = self.presentation.family.coefficient_context();
+        let exact = limits.exact_algebra;
+        let class = cx.map_or(super::OwnerClassId(0), |cx| cx.owner.spec.class);
+        let support_of = |powers: &[i64]| {
+            (powers.iter().enumerate())
+                .filter(|&(_, &p)| p > 0)
+                .fold(0_u64, |m, (slot, _)| m | 1 << slot)
+        };
+        fn add<K: Ord>(
+            base: &CoefficientContext,
+            exact: ExactAlgebraLimits,
+            map: &mut BTreeMap<K, Coefficient>,
+            at: K,
+            value: Coefficient,
+        ) -> Result<(), PError> {
+            match map.entry(at) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let sum = base
+                        .try_add(entry.get(), &value, exact)
+                        .map_err(exact_error)?;
+                    *entry.get_mut() = sum;
+                }
+            }
+            Ok(())
+        }
+        let source = IntegralKey::try_new(key.powers.iter().copied())
+            .map_err(|error| PError::Contract(error.to_string()))?;
+        let expansion = ExpansionLimits {
+            diagnostics_enabled: limits.diagnostics_enabled,
+            exact_algebra: limits.exact_algebra,
+            ..Default::default()
+        };
+        let mapped = fallback.into.transport(&source, expansion)?;
+        let mut routes: BTreeMap<Vec<i64>, Coefficient> = BTreeMap::new();
+        let mut frontier: BTreeMap<(POrderKey, Vec<i64>), Coefficient> = BTreeMap::new();
+        for endpoint in mapped.terms() {
+            let powers = endpoint.key().powers().to_vec();
+            let value = endpoint.coefficient().clone();
+            if support_of(&powers) == fallback.support {
+                add(
+                    base,
+                    exact,
+                    &mut frontier,
+                    (fallback.program.order(&powers)?, powers),
+                    value,
+                )?;
+            } else {
+                add(base, exact, &mut routes, powers, value)?;
+            }
+        }
+        let mut residual = base.zero();
+        let mut conditions: Vec<Coefficient> = Vec::new();
+        let mut states = 0_usize;
+        while let Some(((order, powers), value)) = frontier.pop_last() {
+            if value.is_zero() {
+                continue;
+            }
+            states += 1;
+            match fallback.program.apply(class, &powers, limits)? {
+                PFallbackApplied::Residual => {
+                    residual = base
+                        .try_add(&residual, &value, exact)
+                        .map_err(exact_error)?;
+                }
+                PFallbackApplied::Children {
+                    children,
+                    conditions: met,
+                } => {
+                    for condition in met {
+                        if !conditions.contains(&condition) {
+                            conditions.push(condition);
+                        }
+                    }
+                    for (child, weight) in children {
+                        let weight = base.try_mul(&value, &weight, exact).map_err(exact_error)?;
+                        if support_of(&child) == fallback.support {
+                            let below = fallback.program.order(&child)?;
+                            if below >= order {
+                                return Err(PError::Contract(format!(
+                                    "the Custom fallback of scheme {} does not descend: {powers:?} -> {child:?}",
+                                    self.template.name
+                                )));
+                            }
+                            add(base, exact, &mut frontier, (below, child), weight)?;
+                        } else {
+                            add(base, exact, &mut routes, child, weight)?;
+                        }
+                    }
+                }
+            }
+        }
+        // A Custom step inside the closure records its rule hit on this thread;
+        // the path census must not read it as the Scheme owner's.
+        let _ = super::custom::take_rule_hit();
+        log_fallback(&self.template.name, key.powers, states, routes.len());
+        let mut out = PStepOut {
+            conditions,
+            ..PStepOut::default()
+        };
+        for (powers, coefficient) in routes {
+            if coefficient.is_zero() {
+                continue;
+            }
+            out.children.push(PChild {
+                stage: PStage::Route,
+                presentation: fallback.target,
+                powers,
+                tag: key.tag.clone(),
+                coefficient,
+            });
+        }
+        if !residual.is_zero() {
+            let terminal = cx
+                .and_then(|cx| cx.owner.spec.terminals.first().copied())
+                .ok_or_else(|| {
+                    PError::Contract("the scheme corner without a terminal".to_owned())
+                })?;
+            out.terminals.push((terminal, key.tag.clone(), residual));
+        }
+        Ok(out)
     }
 
     pub fn template(&self) -> &SchemeTemplate {
@@ -1233,8 +2009,51 @@ impl SchemeStep {
     }
 
     /// The scheme's stored order key (its `order` rows).
-    fn order(&self, powers: &[i64]) -> Vec<i64> {
+    fn order(&self, powers: &[i64]) -> super::step::OrderEntries {
         self.template.order(powers)
+    }
+
+    /// FirstValid in the stored order: the first rule whose pattern holds
+    /// and whose pivot (or Forcer denominators) does not vanish at `powers`;
+    /// a permutation rule where its image is strictly lower in the order.
+    fn choose(
+        &self,
+        powers: &[i64],
+        ilimits: IndexedAlgebraLimits,
+    ) -> Result<Option<&SchemeRule>, PError> {
+        let mine = self.order(powers);
+        for rule in &self.template.rules {
+            if rule.pattern.iter().zip(powers).all(|(c, &n)| c.holds(n))
+                && rule.distinct.iter().all(|&(a, b)| powers[a] != powers[b])
+                && rule.equal.iter().all(|&(a, b)| powers[a] == powers[b])
+            {
+                if let Some(permutation) = &rule.permutation {
+                    let image: Vec<i64> = permutation.source.iter().map(|&a| powers[a]).collect();
+                    if self.order(&image) < mine {
+                        return Ok(Some(rule));
+                    }
+                } else if self.regular(rule, powers, ilimits)? {
+                    return Ok(Some(rule));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Diagnostics (M5 no6 coverage census): the rule the dispatch takes at
+    /// `powers` (an Apply key of this owner), with the image of a permutation
+    /// rule; `None` where no rule applies (the fallback's keys).
+    #[allow(clippy::type_complexity)] // (rule name, permutation image) of a diagnostic
+    pub fn dispatch_rule(
+        &self,
+        powers: &[i64],
+    ) -> Result<Option<(String, Option<Vec<i64>>)>, PError> {
+        let ilimits = IndexedAlgebraLimits::default();
+        Ok(self.choose(powers, ilimits)?.map(|rule| {
+            let image = (rule.permutation.as_ref())
+                .map(|permutation| permutation.source.iter().map(|&a| powers[a]).collect());
+            (rule.name.clone(), image)
+        }))
     }
 
     pub fn apply(
@@ -1251,25 +2070,39 @@ impl SchemeStep {
         // FirstValid in the stored order: the first rule whose pattern holds
         // and whose pivot (or Forcer denominators) does not vanish at the key,
         // as RustRed's own FirstValid skips a rule with a vanishing denominator.
-        let mut chosen = None;
-        for rule in &self.template.rules {
-            if rule
-                .pattern
-                .iter()
-                .zip(key.powers)
-                .all(|(c, &n)| c.holds(n))
-                && rule
-                    .distinct
-                    .iter()
-                    .all(|&(a, b)| key.powers[a] != key.powers[b])
-                && self.regular(rule, key.powers, ilimits)?
-            {
-                chosen = Some(rule);
-                break;
+        // A permutation rule fires where its image is strictly lower in the
+        // stored order (the tie-break rows decide between representatives).
+        let mine = self.order(key.powers);
+        let chosen = self.choose(key.powers, ilimits)?;
+        let Some(rule) = chosen else {
+            if let Some(fallback) = &self.fallback {
+                return self.close(fallback, cx, key, limits);
             }
+            return Err(PError::Unsupported(format!(
+                "no scheme rule for {:?}",
+                key.powers
+            )));
+        };
+        if let Some(permutation) = &rule.permutation {
+            let powers: Vec<i64> = permutation.source.iter().map(|&a| key.powers[a]).collect();
+            let base = self.presentation.family.coefficient_context();
+            let odd = (permutation.flips.iter())
+                .filter(|&&b| powers[b].rem_euclid(2) == 1)
+                .count()
+                % 2
+                == 1;
+            let coefficient = if odd { base.integer(-1) } else { base.one() };
+            return Ok(PStepOut {
+                children: vec![PChild {
+                    stage: PStage::Apply,
+                    presentation: self.presentation.id,
+                    powers,
+                    tag: key.tag.clone(),
+                    coefficient,
+                }],
+                ..PStepOut::default()
+            });
         }
-        let rule = chosen
-            .ok_or_else(|| PError::Unsupported(format!("no scheme rule for {:?}", key.powers)))?;
         if rule.master {
             let terminal = cx
                 .and_then(|cx| cx.owner.spec.terminals.first().copied())
@@ -1302,7 +2135,6 @@ impl SchemeStep {
                 rule.name, key.powers
             )));
         }
-        let mine = self.order(key.powers);
         let mut children = Vec::with_capacity(rule.terms.len());
         for (shift, value) in &rule.terms[1..] {
             let (value, _) = context
@@ -1598,6 +2430,110 @@ mod tests {
             Cond::parse(&serde_json::json!(0)).unwrap(),
             Cond { lo: 0, hi: 0 }
         );
+    }
+
+    /// Schemes with permutation rules, shipped as files (not embedded, not
+    /// default): Forcer's no2 (SchemeZ relabelling rules) and no6 (Prepare
+    /// automorphisms).
+    const PERMUTATION_SCHEMES: &[(&str, &str)] = &[
+        ("no2", include_str!("schemes/no2.json")),
+        ("no6", include_str!("schemes/no6.json")),
+    ];
+
+    #[test]
+    fn integer_determinants() {
+        assert_eq!(integer_det(&[vec![1, 2], vec![3, 4]]), -2);
+        assert_eq!(
+            integer_det(&[vec![0, 1, 0], vec![1, 0, 0], vec![0, 0, 1]]),
+            -1
+        );
+        assert_eq!(
+            integer_det(&[vec![2, 0, 1], vec![1, 1, 0], vec![0, 3, 1]]),
+            5
+        );
+        assert_eq!(integer_det(&[vec![1, 2], vec![2, 4]]), 0);
+    }
+
+    #[test]
+    fn permutation_rules_carry_exact_momentum_maps() {
+        for (name, json) in PERMUTATION_SCHEMES {
+            let scheme = parse_scheme(json).unwrap();
+            assert_eq!(scheme.name, *name);
+            assert!(!scheme.tiebreak.is_empty());
+            let mut seen = 0;
+            for rule in &scheme.rules {
+                let Some((source, map)) = &rule.permutation else {
+                    continue;
+                };
+                seen += 1;
+                symmetry_flips(&scheme, rule, source, map)
+                    .unwrap_or_else(|e| panic!("{name} {}: {e}", rule.name));
+                // A wrong map (two loop momenta exchanged) or a wrong source fails.
+                let mut wrong = map.clone();
+                wrong.swap(0, 1);
+                assert!(
+                    symmetry_flips(&scheme, rule, source, &wrong).is_err(),
+                    "{name} {}",
+                    rule.name
+                );
+                let mut other = source.clone();
+                other.swap(0, 1);
+                assert!(
+                    symmetry_flips(&scheme, rule, &other, map).is_err(),
+                    "{name} {}",
+                    rule.name
+                );
+            }
+            assert!(seen > 0, "{name}: no permutation rule");
+            // The ordinary rules still descend in the stored order.
+            assert!(witness(&scheme, &rows(&scheme)).unwrap() > 0);
+        }
+    }
+
+    #[test]
+    fn no2_relabellings_move_to_a_lower_representative() {
+        // Forcer coordinates; the order rows of the file, then rank, line sum
+        // and the tie-break |n_a| rows (as SchemeTemplate::extract appends them).
+        let scheme = parse_scheme(PERMUTATION_SCHEMES[0].1).unwrap();
+        let lines = scheme.lines.len();
+        let mut order = rows(&scheme);
+        order.push(Row::Rank);
+        order.push(Row::LineSum);
+        order.extend(scheme.tiebreak.iter().map(|&a| Row::Abs(a)));
+        let key = |powers: &[i64]| -> Vec<i64> {
+            let rank: i64 = powers.iter().filter(|&&p| p < 0).map(|&p| -p).sum();
+            (order.iter())
+                .map(|row| match row {
+                    Row::Rank => rank,
+                    Row::LineSum => powers[..lines].iter().sum(),
+                    Row::Linear(w, _) => w.iter().zip(powers).map(|(w, p)| w * p).sum(),
+                    Row::Abs(slot) => powers[*slot].abs(),
+                })
+                .collect()
+        };
+        // Stage 1214: n12 = 0, n14 < 0 -> n14 = 0; stage 1458: n4 = n8 = 1 -> n1 = n5 = 1.
+        let cases: [(&str, [i64; 14]); 3] = [
+            ("S1214-80", [2, 1, 3, 1, 1, 2, 1, 1, 1, 2, 1, 0, -1, -2]),
+            ("S1458-94", [3, 1, 1, 1, 2, 1, 2, 1, 1, 1, 2, 0, 0, 0]),
+            ("S1458-95", [1, 2, 1, 1, 3, 1, 1, 1, 2, 1, 1, 0, 0, 0]),
+        ];
+        for (name, powers) in cases {
+            let rule = scheme.rules.iter().find(|rule| rule.name == name).unwrap();
+            assert!(
+                rule.pattern.iter().zip(powers).all(|(c, n)| c.holds(n)),
+                "{name} pattern"
+            );
+            let (source, _) = rule.permutation.as_ref().unwrap();
+            let image: Vec<i64> = source.iter().map(|&a| powers[a]).collect();
+            assert!(
+                key(&image) < key(&powers),
+                "{name}: {image:?} is not below {powers:?}"
+            );
+            assert!(
+                !rule.pattern.iter().zip(&image).all(|(c, &n)| c.holds(n)),
+                "{name} fires again on its image"
+            );
+        }
     }
 
     #[test]

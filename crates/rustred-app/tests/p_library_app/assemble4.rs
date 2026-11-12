@@ -546,7 +546,8 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
             continue;
         }
         // M5 combined: no1, haha and bubu are Scheme owners by default (their
-        // staged Custom payloads are not used).
+        // staged Custom payloads are not used); M5 batch 2: no2 and no6 too
+        // (no6's payload is its Scheme owner's fallback).
         if !owners.contains_key(label) {
             let census = library.census();
             let owner = (library.owners())
@@ -554,7 +555,7 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
                 .unwrap_or_else(|| panic!("{label}: no owner"));
             assert_eq!(owner.spec.lane, OwnerLane::Scheme, "{label}");
             assert!(
-                ["no1", "haha", "bubu"].contains(&cell("forcer")),
+                ["no1", "haha", "bubu", "no2", "no6"].contains(&cell("forcer")),
                 "{label}: {} on the Scheme lane",
                 cell("forcer")
             );
@@ -613,7 +614,7 @@ fn check_owners_tsv(assembled: &AssembledLibrary) {
         assert!(seen.insert(label.to_owned()), "{label} twice");
     }
     assert_eq!(diamonds, 4, "owners_1-4.tsv: the Diamond nodes");
-    assert_eq!(schemes, 3, "owners_1-4.tsv: the Scheme nodes");
+    assert_eq!(schemes, 5, "owners_1-4.tsv: the Scheme nodes");
     assert_eq!(
         seen.len(),
         owners.len() + diamonds + schemes,
@@ -662,6 +663,14 @@ const INVENTORY_PINS: &[(&str, &str, &str)] = &[
         "1-4",
         "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=2,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
         "532a3a6a40708455ea9fa22d2b2faf215f8f46310a3df017c35012d4a45dfb9e",
+    ),
+    // M5 batch 2: Scheme 5 (no2, no6 with its Custom fallback), Custom 16 (bebe and
+    // cross from Astra's combo3), orbits/route maps in the package
+    // (P_SCHEME_TEMPLATE_VERSION 4).
+    (
+        "1-4",
+        "p-library:scope=1-4:P_OWNER_LIBRARY_SEMANTICS=rustred-p-owner-library-2026-11-05,P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=2,P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1",
+        "7025792b23b3d6aea9c2ed61be1d89f33dc87e78c9aae790128dfee9611e6b02",
     ),
 ];
 
@@ -789,9 +798,10 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
             ("Carpet", 24),
             ("Triangle", 53),
             ("Diamond", 4),
-            // Forcer's schemes no1, haha, bubu (M5 combined: on by default).
-            ("Scheme", 3),
-            ("Custom", 18),
+            // Forcer's schemes no1, haha, bubu (M5 combined: on by default), no2
+            // and no6 (M5 batch 2, P_SCHEME_TEMPLATE_VERSION 4).
+            ("Scheme", 5),
+            ("Custom", 16),
             ("Zero", 1),
         ])
     );
@@ -801,7 +811,9 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
         assert!(assembled.custom.contains_key(&label), "{label}");
         assert!(owner.spec.payload.is_some() && owner.spec.custom.is_some());
     }
-    assert_eq!(assembled.custom.len(), at("owners_Custom"));
+    // The Custom owners' payloads, plus no6's: its Scheme owner carries the
+    // shipped Custom no6 rules as its fallback (M5 batch 2).
+    assert_eq!(assembled.custom.len(), at("owners_Custom") + 1);
 
     // A short trace of every loop count: nothing refused, no missing owner.
     let start = Instant::now();
@@ -1165,12 +1177,13 @@ fn the_scope_one_to_four_package_regenerates_from_the_staged_owners() {
     }
     assert_eq!(recounts.len(), assembled.custom.len());
     let recounted = recounts.iter().filter(|r| r.recounted.is_some()).count();
-    // The 16 Custom owners of at most 9 lines (owners_1-4.tsv without the
+    // The 16 Custom payloads of at most 9 lines (owners_1-4.tsv without the
     // Diamond nodes, M3-T5b, and without the Scheme nodes no1, haha, bubu,
-    // M5 combined), all 18 with P_LP_RECOUNT_ALL=1: a line filter regressing
-    // to none fails here.
+    // M5 combined, no2, M5 batch 2; no6's 10-line payload is its Scheme
+    // owner's fallback), all 17 with P_LP_RECOUNT_ALL=1: a line filter
+    // regressing to none fails here.
     let expected = match RecountProvidedLp::from_env().max_lines() {
-        None => 18,
+        None => 17,
         Some(_) => 16,
     };
     assert_eq!(recounted, expected, "Custom owners LP-recounted");
