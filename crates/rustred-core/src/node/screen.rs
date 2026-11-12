@@ -67,7 +67,22 @@ pub struct LiftScreen {
     /// node driver clears it when its SymbolicFirst rung is off.
     #[serde(default)]
     pub symbolic_first_from_rows: Option<usize>,
+    /// SEED-POSE GATE (seed-rung, default None = off): traces with at least [`Self::pose_gate_min_rows`] rows are
+    /// measured (also below `min_rows`) and a relation whose cost proxy ([`ScreenMeasure::cost`]) exceeds this is
+    /// refused with a `seed-pose gate` reason, so that the node driver measures its seed-pose portfolio on that case
+    /// only. Below the regular screen thresholds a relation within the gate is lifted exactly, as without the gate.
+    #[serde(default)]
+    pub pose_gate: Option<u64>,
+    #[serde(default = "default_pose_gate_min_rows")]
+    pub pose_gate_min_rows: usize,
 }
+
+fn default_pose_gate_min_rows() -> usize {
+    8
+}
+
+/// Reason prefix of a seed-pose gate refusal.
+pub const POSE_GATE_REFUSAL: &str = "seed-pose gate";
 
 fn default_min_target_block() -> usize {
     320
@@ -98,6 +113,8 @@ impl Default for LiftScreen {
             sampled_budget_seconds: default_sampled_budget(),
             est_primes: default_est_primes(),
             symbolic_first_from_rows: None,
+            pose_gate: None,
+            pose_gate_min_rows: default_pose_gate_min_rows(),
         }
     }
 }
@@ -126,6 +143,20 @@ pub struct ScreenMeasure {
 }
 
 impl ScreenMeasure {
+    /// Cost proxy of the measured relation (seed-pose): RHS terms x dense coefficient box C(deg + v, v), deg =
+    /// max(num, den) total degree, v = active variables; infinite when the degree probe did not converge.
+    pub fn cost(&self) -> f64 {
+        if !self.converged {
+            return f64::INFINITY;
+        }
+        let d = self.max_num_degree.max(self.max_den_degree) as f64;
+        let mut c = 1.0f64;
+        for i in 1..=self.variables {
+            c = c * (d + i as f64) / i as f64;
+        }
+        self.rhs_terms as f64 * c
+    }
+
     /// Estimated dense reconstruction box of one prime image: max(L + NF, P) with L the common-denominator box,
     /// NF the box of the numerator of a random combination and P the per-column numerator box, all dense in the
     /// active variables up to the measured total degrees (the same boxes the sampled route builds). None when the
@@ -225,6 +256,35 @@ impl LiftScreen {
     /// Whether a trace is screened at all.
     pub fn screens(&self, rows: usize, target_block: usize) -> bool {
         rows >= self.min_rows || target_block >= self.min_target_block
+    }
+
+    /// Whether a trace is measured for the seed-pose gate (only with [`Self::pose_gate`]).
+    pub fn pose_gated(&self, rows: usize) -> bool {
+        self.pose_gate.is_some() && rows >= self.pose_gate_min_rows
+    }
+
+    /// The decision on a measured trace: the regular one when `screened`, else `Pass` (exact lift); a seed-pose gate
+    /// refusal when the relation's cost exceeds [`Self::pose_gate`].
+    pub fn decide_gated(
+        &self,
+        m: &ScreenMeasure,
+        symbolic_first: bool,
+        screened: bool,
+    ) -> ScreenDecision {
+        if let Some(gate) = self.pose_gate {
+            let cost = m.cost();
+            if cost > gate as f64 {
+                return ScreenDecision::Refuse(format!(
+                    "{POSE_GATE_REFUSAL}: relation cost {cost:.3e} > {gate} ({} rows, {} RHS)",
+                    m.rows, m.rhs_terms
+                ));
+            }
+        }
+        if screened {
+            self.decide_in(m, symbolic_first)
+        } else {
+            ScreenDecision::Pass
+        }
     }
 
     pub fn decide(&self, m: &ScreenMeasure) -> ScreenDecision {
@@ -366,6 +426,39 @@ mod tests {
             converged,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn seed_pose_gate_refuses_only_heavy_relations_and_keeps_unscreened_lifts_exact() {
+        // cost = RHS x C(deg + 3, 3): deg 2, 10 RHS -> 100; deg 20, 300 RHS -> 300 x 1771
+        assert_eq!(m(2, 10, 50, true).cost(), 100.0);
+        assert!(m(2, 10, 50, false).cost().is_infinite());
+        let s = LiftScreen {
+            pose_gate: Some(10_000),
+            ..LiftScreen::default()
+        };
+        assert!(!s.screens(50, 10) && s.pose_gated(50) && !s.pose_gated(4));
+        assert!(!LiftScreen::default().pose_gated(50));
+        // below the regular screen: within the gate -> exact (Pass); above -> gate refusal
+        assert_eq!(
+            s.decide_gated(&m(2, 10, 50, true), false, false),
+            ScreenDecision::Pass
+        );
+        assert!(
+            matches!(s.decide_gated(&m(20, 300, 50, true), false, false),
+            ScreenDecision::Refuse(r) if r.starts_with(POSE_GATE_REFUSAL))
+        );
+        assert!(matches!(s.decide_gated(&m(2, 10, 50, false), false, false),
+            ScreenDecision::Refuse(r) if r.starts_with(POSE_GATE_REFUSAL)));
+        // screened traces within the gate keep the regular decision
+        let heavy = LiftScreen {
+            max_rhs_terms: 5,
+            ..s
+        };
+        assert!(
+            matches!(heavy.decide_gated(&m(2, 10, 700, true), false, true),
+            ScreenDecision::Refuse(r) if !r.starts_with(POSE_GATE_REFUSAL))
+        );
     }
 
     #[test]

@@ -394,6 +394,20 @@ impl OracleCase {
         equations: &[String],
         seed: u64,
     ) -> Result<Self, String> {
+        Self::new_centred(fam, fixed, equations, seed, None)
+    }
+
+    /// Like [`Self::new`], but the seeds are the radius-1 ball around the case point displaced by `centre`
+    /// (`None` = no displacement). The displaced ball of an affine case is the depth-2 seed shell of
+    /// [`super::affine`]: rows from one layer `l(n) = +-1` next to the face, where the face's own depth-1 relations
+    /// are degenerate. Keys, sectors and eligible pivots stay relative to the case point.
+    pub fn new_centred(
+        fam: &OracleFamily,
+        fixed: &[Option<i64>],
+        equations: &[String],
+        seed: u64,
+        centre: Option<&[i32]>,
+    ) -> Result<Self, String> {
         let n = fam.n;
         if fixed.len() != n {
             return Err(format!("case arity {} != {n}", fixed.len()));
@@ -412,7 +426,7 @@ impl OracleCase {
             })
             .collect();
         let d = rng.val();
-        Self::new_at(fam, fixed, &eqs, &point, d)
+        Self::new_at_centred(fam, fixed, &eqs, &point, d, centre)
     }
 
     /// The case evaluated at an explicit point: `point[i]` (mod p) on every free axis that the equations do not
@@ -423,6 +437,18 @@ impl OracleCase {
         eqs: &[(Vec<i64>, i64)],
         point: &[u64],
         d: u64,
+    ) -> Result<Self, String> {
+        Self::new_at_centred(fam, fixed, eqs, point, d, None)
+    }
+
+    /// [`Self::new_at`] with the seed ball displaced by `centre` (see [`Self::new_centred`]).
+    pub fn new_at_centred(
+        fam: &OracleFamily,
+        fixed: &[Option<i64>],
+        eqs: &[(Vec<i64>, i64)],
+        point: &[u64],
+        d: u64,
+        centre: Option<&[i32]>,
     ) -> Result<Self, String> {
         let n = fam.n;
         let eqs = eqs.to_vec();
@@ -468,13 +494,21 @@ impl OracleCase {
             keys: Vec::new(),
             rows: Vec::new(),
         };
-        // seeds: the case point and its admissible +-1 neighbours
-        let mut seeds = vec![vec![0i32; n]];
+        // seeds: the (displaced) case point and its admissible +-1 neighbours
+        let c0: Vec<i32> = match centre {
+            Some(c) if c.len() == n => c.to_vec(),
+            Some(c) => return Err(format!("centre arity {} != {n}", c.len())),
+            None => vec![0i32; n],
+        };
+        let mut seeds = Vec::new();
+        if case.admissible_seed(fam, &c0) {
+            seeds.push(c0.clone());
+        }
         for i in 0..n {
             for dl in [1, -1] {
-                let mut t = vec![0i32; n];
-                t[i] = dl;
-                if case.admissible_seed(fam, &t) {
+                let mut t = c0.clone();
+                t[i] += dl;
+                if !seeds.contains(&t) && case.admissible_seed(fam, &t) {
                     seeds.push(t);
                 }
             }
@@ -514,6 +548,11 @@ impl OracleCase {
             }
         }
         Ok(case)
+    }
+
+    /// Rows of the seed set (for diagnostics).
+    pub fn rows(&self) -> usize {
+        self.rows.len()
     }
 
     fn admissible_seed(&self, fam: &OracleFamily, s: &[i32]) -> bool {
@@ -1064,6 +1103,10 @@ pub struct PredictOptions {
     /// rules of five regenerated tables). Off: the summed trace rows (session-1 behaviour).
     #[serde(default)]
     pub size_stage: bool,
+    /// Score affine cases (cases with equations) without a depth-1 rule by their displaced-ball depth-2 relation
+    /// ([`super::affine`]): a small one costs 5 % of the case weight instead of 100 %. Off = the depth-1 objective.
+    #[serde(default)]
+    pub affine_depth2: bool,
 }
 
 impl Default for PredictOptions {
@@ -1073,6 +1116,7 @@ impl Default for PredictOptions {
             rounds: 8,
             seed: 7,
             size_stage: false,
+            affine_depth2: false,
         }
     }
 }
@@ -1092,6 +1136,10 @@ pub struct Prediction {
     pub no_depth1: [usize; 2],
     pub no_depth1_hard: [usize; 2],
     pub no_depth1_big: [usize; 2],
+    /// with `affine_depth2`: affine cases (of the scored set) WITHOUT a small depth-1 or displaced-ball relation,
+    /// [base, predicted]
+    #[serde(default)]
+    pub affine_not_small: [usize; 2],
     pub order: super::order::NodeOrder,
 }
 
@@ -1155,6 +1203,42 @@ pub fn predict_with(
             .copied()
             .unwrap_or(1.0 + cases[i].bytes as f64 / 1e6)
     };
+    let affine: HashMap<usize, super::affine::AffinePrepared> = if opts.affine_depth2 {
+        hard.iter()
+            .chain(easy.iter())
+            .copied()
+            .filter(|&i| !cases[i].equations.is_empty())
+            .map(|i| {
+                super::affine::AffinePrepared::new(
+                    fam,
+                    &cases[i].fixed,
+                    &cases[i].equations,
+                    1 + i as u64,
+                )
+                .map(|p| (i, p))
+            })
+            .collect::<Result<_, _>>()?
+    } else {
+        HashMap::new()
+    };
+    if opts.affine_depth2 {
+        log(&format!(
+            "affine depth-2 scoring on {} cases with equations",
+            affine.len()
+        ));
+    }
+    // cost of a case without a depth-1 rule: its weight, or 5 % of it for an affine case with a small displaced-ball
+    // relation under `prio`
+    let no_d1_cost = |i: usize, prio: &[usize], w: f64| -> f64 {
+        match affine.get(&i).and_then(|p| p.best_shifted(prio)) {
+            Some((_, d))
+                if d.trace <= super::affine::SMALL_TRACE && d.rhs <= super::affine::SMALL_RHS =>
+            {
+                0.05 * w
+            }
+            _ => w,
+        }
+    };
     let score = |prio: &[usize]| -> (f64, usize) {
         let mut miss = 0.0;
         let mut tr = 0;
@@ -1167,12 +1251,12 @@ pub fn predict_with(
                     d.trace
                 };
             } else {
-                miss += weight(i);
+                miss += no_d1_cost(i, prio, weight(i));
             }
         }
         for &i in &easy {
             if !prepared[i].depth1(prio).rule {
-                miss += 1.0;
+                miss += no_d1_cost(i, prio, 1.0);
             }
         }
         (miss, tr)
@@ -1297,6 +1381,18 @@ pub fn predict_with(
     };
     let hard_set: HashSet<usize> = hard.iter().copied().collect();
     let big = |i: usize| cases[i].bytes > 28_000_000;
+    let not_small = |prio: &[usize]| {
+        affine
+            .iter()
+            .filter(|(i, p)| {
+                !prepared[**i].depth1(prio).rule
+                    && !p.best_shifted(prio).is_some_and(|(_, d)| {
+                        d.trace <= super::affine::SMALL_TRACE && d.rhs <= super::affine::SMALL_RHS
+                    })
+            })
+            .count()
+    };
+    let affine_not_small = [not_small(base), not_small(&cur)];
     Ok(Prediction {
         base: base.to_vec(),
         predicted: cur.clone(),
@@ -1312,6 +1408,7 @@ pub fn predict_with(
             count(&at_pred, &|i| hard_set.contains(&i)),
         ],
         no_depth1_big: [count(&at_base, &big), count(&at_pred, &big)],
+        affine_not_small,
         order: super::order::NodeOrder {
             name: "predicted".into(),
             slot_permutation: None,

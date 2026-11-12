@@ -48,6 +48,12 @@ pub const NODE_SCHEMA: &str = "rustred.node.v1";
 #[serde(rename_all = "kebab-case")]
 pub enum CaseSeedPriority {
     SymbolicIspFirst,
+    /// AFFINE FACES (affine-faces, 2026-11-11): on a case with equations the template's shells are searched with
+    /// the equation-COUPLED free axes first (free axes whose unit shift is not tangent to the face), so that the
+    /// first sources are the neighbours `T + u + e_y` of one layer `l(n) = +-1` next to the face, where the face's
+    /// own depth-1 relations are degenerate; cases WITHOUT equations keep the default seed path unchanged.
+    /// Use with a `ShiftShells` template of depths 2..2 (notes/affine-faces.md: T210 #2211 3.5M -> 52 monomials).
+    AffineCoupledFirst,
 }
 
 impl CaseSeedPriority {
@@ -123,6 +129,18 @@ pub struct NodeOptions {
     /// Default-pose cost at or below which the rung keeps the default without probing alternatives.
     #[serde(default = "seed_pose_keep_default")]
     pub seed_pose_keep: f64,
+    /// seed-rung (overhead cut): the rung no longer measures every case with a separate refuse-all search. The
+    /// node's normal search runs with a seed-pose GATE on its screen ([`super::screen::LiftScreen::pose_gate`]):
+    /// only a case whose default relation costs more than this triggers the portfolio (the default's cost is the
+    /// gate's own measurement). `None` = the seed-pose agent's behaviour (measure every case first).
+    #[serde(
+        default = "seed_pose_trigger_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub seed_pose_trigger: Option<f64>,
+    /// Smallest trace (rows) the gate measures; smaller traces lift as without the rung.
+    #[serde(default = "seed_pose_min_rows_default")]
+    pub seed_pose_min_rows: usize,
     /// Lift ladder rung 1 (coordinator ruling 2026-11-11T04:17Z): a case whose lift the screen refused is searched
     /// again with the `SymbolicFirst` seed schedule (same presentation, same seed ball) before other source orders;
     /// the order portfolio (node level, [`super::auto`]) is the next rung.
@@ -171,6 +189,14 @@ pub struct NodeOptions {
 
 fn seed_pose_keep_default() -> f64 {
     5_000.0
+}
+
+fn seed_pose_trigger_default() -> Option<f64> {
+    Some(50_000.0)
+}
+
+fn seed_pose_min_rows_default() -> usize {
+    8
 }
 
 fn three() -> usize {
@@ -229,6 +255,8 @@ impl Default for NodeOptions {
             pose_probe: None,
             seed_pose_rung: false,
             seed_pose_keep: seed_pose_keep_default(),
+            seed_pose_trigger: seed_pose_trigger_default(),
+            seed_pose_min_rows: seed_pose_min_rows_default(),
             symbolic_first_rung: true,
             empty_domain_check: true,
             max_rule_monomials: None,
@@ -456,7 +484,58 @@ pub fn parse_case_seed_schedule(text: &str, arity: usize) -> Result<CaseSeedSche
     Ok(schedule)
 }
 
+/// The schedule of one current case under `priority`; `None` = the default seed path (only
+/// [`CaseSeedPriority::AffineCoupledFirst`] on a case without equations).
 fn resolve_case_seed_schedule<const N: usize>(
+    priority: CaseSeedPriority,
+    template: Option<&CaseSeedSchedule>,
+    case: &Case<N>,
+    physical: &[bool; N],
+) -> Result<Option<CaseSeedSchedule>, SolverError> {
+    if priority == CaseSeedPriority::AffineCoupledFirst {
+        priority
+            .validate_template(template, N)
+            .map_err(SolverError::InvalidInput)?;
+        let Some(affine) = case.affine() else {
+            return Ok(None);
+        };
+        let Some(CaseSeedSchedule::ShiftShells {
+            first_depth,
+            last_depth,
+            axis_priority,
+            positive_first,
+        }) = template
+        else {
+            return Err(SolverError::InvalidInput(
+                "case seed priority requires ShiftShells".into(),
+            ));
+        };
+        let coupled = |axis: usize| {
+            case.fixed()[axis].is_none() && {
+                let mut unit = [0i16; N];
+                unit[axis] = 1;
+                !affine.is_tangent(&unit)
+            }
+        };
+        let axis_priority: Vec<usize> = axis_priority
+            .iter()
+            .copied()
+            .filter(|&a| coupled(a))
+            .chain(axis_priority.iter().copied().filter(|&a| !coupled(a)))
+            .collect();
+        let resolved = CaseSeedSchedule::ShiftShells {
+            first_depth: *first_depth,
+            last_depth: *last_depth,
+            axis_priority,
+            positive_first: *positive_first,
+        };
+        resolved.validate(N)?;
+        return Ok(Some(resolved));
+    }
+    resolve_symbolic_isp_first(priority, template, case, physical).map(Some)
+}
+
+fn resolve_symbolic_isp_first<const N: usize>(
     priority: CaseSeedPriority,
     template: Option<&CaseSeedSchedule>,
     case: &Case<N>,
@@ -511,9 +590,12 @@ fn log_case_seed_schedule<const N: usize>(
     let Some(priority) = opts.case_seed_priority else {
         return Ok(());
     };
-    let resolved =
+    let Some(resolved) =
         resolve_case_seed_schedule(priority, opts.case_seed_schedule.as_ref(), case, physical)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
     writeln!(
         out,
         "{{\"type\":\"case_seed_schedule_resolved\",\"frame\":\"presented\",\"case\":{},\"policy\":{},\"physical_mask\":{},\"schedule\":{}}}",
@@ -1310,16 +1392,7 @@ fn start_watchdog(budget: u64, spill: PathBuf) {
 /// Cost proxy of a measured relation: RHS terms x dense coefficient box C(deg + v, v) (deg = max(num, den) total
 /// degree, v = active variables); a direct hit costs its RHS; a non-converged degree probe is infinite.
 pub fn relation_cost(m: &super::screen::ScreenMeasure) -> f64 {
-    if !m.converged {
-        return f64::INFINITY;
-    }
-    let d = m.max_num_degree.max(m.max_den_degree) as f64;
-    let v = m.variables;
-    let mut c = 1.0f64;
-    for i in 1..=v {
-        c = c * (d + i as f64) / i as f64;
-    }
-    m.rhs_terms as f64 * c
+    m.cost()
 }
 
 /// The seed-pose portfolio of a case (seed-pose agent, R3a): label, case seed schedule, in-shell order.
@@ -1362,7 +1435,33 @@ pub fn seed_pose_portfolio<const N: usize>(
     // included) on 19/19 + 39/41 cases (the default alone: 3/19 + 21/41).
     let reversed: Vec<usize> = (0..N).rev().collect();
     let _ = (&natural, sym(2, &natural, false));
-    vec![
+    let mut poses: Vec<(String, CaseSeedSchedule, SeedScheduleName)> = Vec::new();
+    // seed-rung: the AFFINE pose (affine-faces R2a, AffineCoupledFirst): on a case with equations, shell 2 with the
+    // equation-COUPLED free axes first (unit shift not tangent to the face), then the other free axes, then the fixed
+    // ones; first in the portfolio of an affine case (T210 #2211 3.5M -> 52 monomials, T255 faces 23-104).
+    if let Some(affine) = case.affine() {
+        let coupled = |axis: usize| {
+            fixed[axis].is_none() && {
+                let mut unit = [0i16; N];
+                unit[axis] = 1;
+                !affine.is_tangent(&unit)
+            }
+        };
+        let coupled_first: Vec<usize> = free_first
+            .iter()
+            .copied()
+            .filter(|&a| coupled(a))
+            .chain(free_first.iter().copied().filter(|&a| !coupled(a)))
+            .collect();
+        if coupled_first.iter().any(|&a| coupled(a)) {
+            poses.push((
+                "shell2-coupled+|spired".into(),
+                shell2(&coupled_first, true),
+                Spired,
+            ));
+        }
+    }
+    poses.extend([
         ("ref|sf".into(), CaseSeedSchedule::Reference, SymbolicFirst),
         ("ref|dots".into(), CaseSeedSchedule::Reference, DotsFirst),
         ("sym1-rev+|spired".into(), sym(1, &reversed, true), Spired),
@@ -1371,7 +1470,8 @@ pub fn seed_pose_portfolio<const N: usize>(
             shell2(&free_first, true),
             Spired,
         ),
-    ]
+    ]);
+    poses
 }
 
 /// Result of the seed-pose rung.
@@ -1435,24 +1535,28 @@ pub fn choose_seed_pose<const N: usize>(
     phys: &[bool; N],
     node_in_shell: SeedScheduleName,
     keep: f64,
+    known_default: Option<f64>,
 ) -> Option<SeedPoseChoice> {
     let t = Instant::now();
-    let default_cost = measure_pose(
-        solver,
-        case,
-        options,
-        visit,
-        &CaseSeedSchedule::Reference,
-        node_in_shell,
-    )
-    .unwrap_or(f64::INFINITY);
+    // seed-rung: the gated normal search already measured the default relation (no second search for it)
+    let default_cost = known_default.unwrap_or_else(|| {
+        measure_pose(
+            solver,
+            case,
+            options,
+            visit,
+            &CaseSeedSchedule::Reference,
+            node_in_shell,
+        )
+        .unwrap_or(f64::INFINITY)
+    });
     let mut best = SeedPoseChoice {
         label: "default".into(),
         schedule: CaseSeedSchedule::Reference,
         in_shell: node_in_shell,
         cost: default_cost,
         default_cost,
-        probes: 1,
+        probes: usize::from(known_default.is_none()),
         seconds: 0.0,
     };
     if default_cost > keep {
@@ -2223,25 +2327,103 @@ fn run<const N: usize>(
             }
             s
         });
-        let mut raw: Option<Integral<N>> = None;
-        let mut started: Option<Instant> = None;
-        let mut lift = 0.0f64;
+        // one search: in-shell seed override, explicit case seed pose (seed-pose rung), screen
+        let attempt = |seeds: Option<crate::solver::SeedSchedule>,
+                       pose: Option<&CaseSeedSchedule>,
+                       screen: Option<LiftScreen>|
+         -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
+            let mut raw: Option<Integral<N>> = None;
+            let mut started: Option<Instant> = None;
+            let mut lift = 0.0f64;
+            let result = super::screen::with_seed_schedule(seeds, || {
+                super::screen::with_screen(screen, || {
+                    let observe = |event: SearchEvent<N>| match event {
+                        SearchEvent::ExactStarted {
+                            pivot, trace_rows, ..
+                        } => {
+                            raw = Some(pivot);
+                            started = Some(Instant::now());
+                            eprintln!(
+                                "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
+                                t2.elapsed().as_secs_f64()
+                            );
+                        }
+                        SearchEvent::CanonicalizationStarted { .. } => {
+                            if let Some(s) = started {
+                                lift = s.elapsed().as_secs_f64();
+                            }
+                        }
+                        _ => {}
+                    };
+                    let resolved = opts
+                        .case_seed_priority
+                        .map(|priority| {
+                            resolve_case_seed_schedule(
+                                priority,
+                                opts.case_seed_schedule.as_ref(),
+                                case,
+                                &top,
+                            )
+                        })
+                        .transpose()?
+                        .flatten();
+                    // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
+                    let fallback = if opts.case_seed_priority.is_some() {
+                        None
+                    } else {
+                        opts.case_seed_schedule.as_ref()
+                    };
+                    if let Some(schedule) = pose.or(resolved.as_ref()).or(fallback) {
+                        let visit = so.visit(nb);
+                        solver.solve_case_with_schedule_and_observer(
+                            case.clone(),
+                            options,
+                            visit.as_deref(),
+                            schedule,
+                            observe,
+                        )
+                    } else {
+                        match so.visit(nb) {
+                            None => solver.solve_case_with_observer(case.clone(), options, observe),
+                            Some(order) => solver.solve_case_with_source_order_and_observer(
+                                case.clone(),
+                                options,
+                                &order,
+                                observe,
+                            ),
+                        }
+                    }
+                })
+            });
+            let reports = super::screen::take_reports();
+            (
+                result.map(|candidate| Searched {
+                    candidate,
+                    raw_pivot: raw,
+                    lift_seconds: lift,
+                    source_order: so.label(),
+                }),
+                reports,
+            )
+        };
         // automatic seed-pose rung (first variant of a case only; default off)
-        let mut seeds = seeds;
-        let mut pose: Option<CaseSeedSchedule> = None;
         if opts.seed_pose_rung && seeds.is_none() && large_gate {
             let visit = so.visit(nb);
-            if let Some(choice) = choose_seed_pose(
-                &solver,
-                case,
-                options,
-                visit.as_deref(),
-                &top,
-                opts.seed_schedule,
-                opts.seed_pose_keep,
-            ) {
+            let rung_choice = |known: Option<f64>| {
+                choose_seed_pose(
+                    &solver,
+                    case,
+                    options,
+                    visit.as_deref(),
+                    &top,
+                    opts.seed_schedule,
+                    opts.seed_pose_keep,
+                    known,
+                )
+            };
+            let report = |choice: &SeedPoseChoice, gated: bool| {
                 eprintln!(
-                    "EVENT {:.3}s SeedPose chosen={} cost={:.3e} default_cost={:.3e} probes={} probe_seconds={:.2}",
+                    "EVENT {:.3}s SeedPose chosen={} cost={:.3e} default_cost={:.3e} probes={} probe_seconds={:.2} gated={gated}",
                     t2.elapsed().as_secs_f64(),
                     choice.label,
                     choice.cost,
@@ -2249,79 +2431,72 @@ fn run<const N: usize>(
                     choice.probes,
                     choice.seconds
                 );
-                if choice.label != "default" {
-                    seeds = Some(choice.in_shell.schedule());
-                    pose = Some(choice.schedule);
-                }
-            }
-        }
-        let result = super::screen::with_seed_schedule(seeds, || {
-            super::screen::with_screen(screen, || {
-                let observe = |event: SearchEvent<N>| match event {
-                    SearchEvent::ExactStarted {
-                        pivot, trace_rows, ..
-                    } => {
-                        raw = Some(pivot);
-                        started = Some(Instant::now());
-                        eprintln!(
-                            "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
-                            t2.elapsed().as_secs_f64()
+            };
+            let Some(trigger) = opts.seed_pose_trigger else {
+                // seed-pose agent's rung: measure the default with a separate refuse-all search on every case
+                if let Some(choice) = rung_choice(None) {
+                    report(&choice, false);
+                    if choice.label != "default" {
+                        return attempt(
+                            Some(choice.in_shell.schedule()),
+                            Some(&choice.schedule),
+                            screen,
                         );
                     }
-                    SearchEvent::CanonicalizationStarted { .. } => {
-                        if let Some(s) = started {
-                            lift = s.elapsed().as_secs_f64();
-                        }
-                    }
-                    _ => {}
-                };
-                let resolved = opts
-                    .case_seed_priority
-                    .map(|priority| {
-                        resolve_case_seed_schedule(
-                            priority,
-                            opts.case_seed_schedule.as_ref(),
-                            case,
-                            &top,
-                        )
-                    })
-                    .transpose()?;
-                if let Some(schedule) = pose
-                    .as_ref()
-                    .or(resolved.as_ref())
-                    .or(opts.case_seed_schedule.as_ref())
-                {
-                    let visit = so.visit(nb);
-                    solver.solve_case_with_schedule_and_observer(
-                        case.clone(),
-                        options,
-                        visit.as_deref(),
-                        schedule,
-                        observe,
-                    )
-                } else {
-                    match so.visit(nb) {
-                        None => solver.solve_case_with_observer(case.clone(), options, observe),
-                        Some(order) => solver.solve_case_with_source_order_and_observer(
-                            case.clone(),
-                            options,
-                            &order,
-                            observe,
-                        ),
-                    }
                 }
-            })
-        });
-        let reports = super::screen::take_reports();
-        (
-            result.map(|candidate| Searched {
-                candidate,
-                raw_pivot: raw,
-                lift_seconds: lift,
-                source_order: so.label(),
-            }),
-            reports,
-        )
+                return attempt(seeds, None, screen);
+            };
+            // seed-rung: the normal search with the seed-pose gate on its screen; only a default relation costing more
+            // than the trigger is refused by the gate (its measure is the default's cost) and goes to the portfolio
+            let gated = screen.unwrap_or(LiftScreen {
+                min_rows: usize::MAX,
+                min_target_block: usize::MAX,
+                on_heavy: super::screen::HeavyAction::Proceed,
+                symbolic_first_from_rows: None,
+                sampled_from_rows: None,
+                ..LiftScreen::default()
+            });
+            let gated = LiftScreen {
+                pose_gate: Some(trigger.max(0.0) as u64),
+                pose_gate_min_rows: opts.seed_pose_min_rows,
+                ..gated
+            };
+            let (result, mut reports) = attempt(seeds, None, Some(gated));
+            let gate_cost = reports.iter().find_map(|r| match &r.decision {
+                super::screen::ScreenDecision::Refuse(why)
+                    if why.starts_with(super::screen::POSE_GATE_REFUSAL) =>
+                {
+                    Some(r.measure.cost())
+                }
+                _ => None,
+            });
+            let Some(default_cost) = gate_cost else {
+                return (result, reports);
+            };
+            // the gate's refusal is not a screen verdict on the case: drop it from the reports
+            reports.retain(|r| {
+                !matches!(&r.decision, super::screen::ScreenDecision::Refuse(why) if why.starts_with(super::screen::POSE_GATE_REFUSAL))
+            });
+            let (result, more) = match rung_choice(Some(default_cost)) {
+                Some(choice) if choice.label != "default" => {
+                    report(&choice, true);
+                    attempt(
+                        Some(choice.in_shell.schedule()),
+                        Some(&choice.schedule),
+                        screen,
+                    )
+                }
+                choice => {
+                    if let Some(c) = choice {
+                        report(&c, true);
+                    }
+                    attempt(seeds, None, screen)
+                }
+            };
+            reports.extend(more);
+            return (result, reports);
+        }
+        attempt(seeds, None, screen)
     };
     let mut symbolic_cases = 0usize;
     while !pending.is_empty() {
@@ -4022,6 +4197,7 @@ mod tests {
             &case,
             &physical,
         )
+        .unwrap()
         .unwrap();
         let explicit = CaseSeedSchedule::ShiftShells {
             first_depth: 2,
@@ -4044,7 +4220,7 @@ mod tests {
                 &physical
             )
             .unwrap(),
-            template
+            Some(template.clone())
         );
         let opts = NodeOptions {
             case_seed_schedule: Some(template),
@@ -4085,6 +4261,7 @@ mod tests {
             &affine,
             &physical,
         )
+        .unwrap()
         .unwrap();
         assert_eq!(
             actual,
@@ -4094,6 +4271,86 @@ mod tests {
                 axis_priority: vec![5, 3, 0, 2, 4, 1],
                 positive_first: false,
             }
+        );
+    }
+
+    #[test]
+    fn seed_pose_portfolio_puts_the_coupled_axes_pose_first_on_affine_cases() {
+        let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
+            .unwrap();
+        let physical = [true, true, true, false, false, false];
+        let spec = CaseSpec {
+            fixed: vec![None, Some(1), None, None, Some(0), None],
+            equations: vec!["n3-n5".into()],
+        };
+        let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
+            .unwrap()
+            .unwrap();
+        let p = seed_pose_portfolio(&affine, &physical);
+        assert_eq!(p.len(), 5);
+        assert_eq!(p[0].0, "shell2-coupled+|spired");
+        assert_eq!(
+            p[0].1,
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 2,
+                last_depth: 2,
+                axis_priority: vec![3, 5, 0, 2, 1, 4],
+                positive_first: true,
+            }
+        );
+        let coordinate =
+            Case::from(CoordinateCase::new([None, Some(1), None, None, Some(0), None]).unwrap());
+        let q = seed_pose_portfolio(&coordinate, &physical);
+        assert_eq!(q.len(), 4);
+        assert_eq!(q[0].0, "ref|sf");
+    }
+
+    #[test]
+    fn affine_coupled_first_orders_coupled_axes_and_declines_coordinate_cases() {
+        let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
+            .unwrap();
+        let physical = [true, true, true, false, false, false];
+        let spec = CaseSpec {
+            fixed: vec![None, Some(1), None, None, Some(0), None],
+            equations: vec!["n3-n5".into()],
+        };
+        let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
+            .unwrap()
+            .unwrap();
+        let template = CaseSeedSchedule::ShiftShells {
+            first_depth: 2,
+            last_depth: 2,
+            axis_priority: vec![4, 1, 5, 0, 3, 2],
+            positive_first: false,
+        };
+        let p = CaseSeedPriority::AffineCoupledFirst;
+        assert_eq!(
+            resolve_case_seed_schedule(p, Some(&template), &affine, &physical).unwrap(),
+            Some(CaseSeedSchedule::ShiftShells {
+                first_depth: 2,
+                last_depth: 2,
+                axis_priority: vec![5, 3, 4, 1, 0, 2],
+                positive_first: false,
+            })
+        );
+        let coordinate =
+            Case::from(CoordinateCase::new([None, Some(1), None, None, Some(0), None]).unwrap());
+        assert_eq!(
+            resolve_case_seed_schedule(p, Some(&template), &coordinate, &physical).unwrap(),
+            None
+        );
+        // a declined case writes no resolution record
+        let opts = NodeOptions {
+            case_seed_schedule: Some(template),
+            case_seed_priority: Some(p),
+            ..NodeOptions::default()
+        };
+        let mut bytes = Vec::new();
+        log_case_seed_schedule(&mut bytes, &opts, &coordinate, &physical, 6).unwrap();
+        assert!(bytes.is_empty());
+        assert_eq!(
+            serde_json::to_string(&p).unwrap(),
+            "\"affine-coupled-first\""
         );
     }
 
