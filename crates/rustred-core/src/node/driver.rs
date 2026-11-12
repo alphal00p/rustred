@@ -48,6 +48,12 @@ pub const NODE_SCHEMA: &str = "rustred.node.v1";
 #[serde(rename_all = "kebab-case")]
 pub enum CaseSeedPriority {
     SymbolicIspFirst,
+    /// AFFINE FACES (affine-faces, 2026-11-11): on a case with equations the template's shells are searched with
+    /// the equation-COUPLED free axes first (free axes whose unit shift is not tangent to the face), so that the
+    /// first sources are the neighbours `T + u + e_y` of one layer `l(n) = +-1` next to the face, where the face's
+    /// own depth-1 relations are degenerate; cases WITHOUT equations keep the default seed path unchanged.
+    /// Use with a `ShiftShells` template of depths 2..2 (notes/affine-faces.md: T210 #2211 3.5M -> 52 monomials).
+    AffineCoupledFirst,
 }
 
 impl CaseSeedPriority {
@@ -431,7 +437,58 @@ pub fn parse_case_seed_schedule(text: &str, arity: usize) -> Result<CaseSeedSche
     Ok(schedule)
 }
 
+/// The schedule of one current case under `priority`; `None` = the default seed path (only
+/// [`CaseSeedPriority::AffineCoupledFirst`] on a case without equations).
 fn resolve_case_seed_schedule<const N: usize>(
+    priority: CaseSeedPriority,
+    template: Option<&CaseSeedSchedule>,
+    case: &Case<N>,
+    physical: &[bool; N],
+) -> Result<Option<CaseSeedSchedule>, SolverError> {
+    if priority == CaseSeedPriority::AffineCoupledFirst {
+        priority
+            .validate_template(template, N)
+            .map_err(SolverError::InvalidInput)?;
+        let Some(affine) = case.affine() else {
+            return Ok(None);
+        };
+        let Some(CaseSeedSchedule::ShiftShells {
+            first_depth,
+            last_depth,
+            axis_priority,
+            positive_first,
+        }) = template
+        else {
+            return Err(SolverError::InvalidInput(
+                "case seed priority requires ShiftShells".into(),
+            ));
+        };
+        let coupled = |axis: usize| {
+            case.fixed()[axis].is_none() && {
+                let mut unit = [0i16; N];
+                unit[axis] = 1;
+                !affine.is_tangent(&unit)
+            }
+        };
+        let axis_priority: Vec<usize> = axis_priority
+            .iter()
+            .copied()
+            .filter(|&a| coupled(a))
+            .chain(axis_priority.iter().copied().filter(|&a| !coupled(a)))
+            .collect();
+        let resolved = CaseSeedSchedule::ShiftShells {
+            first_depth: *first_depth,
+            last_depth: *last_depth,
+            axis_priority,
+            positive_first: *positive_first,
+        };
+        resolved.validate(N)?;
+        return Ok(Some(resolved));
+    }
+    resolve_symbolic_isp_first(priority, template, case, physical).map(Some)
+}
+
+fn resolve_symbolic_isp_first<const N: usize>(
     priority: CaseSeedPriority,
     template: Option<&CaseSeedSchedule>,
     case: &Case<N>,
@@ -486,9 +543,12 @@ fn log_case_seed_schedule<const N: usize>(
     let Some(priority) = opts.case_seed_priority else {
         return Ok(());
     };
-    let resolved =
+    let Some(resolved) =
         resolve_case_seed_schedule(priority, opts.case_seed_schedule.as_ref(), case, physical)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
     writeln!(
         out,
         "{{\"type\":\"case_seed_schedule_resolved\",\"frame\":\"presented\",\"case\":{},\"policy\":{},\"physical_mask\":{},\"schedule\":{}}}",
@@ -1870,8 +1930,15 @@ fn run<const N: usize>(
                             &top,
                         )
                     })
-                    .transpose()?;
-                if let Some(schedule) = resolved.as_ref().or(opts.case_seed_schedule.as_ref()) {
+                    .transpose()?
+                    .flatten();
+                // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
+                let fallback = if opts.case_seed_priority.is_some() {
+                    None
+                } else {
+                    opts.case_seed_schedule.as_ref()
+                };
+                if let Some(schedule) = resolved.as_ref().or(fallback) {
                     let visit = so.visit(nb);
                     solver.solve_case_with_schedule_and_observer(
                         case.clone(),
@@ -3603,6 +3670,7 @@ mod tests {
             &case,
             &physical,
         )
+        .unwrap()
         .unwrap();
         let explicit = CaseSeedSchedule::ShiftShells {
             first_depth: 2,
@@ -3625,7 +3693,7 @@ mod tests {
                 &physical
             )
             .unwrap(),
-            template
+            Some(template.clone())
         );
         let opts = NodeOptions {
             case_seed_schedule: Some(template),
@@ -3666,6 +3734,7 @@ mod tests {
             &affine,
             &physical,
         )
+        .unwrap()
         .unwrap();
         assert_eq!(
             actual,
@@ -3675,6 +3744,55 @@ mod tests {
                 axis_priority: vec![5, 3, 0, 2, 4, 1],
                 positive_first: false,
             }
+        );
+    }
+
+    #[test]
+    fn affine_coupled_first_orders_coupled_axes_and_declines_coordinate_cases() {
+        let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
+            .unwrap();
+        let physical = [true, true, true, false, false, false];
+        let spec = CaseSpec {
+            fixed: vec![None, Some(1), None, None, Some(0), None],
+            equations: vec!["n3-n5".into()],
+        };
+        let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
+            .unwrap()
+            .unwrap();
+        let template = CaseSeedSchedule::ShiftShells {
+            first_depth: 2,
+            last_depth: 2,
+            axis_priority: vec![4, 1, 5, 0, 3, 2],
+            positive_first: false,
+        };
+        let p = CaseSeedPriority::AffineCoupledFirst;
+        assert_eq!(
+            resolve_case_seed_schedule(p, Some(&template), &affine, &physical).unwrap(),
+            Some(CaseSeedSchedule::ShiftShells {
+                first_depth: 2,
+                last_depth: 2,
+                axis_priority: vec![5, 3, 4, 1, 0, 2],
+                positive_first: false,
+            })
+        );
+        let coordinate =
+            Case::from(CoordinateCase::new([None, Some(1), None, None, Some(0), None]).unwrap());
+        assert_eq!(
+            resolve_case_seed_schedule(p, Some(&template), &coordinate, &physical).unwrap(),
+            None
+        );
+        // a declined case writes no resolution record
+        let opts = NodeOptions {
+            case_seed_schedule: Some(template),
+            case_seed_priority: Some(p),
+            ..NodeOptions::default()
+        };
+        let mut bytes = Vec::new();
+        log_case_seed_schedule(&mut bytes, &opts, &coordinate, &physical, 6).unwrap();
+        assert!(bytes.is_empty());
+        assert_eq!(
+            serde_json::to_string(&p).unwrap(),
+            "\"affine-coupled-first\""
         );
     }
 

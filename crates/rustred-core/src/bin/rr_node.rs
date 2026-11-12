@@ -6,7 +6,7 @@
 //!                  [--native-try S] [--no-content-fallback] [--admit-try S] [--no-screen] [--screen MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS]
 //!                  [--on-heavy auto|refuse|sampled|proceed] [--sampled-from-rows R] [--retry-source-orders reverse,rot:7]
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
-//!                  [--case-seed-priority symbolic-isp-first]
+//!                  [--case-seed-priority symbolic-isp-first|affine-coupled-first] [--affine-rung]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
 //!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE]
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
@@ -222,7 +222,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if let Some(v) = a.take("--case-seed-priority") {
         o.case_seed_priority = Some(match v.as_str() {
             "symbolic-isp-first" => CaseSeedPriority::SymbolicIspFirst,
-            _ => die("--case-seed-priority symbolic-isp-first"),
+            "affine-coupled-first" => CaseSeedPriority::AffineCoupledFirst,
+            _ => die("--case-seed-priority symbolic-isp-first|affine-coupled-first"),
         });
     }
     if let Some(priority) = o.case_seed_priority {
@@ -354,6 +355,9 @@ fn probe_options(a: &mut Args) -> ProbeOptions {
     }
     if let Some(k) = a.parse("--probe-follow-on") {
         p.follow_on = k;
+    }
+    if a.flag("--affine-rung") {
+        p.affine_rung = true;
     }
     p
 }
@@ -583,6 +587,9 @@ fn cmd_predict(mut a: Args) -> i32 {
     if let Some(k) = a.parse("--rounds") {
         opts.rounds = k;
     }
+    if a.flag("--affine-depth2") {
+        opts.affine_depth2 = true;
+    }
     a.done();
     let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
     let cases = match (table, cases_path) {
@@ -613,6 +620,10 @@ fn cmd_predict(mut a: Args) -> i32 {
     .unwrap_or_else(|e| die(&e));
     let _ = std::fs::write(&out, serde_json::to_string_pretty(&p).unwrap());
     println!("{}", p.order.to_json());
+    eprintln!(
+        "[rr_node predict] affine cases without a small depth-1/depth-2 relation: base {} -> predicted {}",
+        p.affine_not_small[0], p.affine_not_small[1]
+    );
     eprintln!(
         "[rr_node predict] cases {} hard {} | no depth-1: base {} -> predicted {} (hard {} -> {}, big {} -> {})",
         p.cases,
@@ -664,6 +675,49 @@ fn cmd_oracle(mut a: Args) -> i32 {
     0
 }
 
+/// `rr_node affine --family F --case 'SPEC EQS' [--order ORD]...`: depth-1 relation at the case point and the
+/// displaced-ball depth-2 relations ([`rustred::node::affine`]) under each order and under the case's own R1 order.
+fn cmd_affine(mut a: Args) -> i32 {
+    use rustred::node::affine::AffinePrepared;
+    use rustred::node::predict::{OracleFamily, WeightedCase, bfi_case};
+    let family = read(&a.need("--family"));
+    let case = case_arg(&a.need("--case"));
+    let order_texts = a.take_all("--order");
+    a.done();
+    let fam = OracleFamily::parse(&family).unwrap_or_else(|e| die(&e));
+    let mut orders: Vec<(String, Vec<usize>)> = order_texts
+        .iter()
+        .map(|t| {
+            let o = order_arg(t, &family, Some(&case));
+            let prio = o
+                .slot_permutation
+                .clone()
+                .or_else(|| o.coordinate_priority.clone())
+                .unwrap_or_else(|| (0..fam.n).collect());
+            (o.name, prio)
+        })
+        .collect();
+    let wc = WeightedCase {
+        fixed: case.fixed.clone(),
+        equations: case.equations.clone(),
+        bytes: 0,
+    };
+    orders.push((
+        "r1_case".into(),
+        bfi_case(&wc, &fam.phys, &(0..fam.n).collect::<Vec<_>>()),
+    ));
+    let prep =
+        AffinePrepared::new(&fam, &case.fixed, &case.equations, 1).unwrap_or_else(|e| die(&e));
+    for (name, prio) in &orders {
+        let d = prep.diagnose(prio);
+        println!(
+            "{}",
+            serde_json::json!({"order": name, "priority": prio, "small": d.small(), "diagnosis": d})
+        );
+    }
+    0
+}
+
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
@@ -679,6 +733,7 @@ fn main() {
         "replay" => cmd_replay(a),
         "predict" => cmd_predict(a),
         "oracle" => cmd_oracle(a),
+        "affine" => cmd_affine(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

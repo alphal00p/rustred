@@ -42,6 +42,12 @@ pub struct ProbeOptions {
     /// ranking. 0 = off.
     #[serde(default = "default_follow_on")]
     pub follow_on: usize,
+    /// AFFINE RUNG (affine-faces, opt-in): when the stuck case has equations, add the case's own boundary-first (R1)
+    /// order to the variants and run the depth-1 / displaced-ball oracle ([`super::affine`]) on every variant; if no
+    /// variant has a depth-1 relation (an affine face no order reduces at depth 1), skip the futile depth-1 round and
+    /// probe at the fallback depth ONLY the variants with a small displaced-ball relation, smallest first.
+    #[serde(default)]
+    pub affine_rung: bool,
 }
 
 fn default_follow_on() -> usize {
@@ -93,6 +99,7 @@ impl Default for ProbeOptions {
             parallel: 1,
             portfolio: 4,
             follow_on: 6,
+            affine_rung: false,
         }
     }
 }
@@ -474,6 +481,89 @@ fn order_key(o: &NodeOrder, n: usize) -> (Vec<usize>, Option<Vec<usize>>, String
     )
 }
 
+/// The affine rung (see [`ProbeOptions::affine_rung`]): returns the candidates to probe and whether the depth-1
+/// round is futile. Oracle failures leave the candidates unchanged.
+fn affine_rung(
+    family_text: &str,
+    stuck: &CaseSpec,
+    mut candidates: Vec<NodeOrder>,
+    tried: &[(Vec<usize>, Option<Vec<usize>>, String)],
+    n: usize,
+    log: &mut dyn FnMut(&str),
+) -> (Vec<NodeOrder>, bool) {
+    use super::affine::AffinePrepared;
+    use super::predict::{OracleFamily, WeightedCase, bfi_case};
+    let fam = match OracleFamily::parse(family_text) {
+        Ok(f) => f,
+        Err(e) => {
+            log(&format!("affine rung: oracle family: {e}"));
+            return (candidates, false);
+        }
+    };
+    let prep = match AffinePrepared::new(&fam, &stuck.fixed, &stuck.equations, 1) {
+        Ok(p) => p,
+        Err(e) => {
+            log(&format!("affine rung: oracle case: {e}"));
+            return (candidates, false);
+        }
+    };
+    let wc = WeightedCase {
+        fixed: stuck.fixed.clone(),
+        equations: stuck.equations.clone(),
+        bytes: 0,
+    };
+    let r1 = NodeOrder {
+        name: "r1_case".into(),
+        coordinate_priority: Some(bfi_case(&wc, &fam.phys, &(0..n).collect::<Vec<_>>())),
+        ..NodeOrder::identity()
+    };
+    if !tried.contains(&order_key(&r1, n))
+        && !candidates
+            .iter()
+            .any(|c| order_key(c, n) == order_key(&r1, n))
+    {
+        candidates.insert(0, r1);
+    }
+    let prio = |o: &NodeOrder| -> Vec<usize> {
+        o.slot_permutation
+            .clone()
+            .or_else(|| o.coordinate_priority.clone())
+            .unwrap_or_else(|| (0..n).collect())
+    };
+    let diag: Vec<_> = candidates.iter().map(|o| prep.diagnose(&prio(o))).collect();
+    for (o, d) in candidates.iter().zip(&diag) {
+        log(&format!(
+            "  affine oracle {}: depth1 {:?}, displaced-ball best {:?}",
+            o.name,
+            (d.depth1.rule, d.depth1.trace, d.depth1.rhs),
+            d.best.map(|b| (
+                &d.shifted[b].shift,
+                d.shifted[b].result.trace,
+                d.shifted[b].result.rhs
+            ))
+        ));
+    }
+    if diag.iter().any(|d| d.depth1.rule) {
+        return (candidates, false);
+    }
+    let mut keep: Vec<(usize, NodeOrder)> = candidates
+        .iter()
+        .cloned()
+        .zip(&diag)
+        .filter(|(_, d)| d.small())
+        .map(|(o, d)| {
+            let s = d.smallest().map_or(usize::MAX, |r| r.trace + r.rhs);
+            (s, o)
+        })
+        .collect();
+    keep.sort_by_key(|(s, _)| *s);
+    if keep.is_empty() {
+        log("affine rung: no variant has a small displaced-ball relation; ordinary rounds");
+        return (candidates, false);
+    }
+    (keep.into_iter().map(|(_, o)| o).collect(), true)
+}
+
 /// See the module documentation.
 pub fn generate_auto(
     family_text: &str,
@@ -618,28 +708,64 @@ pub fn generate_auto(
         .collect();
         let work = dir.join("probes");
         let _ = std::fs::create_dir_all(&work);
-        let mut probes = probe(
-            family_text,
-            family_path,
-            &stuck,
-            &candidates,
-            base,
-            &auto.probe,
-            auto.probe.max_depth,
-            &work,
-        );
+        let (candidates, skip_depth1) = if auto.probe.affine_rung && !stuck.equations.is_empty() {
+            affine_rung(family_text, &stuck, candidates, &tried, n, log)
+        } else {
+            (candidates, false)
+        };
+        if skip_depth1 {
+            if let Some(d) = auto.probe.fallback_depth {
+                log(&format!(
+                    "attempt {k}: affine rung: no variant has a depth-1 relation; depth-{d} probes of {} variants with a small displaced-ball relation",
+                    candidates.len()
+                ));
+            }
+        }
+        let mut probes = if skip_depth1 && auto.probe.fallback_depth.is_some() {
+            Vec::new()
+        } else {
+            probe(
+                family_text,
+                family_path,
+                &stuck,
+                &candidates,
+                base,
+                &auto.probe,
+                auto.probe.max_depth,
+                &work,
+            )
+        };
         if best(&probes).is_none() {
             if let Some(d) = auto.probe.fallback_depth {
                 log(&format!(
                     "attempt {k}: no variant found a rule at depth {}; depth {d} round",
                     auto.probe.max_depth
                 ));
+                // affine rung: the depth-d round searches affine cases coupled-axis-first on depth-d shells
+                let affine_base;
+                let round_base = if skip_depth1 && base.case_seed_schedule.is_none() {
+                    affine_base = NodeOptions {
+                        case_seed_schedule: Some(crate::solver::CaseSeedSchedule::ShiftShells {
+                            first_depth: d,
+                            last_depth: d,
+                            axis_priority: (0..n).collect(),
+                            positive_first: false,
+                        }),
+                        case_seed_priority: Some(
+                            super::driver::CaseSeedPriority::AffineCoupledFirst,
+                        ),
+                        ..base.clone()
+                    };
+                    &affine_base
+                } else {
+                    base
+                };
                 probes.extend(probe(
                     family_text,
                     family_path,
                     &stuck,
                     &candidates,
-                    base,
+                    round_base,
                     &auto.probe,
                     d,
                     &work,
