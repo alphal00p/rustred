@@ -11,7 +11,7 @@
 //!                  [--seed-schedule spired|symfirst] [--no-symbolic-first-rung] [--no-empty-domain-check]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search]
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node descent  --table F.table.jsonl [--order JSON|NAME]
@@ -299,6 +299,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         })
         .collect();
     o.cand_dump = a.flag("--cand-dump");
+    o.strict_numeric_search = a.flag("--strict-numeric-search");
     if let Some(d) = a.parse("--numeric-depth") {
         o.numeric_depth = d;
     }
@@ -556,4 +557,25 @@ fn main() {
     };
     let _ = Path::new(".");
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod strict_numeric_tests {
+    use super::*;
+
+    #[test]
+    fn strict_numeric_cli_is_opt_in() {
+        for enabled in [false, true] {
+            let mut args = Args {
+                items: if enabled {
+                    vec!["--strict-numeric-search".into()]
+                } else {
+                    vec![]
+                },
+            };
+            let options = node_options(&mut args, "");
+            args.done();
+            assert_eq!(options.strict_numeric_search, enabled);
+        }
+    }
 }
