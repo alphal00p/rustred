@@ -364,6 +364,16 @@ impl DecodedCoefficientTable {
             checked_add(state.len(), atoms.len())?,
             limits.max_program_bytes,
         )?;
+        if super::factored::is_factored_table(atoms) {
+            // coef-form: factored section (format FACTORED_TABLE_VERSION);
+            // decodes to the identical expanded coefficients
+            let state_map = import_state(state)?;
+            let coefficients = catch_unwind(AssertUnwindSafe(|| {
+                super::factored::decode_factored_table(atoms, &state_map, limits)
+            }))
+            .map_err(|_| BinaryIoError::Native("factored coefficient import panicked".into()))??;
+            return Ok(Self { coefficients });
+        }
         let mut source = atoms;
         let count = read_length(&mut source)?;
         limits.check_count(
@@ -381,17 +391,7 @@ impl DecodedCoefficientTable {
             return Err(BinaryIoError::Invalid("trailing coefficient table bytes"));
         }
 
-        preflight_state_export(state)?;
-        super::resource_allocation(state.len())?;
-        let state_map = catch_unwind(AssertUnwindSafe(|| {
-            let mut source = super::structure::ResourceReader::new(state);
-            let map = State::import(&mut source, None).map_err(super::native_io_error)?;
-            if source.remaining() != 0 {
-                return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
-            }
-            Ok(map)
-        }))
-        .map_err(|_| BinaryIoError::Native("native Symbolica state import panicked".into()))??;
+        let state_map = import_state(state)?;
         let mut coefficients = Vec::new();
         super::resource_array::<Coefficient>(count)?;
         coefficients
@@ -426,6 +426,21 @@ impl DecodedCoefficientTable {
     pub fn is_empty(&self) -> bool {
         self.coefficients.is_empty()
     }
+}
+
+/// Import a generated Symbolica state section (preflighted, panics caught).
+pub(super) fn import_state(state: &[u8]) -> Result<symbolica::state::StateMap, BinaryIoError> {
+    preflight_state_export(state)?;
+    super::resource_allocation(state.len())?;
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut source = super::structure::ResourceReader::new(state);
+        let map = State::import(&mut source, None).map_err(super::native_io_error)?;
+        if source.remaining() != 0 {
+            return Err(BinaryIoError::Invalid("trailing Symbolica state bytes"));
+        }
+        Ok(map)
+    }))
+    .map_err(|_| BinaryIoError::Native("native Symbolica state import panicked".into()))?
 }
 
 pub(super) fn decode_generated_frame(

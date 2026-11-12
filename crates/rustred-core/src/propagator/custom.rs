@@ -603,6 +603,35 @@ pub fn custom_payload_rules(payload: &[u8]) -> Result<Vec<CustomRule>, PError> {
     Ok(rules)
 }
 
+/// The decoded coefficient table of a payload and, per rule (chart by chart in
+/// the payload's order), the coefficient ids of its RHS terms. Measurement
+/// access for coefficient-representation studies (coef-form); no restore.
+#[derive(Debug)]
+pub struct CustomCoefficientTable {
+    pub coefficients: Vec<Coefficient>,
+    pub rules: Vec<Vec<u32>>,
+    pub symbolic_slots: usize,
+}
+
+/// [`CustomCoefficientTable`] of `payload`, bound to the family it records.
+pub fn custom_payload_coefficient_table(payload: &[u8]) -> Result<CustomCoefficientTable, PError> {
+    let decoded = decode(None, payload)?;
+    let mut coefficients = Vec::with_capacity(decoded.table.len());
+    for index in 0..decoded.table.len() {
+        let id = CoefficientId::try_from_index(index).map_err(payload_error)?;
+        coefficients.push(decoded.table.coefficient(id).map_err(payload_error)?.clone());
+    }
+    let rules = (decoded.program.sectors.iter())
+        .flat_map(|sector| sector.rules.iter())
+        .map(|rule| rule.rhs.iter().map(|term| term.coefficient).collect())
+        .collect();
+    Ok(CustomCoefficientTable {
+        coefficients,
+        rules,
+        symbolic_slots: decoded.program.root_sector.len(),
+    })
+}
+
 /// A payload as one canonical text ([`CUSTOM_PAYLOAD_DUMP_VERSION`] first):
 /// its structure, every chart with its residuals and every rule with its
 /// coefficients. Equal payloads give equal dumps whatever the process symbol
