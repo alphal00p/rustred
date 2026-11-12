@@ -433,7 +433,32 @@ fn assemble(
         route_maps: PRouteMaps::StaticScore,
         ..PCensusOptions::default()
     };
-    let census = p_census(&presentations, Some(&dag), &census_options)?;
+    // p5l-library session 2: a census checkpoint. RUSTRED_P_ASSEMBLE_CENSUS
+    // names a census.rrbin: when it exists it is read instead of running the
+    // census (the census check below verifies it completely, as any census);
+    // otherwise the census is written there once computed.
+    let checkpoint = std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS").map(std::path::PathBuf::from);
+    let census = match &checkpoint {
+        Some(path) if path.exists() => {
+            let bytes = std::fs::read(path).map_err(|error| {
+                PError::MalformedLibrary(format!("reading {}: {error}", path.display()))
+            })?;
+            super::format::decode_census(&bytes)?
+        }
+        _ => {
+            let census = p_census(&presentations, Some(&dag), &census_options)?;
+            if let Some(path) = &checkpoint {
+                let bytes = super::format::encode_census(&census)?;
+                let partial = path.with_extension("partial");
+                std::fs::write(&partial, bytes)
+                    .and_then(|()| std::fs::rename(&partial, path))
+                    .map_err(|error| {
+                        PError::Generation(format!("writing {}: {error}", path.display()))
+                    })?;
+            }
+            census
+        }
+    };
     clock.lap("census");
     census.check_complete_with(&presentations, Some(&dag), &census_options)?;
     clock.lap("census-check");
