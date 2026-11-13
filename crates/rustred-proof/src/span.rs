@@ -42,10 +42,12 @@ pub struct SpanArgs {
     pub max_primes: usize,
     /// override of the per-prime point cap (default: degree bound + 4)
     pub max_points: Option<usize>,
+    /// write one certificate file per proved key (weights W_i/L on the independent rows) into this directory
+    pub emit_dir: Option<String>,
 }
 impl Default for SpanArgs {
     fn default() -> Self {
-        SpanArgs { table: String::new(), offset: None, cert: None, rule: -1, chart: None, keys: vec![], drop_zero_sectors: false, ignore_exc: false, max_primes: 40, max_points: None }
+        SpanArgs { table: String::new(), offset: None, cert: None, rule: -1, chart: None, keys: vec![], drop_zero_sectors: false, ignore_exc: false, max_primes: 40, max_points: None, emit_dir: None }
     }
 }
 
@@ -313,6 +315,7 @@ impl Elim {
 struct Inst {
     cols: Vec<Vec<i64>>,
     rows: Vec<Vec<(u32, i64, i64)>>, // (column, b, c): entry b + c d
+    row_label: Vec<(usize, i64)>,    // (seed index in the record, source row m)
     v: Vec<(u32, BigPoly, BigPoly)>, // v_c = num_c(d)/den_c(d), integer polys, den != 0
     t_deg: usize,                    // max deg den_c
     dropped_cols: usize,
@@ -611,8 +614,9 @@ fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
     // rows at the seeds
     let mut seen = std::collections::HashSet::new();
     let mut out_rows = vec![];
+    let mut row_label = vec![];
     let mut seed_d_cols = std::collections::HashSet::new();
-    for s in seeds {
+    for (si, s) in seeds.iter().enumerate() {
         let sg: Vec<i64> = pat_at(s, kv).iter().zip(recenter).map(|(a, b)| a + b).collect();
         if !seen.insert(sg.clone()) { continue; }
         for m in row_ids {
@@ -626,10 +630,10 @@ fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
                 if let Some(id) = cid(c, &mut colid, &mut cols) { let e = acc.entry(id).or_insert((0, 0)); e.0 += b; e.1 += dc; }
             }
             let r: Vec<(u32, i64, i64)> = acc.into_iter().filter(|x| x.1 .0 != 0 || x.1 .1 != 0).map(|(c, (b, d))| (c, b, d)).collect();
-            if !r.is_empty() { out_rows.push(r); }
+            if !r.is_empty() { out_rows.push(r); row_label.push((si, *m)); }
         }
     }
-    Inst { cols, rows: out_rows, v, t_deg, dropped_cols: dropped.len(), seeds: seen.len(), seed_cols_with_d: seed_d_cols.len() }
+    Inst { cols, rows: out_rows, row_label, v, t_deg, dropped_cols: dropped.len(), seeds: seen.len(), seed_cols_with_d: seed_d_cols.len() }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -792,6 +796,14 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
     match reconstruct(rank, cap, args.max_primes, p0, &mut stream, &mut used_primes, &solve_at, &verify) {
         Ok((lz, wz, frag)) => {
             info.push(format!("\"reconstruction\":{},\"nonzero_weights\":{},\"deg_L\":{}", frag, wz.iter().filter(|x| !x.is_empty()).count(), lz.len() - 1));
+            if let Some(dir) = &args.emit_dir {
+                let ps = |p: &BigPoly| format!("[{}]", p.iter().map(|c| format!("\"{}\"", c.to_dec())).collect::<Vec<_>>().join(","));
+                let ws: Vec<String> = s_rows.iter().zip(&wz).filter(|(_, w)| !w.is_empty()).map(|(&ri, w)| format!("[{},{},{}]", inst.row_label[ri].0, inst.row_label[ri].1, ps(w))).collect();
+                let kv_s = kv.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_");
+                let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m, W coefficients ascending in d]\"}}", kv, ps(&lz), ws.join(","));
+                let _ = std::fs::create_dir_all(dir);
+                let _ = std::fs::write(format!("{}/cert_{}.json", dir, kv_s), body);
+            }
             ("EXACT_IN_SPAN_AT_KEY".into(), info.join(","))
         }
         Err((st, frag)) => { info.push(format!("\"reconstruction\":{}", frag)); (st, info.join(",")) }
