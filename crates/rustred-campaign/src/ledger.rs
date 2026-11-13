@@ -89,6 +89,69 @@ pub enum ItemEvent {
     DeclareTerminal { count: u32, keys: Option<FileRef>, reason: String },
     MarkStale { input: String },
     Reopen { reason: String },
+    /// Retire the item's accepted rule (economy, R31 / R33). Never deletion: the item becomes `retired`, its
+    /// record and economy stay. `superseded_by` = the item whose rule replaces it (required for `replaced_by`).
+    Retire { rule: String, proof: RetirementProof, superseded_by: Option<String> },
+}
+
+/// The reason a rule may be retired, each naming its proof artefact by digest. On a FULL node only the
+/// coverage-preserving kinds are legal (R33: the covered domain must not shrink, proved by domain containment
+/// with the exact partition, not by sampling); `box_closure_pass` (unused on the closure of the box) is legal
+/// only on a node whose target is its spec box.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RetirementProof {
+    /// The rule's case domain is empty (integer infeasibility proof).
+    EmptyDomain { proof: FileRef },
+    /// Every key of its domain is served by an earlier rule under the dispatch order (whole domain).
+    FullyShadowed { proof: FileRef },
+    /// Replaced by `superseded_by`'s rule whose domain contains this one (containment proof).
+    ReplacedBy { proof: FileRef },
+    /// A dispatch-order change after which the rule never fires (proof over the whole domain).
+    DispatchOrderChange { proof: FileRef },
+    /// The node was regenerated to a table that again covers everything (`table`), proof of full coverage.
+    Regeneration { table: FileRef, proof: FileRef },
+    /// BOXED nodes only: the rule is unused on the forward closure of the box (`closure` = the closure pass).
+    BoxClosurePass { closure: FileRef },
+}
+
+impl RetirementProof {
+    pub fn box_only(&self) -> bool {
+        matches!(self, RetirementProof::BoxClosurePass { .. })
+    }
+    pub fn word(&self) -> &'static str {
+        match self {
+            RetirementProof::EmptyDomain { .. } => "empty_domain",
+            RetirementProof::FullyShadowed { .. } => "fully_shadowed",
+            RetirementProof::ReplacedBy { .. } => "replaced_by",
+            RetirementProof::DispatchOrderChange { .. } => "dispatch_order_change",
+            RetirementProof::Regeneration { .. } => "regeneration",
+            RetirementProof::BoxClosurePass { .. } => "box_closure_pass",
+        }
+    }
+}
+
+/// Economy measures of one accepted rule record (R31 (a)); `coefficient_degree` is a maximum, the rest add up.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleEconomy {
+    pub cases: u64,
+    pub rules: u64,
+    pub rhs_terms: u64,
+    pub monomials: u64,
+    pub coefficient_degree: u64,
+    /// Bytes in the shipped (canonical table) format.
+    pub bytes: u64,
+}
+
+impl RuleEconomy {
+    pub fn add(&mut self, o: &RuleEconomy) {
+        self.cases += o.cases;
+        self.rules += o.rules;
+        self.rhs_terms += o.rhs_terms;
+        self.monomials += o.monomials;
+        self.coefficient_degree = self.coefficient_degree.max(o.coefficient_degree);
+        self.bytes += o.bytes;
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,7 +192,10 @@ pub enum Event {
     SegmentOpened { index: u32, previous_blake3: String, snapshot_seq: u64 },
     InputRegistered { input: String, role: String, path: String, bytes: u64, blake3: String },
     EvidenceImported { evidence: String, producer: String, description: String, files: Vec<FileRef> },
-    NodeRegistered { node: String, inputs: Vec<String>, terminal_bound: Option<u32> },
+    /// `spec_box` = the input id (role `box`) of the user-provided box of the node's spec, if any (R35).
+    NodeRegistered { node: String, inputs: Vec<String>, terminal_bound: Option<u32>, spec_box: Option<String> },
+    /// Economy measures of the item's accepted rule (re-measuring replaces the previous values).
+    RuleEconomy { item: String, economy: RuleEconomy },
     Node { node: String, ev: NodeEvent },
     ItemCreated {
         item: String,
@@ -169,6 +235,7 @@ impl Event {
             Event::InputRegistered { .. } => "input_registered",
             Event::EvidenceImported { .. } => "evidence_imported",
             Event::NodeRegistered { .. } => "node_registered",
+            Event::RuleEconomy { .. } => "rule_economy",
             Event::Node { .. } => "node",
             Event::ItemCreated { .. } => "item_created",
             Event::Item { .. } => "item",

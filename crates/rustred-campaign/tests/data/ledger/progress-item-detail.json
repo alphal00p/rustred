@@ -18,7 +18,8 @@
   "record": {
     "accepted": null,
     "cpu_ms": 2500,
-    "created_seq": 51,
+    "created_seq": 52,
+    "economy": null,
     "inputs": [],
     "jobs": [
       "T162-job-00004-L0"
@@ -31,11 +32,12 @@
       "detail": "L1",
       "phase": "escalated"
     },
+    "retired": null,
     "rung": "L0",
     "stale_from": null,
     "stale_input": null,
     "terminal_keys": 0,
-    "updated_seq": 61,
+    "updated_seq": 62,
     "weight": 5
   },
   "why": "escalated to L1"

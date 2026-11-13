@@ -126,7 +126,7 @@ pub fn eta(state: &CampaignState, live_jobs: u32) -> Value {
            "wall_seconds": wall, "parallelism": parallelism, "pooled_levels": pooled_levels, "reason": reason})
 }
 
-fn phase_counts(counts: &[u64; 9]) -> Value {
+fn phase_counts(counts: &[u64; 10]) -> Value {
     let mut m = serde_json::Map::new();
     for (i, t) in ItemPhase::TAGS.iter().enumerate() {
         m.insert((*t).into(), json!(counts[i]));
@@ -151,15 +151,20 @@ fn ledger_block(state: &CampaignState, head: &str) -> Value {
 pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &str) -> ProgressSet {
     let mut out = ProgressSet::new();
     // by rung x phase over all items
-    let mut by_rung: BTreeMap<Rung, [u64; 9]> = BTreeMap::new();
-    let mut by_node_rung: BTreeMap<&str, BTreeMap<Rung, [u64; 9]>> = BTreeMap::new();
+    let mut by_rung: BTreeMap<Rung, [u64; 10]> = BTreeMap::new();
+    let mut by_node_rung: BTreeMap<&str, BTreeMap<Rung, [u64; 10]>> = BTreeMap::new();
     for it in state.items.values() {
-        by_rung.entry(it.rung).or_insert([0; 9])[it.phase.index()] += 1;
-        by_node_rung.entry(it.node.as_str()).or_default().entry(it.rung).or_insert([0; 9])[it.phase.index()] += 1;
+        by_rung.entry(it.rung).or_insert([0; 10])[it.phase.index()] += 1;
+        by_node_rung.entry(it.node.as_str()).or_default().entry(it.rung).or_insert([0; 10])[it.phase.index()] += 1;
     }
     let items_by_phase = state.items_by_phase();
     let mut accepted_by_level = [0u64; 3];
     let mut nodes_by_phase: BTreeMap<&str, u64> = NodePhase::ALL.iter().map(|p| (p.tag(), 0)).collect();
+    let mut nodes_by_closure: BTreeMap<&str, u64> = ["full", "boxed", "open"].iter().map(|k| (*k, 0)).collect();
+    let mut nodes_certified = 0u64;
+    let mut economy_before = crate::ledger::RuleEconomy::default();
+    let mut economy_after = crate::ledger::RuleEconomy::default();
+    let (mut rules_before, mut rules_after) = (0u64, 0u64);
     let mut defect_total = 0u64;
     let mut nodes_checked = 0u64;
     let mut nodes_with_defect = 0u64;
@@ -169,6 +174,10 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
             accepted_by_level[k] += n.accepted_by_level[k];
         }
         *nodes_by_phase.get_mut(n.state.phase.tag()).unwrap() += 1;
+        *nodes_by_closure.get_mut(n.state.closure_kind()).unwrap() += 1;
+        if n.state.certified() {
+            nodes_certified += 1;
+        }
         if let Some(d) = n.state.last_defect {
             nodes_checked += 1;
             defect_total += d;
@@ -209,6 +218,13 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
     for (r, c) in &by_rung {
         rung_rows.insert(r.to_string(), phase_counts(c));
     }
+    for id in state.nodes.keys() {
+        let e = state.node_economy(id);
+        economy_before.add(&e.before);
+        economy_after.add(&e.after);
+        rules_before += e.rules_before;
+        rules_after += e.rules_after;
+    }
     let node_files: BTreeMap<&String, String> = state.nodes.keys().map(|k| (k, node_file(k))).collect();
     let campaign = json!({
         "schema": PROGRESS_SCHEMA,
@@ -232,7 +248,10 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
         "resources": res,
         "jobs": {"total": state.jobs.len(), "by_state": jobs_by_state, "settled_by_class": classes,
                  "reserved_bytes_running": reserved_running},
-        "nodes": {"total": state.nodes.len(), "by_phase": nodes_by_phase},
+        "nodes": {"total": state.nodes.len(), "by_phase": nodes_by_phase, "by_closure": nodes_by_closure,
+                  "certified": nodes_certified},
+        "economy": {"rules_before": rules_before, "rules_after": rules_after, "before": economy_before,
+                    "after": economy_after, "retired": state.rules.retired},
         "items": {"total": state.items.len(), "by_phase": phase_counts(&items_by_phase), "by_level": rung_rows},
         "rules": {"accepted": state.rules.accepted, "rejected": state.rules.rejected,
                   "rejected_by_reason": state.rules.rejected_by_reason, "upgrades": state.rules.upgrades,
@@ -248,6 +267,7 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
     });
     out.insert("campaign.json".into(), campaign);
     for (id, n) in &state.nodes {
+        let e = state.node_economy(id);
         let mut rows = serde_json::Map::new();
         if let Some(m) = by_node_rung.get(id.as_str()) {
             for (r, c) in m {
@@ -263,7 +283,19 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
             "ledger": ledger_block(state, head),
             "node": id,
             "phase": n.state.phase.tag(),
-            "closure": {"rounds": n.state.closure_rounds, "defect_keys": n.state.last_defect, "keyset": n.last_keyset},
+            "closure_kind": n.state.closure_kind(),
+            "certified": n.state.certified(),
+            "target": n.state.target,
+            "spec_box": n.state.spec_box,
+            "attempt_ended": n.state.attempt_ended,
+            "blockers": {"full": n.state.full_blockers, "box": n.state.box_blockers},
+            "closure": {"rounds": n.state.closure_rounds, "defect_keys": n.state.last_defect, "keyset": n.last_keyset,
+                        "closure_keys": n.state.closure_keys, "rules_used": n.state.rules_used,
+                        "used_share": match (n.state.rules_used, n.accepted_by_level.iter().sum::<u64>()) {
+                            (Some(u), t) if t > 0 => json!(round3(u as f64 / t as f64)),
+                            _ => Value::Null,
+                        }},
+            "economy": e,
             "terminals": {"declared": n.state.terminals, "bound": n.state.terminal_bound,
                           "candidates": n.items_by_phase[ItemPhase::TerminalCandidate.index()]},
             "items": {"by_phase": phase_counts(&n.items_by_phase), "by_level": rows, "open": n.context().items_open},

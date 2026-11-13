@@ -331,6 +331,9 @@ pub enum ItemPhase {
     TerminalCandidate,
     Terminal,
     Stale,
+    /// Retired by a coverage-preservation proof (or, on a BOXED node only, a box closure pass); possibly
+    /// superseded by another item's rule. Never deleted: the record stays for the economy report.
+    Retired,
 }
 
 impl ItemPhase {
@@ -345,9 +348,10 @@ impl ItemPhase {
             ItemPhase::TerminalCandidate => "terminal_candidate",
             ItemPhase::Terminal => "terminal",
             ItemPhase::Stale => "stale",
+            ItemPhase::Retired => "retired",
         }
     }
-    pub const TAGS: [&'static str; 9] = [
+    pub const TAGS: [&'static str; 10] = [
         "open",
         "in_progress",
         "produced",
@@ -357,13 +361,14 @@ impl ItemPhase {
         "terminal_candidate",
         "terminal",
         "stale",
+        "retired",
     ];
     pub fn index(&self) -> usize {
         Self::TAGS.iter().position(|t| *t == self.tag()).unwrap()
     }
     /// Open work: everything that is not accepted, escalated (superseded by its child) or terminal.
     pub fn is_open(&self) -> bool {
-        !matches!(self, ItemPhase::Accepted(_) | ItemPhase::Escalated(_) | ItemPhase::Terminal)
+        !matches!(self, ItemPhase::Accepted(_) | ItemPhase::Escalated(_) | ItemPhase::Terminal | ItemPhase::Retired)
     }
 }
 
@@ -381,6 +386,7 @@ pub enum ItemMachineEvent {
     DeclareTerminal,
     MarkStale,
     Reopen,
+    Retire,
 }
 
 impl ItemMachineEvent {
@@ -397,6 +403,7 @@ impl ItemMachineEvent {
             ItemMachineEvent::DeclareTerminal => "declare_terminal",
             ItemMachineEvent::MarkStale => "mark_stale",
             ItemMachineEvent::Reopen => "reopen",
+            ItemMachineEvent::Retire => "retire",
         }
     }
 }
@@ -426,6 +433,7 @@ pub const ITEM_TABLE: &[(&str, &str, &str)] = &[
     ("terminal_candidate", "reopen", "open"),
     ("<any but stale>", "mark_stale", "stale"),
     ("stale", "reopen", "open"),
+    ("accepted", "retire", "retired  [guards (reducer): retirement proof; box-closure proofs only on a boxed node]"),
 ];
 
 pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState, IllegalTransition> {
@@ -456,6 +464,7 @@ pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState,
         (P::Accepted(cur), E::Upgrade(l)) if l == cur => same(),
         (P::Accepted(_), E::Upgrade(_)) => illegal("evidence level never decreases"),
         (P::Accepted(_), E::Reject(r)) => to(P::Rejected(r.clone())),
+        (P::Accepted(_), E::Retire) => to(P::Retired),
         (P::Accepted(_), _) => illegal("item accepted"),
         (P::Rejected(cur), E::Reject(r)) if r == cur => same(),
         (P::Rejected(_), E::Escalate(r)) if *r > state.rung => to(P::Escalated(*r)),
@@ -471,6 +480,8 @@ pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState,
         (P::TerminalCandidate, _) => illegal("terminal candidate"),
         (P::Terminal, E::DeclareTerminal) => same(),
         (P::Terminal, _) => illegal("terminal declared (final)"),
+        (P::Retired, E::Retire) => same(),
+        (P::Retired, _) => illegal("rule retired (final)"),
         (P::Stale, E::Reopen) => to(P::Open),
         (P::Stale, _) => illegal("item stale (reopen first)"),
     }
@@ -479,6 +490,31 @@ pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState,
 // ------------------------------------------------------------------------------------------------------------
 // (iii) NODE
 // ------------------------------------------------------------------------------------------------------------
+//
+// Requirements R33 / R35 (user, binding): every node FIRST aims at FULL closure (the whole sector: all dot
+// powers, all ranks). Only when that attempt ended within its budgets, and only if the node's SPEC carries a
+// user-provided box (an input of role "box" with its own id and digest), may the node fall back to closure
+// inside that box (BOXED). A node without a spec box that cannot be closed fully ends OPEN with its
+// blockers. Closed vs certified is orthogonal: FULL or BOXED, each closed or certified.
+
+/// What the node is currently trying to close.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "target", rename_all = "snake_case")]
+pub enum ClosureTarget {
+    /// The whole sector (always the first target).
+    Full,
+    /// The user-provided box of the node's spec (input id `box_id`).
+    Boxed { box_id: String },
+}
+
+/// What prevented the closure attempt of the current target: counts and the key / face list file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blockers {
+    pub faces: u64,
+    pub loci: u64,
+    pub keys: u64,
+    pub list: Option<FileRef>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -486,10 +522,12 @@ pub enum NodePhase {
     Registered,
     Running,
     ClosureCheck,
-    /// Closure fixed point reached (defect 0, no open item) with every accepted rule at least geometry-accepted.
-    BoxedClosed,
-    /// Boxed-closed AND every accepted rule identity-proved (ruling D4: every used key proved).
-    BoxedCertified,
+    /// Closure fixed point of the target reached (defect 0, no open item).
+    Closed,
+    /// Closed AND every accepted rule identity-proved (ruling D4: every used key proved).
+    Certified,
+    /// Ended without closure: the full attempt (and the box attempt, if the spec has a box) ended; blockers kept.
+    Open,
     Stale,
 }
 
@@ -499,17 +537,19 @@ impl NodePhase {
             NodePhase::Registered => "registered",
             NodePhase::Running => "running",
             NodePhase::ClosureCheck => "closure_check",
-            NodePhase::BoxedClosed => "boxed_closed",
-            NodePhase::BoxedCertified => "boxed_certified",
+            NodePhase::Closed => "closed",
+            NodePhase::Certified => "certified",
+            NodePhase::Open => "open",
             NodePhase::Stale => "stale",
         }
     }
-    pub const ALL: [NodePhase; 6] = [
+    pub const ALL: [NodePhase; 7] = [
         NodePhase::Registered,
         NodePhase::Running,
         NodePhase::ClosureCheck,
-        NodePhase::BoxedClosed,
-        NodePhase::BoxedCertified,
+        NodePhase::Closed,
+        NodePhase::Certified,
+        NodePhase::Open,
         NodePhase::Stale,
     ];
 }
@@ -517,10 +557,53 @@ impl NodePhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeState {
     pub phase: NodePhase,
+    pub target: ClosureTarget,
+    /// The box of the node's spec (input id), if the user provided one. Never chosen by the campaign.
+    pub spec_box: Option<String>,
+    /// The attempt on the current target ended (within its budgets) without closure.
+    pub attempt_ended: bool,
+    /// Blockers of the FULL attempt (kept after a fallback to the box, so a later run can try again).
+    pub full_blockers: Option<Blockers>,
+    /// Blockers of the BOX attempt (only when the box attempt ended too).
+    pub box_blockers: Option<Blockers>,
     pub closure_rounds: u32,
     pub last_defect: Option<u64>,
+    /// Size (keys) of the last closure pass and rules of the node's table used on it (R31 economy).
+    pub closure_keys: Option<u64>,
+    pub rules_used: Option<u64>,
     pub terminals: u32,
     pub terminal_bound: u32,
+}
+
+impl NodeState {
+    pub fn new(spec_box: Option<String>, terminal_bound: u32) -> Self {
+        NodeState {
+            phase: NodePhase::Registered,
+            target: ClosureTarget::Full,
+            spec_box,
+            attempt_ended: false,
+            full_blockers: None,
+            box_blockers: None,
+            closure_rounds: 0,
+            last_defect: None,
+            closure_keys: None,
+            rules_used: None,
+            terminals: 0,
+            terminal_bound,
+        }
+    }
+    /// FULL / BOXED / OPEN as shown on the dashboard (closed or certified on the full sector / on the box /
+    /// anything else).
+    pub fn closure_kind(&self) -> &'static str {
+        match (self.phase, &self.target) {
+            (NodePhase::Closed | NodePhase::Certified, ClosureTarget::Full) => "full",
+            (NodePhase::Closed | NodePhase::Certified, ClosureTarget::Boxed { .. }) => "boxed",
+            _ => "open",
+        }
+    }
+    pub fn certified(&self) -> bool {
+        self.phase == NodePhase::Certified
+    }
 }
 
 /// Context of a node transition supplied by the reducer (item counters of the node).
@@ -534,14 +617,25 @@ pub struct NodeContext {
 #[serde(tag = "ev", rename_all = "snake_case")]
 pub enum NodeEvent {
     Start,
-    ClosureResult { round: u32, defect_keys: u64, keyset: Option<FileRef> },
-    DeclareBoxedClosed,
-    DeclareBoxedCertified,
+    /// A closure pass of the current target: defect keys, closure size, rules used on it, the key-set file.
+    ClosureResult { round: u32, defect_keys: u64, closure_keys: u64, rules_used: Option<u64>, keyset: Option<FileRef> },
+    /// The attempt on the current target ended within its budgets without closure.
+    AttemptEnded { blockers: Blockers, reason: String },
+    /// Fall back from FULL to the spec's box (only after the full attempt ended; `box_id` must be the spec box).
+    FallBackToBox { box_id: String },
+    /// No closure: ended OPEN with the blockers already recorded.
+    DeclareOpen { reason: String },
+    DeclareClosed,
+    DeclareCertified,
+    /// Back to work; the target is FULL again (a later run tries full closure first).
     Reopen { reason: String },
     MarkStale { reason: String },
     /// Internal (emitted by the reducer when an item of the node is declared terminal; never written).
     #[serde(skip)]
     TerminalDeclared { count: u32 },
+    /// Internal (emitted by the reducer for a rule retirement; `box_only` = the proof is a box closure pass).
+    #[serde(skip)]
+    Retirement { box_only: bool },
 }
 
 impl NodeEvent {
@@ -549,24 +643,40 @@ impl NodeEvent {
         match self {
             NodeEvent::Start => "start",
             NodeEvent::ClosureResult { .. } => "closure_result",
-            NodeEvent::DeclareBoxedClosed => "declare_boxed_closed",
-            NodeEvent::DeclareBoxedCertified => "declare_boxed_certified",
+            NodeEvent::AttemptEnded { .. } => "attempt_ended",
+            NodeEvent::FallBackToBox { .. } => "fall_back_to_box",
+            NodeEvent::DeclareOpen { .. } => "declare_open",
+            NodeEvent::DeclareClosed => "declare_closed",
+            NodeEvent::DeclareCertified => "declare_certified",
             NodeEvent::Reopen { .. } => "reopen",
             NodeEvent::MarkStale { .. } => "mark_stale",
             NodeEvent::TerminalDeclared { .. } => "terminal_declared",
+            NodeEvent::Retirement { .. } => "retirement",
         }
     }
 }
 
 pub const NODE_TABLE: &[(&str, &str, &str)] = &[
-    ("registered", "start", "running"),
+    ("registered", "start", "running (target full)"),
     ("running|closure_check", "closure_result", "closure_check  [guard: round > last round]"),
-    ("boxed_closed|boxed_certified", "closure_result", "same phase if defect = 0, else closure_check"),
-    ("closure_check", "declare_boxed_closed", "boxed_closed  [guard: last defect = 0 and no open item]"),
-    ("boxed_closed", "declare_boxed_certified", "boxed_certified  [guard: every accepted item identity-proved]"),
-    ("closure_check|boxed_closed|boxed_certified|stale", "reopen", "running"),
+    ("closed|certified", "closure_result", "same phase if defect = 0, else closure_check"),
+    ("running|closure_check", "attempt_ended", "same phase, attempt_ended, blockers of the target recorded"),
+    (
+        "running|closure_check",
+        "fall_back_to_box",
+        "running, target boxed  [guards: target full, full attempt ended, spec has a box, box_id = spec box]",
+    ),
+    (
+        "running|closure_check",
+        "declare_open",
+        "open  [guards: attempt ended; target boxed, or no spec box (a spec box must be tried first)]",
+    ),
+    ("closure_check", "declare_closed", "closed  [guard: last defect = 0 and no open item]"),
+    ("closed", "declare_certified", "certified  [guard: every accepted item identity-proved]"),
+    ("closure_check|closed|certified|open|stale", "reopen", "running, target full, attempt not ended"),
     ("<any>", "mark_stale", "stale"),
     ("<any but stale>", "terminal_declared", "same phase, terminals += n  [guard: terminals <= bound]"),
+    ("<any but stale>", "retirement", "same phase  [guard: a box-closure proof only on a boxed target]"),
 ];
 
 pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result<NodeState, IllegalTransition> {
@@ -578,11 +688,14 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
         (P::Registered, NodeEvent::Start) => next.phase = P::Running,
         (P::Running, NodeEvent::Start) => {}
         (_, NodeEvent::Start) => return illegal("node already started".into()),
-        (P::Registered | P::Stale, NodeEvent::ClosureResult { .. }) => {
+        (P::Registered | P::Stale | P::Open, NodeEvent::ClosureResult { .. }) => {
             return illegal("closure results need a running node".into());
         }
-        (phase, NodeEvent::ClosureResult { round, defect_keys, .. }) => {
-            if *round == state.closure_rounds && state.last_defect == Some(*defect_keys) {
+        (phase, NodeEvent::ClosureResult { round, defect_keys, closure_keys, rules_used, .. }) => {
+            if *round == state.closure_rounds
+                && state.last_defect == Some(*defect_keys)
+                && state.closure_keys == Some(*closure_keys)
+            {
                 return Ok(next); // exact repeat
             }
             if *round <= state.closure_rounds {
@@ -590,36 +703,94 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
             }
             next.closure_rounds = *round;
             next.last_defect = Some(*defect_keys);
+            next.closure_keys = Some(*closure_keys);
+            next.rules_used = *rules_used;
             next.phase = match phase {
-                P::BoxedClosed | P::BoxedCertified if *defect_keys == 0 => phase,
+                P::Closed | P::Certified if *defect_keys == 0 => phase,
                 _ => P::ClosureCheck,
             };
         }
-        (P::ClosureCheck, NodeEvent::DeclareBoxedClosed) => {
+        (P::Running | P::ClosureCheck, NodeEvent::AttemptEnded { blockers, .. }) => {
+            if state.attempt_ended {
+                let same = match state.target {
+                    ClosureTarget::Full => state.full_blockers.as_ref() == Some(blockers),
+                    ClosureTarget::Boxed { .. } => state.box_blockers.as_ref() == Some(blockers),
+                };
+                if same {
+                    return Ok(next);
+                }
+                return illegal("attempt already ended with other blockers".into());
+            }
+            next.attempt_ended = true;
+            match state.target {
+                ClosureTarget::Full => next.full_blockers = Some(blockers.clone()),
+                ClosureTarget::Boxed { .. } => next.box_blockers = Some(blockers.clone()),
+            }
+        }
+        (_, NodeEvent::AttemptEnded { .. }) => return illegal("no attempt running".into()),
+        (P::Running | P::ClosureCheck, NodeEvent::FallBackToBox { box_id }) => {
+            if let ClosureTarget::Boxed { box_id: cur } = &state.target {
+                if cur == box_id {
+                    return Ok(next); // repeat
+                }
+                return illegal("already boxed with another box".into());
+            }
+            match &state.spec_box {
+                None => return illegal("BOXED needs a box in the node's spec (the campaign never chooses one)".into()),
+                Some(b) if b != box_id => {
+                    return illegal(format!("box {box_id} is not the spec box {b} (never chosen or widened)"));
+                }
+                Some(_) => {}
+            }
+            if !state.attempt_ended {
+                return illegal("the FULL attempt must end (within its budgets) before falling back to the box".into());
+            }
+            next.target = ClosureTarget::Boxed { box_id: box_id.clone() };
+            next.attempt_ended = false;
+            next.phase = P::Running;
+            next.last_defect = None;
+        }
+        (_, NodeEvent::FallBackToBox { .. }) => return illegal("fallback needs a running attempt".into()),
+        (P::Open, NodeEvent::DeclareOpen { .. }) => {}
+        (P::Running | P::ClosureCheck, NodeEvent::DeclareOpen { .. }) => {
+            if !state.attempt_ended {
+                return illegal("the attempt has not ended".into());
+            }
+            if state.target == ClosureTarget::Full && state.spec_box.is_some() {
+                return illegal("the spec provides a box: fall back to it before declaring the node open".into());
+            }
+            next.phase = P::Open;
+        }
+        (_, NodeEvent::DeclareOpen { .. }) => return illegal("nothing to declare open".into()),
+        (P::ClosureCheck, NodeEvent::DeclareClosed) => {
             if state.last_defect != Some(0) {
                 return illegal(format!("closure defect is {:?}, not 0", state.last_defect));
             }
             if ctx.items_open > 0 {
                 return illegal(format!("{} items still open", ctx.items_open));
             }
-            next.phase = P::BoxedClosed;
+            next.phase = P::Closed;
         }
-        (P::BoxedClosed | P::BoxedCertified, NodeEvent::DeclareBoxedClosed) => {}
-        (_, NodeEvent::DeclareBoxedClosed) => return illegal("needs a closure check with defect 0".into()),
-        (P::BoxedClosed, NodeEvent::DeclareBoxedCertified) => {
+        (P::Closed | P::Certified, NodeEvent::DeclareClosed) => {}
+        (_, NodeEvent::DeclareClosed) => return illegal("needs a closure check with defect 0".into()),
+        (P::Closed, NodeEvent::DeclareCertified) => {
             if ctx.items_unproved > 0 {
                 return illegal(format!("{} accepted items are not identity-proved", ctx.items_unproved));
             }
-            next.phase = P::BoxedCertified;
+            next.phase = P::Certified;
         }
-        (P::BoxedCertified, NodeEvent::DeclareBoxedCertified) => {}
-        (_, NodeEvent::DeclareBoxedCertified) => return illegal("needs boxed_closed first".into()),
-        (P::ClosureCheck | P::BoxedClosed | P::BoxedCertified | P::Stale, NodeEvent::Reopen { .. }) => {
-            next.phase = P::Running
+        (P::Certified, NodeEvent::DeclareCertified) => {}
+        (_, NodeEvent::DeclareCertified) => return illegal("needs closed first".into()),
+        (P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale, NodeEvent::Reopen { .. }) => {
+            next.phase = P::Running;
+            next.target = ClosureTarget::Full;
+            next.attempt_ended = false;
         }
         (P::Running, NodeEvent::Reopen { .. }) => {}
         (P::Registered, NodeEvent::Reopen { .. }) => return illegal("node not started".into()),
-        (P::Stale, NodeEvent::TerminalDeclared { .. }) => return illegal("node is stale".into()),
+        (P::Stale, NodeEvent::TerminalDeclared { .. } | NodeEvent::Retirement { .. }) => {
+            return illegal("node is stale".into());
+        }
         (_, NodeEvent::TerminalDeclared { count }) => {
             let total = state.terminals.saturating_add(*count);
             if total > state.terminal_bound {
@@ -629,6 +800,13 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
                 ));
             }
             next.terminals = total;
+        }
+        (_, NodeEvent::Retirement { box_only }) => {
+            if *box_only && state.target == ClosureTarget::Full {
+                return illegal(
+                    "a box closure pass cannot retire a rule of a FULL node (no coverage removal; R33)".into(),
+                );
+            }
         }
     }
     Ok(next)
@@ -754,7 +932,7 @@ pub struct NodeRec {
     pub state: NodeState,
     pub inputs: Vec<String>,
     /// Items of the node per phase, indexed like [`ItemPhase::TAGS`].
-    pub items_by_phase: [u64; 9],
+    pub items_by_phase: [u64; 10],
     /// Accepted items per evidence level (indexed like [`EvidenceLevel::ALL`]).
     pub accepted_by_level: [u64; 3],
     pub last_keyset: Option<FileRef>,
@@ -767,7 +945,7 @@ impl NodeRec {
         let open: u64 = ItemPhase::TAGS
             .iter()
             .enumerate()
-            .filter(|(_, t)| !matches!(**t, "accepted" | "escalated" | "terminal"))
+            .filter(|(_, t)| !matches!(**t, "accepted" | "escalated" | "terminal" | "retired"))
             .map(|(i, _)| self.items_by_phase[i])
             .sum();
         NodeContext { items_open: open, items_unproved: self.accepted_by_level[0] + self.accepted_by_level[1] }
@@ -786,6 +964,8 @@ pub struct ItemRec {
     pub phase: ItemPhase,
     pub jobs: Vec<String>,
     pub accepted: Option<AcceptedRec>,
+    pub economy: Option<crate::ledger::RuleEconomy>,
+    pub retired: Option<RetiredRec>,
     pub stale_from: Option<String>,
     pub stale_input: Option<String>,
     pub terminal_keys: u32,
@@ -800,6 +980,13 @@ pub struct AcceptedRec {
     pub level: EvidenceLevel,
     pub record: FileRef,
     pub source: crate::ledger::AcceptSource,
+    pub seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetiredRec {
+    pub proof: crate::ledger::RetirementProof,
+    pub superseded_by: Option<String>,
     pub seq: u64,
 }
 
@@ -845,6 +1032,18 @@ pub struct RuleCounters {
     pub rejected: u64,
     pub rejected_by_reason: BTreeMap<String, u64>,
     pub upgrades: u64,
+    pub retired: u64,
+}
+
+/// Per-node economy before / after retirements and supersessions.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeEconomy {
+    pub rules_before: u64,
+    pub rules_after: u64,
+    pub superseded: u64,
+    pub unmeasured: u64,
+    pub before: crate::ledger::RuleEconomy,
+    pub after: crate::ledger::RuleEconomy,
 }
 
 /// Bounded length of the recent-events ring kept in the state (and in the recent-events progress file).
@@ -980,10 +1179,10 @@ impl CampaignState {
                     self.push_recent(rec, "evidence", format!("imported evidence {evidence} by {producer} ({} files)", files.len()));
                 }
             }
-            Event::NodeRegistered { node, inputs, terminal_bound } => {
+            Event::NodeRegistered { node, inputs, terminal_bound, spec_box } => {
                 if let Some(n) = self.nodes.get(node) {
-                    if n.inputs != *inputs {
-                        return Err(invalid(format!("node {node} re-registered with other inputs")));
+                    if n.inputs != *inputs || n.state.spec_box != *spec_box {
+                        return Err(invalid(format!("node {node} re-registered with other inputs or box")));
                     }
                 } else {
                     for i in inputs {
@@ -991,18 +1190,19 @@ impl CampaignState {
                             return Err(invalid(format!("node {node}: unknown input {i}")));
                         }
                     }
+                    if let Some(b) = spec_box {
+                        match self.inputs.get(b) {
+                            Some(i) if i.role == "box" => {}
+                            Some(i) => return Err(invalid(format!("node {node}: spec box {b} has role {:?}, not \"box\"", i.role))),
+                            None => return Err(invalid(format!("node {node}: unknown spec box input {b}"))),
+                        }
+                    }
                     self.nodes.insert(
                         node.clone(),
                         NodeRec {
-                            state: NodeState {
-                                phase: NodePhase::Registered,
-                                closure_rounds: 0,
-                                last_defect: None,
-                                terminals: 0,
-                                terminal_bound: terminal_bound.unwrap_or(self.terminal_bound),
-                            },
+                            state: NodeState::new(spec_box.clone(), terminal_bound.unwrap_or(self.terminal_bound)),
                             inputs: inputs.clone(),
-                            items_by_phase: [0; 9],
+                            items_by_phase: [0; 10],
                             accepted_by_level: [0; 3],
                             last_keyset: None,
                             stale_reason: None,
@@ -1012,8 +1212,8 @@ impl CampaignState {
                 }
             }
             Event::Node { node, ev } => {
-                if matches!(ev, NodeEvent::TerminalDeclared { .. }) {
-                    return Err(invalid("terminal_declared is internal".into()));
+                if matches!(ev, NodeEvent::TerminalDeclared { .. } | NodeEvent::Retirement { .. }) {
+                    return Err(invalid(format!("{} is internal", ev.tag())));
                 }
                 let n = self.nodes.get(node).ok_or_else(|| invalid(format!("unknown node {node}")))?;
                 let next = apply_node(&n.state, ev, n.context()).map_err(illegal)?;
@@ -1028,10 +1228,15 @@ impl CampaignState {
                 }
                 if changed {
                     let text = match ev {
-                        NodeEvent::ClosureResult { round, defect_keys, .. } => {
-                            format!("{node}: closure round {round}, defect {defect_keys} keys")
+                        NodeEvent::ClosureResult { round, defect_keys, closure_keys, .. } => {
+                            format!("{node}: closure round {round}, defect {defect_keys} of {closure_keys} keys")
                         }
-                        _ => format!("{node}: {}", n.state.phase.tag()),
+                        NodeEvent::AttemptEnded { blockers, reason } => format!(
+                            "{node}: attempt ended ({reason}): {} faces, {} loci, {} keys block closure",
+                            blockers.faces, blockers.loci, blockers.keys
+                        ),
+                        NodeEvent::FallBackToBox { box_id } => format!("{node}: full closure not reached; falling back to spec box {box_id}"),
+                        _ => format!("{node}: {} ({})", n.state.phase.tag(), n.state.closure_kind()),
                     };
                     self.push_recent(rec, "node", text);
                 }
@@ -1070,6 +1275,8 @@ impl CampaignState {
                             phase: ItemPhase::Open,
                             jobs: Vec::new(),
                             accepted: None,
+                            economy: None,
+                            retired: None,
                             stale_from: None,
                             stale_input: None,
                             terminal_keys: 0,
@@ -1081,6 +1288,13 @@ impl CampaignState {
                 }
             }
             Event::Item { item, ev } => self.apply_item_event(rec, item, ev)?,
+            Event::RuleEconomy { item, economy } => {
+                let it = self.items.get(item).ok_or_else(|| invalid(format!("economy: unknown item {item}")))?;
+                if !matches!(it.phase, ItemPhase::Accepted(_)) {
+                    return Err(invalid(format!("economy of {item}: item is {}, not accepted", it.phase.tag())));
+                }
+                self.items.get_mut(item).unwrap().economy = Some(economy.clone());
+            }
             Event::JobQueued { job, item, rung, kind, spec_blake3, binary, reserved_bytes } => {
                 if let Some(j) = self.jobs.get(job) {
                     if j.item != *item || j.spec_blake3 != *spec_blake3 {
@@ -1170,7 +1384,11 @@ impl CampaignState {
     /// binary of the job its acceptance came from. Nodes listing the input are marked stale too.
     fn mark_stale_by_input(&mut self, input: &str, seq: u64) -> usize {
         let nodes_hit: BTreeSet<String> =
-            self.nodes.iter().filter(|(_, n)| n.inputs.iter().any(|i| i == input)).map(|(k, _)| k.clone()).collect();
+            self.nodes
+            .iter()
+            .filter(|(_, n)| n.inputs.iter().any(|i| i == input) || n.state.spec_box.as_deref() == Some(input))
+            .map(|(k, _)| k.clone())
+            .collect();
         let mut hit = Vec::new();
         for (id, it) in &self.items {
             if it.phase == ItemPhase::Stale {
@@ -1229,6 +1447,7 @@ impl CampaignState {
             IE::DeclareTerminal { .. } => ItemMachineEvent::DeclareTerminal,
             IE::MarkStale { .. } => ItemMachineEvent::MarkStale,
             IE::Reopen { .. } => ItemMachineEvent::Reopen,
+            IE::Retire { .. } => ItemMachineEvent::Retire,
         };
         let cur = ItemState { phase: it.phase.clone(), rung: it.rung };
         let next = apply_item(&cur, &machine_ev).map_err(illegal)?;
@@ -1274,6 +1493,23 @@ impl CampaignState {
                     accepted = Some(AcceptedRec { rule: rule.clone(), level: *level, record: record.clone(), source: source.clone(), seq });
                 }
             }
+            IE::Retire { rule, proof, superseded_by } if !repeat => {
+                let a = it.accepted.as_ref().ok_or_else(|| invalid(format!("retire: {item} has no accepted rule")))?;
+                if a.rule != *rule {
+                    return Err(invalid(format!("retire: {item} carries rule {}, not {rule}", a.rule)));
+                }
+                if matches!(proof, crate::ledger::RetirementProof::ReplacedBy { .. }) && superseded_by.is_none() {
+                    return Err(invalid("retire by replacement must name the superseding item".into()));
+                }
+                if let Some(by) = superseded_by {
+                    let b = self.items.get(by).ok_or_else(|| invalid(format!("retire: unknown superseding item {by}")))?;
+                    if by == item || b.node != it.node || !matches!(b.phase, ItemPhase::Accepted(_)) {
+                        return Err(invalid(format!("retire: {by} is not another accepted item of node {}", it.node)));
+                    }
+                }
+                let n = &self.nodes[&it.node];
+                apply_node(&n.state, &NodeEvent::Retirement { box_only: proof.box_only() }, n.context()).map_err(illegal)?;
+            }
             IE::DeclareTerminal { count, .. } if !repeat => {
                 let n = &self.nodes[&it.node];
                 apply_node(&n.state, &NodeEvent::TerminalDeclared { count: *count }, n.context()).map_err(illegal)?;
@@ -1318,6 +1554,15 @@ impl CampaignState {
                     }
                 }
                 Some(format!("{node} {label}: rule {rule} accepted ({})", level.word()))
+            }
+            IE::Retire { rule, proof, superseded_by } => {
+                self.rules.retired += 1;
+                let it = self.items.get_mut(item).unwrap();
+                it.retired = Some(RetiredRec { proof: proof.clone(), superseded_by: superseded_by.clone(), seq });
+                Some(match superseded_by {
+                    Some(by) => format!("{node} {label}: rule {rule} superseded by {by} ({})", proof.word()),
+                    None => format!("{node} {label}: rule {rule} retired ({})", proof.word()),
+                })
             }
             IE::Upgrade { level, .. } => {
                 self.rules.upgrades += 1;
@@ -1377,6 +1622,7 @@ impl CampaignState {
                 IE::Escalate { .. } => "item_escalated",
                 IE::DeclareTerminal { .. } => "terminal_declared",
                 IE::ProposeTerminal { .. } => "terminal_proposed",
+                IE::Retire { .. } => "rule_retired",
                 _ => "item_stale",
             };
             self.push_recent(rec, kind, t);
@@ -1470,6 +1716,37 @@ impl CampaignState {
         self.recent.push_back(RecentEvent { seq: rec.seq, utc: rec.utc.clone(), kind: kind.to_string(), text });
     }
 
+    /// Economy report of a node (R31): `before` = every rule ever accepted (still accepted or retired /
+    /// superseded since), `after` = the rules accepted now (what ships). Rules without measures are counted in
+    /// `unmeasured`.
+    pub fn node_economy(&self, node: &str) -> NodeEconomy {
+        let mut e = NodeEconomy::default();
+        for it in self.items.values().filter(|i| i.node == node) {
+            let live = matches!(it.phase, ItemPhase::Accepted(_));
+            let was = live || it.phase == ItemPhase::Retired || (it.phase == ItemPhase::Stale && it.stale_from.as_deref() == Some("retired"));
+            if !was {
+                continue;
+            }
+            e.rules_before += 1;
+            if live {
+                e.rules_after += 1;
+            }
+            match &it.economy {
+                Some(m) => {
+                    e.before.add(m);
+                    if live {
+                        e.after.add(m);
+                    }
+                }
+                None => e.unmeasured += 1,
+            }
+            if it.retired.as_ref().is_some_and(|r| r.superseded_by.is_some()) {
+                e.superseded += 1;
+            }
+        }
+        e
+    }
+
     /// Attempts that may still have a process (launching / running): what a resuming supervisor must settle
     /// (orphan check by identity, then `interrupt` / `lose` records, then `requeue`).
     pub fn unsettled_jobs(&self) -> Vec<(&String, &JobRec)> {
@@ -1477,8 +1754,8 @@ impl CampaignState {
     }
 
     /// Items with phase counts over the whole campaign, indexed like [`ItemPhase::TAGS`].
-    pub fn items_by_phase(&self) -> [u64; 9] {
-        let mut out = [0; 9];
+    pub fn items_by_phase(&self) -> [u64; 10] {
+        let mut out = [0; 10];
         for n in self.nodes.values() {
             for (o, v) in out.iter_mut().zip(n.items_by_phase) {
                 *o += v;
@@ -1663,22 +1940,71 @@ mod tests {
 
     #[test]
     fn node_and_campaign_machines() {
-        let base = NodeState { phase: NodePhase::Registered, closure_rounds: 0, last_defect: None, terminals: 0, terminal_bound: 2 };
+        let base = NodeState::new(None, 2);
         let ctx = NodeContext::default();
+        let cr = |round, defect| NodeEvent::ClosureResult { round, defect_keys: defect, closure_keys: 100, rules_used: Some(7), keyset: None };
         let s = apply_node(&base, &NodeEvent::Start, ctx).unwrap();
-        assert!(apply_node(&s, &NodeEvent::DeclareBoxedClosed, ctx).is_err());
-        let s = apply_node(&s, &NodeEvent::ClosureResult { round: 1, defect_keys: 5, keyset: None }, ctx).unwrap();
-        assert!(apply_node(&s, &NodeEvent::DeclareBoxedClosed, ctx).is_err());
-        assert!(apply_node(&s, &NodeEvent::ClosureResult { round: 1, defect_keys: 0, keyset: None }, ctx).is_err());
-        let s = apply_node(&s, &NodeEvent::ClosureResult { round: 2, defect_keys: 0, keyset: None }, ctx).unwrap();
-        assert!(apply_node(&s, &NodeEvent::DeclareBoxedClosed, NodeContext { items_open: 1, items_unproved: 0 }).is_err());
-        let s = apply_node(&s, &NodeEvent::DeclareBoxedClosed, ctx).unwrap();
-        assert_eq!(s.phase, NodePhase::BoxedClosed);
-        assert!(apply_node(&s, &NodeEvent::DeclareBoxedCertified, NodeContext { items_open: 0, items_unproved: 3 }).is_err());
-        let s2 = apply_node(&s, &NodeEvent::DeclareBoxedCertified, ctx).unwrap();
-        assert_eq!(s2.phase, NodePhase::BoxedCertified);
+        assert!(apply_node(&s, &NodeEvent::DeclareClosed, ctx).is_err());
+        let s = apply_node(&s, &cr(1, 5), ctx).unwrap();
+        assert!(apply_node(&s, &NodeEvent::DeclareClosed, ctx).is_err());
+        assert!(apply_node(&s, &cr(1, 0), ctx).is_err());
+        let s = apply_node(&s, &cr(2, 0), ctx).unwrap();
+        assert!(apply_node(&s, &NodeEvent::DeclareClosed, NodeContext { items_open: 1, items_unproved: 0 }).is_err());
+        let s = apply_node(&s, &NodeEvent::DeclareClosed, ctx).unwrap();
+        assert_eq!((s.phase, s.closure_kind()), (NodePhase::Closed, "full"));
+        assert!(apply_node(&s, &NodeEvent::DeclareCertified, NodeContext { items_open: 0, items_unproved: 3 }).is_err());
+        let s2 = apply_node(&s, &NodeEvent::DeclareCertified, ctx).unwrap();
+        assert!(s2.certified() && s2.closure_kind() == "full");
         let t = apply_node(&s, &NodeEvent::TerminalDeclared { count: 2 }, ctx).unwrap();
         assert!(apply_node(&t, &NodeEvent::TerminalDeclared { count: 1 }, ctx).is_err(), "bound 2");
+        // R33: a box closure pass never retires a rule of a FULL node; coverage-preserving proofs may
+        assert!(apply_node(&s, &NodeEvent::Retirement { box_only: true }, ctx).is_err());
+        assert!(apply_node(&s, &NodeEvent::Retirement { box_only: false }, ctx).is_ok());
+    }
+
+    #[test]
+    fn full_first_then_spec_box_or_open() {
+        let ctx = NodeContext::default();
+        let blk = Blockers { faces: 3, loci: 1, keys: 87, list: None };
+        let ended = |s: &NodeState| apply_node(s, &NodeEvent::AttemptEnded { blockers: blk.clone(), reason: "budget".into() }, ctx).unwrap();
+        let fb = |id: &str| NodeEvent::FallBackToBox { box_id: id.into() };
+        // no spec box: BOXED is illegal; OPEN after the full attempt ended
+        let s = apply_node(&NodeState::new(None, 100), &NodeEvent::Start, ctx).unwrap();
+        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "BOXED without a spec box");
+        assert!(apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(), "attempt not ended");
+        let s = ended(&s);
+        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "still no spec box after the full attempt");
+        let o = apply_node(&s, &NodeEvent::DeclareOpen { reason: "blocked".into() }, ctx).unwrap();
+        assert_eq!((o.phase, o.closure_kind()), (NodePhase::Open, "open"));
+        assert_eq!(o.full_blockers.as_ref().unwrap().keys, 87);
+        // spec box: fallback only after the full attempt ended, only to that box
+        let s = apply_node(&NodeState::new(Some("box-R*".into()), 100), &NodeEvent::Start, ctx).unwrap();
+        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "full attempt first (R35)");
+        let s = ended(&s);
+        assert!(apply_node(&s, &fb("box-wider"), ctx).is_err(), "never another / wider box");
+        assert!(apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(), "box must be tried first");
+        let b = apply_node(&s, &fb("box-R*"), ctx).unwrap();
+        assert_eq!(b.target, ClosureTarget::Boxed { box_id: "box-R*".into() });
+        assert!(!b.attempt_ended && b.full_blockers.is_some());
+        let b = apply_node(&b, &NodeEvent::ClosureResult { round: 1, defect_keys: 0, closure_keys: 55704, rules_used: Some(906), keyset: None }, ctx).unwrap();
+        let c = apply_node(&b, &NodeEvent::DeclareClosed, ctx).unwrap();
+        assert_eq!(c.closure_kind(), "boxed");
+        assert!(apply_node(&c, &NodeEvent::Retirement { box_only: true }, ctx).is_ok(), "box pruning only on BOXED");
+        let cc = apply_node(&c, &NodeEvent::DeclareCertified, ctx).unwrap();
+        assert!(cc.certified() && cc.closure_kind() == "boxed");
+        // reopen: back to FULL first
+        let r = apply_node(&cc, &NodeEvent::Reopen { reason: "later run".into() }, ctx).unwrap();
+        assert_eq!((r.phase, &r.target), (NodePhase::Running, &ClosureTarget::Full));
+        // a box attempt that ends too -> OPEN with both blocker lists
+        let e2 = apply_node(&b, &NodeEvent::AttemptEnded { blockers: Blockers { keys: 2, ..Default::default() }, reason: "box budget".into() }, ctx).unwrap();
+        let o2 = apply_node(&e2, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).unwrap();
+        assert!(o2.full_blockers.is_some() && o2.box_blockers.is_some() && o2.closure_kind() == "open");
+    }
+
+    #[test]
+    fn campaign_machine() {
+        let base = NodeState::new(None, 2);
+        let ctx = NodeContext::default();
         // campaign
         use CampaignEvent as E;
         let p = apply_campaign(None, E::Start).unwrap();
@@ -1697,7 +2023,7 @@ mod tests {
         }
         for s in NodePhase::ALL {
             let st = NodeState { phase: s, ..base.clone() };
-            for e in [NodeEvent::Start, NodeEvent::DeclareBoxedClosed, NodeEvent::DeclareBoxedCertified, NodeEvent::Reopen { reason: "x".into() }] {
+            for e in [NodeEvent::Start, NodeEvent::DeclareClosed, NodeEvent::DeclareCertified, NodeEvent::Reopen { reason: "x".into() }, NodeEvent::DeclareOpen { reason: "x".into() }, NodeEvent::FallBackToBox { box_id: "b".into() }] {
                 if let Ok(n) = apply_node(&st, &e, ctx) {
                     assert!(n == st || NODE_TABLE.iter().any(|(f, ev, _)| *ev == e.tag() && f.split('|').any(|x| x == s.tag())), "{s:?} {e:?}");
                 }

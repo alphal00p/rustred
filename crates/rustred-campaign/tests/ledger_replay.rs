@@ -160,14 +160,14 @@ fn node_verdicts_need_their_evidence() {
         l.append_all(item_life("T162", k, 0, if k == 2 { EvidenceLevel::GeometryAccepted } else { EvidenceLevel::IdentityProved }, 10)).unwrap();
     }
     let n = |ev| Event::Node { node: "T162".into(), ev };
-    l.append(n(NodeEvent::ClosureResult { round: 1, defect_keys: 4, keyset: None })).unwrap();
-    assert!(l.append(n(NodeEvent::DeclareBoxedClosed)).is_err(), "defect 4");
-    l.append(n(NodeEvent::ClosureResult { round: 2, defect_keys: 0, keyset: None })).unwrap();
-    l.append(n(NodeEvent::DeclareBoxedClosed)).unwrap();
-    assert_eq!(l.state().nodes["T162"].state.phase, NodePhase::BoxedClosed);
-    assert!(l.append(n(NodeEvent::DeclareBoxedCertified)).is_err(), "item 2 only geometry-accepted");
+    l.append(n(NodeEvent::ClosureResult { round: 1, defect_keys: 4, closure_keys: 900, rules_used: Some(3), keyset: None })).unwrap();
+    assert!(l.append(n(NodeEvent::DeclareClosed)).is_err(), "defect 4");
+    l.append(n(NodeEvent::ClosureResult { round: 2, defect_keys: 0, closure_keys: 880, rules_used: Some(3), keyset: None })).unwrap();
+    l.append(n(NodeEvent::DeclareClosed)).unwrap();
+    assert_eq!(l.state().nodes["T162"].state.phase, NodePhase::Closed);
+    assert!(l.append(n(NodeEvent::DeclareCertified)).is_err(), "item 2 only geometry-accepted");
     l.append(Event::Item { item: item_id("T162", 2), ev: ItemEvent::Upgrade { level: EvidenceLevel::IdentityProved, evidence: fref("cert/2.json") } }).unwrap();
-    l.append(n(NodeEvent::DeclareBoxedCertified)).unwrap();
-    assert_eq!(l.state().nodes["T162"].state.phase, NodePhase::BoxedCertified);
+    l.append(n(NodeEvent::DeclareCertified)).unwrap();
+    assert_eq!(l.state().nodes["T162"].state.phase, NodePhase::Certified);
     assert_eq!(l.state().nodes["T162"].state.closure_rounds, 2);
 }

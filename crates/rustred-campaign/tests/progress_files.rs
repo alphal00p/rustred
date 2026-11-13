@@ -68,7 +68,7 @@ fn progress_schema_goldens() {
     assert_eq!(c["rules"]["rejected"], 1);
     assert_eq!(c["terminals"]["declared"], 2);
     assert_eq!(c["closure"]["defect_keys"], 37);
-    assert_eq!(c["certified"]["share"], 0.4);
+    assert_eq!(c["certified"]["share"], 0.5);
     assert_eq!(c["cost"]["cpu_seconds"], 12.9);
     assert!(c["eta"]["wall_seconds"].is_object(), "{}", c["eta"]);
 }

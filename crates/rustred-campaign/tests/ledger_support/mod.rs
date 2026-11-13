@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustred_campaign::clock::{Clock, ManualClock};
-use rustred_campaign::ledger::{AcceptSource, Event, FileRef, ItemEvent, JobEvent, Ledger, LedgerConfig};
+use rustred_campaign::ledger::{AcceptSource, Event, FileRef, ItemEvent, JobEvent, Ledger, LedgerConfig, RetirementProof, RuleEconomy};
 use rustred_campaign::state::{CampaignEvent, EvidenceLevel, FinishClass, NodeEvent, Rung};
 
 pub const T0: &str = "2026-11-13T23:00:00Z";
@@ -57,7 +57,8 @@ pub fn setup_events(node: &str) -> Vec<Event> {
         Event::InputRegistered { input: "rr_node".into(), role: "binary".into(), path: "bin/rr_node".into(), bytes: 9_000_000, blake3: digest("rr_node v1") },
         Event::InputRegistered { input: format!("{node}.family"), role: "family".into(), path: format!("{node}.sym"), bytes: 3000, blake3: digest("family") },
         Event::InputRegistered { input: format!("{node}.bank"), role: "table".into(), path: format!("large:{node}.bank.jsonl"), bytes: 77_000_000, blake3: digest("bank") },
-        Event::NodeRegistered { node: node.into(), inputs: vec![format!("{node}.family"), format!("{node}.bank")], terminal_bound: None },
+        Event::InputRegistered { input: format!("{node}.box"), role: "box".into(), path: format!("boxes/{node}.Rstar.json"), bytes: 900, blake3: digest("R* box") },
+        Event::NodeRegistered { node: node.into(), inputs: vec![format!("{node}.family"), format!("{node}.bank")], terminal_bound: None, spec_box: Some(format!("{node}.box")) },
         Event::Campaign { ev: CampaignEvent::Start, reason: "test".into() },
         Event::Campaign { ev: CampaignEvent::Run, reason: "preflight ok".into() },
         Event::Node { node: node.into(), ev: NodeEvent::Start },
@@ -188,7 +189,22 @@ pub fn scenario() -> Vec<Event> {
         },
     });
     v.push(Event::Item { item: i6, ev: ItemEvent::Upgrade { level: EvidenceLevel::IdentityTested, evidence: fref("accepted/T162/bank-1043.span.json") } });
-    v.push(Event::Node { node: "T162".into(), ev: NodeEvent::ClosureResult { round: 1, defect_keys: 37, keyset: Some(fref("large:keysets/T162-closure-1.keys")) } });
+    v.push(Event::Node { node: "T162".into(), ev: NodeEvent::ClosureResult { round: 1, defect_keys: 37, closure_keys: 154_783, rules_used: Some(5), keyset: Some(fref("large:keysets/T162-closure-1.keys")) } });
+    // economy measures (R31) and one supersession on this FULL-target node (coverage-preserving proof)
+    for k in [0usize, 1, 2, 3] {
+        v.push(Event::RuleEconomy {
+            item: item_id("T162", k),
+            economy: RuleEconomy { cases: 1, rules: 1, rhs_terms: 700 + 10 * k as u64, monomials: 5000 * (k as u64 + 1), coefficient_degree: 12 + k as u64, bytes: 90_000 + k as u64 },
+        });
+    }
+    v.push(Event::Item {
+        item: item_id("T162", 3),
+        ev: ItemEvent::Retire {
+            rule: "T162:R:campaign:3".into(),
+            proof: RetirementProof::ReplacedBy { proof: fref("large:proofs/T162-containment-3-in-2.json") },
+            superseded_by: Some(item_id("T162", 2)),
+        },
+    });
     let mut counters = BTreeMap::new();
     counters.insert("rows".to_string(), 412u64);
     v.push(Event::JobProgress { job: job_id("T162", 0, 0), attempt: 1, counters });

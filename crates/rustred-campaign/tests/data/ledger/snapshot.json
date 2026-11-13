@@ -1,7 +1,7 @@
 {
-  "head": "8c1e0af8bd903888ab43ea35b126f3f3083e6dcaf18d1e65dd5550f7c41a0ace",
+  "head": "1a72f4d92433a0aaf2a8a2927eb6fc535f76cc9c33b59a24628b2a5b4e5c8dac",
   "schema": "rustred.campaign.snapshot.v1",
-  "seq": 75,
+  "seq": 81,
   "state": {
     "campaign_id": "test-campaign",
     "costs_ms": {
@@ -39,7 +39,7 @@
           }
         ],
         "producer": "Astra (Codex session), hand closure of T162",
-        "seq": 10
+        "seq": 11
       }
     },
     "inputs": {
@@ -49,6 +49,14 @@
         "path": "large:T162.bank.jsonl",
         "registered_seq": 5,
         "role": "table",
+        "versions": 1
+      },
+      "T162.box": {
+        "blake3": "c800a9b467b4c053a5be379511c7a0d6ba80c69d1314b6dd3b395a2a87b5fddf",
+        "bytes": 900,
+        "path": "boxes/T162.Rstar.json",
+        "registered_seq": 6,
+        "role": "box",
         "versions": 1
       },
       "T162.family": {
@@ -86,7 +94,7 @@
             "path": "accepted/T162/00000.json"
           },
           "rule": "T162:R:campaign:0",
-          "seq": 20,
+          "seq": 21,
           "source": {
             "attempt": 1,
             "from": "job",
@@ -95,7 +103,15 @@
           }
         },
         "cpu_ms": 1000,
-        "created_seq": 11,
+        "created_seq": 12,
+        "economy": {
+          "bytes": 90000,
+          "cases": 1,
+          "coefficient_degree": 12,
+          "monomials": 5000,
+          "rhs_terms": 700,
+          "rules": 1
+        },
         "inputs": [
           "rr_node"
         ],
@@ -110,11 +126,12 @@
           "detail": "identity_proved",
           "phase": "accepted"
         },
+        "retired": null,
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 20,
+        "updated_seq": 21,
         "weight": 3
       },
       "T162-item-00001": {
@@ -126,7 +143,7 @@
             "path": "accepted/T162/00001.json"
           },
           "rule": "T162:R:campaign:1",
-          "seq": 30,
+          "seq": 31,
           "source": {
             "attempt": 1,
             "from": "job",
@@ -135,7 +152,15 @@
           }
         },
         "cpu_ms": 2000,
-        "created_seq": 21,
+        "created_seq": 22,
+        "economy": {
+          "bytes": 90001,
+          "cases": 1,
+          "coefficient_degree": 13,
+          "monomials": 10000,
+          "rhs_terms": 710,
+          "rules": 1
+        },
         "inputs": [
           "rr_node"
         ],
@@ -150,11 +175,12 @@
           "detail": "geometry_accepted",
           "phase": "accepted"
         },
+        "retired": null,
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 30,
+        "updated_seq": 31,
         "weight": 3
       },
       "T162-item-00002": {
@@ -166,7 +192,7 @@
             "path": "accepted/T162/00002.json"
           },
           "rule": "T162:R:campaign:2",
-          "seq": 40,
+          "seq": 41,
           "source": {
             "attempt": 1,
             "from": "job",
@@ -175,7 +201,15 @@
           }
         },
         "cpu_ms": 3000,
-        "created_seq": 31,
+        "created_seq": 32,
+        "economy": {
+          "bytes": 90002,
+          "cases": 1,
+          "coefficient_degree": 14,
+          "monomials": 15000,
+          "rhs_terms": 720,
+          "rules": 1
+        },
         "inputs": [
           "rr_node"
         ],
@@ -190,11 +224,12 @@
           "detail": "identity_proved",
           "phase": "accepted"
         },
+        "retired": null,
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 40,
+        "updated_seq": 41,
         "weight": 3
       },
       "T162-item-00003": {
@@ -206,7 +241,7 @@
             "path": "accepted/T162/00003.json"
           },
           "rule": "T162:R:campaign:3",
-          "seq": 50,
+          "seq": 51,
           "source": {
             "attempt": 1,
             "from": "job",
@@ -215,7 +250,15 @@
           }
         },
         "cpu_ms": 4000,
-        "created_seq": 41,
+        "created_seq": 42,
+        "economy": {
+          "bytes": 90003,
+          "cases": 1,
+          "coefficient_degree": 15,
+          "monomials": 20000,
+          "rhs_terms": 730,
+          "rules": 1
+        },
         "inputs": [
           "rr_node"
         ],
@@ -227,20 +270,32 @@
         "node": "T162",
         "parent": null,
         "phase": {
-          "detail": "geometry_accepted",
-          "phase": "accepted"
+          "phase": "retired"
+        },
+        "retired": {
+          "proof": {
+            "kind": "replaced_by",
+            "proof": {
+              "blake3": "75d97febdd7d40db218258380973cf816a71ea2228d5f2f8ef29e20afa30153a",
+              "bytes": 4100,
+              "path": "large:proofs/T162-containment-3-in-2.json"
+            }
+          },
+          "seq": 79,
+          "superseded_by": "T162-item-00002"
         },
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 50,
+        "updated_seq": 79,
         "weight": 3
       },
       "T162-item-00004": {
         "accepted": null,
         "cpu_ms": 2500,
-        "created_seq": 51,
+        "created_seq": 52,
+        "economy": null,
         "inputs": [],
         "jobs": [
           "T162-job-00004-L0"
@@ -253,17 +308,19 @@
           "detail": "L1",
           "phase": "escalated"
         },
+        "retired": null,
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 61,
+        "updated_seq": 62,
         "weight": 5
       },
       "T162-item-00005": {
         "accepted": null,
         "cpu_ms": 0,
-        "created_seq": 62,
+        "created_seq": 63,
+        "economy": null,
         "inputs": [],
         "jobs": [],
         "kind": "locus",
@@ -273,11 +330,12 @@
         "phase": {
           "phase": "terminal"
         },
+        "retired": null,
         "rung": "L1",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 2,
-        "updated_seq": 64,
+        "updated_seq": 65,
         "weight": 5
       },
       "T162-item-00006": {
@@ -289,14 +347,15 @@
             "path": "accepted/T162/bank-1043.json"
           },
           "rule": "T162:R:bank:1043",
-          "seq": 71,
+          "seq": 72,
           "source": {
             "evidence": "astra-bank-20261113",
             "from": "evidence"
           }
         },
         "cpu_ms": 400,
-        "created_seq": 65,
+        "created_seq": 66,
+        "economy": null,
         "inputs": [],
         "jobs": [
           "T162-job-00006-L0"
@@ -309,11 +368,12 @@
           "detail": "identity_tested",
           "phase": "accepted"
         },
+        "retired": null,
         "rung": "L0",
         "stale_from": null,
         "stale_input": null,
         "terminal_keys": 0,
-        "updated_seq": 72,
+        "updated_seq": 73,
         "weight": 1
       }
     },
@@ -323,7 +383,7 @@
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 1000,
-        "created_seq": 12,
+        "created_seq": 13,
         "item": "T162-item-00000",
         "kind": "generate",
         "peak_rss_bytes": 419430400,
@@ -349,7 +409,7 @@
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 2000,
-        "created_seq": 22,
+        "created_seq": 23,
         "item": "T162-item-00001",
         "kind": "generate",
         "peak_rss_bytes": 419430400,
@@ -375,7 +435,7 @@
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 3000,
-        "created_seq": 32,
+        "created_seq": 33,
         "item": "T162-item-00002",
         "kind": "generate",
         "peak_rss_bytes": 419430400,
@@ -401,7 +461,7 @@
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 4000,
-        "created_seq": 42,
+        "created_seq": 43,
         "item": "T162-item-00003",
         "kind": "generate",
         "peak_rss_bytes": 419430400,
@@ -427,7 +487,7 @@
         "binary": "rr_node",
         "boot_id": null,
         "cpu_ms": 2500,
-        "created_seq": 52,
+        "created_seq": 53,
         "item": "T162-item-00004",
         "kind": "generate",
         "peak_rss_bytes": 419430400,
@@ -453,7 +513,7 @@
         "binary": "rr_node",
         "boot_id": null,
         "cpu_ms": 400,
-        "created_seq": 67,
+        "created_seq": 68,
         "item": "T162-item-00006",
         "kind": "descent",
         "peak_rss_bytes": 419430400,
@@ -475,12 +535,12 @@
         "time_decided": false
       }
     },
-    "last_seq": 75,
-    "last_utc": "2026-11-13T23:00:18.500Z",
+    "last_seq": 81,
+    "last_utc": "2026-11-13T23:00:20.000Z",
     "nodes": {
       "T162": {
         "accepted_by_level": [
-          2,
+          1,
           1,
           2
         ],
@@ -493,12 +553,13 @@
           0,
           0,
           0,
-          5,
+          4,
           0,
           1,
           0,
           1,
-          0
+          0,
+          1
         ],
         "last_keyset": {
           "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
@@ -507,9 +568,18 @@
         },
         "stale_reason": null,
         "state": {
+          "attempt_ended": false,
+          "box_blockers": null,
+          "closure_keys": 154783,
           "closure_rounds": 1,
+          "full_blockers": null,
           "last_defect": 37,
           "phase": "closure_check",
+          "rules_used": 5,
+          "spec_box": "T162.box",
+          "target": {
+            "target": "full"
+          },
           "terminal_bound": 100,
           "terminals": 2
         }
@@ -521,129 +591,135 @@
     "recent": [
       {
         "kind": "campaign",
-        "seq": 7,
-        "text": "campaign starting (test)",
-        "utc": "2026-11-13T23:00:01.500Z"
-      },
-      {
-        "kind": "campaign",
         "seq": 8,
-        "text": "campaign running (preflight ok)",
+        "text": "campaign starting (test)",
         "utc": "2026-11-13T23:00:01.750Z"
       },
       {
-        "kind": "node",
+        "kind": "campaign",
         "seq": 9,
-        "text": "T162: running",
+        "text": "campaign running (preflight ok)",
         "utc": "2026-11-13T23:00:02.000Z"
       },
       {
-        "kind": "evidence",
+        "kind": "node",
         "seq": 10,
-        "text": "imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2 files)",
+        "text": "T162: running (open)",
         "utc": "2026-11-13T23:00:02.250Z"
       },
       {
+        "kind": "evidence",
+        "seq": 11,
+        "text": "imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2 files)",
+        "utc": "2026-11-13T23:00:02.500Z"
+      },
+      {
         "kind": "job_finished",
-        "seq": 16,
+        "seq": 17,
         "text": "T162 F000 L0: job T162-job (rule_found)",
-        "utc": "2026-11-13T23:00:03.750Z"
+        "utc": "2026-11-13T23:00:04.000Z"
       },
       {
         "kind": "item_accepted",
-        "seq": 20,
+        "seq": 21,
         "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
-        "utc": "2026-11-13T23:00:04.750Z"
+        "utc": "2026-11-13T23:00:05.000Z"
       },
       {
         "kind": "job_finished",
-        "seq": 26,
+        "seq": 27,
         "text": "T162 F001 L0: job T162-job (rule_found)",
-        "utc": "2026-11-13T23:00:06.250Z"
+        "utc": "2026-11-13T23:00:06.500Z"
       },
       {
         "kind": "item_accepted",
-        "seq": 30,
+        "seq": 31,
         "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
-        "utc": "2026-11-13T23:00:07.250Z"
+        "utc": "2026-11-13T23:00:07.500Z"
       },
       {
         "kind": "job_finished",
-        "seq": 36,
+        "seq": 37,
         "text": "T162 F002 L0: job T162-job (rule_found)",
-        "utc": "2026-11-13T23:00:08.750Z"
+        "utc": "2026-11-13T23:00:09.000Z"
       },
       {
         "kind": "item_accepted",
-        "seq": 40,
+        "seq": 41,
         "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
-        "utc": "2026-11-13T23:00:09.750Z"
+        "utc": "2026-11-13T23:00:10.000Z"
       },
       {
         "kind": "job_finished",
-        "seq": 46,
+        "seq": 47,
         "text": "T162 F003 L0: job T162-job (rule_found)",
-        "utc": "2026-11-13T23:00:11.250Z"
+        "utc": "2026-11-13T23:00:11.500Z"
       },
       {
         "kind": "item_accepted",
-        "seq": 50,
+        "seq": 51,
         "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
-        "utc": "2026-11-13T23:00:12.250Z"
+        "utc": "2026-11-13T23:00:12.500Z"
       },
       {
         "kind": "job_finished",
-        "seq": 58,
+        "seq": 59,
         "text": "T162 F004 n9=-1 L0: job T162-job (no_rule)",
-        "utc": "2026-11-13T23:00:14.250Z"
+        "utc": "2026-11-13T23:00:14.500Z"
       },
       {
         "kind": "item_rejected",
-        "seq": 60,
-        "text": "T162 F004 n9=-1: rejected (rule_covers_none)",
-        "utc": "2026-11-13T23:00:14.750Z"
-      },
-      {
-        "kind": "item_escalated",
         "seq": 61,
-        "text": "T162 F004 n9=-1: escalated to L1 (rule_covers_none)",
+        "text": "T162 F004 n9=-1: rejected (rule_covers_none)",
         "utc": "2026-11-13T23:00:15.000Z"
       },
       {
-        "kind": "terminal_proposed",
-        "seq": 63,
-        "text": "T162 F004 n9=-1: terminal candidate (terminal_after_ladder)",
-        "utc": "2026-11-13T23:00:15.500Z"
+        "kind": "item_escalated",
+        "seq": 62,
+        "text": "T162 F004 n9=-1: escalated to L1 (rule_covers_none)",
+        "utc": "2026-11-13T23:00:15.250Z"
       },
       {
-        "kind": "terminal_declared",
+        "kind": "terminal_proposed",
         "seq": 64,
-        "text": "T162 F004 n9=-1: 2 terminal key(s) declared",
+        "text": "T162 F004 n9=-1: terminal candidate (terminal_after_ladder)",
         "utc": "2026-11-13T23:00:15.750Z"
       },
       {
+        "kind": "terminal_declared",
+        "seq": 65,
+        "text": "T162 F004 n9=-1: 2 terminal key(s) declared",
+        "utc": "2026-11-13T23:00:16.000Z"
+      },
+      {
         "kind": "job_finished",
-        "seq": 69,
+        "seq": 70,
         "text": "T162 F006 L0: job T162-job (complete)",
-        "utc": "2026-11-13T23:00:17.000Z"
+        "utc": "2026-11-13T23:00:17.250Z"
       },
       {
         "kind": "item_accepted",
-        "seq": 71,
-        "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
-        "utc": "2026-11-13T23:00:17.500Z"
-      },
-      {
-        "kind": "item_upgraded",
         "seq": 72,
-        "text": "T162 F006: evidence -> identity_tested",
+        "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
         "utc": "2026-11-13T23:00:17.750Z"
       },
       {
-        "kind": "node",
+        "kind": "item_upgraded",
         "seq": 73,
-        "text": "T162: closure round 1, defect 37 keys",
+        "text": "T162 F006: evidence -> identity_tested",
         "utc": "2026-11-13T23:00:18.000Z"
+      },
+      {
+        "kind": "node",
+        "seq": 74,
+        "text": "T162: closure round 1, defect 37 of 154783 keys",
+        "utc": "2026-11-13T23:00:18.250Z"
+      },
+      {
+        "kind": "rule_retired",
+        "seq": 79,
+        "text": "T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)",
+        "utc": "2026-11-13T23:00:19.500Z"
       }
     ],
     "rules": {
@@ -652,6 +728,7 @@
       "rejected_by_reason": {
         "rule_covers_none": 1
       },
+      "retired": 1,
       "upgrades": 1
     },
     "segments_opened": 0,
