@@ -93,6 +93,8 @@ struct TerminalLedger {
     terminals: Vec<TerminalDeclaration>,
 }
 
+// The variant names are the ledger file's `frame` values (serde), hence upper case.
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum TerminalFrame {
     ORIGINAL,
@@ -264,6 +266,7 @@ impl DeclaredTerminalLedger {
 
     /// Evaluate the actual target frame, equality domain and complete OR-of-AND exception set.
     /// No RHS inspection is needed: an applicable zero-RHS rule also contradicts a declaration.
+    #[allow(clippy::too_many_arguments)]
     fn check_rule<const N: usize>(
         &self,
         target: &Integral<N>,
@@ -398,7 +401,7 @@ fn terminal_sha256(bytes: &[u8]) -> String {
         data.push(0);
     }
     data.extend_from_slice(&(bytes.len() as u64).wrapping_mul(8).to_be_bytes());
-    for block in data.chunks_exact(64) {
+    for block in data.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
         for i in 0..16 {
             w[i] = u32::from_be_bytes(block[4 * i..4 * i + 4].try_into().unwrap());
@@ -4012,7 +4015,7 @@ mod tests {
         let family = compile_family(SUNSET).unwrap();
         let sources = SourceSystem::<5>::from_family_with_capacity(&family, true).unwrap();
         let idx = *sources.index_variables();
-        let template = &sources.rows()[0].iter().next().unwrap().coefficient;
+        let template = &sources.rows()[0].first().unwrap().coefficient;
         let sector = [true, true, true, false, false];
         let face = Case::from(CoordinateCase::<5>::generic());
         let shifted = super::super::descent::parse_key::<5>("I(n0-1,n1,n2,n3,n4)").unwrap();
