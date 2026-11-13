@@ -14,7 +14,7 @@ mod cuts;
 mod discovery;
 mod discovery_strategy;
 mod error;
-mod exception;
+pub(crate) mod exception;
 mod execution;
 mod geometry;
 mod index;

@@ -613,6 +613,22 @@ fn extract_with<const N: usize>(
 /// guard-fix (helper Y3f): Symbolica's `factor()` with a cheap completeness check: `input / prod factor^mult` must be
 /// the same nonzero constant at two pseudo-random points mod 2^61 - 1 (a lost factor changes the ratio). Panics on a
 /// mismatch: a guard set built from an incomplete factorisation must never be written.
+/// N2 (helper y3b): the irreducible factors of witness poles, primitive and
+/// sign-normalised, for records of the parameter-only (d-only) poles that are
+/// never index guards. `factor()` completeness is checked as for guard inputs.
+pub fn primitive_factors(poles: &[CoefficientPolynomial]) -> Vec<CoefficientPolynomial> {
+    let mut factors: Vec<CoefficientPolynomial> = poles
+        .iter()
+        .filter(|pole| !pole.is_zero() && !pole.is_constant())
+        .flat_map(|pole| checked_factor(pole))
+        .map(|(factor, _)| factor)
+        .filter(|factor| !factor.is_constant())
+        .map(primitive)
+        .collect();
+    sort_unique(&mut factors);
+    factors
+}
+
 fn checked_factor(input: &CoefficientPolynomial) -> Vec<(CoefficientPolynomial, usize)> {
     use symbolica::domains::finite_field::{ToFiniteField, Zp64};
     use symbolica::domains::{Ring, RingOps};

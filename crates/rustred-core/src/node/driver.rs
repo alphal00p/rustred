@@ -1417,6 +1417,35 @@ fn write_rule<const N: usize>(
             }
         })
         .collect();
+    // N2 (helper y3b): the d-only (parameter-only) factors of the witness poles, never index guards (rules hold in
+    // Q(d)); recorded so that a specialisation of d (d = 4, integer-d checks) knows which values to avoid. A witness
+    // pole too long for the record (> 4000 characters, as witness_loci) is not factored here: "elided".
+    let mut witness_d_poles: Vec<String> = Vec::new();
+    let has_index = |t: &str| {
+        t.as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b'n' && w[1].is_ascii_digit())
+    };
+    let short: Vec<_> = c
+        .hidden_poles
+        .iter()
+        .filter(|p| {
+            let long = p.to_string().len() > 4000;
+            if long {
+                witness_d_poles.push("elided".to_string());
+            }
+            !long
+        })
+        .cloned()
+        .collect();
+    witness_d_poles.extend(
+        crate::solver::exception::primitive_factors(&short)
+            .iter()
+            .map(|f| f.to_string())
+            .filter(|t| !has_index(t)),
+    );
+    witness_d_poles.sort();
+    witness_d_poles.dedup();
     let opt = |v: &Option<Vec<i16>>| v.as_ref().map_or("null".to_string(), |v| format!("{v:?}"));
     let raw = x
         .raw_pivot
@@ -1424,7 +1453,7 @@ fn write_rule<const N: usize>(
         .map_or("null".to_string(), |v| format!("{v:?}"));
     writeln!(
         f,
-        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{},\"guard_version\":{}}}",
+        "{{\"type\":\"rule\",\"chart\":{},\"index\":{index},\"case\":{},\"fixed\":[{}],\"equations\":{},\"target\":{},\"rhs\":[{}],\"exceptions\":[{}],\"dispatch\":{},\"nsources\":{},\"seeds\":{},\"direct_hit\":{},\"seconds_search\":{:.6},\"raw_pivot_encoded\":{raw},\"recenter\":{},\"trace_rows\":{},\"lift_seconds\":{:.6},\"source_order\":{},\"numerical\":{},\"monomials\":{},\"oversized_fallback\":{},\"witness_poles\":{},\"witness_loci\":{},\"witness_d_poles\":{},\"guard_version\":{}}}",
         q(chart),
         q(&format!("{:?}", c.case)),
         fixed.join(","),
@@ -1446,6 +1475,7 @@ fn write_rule<const N: usize>(
         x.oversized_fallback,
         c.hidden_poles.len(),
         strings(witness_loci.iter()),
+        strings(witness_d_poles.iter()),
         x.guard_version,
     )
     .expect("write rule");

@@ -558,3 +558,199 @@ fn witness_poles_join_the_guards_on_both_routes_and_for_empty_rhs() {
         expected(&context, &[&["n1+2"]])
     );
 }
+
+// ---------------------------------------------------------------------------
+// guard-fix D3 (helper y3 D3, y3b (g)): exception extraction checked through the
+// EXACT CASE INTERSECTION. For a rule and a parent case, the extracted branches
+// are intersected with the parent (production: sector.rs finish_rule_routed ->
+// Case::intersect_many); on a box of integer points of the parent, a point lies
+// in an emitted exception case iff some guard input (RHS denominator or witness
+// pole) vanishes identically in d there.
+
+fn point_case<const N: usize>(point: &[i64]) -> crate::solver::Case<N> {
+    CoordinateCase::new(std::array::from_fn(|axis| {
+        Some(point[axis].try_into().unwrap())
+    }))
+    .unwrap()
+    .into()
+}
+
+fn vanishes_for_all_d(
+    polynomial: &crate::algebra::CoefficientPolynomial,
+    indices: &[usize],
+    point: &[i64],
+) -> bool {
+    let mut value = polynomial.clone();
+    for (axis, &position) in indices.iter().enumerate() {
+        value = value.replace(position, &symbolica::prelude::Integer::from(point[axis]));
+    }
+    value.is_zero()
+}
+
+/// Returns the number of excluded box points of the parent.
+fn assert_exact_on_box<const N: usize>(
+    rule: &RuleCandidate<N>,
+    indices: &[usize; N],
+    parent: &crate::solver::Case<N>,
+    range: std::ops::RangeInclusive<i64>,
+) -> usize {
+    let sector = [true; N];
+    let conditions = extract_exceptions(rule, indices, &sector).unwrap();
+    let mut cases = Vec::new();
+    for branch in &conditions.branches {
+        let result = parent
+            .intersect_many(
+                branch,
+                indices,
+                &sector,
+                crate::solver::CaseIntersectionLimits::default(),
+            )
+            .unwrap_or_else(|error| panic!("branch {branch:?}: {:?}", error.failure));
+        for case in result.cases {
+            assert!(parent.contains(&case).unwrap(), "{case:?} outside the parent");
+            cases.push(case);
+        }
+    }
+    let mut points = vec![Vec::new()];
+    for _ in 0..N {
+        points = points
+            .into_iter()
+            .flat_map(|p: Vec<i64>| range.clone().map(move |v| [p.clone(), vec![v]].concat()))
+            .collect();
+    }
+    let mut excluded = 0;
+    for point in points {
+        let coordinate = point_case::<N>(&point);
+        if !parent.contains(&coordinate).unwrap() {
+            continue;
+        }
+        let pole = rule
+            .rhs
+            .iter()
+            .filter(|term| !term.coefficient.is_zero())
+            .map(|term| &term.coefficient.denominator)
+            .chain(rule.hidden_poles.iter())
+            .any(|denominator| vanishes_for_all_d(denominator, indices, &point));
+        let got = cases
+            .iter()
+            .any(|case| case.contains(&coordinate).unwrap());
+        assert_eq!(got, pole, "point {point:?}: excluded {got}, guard input vanishes {pole}");
+        excluded += usize::from(pole);
+    }
+    excluded
+}
+
+fn generic2() -> crate::solver::Case<2> {
+    CoordinateCase::generic().into()
+}
+
+#[test]
+fn d3_an_irreducible_factor_mixing_d_with_two_free_coordinates_is_exact_on_the_case() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    // d*(n0-n1) + n0 + n1 - 4 vanishes for every d only at n0 = n1 = 2
+    let rule = candidate(&context, &[([-1, 0], "1/(d*(n0-n1)+n0+n1-4)")]);
+    assert_eq!(assert_exact_on_box(&rule, &[1, 2], &generic2(), 1..=6), 1);
+    // as a witness pole that cancels from the RHS: the same exclusion
+    let mut hidden = candidate(&context, &[([-1, 0], "1/(n0+3)")]);
+    hidden.hidden_poles = vec![context.coefficient_fixture("d*(n0-n1)+n0+n1-4").numerator];
+    assert_eq!(assert_exact_on_box(&hidden, &[1, 2], &generic2(), 1..=6), 1);
+}
+
+#[test]
+fn d3_nonlinear_d_free_factors_are_exact_on_the_case() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    // bilinear: n0*n1 = 6 at (1,6) (2,3) (3,2) (6,1)
+    let rule = candidate(&context, &[([-1, 0], "1/((n0*n1-6)*(d-3))")]);
+    assert_eq!(assert_exact_on_box(&rule, &[1, 2], &generic2(), 1..=7), 4);
+    // definite quadratic: n0^2 + n1^2 = 25 at (3,4) (4,3)
+    let rule = candidate(&context, &[([-1, 0], "1/(n0^2+n1^2-25)")]);
+    assert_eq!(assert_exact_on_box(&rule, &[1, 2], &generic2(), 1..=6), 2);
+}
+
+#[test]
+fn d3_a_pole_that_changes_or_vanishes_after_case_substitution_is_exact_on_the_case() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    let indices = [1, 2];
+    // changes: on the face n1 = 2, n0*n1 - 4 becomes 2*(n0 - 2)
+    let face: crate::solver::Case<2> = CoordinateCase::new([None, Some(2)]).unwrap().into();
+    let rule = candidate(&context, &[([-1, 0], "1/((n0*n1-4)*(d-5))")]);
+    assert_eq!(assert_exact_on_box(&rule, &indices, &face, 1..=6), 1);
+    // vanishes identically on the affine case n0 = n1: the whole case is excluded
+    let diagonal = generic2()
+        .intersect(
+            &[context.coefficient_fixture("n0-n1").numerator],
+            &indices,
+            &[true; 2],
+        )
+        .unwrap()
+        .expect("the diagonal is not empty");
+    let rule = candidate(&context, &[([-1, 0], "1/((n0-n1)*(n0-3))")]);
+    assert_eq!(assert_exact_on_box(&rule, &indices, &diagonal, 1..=6), 6);
+    // a witness pole vanishing identically on a fixed face excludes the face
+    let low: crate::solver::Case<2> = CoordinateCase::new([Some(1), None]).unwrap().into();
+    let mut hidden = candidate(&context, &[([-1, 0], "1/(n1+7)")]);
+    hidden.hidden_poles = vec![context.coefficient_fixture("(n0-1)*(d+n1)").numerator];
+    assert_eq!(assert_exact_on_box(&hidden, &indices, &low, 1..=6), 6);
+    // ... and leaves the other faces alone
+    let other: crate::solver::Case<2> = CoordinateCase::new([Some(2), None]).unwrap().into();
+    assert_eq!(assert_exact_on_box(&hidden, &indices, &other, 1..=6), 0);
+}
+
+/// D3: a native factorisation that does not finish in time FAILS CLOSED: the
+/// routed extraction falls back to the exact content route, whose exceptional
+/// point set equals the native one (never an empty or partial guard set).
+#[cfg(unix)]
+#[test]
+fn d3_a_factorisation_timeout_fails_closed_to_the_exact_content_route() {
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    let rule = candidate(
+        &context,
+        &[([-1, 0], "1/((d*n0+n1-3)*(n0*n1-2)*(d*(n0-n1)+n0+n1-4))")],
+    );
+    let (indices, sector, two_sided) = ([1, 2], [true; 2], [false; 2]);
+    let native = extract_exceptions(&rule, &indices, &sector).unwrap();
+    let (got, report) = extract_exceptions_routed(
+        &rule,
+        &indices,
+        &sector,
+        &two_sided,
+        GuardRoute::NativeThenContent {
+            native_timeout: Duration::from_nanos(1),
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(report.route, GuardRouteTaken::Native | GuardRouteTaken::Content),
+        "{report:?}"
+    );
+    assert!(!got.branches.is_empty());
+    assert_eq!(
+        zero_set(&got, &indices, -4..=6),
+        zero_set(&native, &indices, -4..=6)
+    );
+}
+
+/// N2: d-only factors of witness poles are recorded (the node table's
+/// `witness_d_poles`), primitive and deduplicated; index factors are kept
+/// apart by the caller.
+#[test]
+fn n2_primitive_factors_list_the_d_only_factors_of_witness_poles() {
+    use super::primitive_factors;
+    let context = CoefficientContext::new(["d", "n0", "n1"]);
+    let poles = vec![
+        context.coefficient_fixture("(d-6)*(n0-1)").numerator,
+        context.coefficient_fixture("2*d-8").numerator,
+        context.coefficient_fixture("3*(d-6)^2").numerator,
+    ];
+    let factors = primitive_factors(&poles);
+    assert_eq!(factors.len(), 3, "{factors:?}");
+    for want in ["d-6", "d-4", "n0-1"] {
+        let want = context.coefficient_fixture(want).numerator;
+        assert!(
+            factors.iter().any(|f| *f == want || *f == -want.clone()),
+            "{want} missing from {factors:?}"
+        );
+    }
+    let d_only: Vec<_> = factors.iter().filter(|f| f.degree(1) == 0 && f.degree(2) == 0).collect();
+    assert_eq!(d_only.len(), 2);
+}
