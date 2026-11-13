@@ -1205,6 +1205,15 @@ fn order_program(
         Some(priority) => {
             let mut d = rustred_order::OrderDescriptor::spired_uncut(n);
             d.coordinate_priority = priority.clone();
+            // batch 6 (helper Z12): preconditions of the descent argument, asserted at generation time
+            if !d.pre_support_degree_rows.is_empty()
+                || d.coordinate_groups != rustred_order::CoordinateGroups::ActiveFirst
+            {
+                return Err(
+                    "order program: the descent argument needs no pre-support degree rows and ActiveFirst coordinate groups"
+                        .into(),
+                );
+            }
             rustred_order::CompiledOrder::compile(d, Default::default())
                 .map(Some)
                 .map_err(|e| format!("order program: {e:?}"))

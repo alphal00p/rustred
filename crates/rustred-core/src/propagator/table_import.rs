@@ -632,7 +632,7 @@ fn u64_list(value: &Value, field: &str) -> Result<Vec<u64>, PError> {
 }
 
 /// The header's `order` as an [`OrderDescriptor`] with every slot permuted.
-fn permuted_order(
+pub(crate) fn permuted_order(
     order: &Value,
     slot_map: &[usize],
 ) -> Result<rustred_order::OrderDescriptor, PError> {

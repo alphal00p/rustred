@@ -208,13 +208,43 @@ pub fn check_table_file(
         }
     }
     let header = header.ok_or("table without header")?;
+    let arity = header["denominators"]
+        .as_u64()
+        .ok_or("header denominators")? as usize;
+    // batch 6 (helper Z12): a table whose header carries a FULL order descriptor (face-queue / shifted / eps tables:
+    // degree rows, two_sided axes) is checked under that descriptor; the node-order path below compiles only the
+    // coordinate priority one-sided and reported 18,089 false 'not lower' terms on 40 eps tables.
+    if order.is_none()
+        && header.get("node_order").is_none()
+        && header["order_is_program"].as_bool() == Some(true)
+        && header["order"].get("degree_rows").is_some()
+    {
+        let descriptor = crate::propagator::table_import::permuted_order(
+            &header["order"],
+            &(0..arity).collect::<Vec<_>>(),
+        )
+        .map_err(|e| format!("header order descriptor: {e}"))?;
+        let report = match arity {
+            5 => check_keyed_descriptor::<5>(&descriptor, arity, &rules),
+            9 => check_keyed_descriptor::<9>(&descriptor, arity, &rules),
+            12 => check_keyed_descriptor::<12>(&descriptor, arity, &rules),
+            14 => check_keyed_descriptor::<14>(&descriptor, arity, &rules),
+            20 => check_keyed_descriptor::<20>(&descriptor, arity, &rules),
+            other => Err(format!("arity {other} not compiled in the descent check")),
+        }?;
+        let name = header["order_name"].as_str().unwrap_or("program");
+        return Ok((
+            NodeOrder {
+                name: format!("{name} (full header descriptor)"),
+                ..NodeOrder::identity()
+            },
+            report,
+        ));
+    }
     let order = match order {
         Some(o) => o,
         None => header_order(&header)?,
     };
-    let arity = header["denominators"]
-        .as_u64()
-        .ok_or("header denominators")? as usize;
     let report = match arity {
         5 => check_keyed::<5>(&order, arity, &rules),
         9 => check_keyed::<9>(&order, arity, &rules),
@@ -224,6 +254,52 @@ pub fn check_table_file(
         other => Err(format!("arity {other} not compiled in the descent check")),
     }?;
     Ok((order, report))
+}
+
+/// Keyed rules under a FULL order descriptor (degree rows, two-sided eps axes), per chart.
+pub fn check_keyed_descriptor<const N: usize>(
+    descriptor: &rustred_order::OrderDescriptor,
+    arity: usize,
+    rules: &[(String, String, String, Vec<String>)],
+) -> Result<DescentReport, String> {
+    let program = rustred_order::CompiledOrder::compile(descriptor.clone(), Default::default())
+        .map_err(|e| format!("order program: {e:?}"))?;
+    let mut total = DescentReport::default();
+    let mut charts: Vec<&str> = rules.iter().map(|r| r.0.as_str()).collect();
+    charts.sort_unstable();
+    charts.dedup();
+    for chart in charts {
+        let bits: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+        if bits.len() != arity {
+            return Err(format!("chart {chart}: arity {}", bits.len()));
+        }
+        let mut sector = [false; N];
+        sector[..arity].copy_from_slice(&bits);
+        let io = IntegralOrder::new(sector, [false; N])
+            .with_physical_arity(arity)
+            .map_err(|e| format!("{e:?}"))?
+            .with_program(program.clone())
+            .map_err(|e| format!("{e:?}"))?;
+        let keyed: Vec<KeyRule<N>> = rules
+            .iter()
+            .filter(|r| r.0 == chart)
+            .map(|(_, label, target, rhs)| {
+                Ok(KeyRule {
+                    label: label.clone(),
+                    target: parse_key(target)?,
+                    rhs: rhs
+                        .iter()
+                        .map(|k| parse_key(k))
+                        .collect::<Result<_, String>>()?,
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        let r = check(&io, &keyed);
+        total.rules += r.rules;
+        total.terms += r.terms;
+        total.not_lower.extend(r.not_lower);
+    }
+    Ok(total)
 }
 
 /// Keyed rules (chart, label, target, rhs keys) under one order; the chart mask is each rule's sector.
@@ -300,6 +376,37 @@ mod tests {
             coordinate_priority: Some((0..12).chain((12..20).rev()).collect()),
             ..NodeOrder::identity()
         }
+    }
+
+    /// batch 6 (helper Z12): on a two-sided (eps) axis n = 1 is the unique minimum, so I(0, ..) -> I(1, ..) DESCENDS;
+    /// the one-sided order calls it 'not lower' (the false reports on eps tables), the full descriptor does not, and a
+    /// step to n = -1 (excess 3 > 2 of n = 2) is still caught.
+    #[test]
+    fn two_sided_eps_axes_are_checked_with_the_full_descriptor() {
+        let chart = "11111".to_string();
+        let rules = vec![(
+            chart.clone(),
+            "r#0".to_string(),
+            "I(0,n1,n2,n3,n4)".to_string(),
+            vec!["I(1,n1,n2,n3,n4)".to_string()],
+        )];
+        let one_sided = check_keyed::<5>(&NodeOrder::identity(), 5, &rules).unwrap();
+        assert!(!one_sided.passed(), "the one-sided order misreads the eps axis");
+        let mut descriptor = rustred_order::OrderDescriptor::spired_uncut_two_sided(vec![
+            true, false, false, false, false,
+        ]);
+        descriptor.coordinate_priority = (0..5).collect();
+        let eps = check_keyed_descriptor::<5>(&descriptor, 5, &rules).unwrap();
+        assert!(eps.passed(), "{:?}", eps.not_lower);
+        let up = vec![(
+            chart,
+            "r#1".to_string(),
+            "I(2,n1,n2,n3,n4)".to_string(),
+            vec!["I(-1,n1,n2,n3,n4)".to_string(), "I(1,n1,n2,n3,n4)".to_string()],
+        )];
+        let eps_up = check_keyed_descriptor::<5>(&descriptor, 5, &up).unwrap();
+        assert_eq!(eps_up.not_lower.len(), 1, "{:?}", eps_up.not_lower);
+        assert_eq!(eps_up.not_lower[0].term, "I(-1,n1,n2,n3,n4)");
     }
 
     #[test]
