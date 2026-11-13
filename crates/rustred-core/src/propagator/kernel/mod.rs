@@ -65,7 +65,7 @@ use std::sync::{Arc, RwLock};
 use smallvec::SmallVec;
 use symbolica::prelude::Rational;
 
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
+use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraLimits};
 
 use super::P_GAMMA_TAG_WIDTH;
 use super::census::SignedAffineLoopMap;
@@ -539,6 +539,29 @@ impl ChildKeys<'_> {
             .collect()
     }
 
+    /// fwd-opt light step: the children of [`Self::emit_weights`] as (powers,
+    /// light handle of the memo index) pairs, same order.
+    pub(crate) fn light_children(
+        &self,
+        table: &NumeratorTable,
+        weights: &[Option<u32>],
+        local: bool,
+    ) -> Vec<(Vec<i64>, u64)> {
+        let mut out = Vec::with_capacity(weights.len());
+        for (monomial, weight) in table.monomials.iter().zip(weights) {
+            let Some(weight) = weight else { continue };
+            let mut powers = super::step_memo::take_powers();
+            powers.extend(
+                self.base
+                    .iter()
+                    .zip(&monomial.exponents)
+                    .map(|(power, &exponent)| power - i64::from(exponent)),
+            );
+            out.push((powers, super::engine::light::handle(*weight, false, local)));
+        }
+        out
+    }
+
     /// rr-alloc: [`Self::emit`] from the weights of [`Self::weights`] (as
     /// indices into `values`): the same children in the same order.
     pub(crate) fn emit_weights(
@@ -567,6 +590,180 @@ impl ChildKeys<'_> {
             });
         }
     }
+}
+
+/// fwd-opt: the kernel weights `W_s = n_s / d_s` of one Insertion step
+/// `(alpha, beta, rank)`, prepared for table weights without rational-function
+/// arithmetic: `D = lcm_s d_s` and `m_s = n_s (D / d_s)`, so a table weight
+/// `Sum_s c_s W_s` (rational `c_s`) is `(Sum_s (c_s L) m_s) / (L D)` with one
+/// polynomial gcd (`L` the lcm of the denominators of the `c_s`), and a
+/// one-term weight `c W` needs only integer gcds (`n`, `d` coprime). Both are
+/// brought to Symbolica's normal form (coprime, positive leading denominator
+/// coefficient): the same coefficient the term-by-term sum gives.
+pub(crate) struct PreparedWeights {
+    parts: Vec<Option<(CoefficientPolynomial, CoefficientPolynomial)>>,
+    common: Option<CoefficientPolynomial>,
+    scaled: Vec<Option<CoefficientPolynomial>>,
+}
+
+impl PreparedWeights {
+    pub(crate) fn new(weights: &[Coefficient]) -> Self {
+        let parts: Vec<_> = weights
+            .iter()
+            .map(|w| {
+                (!w.is_zero()).then(|| {
+                    let w = super::step_memo::rehome(w);
+                    (w.numerator, w.denominator)
+                })
+            })
+            .collect();
+        let mut common: Option<CoefficientPolynomial> = None;
+        for (_, d) in parts.iter().flatten() {
+            common = Some(match common {
+                None => d.clone(),
+                Some(c) => {
+                    let g = c.gcd(d);
+                    if g.is_one() { &c * d } else { &c * &(d / &g) }
+                }
+            });
+        }
+        let scaled = parts
+            .iter()
+            .map(|part| {
+                part.as_ref().map(|(n, d)| {
+                    let c = common.as_ref().expect("a nonzero weight has a denominator");
+                    if c == d { n.clone() } else { n * &(c / d) }
+                })
+            })
+            .collect();
+        Self {
+            parts,
+            common,
+            scaled,
+        }
+    }
+}
+
+/// fwd-opt switch `RUSTRED_P_FAST_WEIGHTS` (default on; `0`/`off`/`false`:
+/// the term-by-term rational-function sum).
+pub(crate) fn fast_weights_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_P_FAST_WEIGHTS").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    })
+}
+
+impl ChildKeys<'_> {
+    /// [`Self::weights`] from [`PreparedWeights`]: the same coefficients.
+    pub(crate) fn weights_prepared(
+        &self,
+        table: &NumeratorTable,
+        prepared: &PreparedWeights,
+        limits: ExactAlgebraLimits,
+    ) -> Result<Vec<Option<Coefficient>>, PError> {
+        table
+            .monomials
+            .iter()
+            .map(|monomial| {
+                let weight = prepared_weight(monomial, prepared, self.negate);
+                if let Some(weight) = &weight {
+                    self.context
+                        .validate_with_limits(weight, limits)
+                        .map_err(algebra)?;
+                }
+                Ok(weight)
+            })
+            .collect()
+    }
+}
+
+fn prepared_weight(
+    monomial: &TableMonomial,
+    prepared: &PreparedWeights,
+    negate: bool,
+) -> Option<Coefficient> {
+    use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+    use symbolica::prelude::{Integer, Z};
+    let mut terms = monomial
+        .orders
+        .iter()
+        .filter(|(order, value)| !value.is_zero() && prepared.parts[*order as usize].is_some());
+    let first = terms.next()?;
+    if terms.next().is_none() {
+        // c W with c = a / b reduced, W = n / d coprime:
+        // gcd(a n, b d) = gcd(a, cont d) gcd(b, cont n).
+        let (order, value) = first;
+        let (n, d) = prepared.parts[*order as usize].as_ref().unwrap();
+        let a = value.numerator_ref();
+        let b = value.denominator_ref();
+        let ga = a.gcd(&d.content());
+        let gb = b.gcd(&n.content());
+        let ka = if ga.is_one() { a.clone() } else { a / &ga };
+        let kb = if gb.is_one() { b.clone() } else { b / &gb };
+        let mut num = n.clone();
+        if !gb.is_one() {
+            num = num.div_coeff(&gb);
+        }
+        if !ka.is_one() {
+            num = num.mul_coeff(ka);
+        }
+        let mut den = d.clone();
+        if !ga.is_one() {
+            den = den.div_coeff(&ga);
+        }
+        if !kb.is_one() {
+            den = den.mul_coeff(kb);
+        }
+        if negate {
+            num = -num;
+        }
+        return Some(Coefficient {
+            numerator: num,
+            denominator: den,
+        });
+    }
+    let mut lcm = Integer::from(1);
+    for (order, value) in &monomial.orders {
+        if !value.is_zero() && prepared.parts[*order as usize].is_some() {
+            lcm = lcm.lcm(value.denominator_ref());
+        }
+    }
+    let mut total: Option<CoefficientPolynomial> = None;
+    for (order, value) in &monomial.orders {
+        let Some(m) = &prepared.scaled[*order as usize] else {
+            continue;
+        };
+        if value.is_zero() {
+            continue;
+        }
+        let k = value.numerator_ref() * &(&lcm / value.denominator_ref());
+        let term = m.clone().mul_coeff(k);
+        total = Some(match total {
+            None => term,
+            Some(t) => t + term,
+        });
+    }
+    let mut total = total?;
+    if total.is_zero() {
+        return None;
+    }
+    if negate {
+        total = -total;
+    }
+    let common = prepared.common.as_ref()?;
+    let den = if lcm.is_one() {
+        common.clone()
+    } else {
+        common.clone().mul_coeff(lcm)
+    };
+    Some(<Coefficient as FromNumeratorAndDenominator<
+        symbolica::domains::integer::IntegerRing,
+        symbolica::domains::integer::IntegerRing,
+        u16,
+    >>::from_num_den(total, den, &Z, true))
 }
 
 /// `Sum_s rational_s W_s`, one child weight of a table.

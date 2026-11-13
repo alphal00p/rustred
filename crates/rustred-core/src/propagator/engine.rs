@@ -98,10 +98,18 @@ impl PView {
     }
 
     /// The slots, decoded.
+    #[inline(always)]
     pub(crate) fn slots(&self) -> ViewSlots {
         let mut slots = ViewSlots::new();
         self.packed.decode_into(&mut slots);
         slots
+    }
+
+    /// fwd-opt: the slots decoded into the caller's `out` (no 520-byte
+    /// `ViewSlots` move per call, which the hot paths paid as a `memmove`).
+    #[inline(always)]
+    pub(crate) fn slots_into(&self, out: &mut ViewSlots) {
+        self.packed.decode_into(out);
     }
 
     /// The view as an `IntegralKey`, built on first use.
@@ -135,7 +143,9 @@ impl Ord for PView {
 impl std::hash::Hash for PView {
     /// The hash of the slot slice, as `IntegralKey`'s.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.slots().as_slice().hash(state);
+        let mut slots = ViewSlots::new();
+        self.slots_into(&mut slots);
+        slots.as_slice().hash(state);
     }
 }
 
@@ -287,6 +297,51 @@ struct OwnerSlot {
     rank: u32,
 }
 
+/// fwd-opt: one once-per-process setup of the engine or the library that the
+/// steps of a request will need ([`PEngine::warm_tasks`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum WarmTask {
+    /// The owner's lane program ([`POwner::program`]).
+    Program(OwnerClassId),
+    /// The automorphisms of the owner's sector.
+    OwnerOrbit(OwnerClassId),
+    /// The compiled route of a routed sector (and its automorphisms when
+    /// Route keys are canonicalised).
+    Route(PresentationId, u64),
+    /// The automorphisms of a presentation's whole line set.
+    PresentationOrbit(PresentationId),
+}
+
+/// `RUSTRED_P_WARM_LEVELS=n` (fwd-opt, default 2): setup tasks only for
+/// sectors with at least `top - n` lines (`top`: the most lines of a
+/// reached presentation). The first phases have few keys and wait for their
+/// setup one step at a time; later phases have enough parallel steps to
+/// hide theirs, where tasks for sectors no step needs would only compete
+/// (measured at 16 threads on NO3 L4_d2_r8: every level warmed cost +220 MB
+/// and slowed the scheduler; 3 levels cost +11..+25 % RSS on NO1-NO3, 2
+/// levels +1..+10 % for about the same time).
+fn warm_levels() -> usize {
+    static LEVELS: OnceLock<usize> = OnceLock::new();
+    *LEVELS.get_or_init(|| {
+        std::env::var("RUSTRED_P_WARM_LEVELS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2)
+    })
+}
+
+/// `RUSTRED_P_WARM_MAX=n` (fwd-opt): at most `n` setup tasks per request
+/// (default 4096; the most lines first).
+fn warm_max() -> usize {
+    static MAX: OnceLock<usize> = OnceLock::new();
+    *MAX.get_or_init(|| {
+        std::env::var("RUSTRED_P_WARM_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4096)
+    })
+}
+
 /// Where a Route key goes.
 enum Sector<'e> {
     Zero,
@@ -303,6 +358,57 @@ enum Sector<'e> {
 /// A lazily searched and authenticated automorphism group (M5 R0 A2).
 type OrbitCell = OnceLock<Result<Arc<OwnerOrbit>, PError>>;
 
+/// fwd-opt: a fast deterministic hasher for the engine's sector and owner
+/// tables (looked up several times per child of every step; the tables are
+/// only read by key, never iterated in order).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EngineHash;
+
+pub(crate) struct EngineHasher(u64);
+
+impl std::hash::Hasher for EngineHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_le_bytes(word));
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.write_u64(u64::from(value));
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        // A final avalanche: the table uses the top and the low bits.
+        let x = self.0;
+        (x ^ (x >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9) ^ (x >> 32)
+    }
+}
+
+impl std::hash::BuildHasher for EngineHash {
+    type Hasher = EngineHasher;
+    #[inline]
+    fn build_hasher(&self) -> EngineHasher {
+        EngineHasher(0)
+    }
+}
+
+type FastMap<K, V> = std::collections::HashMap<K, V, EngineHash>;
+
 pub(crate) struct PEngine {
     shapes: Vec<Shape>,
     /// Slots of every view and terminal key of this library.
@@ -310,14 +416,19 @@ pub(crate) struct PEngine {
     /// Terminals of this library: ids at or above it name nothing.
     terminals: usize,
     phases: PhasePlan,
-    owners: BTreeMap<OwnerClassId, OwnerSlot>,
-    owner_sectors: BTreeMap<(PresentationId, u64), OwnerClassId>,
-    routes: BTreeMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
+    owners: FastMap<OwnerClassId, OwnerSlot>,
+    owner_sectors: FastMap<(PresentationId, u64), OwnerClassId>,
+    /// fwd-opt: the census fate of every sector, indexed (`None`: zero;
+    /// `Some(i)`: routed onto `routed[i]`), so that the per-child sector
+    /// tests need no ordered-map search.
+    fates: FastMap<(PresentationId, u64), Option<u32>>,
+    routed: Vec<(OwnerClassId, SignedAffineLoopMap)>,
+    routes: FastMap<(PresentationId, u64), OnceLock<Result<Prepared, PError>>>,
     /// The verified automorphisms of each owner sector, found on the owner's
     /// first canonicalised key (M5 R0 A2).
-    orbits: BTreeMap<OwnerClassId, OrbitCell>,
+    orbits: FastMap<OwnerClassId, OrbitCell>,
     /// The same for every routed sector, carried over from its owner.
-    route_orbits: BTreeMap<(PresentationId, u64), OrbitCell>,
+    route_orbits: FastMap<(PresentationId, u64), OrbitCell>,
     /// The verified automorphisms of the whole line set of each presentation
     /// (indexed by presentation id): they move a Route key across the
     /// subsectors of its presentation, as the vacuum reducer's one family
@@ -346,8 +457,8 @@ impl PEngine {
         let mut order: Vec<_> = census.classes.iter().collect();
         order.sort_by_key(|(class, record)| (record.node.is_none(), record.node, **class));
         let count = u32::try_from(order.len()).unwrap_or(u32::MAX);
-        let mut owners = BTreeMap::new();
-        let mut owner_sectors = BTreeMap::new();
+        let mut owners = FastMap::default();
+        let mut owner_sectors = FastMap::default();
         for (index, (&class, record)) in order.into_iter().enumerate() {
             let (presentation, support) = record.owner;
             let rank = count.saturating_sub(u32::try_from(index).unwrap_or(u32::MAX));
@@ -387,9 +498,25 @@ impl PEngine {
             .map(|(&sector, _)| (sector, OnceLock::new()))
             .collect();
         let presentation_orbits = shapes.iter().map(|_| OnceLock::new()).collect();
+        let mut fates = FastMap::default();
+        let mut routed = Vec::new();
+        for (&sector, fate) in &census.sectors {
+            let fate = match fate {
+                PSectorFate::Zero => None,
+                PSectorFate::Owner { class, map } => {
+                    routed.push((*class, map.clone()));
+                    Some(u32::try_from(routed.len() - 1).map_err(|_| {
+                        PError::MalformedLibrary("too many routed sectors".to_owned())
+                    })?)
+                }
+            };
+            fates.insert(sector, fate);
+        }
         Ok(Self {
             orbits,
             route_orbits,
+            fates,
+            routed,
             presentation_orbits,
             shapes,
             width: (max_arity + P_GAMMA_TAG_WIDTH).max(PTerminalCodec::KEY_SLOTS),
@@ -445,7 +572,7 @@ impl PEngine {
     /// [`PError::TagOutOfRange`].
     fn view(&self, powers: &[i64], tag: &GammaTag) -> Result<PView, PError> {
         let mut slots = ViewSlots::new();
-        slots.extend_from_slice(powers);
+        slots.extend(powers.iter().copied());
         tag.encode_dense_into(&mut slots)?;
         if slots.len() > self.width {
             return Err(PError::MalformedLibrary(format!(
@@ -525,8 +652,8 @@ impl PEngine {
     /// The fate of a sector of `presentation`. A sector without a fate is a gap
     /// of the census, never a zero.
     fn sector<'e>(
-        &self,
-        library: &'e PLibrary,
+        &'e self,
+        _library: &PLibrary,
         presentation: PresentationId,
         support: u64,
     ) -> Result<Sector<'e>, PError> {
@@ -534,9 +661,12 @@ impl PEngine {
         if let Some(&class) = self.owner_sectors.get(&sector) {
             return Ok(Sector::Owner(class));
         }
-        match library.census().sectors.get(&sector) {
-            Some(PSectorFate::Zero) => Ok(Sector::Zero),
-            Some(PSectorFate::Owner { class, map }) => Ok(Sector::Routed { class: *class, map }),
+        match self.fates.get(&sector) {
+            Some(None) => Ok(Sector::Zero),
+            Some(Some(index)) => {
+                let (class, map) = &self.routed[*index as usize];
+                Ok(Sector::Routed { class: *class, map })
+            }
             None => Err(PError::MalformedLibrary(format!(
                 "sector {support:#x} of presentation {} is not in the census",
                 presentation.0
@@ -592,6 +722,78 @@ impl PEngine {
         Ok(initial)
     }
 
+    /// fwd-opt: the setup tasks a request on `inputs` may need, the most
+    /// lines first: the owners and routed sectors of the presentations
+    /// reachable from the inputs' presentations through the census routes
+    /// (an over-approximation; a task no step needs only costs time on an
+    /// otherwise idle worker), with orbit tasks only when keys are
+    /// canonicalised.
+    pub(crate) fn warm_tasks(
+        &self,
+        inputs: impl Iterator<Item = PresentationId>,
+        canonical: bool,
+        canonical_routes: bool,
+    ) -> Vec<WarmTask> {
+        let mut reached: std::collections::BTreeSet<PresentationId> = inputs.collect();
+        loop {
+            let before = reached.len();
+            for (&(presentation, _), fate) in &self.fates {
+                if let Some(at) = fate
+                    && reached.contains(&presentation)
+                    && let Some((class, _)) = self.routed.get(*at as usize)
+                    && let Ok(slot) = self.owner(*class)
+                {
+                    reached.insert(slot.presentation);
+                }
+            }
+            if reached.len() == before {
+                break;
+            }
+        }
+        let mut tasks: Vec<(usize, WarmTask)> = Vec::new();
+        for (&(presentation, _), &class) in &self.owner_sectors {
+            if !reached.contains(&presentation) {
+                continue;
+            }
+            let Ok(slot) = self.owner(class) else {
+                continue;
+            };
+            tasks.push((slot.t, WarmTask::Program(class)));
+            if canonical {
+                tasks.push((slot.t, WarmTask::OwnerOrbit(class)));
+            }
+        }
+        for (&(presentation, support), fate) in &self.fates {
+            if fate.is_some()
+                && reached.contains(&presentation)
+                && let Ok(shape) = self.shape(presentation)
+            {
+                tasks.push((
+                    shape.line_count(support),
+                    WarmTask::Route(presentation, support),
+                ));
+            }
+        }
+        if canonical_routes {
+            for &presentation in &reached {
+                if let Ok(shape) = self.shape(presentation) {
+                    tasks.push((
+                        shape.line_count(shape.lines),
+                        WarmTask::PresentationOrbit(presentation),
+                    ));
+                }
+            }
+        }
+        // The most lines first (the order the phases need them), then a fixed
+        // order (hash-map iteration order is not one).
+        tasks.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let top = tasks.first().map_or(0, |task| task.0);
+        let floor = top.saturating_sub(warm_levels());
+        tasks.retain(|task| task.0 >= floor);
+        tasks.truncate(warm_max());
+        tasks.into_iter().map(|(_, task)| task).collect()
+    }
+
     /// Run one request; the terminal keys of the output are [`PTerminalCodec`]
     /// keys.
     #[allow(clippy::too_many_arguments)]
@@ -621,6 +823,23 @@ impl PEngine {
         // be attached or reopened across modes.
         let zero_pruning =
             super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
+        let canonical = library.orbit_canonicalization();
+        let canonical_routes = canonical && library.route_canonicalization();
+        // fwd-opt: setup tasks for the workers of a multi-thread request.
+        let warm: Vec<WarmTask> = if scheduler.threads > 1 {
+            self.warm_tasks(
+                initial.keys().filter_map(|key| match key {
+                    PKey::Route { presentation, .. } => Some(*presentation),
+                    PKey::Apply { class, .. } => {
+                        self.owner(*class).ok().map(|slot| slot.presentation)
+                    }
+                }),
+                canonical,
+                canonical_routes,
+            )
+        } else {
+            Vec::new()
+        };
         let mut kernel = PKernel {
             stepper: PStepper {
                 library,
@@ -632,6 +851,7 @@ impl PEngine {
                     && library.route_canonicalization(),
                 prefer_high: library.orbit_prefer_high(),
                 zero_pruning: zero_pruning.as_ref(),
+                warm: &warm,
             },
             inspector,
         };
@@ -672,7 +892,353 @@ impl PEngine {
             );
         }
         super::step_memo::end(shared_memo);
+        canon_stats::flush();
         output
+    }
+}
+
+/// fwd-opt: light steps (worker threads of a layered request only, switched
+/// on per thread by `OrderedStepper::set_light`): a memoised route step hands
+/// its singly met children over as (key, handle) pairs, handle = shared memo
+/// coefficient index and sign, beside the materialised terms; the caller
+/// takes them right after the step (`take_light`) and maps a handle to a
+/// value only once per request (`light_value`). `RUSTRED_P_LIGHT_STEPS=off`
+/// disables it. Value-neutral (the same terms, the same coefficients).
+pub(crate) mod light {
+    use std::cell::{Cell, RefCell};
+    use std::sync::OnceLock;
+
+    use super::PKey;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static OUT: RefCell<Vec<(PKey, u64)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn allowed() -> bool {
+        static ALLOWED: OnceLock<bool> = OnceLock::new();
+        *ALLOWED.get_or_init(|| {
+            !matches!(
+                std::env::var("RUSTRED_P_LIGHT_STEPS").as_deref(),
+                Ok("0" | "off" | "false")
+            )
+        })
+    }
+
+    pub(crate) fn set(on: bool) {
+        ON.with(|cell| cell.set(on && allowed()));
+    }
+
+    pub(crate) fn enabled() -> bool {
+        ON.with(Cell::get)
+    }
+
+    /// A handle: shared or this thread's (`local`) memo index, and sign.
+    /// A local handle is valid only on the thread that made it.
+    pub(crate) fn handle(index: u32, negative: bool, local: bool) -> u64 {
+        (1 << 63) | (u64::from(negative) << 62) | (u64::from(local) << 61) | u64::from(index)
+    }
+
+    pub(crate) fn split(handle: u64) -> (u32, bool) {
+        ((handle & 0xFFFF_FFFF) as u32, handle >> 62 & 1 == 1)
+    }
+
+    pub(crate) fn is_local(handle: u64) -> bool {
+        handle >> 61 & 1 == 1
+    }
+
+    pub(super) fn put(children: Vec<(PKey, u64)>) {
+        OUT.with(|out| *out.borrow_mut() = children);
+    }
+
+    pub(crate) fn clear() {
+        OUT.with(|out| out.borrow_mut().clear());
+    }
+
+    pub(crate) fn take() -> Vec<(PKey, u64)> {
+        OUT.with(|out| std::mem::take(&mut *out.borrow_mut()))
+    }
+
+    /// Light children of an Insertion step before canonicalisation: the
+    /// child presentation, the absolute tag and (powers, handle) pairs.
+    pub(crate) type Pending = (super::PresentationId, super::GammaTag, Vec<(Vec<i64>, u64)>);
+
+    thread_local! {
+        static PENDING: RefCell<Option<Pending>> = const { RefCell::new(None) };
+    }
+
+    /// fwd-opt: an Insertion step hands its memoised children over by handle.
+    pub(crate) fn put_pending(pending: Pending) {
+        PENDING.with(|cell| *cell.borrow_mut() = Some(pending));
+    }
+
+    pub(super) fn take_pending() -> Option<Pending> {
+        PENDING.with(|cell| cell.borrow_mut().take())
+    }
+
+    /// The handle with its sign flipped.
+    pub(crate) fn flip(handle: u64) -> u64 {
+        handle ^ (1 << 62)
+    }
+}
+
+/// fwd-opt: a per-thread, direct-mapped cache of canonical images. The
+/// image of a key under its automorphisms (and the sign) is a pure function
+/// of the engine, the presentation or owner class, the orientation and the
+/// powers; a key reached from many parents (14 contributions per key on
+/// NO3 L4_d2_r8) is canonicalised once per cache residency instead of once per
+/// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
+/// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
+/// Errors are not cached (computed again). Value-neutral.
+mod canon_cache {
+    use std::cell::RefCell;
+    use std::sync::OnceLock;
+
+    use smallvec::SmallVec;
+
+    use super::PError;
+
+    pub(super) type Powers = SmallVec<[i64; 16]>;
+
+    struct Entry {
+        id: u64,
+        powers: Powers,
+        image: Option<(Powers, bool)>,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        engine: u64,
+        flags: u8,
+        entries: Vec<Option<Entry>>,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    /// The cache size of this thread: `RUSTRED_P_CANON_CACHE` when set;
+    /// unset, 2^13 entries on the thread of a one-thread request and none on
+    /// the workers of a multi-thread request (measured at 16 threads on NO3
+    /// L4_d2_r8, batch 5: no instruction saved, +60 MB of caches; a worker
+    /// sees about 1/16 of the keys).
+    pub(super) fn bits() -> Option<u32> {
+        static BITS: OnceLock<Option<Option<u32>>> = OnceLock::new();
+        let set = *BITS.get_or_init(|| match std::env::var("RUSTRED_P_CANON_CACHE").as_deref() {
+            Ok("0" | "off" | "false") => Some(None),
+            Ok(value) => Some(
+                value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|b| (4..=24).contains(b))
+                    .or(Some(13)),
+            ),
+            Err(_) => None,
+        });
+        match set {
+            Some(bits) => bits,
+            None => super::super::step_memo::single_thread().then_some(13),
+        }
+    }
+
+    #[inline]
+    fn hash(id: u64, powers: &[i64]) -> u64 {
+        let mut h = id.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        for &power in powers {
+            h = (h.rotate_left(5) ^ power as u64).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+        h ^ (h >> 31)
+    }
+
+    /// The canonical image of `powers` under `id` (a presentation, or an owner
+    /// class with the top bit set), from the cache or `compute`.
+    pub(super) fn lookup(
+        engine: u64,
+        id: u64,
+        flags: u8,
+        powers: &[i64],
+        compute: impl FnOnce() -> Result<Option<(Vec<i64>, bool)>, PError>,
+    ) -> Result<Option<(Powers, bool)>, PError> {
+        let Some(bits) = bits() else {
+            return Ok(compute()?.map(|(image, negative)| (Powers::from_vec(image), negative)));
+        };
+        let at = (hash(id, powers) >> (64 - bits)) as usize;
+        let found = CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine != engine || cache.flags != flags || cache.entries.is_empty() {
+                cache.engine = engine;
+                cache.flags = flags;
+                cache.entries.clear();
+                cache.entries.resize_with(1 << bits, || None);
+            }
+            match &cache.entries[at] {
+                Some(entry) if entry.id == id && entry.powers.as_slice() == powers => Some(
+                    entry
+                        .image
+                        .as_ref()
+                        .map(|(image, negative)| (image.clone(), *negative)),
+                ),
+                _ => None,
+            }
+        });
+        if let Some(image) = found {
+            return Ok(image);
+        }
+        let image = compute()?.map(|(image, negative)| (Powers::from_vec(image), negative));
+        CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine == engine && cache.flags == flags && at < cache.entries.len() {
+                cache.entries[at] = Some(Entry {
+                    id,
+                    powers: Powers::from_slice(powers),
+                    image: image.clone(),
+                });
+            }
+        });
+        Ok(image)
+    }
+}
+
+/// fwd-opt: a per-thread, direct-mapped cache of Apply key priorities (the
+/// owner's order key: a pure function of the engine, the class and the
+/// packed key). A key reached from many parents has its position computed
+/// once per cache residency. Same switch as [`canon_cache`]
+/// (`RUSTRED_P_CANON_CACHE`). Errors are not cached. Value-neutral.
+mod order_cache {
+    use std::cell::RefCell;
+    use std::hash::BuildHasher;
+
+    use super::{EngineHash, PError, PPriority};
+    use crate::reduction::ordered_reduction::CompactPowers;
+
+    struct Entry {
+        class: u64,
+        packed: CompactPowers,
+        priority: PPriority,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        engine: u64,
+        entries: Vec<Option<Entry>>,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    pub(super) fn lookup(
+        engine: u64,
+        class: u64,
+        packed: &CompactPowers,
+        compute: impl FnOnce() -> Result<PPriority, PError>,
+    ) -> Result<PPriority, PError> {
+        let Some(bits) = super::canon_cache::bits() else {
+            return compute();
+        };
+        let hash = EngineHash.hash_one((class, packed));
+        let at = (hash >> (64 - bits)) as usize;
+        let found = CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine != engine || cache.entries.is_empty() {
+                cache.engine = engine;
+                cache.entries.clear();
+                cache.entries.resize_with(1 << bits, || None);
+            }
+            match &cache.entries[at] {
+                Some(entry) if entry.class == class && entry.packed == *packed => {
+                    Some(entry.priority.clone())
+                }
+                _ => None,
+            }
+        });
+        if let Some(priority) = found {
+            return Ok(priority);
+        }
+        let priority = compute()?;
+        CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.engine == engine && at < cache.entries.len() {
+                cache.entries[at] = Some(Entry {
+                    class,
+                    packed: packed.clone(),
+                    priority: priority.clone(),
+                });
+            }
+        });
+        Ok(priority)
+    }
+}
+
+/// fwd-opt diagnostics: canonicalisation coverage of the stepped Apply keys
+/// per owner class (`RUSTRED_P_CANON_STATS=<file>`, one JSON line per class
+/// at the end of each request). Per class: keys, keys whose owner has a
+/// nontrivial group, keys on which every action is exact (signed slot
+/// permutation on the key: canonicalised), keys on which no action is exact
+/// (escape canonicalisation entirely), keys with at least one inexact action
+/// (an ISP with a nonzero power maps to a combination), keys whose line part
+/// some inexact action would lower (candidate duplicates by symmetry), and
+/// the number of actions.
+pub(crate) mod canon_stats {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    static STATS: Mutex<BTreeMap<u64, [u64; 7]>> = Mutex::new(BTreeMap::new());
+
+    pub(crate) fn enabled() -> bool {
+        PATH.get_or_init(|| std::env::var_os("RUSTRED_P_CANON_STATS").map(Into::into))
+            .is_some()
+    }
+
+    pub(crate) fn record(class: u64, actions: u64, exact: u64, inexact: u64, better: bool) {
+        let mut stats = STATS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = stats.entry(class).or_default();
+        entry[0] += 1;
+        entry[1] += u64::from(actions > 0);
+        entry[2] += u64::from(actions > 0 && inexact == 0);
+        entry[3] += u64::from(actions > 0 && exact == 0);
+        entry[4] += u64::from(inexact > 0);
+        entry[5] += u64::from(better);
+        entry[6] = actions;
+    }
+
+    pub(crate) fn flush() {
+        use std::io::Write;
+        let Some(Some(path)) = PATH.get() else {
+            return;
+        };
+        let stats = std::mem::take(
+            &mut *STATS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            for (
+                class,
+                [
+                    keys,
+                    nontrivial,
+                    all_exact,
+                    none_exact,
+                    some_inexact,
+                    better,
+                    actions,
+                ],
+            ) in stats
+            {
+                let _ = writeln!(
+                    file,
+                    "{{\"class\":\"{class:016x}\",\"keys\":{keys},\"nontrivial\":{nontrivial},\"all_exact\":{all_exact},\"none_exact\":{none_exact},\"some_inexact\":{some_inexact},\"line_lowered\":{better},\"actions\":{actions}}}"
+                );
+            }
+        }
     }
 }
 
@@ -711,6 +1277,51 @@ pub(super) fn merge<K: Ord>(
         }
     }
     Ok(())
+}
+
+/// fwd-opt: the step-local merge of a whole child list at once: the same
+/// map as `merge` applied pair by pair (exact sums are canonical; a key whose
+/// sum is zero is absent), built by one sort and a bulk insert instead of a
+/// B-tree insertion per child.
+pub(super) fn merge_all<K: Ord>(
+    context: &CoefficientContext,
+    limits: &ReductionLimits,
+    mut pairs: Vec<(K, Coefficient)>,
+) -> Result<BTreeMap<K, Coefficient>, PError> {
+    // `RUSTRED_P_SORTED_MERGE=off`: the pair-by-pair B-tree merge (control).
+    static SORTED: OnceLock<bool> = OnceLock::new();
+    if !*SORTED.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_P_SORTED_MERGE").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    }) {
+        let mut terms = BTreeMap::new();
+        for (key, coefficient) in pairs {
+            merge(context, limits, &mut terms, key, coefficient)?;
+        }
+        return Ok(terms);
+    }
+    pairs.retain(|(_, coefficient)| !coefficient.is_zero());
+    // Stable: equal keys keep their emission order (the order of the sums).
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut merged: Vec<(K, Coefficient)> = Vec::with_capacity(pairs.len());
+    let mut zeros = false;
+    for (key, coefficient) in pairs {
+        match merged.last_mut() {
+            Some((last, sum)) if (*last).cmp(&key) == std::cmp::Ordering::Equal => {
+                *sum = context
+                    .try_add(sum, &coefficient, limits.exact_algebra)
+                    .map_err(algebra)?;
+                zeros |= sum.is_zero();
+            }
+            _ => merged.push((key, coefficient)),
+        }
+    }
+    if zeros {
+        merged.retain(|(_, coefficient)| !coefficient.is_zero());
+    }
+    Ok(merged.into_iter().collect())
 }
 
 /// The route of a sector as an exact, verified transport.
@@ -871,6 +1482,8 @@ pub(crate) struct PStepper<'l> {
     /// None keeps the historical path byte-for-byte; the opt-in counter is
     /// request-local and shared only by that request's detached steppers.
     zero_pruning: Option<&'l ZeroPruningCounters>,
+    /// fwd-opt: the request's setup tasks ([`OrderedStepper::warm`]).
+    warm: &'l [WarmTask],
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -1113,7 +1726,8 @@ impl<'l> PStepper<'l> {
     }
 
     fn route_t(&self, presentation: PresentationId, view: &PView) -> Result<usize, PError> {
-        let slots = view.slots();
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
         let (powers, _) = self.engine.split(presentation, &slots)?;
         let shape = self.engine.shape(presentation)?;
         Ok(shape.line_count(shape.support(powers)))
@@ -1136,18 +1750,20 @@ impl<'l> PStepper<'l> {
                 order: POrderKey::Lexicographic(Default::default()),
             });
         };
-        let slot = self.engine.owner(*class)?;
-        let slots = view.slots();
-        let (powers, _) = self.engine.split(slot.presentation, &slots)?;
-        let owner = self.owner(*class)?;
-        let order = match owner.program(self.library)? {
-            OwnerProgram::Lane(lane) => lane.order_key(&self.context(owner), powers)?,
-            // The step of this key is the typed error, unless the key cancels.
-            OwnerProgram::Missing { .. } => default_order_key(&owner.spec, powers)?,
-        };
-        Ok(PPriority {
-            rank: slot.rank,
-            order,
+        order_cache::lookup(self.engine.uid, class.0, &view.packed, || {
+            let slot = self.engine.owner(*class)?;
+            let slots = view.slots();
+            let (powers, _) = self.engine.split(slot.presentation, &slots)?;
+            let owner = self.owner(*class)?;
+            let order = match owner.program(self.library)? {
+                OwnerProgram::Lane(lane) => lane.order_key(&self.context(owner), powers)?,
+                // The step of this key is the typed error, unless the key cancels.
+                OwnerProgram::Missing { .. } => default_order_key(&owner.spec, powers)?,
+            };
+            Ok(PPriority {
+                rank: slot.rank,
+                order,
+            })
         })
     }
 
@@ -1295,6 +1911,64 @@ impl<'l> PStepper<'l> {
             ));
         }
         let mut target: SmallVec<[i64; 24]> = SmallVec::new();
+        if mode != super::step_memo::MemoMode::Check && light::enabled() {
+            let local = matches!(expansion, super::step_memo::Held::Local(..));
+            // fwd-opt light step: children of the shared memo carry a handle
+            // (memo index, sign) instead of a materialised coefficient; only
+            // children met twice are materialised and summed.
+            let mut pairs: Vec<(PKey, u64)> = Vec::with_capacity(expansion.coefficients.len());
+            for (relative, &index) in expansion
+                .offsets
+                .chunks(expansion.arity.max(1))
+                .zip(&expansion.coefficients)
+            {
+                target.clear();
+                target.extend(
+                    base.iter()
+                        .zip(relative)
+                        .map(|(base, &relative)| base + i64::from(relative)),
+                );
+                let (child, negative) = if shape.support(&target) == owner.support {
+                    self.apply_key_with(class, &target, &tag, false, |b| !b)?
+                } else {
+                    self.route_child_with(owner.presentation, &target, &tag, false, |b| !b)?
+                };
+                let keep = match self.zero_pruning {
+                    Some(counters) => self.keep_canonical_key(&child, counters)?,
+                    None => true,
+                };
+                if keep {
+                    pairs.push((child, light::handle(index, negative, local)));
+                }
+            }
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut single = Vec::with_capacity(pairs.len());
+            let mut repeated: Vec<(PKey, Coefficient)> = Vec::new();
+            super::step_memo::coefficients_of(&expansion, |values| {
+                let mut at = 0;
+                while at < pairs.len() {
+                    let end = at
+                        + pairs[at..]
+                            .iter()
+                            .take_while(|(key, _)| *key == pairs[at].0)
+                            .count();
+                    if end - at == 1 {
+                        single.push(pairs[at].clone());
+                    } else {
+                        for (key, handle) in &pairs[at..end] {
+                            let (index, negative) = light::split(*handle);
+                            let value = values(index);
+                            repeated.push((key.clone(), if negative { -value } else { value }));
+                        }
+                    }
+                    at = end;
+                }
+            });
+            step.terms = merge_all(context, &self.limits, repeated)?;
+            light::put(single);
+            return Ok(step);
+        }
+        let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(expansion.coefficients.len());
         super::step_memo::coefficients_of(&expansion, |values| -> Result<(), PError> {
             crate::prof!(RouteChildren);
             for (relative, &coefficient) in expansion
@@ -1310,11 +1984,12 @@ impl<'l> PStepper<'l> {
                 );
                 let (child, coefficient) = child(&target, values(coefficient))?;
                 if self.keep_canonical_child(&child, &coefficient)? {
-                    merge(context, &self.limits, &mut step.terms, child, coefficient)?;
+                    pairs.push((child, coefficient));
                 }
             }
             Ok(())
         })?;
+        step.terms = merge_all(context, &self.limits, pairs)?;
         if mode == super::step_memo::MemoMode::Check {
             let mut reference = BTreeMap::new();
             direct(&mut reference)?;
@@ -1346,6 +2021,9 @@ impl<'l> PStepper<'l> {
                 });
             }
         };
+        if canon_stats::enabled() {
+            self.canon_coverage(class, slot.presentation, powers);
+        }
         let tag = GammaTag::decode_dense(tag_slots)?;
         let key = PKeyView {
             presentation: slot.presentation,
@@ -1372,6 +2050,51 @@ impl<'l> PStepper<'l> {
         self.ordered_step(output)
     }
 
+    /// fwd-opt diagnostics (`RUSTRED_P_CANON_STATS=<file>`): how the owner's
+    /// automorphisms act on this stepped Apply key (see `canon_stats`).
+    fn canon_coverage(&self, class: OwnerClassId, presentation: PresentationId, powers: &[i64]) {
+        let Ok(orbit) = self.orbit(class) else {
+            return;
+        };
+        let Ok(shape) = self.engine.shape(presentation) else {
+            return;
+        };
+        let n = powers.len();
+        let line = |slot: usize| shape.lines >> slot & 1 == 1;
+        let (mut exact, mut inexact, mut better) = (0u64, 0u64, false);
+        let own: Vec<i64> = (0..n)
+            .map(|i| if line(i) { powers[i].max(0) } else { 0 })
+            .collect();
+        for action in &orbit.actions {
+            if action.len() < n {
+                continue;
+            }
+            let is_exact = powers
+                .iter()
+                .zip(action.iter())
+                .all(|(&power, image)| power == 0 || image.is_some());
+            if is_exact {
+                exact += 1;
+                continue;
+            }
+            inexact += 1;
+            // The image of the line part (lines always map onto lines).
+            let mut image = vec![0i64; n];
+            for slot in (0..n).filter(|&slot| line(slot) && powers[slot] > 0) {
+                if let Some((target, _)) = action[slot] {
+                    image[usize::from(target)] = powers[slot];
+                }
+            }
+            let below = if self.prefer_high {
+                image > own
+            } else {
+                image < own
+            };
+            better |= below;
+        }
+        canon_stats::record(class.0, orbit.actions.len() as u64, exact, inexact, better);
+    }
+
     /// The Apply key of `powers` with `tag` on the sector of `class`, and the
     /// weight `coefficient` carries onto it: with canonicalisation on, the
     /// least exact image of the key under the owner's automorphisms
@@ -1383,13 +2106,35 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        self.apply_key_with(class, powers, tag, coefficient, |c| -c)
+    }
+
+    /// `apply_key` for any weight with a sign flip (fwd-opt: a bare sign).
+    fn apply_key_with<C>(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: C,
+        negate: fn(C) -> C,
+    ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonApply);
         if self.canonical
-            && let Some((image, negative)) = self.canonical_powers(class, powers)?
+            && let Some((image, negative)) = canon_cache::lookup(
+                self.engine.uid,
+                (1 << 63) | (class.0 & !(1 << 63)),
+                u8::from(self.prefer_high),
+                powers,
+                || self.canonical_powers(class, powers),
+            )?
         {
             // A sign flip of a coefficient the library already sealed: same
             // variables, degrees and sizes, so no new authentication (M5 R0 A2).
-            let coefficient = if negative { -coefficient } else { coefficient };
+            let coefficient = if negative {
+                negate(coefficient)
+            } else {
+                coefficient
+            };
             return Ok((
                 PKey::Apply {
                     class,
@@ -1420,26 +2165,50 @@ impl<'l> PStepper<'l> {
         tag: &GammaTag,
         coefficient: Coefficient,
     ) -> Result<(PKey, Coefficient), PError> {
+        self.route_child_with(presentation, powers, tag, coefficient, |c| -c)
+    }
+
+    /// `route_child` for any weight with a sign flip (fwd-opt: a bare sign).
+    fn route_child_with<C>(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+        tag: &GammaTag,
+        coefficient: C,
+        negate: fn(C) -> C,
+    ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonRoute);
         if self.canonical_routes {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
             // presentation's); each step is exact, the signs compose.
-            let across = self.canonical_in_presentation(presentation, powers)?;
-            let base = across
-                .as_ref()
-                .map_or(powers, |(image, _)| image.as_slice());
-            let inside = self.canonical_route(presentation, base)?;
-            let image = match (across, inside) {
-                (None, None) => None,
-                (Some(across), None) => Some(across),
-                (None, Some(inside)) => Some(inside),
-                (Some((_, first)), Some((image, second))) => Some((image, first != second)),
-            };
+            let image = canon_cache::lookup(
+                self.engine.uid,
+                u64::from(presentation.0),
+                u8::from(self.prefer_high),
+                powers,
+                || {
+                    let across = self.canonical_in_presentation(presentation, powers)?;
+                    let base = across
+                        .as_ref()
+                        .map_or(powers, |(image, _)| image.as_slice());
+                    let inside = self.canonical_route(presentation, base)?;
+                    Ok(match (across, inside) {
+                        (None, None) => None,
+                        (Some(across), None) => Some(across),
+                        (None, Some(inside)) => Some(inside),
+                        (Some((_, first)), Some((image, second))) => Some((image, first != second)),
+                    })
+                },
+            )?;
             if let Some((image, negative)) = image {
                 // A sign flip of a coefficient the library already sealed: same
                 // variables, degrees and sizes, so no new authentication (M5 R0 A2).
-                let coefficient = if negative { -coefficient } else { coefficient };
+                let coefficient = if negative {
+                    negate(coefficient)
+                } else {
+                    coefficient
+                };
                 return Ok((
                     crate::prof_wrap_fine!(
                         CanonKey,
@@ -1470,9 +2239,9 @@ impl<'l> PStepper<'l> {
         if orbit.actions.is_empty() {
             return Ok(None);
         }
-        let sectors = &self.library.census().sectors;
+        let fates = &self.engine.fates;
         Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            sectors.contains_key(&(presentation, shape.support(image)))
+            fates.contains_key(&(presentation, shape.support(image)))
         }))
     }
 
@@ -1592,6 +2361,41 @@ impl<'l> PStepper<'l> {
             .map_err(Clone::clone)
     }
 
+    /// fwd-opt: the compiled route of sector `support` of `presentation` (as
+    /// [`Self::route_step`] compiles it) and, with Route keys canonicalised,
+    /// its automorphisms (as [`Self::canonical_route`] finds them).
+    fn warm_route(&self, presentation: PresentationId, support: u64) {
+        let engine = self.engine;
+        let Ok(Sector::Routed { class, map }) = engine.sector(self.library, presentation, support)
+        else {
+            return;
+        };
+        let Ok(owner) = engine.owner(class) else {
+            return;
+        };
+        if let Some(route) = engine.routes.get(&(presentation, support)) {
+            let source = self.library.presentation(presentation);
+            let target = self.library.presentation(owner.presentation);
+            let _ = route.get_or_init(|| {
+                crate::prof!(RouteCompile);
+                restored_route(self.library, source, target, map, support, owner.support)
+                    .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
+            });
+        }
+        if self.canonical_routes
+            && let Ok(shape) = engine.shape(presentation)
+        {
+            // A key of the sector: its lines at power 1 (`canonical_route`
+            // reads only the support of the key to find the cell).
+            let powers: Vec<i64> = (0..shape.arity)
+                .map(|slot| i64::from((support >> slot) & 1 == 1))
+                .collect();
+            if shape.support(&powers) == support {
+                let _ = self.canonical_route(presentation, &powers);
+            }
+        }
+    }
+
     /// The least exact image of `powers` other than itself, in the owner's
     /// order and then by powers, with its sign; `None` when the key is its own
     /// representative. Images the owner cannot order, or off its support, are
@@ -1702,13 +2506,23 @@ impl<'l> PStepper<'l> {
         if coefficient.is_zero() {
             return Ok(true); // The existing merge erases literal zero weights.
         }
+        self.keep_canonical_key(child, counters)
+    }
+
+    /// `keep_canonical_child` of a child with a nonzero weight (fwd-opt).
+    fn keep_canonical_key(
+        &self,
+        child: &PKey,
+        counters: &ZeroPruningCounters,
+    ) -> Result<bool, PError> {
         counters
             .canonical_candidates
             .fetch_add(1, AtomicOrdering::Relaxed);
         let PKey::Route { presentation, view } = child else {
             return Ok(true);
         };
-        let slots = view.slots();
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
         let (powers, _) = self.engine.split(*presentation, &slots)?;
         let support = self.engine.shape(*presentation)?.support(powers);
         // Use exactly the existing census authority. In particular, a gap
@@ -1727,6 +2541,7 @@ impl<'l> PStepper<'l> {
         crate::prof!(ChildAssembly);
         let context = self.library.coefficient_context();
         let mut step = OrderedStep::default();
+        let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(output.children.len());
         for child in output.children {
             if !context.contains(&child.coefficient) {
                 return Err(PError::ContextMismatch);
@@ -1749,10 +2564,66 @@ impl<'l> PStepper<'l> {
                 PStage::Apply => self.apply_child(&child)?,
             };
             if self.keep_canonical_child(&key, &coefficient)? {
-                merge(context, &self.limits, &mut step.terms, key, coefficient)?;
+                pairs.push((key, coefficient));
             }
             super::step_memo::put_powers(child.powers);
         }
+        if let Some((presentation, tag, children)) = light::take_pending() {
+            // fwd-opt light Insertion children: canonicalised by handle; a key
+            // met twice (or also among the materialised children) is
+            // materialised and summed, the others stay light.
+            let mut light_pairs: Vec<(PKey, u64)> = Vec::with_capacity(children.len());
+            for (powers, handle) in children {
+                let (key, negative) =
+                    self.route_child_with(presentation, &powers, &tag, false, |b| !b)?;
+                super::step_memo::put_powers(powers);
+                let keep = match self.zero_pruning {
+                    Some(counters) => self.keep_canonical_key(&key, counters)?,
+                    None => true,
+                };
+                if keep {
+                    light_pairs.push((
+                        key,
+                        if negative {
+                            light::flip(handle)
+                        } else {
+                            handle
+                        },
+                    ));
+                }
+            }
+            light_pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            let materialised: std::collections::HashSet<&PKey> =
+                pairs.iter().map(|(key, _)| key).collect();
+            let mut single = Vec::with_capacity(light_pairs.len());
+            let mut repeated: Vec<(PKey, Coefficient)> = Vec::new();
+            let mut at = 0;
+            while at < light_pairs.len() {
+                let end = at
+                    + light_pairs[at..]
+                        .iter()
+                        .take_while(|(key, _)| *key == light_pairs[at].0)
+                        .count();
+                if end - at == 1 && !materialised.contains(&light_pairs[at].0) {
+                    single.push(light_pairs[at].clone());
+                } else {
+                    for (key, handle) in &light_pairs[at..end] {
+                        let value =
+                            OrderedStepper::light_value(self, *handle).ok_or_else(|| {
+                                PError::Contract(
+                                    "a light handle names no memo coefficient".to_owned(),
+                                )
+                            })?;
+                        repeated.push((key.clone(), value));
+                    }
+                }
+                at = end;
+            }
+            drop(materialised);
+            pairs.extend(repeated);
+            light::put(single);
+        }
+        step.terms = merge_all(context, &self.limits, pairs)?;
         for (terminal, tag, coefficient) in output.terminals {
             if !context.contains(&coefficient) {
                 return Err(PError::ContextMismatch);
@@ -1856,6 +2727,8 @@ impl OrderedStepper for PStepper<'_> {
     }
 
     fn step(&self, key: &PKey) -> (Result<OrderedStep<PKey>, PError>, PAccount) {
+        light::clear();
+        drop(light::take_pending());
         let started = self.census.on.then(std::time::Instant::now);
         let (result, mut account) = match key {
             PKey::Route { presentation, view } => {
@@ -1891,6 +2764,56 @@ impl OrderedStepper for PStepper<'_> {
             (self.phase(parent), self.phase(child)),
             (Ok(parent), Ok(child)) if child > parent
         )
+    }
+
+    fn set_light(&self, on: bool) {
+        // Light children only without the census (its step records count
+        // the terms of the step).
+        light::set(on && !self.census.on);
+    }
+
+    fn take_light(&self) -> Vec<(PKey, u64)> {
+        if light::enabled() {
+            light::take()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn light_value(&self, handle: u64) -> Option<Coefficient> {
+        let (index, negative) = light::split(handle);
+        let value = if light::is_local(handle) {
+            super::step_memo::local_value(index)
+        } else {
+            super::step_memo::shared_value(index)
+        };
+        value.map(|value| if negative { -value } else { value })
+    }
+
+    fn warm_count(&self) -> usize {
+        self.warm.len()
+    }
+
+    fn warm(&self, index: usize) {
+        // Errors are kept in the cells, exactly as a step would keep them,
+        // and surface only in a step that needs the cell.
+        match self.warm.get(index) {
+            Some(&WarmTask::Program(class)) => {
+                if let Ok(owner) = self.owner(class) {
+                    let _ = owner.program(self.library);
+                }
+            }
+            Some(&WarmTask::OwnerOrbit(class)) => {
+                let _ = self.orbit(class);
+            }
+            Some(&WarmTask::Route(presentation, support)) => {
+                self.warm_route(presentation, support);
+            }
+            Some(&WarmTask::PresentationOrbit(presentation)) => {
+                let _ = self.presentation_orbit(presentation);
+            }
+            None => {}
+        }
     }
 }
 
@@ -1970,6 +2893,18 @@ impl OrderedKernel for PKernel<'_, '_> {
         let (result, account) = OrderedStepper::step(&self.stepper, key);
         self.account(account, request, work)?;
         result
+    }
+
+    fn set_light(&mut self, on: bool) {
+        OrderedStepper::set_light(&self.stepper, on);
+    }
+
+    fn take_light(&mut self) -> Vec<(PKey, u64)> {
+        OrderedStepper::take_light(&self.stepper)
+    }
+
+    fn light_value(&self, handle: u64) -> Option<Coefficient> {
+        OrderedStepper::light_value(&self.stepper, handle)
     }
 
     fn key_heap_bytes(key: &PKey) -> usize {
@@ -2338,6 +3273,7 @@ mod tests {
             canonical_routes: true,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -2412,6 +3348,7 @@ mod tests {
             canonical_routes: true,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -2439,6 +3376,7 @@ mod tests {
             canonical_routes: false,
             prefer_high: false,
             zero_pruning: None,
+            warm: &[],
         };
         let on = PStepper {
             zero_pruning: Some(&counters),
@@ -2509,6 +3447,7 @@ mod tests {
             canonical_routes: false,
             prefer_high: false,
             zero_pruning: Some(&counters),
+            warm: &[],
         };
         let tag = GammaTag::one();
         let one = library.coefficient_context().one();

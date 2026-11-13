@@ -183,9 +183,15 @@ impl CompactPowers {
         out.clear();
         match self {
             Self::Inline { powers, .. } => {
-                out.extend(powers[..self.len()].iter().map(|&p| i64::from(p)));
+                // fwd-opt: one resize and a plain widening loop (was a
+                // per-element `extend`, 2.5 % of the 16-thread worker time).
+                let n = self.len();
+                out.resize(n, 0);
+                for (slot, &power) in out.iter_mut().zip(&powers[..n]) {
+                    *slot = i64::from(power);
+                }
             }
-            Self::Wide { powers, .. } => out.extend_from_slice(powers),
+            Self::Wide { powers, .. } => out.extend(powers.iter().copied()),
         }
     }
 
@@ -285,6 +291,10 @@ struct Priorities<P> {
     values: Vec<Option<(P, u32)>>,
     free: Vec<u32>,
     index: HashTable<u32>,
+    /// fwd-opt: the priority id of every slot, by slot id (a dense copy of
+    /// `Slot::priority`), so that a heap comparison reads two `u32`s instead
+    /// of two slots; the slots are read only when the priorities tie.
+    of: Vec<u32>,
 }
 
 impl<P: Clone + Ord + Hash> Priorities<P> {
@@ -293,6 +303,7 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
             values: Vec::new(),
             free: Vec::new(),
             index: HashTable::new(),
+            of: Vec::new(),
         }
     }
 
@@ -351,8 +362,36 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
         }
     }
 
+    /// fwd-opt: [`Self::release`] returning the value: moved out when this
+    /// was its last reference, cloned otherwise (as `get(id).clone()` then
+    /// `release(id)`).
+    fn release_value(&mut self, hasher: &FrontierHash, id: u32) -> P {
+        let entry = self.values[id as usize].as_mut().expect("live priority");
+        if entry.1 > 1 {
+            entry.1 -= 1;
+            return entry.0.clone();
+        }
+        let hash = hasher.hash_one(&entry.0);
+        if let Ok(found) = self.index.find_entry(hash, |&x| x == id) {
+            found.remove();
+        }
+        let (value, _) = self.values[id as usize].take().expect("live priority");
+        self.free.push(id);
+        value
+    }
+
     fn live(&self) -> usize {
         self.values.len() - self.free.len()
+    }
+
+    /// Record that slot `slot` holds priority `id`.
+    #[inline]
+    fn set_of(&mut self, slot: u32, id: u32) {
+        let at = slot as usize;
+        if at >= self.of.len() {
+            self.of.resize(at + 1, 0);
+        }
+        self.of[at] = id;
     }
 }
 
@@ -457,13 +496,23 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
         a: u32,
         b: u32,
     ) -> Ordering {
-        let (a, b) = (
-            slots[a as usize].as_ref().expect("live slot"),
-            slots[b as usize].as_ref().expect("live slot"),
+        // fwd-opt: the priority ids from the dense array; the slots only on
+        // a tie (same order as comparing `(priority, key)` of the slots).
+        let (pa, pb) = (priorities.of[a as usize], priorities.of[b as usize]);
+        debug_assert_eq!(
+            (pa, pb),
+            (
+                slots[a as usize].as_ref().expect("live slot").priority,
+                slots[b as usize].as_ref().expect("live slot").priority
+            )
         );
-        priorities
-            .cmp(a.priority, b.priority)
-            .then_with(|| K::cmp_packed(&a.key, &b.key))
+        priorities.cmp(pa, pb).then_with(|| {
+            let (a, b) = (
+                slots[a as usize].as_ref().expect("live slot"),
+                slots[b as usize].as_ref().expect("live slot"),
+            );
+            K::cmp_packed(&a.key, &b.key)
+        })
     }
 
     fn hash(&self, packed: &K::Packed) -> u64 {
@@ -573,6 +622,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
                 (self.slots.len() - 1) as u32
             }
         };
+        self.priorities.set_of(id, priority);
         let slots = &self.slots;
         let hasher = &self.hasher;
         self.index.insert_unique(hash, id, |&x| {
@@ -616,8 +666,12 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
             self.unindex(id);
             let slot = self.slots[id as usize].take().expect("live slot");
             self.free.push(id);
-            let priority = self.priorities.get(slot.priority).clone();
-            self.priorities.release(&self.hasher, slot.priority);
+            if slot.weight.is_none() {
+                // A tombstone: its priority is not returned.
+                self.priorities.release(&self.hasher, slot.priority);
+                continue;
+            }
+            let priority = self.priorities.release_value(&self.hasher, slot.priority);
             if let Some(weight) = slot.weight {
                 self.live -= 1;
                 return Some((
@@ -930,6 +984,82 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
     /// a packed frontier with the Fx hash.
     pub(crate) fn takes_prepacked(&self) -> bool {
         matches!(self, Self::Packed(p) if matches!(p.hasher, FrontierHash::Fx))
+    }
+
+    /// fwd-opt: the first phase after `after` with pending keys and its
+    /// greatest `n` pending keys with their positions (in no particular
+    /// order; ties and order are left to the caller's sort).
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn next_phase_top(
+        &self,
+        after: usize,
+        n: usize,
+    ) -> Option<(usize, Vec<(K, OrderedPosition<P>)>)> {
+        if n == 0 {
+            return None;
+        }
+        let p = match self {
+            Self::Classic(_) => {
+                let mut phase = None;
+                let mut out = Vec::new();
+                for (scheduled, _) in self.iter() {
+                    let q = scheduled.phase.0;
+                    if q <= after {
+                        continue;
+                    }
+                    match phase {
+                        None => phase = Some(q),
+                        Some(p) if p != q => break,
+                        Some(_) => {}
+                    }
+                    out.push((
+                        scheduled.key.clone(),
+                        OrderedPosition {
+                            phase: q,
+                            priority: scheduled.priority.clone(),
+                        },
+                    ));
+                    if out.len() == n {
+                        break;
+                    }
+                }
+                return phase.map(|phase| (phase, out));
+            }
+            Self::Packed(p) => p,
+        };
+        for q in after + 1..p.buckets.len() {
+            let mut ids: Vec<u32> = p.buckets[q]
+                .ids
+                .iter()
+                .copied()
+                .filter(|&id| p.slot(id).weight.is_some())
+                .collect();
+            if ids.is_empty() {
+                continue;
+            }
+            if ids.len() > n {
+                let (slots, priorities) = (&p.slots, &p.priorities);
+                ids.select_nth_unstable_by(n - 1, |&a, &b| {
+                    Packed::<K, P, W>::cmp_ids(slots, priorities, b, a)
+                });
+                ids.truncate(n);
+            }
+            let out = ids
+                .into_iter()
+                .map(|id| {
+                    let slot = p.slot(id);
+                    (
+                        K::unpack(&slot.key),
+                        OrderedPosition {
+                            phase: q,
+                            priority: p.priorities.get(slot.priority).clone(),
+                        },
+                    )
+                })
+                .collect();
+            return Some((q, out));
+        }
+        None
     }
 
     /// rr-par2: the first `n` pending keys of `phase` below `threshold`, in pop

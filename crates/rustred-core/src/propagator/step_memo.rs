@@ -92,8 +92,11 @@ pub(crate) struct RouteExpansion {
 /// A memo value: this thread's (`Rc`) or the shared memo's (`Arc`).
 pub(crate) enum Held<V> {
     Local(Rc<V>),
-    /// A shared memo value and the memo whose table its indices name.
-    Shared(std::sync::Arc<V>, std::sync::Arc<SharedMemo>),
+    /// A shared memo value; its indices name the table of this thread's
+    /// handle of the shared memo (fwd-opt: no clone of the memo's `Arc` per
+    /// lookup, one count updated by every worker; the memo is replaced only
+    /// between requests).
+    Shared(std::sync::Arc<V>),
 }
 
 impl<V> std::ops::Deref for Held<V> {
@@ -101,7 +104,7 @@ impl<V> std::ops::Deref for Held<V> {
     fn deref(&self) -> &V {
         match self {
             Held::Local(value) => value,
-            Held::Shared(value, _) => value,
+            Held::Shared(value) => value,
         }
     }
 }
@@ -207,6 +210,27 @@ pub(crate) fn coefficients<R>(f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R) 
     local_coefficients(f)
 }
 
+/// fwd-opt: the value of index `index` of the current shared memo (on this
+/// thread's polynomial context), when the shared memo is in use.
+pub(crate) fn shared_value(index: u32) -> Option<Coefficient> {
+    if !shared_enabled() {
+        return None;
+    }
+    Some(with_shared(|memo| rehome(memo.coefficient(index))))
+}
+
+/// fwd-opt: the value of index `index` of this thread's memo.
+pub(crate) fn local_value(index: u32) -> Option<Coefficient> {
+    STATE.with(|state| {
+        state
+            .borrow()
+            .coefficients
+            .values
+            .get(index as usize)
+            .cloned()
+    })
+}
+
 /// [`coefficients`] for the indices of `held`: the table of the memo that
 /// issued them (the mode is decided once per lookup, by [`insertion`] or
 /// [`route`]).
@@ -215,7 +239,7 @@ pub(crate) fn coefficients_of<V, R>(
     f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R,
 ) -> R {
     match held {
-        Held::Shared(_, memo) => f(&|index| rehome(memo.coefficient(index))),
+        Held::Shared(_) => with_shared(|memo| f(&|index| rehome(memo.coefficient(index)))),
         Held::Local(_) => local_coefficients(f),
     }
 }
@@ -365,7 +389,7 @@ pub(crate) fn insertion(
     if shared_enabled() {
         return with_shared(|memo| {
             if let Some(value) = memo.get(key, true, limits, |shard| &shard.insertion) {
-                return Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))));
+                return Ok(Some(Held::Shared(value)));
             }
             let (table, weights) = compute()?;
             let Some(weights) = weights
@@ -380,7 +404,7 @@ pub(crate) fn insertion(
             };
             let value = std::sync::Arc::new(InsertionWeights { table, weights });
             memo.put(key, limits, |shard| &mut shard.insertion, &value);
-            Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
+            Ok(Some(Held::Shared(value)))
         });
     }
     STATE.with(|state| {
@@ -421,7 +445,7 @@ pub(crate) fn route(
     if shared_enabled() {
         return with_shared(|memo| {
             if let Some(value) = memo.get(key, false, limits, |shard| &shard.route) {
-                return Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))));
+                return Ok(Some(Held::Shared(value)));
             }
             let (arity, offsets, coefficients) = compute()?;
             let Ok(offsets) = offsets
@@ -444,7 +468,7 @@ pub(crate) fn route(
                 coefficients,
             });
             memo.put(key, limits, |shard| &mut shard.route, &value);
-            Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
+            Ok(Some(Held::Shared(value)))
         });
     }
     STATE.with(|state| {
@@ -546,6 +570,11 @@ thread_local! {
     static SINGLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// fwd-opt: whether this thread runs a one-thread request ([`begin`]).
+pub(crate) fn single_thread() -> bool {
+    SINGLE.with(std::cell::Cell::get)
+}
+
 fn shared_requested() -> bool {
     static SHARED: OnceLock<bool> = OnceLock::new();
     *SHARED.get_or_init(|| {
@@ -580,8 +609,14 @@ pub(crate) struct SharedMemo {
     /// threads (as with one lock); the values the indices name do not.
     index: Box<[std::sync::Mutex<HashMap<Coefficient, u32, FxLiteBuild>>]>,
     next: std::sync::atomic::AtomicUsize,
-    stats: [AtomicU64; 4],
+    /// Hit/miss counters per shard (fwd-opt: one shared line was updated
+    /// by every lookup of every worker).
+    stats: Box<[PaddedStats]>,
 }
+
+#[derive(Default)]
+#[repr(align(128))]
+struct PaddedStats([AtomicU64; 4]);
 
 #[derive(Clone, Copy, Default)]
 struct FxLiteBuild;
@@ -604,15 +639,19 @@ impl SharedMemo {
                 .collect(),
             index: (0..SHARDS).map(|_| Default::default()).collect(),
             next: std::sync::atomic::AtomicUsize::new(0),
-            stats: Default::default(),
+            stats: (0..SHARDS).map(|_| PaddedStats::default()).collect(),
         }
     }
 
-    fn shard(&self, key: &[i64]) -> &std::sync::RwLock<Shard> {
+    fn shard_index(&self, key: &[i64]) -> usize {
         use std::hash::{Hash, Hasher};
         let mut h = FxLite(0);
         key.hash(&mut h);
-        &self.shards[(h.finish() as usize) % SHARDS]
+        (h.finish() as usize) % SHARDS
+    }
+
+    fn shard(&self, key: &[i64]) -> &std::sync::RwLock<Shard> {
+        &self.shards[self.shard_index(key)]
     }
 
     /// The memo applies to requests with the limits of its first request.
@@ -631,9 +670,10 @@ impl SharedMemo {
         if !self.admits(limits) {
             return None;
         }
-        let shard = self.shard(key).read().unwrap_or_else(|e| e.into_inner());
+        let at = self.shard_index(key);
+        let shard = self.shards[at].read().unwrap_or_else(|e| e.into_inner());
         let found = map(&shard).get(key).cloned();
-        self.stats[stat + usize::from(found.is_none())].fetch_add(1, Ordering::Relaxed);
+        self.stats[at].0[stat + usize::from(found.is_none())].fetch_add(1, Ordering::Relaxed);
         found
     }
 
@@ -694,7 +734,12 @@ impl SharedMemo {
             insertion += shard.insertion.len() as u64;
             route += shard.route.len() as u64;
         }
-        let stat = |i: usize| self.stats[i].load(Ordering::Relaxed);
+        let stat = |i: usize| -> u64 {
+            self.stats
+                .iter()
+                .map(|s| s.0[i].load(Ordering::Relaxed))
+                .sum()
+        };
         let distinct = (self.next.load(Ordering::Relaxed) as u64).min(SHARED_COEFFICIENTS as u64);
         [
             stat(0),

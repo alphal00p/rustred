@@ -32,7 +32,7 @@ use super::error::PError;
 use super::kernel::bubble::{BubbleKernel, LinePower, relative_tag};
 use super::kernel::gamma::algebra;
 use super::kernel::{
-    ChildKeys, MemoCounters, NumeratorRewrite, OwnerEdge, absolute_tag, child_row,
+    ChildKeys, MemoCounters, NumeratorRewrite, OwnerEdge, PreparedWeights, absolute_tag, child_row,
     numerator_powers, owner_edges,
 };
 use super::lane::{BubbleRoles, LaneRoles, OwnerLane};
@@ -325,12 +325,27 @@ impl InsertionStep {
                         step_memo::insertion(&key, limits, || {
                             crate::prof!(InsertionCompute);
                             let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                            if super::kernel::fast_weights_enabled() {
+                                let prepared = self.prepared_weights(alpha, beta, rank, limits)?;
+                                let weights = keys.weights_prepared(&table, &prepared, limits)?;
+                                return Ok((table, weights));
+                            }
                             let weights = self.kernel_weights(alpha, beta, rank, limits)?;
                             let weights = keys.weights(&table, &weights, limits)?;
                             Ok((table, weights))
                         })
                     )?;
                     match memo {
+                        // fwd-opt light step: children by (memo index) handle.
+                        Some(memo) if mode == MemoMode::On && super::engine::light::enabled() => {
+                            let local = matches!(memo, step_memo::Held::Local(..));
+                            let children = keys.light_children(&memo.table, &memo.weights, local);
+                            super::engine::light::put_pending((
+                                rule.child.id,
+                                tag.clone(),
+                                children,
+                            ));
+                        }
                         Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
                         }),
@@ -351,7 +366,42 @@ impl InsertionStep {
     }
 }
 
+thread_local! {
+    /// fwd-opt: this thread's [`PreparedWeights`] by (step uid, alpha, beta, rank).
+    static PREPARED: std::cell::RefCell<
+        std::collections::HashMap<(u64, i64, i64, u32), std::rc::Rc<PreparedWeights>>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Most prepared kernel weights kept per thread (cleared when full).
+const PREPARED_ENTRIES: usize = 1 << 16;
+
 impl InsertionStep {
+    /// The kernel weights of `(alpha, beta, rank)` prepared for
+    /// [`super::kernel::ChildKeys::weights_prepared`], from this thread's cache.
+    fn prepared_weights(
+        &self,
+        alpha: LinePower,
+        beta: LinePower,
+        rank: u32,
+        limits: crate::algebra::ExactAlgebraLimits,
+    ) -> Result<std::rc::Rc<PreparedWeights>, PError> {
+        let key = (self.uid, alpha.integer, beta.integer, rank);
+        if let Some(value) = PREPARED.with(|cache| cache.borrow().get(&key).cloned()) {
+            return Ok(value);
+        }
+        let weights = self.kernel_weights(alpha, beta, rank, limits)?;
+        let value = std::rc::Rc::new(PreparedWeights::new(&weights));
+        PREPARED.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= PREPARED_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(key, std::rc::Rc::clone(&value));
+        });
+        Ok(value)
+    }
+
     /// The bubble weights `W_sigma`, `sigma = 0..=rank/2`.
     fn kernel_weights(
         &self,

@@ -122,7 +122,8 @@ impl GammaTag {
         &self,
         out: &mut SmallVec<A>,
     ) -> Result<(), PError> {
-        out.extend_from_slice(&self.dense()?);
+        // fwd-opt: by iterator (`extend_from_slice` is a `memmove` call).
+        out.extend(self.dense()?);
         Ok(())
     }
 

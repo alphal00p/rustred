@@ -166,6 +166,17 @@ pub(super) struct Op {
 }
 
 impl Op {
+    /// fwd-opt: an op of the layered mode whose coefficient is still a raw
+    /// shared-table id (`ModularRecorder::layered_map_refs` numbers it).
+    pub(super) fn layered(tag: OpTag, slot: u32, raw: u32) -> Self {
+        Self::new(tag, slot, CoefRef(raw))
+    }
+
+    /// fwd-opt: an op without a coefficient (`Pop`, `Cancel`, `TermCancel`).
+    pub(super) fn bare(tag: OpTag, slot: u32) -> Self {
+        Self::new(tag, slot, CoefRef(CONSTANT_FLAG))
+    }
+
     fn new(tag: OpTag, slot: u32, coefficient: CoefRef) -> Self {
         Self {
             word: ((tag as u32) << SLOT_BITS) | slot,
@@ -584,6 +595,8 @@ pub(crate) struct ModularRecorder {
     /// shard the reference of each of its ids once the sequence reached it.
     shared: Option<std::sync::Arc<SharedIntern>>,
     shared_refs: Vec<Vec<u32>>,
+    /// fwd-opt: light handles of this request -> (reference, zero).
+    handles: std::collections::HashMap<u64, (CoefRef, bool), FxBuild>,
 }
 
 /// rr-par2: shards of [`SharedIntern`] (low bits of an id).
@@ -637,6 +650,27 @@ impl SharedIntern {
 
     /// The id of `coefficient` (hash `hash` = [`coefficient_hash`]).
     pub(crate) fn id(&self, coefficient: &Coefficient, hash: u64) -> u32 {
+        self.id_with(coefficient, hash, |_| ()).0
+    }
+
+    /// fwd-opt: [`Self::id`] and the probe values of the value, read under
+    /// the same lock (zero probes when the value fails validation or its
+    /// probe: the recorder reports that error when the sequence reaches the
+    /// id).
+    pub(crate) fn id_probe(&self, coefficient: &Coefficient, hash: u64) -> (u32, Probe) {
+        let zero = [self.probe_field.zero(); PROBES];
+        self.id_with(coefficient, hash, |entry| match &entry.probe {
+            Ok((_, values)) => *values,
+            Err(_) => zero,
+        })
+    }
+
+    fn id_with<R>(
+        &self,
+        coefficient: &Coefficient,
+        hash: u64,
+        read: impl Fn(&InternEntry) -> R,
+    ) -> (u32, R) {
         let shard = Self::shard_of(hash);
         let find = |guard: &InternShard| {
             let entries = &guard.entries;
@@ -647,8 +681,14 @@ impl SharedIntern {
                 })
                 .copied()
         };
-        if let Some(index) = find(&self.lock(shard)) {
-            return (index << INTERN_SHARD_BITS) | shard as u32;
+        {
+            let guard = self.lock(shard);
+            if let Some(index) = find(&guard) {
+                return (
+                    (index << INTERN_SHARD_BITS) | shard as u32,
+                    read(&guard.entries[index as usize]),
+                );
+            }
         }
         // A new value: validate and evaluate outside the lock.
         crate::prof!(InternNew);
@@ -663,20 +703,25 @@ impl SharedIntern {
             });
         let mut guard = self.lock(shard);
         if let Some(index) = find(&guard) {
-            return (index << INTERN_SHARD_BITS) | shard as u32;
+            return (
+                (index << INTERN_SHARD_BITS) | shard as u32,
+                read(&guard.entries[index as usize]),
+            );
         }
         let index = u32::try_from(guard.entries.len())
             .ok()
             .filter(|&index| index < (1 << (32 - INTERN_SHARD_BITS)) - 1)
             .expect("fewer than 2^26 distinct step coefficients per intern shard");
-        guard.entries.push(std::sync::Arc::new(InternEntry {
+        let entry = InternEntry {
             coefficient: coefficient.clone(),
             hash,
             probe,
-        }));
+        };
+        let value = read(&entry);
+        guard.entries.push(std::sync::Arc::new(entry));
         let InternShard { table, entries } = &mut *guard;
         table.insert_unique(hash, index, |&i| entries[i as usize].hash);
-        (index << INTERN_SHARD_BITS) | shard as u32
+        ((index << INTERN_SHARD_BITS) | shard as u32, value)
     }
 
     fn entry(&self, id: u32) -> std::sync::Arc<InternEntry> {
@@ -788,6 +833,7 @@ impl ModularRecorder {
             par_replay: false,
             shared: None,
             shared_refs: vec![Vec::new(); INTERN_SHARDS],
+            handles: Default::default(),
         })
     }
 
@@ -1235,6 +1281,95 @@ pub(crate) enum Finished {
     Composed(ComposedTerminals),
 }
 
+/// fwd-opt: the probe values of one weight or coefficient (layered mode).
+pub(crate) type Probe = [Fe; PROBES];
+
+/// fwd-opt: the probe field, for zero decisions taken off the recorder
+/// (layered mode: shard-wise merges on the workers).
+#[derive(Clone)]
+pub(crate) struct ProbeField(Zp64);
+
+impl ProbeField {
+    /// `weight * coefficient`, probe by probe.
+    #[inline]
+    pub(crate) fn scale(&self, weight: &Probe, coefficient: &Probe) -> Probe {
+        std::array::from_fn(|i| self.0.mul(&weight[i], &coefficient[i]))
+    }
+
+    /// `existing += added`; whether every probe of the sum is zero (the
+    /// recorder's `merge` decision).
+    #[inline]
+    pub(crate) fn add_is_zero(&self, existing: &mut Probe, added: &Probe) -> bool {
+        for (value, added) in existing.iter_mut().zip(added) {
+            *value = self.0.add(&*value, added);
+        }
+        existing.iter().all(|value| self.0.is_zero(value))
+    }
+}
+
+impl ModularWeight {
+    /// fwd-opt: a weight held in `slot` with probe values `probe` (layered
+    /// mode: slots are numbered by the layered frontier's shards).
+    pub(crate) fn layered(slot: u32, probe: Probe) -> Self {
+        Self { slot, probe }
+    }
+
+    pub(crate) fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    pub(crate) fn probe(&self) -> &Probe {
+        &self.probe
+    }
+
+    pub(crate) fn probe_mut(&mut self) -> &mut Probe {
+        &mut self.probe
+    }
+}
+
+impl ModularRecorder {
+    /// fwd-opt: the probe field of this recorder.
+    pub(crate) fn probe_field(&self) -> ProbeField {
+        ProbeField(self.probe_field.clone())
+    }
+
+    /// fwd-opt: frontier slots `0..slots` may be live (layered mode).
+    pub(crate) fn layered_slots(&mut self, slots: u32) {
+        self.next_slot = self.next_slot.max(slots);
+    }
+
+    /// fwd-opt: terminal accumulators `0..slots` were used (layered mode).
+    pub(crate) fn layered_terminal_slots(&mut self, slots: u32) {
+        self.terminal_slots = self.terminal_slots.max(slots);
+    }
+
+    /// fwd-opt: `len` more ops (placeholders), to be written by the caller.
+    pub(super) fn layered_append(&mut self, len: usize) -> &mut [Op] {
+        let start = self.ops.len();
+        self.ops.resize(start + len, Op::bare(OpTag::Pop, 0));
+        &mut self.ops[start..]
+    }
+
+    /// fwd-opt: number the raw shared-table ids of `ops[from..]` in sequence
+    /// order (first occurrence), as `scale_interned` numbers them inline.
+    pub(super) fn layered_map_refs(&mut self, from: usize) -> Result<(), ReductionError> {
+        let mut ops = std::mem::take(&mut self.ops);
+        let result = (|| {
+            for op in &mut ops[from..] {
+                if matches!(
+                    op.tag(),
+                    OpTag::Init | OpTag::New | OpTag::Add | OpTag::TermNew | OpTag::TermAdd
+                ) {
+                    op.coefficient = self.intern_id(op.coefficient.0)?;
+                }
+            }
+            Ok(())
+        })();
+        self.ops = ops;
+        result
+    }
+}
+
 impl ModularRecorder {
     /// rr-frontier diagnostics: the resident tables of the forward pass
     /// (trace ops, interned exact coefficients, probes, slots).
@@ -1341,6 +1476,36 @@ impl OrderedWeights for ModularRecorder {
             return self.scale_hashed(weight, coefficient, hash);
         };
         let reference = self.intern_id(id)?;
+        Ok(ModularContribution {
+            coefficient: reference,
+            probe: self.scaled(weight, reference),
+            zero,
+        })
+    }
+
+    fn takes_light(&self) -> bool {
+        true
+    }
+
+    fn scale_handle(
+        &mut self,
+        weight: &ModularWeight,
+        handle: u64,
+        value: &mut dyn FnMut() -> Option<Coefficient>,
+    ) -> Result<ModularContribution, ReductionError> {
+        let (reference, zero) = match self.handles.get(&handle) {
+            Some(&found) => {
+                self.lookups += 1;
+                found
+            }
+            None => {
+                let coefficient =
+                    value().ok_or_else(|| error("a light handle names no coefficient"))?;
+                let found = (self.intern(&coefficient)?, coefficient.is_zero());
+                self.handles.insert(handle, found);
+                found
+            }
+        };
         Ok(ModularContribution {
             coefficient: reference,
             probe: self.scaled(weight, reference),

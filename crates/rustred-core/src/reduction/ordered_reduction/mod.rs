@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, btree_map};
 pub(crate) mod arithmetic;
 pub mod composition;
 mod frontier;
+mod layered;
 pub(crate) mod memstats;
 mod modular;
 mod parallel;
@@ -147,6 +148,20 @@ pub(crate) trait OrderedKernel {
     }
     /// rr-frontier diagnostics (`memstats`): allocator bytes owned by a key.
     /// Default: nothing measured.
+    /// fwd-opt light steps on the calling thread (see
+    /// `OrderedStepper::set_light`); default: never.
+    fn set_light(&mut self, _on: bool) {}
+
+    /// fwd-opt: the light children of the step computed last on this thread.
+    fn take_light(&mut self) -> Vec<(Self::Key, u64)> {
+        Vec::new()
+    }
+
+    /// fwd-opt: the coefficient a light handle names (on the step's thread).
+    fn light_value(&self, _handle: u64) -> Option<Coefficient> {
+        None
+    }
+
     fn key_heap_bytes(_key: &Self::Key) -> usize {
         0
     }
@@ -553,6 +568,24 @@ pub(crate) trait OrderedWeights {
         self.scale_hashed(weight, coefficient, hash)
     }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
+    /// fwd-opt: the contribution `weight * value(handle)` of a light child
+    /// (see `OrderedKernel::take_light`); an arithmetic may remember the
+    /// coefficient of a handle for the request. `None` from `value`: the
+    /// handle names nothing (an invariant error).
+    fn scale_handle(
+        &mut self,
+        weight: &Self::Weight,
+        _handle: u64,
+        value: &mut dyn FnMut() -> Option<Coefficient>,
+    ) -> Result<Self::Contribution, ReductionError> {
+        let coefficient =
+            value().ok_or_else(|| invariant("a light handle names no coefficient"))?;
+        self.scale(weight, &coefficient)
+    }
+    /// fwd-opt: whether this arithmetic takes light children (one thread).
+    fn takes_light(&self) -> bool {
+        false
+    }
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
     /// Add into an existing frontier entry. `true` reports an exactly zero
@@ -1021,6 +1054,8 @@ struct TailOptions {
     prestage: bool,
     /// rr-par2: the scheduler reads step coefficients through their ids only.
     hollow: bool,
+    /// fwd-opt: TFORM-style layered forward pass (`layered`).
+    layered: bool,
 }
 
 impl TailOptions {
@@ -1047,6 +1082,7 @@ impl TailOptions {
             par_replay: tuning.par_replay,
             prestage: tuning.prestage && tuning.pipeline && threads > 1,
             hollow: tuning.hollow,
+            layered: tuning.layered,
         }
     }
 }
@@ -1119,6 +1155,18 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
     scheduler.validate()?;
     let scheduler = scheduler.resolve_profile(OrderedProfile::Generic);
     let tail = TailOptions::of(&scheduler, scheduler.threads);
+    // fwd-opt: the layered mode runs the same algorithm at every thread count.
+    if layered::eligible(kernel, &arithmetic, &tail) {
+        return layered::run(
+            kernel,
+            request,
+            initial,
+            nonzero_conditions,
+            arithmetic,
+            scheduler.threads,
+            tail,
+        );
+    }
     if scheduler.threads == 1 || kernel.limits().diagnostics_enabled || kernel.stepper().is_none() {
         return run_sequential(
             kernel,
@@ -1242,7 +1290,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         {
             source.attach_intern(table, !tail.enabled && tail.hollow);
         }
-        run_inner(
+        let output = run_inner(
             kernel,
             &mut weights,
             request,
@@ -1251,8 +1299,12 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
             work,
             source,
             tail,
-        )
-        .and_then(|output| modular_output(weights, output, composer.as_deref()).map_err(Into::into))
+        );
+        // fwd-opt: light steps end with the request, whatever its outcome.
+        kernel.set_light(false);
+        output.and_then(|output| {
+            modular_output(weights, output, composer.as_deref()).map_err(Into::into)
+        })
     }
 }
 
@@ -1417,6 +1469,12 @@ trait StepSource<K: OrderedKernel> {
     /// the scheduler reads step coefficients only through the ids (no tail
     /// journal), so the workers may free them after interning.
     fn attach_intern(&mut self, _table: std::sync::Arc<modular::SharedIntern>, _hollow: bool) {}
+
+    /// fwd-opt: the steps are computed on the scheduler thread by the kernel
+    /// (light children can be taken right after each step).
+    fn on_this_thread(&self) -> bool {
+        false
+    }
 }
 
 /// rr-par2 (`RUSTRED_ORDERED_PRESTAGE=on|off` overrides the profile; on for
@@ -1483,6 +1541,10 @@ impl<K: OrderedKernel> StepSource<K> for Inline {
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<K::Key>, K::Error> {
         kernel.step(&node.key, request, work)
+    }
+
+    fn on_this_thread(&self) -> bool {
+        true
     }
 }
 
@@ -1720,6 +1782,14 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     let mut spent_prestaged: Vec<PrestagedFor<K>> = Vec::new();
     // A placeholder for coefficients carried by ids only (`Prestaged::lean`).
     let placeholder = context.zero();
+    // fwd-opt light steps: the kernel's singly met memo children come as
+    // (key, handle) and the arithmetic maps a handle to its coefficient once
+    // (one thread, recorded arithmetics). Switched off again by the caller
+    // (`run_modular`) whatever the outcome.
+    let light = steps.on_this_thread() && weights.takes_light() && tail.is_none();
+    if light {
+        kernel.set_light(true);
+    }
     for phase in 0..state.progress.total_phases {
         let phase_started = par_clock.now();
         let (mut par_pops, mut par_source) = (0u64, 0.0f64);
@@ -1750,6 +1820,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             let source_started = par_clock.now();
             let checked =
                 crate::prof_wrap!(Source, steps.step(kernel, frontier, &node, request, work))?;
+            let light_children = if light {
+                kernel.take_light()
+            } else {
+                Vec::new()
+            };
             let hashes = steps.take_hashes();
             let term_count = checked.terms.len();
             // rr-par2: children packed/hashed/positioned and coefficient ids
@@ -1933,6 +2008,91 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 }
                 if let Some(removed) = removed {
                     crate::prof_wrap_fine!(Record, weights.cancel(removed))?;
+                    request.release_pending_frame()?;
+                    progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
+                }
+                progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
+                progress.peak_frontier_coefficient_monomials = progress
+                    .peak_frontier_coefficient_monomials
+                    .max(progress.frontier_coefficient_monomials);
+            }
+            for (child, handle) in light_children {
+                let contribution =
+                    weights.scale_handle(&weight, handle, &mut || kernel.light_value(handle))?;
+                if weights.contribution_is_zero(&contribution) {
+                    // A zero coefficient is no child (as a zero term).
+                    continue;
+                }
+                progress.emitted_terms = progress.emitted_terms.saturating_add(1);
+                let mut contribution = Some(contribution);
+                let removed =
+                    frontier.child(child, |found: Child<'_, K::Key, K::Priority, A::Weight>| {
+                        let contribution = contribution
+                            .take()
+                            .ok_or_else(|| invariant("a light contribution was used twice"))?;
+                        Ok::<_, K::Error>(match found {
+                            Child::Occupied {
+                                phase: entered,
+                                priority,
+                                weight: existing,
+                            } => {
+                                check_descent_parts(
+                                    entered,
+                                    priority,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
+                                )?;
+                                work.record_coalescing_additions(1);
+                                request.record_coalescing_additions(
+                                    1,
+                                    limits.diagnostic_limit(limits.max_coalescing_additions),
+                                )?;
+                                let old = weights.monomials(existing)?;
+                                let zero = weights.merge(existing, contribution)?;
+                                let new = if zero {
+                                    0
+                                } else {
+                                    weights.monomials(existing)?
+                                };
+                                replace_monomials(
+                                    &mut progress.frontier_coefficient_monomials,
+                                    old,
+                                    new,
+                                )?;
+                                if zero {
+                                    ChildAction::Remove
+                                } else {
+                                    progress.merged_terms = progress.merged_terms.saturating_add(1);
+                                    ChildAction::Keep
+                                }
+                            }
+                            Child::Vacant(vacant) => {
+                                let position = kernel.position(vacant)?;
+                                check_descent(
+                                    &position,
+                                    phase,
+                                    &node.priority,
+                                    progress.total_phases,
+                                )?;
+                                request.retain_pending_frame(
+                                    limits.diagnostic_limit(limits.max_pending_frames),
+                                )?;
+                                let inserted = weights.insert(contribution)?;
+                                replace_monomials(
+                                    &mut progress.frontier_coefficient_monomials,
+                                    0,
+                                    weights.monomials(&inserted)?,
+                                )?;
+                                ChildAction::Insert(Pending {
+                                    position,
+                                    weight: inserted,
+                                })
+                            }
+                        })
+                    })?;
+                if let Some(removed) = removed {
+                    weights.cancel(removed)?;
                     request.release_pending_frame()?;
                     progress.cancelled_terms = progress.cancelled_terms.saturating_add(1);
                 }

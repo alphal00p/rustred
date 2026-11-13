@@ -61,7 +61,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use rayon::prelude::*;
@@ -160,6 +160,9 @@ pub(crate) struct OrderedTuning {
     pub prestage: bool,
     /// rr-par2 hollow steps (M5 batch 4: on for p requests; needs prestage).
     pub hollow: bool,
+    /// fwd-opt: TFORM-style layered forward pass (`RUSTRED_ORDERED_LAYERED`,
+    /// default off; recorded arithmetics only).
+    pub layered: bool,
 }
 
 impl OrderedSchedulerOptions {
@@ -187,6 +190,7 @@ impl OrderedSchedulerOptions {
             par_replay: super::par_replay_environment().unwrap_or(p),
             prestage: super::prestage_environment().unwrap_or(p),
             hollow: super::hollow_environment().unwrap_or(p),
+            layered: super::layered::environment().unwrap_or(false),
         }
     }
 }
@@ -278,6 +282,36 @@ pub(crate) trait OrderedStepper: Sync {
     fn later_phase(&self, _parent: &Self::Key, _child: &Self::Key) -> bool {
         false
     }
+
+    /// fwd-opt: switch light steps on for the calling (worker) thread: the
+    /// adapter may hand singly met children over as `(key, handle)` pairs
+    /// ([`Self::take_light`], right after the step on the same thread)
+    /// instead of terms. Default: never.
+    fn set_light(&self, _on: bool) {}
+
+    /// fwd-opt: the light children of the step this thread computed last,
+    /// sorted by key, disjoint from its terms.
+    fn take_light(&self) -> Vec<(Self::Key, u64)> {
+        Vec::new()
+    }
+
+    /// fwd-opt: the coefficient a light handle names.
+    fn light_value(&self, _handle: u64) -> Option<Coefficient> {
+        None
+    }
+
+    /// fwd-opt: the number of one-time setup tasks the steps of this request
+    /// will (probably) need (compiled routes, owner programs, orbit groups),
+    /// which the pipelined source runs ahead of time on idle workers.
+    fn warm_count(&self) -> usize {
+        0
+    }
+
+    /// fwd-opt: run setup task `index` (`< warm_count()`). Setup is a pure,
+    /// once-per-process function of the read-only state (the steps that need
+    /// it compute the very same value when they come first), so running it
+    /// ahead of time changes no step.
+    fn warm(&self, _index: usize) {}
 }
 
 /// An adapter whose steps can be computed by worker threads.
@@ -471,9 +505,102 @@ impl Workers {
     }
 }
 
+impl Workers {
+    /// fwd-opt: `f(i)` for every `i < n` on the workers (one task per index,
+    /// inside the request's resource budgets).
+    pub(super) fn for_each_index(&self, n: usize, f: impl Fn(usize) + Sync + Send) {
+        let budget = &self.budget;
+        self.pool.install(|| {
+            (0..n)
+                .into_par_iter()
+                .with_max_len(1)
+                .for_each(|index| budget.run_captured(|| f(index)))
+        });
+    }
+
+    /// fwd-opt: `f` on the pool (rayon parallel iterators inside it run on
+    /// the workers), inside the request's resource budgets.
+    pub(super) fn install<R: Send>(&self, f: impl FnOnce() -> R + Send) -> R {
+        let budget = &self.budget;
+        self.pool.install(|| budget.run_captured(f))
+    }
+
+    /// fwd-opt: `f` once on every worker.
+    pub(super) fn broadcast(&self, f: impl Fn() + Sync) {
+        self.pool.broadcast(|_| f());
+    }
+
+    /// fwd-opt: the worker count.
+    pub(super) fn threads(&self) -> usize {
+        self.pool.current_num_threads()
+    }
+}
+
+/// fwd-opt (layered mode): one computed step of a window closure.
+pub(super) struct ClosureStep<K, P, X, E, A> {
+    pub key: K,
+    pub position: OrderedPosition<P>,
+    pub result: Result<X, E>,
+    /// Taken when the scheduler absorbs it.
+    pub account: Option<A>,
+}
+
+/// fwd-opt (layered mode): the steps of `roots` (the greatest pending keys
+/// of their phase, greatest first) and of every same-phase descendant at or
+/// above the last root, computed on the workers ([`close_window`]); `detach`
+/// converts a step on its worker and reports its same-phase children at or
+/// above the threshold. Roots come first, the other keys follow in no
+/// particular order. Window statistics as for the pipelined source.
+pub(super) fn layered_closure<S, X, F>(
+    workers: &Workers,
+    stepper: &S,
+    roots: Vec<(S::Key, OrderedPosition<S::Priority>)>,
+    detach: F,
+) -> Vec<ClosureStep<S::Key, S::Priority, X, S::Error, S::Account>>
+where
+    S: OrderedStepper,
+    X: Send,
+    F: Fn(
+            &S::Key,
+            &OrderedPosition<S::Priority>,
+            OrderedStep<S::Key>,
+            &mut Vec<(S::Key, OrderedPosition<S::Priority>)>,
+        ) -> X
+        + Sync
+        + Send,
+{
+    let stats = super::parstats::enabled();
+    let counters = stats.then(WindowCounters::default);
+    let started = stats.then(std::time::Instant::now);
+    let detached = close_window(workers, stepper, roots, counters.as_ref(), detach);
+    if let (Some(started), Some(counters)) = (started, &counters) {
+        use super::parstats::{SOURCE, nanos};
+        SOURCE.windows.fetch_add(1, Ordering::Relaxed);
+        SOURCE
+            .window_nanos
+            .fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+        SOURCE
+            .computed
+            .fetch_add(detached.len() as u64, Ordering::Relaxed);
+        SOURCE.step_nanos.fetch_add(
+            counters.step_nanos.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+    detached
+        .into_iter()
+        .map(|step| ClosureStep {
+            key: step.key,
+            position: step.position,
+            result: step.result,
+            account: Some(step.account),
+        })
+        .collect()
+}
+
 /// Window threshold comparison: `true` iff a same-phase key with this
 /// position is popped before `threshold` (or is `threshold`).
-fn at_or_above<K: Ord, P: Ord>(
+pub(super) fn at_or_above<K: Ord, P: Ord>(
     position: &OrderedPosition<P>,
     key: &K,
     threshold: &Scheduled<K, P>,
@@ -523,7 +650,15 @@ where
     let closure = Closure {
         stepper,
         detach: &detach,
-        seen: Mutex::new(roots.iter().map(|(key, _)| key.clone()).collect()),
+        seen: {
+            let seen: Vec<Mutex<HashSet<S::Key, super::FrontierHash>>> = (0..SEEN_SHARDS)
+                .map(|_| Mutex::new(HashSet::with_hasher(super::FrontierHash::Fx)))
+                .collect();
+            for (key, _) in &roots {
+                lock(&seen[seen_shard(key)]).insert(key.clone());
+            }
+            seen
+        },
         discovered: Mutex::new(Vec::new()),
         counters,
         budget: &workers.budget,
@@ -624,11 +759,22 @@ where
     out
 }
 
+/// fwd-opt: shards of a window closure's `seen` set.
+const SEEN_SHARDS: usize = 64;
+
+fn seen_shard<K: Hash>(key: &K) -> usize {
+    use std::hash::BuildHasher;
+    // Middle bits: the shard tables use the low bits and the top seven.
+    (super::FrontierHash::Fx.hash_one(key) >> 24) as usize % SEEN_SHARDS
+}
+
 /// Shared state of one window closure (`close_window`).
 struct Closure<'a, S: OrderedStepper, X, F> {
     stepper: &'a S,
     detach: &'a F,
-    seen: Mutex<HashSet<S::Key>>,
+    /// fwd-opt: the keys stepped so far, in Fx-hashed shards (one lock per
+    /// shard instead of one for the whole closure).
+    seen: Vec<Mutex<HashSet<S::Key, super::FrontierHash>>>,
     discovered: Mutex<Vec<Detached<S::Key, S::Priority, X, S::Error, S::Account>>>,
     counters: Option<&'a WindowCounters>,
     budget: &'a ResourceBudget,
@@ -676,7 +822,7 @@ where
             )
         });
         for (child, position) in found {
-            if lock(&self.seen).insert(child.clone()) {
+            if lock(&self.seen[seen_shard(&child)]).insert(child.clone()) {
                 scope.spawn(move |scope| {
                     let step = self.step(scope, child, position);
                     lock(&self.discovered).push(step);
@@ -827,6 +973,121 @@ struct Prep {
     intern: Option<std::sync::Arc<super::modular::SharedIntern>>,
     /// Interned coefficients freed here, placeholders handed on.
     hollow: bool,
+    /// fwd-opt: light steps on the workers (lean prestaging only): singly
+    /// met memo children come by handle and get their shared-table id from
+    /// the worker's handle cache of this request (`light_request`), without
+    /// a coefficient copy, hash or table lookup per edge.
+    light: bool,
+    light_request: u64,
+}
+
+/// Pipelined requests with light steps started in this process (keys the
+/// workers' handle caches).
+static LIGHT_REQUESTS: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// fwd-opt: this worker's shared-memo handles of the current pipelined
+    /// request -> (shared-table id, zero, interning hash).
+    static LIGHT_IDS: std::cell::RefCell<(u64, HashMap<u64, (u32, bool, u64), super::FrontierHash>)> =
+        std::cell::RefCell::new((u64::MAX, HashMap::with_hasher(super::FrontierHash::Fx)));
+}
+
+/// `RUSTRED_ORDERED_CROSS_PHASE=on|off` (fwd-opt; default on): speculate
+/// the first window of the next phase while the last window of a phase
+/// merges (pipelined source, lean prestaging).
+fn cross_phase_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_CROSS_PHASE").unwrap_or(true))
+}
+
+/// `RUSTRED_ORDERED_WARM=on|off` (fwd-opt; default on): the pipelined
+/// source runs the stepper's one-time setup tasks ([`OrderedStepper::warm`])
+/// ahead of time on a quarter of the workers.
+fn warm_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_WARM").unwrap_or(true))
+}
+
+/// fwd-opt: start the setup tasks of `stepper` on `threads / 4` (at least
+/// one) workers, in the stepper's order, until all ran or `stop` is set. A
+/// step that needs a setup a task is running waits for it, as it would for
+/// another step computing it; the values are the same either way.
+fn warm_ahead<'scope, S: OrderedStepper>(
+    scope: &rayon::Scope<'scope>,
+    workers: &'scope Workers,
+    stepper: &'scope S,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let count = stepper.warm_count();
+    if count == 0 || !warm_enabled() {
+        return;
+    }
+    let next = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let tasks = (workers.pool.current_num_threads() / 4).clamp(1, count);
+    for _ in 0..tasks {
+        let (next, stop) = (std::sync::Arc::clone(&next), std::sync::Arc::clone(stop));
+        scope.spawn(move |_| {
+            workers.budget.run_captured(|| {
+                while !stop.load(Ordering::Relaxed) {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    if index >= count {
+                        break;
+                    }
+                    stepper.warm(index);
+                }
+            });
+        });
+    }
+}
+
+impl<S: OrderedStepper> Drop for Pipelined<'_, '_, S>
+where
+    S::Key: super::FrontierKey,
+{
+    fn drop(&mut self) {
+        self.warm_stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// `RUSTRED_ORDERED_PIPELINED_LIGHT=on|off` (fwd-opt; default on): light
+/// steps on the workers of the pipelined source (lean prestaging only).
+fn pipelined_light_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| super::switch_environment("RUSTRED_ORDERED_PIPELINED_LIGHT").unwrap_or(true))
+}
+
+/// The shared-table id, zero test and interning hash of the coefficient a
+/// light handle names (shared-memo handles cached per worker and request).
+fn light_id<S: OrderedStepper>(
+    stepper: &S,
+    table: &super::modular::SharedIntern,
+    request: u64,
+    handle: u64,
+) -> (u32, bool, u64) {
+    let resolve = || {
+        let coefficient = stepper
+            .light_value(handle)
+            .expect("a light handle names a memo coefficient");
+        let hash = super::modular::coefficient_hash(&coefficient);
+        (table.id(&coefficient, hash), coefficient.is_zero(), hash)
+    };
+    if crate::propagator::engine::light::is_local(handle) {
+        // A thread-local memo may be cleared within a request: no cache.
+        return resolve();
+    }
+    LIGHT_IDS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.0 != request {
+            cache.0 = request;
+            cache.1.clear();
+        }
+        if let Some(&found) = cache.1.get(&handle) {
+            return found;
+        }
+        let found = resolve();
+        cache.1.insert(handle, found);
+        found
+    })
 }
 
 type PrestagedOf<S> = super::Prestaged<
@@ -852,6 +1113,93 @@ where
 
 /// The steps of `roots` and of their same-phase descendants at or above
 /// `threshold` (`close_window`), with the same-phase children below it.
+/// fwd-opt: the lean prestaging of one step with light children (as the
+/// lean branch of [`compute_window`], children in the key order of the full
+/// step): positions, window/below candidates, packed keys and shared-table
+/// ids; light children never materialise their coefficient.
+#[allow(clippy::type_complexity)]
+fn light_prestage<S: OrderedStepper>(
+    stepper: &S,
+    table: &super::modular::SharedIntern,
+    request: u64,
+    parent: &S::Key,
+    mut step: OrderedStep<S::Key>,
+    found: &mut Vec<Candidate<S>>,
+    threshold: &Scheduled<S::Key, S::Priority>,
+) -> (
+    OrderedStep<S::Key>,
+    Vec<Candidate<S>>,
+    Vec<u64>,
+    Option<PrestagedOf<S>>,
+)
+where
+    S::Key: super::FrontierKey,
+{
+    use std::hash::BuildHasher;
+    let mut light = stepper.take_light().into_iter().peekable();
+    let mut materialised = std::mem::take(&mut step.terms).into_iter().peekable();
+    let count = materialised.len() + light.len();
+    let mut below = Vec::new();
+    let mut children = Vec::with_capacity(count);
+    let mut ids = Vec::with_capacity(count + step.terminals.len());
+    let mut hashes = Vec::with_capacity(count + step.terminals.len());
+    loop {
+        let take_light = match (materialised.peek(), light.peek()) {
+            (None, None) => break,
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (Some((a, _)), Some((b, _))) => b < a,
+        };
+        let (child, (id, zero, hash)) = if take_light {
+            let (child, handle) = light.next().expect("peeked");
+            (child, light_id(stepper, table, request, handle))
+        } else {
+            let (child, coefficient) = materialised.next().expect("peeked");
+            let hash = super::modular::coefficient_hash(&coefficient);
+            let id = crate::prof_wrap_fine!(Intern, table.id(&coefficient, hash));
+            (child, (id, coefficient.is_zero(), hash))
+        };
+        let later = stepper.later_phase(parent, &child);
+        let position = crate::prof_wrap!(Position, stepper.position(&child)).ok();
+        if !later && let Some(position) = &position {
+            if at_or_above(position, &child, threshold) {
+                found.push((child.clone(), position.clone()));
+            } else if position.phase == threshold.phase.0 {
+                below.push((child.clone(), position.clone()));
+            }
+        }
+        hashes.push(hash);
+        ids.push((id, zero));
+        let packed = super::FrontierKey::pack(&child);
+        let hash = super::FrontierHash::Fx.hash_one(&packed);
+        children.push(super::PreChild {
+            key: Some(child),
+            packed,
+            hash,
+            position,
+        });
+    }
+    for coefficient in step.terminals.values_mut() {
+        let hash = super::modular::coefficient_hash(coefficient);
+        hashes.push(hash);
+        ids.push((
+            crate::prof_wrap_fine!(Intern, table.id(coefficient, hash)),
+            coefficient.is_zero(),
+        ));
+        let hollow = Coefficient {
+            numerator: coefficient.numerator.zero(),
+            denominator: coefficient.numerator.zero(),
+        };
+        drop(std::mem::replace(coefficient, hollow));
+    }
+    let prestaged = super::Prestaged {
+        children,
+        ids,
+        lean: true,
+    };
+    (step, below, hashes, Some(prestaged))
+}
+
 fn compute_window<S: OrderedStepper>(
     workers: &Workers,
     stepper: &S,
@@ -873,6 +1221,19 @@ where
         counters.as_ref(),
         |parent, _, mut step, found| {
             crate::prof!(Prestage);
+            if prep.light
+                && let Some(table) = &prep.intern
+            {
+                return light_prestage(
+                    stepper,
+                    table,
+                    prep.light_request,
+                    parent,
+                    step,
+                    found,
+                    &threshold,
+                );
+            }
             let mut below = Vec::new();
             let mut positions = Vec::new();
             if prep.children {
@@ -1060,6 +1421,9 @@ where
     window_keys: usize,
     /// rr-par2: pre-staging requested (`TailOptions::prestage`).
     prestage: bool,
+    /// fwd-opt: tells the setup tasks ([`OrderedStepper::warm`]) to stop
+    /// when the source is dropped (the end of the forward pass).
+    warm_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     steps: HashMap<S::Key, StepEntry<S>, super::FrontierHash>,
     /// The hashes of the step returned last.
     hashes: Option<Vec<u64>>,
@@ -1084,18 +1448,23 @@ where
         window_keys: usize,
         prestage: bool,
     ) -> Self {
+        let warm_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        warm_ahead(scope, workers, stepper, &warm_stop);
         Self {
             scope,
             workers,
             stepper,
             window_keys,
             prestage,
+            warm_stop,
             steps: HashMap::with_hasher(super::FrontierHash::Fx),
             hashes: None,
             prep: Prep {
                 children: prestage,
                 intern: None,
                 hollow: false,
+                light: false,
+                light_request: 0,
             },
             prestaged: None,
             ahead: None,
@@ -1138,8 +1507,17 @@ where
                     }),
             );
         }
+        let mut phase = phase;
         if candidates.is_empty() {
-            return;
+            // fwd-opt: the phase ends with this window; speculate the first
+            // window of the next phase (lean prestaging only).
+            match self.next_phase_candidates(frontier, phase) {
+                Some((next, next_candidates)) => {
+                    phase = next;
+                    candidates = next_candidates;
+                }
+                None => return,
+            }
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         let (workers, stepper, window_keys) = (self.workers, self.stepper, self.window_keys);
@@ -1151,6 +1529,62 @@ where
             let _ = sender.send(computed);
         });
         self.ahead = Some((phase, receiver));
+    }
+
+    /// fwd-opt: when the current window ends its phase, the candidates of the
+    /// first window of the next phase: the greatest pending keys of the next
+    /// phase with pending keys and the children of that phase of the window's
+    /// steps (not merged yet; nonzero only). Every key of that phase is one
+    /// of those, so its first popped key is among them. Lean prestaging only
+    /// (`RUSTRED_ORDERED_CROSS_PHASE=off` disables).
+    fn next_phase_candidates<W>(
+        &self,
+        frontier: &Frontier<S::Key, S::Priority, W>,
+        phase: usize,
+    ) -> Option<(usize, Vec<Candidate<S>>)> {
+        let lean = self.prep.children && self.prep.hollow && self.prep.intern.is_some();
+        if !lean || !cross_phase_enabled() {
+            return None;
+        }
+        let mut children: Vec<Candidate<S>> = Vec::new();
+        let mut least: Option<usize> = None;
+        for (_, _, prestaged) in self.steps.values() {
+            let Some(prestaged) = prestaged else {
+                continue;
+            };
+            for (child, &(_, zero)) in prestaged.children.iter().zip(&prestaged.ids) {
+                if zero {
+                    continue;
+                }
+                if let (Some(key), Some(position)) = (&child.key, &child.position)
+                    && position.phase > phase
+                    && least.is_none_or(|least| position.phase <= least)
+                {
+                    if least != Some(position.phase) {
+                        children.clear();
+                        least = Some(position.phase);
+                    }
+                    children.push((key.clone(), position.clone()));
+                }
+            }
+        }
+        let pending = frontier.next_phase_top(phase, self.window_keys);
+        let next = match (&pending, least) {
+            (Some((q, _)), Some(c)) => (*q).min(c),
+            (Some((q, _)), None) => *q,
+            (None, Some(c)) => c,
+            (None, None) => return None,
+        };
+        let mut candidates = children;
+        if least != Some(next) {
+            candidates.clear();
+        }
+        if let Some((q, keys)) = pending
+            && q == next
+        {
+            candidates.extend(keys);
+        }
+        (!candidates.is_empty()).then_some((next, candidates))
     }
 
     /// Ensure that the step of `node` is computed.
@@ -1249,6 +1683,18 @@ where
 
     fn configure_prestage(&mut self, prepacked: bool) {
         self.prep.children = self.prestage && prepacked;
+        // fwd-opt: light steps on the workers when every step is prestaged
+        // lean (ids only; this pool's threads end with the request).
+        let light = self.prep.children
+            && self.prep.hollow
+            && self.prep.intern.is_some()
+            && pipelined_light_enabled();
+        if light {
+            self.prep.light = true;
+            self.prep.light_request = LIGHT_REQUESTS.fetch_add(1, Ordering::Relaxed);
+            let stepper = self.stepper;
+            self.workers.broadcast(|| stepper.set_light(true));
+        }
     }
 
     fn dispose_prestaged(&mut self, spent: Vec<super::PrestagedFor<K>>) {
