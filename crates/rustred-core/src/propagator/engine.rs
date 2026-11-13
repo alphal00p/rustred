@@ -1009,6 +1009,7 @@ impl<'l> PStepper<'l> {
             agg,
             apply_view,
             rule: None,
+            scheme_rule: None,
             route,
         }
     }
@@ -1863,6 +1864,7 @@ impl OrderedStepper for PStepper<'_> {
             PKey::Apply { class, view } => {
                 if self.census.on {
                     super::custom::take_rule_hit();
+                    super::scheme::take_scheme_rule_hit();
                 }
                 let result = self.apply_step(*class, view);
                 let account = PAccount {
@@ -1877,6 +1879,7 @@ impl OrderedStepper for PStepper<'_> {
             let mut record = self.census_record(key, step, nanos);
             if matches!(key, PKey::Apply { .. }) {
                 record.rule = super::custom::take_rule_hit();
+                record.scheme_rule = super::scheme::take_scheme_rule_hit();
             }
             account.census = Some(Box::new(record));
         }

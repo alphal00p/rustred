@@ -954,6 +954,43 @@ fn main() {
         }
         drop(file);
         summary["rule_hits"] = census.rule_hits.values().sum::<u64>().into();
+        // scheme_rule_hits.tsv (scheme-certs): per Scheme owner, rule (stored position and name;
+        // `fallback` = the Custom fallback closure) and phase, the steps that applied it.
+        let mut scheme_names: BTreeMap<u64, (String, Vec<String>)> = BTreeMap::new();
+        for owner in library.owners() {
+            if owner.spec.lane == rustred::propagator::lane::OwnerLane::Scheme
+                && let Ok(step) =
+                    rustred::propagator::scheme::SchemeStep::from_owner(&library, &owner.spec)
+            {
+                let template = step.template();
+                scheme_names.insert(
+                    owner.spec.class.0,
+                    (
+                        template.name().to_owned(),
+                        template.rules().iter().map(|r| r.name.clone()).collect(),
+                    ),
+                );
+            }
+        }
+        let mut file = tsv(out.join("scheme_rule_hits.tsv"));
+        writeln!(file, "class\tscheme\tposition\trule\tphase\thits").unwrap();
+        for ((class, position, phase), hits) in &census.scheme_rule_hits {
+            let (scheme, rules) = scheme_names
+                .get(class)
+                .map_or(("?", &[][..]), |(s, r)| (s.as_str(), r.as_slice()));
+            let rule = if *position == u32::MAX {
+                "fallback"
+            } else {
+                rules.get(*position as usize).map_or("?", String::as_str)
+            };
+            writeln!(
+                file,
+                "{class:016x}\t{scheme}\t{position}\t{rule}\t{phase}\t{hits}"
+            )
+            .unwrap();
+        }
+        drop(file);
+        summary["scheme_rule_hits"] = census.scheme_rule_hits.values().sum::<u64>().into();
         // steps.tsv: the rustred-path columns, then the census additions.
         let mut file = tsv(out.join("steps.tsv"));
         writeln!(file, "kind\tid\tpresentation\tname\tlane\tphase\tlines\tdots\trank\tsteps\tstep_ms\tch_same\tch_apply\tch_route\tterminals\tch_max\tcoeff_terms\tcoeff_terms_max\tempty\tch_zero\tch_same_phase\tch_foreign_same_phase\tch_earlier_phase").unwrap();

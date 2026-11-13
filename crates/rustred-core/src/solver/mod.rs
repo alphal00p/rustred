@@ -103,6 +103,7 @@ pub use discovery::{
 pub use discovery::{
     ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
     ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+    select_projected_source_circuit,
 };
 pub use discovery_strategy::{
     SectorVisitOrder, SourceDiscoveryStrategy, SourceRowFeature, SourceRowFeatures,

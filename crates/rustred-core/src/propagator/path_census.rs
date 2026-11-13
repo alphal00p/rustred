@@ -21,7 +21,8 @@
 //!   (lines, dots, rank);
 //! - at every phase boundary, the driver's progress counters;
 //! - per Custom owner, the hit count of every rule per phase
-//!   ([`PPathCensus::rule_hits`]);
+//!   ([`PPathCensus::rule_hits`]), and per Scheme owner the hit count of every
+//!   scheme rule per phase ([`PPathCensus::scheme_rule_hits`]);
 //! - optionally ([`PPathCensusOptions::keep_apply_keys`]) every stepped Apply
 //!   key (owner class, powers and tag slots), for orbit counts;
 //! - optionally ([`PPathCensusOptions::max_keys`]) a cap on popped keys: the
@@ -115,6 +116,9 @@ pub(crate) struct PStepRecord {
     /// The rule a Custom step applied: `(chart, position in the chart's rule
     /// list)` (M5 artefact v2, spec item 8).
     pub(crate) rule: Option<(u64, u32)>,
+    /// The rule a Scheme step applied: its position in the scheme's stored
+    /// rule list, `u32::MAX` for the Custom fallback closure (scheme-certs).
+    pub(crate) scheme_rule: Option<u32>,
     /// A Route key on a routed (census-mapped) sector: its route and the
     /// numerator part of its powers (M5 maps).
     pub(crate) route: Option<PRouteRecord>,
@@ -221,6 +225,10 @@ pub struct PPathCensus {
     /// `(owner class, chart, rule position in the chart's application order,
     /// phase)` -> steps that applied it.
     pub rule_hits: BTreeMap<(u64, u64, u32, u32), u64>,
+    /// Per-rule hit counts of Scheme owners (scheme-certs): `(owner class,
+    /// rule position in the scheme's stored order (`u32::MAX`: the Custom
+    /// fallback), phase)` -> steps that applied it.
+    pub scheme_rule_hits: BTreeMap<(u64, u32, u32), u64>,
     seen: HashSet<u128>,
     last_phase: Option<usize>,
     started: Option<Instant>,
@@ -244,6 +252,7 @@ impl PPathCensus {
             phase_regressions: 0,
             cache_hits: 0,
             rule_hits: BTreeMap::new(),
+            scheme_rule_hits: BTreeMap::new(),
             seen: HashSet::new(),
             last_phase: None,
             started: None,
@@ -296,6 +305,11 @@ impl PPathCensus {
         if let Some((chart, rule)) = record.rule {
             *(self.rule_hits)
                 .entry((record.key.2, chart, rule, record.key.0))
+                .or_default() += 1;
+        }
+        if let Some(rule) = record.scheme_rule {
+            *(self.scheme_rule_hits)
+                .entry((record.key.2, rule, record.key.0))
                 .or_default() += 1;
         }
         if let Some(view) = record.apply_view {
