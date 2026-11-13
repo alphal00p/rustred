@@ -62,6 +62,14 @@ pub struct SectorConfig<const N: usize> {
     /// row and witness are used. Off = the old
     /// RHS-denominator-only guards (A/B and legacy reproduction only).
     pub witness_guards: bool,
+    /// sym-7master (2026-11-13, default `None` = unchanged): slot actions `[Some((target, flip)) | None; arity]` of
+    /// authenticated chart automorphisms. In the search of a coordinate case (symbolic, or a fully fixed point in its
+    /// per-point search), every element that fixes each free slot of the case pointwise (target = slot, no flip) adds at each seed whose nonzero numeric slots all
+    /// have images (and whose numeric sector lines are >= 1) the exact row `I(y) - s I(g y)`; it holds identically
+    /// in the free indices because `g y` keeps every symbolic power in place. Sources carry
+    /// [`super::SYMMETRY_ROW`]; such rows go through the modular first-hit path only (never a direct hit), so every
+    /// rule keeps a raw pivot and exported seeds for the sampled replay. Affine cases get no rows.
+    pub case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>>,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -79,8 +87,67 @@ impl<const N: usize> Default for SectorConfig<N> {
             rule_selection: RuleSelectionPolicy::default(),
             seed_schedule: super::SeedSchedule::default(),
             witness_guards: true,
+            case_symmetry: None,
         }
     }
+}
+
+/// sym-7master: the elements of `actions` that fix every free slot of `case` pointwise (no flip): every element for
+/// a fully fixed (numerical) case, none for an affine case.
+pub(crate) fn case_stabiliser<const N: usize>(
+    actions: &[Vec<Option<(usize, bool)>>],
+    case: &Case<N>,
+) -> Vec<usize> {
+    if case.affine().is_some() {
+        return Vec::new();
+    }
+    let fixed = case.fixed();
+    (0..actions.len())
+        .filter(|&k| {
+            (0..N).all(|i| fixed[i].is_some() || actions[k].get(i).copied().flatten() == Some((i, false)))
+        })
+        .collect()
+}
+
+/// sym-7master: the exact image `(g y, negative)` of a seed key under a case-stabilising action, or `None` when a
+/// nonzero numeric slot has no image, a numeric sector line is below 1, or the image collides with a symbolic slot.
+pub(crate) fn stabiliser_image<const N: usize>(
+    action: &[Option<(usize, bool)>],
+    y: &Integral<N>,
+    sector: &[bool; N],
+) -> Option<(Integral<N>, bool)> {
+    let p = y.powers();
+    if (0..N).any(|i| sector[i] && !p[i].is_symbolic() && p[i].value() < 1) {
+        return None;
+    }
+    let mut out = [super::Power::new(false, 0).ok()?; N];
+    let mut taken = [false; N];
+    let mut negative = false;
+    for i in 0..N {
+        if p[i].is_symbolic() {
+            // the stabiliser fixes this slot: the symbolic power stays
+            if taken[i] {
+                return None;
+            }
+            out[i] = p[i];
+            taken[i] = true;
+        }
+    }
+    for i in 0..N {
+        if p[i].is_symbolic() || p[i].value() == 0 {
+            continue;
+        }
+        let (t, flip) = action.get(i).copied().flatten()?;
+        if t >= N || taken[t] {
+            return None;
+        }
+        out[t] = p[i];
+        taken[t] = true;
+        if flip && p[i].value() % 2 != 0 {
+            negative = !negative;
+        }
+    }
+    Some((Integral::new(out), negative))
 }
 
 /// Search controls, not a statement of coverage when the search is exhausted.
@@ -570,6 +637,15 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             &self.config.zero_sectors
         };
         let mut observed_depth = None;
+        // sym-7master: case-stabilising symmetry actions (empty unless configured and the case is symbolic)
+        let stabiliser: Vec<usize> = self
+            .config
+            .case_symmetry
+            .as_deref()
+            .map_or_else(Vec::new, |actions| case_stabiliser(actions, &case));
+        let mut unit: Option<crate::algebra::Coefficient> = None;
+        let mut sym_pairs: std::collections::BTreeSet<(Integral<N>, Integral<N>, bool)> =
+            std::collections::BTreeSet::new();
         while let Some(seed) = seeds.next() {
             let depth = seeds.depth();
             if options.max_depth.is_some_and(|limit| depth > limit) {
@@ -592,33 +668,84 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     discovery: probe.as_ref().map(|p: &Probe<N>| p.discovery.stats()),
                 });
             }
-            for position in 0..self.basis.len() {
+            // sym-7master: exact images of this seed under the case stabiliser (rows after its IBP rows)
+            let images: Vec<(Integral<N>, bool)> = match self.config.case_symmetry.as_deref() {
+                Some(actions) if !stabiliser.is_empty() => stabiliser
+                    .iter()
+                    .filter_map(|&k| stabiliser_image(&actions[k], &seed.integral, self.order.sector()))
+                    .filter(|(image, negative)| *image != seed.integral || *negative)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let nb = self.basis.len();
+            for position in 0..nb + images.len() {
                 if limits.is_some_and(|limit| stats.rows >= limit.max_rows) {
                     return Err(TrialSearchError::Limit(RuleTrialBudget::SourceRows));
                 }
-                let ordinal = source_order.map_or(position, |order| order[position]);
-                let source = &self.basis[ordinal];
-                if account_trace {
+                let (row, ordinal) = if position < nb {
+                    let ordinal = source_order.map_or(position, |order| order[position]);
+                    let source = &self.basis[ordinal];
+                    if account_trace {
+                        stats.rows += 1;
+                    }
+                    let row = instantiate(
+                        source,
+                        &seed,
+                        &self.system.indices,
+                        self.system.fixed(),
+                        &self.order,
+                        discovery_zero_sectors,
+                        case.affine(),
+                    )?;
+                    if !account_trace {
+                        stats.rows += 1;
+                    }
+                    if !stabiliser.is_empty() && unit.is_none() {
+                        unit = row.first().map(|t| {
+                            let one: crate::algebra::Coefficient = t.coefficient.numerator.one().into();
+                            one
+                        });
+                    }
+                    (row, ordinal)
+                } else {
+                    let (image, negative) = images[position - nb];
+                    let Some(one) = unit.as_ref() else { continue };
+                    let a = seed.integral;
+                    let key = if a <= image { (a, image, negative) } else { (image, a, negative) };
+                    if !sym_pairs.insert(key) {
+                        continue;
+                    }
+                    let row: ExactRow<N> = if image == a {
+                        vec![Term {
+                            integral: a,
+                            coefficient: one + one,
+                        }]
+                    } else {
+                        let other = if negative { one.clone() } else { -one.clone() };
+                        let mut r = vec![
+                            Term {
+                                integral: a,
+                                coefficient: one.clone(),
+                            },
+                            Term {
+                                integral: image,
+                                coefficient: other,
+                            },
+                        ];
+                        if self.order.compare(&r[0].integral, &r[1].integral) != Ordering::Less {
+                            r.swap(0, 1);
+                        }
+                        r
+                    };
                     stats.rows += 1;
-                }
-                let row = instantiate(
-                    source,
-                    &seed,
-                    &self.system.indices,
-                    self.system.fixed(),
-                    &self.order,
-                    discovery_zero_sectors,
-                    case.affine(),
-                )?;
-                if !account_trace {
-                    stats.rows += 1;
-                }
+                    (row, super::SYMMETRY_ROW)
+                };
                 let Some(leading) = row.first() else { continue };
                 let source = SeedSource {
                     basis_row: ordinal,
                     seed,
                 };
-                if case.matches(&leading.integral) {
+                if ordinal != super::SYMMETRY_ROW && case.matches(&leading.integral) {
                     stats.direct_hit = true;
                     stats.exact_trace_rows = 1;
                     work.exact_trace_terms = row.len();
@@ -944,6 +1071,9 @@ impl<const N: usize> Probe<N> {
 
 #[cfg(test)]
 mod affine_tests;
+
+#[cfg(test)]
+mod symmetry_tests;
 
 #[cfg(test)]
 mod observation_tests;

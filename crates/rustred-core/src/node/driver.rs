@@ -623,6 +623,13 @@ pub struct NodeOptions {
     /// `"type":"symmetry_group"` record. Independent of `symmetry` (no records, no forms needed).
     #[serde(default, skip_serializing_if = "is_false")]
     pub symmetry_rows: bool,
+    /// sym-7master (2026-11-13, default off; notes/sym-7master.md): exact one-term symmetry rows also in the
+    /// case search (symbolic cases and the per-point search of numeric endpoints), for the elements that fix every
+    /// free slot of the case pointwise
+    /// ([`crate::solver::SectorConfig::case_symmetry`]). The rule field `sym_rows` and the `symmetry_group` record
+    /// are those of `symmetry_rows` (the CLI flag `--symmetry-symbolic` turns both on).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub symmetry_symbolic: bool,
 }
 
 fn lease_wait() -> u64 {
@@ -736,6 +743,7 @@ impl Default for NodeOptions {
             region: None,
             symmetry: false,
             symmetry_rows: false,
+            symmetry_symbolic: false,
         }
     }
 }
@@ -2387,6 +2395,20 @@ fn run<const N: usize>(
     .map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
     let exact_backend = parse_backend(&opts.exact_backend)?;
+    // sym-7master: the chart group, computed before the solver when the symbolic case search gets symmetry rows
+    let early_group: Option<super::symmetry::NodeGroup> = if opts.symmetry_symbolic {
+        let chart: Vec<bool> = base[..n].to_vec();
+        Some(super::symmetry::node_group(presented, &chart)?)
+    } else {
+        None
+    };
+    let case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>> = early_group.as_ref().map(|g| {
+        g.elements
+            .iter()
+            .map(|e| e.action.clone())
+            .collect::<Vec<_>>()
+            .into()
+    });
     let config = SectorConfig {
         zero_sectors: Arc::from(zeros.clone()),
         integral_order: order_program(&opts.order, n)?,
@@ -2395,6 +2417,7 @@ fn run<const N: usize>(
         numerical_exact_backend: numerical_backend(exact_backend),
         seed_schedule: opts.seed_schedule.schedule(),
         witness_guards: !opts.no_witness_guards,
+        case_symmetry,
         ..Default::default()
     };
     let t1 = Instant::now();
@@ -2476,14 +2499,17 @@ fn run<const N: usize>(
         None
     };
     // sym-gen step 2: the group for exact symmetry rows in the shared bulk solve (no order forms needed)
-    let row_group: Option<super::symmetry::NodeGroup> = if !opts.symmetry_rows {
+    let row_group: Option<super::symmetry::NodeGroup> = if !opts.symmetry_rows && !opts.symmetry_symbolic {
         None
     } else if let Some((g, _)) = symmetry.as_ref() {
         Some(g.clone())
     } else {
         let chart: Vec<bool> = base[..n].to_vec();
         let t = Instant::now();
-        let group = super::symmetry::node_group(presented, &chart)?;
+        let group = match early_group.clone() {
+            Some(g) => g,
+            None => super::symmetry::node_group(presented, &chart)?,
+        };
         writeln!(
             out,
             "{{\"type\":\"symmetry_group\",\"chart\":{},\"seconds\":{:.3},\"rows\":true,\"group\":{}}}",
@@ -5080,7 +5106,7 @@ fn run<const N: usize>(
     } else {
         String::new()
     };
-    if opts.symmetry_rows {
+    if opts.symmetry_rows || opts.symmetry_symbolic {
         sym_fields.push_str(&format!(
             ",\"sym_rows\":{},\"sym_rows_independent\":{},\"sym_row_rules\":{}",
             outcome.sym_rows, outcome.sym_rows_independent, outcome.sym_row_rules
@@ -6904,6 +6930,42 @@ mod tests {
         assert!(on.not_lower.is_empty());
         let table = std::fs::read_to_string(&on.table).unwrap();
         assert!(table.contains("\"type\":\"symmetry_group\"") && table.contains("\"sym_rows\":"));
+        assert_eq!(replay_status(&on_dir, &on.table), "PASS_RS2_RS3_SAMPLED");
+        let _ = std::fs::remove_dir_all(off_dir);
+        let _ = std::fs::remove_dir_all(on_dir);
+    }
+
+    #[test]
+    fn symmetry_symbolic_whole_sunset_chart_replays_and_defaults_off() {
+        // sym-7master: the flag adds case-stabiliser symmetry rows to the symbolic case search (and turns on the
+        // bulk-solve rows). The whole sunset chart must still close, never with more residuals than IBP only, and
+        // every rule (symbolic ones included) must replay on IBP + the verified symmetry rows. Off: no field.
+        assert!(
+            serde_json::to_value(NodeOptions::default())
+                .unwrap()
+                .get("symmetry_symbolic")
+                .is_none()
+        );
+        let off_dir = tmp("symsym-off");
+        let off = generate(SUNSET, "sunset.sym", &off_dir, &quiet(), &mut |_| {}).unwrap();
+        assert!(off.complete, "{off:?}");
+        let on_dir = tmp("symsym-on");
+        let on = generate(
+            SUNSET,
+            "sunset.sym",
+            &on_dir,
+            &NodeOptions {
+                symmetry_symbolic: true,
+                ..quiet()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(on.complete, "{on:?}");
+        assert!(on.residuals <= off.residuals, "{on:?} {off:?}");
+        assert!(on.not_lower.is_empty());
+        let table = std::fs::read_to_string(&on.table).unwrap();
+        assert!(table.contains("\"type\":\"symmetry_group\""));
         assert_eq!(replay_status(&on_dir, &on.table), "PASS_RS2_RS3_SAMPLED");
         let _ = std::fs::remove_dir_all(off_dir);
         let _ = std::fs::remove_dir_all(on_dir);

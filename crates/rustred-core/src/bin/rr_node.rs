@@ -17,7 +17,7 @@
 //!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--numeric-depth K] [--numeric-depth-max K]
 //!                  [--known-terminals FILE]   (Astra: declared masters, never searched; with --registry: refused)
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
-//!                  [--symmetry] [--symmetry-rows]
+//!                  [--symmetry] [--symmetry-rows] [--symmetry-symbolic]
 //! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
@@ -433,6 +433,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     o.symmetry = a.flag("--symmetry");
     // sym-gen step 2 (default off): exact one-term symmetry rows in the shared numeric bulk solve
     o.symmetry_rows = a.flag("--symmetry-rows");
+    // sym-7master (default off): symmetry rows also in the symbolic case search (case-stabilising elements)
+    o.symmetry_symbolic = a.flag("--symmetry-symbolic");
     let _ = family;
     o
 }
