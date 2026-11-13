@@ -1650,7 +1650,52 @@ fn replay_point(
             .into_iter()
             .filter(|(k, _)| !zeros.contains(k))
             .collect();
-        let ok = sp.in_span && bad.is_empty() && !mutbad.is_empty();
+        // sym-gen (coordinator 2026-11-13T05:12Z, owed content control): the chart's CORNER (every chart line at 1,
+        // every other slot 0; a nonzero integral) must NOT be in the span of the rows used (IBP + symmetry rows), neither
+        // exactly (corner = 0) nor modulo subsectors (rows projected onto the top-sector columns of the chart: corner =
+        // lower-sector integrals only). Either would mean the row set proves too much, so any rule would pass.
+        let chart_lines: Vec<bool> = rule.chart.chars().map(|c| c == '1').collect();
+        let corner_ctl = if used_sym && chart_lines.len() == n {
+            let corner: Key = chart_lines.iter().map(|&l| i64::from(l)).collect();
+            let mut ccols = columns.clone();
+            if !ids.contains_key(&corner) {
+                ccols.push(corner.clone());
+            }
+            let cids: HashMap<&Key, usize> = ccols.iter().enumerate().map(|(i, k)| (k, i)).collect();
+            let top = |k: &Key| k.iter().zip(&chart_lines).all(|(v, l)| !*l || *v >= 1);
+            let cenc = |row: &Row, only_top: bool| -> Vec<(usize, u64)> {
+                let mut es: Vec<(usize, u64)> = strip(row)
+                    .into_iter()
+                    .filter(|(k, _)| !zeros.contains(k) && (!only_top || top(k)))
+                    .map(|(k, v)| (cids[&k], v))
+                    .collect();
+                es.sort_unstable();
+                es
+            };
+            let want = vec![(cids[&corner], 1u64)];
+            let full: Vec<Vec<(usize, u64)>> = built.rows.iter().map(|r| cenc(r, false)).collect();
+            let proj: Vec<Vec<(usize, u64)>> = built.rows.iter().map(|r| cenc(r, true)).collect();
+            let a = span(&full, &want, ccols.len())?;
+            let b2 = span(&proj, &want, ccols.len())?;
+            Some((a.in_span, b2.in_span, b2.rank))
+        } else {
+            None
+        };
+        let corner_ok = corner_ctl.map_or(true, |(a, b2, _)| !a && !b2);
+        let ok = sp.in_span && bad.is_empty() && !mutbad.is_empty() && corner_ok;
+        let control_failed = sp.in_span && bad.is_empty() && !mutbad.is_empty() && !corner_ok;
+        // every symmetry row of the cell (seed, image) and whether the elimination's solution gives it a nonzero weight
+        let sym_list: Vec<Value> = if used_sym {
+            built
+                .labels
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| l.get("exact_symmetry_row").is_some())
+                .map(|(i, l)| json!({"row": l["exact_symmetry_row"], "weight_nonzero": sp.weights.get(&i).is_some_and(|w| *w != 0)}))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let label = ds.replace('/', "_");
         let cell = json!({
             "dimension": ds, "prime": P, "point": point, "target": target, "recenter": rc, "source_rows": built.rows.len(),
@@ -1658,11 +1703,13 @@ fn replay_point(
             "raw_residual": entries(&raw), "nonzero_sector_residual": entries(&bad),
             "mutation": {"rhs_index": mutidx, "coefficient_delta": 1, "same_recomputed_witness": true, "re_solved": false, "rejected": !mutbad.is_empty()},
             "elimination": {"status": if sp.in_span { "IN_SPAN" } else { "NOT_IN_SPAN" }, "rank": sp.rank, "weights": sp.weights.len()},
+            "corner_control": corner_ctl.map(|(a, b2, r)| json!({"corner_in_span_exact": a, "corner_in_span_mod_subsectors": b2, "top_projected_rank": r, "ok": !a && !b2})),
+            "symmetry_rows_list": sym_list,
         });
         let cp = out.join(format!("cell-{label}.json"));
         std::fs::write(&cp, serde_json::to_string_pretty(&cell).unwrap() + "\n")
             .map_err(|e| e.to_string())?;
-        let summary = json!({"dimension": ds, "result": if ok { "PASS" } else { "FAIL" }, "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": !mutbad.is_empty()});
+        let summary = json!({"dimension": ds, "result": if ok { "PASS" } else if control_failed { "CONTROL_FAILED" } else { "FAIL" }, "symmetry_rows_weighted": sym_list.iter().filter(|x| x["weight_nonzero"] == true).count(), "symmetry_rows_total": sym_list.len(), "path": cp.display().to_string(), "source_rows": built.rows.len(), "rank": sp.rank, "full_columns": columns.len(), "raw_residual_count": raw.len(), "nonzero_sector_residual_count": bad.len(), "mutation_rejected": !mutbad.is_empty(), "corner_control_ok": corner_ctl.map(|_| corner_ok)});
         eprintln!(
             "{}",
             json!({"stage": "cell_complete", "chart": rule.chart, "rule": rule.index, "cell": summary})
@@ -1670,8 +1717,9 @@ fn replay_point(
         cells.push(summary);
     }
     let pass = cells.iter().all(|c| c["result"] == "PASS");
+    let ctl_failed = !pass && cells.iter().all(|c| c["result"] != "FAIL");
     Ok(json!({
-        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
+        "status": if pass { "PASS_RS2_RS3_SAMPLED" } else if ctl_failed { "UNKNOWN_CONTROL_FAILED" } else { "FAIL_RS2_RS3_SAMPLED" },
         "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
         "support_kind": sup.kind(), "support": supp_meta, "symmetry_rows": used_sym, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
     }))
@@ -2045,6 +2093,10 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             .map_or(0, |r| r.iter().filter(|x| x["status"] == s).count())
     };
     let mut c = json!({"PASS": counts("PASS_RS2_RS3_SAMPLED"), "FAIL": counts("FAIL_RS2_RS3_SAMPLED"), "UNKNOWN": counts("UNKNOWN")});
+    let cf = counts("UNKNOWN_CONTROL_FAILED");
+    if cf > 0 {
+        c["UNKNOWN_CONTROL_FAILED"] = json!(cf);
+    }
     let (ps, fs) = (counts("PASS_SYM_EXACT"), counts("FAIL_SYM_EXACT"));
     if ps + fs > 0 {
         c["PASS_SYM"] = json!(ps);
