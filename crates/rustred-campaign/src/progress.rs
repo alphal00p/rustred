@@ -188,7 +188,7 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
         *jobs_by_state.get_mut(j.state.tag()).unwrap() += 1;
         match j.state {
             AttemptState::SucceededSealed(c) | AttemptState::Failed(c) | AttemptState::BudgetStopped(c) => {
-                *classes.entry(c.word()).or_default() += 1
+                *classes.entry(crate::state::class_word(c)).or_default() += 1
             }
             AttemptState::Launching | AttemptState::Running => reserved_running += j.reserved_bytes,
             _ => {}

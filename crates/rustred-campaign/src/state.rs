@@ -9,10 +9,9 @@
 //!   rules"): exact repeats are no-ops, job events carry the attempt number and older attempts are ignored,
 //!   intents and dones are keyed by operation id.
 //!
-//! The classification of a finished attempt comes from the child-job contract (interfaces/child-job.md 6.5).
-//! The contract crate (`rustred-campaign-contract`, sibling package) had no types when this was written, so
-//! [`FinishClass`] is a LOCAL MIRROR of its outcome kinds; [`FinishClass::from_contract_kind`] is the single
-//! conversion point to replace by the crate's enum when it lands.
+//! The classification of a finished attempt comes from the child-job contract (interfaces/child-job.md 6.5):
+//! [`FinishClass`] IS the contract crate's `OutcomeKind`; [`class_target`] is the one mapping onto the attempt
+//! machine.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -99,97 +98,61 @@ impl std::error::Error for IllegalTransition {}
 // (i) JOB ATTEMPT
 // ------------------------------------------------------------------------------------------------------------
 
-/// Outcome kinds of a finished attempt: LOCAL MIRROR of the contract's classification (child-job.md 6.5,
-/// PLAN.v2 3.3.4 closed list plus the checker verdicts).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FinishClass {
-    Complete,
-    RuleFound,
-    NoRule,
-    DecidedNegative,
-    Undecided,
-    Spill,
-    KilledTime,
-    KilledMemory,
-    Interrupted,
-    UsageError,
-    RefusedInput,
-    RefusedContract,
-    Lost,
-    Crashed,
+/// Outcome kinds of a finished attempt: the contract crate's classification (child-job.md 6.5; sibling package
+/// "contract", `rustred_campaign_contract::classify::OutcomeKind`), used directly.
+pub use rustred_campaign_contract::classify::OutcomeKind as FinishClass;
+
+/// Every outcome kind (for exhaustive tests).
+pub const FINISH_CLASSES: [FinishClass; 14] = [
+    FinishClass::RuleFound,
+    FinishClass::Complete,
+    FinishClass::NoRule,
+    FinishClass::Spill,
+    FinishClass::Refused,
+    FinishClass::KilledTime,
+    FinishClass::KilledMemory,
+    FinishClass::Interrupted,
+    FinishClass::Crashed,
+    FinishClass::UsageError,
+    FinishClass::SetupError,
+    FinishClass::Lost,
+    FinishClass::DecidedNegative,
+    FinishClass::Undecided,
+];
+
+/// Terminal attempt state reached by an outcome kind (the ONE mapping from the contract's classification to
+/// the attempt machine): sealed results (rule found, complete, no rule with committed rules, checker verdicts)
+/// -> succeeded_sealed; work / wall / memory budgets -> budget_stopped; interrupted; lost; everything else ->
+/// failed(class).
+pub fn class_target(c: FinishClass) -> AttemptTarget {
+    use FinishClass::*;
+    match c {
+        Complete | RuleFound | NoRule | DecidedNegative | Undecided => AttemptTarget::SucceededSealed,
+        Spill | KilledTime | KilledMemory => AttemptTarget::BudgetStopped,
+        Interrupted => AttemptTarget::Interrupted,
+        Lost => AttemptTarget::Lost,
+        UsageError | SetupError | Refused | Crashed => AttemptTarget::Failed,
+    }
 }
 
-impl FinishClass {
-    pub const ALL: [FinishClass; 14] = [
-        FinishClass::Complete,
-        FinishClass::RuleFound,
-        FinishClass::NoRule,
-        FinishClass::DecidedNegative,
-        FinishClass::Undecided,
-        FinishClass::Spill,
-        FinishClass::KilledTime,
-        FinishClass::KilledMemory,
-        FinishClass::Interrupted,
-        FinishClass::UsageError,
-        FinishClass::RefusedInput,
-        FinishClass::RefusedContract,
-        FinishClass::Lost,
-        FinishClass::Crashed,
-    ];
-
-    /// The ONE conversion point from the contract's words (child-job.md 6.5 "kind" column; refused (input) =
-    /// `refused_input`, refused (contract) = `refused_contract`). Replace by the contract crate's enum.
-    pub fn from_contract_kind(kind: &str) -> Option<FinishClass> {
-        Some(match kind {
-            "complete" => FinishClass::Complete,
-            "rule_found" => FinishClass::RuleFound,
-            "no_rule" => FinishClass::NoRule,
-            "decided_negative" => FinishClass::DecidedNegative,
-            "undecided" => FinishClass::Undecided,
-            "spill" => FinishClass::Spill,
-            "killed_time" => FinishClass::KilledTime,
-            "killed_memory" => FinishClass::KilledMemory,
-            "interrupted" => FinishClass::Interrupted,
-            "usage_error" => FinishClass::UsageError,
-            "refused_input" | "refused" => FinishClass::RefusedInput,
-            "refused_contract" => FinishClass::RefusedContract,
-            "lost" => FinishClass::Lost,
-            "crashed" => FinishClass::Crashed,
-            _ => return None,
-        })
-    }
-
-    /// Terminal attempt state reached by this class.
-    pub fn target(self) -> AttemptTarget {
-        use FinishClass::*;
-        match self {
-            Complete | RuleFound | NoRule | DecidedNegative | Undecided => AttemptTarget::SucceededSealed,
-            Spill | KilledTime | KilledMemory => AttemptTarget::BudgetStopped,
-            Interrupted => AttemptTarget::Interrupted,
-            Lost => AttemptTarget::Lost,
-            UsageError | RefusedInput | RefusedContract | Crashed => AttemptTarget::Failed,
-        }
-    }
-
-    pub fn word(self) -> &'static str {
-        use FinishClass::*;
-        match self {
-            Complete => "complete",
-            RuleFound => "rule_found",
-            NoRule => "no_rule",
-            DecidedNegative => "decided_negative",
-            Undecided => "undecided",
-            Spill => "spill",
-            KilledTime => "killed_time",
-            KilledMemory => "killed_memory",
-            Interrupted => "interrupted",
-            UsageError => "usage_error",
-            RefusedInput => "refused_input",
-            RefusedContract => "refused_contract",
-            Lost => "lost",
-            Crashed => "crashed",
-        }
+/// The serde word of an outcome kind.
+pub fn class_word(c: FinishClass) -> &'static str {
+    use FinishClass::*;
+    match c {
+        RuleFound => "rule_found",
+        Complete => "complete",
+        NoRule => "no_rule",
+        Spill => "spill",
+        Refused => "refused",
+        KilledTime => "killed_time",
+        KilledMemory => "killed_memory",
+        Interrupted => "interrupted",
+        Crashed => "crashed",
+        UsageError => "usage_error",
+        SetupError => "setup_error",
+        Lost => "lost",
+        DecidedNegative => "decided_negative",
+        Undecided => "undecided",
     }
 }
 
@@ -302,12 +265,12 @@ pub fn apply_attempt(state: AttemptState, ev: AttemptEvent) -> Result<AttemptSta
     use AttemptState as S;
     let illegal = |why: &str| Err(IllegalTransition::new("job attempt", state.tag(), ev.tag(), why));
     let finish = |class: FinishClass, sealed: bool| -> Result<AttemptState, IllegalTransition> {
-        match class.target() {
+        match class_target(class) {
             AttemptTarget::SucceededSealed if !sealed => Err(IllegalTransition::new(
                 "job attempt",
                 state.tag(),
                 "finished",
-                format!("class {} needs a sealed output", class.word()),
+                format!("class {} needs a sealed output", class_word(class)),
             )),
             AttemptTarget::SucceededSealed => Ok(S::SucceededSealed(class)),
             AttemptTarget::BudgetStopped => Ok(S::BudgetStopped(class)),
@@ -1430,7 +1393,7 @@ impl CampaignState {
         let machine_ev = match ev {
             JE::Launch { .. } => AttemptEvent::Launch,
             JE::Started { .. } => AttemptEvent::Started,
-            JE::Finished { class, sealed_table, .. } => AttemptEvent::Finished { class: *class, sealed: sealed_table.is_some() },
+            JE::Finished { class, sealed_output, .. } => AttemptEvent::Finished { class: *class, sealed: sealed_output.is_some() },
             JE::Interrupt { .. } => AttemptEvent::Interrupt,
             JE::Lose { .. } => AttemptEvent::Lose,
             JE::Requeue { .. } => AttemptEvent::Requeue,
@@ -1476,8 +1439,8 @@ impl CampaignState {
                 j.start_ticks = Some(*start_ticks);
                 j.boot_id = Some(boot_id.clone());
             }
-            JE::Finished { class, sealed_table, cpu_ms, peak_rss_bytes, time_decided, .. } => {
-                j.sealed_table = sealed_table.clone();
+            JE::Finished { class, sealed_output, cpu_ms, peak_rss_bytes, time_decided, .. } => {
+                j.sealed_table = sealed_output.clone();
                 j.time_decided = *time_decided;
                 j.cpu_ms += *cpu_ms;
                 j.peak_rss_bytes = j.peak_rss_bytes.max(*peak_rss_bytes);
@@ -1492,7 +1455,7 @@ impl CampaignState {
                     if let Some(n) = self.nodes.get_mut(&node) {
                         n.cpu_ms += *cpu_ms;
                     }
-                    self.push_recent(rec, "job_finished", format!("{node} {label} {rung}: job {} ({})", short(job), class.word()));
+                    self.push_recent(rec, "job_finished", format!("{node} {label} {rung}: job {} ({})", short(job), class_word(*class)));
                 }
             }
             _ => {}
@@ -1565,8 +1528,8 @@ mod tests {
             AttemptState::Lost,
             AttemptState::Cancelled,
         ];
-        for c in FinishClass::ALL {
-            match c.target() {
+        for c in FINISH_CLASSES {
+            match class_target(c) {
                 AttemptTarget::SucceededSealed => v.push(AttemptState::SucceededSealed(c)),
                 AttemptTarget::BudgetStopped => v.push(AttemptState::BudgetStopped(c)),
                 AttemptTarget::Failed => v.push(AttemptState::Failed(c)),
@@ -1586,7 +1549,7 @@ mod tests {
             AttemptEvent::Retry,
             AttemptEvent::Cancel,
         ];
-        for c in FinishClass::ALL {
+        for c in FINISH_CLASSES {
             v.push(AttemptEvent::Finished { class: c, sealed: true });
             v.push(AttemptEvent::Finished { class: c, sealed: false });
         }

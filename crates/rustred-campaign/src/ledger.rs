@@ -101,7 +101,8 @@ pub enum JobEvent {
         class: FinishClass,
         exit_code: Option<i32>,
         signal: Option<i32>,
-        sealed_table: Option<FileRef>,
+        /// The sealed output (table; for checkers the verdict file) with its digest. Required for success kinds.
+        sealed_output: Option<FileRef>,
         outcome: Option<FileRef>,
         cpu_ms: u64,
         wall_ms: u64,
