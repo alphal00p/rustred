@@ -4,8 +4,8 @@
 use std::cmp::Ordering;
 
 use rustred_campaign_core::order::{
-    GroupElement, NodeComparator, NodeOrderRecord, OrderError, PatternSlot, Presentation, Selection, SourceOrder,
-    automorphism_invariance, descriptor_from_order_json, parse_pattern,
+    GroupElement, NodeComparator, NodeOrderRecord, OrderError, PatternSlot, Presentation,
+    Selection, SourceOrder, automorphism_invariance, descriptor_from_order_json, parse_pattern,
 };
 use rustred_order::{CompiledOrder, CoordinateGroups, Direction, Limits, OrderDescriptor};
 
@@ -115,17 +115,28 @@ fn order_direction_and_all_key_semantics() {
         assert!(c.lower(&[1, 1, 1, 0, -1000], &[1, 1, 1, 0, -1001]));
         assert_eq!(
             c.check_engine_range(&[1, 1, 1, 0, -65]),
-            Err(OrderError::OutsideEngineRange { slot: 4, value: -65 })
+            Err(OrderError::OutsideEngineRange {
+                slot: 4,
+                value: -65
+            })
         );
         assert!(c.check_engine_range(&[63, 1, 1, 0, -64]).is_ok());
-        assert_eq!(c.try_cmp(&[1, 1], &[1, 1, 1, 0, 0]), Err(OrderError::Arity { expected: 5, actual: 2 }));
+        assert_eq!(
+            c.try_cmp(&[1, 1], &[1, 1, 1, 0, 0]),
+            Err(OrderError::Arity {
+                expected: 5,
+                actual: 2
+            })
+        );
     }
 }
 
 #[test]
 #[should_panic(expected = "NodeComparator::cmp")]
 fn order_cmp_panics_on_arity_mismatch() {
-    NodeComparator::legacy(5, None).unwrap().cmp(&[1, 1, 1, 0], &[1, 1, 1, 0, 0]);
+    NodeComparator::legacy(5, None)
+        .unwrap()
+        .cmp(&[1, 1, 1, 0], &[1, 1, 1, 0, 0]);
 }
 
 // ------------------------------------------------------- properties (O3 iii) ----
@@ -171,7 +182,8 @@ fn order_properties_on_random_keys_arities_5_9_14_20() {
             spired(n, None),
             spired(n, Some(&p)),
             NodeComparator::from_descriptor({
-                let mut d = OrderDescriptor::spired_uncut_two_sided((0..n).map(|s| s == 0).collect());
+                let mut d =
+                    OrderDescriptor::spired_uncut_two_sided((0..n).map(|s| s == 0).collect());
                 d.coordinate_priority = p.clone();
                 d
             })
@@ -202,7 +214,11 @@ fn order_differential_legacy_port_vs_rustred_order_compare() {
     let mut decided_by_ties = 0usize;
     for (n, lines) in ARITIES {
         for round in 0..4 {
-            let p = if round == 0 { (0..n).collect() } else { rng.perm(n) };
+            let p = if round == 0 {
+                (0..n).collect()
+            } else {
+                rng.perm(n)
+            };
             let legacy = NodeComparator::legacy(n, Some(p.clone())).unwrap();
             let mut d = OrderDescriptor::spired_uncut(n);
             d.coordinate_priority = p.clone();
@@ -217,14 +233,24 @@ fn order_differential_legacy_port_vs_rustred_order_compare() {
                 let a64: Vec<i64> = a.iter().map(|&x| x.into()).collect();
                 let b64: Vec<i64> = b.iter().map(|&x| x.into()).collect();
                 let reference = program.compare(&a64, &b64).unwrap();
-                if matches!(reference.component, Some(rustred_order::Component::Coordinate(_))) {
+                if matches!(
+                    reference.component,
+                    Some(rustred_order::Component::Coordinate(_))
+                ) {
                     decided_by_ties += 1;
                 }
-                assert_eq!(legacy.cmp(&a, &b), reference.ordering, "n={n} p={p:?} {a:?} {b:?}");
+                assert_eq!(
+                    legacy.cmp(&a, &b),
+                    reference.ordering,
+                    "n={n} p={p:?} {a:?} {b:?}"
+                );
             }
         }
     }
-    assert!(decided_by_ties > 50_000, "the sample must exercise the tie level: {decided_by_ties}");
+    assert!(
+        decided_by_ties > 50_000,
+        "the sample must exercise the tie level: {decided_by_ties}"
+    );
 }
 
 /// The program path of NodeComparator is rustred-order itself; its rank agrees with compare (checked above) and the
@@ -234,7 +260,10 @@ fn order_differential_pattern_paths_on_fixed_patterns() {
     let mut rng = Rng(0x5eed_0003);
     for (n, lines) in ARITIES {
         let p = rng.perm(n);
-        for c in [NodeComparator::legacy(n, Some(p.clone())).unwrap(), spired(n, Some(&p))] {
+        for c in [
+            NodeComparator::legacy(n, Some(p.clone())).unwrap(),
+            spired(n, Some(&p)),
+        ] {
             let chart: Vec<bool> = (0..n).map(|s| s < lines).collect();
             for _ in 0..5_000 {
                 let a = rng.key(n, lines);
@@ -249,7 +278,9 @@ fn order_differential_pattern_paths_on_fixed_patterns() {
 
 // ------------------------------------------------------------- presentation ----
 
-const T162_PERM: [usize; 20] = [3, 1, 2, 0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+const T162_PERM: [usize; 20] = [
+    3, 1, 2, 0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+];
 
 #[test]
 fn order_presentation_t162_phys_swap_0_3() {
@@ -271,12 +302,16 @@ fn order_presentation_t162_phys_swap_0_3() {
 
 #[test]
 fn order_t162_header_selects_legacy_in_presented_frame_rotation_irrelevant() {
-    let headers: serde_json::Value = serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
+    let headers: serde_json::Value =
+        serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
     let h = &headers["t162_bank"];
     let c = NodeComparator::from_header(h).unwrap();
     assert_eq!(c.selection(), &Selection::NodeOrder);
     assert_eq!(c.name(), "phys_swap_0_3_rot7");
-    assert!(matches!(c.engine(), rustred_campaign_core::order::Engine::Legacy { ties: None }));
+    assert!(matches!(
+        c.engine(),
+        rustred_campaign_core::order::Engine::Legacy { ties: None }
+    ));
     assert_eq!(c.presentation().new_to_old(), &T162_PERM);
     assert_eq!(c.source_order(), Some(&SourceOrder::Rotate(7)));
     // the same header with source order Reverse (46 of the 60 bank origins) gives the same comparator and frame
@@ -291,7 +326,10 @@ fn order_t162_header_selects_legacy_in_presented_frame_rotation_irrelevant() {
         assert_eq!(c.cmp(&a, &b), c2.cmp(&a, &b));
         // cmp_original = cmp on presented keys
         let p = c.presentation();
-        assert_eq!(c.cmp_original(&p.original(&a), &p.original(&b)), c.cmp(&a, &b));
+        assert_eq!(
+            c.cmp_original(&p.original(&a), &p.original(&b)),
+            c.cmp(&a, &b)
+        );
     }
     // the presentation matters: the swap of slots 0 and 3 changes the tie verdict
     let a = [2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -305,13 +343,19 @@ fn order_t162_header_selects_legacy_in_presented_frame_rotation_irrelevant() {
 
 #[test]
 fn order_header_selection_reproduces_descent_rs() {
-    let headers: serde_json::Value = serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
-    let prio = [6usize, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19];
+    let headers: serde_json::Value =
+        serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
+    let prio = [
+        6usize, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19,
+    ];
     // T178 order B table: node_order with coordinate_priority -> spired_uncut program with that priority
     let b = NodeComparator::from_header(&headers["t178B_table"]).unwrap();
     assert_eq!(b.selection(), &Selection::NodeOrder);
     assert_eq!(b.equivalent_descriptor().coordinate_priority, prio.to_vec());
-    assert!(matches!(b.engine(), rustred_campaign_core::order::Engine::Program(_)));
+    assert!(matches!(
+        b.engine(),
+        rustred_campaign_core::order::Engine::Program(_)
+    ));
     // the helper's wrapped keys header has no order_is_program: the ENGINE reads it as the legacy identity order
     // (it also lacks `denominators`, which the engine requires)
     assert_eq!(
@@ -332,15 +376,28 @@ fn order_header_selection_reproduces_descent_rs() {
     assert_eq!(p.name(), "program");
     let d = p.equivalent_descriptor();
     assert_eq!(d.coordinate_priority, prio.to_vec());
-    assert_eq!(d.support_priority, (0..20).collect::<Vec<_>>(), "support_priority is not read (descent.rs:155-175)");
+    assert_eq!(
+        d.support_priority,
+        (0..20).collect::<Vec<_>>(),
+        "support_priority is not read (descent.rs:155-175)"
+    );
     // a missing coordinate_priority is an error
     let mut h3 = h.clone();
-    h3["order"].as_object_mut().unwrap().remove("coordinate_priority");
-    assert!(matches!(NodeComparator::from_header(&h3), Err(OrderError::Header(_))));
+    h3["order"]
+        .as_object_mut()
+        .unwrap()
+        .remove("coordinate_priority");
+    assert!(matches!(
+        NodeComparator::from_header(&h3),
+        Err(OrderError::Header(_))
+    ));
     // node_order: null is present and fails to deserialise, as in the engine
     let mut h4 = headers["t162_bank"].clone();
     h4["node_order"] = serde_json::Value::Null;
-    assert!(matches!(NodeComparator::from_header(&h4), Err(OrderError::Header(_))));
+    assert!(matches!(
+        NodeComparator::from_header(&h4),
+        Err(OrderError::Header(_))
+    ));
     // denominators is required
     let mut h5 = headers["t162_bank"].clone();
     h5.as_object_mut().unwrap().remove("denominators");
@@ -348,7 +405,10 @@ fn order_header_selection_reproduces_descent_rs() {
     // node_order with a bad permutation is rejected (NodeOrder::validate)
     let mut h6 = headers["t162_bank"].clone();
     h6["node_order"]["slot_permutation"] = serde_json::json!([0, 0, 1]);
-    assert!(matches!(NodeComparator::from_header(&h6), Err(OrderError::Permutation(_))));
+    assert!(matches!(
+        NodeComparator::from_header(&h6),
+        Err(OrderError::Permutation(_))
+    ));
 }
 
 /// descent.rs test `two_sided_eps_axes_are_checked_with_the_full_descriptor`, concretely: with a FULL header
@@ -358,7 +418,9 @@ fn order_full_header_descriptor_two_sided() {
     let mut d = OrderDescriptor::spired_uncut_two_sided(vec![true, false, false, false, false]);
     d.coordinate_priority = (0..5).collect();
     let rows = |rows: &[rustred_order::DegreeRow]| {
-        rows.iter().map(|r| serde_json::json!({"active": r.active, "inactive": r.inactive})).collect::<Vec<_>>()
+        rows.iter()
+            .map(|r| serde_json::json!({"active": r.active, "inactive": r.inactive}))
+            .collect::<Vec<_>>()
     };
     let header = serde_json::json!({
         "type": "header", "denominators": 5, "order_is_program": true, "order_name": "eps",
@@ -378,7 +440,11 @@ fn order_full_header_descriptor_two_sided() {
     assert!(c.lower(&[1, 1, 1, 0, 0], &[0, 1, 1, 0, 0]));
     assert!(c.lower(&[2, 1, 1, 0, 0], &[-1, 1, 1, 0, 0]));
     // the one-sided legacy order disagrees on the first pair
-    assert!(!NodeComparator::legacy(5, None).unwrap().lower(&[1, 1, 1, 0, 0], &[0, 1, 1, 0, 0]));
+    assert!(
+        !NodeComparator::legacy(5, None)
+            .unwrap()
+            .lower(&[1, 1, 1, 0, 0], &[0, 1, 1, 0, 0])
+    );
     // the compact form (no degree_rows, no support_weights) and the slot map of permuted_order
     let compact = serde_json::json!({"support_priority": [0, 1, 2], "coordinate_priority": [2, 0, 1], "two_sided": []});
     let dc = descriptor_from_order_json(&compact, &[1, 2, 0]).unwrap();
@@ -396,13 +462,21 @@ fn t212_rules(set: &serde_json::Value) -> Vec<(Vec<PatternSlot>, Vec<Vec<Pattern
         .map(|r| {
             (
                 parse_pattern(r["target"].as_str().unwrap()).unwrap(),
-                r["rhs_keys"].as_array().unwrap().iter().map(|k| parse_pattern(k.as_str().unwrap()).unwrap()).collect(),
+                r["rhs_keys"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|k| parse_pattern(k.as_str().unwrap()).unwrap())
+                    .collect(),
             )
         })
         .collect()
 }
 
-fn not_lower(c: &NodeComparator, rules: &[(Vec<PatternSlot>, Vec<Vec<PatternSlot>>)]) -> (usize, usize) {
+fn not_lower(
+    c: &NodeComparator,
+    rules: &[(Vec<PatternSlot>, Vec<Vec<PatternSlot>>)],
+) -> (usize, usize) {
     let chart: Vec<bool> = "11111111111100000000".chars().map(|x| x == '1').collect();
     let mut terms = 0;
     let mut bad = 0;
@@ -421,7 +495,8 @@ fn not_lower(c: &NodeComparator, rules: &[(Vec<PatternSlot>, Vec<Vec<PatternSlot
 /// `t212_reciprocal_two_cycle_mixing_orders_is_rejected_under_every_one_order`) on its fixture, symbolic patterns.
 #[test]
 fn order_t212_engine_regression_on_patterns() {
-    let f: serde_json::Value = serde_json::from_str(include_str!("data/order/t212_mixed_orders.json")).unwrap();
+    let f: serde_json::Value =
+        serde_json::from_str(include_str!("data/order/t212_mixed_orders.json")).unwrap();
     let v1 = t212_rules(&f["sets"]["v1_identity"]);
     let v3 = t212_rules(&f["sets"]["v3_tie_isp_rev"]);
     let id = NodeComparator::from_node_order(&NodeOrderRecord::identity(), 20).unwrap();
@@ -439,15 +514,22 @@ fn order_t212_engine_regression_on_patterns() {
     assert_eq!(not_lower(&id, &v3).1, 11);
     assert_eq!(not_lower(&rev, &v1).1, 11);
     // the legacy path with the reversed tie permutation gives the same verdicts as the program
-    let rev_legacy = NodeComparator::legacy(20, Some((0..12).chain((12..20).rev()).collect())).unwrap();
+    let rev_legacy =
+        NodeComparator::legacy(20, Some((0..12).chain((12..20).rev()).collect())).unwrap();
     assert_eq!(not_lower(&rev_legacy, &v3), (574, 0));
     assert_eq!(not_lower(&rev_legacy, &v1).1, 11);
     // different symbolic patterns: explicit error where the engine asserts
     let chart = vec![true; 20];
     let a = parse_pattern("I(n0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0)").unwrap();
     let b = parse_pattern("I(2,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0)").unwrap();
-    assert_eq!(id.cmp_pattern(&chart, &a, &b), Err(OrderError::PatternMismatch { slot: 0 }));
-    assert_eq!(rev.cmp_pattern(&chart, &a, &b), Err(OrderError::PatternMismatch { slot: 0 }));
+    assert_eq!(
+        id.cmp_pattern(&chart, &a, &b),
+        Err(OrderError::PatternMismatch { slot: 0 })
+    );
+    assert_eq!(
+        rev.cmp_pattern(&chart, &a, &b),
+        Err(OrderError::PatternMismatch { slot: 0 })
+    );
 }
 
 // ------------------------------------------------- automorphism invariance (O4) ----
@@ -456,9 +538,18 @@ fn order_t212_engine_regression_on_patterns() {
 fn order_automorphism_invariance_synthetic_group() {
     // 3 lines + 2 numerators; group generated by the line swap 0 <-> 1 (numerators fixed)
     let c = NodeComparator::legacy(5, None).unwrap();
-    let id = GroupElement { lines: vec![0, 1, 2], numerators: Some(vec![0, 1]) };
-    let swap = GroupElement { lines: vec![1, 0, 2], numerators: Some(vec![0, 1]) };
-    let line_only = GroupElement { lines: vec![1, 0, 2], numerators: None };
+    let id = GroupElement {
+        lines: vec![0, 1, 2],
+        numerators: Some(vec![0, 1]),
+    };
+    let swap = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: Some(vec![0, 1]),
+    };
+    let line_only = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: None,
+    };
     let mut rng = Rng(11);
     let pairs: Vec<(Vec<i32>, Vec<i32>)> = (0..2000)
         .map(|_| {
@@ -480,14 +571,29 @@ fn order_automorphism_invariance_synthetic_group() {
     let r = automorphism_invariance(&c, std::slice::from_ref(&swap), &ab).unwrap();
     assert_eq!(r.elements[0].pairs_disagreeing, 1);
     // a swap of lines that only ever differ at the aggregate level never disagrees: pairs at different (D+r)
-    let agg = vec![(vec![2, 1, 1, 0, 0], vec![2, 2, 1, 0, 0]), (vec![1, 1, 0, 0, 0], vec![1, 1, 1, 0, -1])];
-    assert!(automorphism_invariance(&c, std::slice::from_ref(&swap), &agg).unwrap().invariant_on_sample());
+    let agg = vec![
+        (vec![2, 1, 1, 0, 0], vec![2, 2, 1, 0, 0]),
+        (vec![1, 1, 0, 0, 0], vec![1, 1, 1, 0, -1]),
+    ];
+    assert!(
+        automorphism_invariance(&c, std::slice::from_ref(&swap), &agg)
+            .unwrap()
+            .invariant_on_sample()
+    );
     // without a numerator map, pairs with a non-zero numerator are skipped
     let r = automorphism_invariance(&c, &[line_only], &pairs).unwrap();
-    assert_eq!(r.elements[0].pairs_tested + r.elements[0].pairs_skipped, 2000);
+    assert_eq!(
+        r.elements[0].pairs_tested + r.elements[0].pairs_skipped,
+        2000
+    );
     assert!(r.elements[0].pairs_skipped > 0);
     // a priority with line 2 first is invariant under the swap on pairs that differ only on line 2 / aggregates,
     // but the swap still exchanges the tie order of lines 0 and 1: both priorities disagree on the swap pair
     let c2 = NodeComparator::legacy(5, Some(vec![2, 0, 1, 3, 4])).unwrap();
-    assert_eq!(automorphism_invariance(&c2, &[swap], &ab).unwrap().total_disagreeing(), 1);
+    assert_eq!(
+        automorphism_invariance(&c2, &[swap], &ab)
+            .unwrap()
+            .total_disagreeing(),
+        1
+    );
 }

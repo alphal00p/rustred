@@ -16,29 +16,34 @@ use serde_json::Value;
 /// Workspace root of the p-integral effort (the frozen tree and the handoff copies live under it).
 pub const WS: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev";
 /// Default location of the frozen tree (used when `RUSTRED_K3_FIXTURES` is unset).
-pub const DEFAULT_K3: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/helper-k3-20261113";
+pub const DEFAULT_K3: &str =
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/helper-k3-20261113";
 /// Read-only handoff copy of the checker's sources (rule domains, span source lines).
-pub const HO: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/handoff/sym-investigation-for-ben";
+pub const HO: &str =
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/handoff/sym-investigation-for-ben";
 /// sha256 of `RULE-PREDICATES2440.json` (the 2,440 qualified T162 bank rules), as in the k3 README / F1 provenance.
-pub const RULE_PREDICATES_SHA: &str = "0cd3d2cab85a30d9cb46155a1c913b8c21a3495529895e0564c23bc0fb4718f2";
+pub const RULE_PREDICATES_SHA: &str =
+    "0cd3d2cab85a30d9cb46155a1c913b8c21a3495529895e0564c23bc0fb4718f2";
 
 // ------------------------------------------------------------------------------------------------ SHA-256
 
 const K256: [u32; 64] = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
-    0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-    0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
-    0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
-    0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-    0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-    0xc67178f2,
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ];
 
 /// SHA-256 of `data` as lowercase hex (FIPS 180-4).
 pub fn sha256_hex(data: &[u8]) -> String {
-    let mut h: [u32; 8] =
-        [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
     let mut msg = data.to_vec();
     let bit_len = (data.len() as u64).wrapping_mul(8);
     msg.push(0x80);
@@ -49,18 +54,30 @@ pub fn sha256_hex(data: &[u8]) -> String {
     let mut w = [0u32; 64];
     for chunk in msg.chunks_exact(64) {
         for (i, wi) in w.iter_mut().take(16).enumerate() {
-            *wi = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+            *wi = u32::from_be_bytes([
+                chunk[4 * i],
+                chunk[4 * i + 1],
+                chunk[4 * i + 2],
+                chunk[4 * i + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ (!e & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K256[i]).wrapping_add(w[i]);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K256[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(maj);
@@ -87,7 +104,11 @@ fn crc32(data: &[u8]) -> u32 {
     for (n, t) in table.iter_mut().enumerate() {
         let mut c = n as u32;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xedb8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xedb8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         *t = c;
     }
@@ -172,14 +193,21 @@ impl Huff {
     }
 }
 
-const LBASE: [u16; 29] =
-    [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
-const LEXT: [u8; 29] = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
-const DBASE: [u16; 30] = [
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
-    8193, 12289, 16385, 24577,
+const LBASE: [u16; 29] = [
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+    163, 195, 227, 258,
 ];
-const DEXT: [u8; 30] = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+const LEXT: [u8; 29] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+];
+const DBASE: [u16; 30] = [
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+];
+const DEXT: [u8; 30] = [
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
+    13,
+];
 
 fn inflate_block(br: &mut Bits, out: &mut Vec<u8>, lit: &Huff, dist: &Huff) {
     loop {
@@ -207,7 +235,11 @@ fn inflate_block(br: &mut Bits, out: &mut Vec<u8>, lit: &Huff, dist: &Huff) {
 
 /// Raw DEFLATE stream -> bytes; returns the bytes and the number of input bytes consumed.
 fn inflate(data: &[u8]) -> (Vec<u8>, usize) {
-    let mut br = Bits { d: data, pos: 0, bit: 0 };
+    let mut br = Bits {
+        d: data,
+        pos: 0,
+        bit: 0,
+    };
     let mut out = Vec::with_capacity(data.len() * 8);
     loop {
         let last = br.bit();
@@ -233,7 +265,9 @@ fn inflate(data: &[u8]) -> (Vec<u8>, usize) {
                 let nlen = br.bits(5) as usize + 257;
                 let ndist = br.bits(5) as usize + 1;
                 let ncode = br.bits(4) as usize + 4;
-                const ORDER: [usize; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+                const ORDER: [usize; 19] = [
+                    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+                ];
                 let mut cl = [0u8; 19];
                 for &o in ORDER.iter().take(ncode) {
                     cl[o] = br.bits(3) as u8;
@@ -245,7 +279,9 @@ fn inflate(data: &[u8]) -> (Vec<u8>, usize) {
                     match sym {
                         0..=15 => lengths.push(sym as u8),
                         16 => {
-                            let prev = *lengths.last().expect("inflate: repeat with no previous length");
+                            let prev = *lengths
+                                .last()
+                                .expect("inflate: repeat with no previous length");
                             let n = 3 + br.bits(2);
                             lengths.extend(std::iter::repeat_n(prev, n as usize));
                         }
@@ -276,7 +312,10 @@ fn inflate(data: &[u8]) -> (Vec<u8>, usize) {
 
 /// gunzip a single-member gzip file; the CRC-32 and ISIZE trailer are checked.
 pub fn gunzip(gz: &[u8]) -> Vec<u8> {
-    assert!(gz.len() > 18 && gz[0] == 0x1f && gz[1] == 0x8b && gz[2] == 8, "not a gzip/deflate file");
+    assert!(
+        gz.len() > 18 && gz[0] == 0x1f && gz[1] == 0x8b && gz[2] == 8,
+        "not a gzip/deflate file"
+    );
     let flg = gz[3];
     let mut p = 10;
     if flg & 4 != 0 {
@@ -317,13 +356,19 @@ pub fn oracle() -> Option<Oracle> {
     let root = match std::env::var_os("RUSTRED_K3_FIXTURES") {
         Some(v) => {
             let p = PathBuf::from(v);
-            assert!(p.join("SHA256SUMS").is_file(), "RUSTRED_K3_FIXTURES={} has no SHA256SUMS", p.display());
+            assert!(
+                p.join("SHA256SUMS").is_file(),
+                "RUSTRED_K3_FIXTURES={} has no SHA256SUMS",
+                p.display()
+            );
             p
         }
         None => {
             let p = PathBuf::from(DEFAULT_K3);
             if !p.join("SHA256SUMS").is_file() {
-                println!("SKIP: RUSTRED_K3_FIXTURES is unset and the default frozen tree {DEFAULT_K3} does not exist");
+                println!(
+                    "SKIP: RUSTRED_K3_FIXTURES is unset and the default frozen tree {DEFAULT_K3} does not exist"
+                );
                 return None;
             }
             p
@@ -334,7 +379,9 @@ pub fn oracle() -> Option<Oracle> {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| {
-            let (h, f) = l.split_once("  ").expect("SHA256SUMS line format `hash  path`");
+            let (h, f) = l
+                .split_once("  ")
+                .expect("SHA256SUMS line format `hash  path`");
             (h.to_string(), f.to_string())
         })
         .collect();
@@ -343,13 +390,22 @@ pub fn oracle() -> Option<Oracle> {
 
 impl Oracle {
     pub fn expected_sha(&self, rel: &str) -> &str {
-        &self.sums.iter().find(|(_, f)| f == rel).unwrap_or_else(|| panic!("{rel} is not listed in SHA256SUMS")).0
+        &self
+            .sums
+            .iter()
+            .find(|(_, f)| f == rel)
+            .unwrap_or_else(|| panic!("{rel} is not listed in SHA256SUMS"))
+            .0
     }
     /// Raw bytes of `rel`, after checking its sha256 against `SHA256SUMS` (fails loudly on any change).
     pub fn bytes(&self, rel: &str) -> Vec<u8> {
         let b = std::fs::read(self.root.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
         let got = sha256_hex(&b);
-        assert_eq!(got, self.expected_sha(rel), "frozen tree changed: sha256 of {rel} differs from SHA256SUMS");
+        assert_eq!(
+            got,
+            self.expected_sha(rel),
+            "frozen tree changed: sha256 of {rel} differs from SHA256SUMS"
+        );
         b
     }
     /// Text of `rel` (gunzipped if it ends in `.gz`), sha256-verified.
@@ -371,7 +427,11 @@ impl Oracle {
 }
 
 pub fn as_key(v: &Value) -> Key {
-    v.as_array().expect("key array").iter().map(|x| x.as_i64().expect("integer") as i32).collect()
+    v.as_array()
+        .expect("key array")
+        .iter()
+        .map(|x| x.as_i64().expect("integer") as i32)
+        .collect()
 }
 
 pub fn keys(v: &Value) -> Vec<Key> {
@@ -379,7 +439,11 @@ pub fn keys(v: &Value) -> Vec<Key> {
 }
 
 /// Box enumerated with the crate: dots 0..=4, rank up to `max_r(dots)`, line power cap.
-pub fn box_keys(frame: &NodeFrame, max_r: impl Fn(u32) -> u32, max_line_power: Option<i32>) -> Vec<Key> {
+pub fn box_keys(
+    frame: &NodeFrame,
+    max_r: impl Fn(u32) -> u32,
+    max_line_power: Option<i32>,
+) -> Vec<Key> {
     let mut k = vec![];
     for d in 0..=4 {
         for r in 0..=max_r(d) {
@@ -392,19 +456,32 @@ pub fn box_keys(frame: &NodeFrame, max_r: impl Fn(u32) -> u32, max_line_power: O
 
 /// T162 box B (presented frame, 9 lines): line power <= 5, D <= 4, r <= 1 if D = 0 else r <= 2.
 pub fn t162_box_b() -> Vec<Key> {
-    box_keys(&NodeFrame::lines_first(20, 9), |d| if d == 0 { 1 } else { 2 }, Some(5))
+    box_keys(
+        &NodeFrame::lines_first(20, 9),
+        |d| if d == 0 { 1 } else { 2 },
+        Some(5),
+    )
 }
 
 /// T178 order B box (family frame, 10 lines): D <= 4, r <= 2 if D = 0 else r <= 3.
 pub fn t178_box() -> Vec<Key> {
-    box_keys(&NodeFrame::lines_first(20, 10), |d| if d == 0 { 2 } else { 3 }, None)
+    box_keys(
+        &NodeFrame::lines_first(20, 10),
+        |d| if d == 0 { 2 } else { 3 },
+        None,
+    )
 }
 
 // ------------------------------------------------------------------------------------------------ rule sources
 
 fn verified_path(p: &Path, sha: &str) -> PathBuf {
     let b = std::fs::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
-    assert_eq!(sha256_hex(&b), sha, "rule source {} changed (sha256)", p.display());
+    assert_eq!(
+        sha256_hex(&b),
+        sha,
+        "rule source {} changed (sha256)",
+        p.display()
+    );
     p.to_path_buf()
 }
 
@@ -415,7 +492,9 @@ pub fn t162_bank_table() -> Option<Table> {
     let cands: Vec<PathBuf> = std::env::var_os("RUSTRED_CAMPAIGN_FIXTURES")
         .map(|d| PathBuf::from(d).join("T162/RULE-PREDICATES2440.json"))
         .into_iter()
-        .chain(std::iter::once(PathBuf::from(HO).join("astra-uncovered-domain-T162/RULE-PREDICATES2440.json")))
+        .chain(std::iter::once(
+            PathBuf::from(HO).join("astra-uncovered-domain-T162/RULE-PREDICATES2440.json"),
+        ))
         .collect();
     let Some(p) = cands.iter().find(|p| p.is_file()) else {
         println!("SKIP: no RULE-PREDICATES2440.json found (tried {cands:?})");
@@ -427,7 +506,10 @@ pub fn t162_bank_table() -> Option<Table> {
     assert_eq!(bank.len(), 2440);
     let mut t = Table::new("T162-bank-qualified");
     for b in &bank {
-        t.push(b.global_ordinal0, CaseDomain::from_bank_predicate(b, 20).unwrap());
+        t.push(
+            b.global_ordinal0,
+            CaseDomain::from_bank_predicate(b, 20).unwrap(),
+        );
     }
     Some(t)
 }
@@ -439,10 +521,17 @@ pub fn t162_bank_table() -> Option<Table> {
 pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
     let manifest: HashMap<String, String> = include_str!("../data/fixtures.MANIFEST.sha256")
         .lines()
-        .filter_map(|l| l.split_once("  ").map(|(h, f)| (f.to_string(), h.to_string())))
+        .filter_map(|l| {
+            l.split_once("  ")
+                .map(|(h, f)| (f.to_string(), h.to_string()))
+        })
         .collect();
     let (cfg, cases) = match std::env::var_os("RUSTRED_CAMPAIGN_FIXTURES") {
-        Some(d) if PathBuf::from(&d).join("T178B/cfg_t178_regenB.json").is_file() => {
+        Some(d)
+            if PathBuf::from(&d)
+                .join("T178B/cfg_t178_regenB.json")
+                .is_file() =>
+        {
             let d = PathBuf::from(d).join("T178B");
             (d.join("cfg_t178_regenB.json"), d.join("cases"))
         }
@@ -463,7 +552,9 @@ pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
         let p = verified_path(&cases.join(rel), &manifest[&format!("T178B/cases/{rel}")]);
         let tf = read_table_file(p, ReadOptions::default()).unwrap();
         let h = tf.header.expect("header");
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap()).unwrap().with_power_shifts(h.power_shifts.clone());
+        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
+            .unwrap()
+            .with_power_shifts(h.power_shifts.clone());
         if let Some(f0) = &frame0 {
             assert_eq!(f0, &frame);
         }
@@ -472,7 +563,10 @@ pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
         let mut table = Table::new(name.clone());
         for r in &tf.rules {
             assert_eq!(r.dispatch.as_deref(), Some("Partition"));
-            table.push(r.i.unwrap(), CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap());
+            table.push(
+                r.i.unwrap(),
+                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
+            );
         }
         names.push(name);
         tables.push(table);

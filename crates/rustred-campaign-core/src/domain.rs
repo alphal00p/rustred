@@ -29,7 +29,11 @@ use crate::record::{BankPredicate, RuleRecord};
 /// Errors while building a domain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DomainError {
-    Poly { field: &'static str, text: String, err: PolyError },
+    Poly {
+        field: &'static str,
+        text: String,
+        err: PolyError,
+    },
     Frame(FrameError),
     Malformed(String),
 }
@@ -75,7 +79,10 @@ pub struct PoleLocus {
 
 impl PoleLocus {
     pub fn new(kind: PoleKind, p: &Poly) -> Self {
-        PoleLocus { kind, coeffs: p.d_coefficients().into_iter().map(|(_, c)| c).collect() }
+        PoleLocus {
+            kind,
+            coeffs: p.d_coefficients().into_iter().map(|(_, c)| c).collect(),
+        }
     }
     /// True iff the polynomial vanishes identically in d at the key.
     pub fn vanishes_at(&self, key: &[i32]) -> Result<bool, EvalError> {
@@ -106,12 +113,19 @@ pub enum NotInCase {
 pub enum Verdict {
     Applies,
     /// The key is outside the chart orthant (first violating slot).
-    ChartMismatch { slot: usize },
+    ChartMismatch {
+        slot: usize,
+    },
     NotInCase(NotInCase),
     /// Every polynomial of exception branch `branch` vanishes.
-    OnException { branch: usize },
+    OnException {
+        branch: usize,
+    },
     /// Pole locus number `index` (of kind `kind`) vanishes identically in d.
-    OnPole { kind: PoleKind, index: usize },
+    OnPole {
+        kind: PoleKind,
+        index: usize,
+    },
     /// The key would be in the domain, but the record's witness loci are elided: undecidable, fail closed.
     Elided,
     /// Evaluation failed (should not happen for well-formed domains).
@@ -139,7 +153,11 @@ pub struct DomainOptions {
 
 impl Default for DomainOptions {
     fn default() -> Self {
-        DomainOptions { chart: true, witness: true, recenter_bounds: false }
+        DomainOptions {
+            chart: true,
+            witness: true,
+            recenter_bounds: false,
+        }
     }
 }
 
@@ -161,13 +179,28 @@ pub struct CaseDomain {
 
 fn parse_list(v: &[String], arity: usize, field: &'static str) -> Result<Vec<Poly>, DomainError> {
     v.iter()
-        .map(|s| Poly::parse_d_free(s, arity).map_err(|err| DomainError::Poly { field, text: s.clone(), err }))
+        .map(|s| {
+            Poly::parse_d_free(s, arity).map_err(|err| DomainError::Poly {
+                field,
+                text: s.clone(),
+                err,
+            })
+        })
         .collect()
 }
 
-fn parse_poles(v: &[String], arity: usize, kind: PoleKind, out: &mut Vec<PoleLocus>) -> Result<(), DomainError> {
+fn parse_poles(
+    v: &[String],
+    arity: usize,
+    kind: PoleKind,
+    out: &mut Vec<PoleLocus>,
+) -> Result<(), DomainError> {
     for s in v {
-        let p = Poly::parse(s, arity, true).map_err(|err| DomainError::Poly { field: "pole", text: s.clone(), err })?;
+        let p = Poly::parse(s, arity, true).map_err(|err| DomainError::Poly {
+            field: "pole",
+            text: s.clone(),
+            err,
+        })?;
         out.push(PoleLocus::new(kind, &p));
     }
     Ok(())
@@ -178,7 +211,9 @@ fn fixed_i32(fixed: &[Option<i64>]) -> Result<Vec<Option<i32>>, DomainError> {
         .iter()
         .map(|v| match v {
             None => Ok(None),
-            Some(x) => i32::try_from(*x).map(Some).map_err(|_| DomainError::Malformed(format!("fixed value {x}"))),
+            Some(x) => i32::try_from(*x)
+                .map(Some)
+                .map_err(|_| DomainError::Malformed(format!("fixed value {x}"))),
         })
         .collect()
 }
@@ -199,11 +234,18 @@ impl CaseDomain {
     }
 
     /// From an rr_node `table_dump.v1` rule record or a case-domain export record.
-    pub fn from_rule_record(r: &RuleRecord, frame: &NodeFrame, opts: DomainOptions) -> Result<Self, DomainError> {
+    pub fn from_rule_record(
+        r: &RuleRecord,
+        frame: &NodeFrame,
+        opts: DomainOptions,
+    ) -> Result<Self, DomainError> {
         frame.require_integer_only()?;
         let n = frame.arity();
         if r.fixed.len() != n {
-            return Err(DomainError::Malformed(format!("fixed of length {} for arity {n}", r.fixed.len())));
+            return Err(DomainError::Malformed(format!(
+                "fixed of length {} for arity {n}",
+                r.fixed.len()
+            )));
         }
         let chart = if opts.chart {
             let mask = match &r.chart {
@@ -211,7 +253,10 @@ impl CaseDomain {
                 None => frame.clone(),
             };
             if mask.arity() != n {
-                return Err(DomainError::Malformed(format!("chart {:?} for arity {n}", r.chart)));
+                return Err(DomainError::Malformed(format!(
+                    "chart {:?} for arity {n}",
+                    r.chart
+                )));
             }
             Some((0..n).map(|i| mask.is_line(i)).collect())
         } else {
@@ -223,20 +268,28 @@ impl CaseDomain {
             fixed: fixed_i32(&r.fixed)?,
             equations: parse_list(&r.equations, n, "equation")?,
             bounds: vec![],
-            exceptions: r.exceptions.iter().map(|b| parse_list(b, n, "exception")).collect::<Result<_, _>>()?,
+            exceptions: r
+                .exceptions
+                .iter()
+                .map(|b| parse_list(b, n, "exception"))
+                .collect::<Result<_, _>>()?,
             poles: vec![],
             witness_elided: false,
         };
         if opts.witness {
             if let Some(w) = &r.witness_loci {
-                let (elided, listed): (Vec<String>, Vec<String>) = w.iter().cloned().partition(|s| s.trim() == "elided");
+                let (elided, listed): (Vec<String>, Vec<String>) =
+                    w.iter().cloned().partition(|s| s.trim() == "elided");
                 d.witness_elided = !elided.is_empty();
                 parse_poles(&listed, n, PoleKind::Witness, &mut d.poles)?;
             }
         }
         if opts.recenter_bounds {
             if let Some(rc) = &r.recenter {
-                let mask = d.chart.clone().unwrap_or_else(|| (0..n).map(|i| frame.is_line(i)).collect());
+                let mask = d
+                    .chart
+                    .clone()
+                    .unwrap_or_else(|| (0..n).map(|i| frame.is_line(i)).collect());
                 for (i, &c) in rc.iter().enumerate().take(n) {
                     let c = c as i128;
                     d.bounds.push(if mask[i] {
@@ -255,13 +308,24 @@ impl CaseDomain {
     /// denominators, header source conditions and witness loci.
     pub fn from_bank_predicate(p: &BankPredicate, arity: usize) -> Result<Self, DomainError> {
         if p.raw_fixed20.len() != arity {
-            return Err(DomainError::Malformed(format!("raw_fixed20 of length {}", p.raw_fixed20.len())));
+            return Err(DomainError::Malformed(format!(
+                "raw_fixed20 of length {}",
+                p.raw_fixed20.len()
+            )));
         }
         let fixed = fixed_i32(&p.raw_fixed20)?;
-        let mut equations = parse_list(p.case_equations.as_deref().unwrap_or(&[]), arity, "equation")?;
+        let mut equations = parse_list(
+            p.case_equations.as_deref().unwrap_or(&[]),
+            arity,
+            "equation",
+        )?;
         let mut bounds = vec![];
         for (rel, t) in &p.domain_atoms {
-            let q = Poly::parse_d_free(t, arity).map_err(|err| DomainError::Poly { field: "atom", text: t.clone(), err })?;
+            let q = Poly::parse_d_free(t, arity).map_err(|err| DomainError::Poly {
+                field: "atom",
+                text: t.clone(),
+                err,
+            })?;
             match rel.as_str() {
                 "EQ" => equations.push(q),
                 "GE" => bounds.push(q),
@@ -269,21 +333,53 @@ impl CaseDomain {
             }
         }
         let mut exceptions: Vec<Vec<Poly>> = vec![];
-        for b in p.exceptions.iter().flatten().chain(p.cached_loci.iter().flatten()) {
+        for b in p
+            .exceptions
+            .iter()
+            .flatten()
+            .chain(p.cached_loci.iter().flatten())
+        {
             exceptions.push(parse_list(b, arity, "exception")?);
         }
         let mut poles = vec![];
-        parse_poles(p.denominators.as_deref().unwrap_or(&[]), arity, PoleKind::Denominator, &mut poles)?;
-        parse_poles(p.source_conditions.as_deref().unwrap_or(&[]), arity, PoleKind::SourceCondition, &mut poles)?;
-        parse_poles(p.witness_loci.as_deref().unwrap_or(&[]), arity, PoleKind::Witness, &mut poles)?;
-        Ok(CaseDomain { arity, chart: None, fixed, equations, bounds, exceptions, poles, witness_elided: false })
+        parse_poles(
+            p.denominators.as_deref().unwrap_or(&[]),
+            arity,
+            PoleKind::Denominator,
+            &mut poles,
+        )?;
+        parse_poles(
+            p.source_conditions.as_deref().unwrap_or(&[]),
+            arity,
+            PoleKind::SourceCondition,
+            &mut poles,
+        )?;
+        parse_poles(
+            p.witness_loci.as_deref().unwrap_or(&[]),
+            arity,
+            PoleKind::Witness,
+            &mut poles,
+        )?;
+        Ok(CaseDomain {
+            arity,
+            chart: None,
+            fixed,
+            equations,
+            bounds,
+            exceptions,
+            poles,
+            witness_elided: false,
+        })
     }
 
     /// The verdict at `key`: chart, fixed slots, equations, bounds, every exception branch, pole loci, elision, in
     /// this order.
     pub fn applies(&self, key: &[i32]) -> Verdict {
         if key.len() != self.arity {
-            return Verdict::NotInCase(NotInCase::Arity { expected: self.arity, got: key.len() });
+            return Verdict::NotInCase(NotInCase::Arity {
+                expected: self.arity,
+                got: key.len(),
+            });
         }
         if let Some(mask) = &self.chart {
             for (i, &x) in key.iter().enumerate() {
@@ -300,7 +396,11 @@ impl CaseDomain {
         for (i, f) in self.fixed.iter().enumerate() {
             if let Some(v) = f {
                 if key[i] != *v {
-                    return Verdict::NotInCase(NotInCase::FixedSlot { slot: i, fixed: *v, got: key[i] });
+                    return Verdict::NotInCase(NotInCase::FixedSlot {
+                        slot: i,
+                        fixed: *v,
+                        got: key[i],
+                    });
                 }
             }
         }
@@ -330,7 +430,12 @@ impl CaseDomain {
         }
         for (pi, p) in self.poles.iter().enumerate() {
             match p.vanishes_at(key) {
-                Ok(true) => return Verdict::OnPole { kind: p.kind, index: pi },
+                Ok(true) => {
+                    return Verdict::OnPole {
+                        kind: p.kind,
+                        index: pi,
+                    };
+                }
                 Ok(false) => {}
                 Err(err) => return Verdict::Error(err),
             }
@@ -343,7 +448,11 @@ impl CaseDomain {
 
     /// Fixed-slot pattern: slots with a fixed value, ascending.
     pub fn fixed_slots(&self) -> Vec<usize> {
-        self.fixed.iter().enumerate().filter_map(|(i, f)| f.map(|_| i)).collect()
+        self.fixed
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| f.map(|_| i))
+            .collect()
     }
 
     /// Canonical form for de-duplication, as the checker's `parse_cases.py`: equations = {n_s - v for fixed slots} +
@@ -375,7 +484,11 @@ impl CaseDomain {
             exceptions: bad,
             chart: self.chart.clone(),
             bounds: self.bounds.clone(),
-            poles: self.poles.iter().map(|p| (p.kind as u8, p.coeffs.clone())).collect(),
+            poles: self
+                .poles
+                .iter()
+                .map(|p| (p.kind as u8, p.coeffs.clone()))
+                .collect(),
             witness_elided: self.witness_elided,
         }
     }

@@ -30,7 +30,11 @@ pub struct Table {
 
 impl Table {
     pub fn new(name: impl Into<String>) -> Self {
-        Table { name: name.into(), domains: vec![], labels: vec![] }
+        Table {
+            name: name.into(),
+            domains: vec![],
+            labels: vec![],
+        }
     }
     pub fn push(&mut self, label: i64, d: CaseDomain) {
         self.labels.push(label);
@@ -58,7 +62,10 @@ pub enum Dispatch {
     Covered(RuleRef),
     Uncovered,
     /// The rule at `at` could not be decided (elided witness loci, evaluation error) before any rule applied.
-    Undecided { at: RuleRef, verdict: Verdict },
+    Undecided {
+        at: RuleRef,
+        verdict: Verdict,
+    },
 }
 
 impl Dispatch {
@@ -164,12 +171,24 @@ impl Dispatcher {
         let mut seen = vec![false; tables.len()];
         for &p in &priority {
             if p >= tables.len() || seen[p] {
-                return Err(CoverError::BadPriority(format!("{priority:?} for {} tables", tables.len())));
+                return Err(CoverError::BadPriority(format!(
+                    "{priority:?} for {} tables",
+                    tables.len()
+                )));
             }
             seen[p] = true;
         }
-        let arity = tables.iter().flat_map(|t| t.domains.iter()).map(|d| d.arity).next().unwrap_or(0);
-        if tables.iter().flat_map(|t| t.domains.iter()).any(|d| d.arity != arity) {
+        let arity = tables
+            .iter()
+            .flat_map(|t| t.domains.iter())
+            .map(|d| d.arity)
+            .next()
+            .unwrap_or(0);
+        if tables
+            .iter()
+            .flat_map(|t| t.domains.iter())
+            .any(|d| d.arity != arity)
+        {
             return Err(CoverError::Arity("domains of different arity".into()));
         }
         let mut entries = vec![];
@@ -185,12 +204,21 @@ impl Dispatcher {
             let slots = d.fixed_slots();
             let vals: Vec<i32> = slots.iter().map(|&s| d.fixed[s].expect("fixed")).collect();
             let pi = *pidx.entry(slots.clone()).or_insert_with(|| {
-                patterns.push(Pattern { slots, map: HashMap::default() });
+                patterns.push(Pattern {
+                    slots,
+                    map: HashMap::default(),
+                });
                 patterns.len() - 1
             });
             patterns[pi].map.entry(vals).or_default().push(e as u32);
         }
-        Ok(Dispatcher { tables, priority, entries, patterns, arity })
+        Ok(Dispatcher {
+            tables,
+            priority,
+            entries,
+            patterns,
+            arity,
+        })
     }
 
     /// The same tables under another priority.
@@ -225,7 +253,11 @@ impl Dispatcher {
 
     fn rref(&self, e: u32) -> RuleRef {
         let (t, r) = self.entries[e as usize];
-        RuleRef { table: t as usize, record: r as usize, label: self.tables[t as usize].labels[r as usize] }
+        RuleRef {
+            table: t as usize,
+            record: r as usize,
+            label: self.tables[t as usize].labels[r as usize],
+        }
     }
 
     /// First-match dispatch at `key`.
@@ -243,7 +275,12 @@ impl Dispatcher {
             let (t, r) = self.entries[e as usize];
             match self.tables[t as usize].domains[r as usize].applies(key) {
                 Verdict::Applies => return Dispatch::Covered(self.rref(e)),
-                v @ (Verdict::Elided | Verdict::Error(_)) => return Dispatch::Undecided { at: self.rref(e), verdict: v },
+                v @ (Verdict::Elided | Verdict::Error(_)) => {
+                    return Dispatch::Undecided {
+                        at: self.rref(e),
+                        verdict: v,
+                    };
+                }
                 _ => {}
             }
         }
@@ -282,7 +319,9 @@ impl Dispatcher {
                 .map(|ks| {
                     s.spawn(move || {
                         let mut c = Vec::new();
-                        ks.iter().map(|k| self.first_match_with(k, &mut c)).collect::<Vec<_>>()
+                        ks.iter()
+                            .map(|k| self.first_match_with(k, &mut c))
+                            .collect::<Vec<_>>()
                     })
                 })
                 .collect();
@@ -302,6 +341,13 @@ impl Dispatcher {
                 Dispatch::Undecided { .. } => undecided += 1,
             }
         }
-        BatchReport { results, wins, covered, uncovered, undecided, seconds: t0.elapsed().as_secs_f64() }
+        BatchReport {
+            results,
+            wins,
+            covered,
+            uncovered,
+            undecided,
+            seconds: t0.elapsed().as_secs_f64(),
+        }
     }
 }

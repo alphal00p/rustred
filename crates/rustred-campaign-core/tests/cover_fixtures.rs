@@ -36,22 +36,39 @@ use std::path::PathBuf;
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
 use rustred_campaign_core::key::{Key, NodeFrame};
-use rustred_campaign_core::record::{ReadOptions, RuleRecord, read_bank_predicates, read_table_file};
+use rustred_campaign_core::record::{
+    ReadOptions, RuleRecord, read_bank_predicates, read_table_file,
+};
 
 fn fixtures() -> PathBuf {
-    PathBuf::from(std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES (see file doc)"))
+    PathBuf::from(
+        std::env::var("RUSTRED_CAMPAIGN_FIXTURES")
+            .expect("set RUSTRED_CAMPAIGN_FIXTURES (see file doc)"),
+    )
 }
 
 fn lines(p: PathBuf) -> Vec<serde_json::Value> {
-    let f = std::io::BufReader::new(std::fs::File::open(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())));
-    f.lines().map(|l| serde_json::from_str(&l.unwrap()).unwrap()).collect()
+    let f = std::io::BufReader::new(
+        std::fs::File::open(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+    );
+    f.lines()
+        .map(|l| serde_json::from_str(&l.unwrap()).unwrap())
+        .collect()
 }
 
 fn as_key(v: &serde_json::Value) -> Key {
-    v.as_array().unwrap().iter().map(|x| x.as_i64().unwrap() as i32).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_i64().unwrap() as i32)
+        .collect()
 }
 
-fn box_keys(frame: &NodeFrame, max_r: impl Fn(u32) -> u32, max_line_power: Option<i32>) -> Vec<Key> {
+fn box_keys(
+    frame: &NodeFrame,
+    max_r: impl Fn(u32) -> u32,
+    max_line_power: Option<i32>,
+) -> Vec<Key> {
     let mut k = vec![];
     for d in 0..=4 {
         for r in 0..=max_r(d) {
@@ -79,7 +96,10 @@ fn t1_t162_box_b() {
     assert_eq!(bank.len(), 2440);
     let mut table = Table::new("T162-bank-qualified");
     for p in &bank {
-        table.push(p.global_ordinal0, CaseDomain::from_bank_predicate(p, 20).unwrap());
+        table.push(
+            p.global_ordinal0,
+            CaseDomain::from_bank_predicate(p, 20).unwrap(),
+        );
     }
     let load = t0.elapsed().as_secs_f64();
     let disp = Dispatcher::new(vec![table.clone()], vec![0]).unwrap();
@@ -95,9 +115,16 @@ fn t1_t162_box_b() {
     assert_eq!(rep.undecided, 0);
     assert_eq!(rep.covered, 54_714);
     assert_eq!(rep.uncovered, 990);
-    let mine: HashSet<Key> =
-        keys.iter().zip(&rep.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
-    let refu: HashSet<Key> = lines(fx.join("T162/F1_uncovered_990.jsonl")).iter().map(as_key).collect();
+    let mine: HashSet<Key> = keys
+        .iter()
+        .zip(&rep.results)
+        .filter(|(_, r)| r.winner().is_none())
+        .map(|(k, _)| k.clone())
+        .collect();
+    let refu: HashSet<Key> = lines(fx.join("T162/F1_uncovered_990.jsonl"))
+        .iter()
+        .map(as_key)
+        .collect();
     assert_eq!(refu.len(), 990);
     assert_eq!(mine, refu, "uncovered set differs from the reference");
     // smallest covering gid, every key
@@ -120,22 +147,43 @@ fn t1_t162_box_b() {
     for v in lines(fx.join("T162/F1_negctl_unqualified8.jsonl")) {
         let rec = RuleRecord {
             chart: v["chart"].as_str().map(str::to_string),
-            fixed: v["fixed"].as_array().unwrap().iter().map(|x| x.as_i64()).collect(),
+            fixed: v["fixed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_i64())
+                .collect(),
             equations: serde_json::from_value(v["equations"].clone()).unwrap(),
             exceptions: serde_json::from_value(v["exceptions_OR_of_AND"].clone()).unwrap(),
             recenter: serde_json::from_value(v["recenter"].clone()).unwrap(),
             ..Default::default()
         };
-        let o = DomainOptions { recenter_bounds: true, ..Default::default() };
-        bad.push(v["gid"].as_i64().unwrap(), CaseDomain::from_rule_record(&rec, &frame, o).unwrap());
+        let o = DomainOptions {
+            recenter_bounds: true,
+            ..Default::default()
+        };
+        bad.push(
+            v["gid"].as_i64().unwrap(),
+            CaseDomain::from_rule_record(&rec, &frame, o).unwrap(),
+        );
     }
     assert_eq!(bad.len(), 8);
     let disp8 = Dispatcher::new(vec![table, bad], vec![0, 1]).unwrap();
     let rep8 = disp8.batch(&keys, 4);
-    let mine8: HashSet<Key> =
-        keys.iter().zip(&rep8.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
-    let ref8: HashSet<Key> = lines(fx.join("T162/F1_uncovered_with_unqualified8.jsonl")).iter().map(as_key).collect();
-    println!("T1 negative control: with the 8 unqualified rules {} uncovered (wins of the 8: {})", rep8.uncovered, rep8.wins[1]);
+    let mine8: HashSet<Key> = keys
+        .iter()
+        .zip(&rep8.results)
+        .filter(|(_, r)| r.winner().is_none())
+        .map(|(k, _)| k.clone())
+        .collect();
+    let ref8: HashSet<Key> = lines(fx.join("T162/F1_uncovered_with_unqualified8.jsonl"))
+        .iter()
+        .map(as_key)
+        .collect();
+    println!(
+        "T1 negative control: with the 8 unqualified rules {} uncovered (wins of the 8: {})",
+        rep8.uncovered, rep8.wins[1]
+    );
     assert_eq!(rep8.uncovered, 969);
     assert_eq!(mine8, ref8);
 }
@@ -148,8 +196,10 @@ struct T178 {
 
 fn load_t178() -> T178 {
     let fx = fixtures();
-    let cfg: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(fx.join("T178B/cfg_t178_regenB.json")).unwrap()).unwrap();
+    let cfg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fx.join("T178B/cfg_t178_regenB.json")).unwrap(),
+    )
+    .unwrap();
     let mut names = vec![];
     let mut tables = vec![];
     let mut frame0: Option<NodeFrame> = None;
@@ -157,8 +207,9 @@ fn load_t178() -> T178 {
         let rel = t.as_str().unwrap().trim_start_matches("cases/t178B/");
         let tf = read_table_file(fx.join("T178B/cases").join(rel), ReadOptions::default()).unwrap();
         let h = tf.header.expect("header");
-        let frame =
-            NodeFrame::from_mask(h.mask.as_deref().unwrap()).unwrap().with_power_shifts(h.power_shifts.clone());
+        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
+            .unwrap()
+            .with_power_shifts(h.power_shifts.clone());
         if let Some(f0) = &frame0 {
             assert_eq!(f0, &frame);
         }
@@ -167,7 +218,10 @@ fn load_t178() -> T178 {
         let mut table = Table::new(name.clone());
         for r in &tf.rules {
             assert_eq!(r.dispatch.as_deref(), Some("Partition"));
-            table.push(r.i.unwrap(), CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap());
+            table.push(
+                r.i.unwrap(),
+                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
+            );
         }
         names.push(name);
         tables.push(table);
@@ -176,7 +230,11 @@ fn load_t178() -> T178 {
     let frame = frame0.unwrap();
     assert_eq!(frame.n_lines(), 10);
     let keys = box_keys(&frame, |d| if d == 0 { 2 } else { 3 }, None);
-    T178 { names, tables, keys }
+    T178 {
+        names,
+        tables,
+        keys,
+    }
 }
 
 /// T2: T178 order B, first match over the 38 pieces in cfg order: 409 uncovered (the same keys), winner (piece,
@@ -187,7 +245,11 @@ fn load_t178() -> T178 {
 fn t2_t178_order_b() {
     let fx = fixtures();
     let t0 = std::time::Instant::now();
-    let T178 { names, tables, keys } = load_t178();
+    let T178 {
+        names,
+        tables,
+        keys,
+    } = load_t178();
     let n_records: usize = tables.iter().map(Table::len).sum();
     let load = t0.elapsed().as_secs_f64();
     assert_eq!(keys.len(), 286_066);
@@ -209,12 +271,19 @@ fn t2_t178_order_b() {
         .zip(&dom_id)
         .flat_map(|(t, ids)| {
             t.domains.iter().zip(ids).filter(|(d, _)| {
-                d.fixed.iter().enumerate().all(|(i, f)| f.is_none_or(|v| if i < 10 { v >= 1 } else { v <= 0 }))
+                d.fixed
+                    .iter()
+                    .enumerate()
+                    .all(|(i, f)| f.is_none_or(|v| if i < 10 { v >= 1 } else { v <= 0 }))
             })
         })
         .map(|(_, id)| *id)
         .collect();
-    println!("T2: {n_records} records, {} distinct domains ({} with fixed values in the chart)", canon.len(), in_chart.len());
+    println!(
+        "T2: {n_records} records, {} distinct domains ({} with fixed values in the chart)",
+        canon.len(),
+        in_chart.len()
+    );
 
     let prio: Vec<usize> = (0..38).collect();
     let disp = Dispatcher::new(tables, prio.clone()).unwrap();
@@ -229,13 +298,25 @@ fn t2_t178_order_b() {
     );
     assert_eq!(rep.undecided, 0);
     assert_eq!(rep.uncovered, 409);
-    let mine: HashSet<Key> =
-        keys.iter().zip(&rep.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
-    let refu: HashSet<Key> = lines(fx.join("T178B/F5_box_uncovered_409.jsonl")).iter().map(as_key).collect();
+    let mine: HashSet<Key> = keys
+        .iter()
+        .zip(&rep.results)
+        .filter(|(_, r)| r.winner().is_none())
+        .map(|(k, _)| k.clone())
+        .collect();
+    let refu: HashSet<Key> = lines(fx.join("T178B/F5_box_uncovered_409.jsonl"))
+        .iter()
+        .map(as_key)
+        .collect();
     assert_eq!(mine, refu);
     let reff: HashMap<Key, (i64, i64)> = lines(fx.join("T178B/F5_box_firstmatch.jsonl"))
         .iter()
-        .map(|v| (as_key(&v[0]), (v[1].as_i64().unwrap(), v[2].as_i64().unwrap())))
+        .map(|v| {
+            (
+                as_key(&v[0]),
+                (v[1].as_i64().unwrap(), v[2].as_i64().unwrap()),
+            )
+        })
         .collect();
     assert_eq!(reff.len(), 286_066);
     let mut mism = 0;
@@ -259,7 +340,12 @@ fn t2_t178_order_b() {
     let rep_r = disp_r.batch(&keys, 4);
     let h13: HashMap<Key, (i64, i64)> = lines(fx.join("T178B/h13_s3_box.jsonl"))
         .iter()
-        .map(|v| (as_key(&v[0]), (v[3].as_i64().unwrap(), v[4].as_i64().unwrap())))
+        .map(|v| {
+            (
+                as_key(&v[0]),
+                (v[3].as_i64().unwrap(), v[4].as_i64().unwrap()),
+            )
+        })
         .collect();
     let (mut mism_r, mut dom_change, mut piece_change) = (0, 0, 0);
     for ((k, a), b) in keys.iter().zip(&rep.results).zip(&rep_r.results) {

@@ -92,7 +92,9 @@ pub enum OrderError {
 impl fmt::Display for OrderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Arity { expected, actual } => write!(f, "comparator arity {expected}, key of length {actual}"),
+            Self::Arity { expected, actual } => {
+                write!(f, "comparator arity {expected}, key of length {actual}")
+            }
             Self::Header(s) => write!(f, "header order: {s}"),
             Self::Permutation(s) => write!(f, "{s}"),
             Self::Descriptor(e) => write!(f, "order program: {e}"),
@@ -137,13 +139,20 @@ pub struct NodeOrderRecord {
 impl NodeOrderRecord {
     /// `NodeOrder::identity()` (`node/order.rs:82-89`).
     pub fn identity() -> Self {
-        Self { name: "id".into(), slot_permutation: None, coordinate_priority: None, source_order: SourceOrder::Input }
+        Self {
+            name: "id".into(),
+            slot_permutation: None,
+            coordinate_priority: None,
+            source_order: SourceOrder::Input,
+        }
     }
 
     /// `NodeOrder::validate` (`node/order.rs:98-117`), same messages.
     pub fn validate(&self, n: usize) -> Result<(), OrderError> {
-        for (what, v) in [("slot_permutation", &self.slot_permutation), ("coordinate_priority", &self.coordinate_priority)]
-        {
+        for (what, v) in [
+            ("slot_permutation", &self.slot_permutation),
+            ("coordinate_priority", &self.coordinate_priority),
+        ] {
             if let Some(p) = v {
                 check_permutation(what, p, n)?;
             }
@@ -154,12 +163,17 @@ impl NodeOrderRecord {
 
 fn check_permutation(what: &str, p: &[usize], n: usize) -> Result<(), OrderError> {
     if p.len() != n {
-        return Err(OrderError::Permutation(format!("{what}: length {} != arity {n}", p.len())));
+        return Err(OrderError::Permutation(format!(
+            "{what}: length {} != arity {n}",
+            p.len()
+        )));
     }
     let mut seen = vec![false; n];
     for &i in p {
         if i >= n || std::mem::replace(&mut seen[i], true) {
-            return Err(OrderError::Permutation(format!("{what}: not a permutation of 0..{n}")));
+            return Err(OrderError::Permutation(format!(
+                "{what}: not a permutation of 0..{n}"
+            )));
         }
     }
     Ok(())
@@ -202,7 +216,10 @@ pub struct Presentation {
 
 impl Presentation {
     pub fn identity(n: usize) -> Self {
-        Self { new_to_old: (0..n).collect(), old_to_new: (0..n).collect() }
+        Self {
+            new_to_old: (0..n).collect(),
+            old_to_new: (0..n).collect(),
+        }
     }
 
     /// From a `slot_permutation` (new slot `j` carries old slot `new_to_old[j]`).
@@ -213,7 +230,10 @@ impl Presentation {
         for (j, &i) in new_to_old.iter().enumerate() {
             old_to_new[i] = j;
         }
-        Ok(Self { new_to_old: new_to_old.to_vec(), old_to_new })
+        Ok(Self {
+            new_to_old: new_to_old.to_vec(),
+            old_to_new,
+        })
     }
 
     /// `node_order.slot_permutation` or the identity (`None`), as `NodeOrder::new_to_old`.
@@ -222,7 +242,10 @@ impl Presentation {
             None => Ok(Self::identity(n)),
             Some(p) => {
                 if p.len() != n {
-                    return Err(OrderError::Arity { expected: n, actual: p.len() });
+                    return Err(OrderError::Arity {
+                        expected: n,
+                        actual: p.len(),
+                    });
                 }
                 Self::from_new_to_old(p)
             }
@@ -289,7 +312,9 @@ pub fn parse_pattern(text: &str) -> Result<Vec<PatternSlot>, String> {
         let p = p.trim();
         if let Some(rest) = p.strip_prefix('n') {
             let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            let axis: usize = digits.parse().map_err(|_| format!("key {text}: bad symbol {p}"))?;
+            let axis: usize = digits
+                .parse()
+                .map_err(|_| format!("key {text}: bad symbol {p}"))?;
             if axis != i {
                 return Err(format!("key {text}: symbol n{axis} at position {i}"));
             }
@@ -297,11 +322,17 @@ pub fn parse_pattern(text: &str) -> Result<Vec<PatternSlot>, String> {
             let value: i32 = if offset.is_empty() {
                 0
             } else {
-                offset.trim_start_matches('+').parse().map_err(|_| format!("key {text}: bad offset {p}"))?
+                offset
+                    .trim_start_matches('+')
+                    .parse()
+                    .map_err(|_| format!("key {text}: bad offset {p}"))?
             };
             out.push(PatternSlot::Symbolic(value));
         } else {
-            out.push(PatternSlot::Fixed(p.parse().map_err(|_| format!("key {text}: bad value {p}"))?));
+            out.push(PatternSlot::Fixed(
+                p.parse()
+                    .map_err(|_| format!("key {text}: bad value {p}"))?,
+            ));
         }
     }
     Ok(out)
@@ -328,7 +359,10 @@ impl NodeComparator {
     /// `ties` = slot visit order of the coordinate ties (`None` or the identity = slot order).
     pub fn legacy(arity: usize, ties: Option<Vec<usize>>) -> Result<Self, OrderError> {
         if arity == 0 {
-            return Err(OrderError::Arity { expected: 1, actual: 0 });
+            return Err(OrderError::Arity {
+                expected: 1,
+                actual: 0,
+            });
         }
         let ties = match ties {
             Some(p) => {
@@ -382,7 +416,8 @@ impl NodeComparator {
         };
         c.name = order.name.clone();
         c.selection = Selection::NodeOrder;
-        c.presentation = Presentation::from_slot_permutation(order.slot_permutation.as_deref(), arity)?;
+        c.presentation =
+            Presentation::from_slot_permutation(order.slot_permutation.as_deref(), arity)?;
         c.source_order = Some(order.source_order.clone());
         Ok(c)
     }
@@ -409,7 +444,8 @@ impl NodeComparator {
         };
         let arity = header["denominators"]
             .as_u64()
-            .ok_or_else(|| OrderError::Header("header denominators".into()))? as usize;
+            .ok_or_else(|| OrderError::Header("header denominators".into()))?
+            as usize;
         if header.get("node_order").is_none()
             && header["order_is_program"].as_bool() == Some(true)
             && header["order"].get("degree_rows").is_some()
@@ -428,7 +464,10 @@ impl NodeComparator {
                 .map_err(|e| OrderError::Header(format!("header node_order: {e}")))?;
             return Self::from_node_order(&order, arity);
         }
-        let is_program = header.get("order_is_program").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_program = header
+            .get("order_is_program")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if !is_program {
             let mut c = Self::legacy(arity, None)?;
             c.name = "id".into();
@@ -438,12 +477,26 @@ impl NodeComparator {
         let priority: Vec<usize> = header
             .pointer("/order/coordinate_priority")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| OrderError::Header("header order program without coordinate_priority".into()))?
+            .ok_or_else(|| {
+                OrderError::Header("header order program without coordinate_priority".into())
+            })?
             .iter()
-            .map(|x| x.as_u64().map(|x| x as usize).ok_or_else(|| OrderError::Header("coordinate_priority entry".into())))
+            .map(|x| {
+                x.as_u64()
+                    .map(|x| x as usize)
+                    .ok_or_else(|| OrderError::Header("coordinate_priority entry".into()))
+            })
             .collect::<Result<_, _>>()?;
-        let name = header.get("order_name").and_then(|v| v.as_str()).unwrap_or("program").to_string();
-        let order = NodeOrderRecord { name, coordinate_priority: Some(priority), ..NodeOrderRecord::identity() };
+        let name = header
+            .get("order_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("program")
+            .to_string();
+        let order = NodeOrderRecord {
+            name,
+            coordinate_priority: Some(priority),
+            ..NodeOrderRecord::identity()
+        };
         let mut c = Self::from_node_order(&order, arity)?;
         c.selection = Selection::ProgramCoordinatePriority;
         Ok(c)
@@ -509,7 +562,10 @@ impl NodeComparator {
     pub fn try_cmp(&self, a: &[i32], b: &[i32]) -> Result<Ordering, OrderError> {
         for k in [a, b] {
             if k.len() != self.arity {
-                return Err(OrderError::Arity { expected: self.arity, actual: k.len() });
+                return Err(OrderError::Arity {
+                    expected: self.arity,
+                    actual: k.len(),
+                });
             }
         }
         Ok(self.cmp(a, b))
@@ -532,7 +588,10 @@ impl NodeComparator {
     /// Arity check plus the engine's compact power range (-64..=63) on every slot.
     pub fn check_engine_range(&self, key: &[i32]) -> Result<(), OrderError> {
         if key.len() != self.arity {
-            return Err(OrderError::Arity { expected: self.arity, actual: key.len() });
+            return Err(OrderError::Arity {
+                expected: self.arity,
+                actual: key.len(),
+            });
         }
         for (slot, &value) in key.iter().enumerate() {
             if !(ENGINE_POWER_MIN..=ENGINE_POWER_MAX).contains(&value) {
@@ -546,10 +605,18 @@ impl NodeComparator {
     /// `IntegralOrder::sector`), `Less` = `a` LOWER. Program path: `compare_mixed` (`index.rs:364-385`); legacy path:
     /// the symbolic branches of `index.rs:403-419` and `465-482`. Different symbolic patterns are an error, as the
     /// engine asserts. A symbolic slot carries its offset from the common symbol.
-    pub fn cmp_pattern(&self, chart: &[bool], a: &[PatternSlot], b: &[PatternSlot]) -> Result<Ordering, OrderError> {
+    pub fn cmp_pattern(
+        &self,
+        chart: &[bool],
+        a: &[PatternSlot],
+        b: &[PatternSlot],
+    ) -> Result<Ordering, OrderError> {
         for k in [a.len(), b.len(), chart.len()] {
             if k != self.arity {
-                return Err(OrderError::Arity { expected: self.arity, actual: k });
+                return Err(OrderError::Arity {
+                    expected: self.arity,
+                    actual: k,
+                });
             }
         }
         for slot in 0..self.arity {
@@ -558,7 +625,9 @@ impl NodeComparator {
             }
         }
         match &self.engine {
-            Engine::Legacy { ties } => Ok(legacy_pattern_harder_first(ties.as_deref(), chart, a, b).reverse()),
+            Engine::Legacy { ties } => {
+                Ok(legacy_pattern_harder_first(ties.as_deref(), chart, a, b).reverse())
+            }
             Engine::Program(p) => {
                 let symbolic: Vec<bool> = a.iter().map(|s| s.is_symbolic()).collect();
                 let l: Vec<i64> = a.iter().map(|s| s.value()).collect();
@@ -630,7 +699,11 @@ fn legacy_harder_first(ties: Option<&[usize]>, left: &[i32], right: &[i32]) -> O
 
 /// `compare_coordinate_ties` (`index.rs:456-491`) on numeric keys: denominators by increasing power (the smaller
 /// power is harder), then numerators by decreasing power (the larger value, i.e. the smaller |n|, is harder).
-fn legacy_ties(left: &[i32], right: &[i32], order: impl Iterator<Item = usize> + Clone) -> Ordering {
+fn legacy_ties(
+    left: &[i32],
+    right: &[i32],
+    order: impl Iterator<Item = usize> + Clone,
+) -> Ordering {
     for index in order.clone() {
         if left[index] > 0 {
             let o = left[index].cmp(&right[index]);
@@ -702,7 +775,11 @@ fn legacy_pattern_harder_first(
     };
     // index.rs:464-476
     for &index in &order {
-        let is_denominator = if left[index].is_symbolic() { sector[index] } else { left[index].value() > 0 };
+        let is_denominator = if left[index].is_symbolic() {
+            sector[index]
+        } else {
+            left[index].value() > 0
+        };
         if is_denominator {
             let o = left[index].value().cmp(&right[index].value());
             if o != Ordering::Equal {
@@ -712,7 +789,11 @@ fn legacy_pattern_harder_first(
     }
     // index.rs:477-489
     for &index in &order {
-        let is_numerator = if left[index].is_symbolic() { !sector[index] } else { left[index].value() <= 0 };
+        let is_numerator = if left[index].is_symbolic() {
+            !sector[index]
+        } else {
+            left[index].value() <= 0
+        };
         if is_numerator {
             let o = right[index].value().cmp(&left[index].value());
             if o != Ordering::Equal {
@@ -733,9 +814,23 @@ fn legacy_rank(ties: Option<&[usize]>, key: &[i32]) -> Rank {
     v.push(key.iter().filter(|&&x| x > 0).count() as i128);
     v.extend(key.iter().map(|&x| i128::from(x > 0)));
     v.push(key.iter().map(|&x| i128::from(x).abs()).sum());
-    v.push(key.iter().map(|&x| if x <= 0 { -i128::from(x) } else { 0 }).sum());
-    v.extend(order.iter().filter(|&&s| key[s] > 0).map(|&s| -i128::from(key[s])));
-    v.extend(order.iter().filter(|&&s| key[s] <= 0).map(|&s| i128::from(key[s])));
+    v.push(
+        key.iter()
+            .map(|&x| if x <= 0 { -i128::from(x) } else { 0 })
+            .sum(),
+    );
+    v.extend(
+        order
+            .iter()
+            .filter(|&&s| key[s] > 0)
+            .map(|&s| -i128::from(key[s])),
+    );
+    v.extend(
+        order
+            .iter()
+            .filter(|&&s| key[s] <= 0)
+            .map(|&s| i128::from(key[s])),
+    );
     Rank(v)
 }
 
@@ -758,17 +853,26 @@ fn program_cmp(p: &CompiledOrder, a: &[i32], b: &[i32]) -> Ordering {
         p.compare(&l, &r)
     };
     // Arity was checked by the caller; i32 powers are far inside MAX_TWO_SIDED_POWER: no error is possible.
-    result.expect("rustred-order compare on concrete i32 keys of the program arity").ordering
+    result
+        .expect("rustred-order compare on concrete i32 keys of the program arity")
+        .ordering
 }
 
 /// Excess and activity of a concrete power as `compare.rs` (`Coordinates::Concrete`, `View::Powers`) sees it.
 fn concrete_view(value: i32, two_sided: bool) -> (bool, i128, i128) {
     let v = i128::from(value);
     if two_sided {
-        let e = i128::from(rustred_order::two_sided_excess(i64::from(value)).expect("i32 power in two-sided range"));
+        let e = i128::from(
+            rustred_order::two_sided_excess(i64::from(value))
+                .expect("i32 power in two-sided range"),
+        );
         return (true, e, e + 1);
     }
-    if value > 0 { (true, v - 1, v) } else { (false, -v, -v) }
+    if value > 0 {
+        (true, v - 1, v)
+    } else {
+        (false, -v, -v)
+    }
 }
 
 fn program_rank(d: &OrderDescriptor, key: &[i32]) -> Rank {
@@ -779,7 +883,11 @@ fn program_rank(d: &OrderDescriptor, key: &[i32]) -> Rank {
     let row = |row: &DegreeRow, component: usize| -> i128 {
         (0..n)
             .map(|a| {
-                let w = if view[a].0 { row.active[a] } else { row.inactive[a] };
+                let w = if view[a].0 {
+                    row.active[a]
+                } else {
+                    row.inactive[a]
+                };
                 i128::from(w) * if component == 1 { view[a].1 } else { view[a].2 }
             })
             .sum()
@@ -788,21 +896,39 @@ fn program_rank(d: &OrderDescriptor, key: &[i32]) -> Rank {
         v.push(row(r, 2));
     }
     v.push(view.iter().filter(|x| x.0).count() as i128);
-    v.push((0..n).filter(|&a| view[a].0).map(|a| i128::from(d.support_weights[a])).sum());
+    v.push(
+        (0..n)
+            .filter(|&a| view[a].0)
+            .map(|a| i128::from(d.support_weights[a]))
+            .sum(),
+    );
     v.extend(d.support_priority.iter().map(|&a| i128::from(view[a].0)));
     for r in &d.degree_rows {
         v.push(row(r, 1));
     }
     let entry = |a: usize| {
-        let dir = if view[a].0 { d.active_direction } else { d.inactive_direction };
-        if dir == Direction::Descending { -view[a].1 } else { view[a].1 }
+        let dir = if view[a].0 {
+            d.active_direction
+        } else {
+            d.inactive_direction
+        };
+        if dir == Direction::Descending {
+            -view[a].1
+        } else {
+            view[a].1
+        }
     };
     match d.coordinate_groups {
         CoordinateGroups::Interleaved => v.extend(d.coordinate_priority.iter().map(|&a| entry(a))),
         groups => {
             let first_active = groups == CoordinateGroups::ActiveFirst;
             for pass_active in [first_active, !first_active] {
-                v.extend(d.coordinate_priority.iter().filter(|&&a| view[a].0 == pass_active).map(|&a| entry(a)));
+                v.extend(
+                    d.coordinate_priority
+                        .iter()
+                        .filter(|&&a| view[a].0 == pass_active)
+                        .map(|&a| entry(a)),
+                );
             }
         }
     }
@@ -816,7 +942,10 @@ fn program_rank(d: &OrderDescriptor, key: &[i32]) -> Rank {
 /// `degree_rows` or `support_weights`): every field is required. Compact form (neither): `spired_uncut` (or
 /// `spired_uncut_two_sided` when a two-sided flag is set) with the recorded `support_priority` and
 /// `coordinate_priority`.
-pub fn descriptor_from_order_json(order: &serde_json::Value, slot_map: &[usize]) -> Result<OrderDescriptor, String> {
+pub fn descriptor_from_order_json(
+    order: &serde_json::Value,
+    slot_map: &[usize],
+) -> Result<OrderDescriptor, String> {
     use serde_json::Value;
     let malformed = |what: String| format!("malformed table: {what}");
     let n = slot_map.len();
@@ -826,12 +955,18 @@ pub fn descriptor_from_order_json(order: &serde_json::Value, slot_map: &[usize])
             .as_array()
             .ok_or_else(|| malformed(format!("order field {field}")))?
             .iter()
-            .map(|e| e.as_u64().ok_or_else(|| malformed(format!("order field {field}"))))
+            .map(|e| {
+                e.as_u64()
+                    .ok_or_else(|| malformed(format!("order field {field}")))
+            })
             .collect()
     };
     let permuted = |values: &[u64]| -> Result<Vec<u64>, String> {
         if values.len() != n {
-            return Err(malformed(format!("order list of length {} for arity {n}", values.len())));
+            return Err(malformed(format!(
+                "order list of length {} for arity {n}",
+                values.len()
+            )));
         }
         let mut out = values.to_vec();
         for (slot, &value) in values.iter().enumerate() {
@@ -855,7 +990,12 @@ pub fn descriptor_from_order_json(order: &serde_json::Value, slot_map: &[usize])
     let priority = |field: &str| -> Result<Vec<usize>, String> {
         u64_list(&order[field], field)?
             .into_iter()
-            .map(|slot| slot_map.get(slot as usize).copied().ok_or_else(|| malformed(format!("order field {field}"))))
+            .map(|slot| {
+                slot_map
+                    .get(slot as usize)
+                    .copied()
+                    .ok_or_else(|| malformed(format!("order field {field}")))
+            })
             .collect()
     };
     let direction = |field: &str| match order[field].as_str() {
@@ -876,7 +1016,10 @@ pub fn descriptor_from_order_json(order: &serde_json::Value, slot_map: &[usize])
     };
     let permuted_flags = |flags: &[bool]| -> Result<Vec<bool>, String> {
         if flags.len() != n {
-            return Err(malformed(format!("two_sided of length {} for arity {n}", flags.len())));
+            return Err(malformed(format!(
+                "two_sided of length {} for arity {n}",
+                flags.len()
+            )));
         }
         let mut out = flags.to_vec();
         for (slot, &f) in flags.iter().enumerate() {
@@ -908,7 +1051,11 @@ pub fn descriptor_from_order_json(order: &serde_json::Value, slot_map: &[usize])
         },
         active_direction: direction("active_direction")?,
         inactive_direction: direction("inactive_direction")?,
-        two_sided: if two_sided.iter().any(|&b| b) { permuted_flags(&two_sided)? } else { Vec::new() },
+        two_sided: if two_sided.iter().any(|&b| b) {
+            permuted_flags(&two_sided)?
+        } else {
+            Vec::new()
+        },
     })
 }
 
@@ -1008,7 +1155,10 @@ pub fn automorphism_invariance(
     for (index, g) in group.iter().enumerate() {
         let nl = g.lines.len();
         if nl > n {
-            return Err(OrderError::Arity { expected: n, actual: nl });
+            return Err(OrderError::Arity {
+                expected: n,
+                actual: nl,
+            });
         }
         check_permutation("group element lines", &g.lines, nl)?;
         if let Some(m) = &g.numerators {
@@ -1032,7 +1182,10 @@ pub fn automorphism_invariance(
         };
         for (a, b) in pairs {
             if a.len() != n || b.len() != n {
-                return Err(OrderError::Arity { expected: n, actual: a.len().max(b.len()) });
+                return Err(OrderError::Arity {
+                    expected: n,
+                    actual: a.len().max(b.len()),
+                });
             }
             let (Some(ga), Some(gb)) = (g.apply(a), g.apply(b)) else {
                 e.pairs_skipped += 1;

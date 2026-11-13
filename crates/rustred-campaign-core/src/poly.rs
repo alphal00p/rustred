@@ -39,7 +39,9 @@ impl fmt::Display for PolyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PolyError::Syntax { pos, msg } => write!(f, "syntax error at byte {pos}: {msg}"),
-            PolyError::VariableOutOfRange { var, arity } => write!(f, "variable n{var} out of range (arity {arity})"),
+            PolyError::VariableOutOfRange { var, arity } => {
+                write!(f, "variable n{var} out of range (arity {arity})")
+            }
             PolyError::ContainsD => write!(f, "the dimension d occurs in a d-free literal"),
             PolyError::Division => write!(f, "division in a polynomial literal"),
             PolyError::CoefficientOverflow => write!(f, "coefficient does not fit into i128"),
@@ -66,7 +68,9 @@ pub enum EvalError {
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EvalError::KeyTooShort { needed, len } => write!(f, "key of length {len}, polynomial needs {needed}"),
+            EvalError::KeyTooShort { needed, len } => {
+                write!(f, "key of length {len}, polynomial needs {needed}")
+            }
             EvalError::ContainsD => write!(f, "polynomial contains d"),
             EvalError::Overflow => write!(f, "i128 overflow"),
         }
@@ -88,7 +92,10 @@ pub struct BigInt {
 
 impl BigInt {
     pub fn zero() -> Self {
-        BigInt { neg: false, mag: vec![] }
+        BigInt {
+            neg: false,
+            mag: vec![],
+        }
     }
     pub fn from_i128(v: i128) -> Self {
         let neg = v < 0;
@@ -123,7 +130,11 @@ impl BigInt {
             u |= (*l as u128) << (32 * i);
         }
         if self.neg {
-            if u <= i128::MAX as u128 + 1 { Some((u as i128).wrapping_neg()) } else { None }
+            if u <= i128::MAX as u128 + 1 {
+                Some((u as i128).wrapping_neg())
+            } else {
+                None
+            }
         } else if u <= i128::MAX as u128 {
             Some(u as i128)
         } else {
@@ -180,12 +191,21 @@ impl BigInt {
     }
     pub fn add(&self, o: &BigInt) -> BigInt {
         let mut r = if self.neg == o.neg {
-            BigInt { neg: self.neg, mag: Self::add_mag(&self.mag, &o.mag) }
+            BigInt {
+                neg: self.neg,
+                mag: Self::add_mag(&self.mag, &o.mag),
+            }
         } else {
             match Self::cmp_mag(&self.mag, &o.mag) {
                 Ordering::Equal => BigInt::zero(),
-                Ordering::Greater => BigInt { neg: self.neg, mag: Self::sub_mag(&self.mag, &o.mag) },
-                Ordering::Less => BigInt { neg: o.neg, mag: Self::sub_mag(&o.mag, &self.mag) },
+                Ordering::Greater => BigInt {
+                    neg: self.neg,
+                    mag: Self::sub_mag(&self.mag, &o.mag),
+                },
+                Ordering::Less => BigInt {
+                    neg: o.neg,
+                    mag: Self::sub_mag(&o.mag, &self.mag),
+                },
             }
         };
         r.trim();
@@ -221,7 +241,10 @@ impl BigInt {
                 k += 1;
             }
         }
-        let mut r = BigInt { neg: self.neg != o.neg, mag: out };
+        let mut r = BigInt {
+            neg: self.neg != o.neg,
+            mag: out,
+        };
         r.trim();
         r
     }
@@ -288,22 +311,34 @@ impl Poly {
         Poly { terms: vec![] }
     }
     pub fn constant(c: i128) -> Self {
-        if c == 0 { Poly::zero() } else { Poly { terms: vec![(vec![], c)] } }
+        if c == 0 {
+            Poly::zero()
+        } else {
+            Poly {
+                terms: vec![(vec![], c)],
+            }
+        }
     }
     /// The variable `n<slot>`.
     pub fn var(slot: usize) -> Self {
-        Poly { terms: vec![(vec![(slot as u16, 1)], 1)] }
+        Poly {
+            terms: vec![(vec![(slot as u16, 1)], 1)],
+        }
     }
     /// The dimension `d`.
     pub fn d() -> Self {
-        Poly { terms: vec![(vec![(D_VAR, 1)], 1)] }
+        Poly {
+            terms: vec![(vec![(D_VAR, 1)], 1)],
+        }
     }
     /// `n<slot> - value`.
     pub fn slot_minus(slot: usize, value: i128) -> Self {
         Poly::var(slot).sub(&Poly::constant(value)).expect("small")
     }
     fn from_map(m: BTreeMap<Mono, i128>) -> Self {
-        Poly { terms: m.into_iter().filter(|(_, c)| *c != 0).collect() }
+        Poly {
+            terms: m.into_iter().filter(|(_, c)| *c != 0).collect(),
+        }
     }
     pub fn terms(&self) -> &[(Mono, i128)] {
         &self.terms
@@ -320,12 +355,19 @@ impl Poly {
         }
     }
     pub fn has_d(&self) -> bool {
-        self.terms.iter().any(|(m, _)| m.iter().any(|(v, _)| *v == D_VAR))
+        self.terms
+            .iter()
+            .any(|(m, _)| m.iter().any(|(v, _)| *v == D_VAR))
     }
     /// Index slots that occur, sorted.
     pub fn support(&self) -> Vec<usize> {
-        let mut s: Vec<usize> =
-            self.terms.iter().flat_map(|(m, _)| m.iter()).filter(|(v, _)| *v != D_VAR).map(|(v, _)| *v as usize).collect();
+        let mut s: Vec<usize> = self
+            .terms
+            .iter()
+            .flat_map(|(m, _)| m.iter())
+            .filter(|(v, _)| *v != D_VAR)
+            .map(|(v, _)| *v as usize)
+            .collect();
         s.sort_unstable();
         s.dedup();
         s
@@ -336,7 +378,11 @@ impl Poly {
     }
     /// Total degree (the zero polynomial has degree 0).
     pub fn degree(&self) -> u32 {
-        self.terms.iter().map(|(m, _)| m.iter().map(|(_, e)| *e).sum::<u32>()).max().unwrap_or(0)
+        self.terms
+            .iter()
+            .map(|(m, _)| m.iter().map(|(_, e)| *e).sum::<u32>())
+            .max()
+            .unwrap_or(0)
     }
     pub fn add(&self, o: &Poly) -> Result<Poly, PolyError> {
         let mut m: BTreeMap<Mono, i128> = self.terms.iter().cloned().collect();
@@ -349,7 +395,10 @@ impl Poly {
     pub fn neg(&self) -> Result<Poly, PolyError> {
         let mut t = Vec::with_capacity(self.terms.len());
         for (m, c) in &self.terms {
-            t.push((m.clone(), c.checked_neg().ok_or(PolyError::CoefficientOverflow)?));
+            t.push((
+                m.clone(),
+                c.checked_neg().ok_or(PolyError::CoefficientOverflow)?,
+            ));
         }
         Ok(Poly { terms: t })
     }
@@ -380,7 +429,12 @@ impl Poly {
 
     /// Parse a literal with variables `n0..n{arity-1}`; `allow_d` admits the dimension `d`.
     pub fn parse(s: &str, arity: usize, allow_d: bool) -> Result<Poly, PolyError> {
-        let mut p = Parser { s: s.as_bytes(), pos: 0, arity, allow_d };
+        let mut p = Parser {
+            s: s.as_bytes(),
+            pos: 0,
+            arity,
+            allow_d,
+        };
         let lhs = p.expr()?;
         p.ws();
         let r = if p.peek() == Some(b'=') {
@@ -422,7 +476,10 @@ impl Poly {
                 if v == D_VAR {
                     return Err(EvalError::ContainsD);
                 }
-                let x = *key.get(v as usize).ok_or(EvalError::KeyTooShort { needed: v as usize + 1, len: key.len() })?;
+                let x = *key.get(v as usize).ok_or(EvalError::KeyTooShort {
+                    needed: v as usize + 1,
+                    len: key.len(),
+                })?;
                 let p = (x as i128).checked_pow(e).ok_or(EvalError::Overflow)?;
                 t = t.checked_mul(p).ok_or(EvalError::Overflow)?;
             }
@@ -439,7 +496,10 @@ impl Poly {
                 if v == D_VAR {
                     return Err(EvalError::ContainsD);
                 }
-                let x = *key.get(v as usize).ok_or(EvalError::KeyTooShort { needed: v as usize + 1, len: key.len() })?;
+                let x = *key.get(v as usize).ok_or(EvalError::KeyTooShort {
+                    needed: v as usize + 1,
+                    len: key.len(),
+                })?;
                 let bx = BigInt::from_i128(x as i128);
                 for _ in 0..e {
                     t = t.mul(&bx);
@@ -458,7 +518,10 @@ impl Poly {
             let rest: Mono = m.iter().filter(|(v, _)| *v != D_VAR).cloned().collect();
             *by.entry(j).or_default().entry(rest).or_insert(0) += *c; // distinct monomials: no collision
         }
-        by.into_iter().map(|(j, m)| (j, Poly::from_map(m))).filter(|(_, p)| !p.is_zero()).collect()
+        by.into_iter()
+            .map(|(j, m)| (j, Poly::from_map(m)))
+            .filter(|(_, p)| !p.is_zero())
+            .collect()
     }
 
     /// Primitive part with a canonical sign (positive coefficient on the largest monomial): same zero set.
@@ -471,8 +534,18 @@ impl Poly {
         for (_, c) in &self.terms {
             g = gcd(g, c.unsigned_abs());
         }
-        let sign: i128 = if self.terms.last().expect("nonzero").1 < 0 { -1 } else { 1 };
-        Poly { terms: self.terms.iter().map(|(m, c)| (m.clone(), sign * (*c / g as i128))).collect() }
+        let sign: i128 = if self.terms.last().expect("nonzero").1 < 0 {
+            -1
+        } else {
+            1
+        };
+        Poly {
+            terms: self
+                .terms
+                .iter()
+                .map(|(m, c)| (m.clone(), sign * (*c / g as i128)))
+                .collect(),
+        }
     }
 }
 
@@ -505,7 +578,11 @@ impl fmt::Display for Poly {
                     write!(f, "*")?;
                 }
                 first = false;
-                if *v == D_VAR { write!(f, "d")? } else { write!(f, "n{v}")? }
+                if *v == D_VAR {
+                    write!(f, "d")?
+                } else {
+                    write!(f, "n{v}")?
+                }
                 if *e > 1 {
                     write!(f, "^{e}")?;
                 }
@@ -524,7 +601,10 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn err(&self, msg: &str) -> PolyError {
-        PolyError::Syntax { pos: self.pos, msg: msg.to_string() }
+        PolyError::Syntax {
+            pos: self.pos,
+            msg: msg.to_string(),
+        }
     }
     fn ws(&mut self) {
         while self.pos < self.s.len() && self.s[self.pos].is_ascii_whitespace() {
@@ -583,7 +663,9 @@ impl Parser<'_> {
             self.pos += 1;
             self.ws();
             let e = self.uint()?;
-            let e: u64 = e.try_into().map_err(|_| PolyError::ExponentTooLarge(u64::MAX))?;
+            let e: u64 = e
+                .try_into()
+                .map_err(|_| PolyError::ExponentTooLarge(u64::MAX))?;
             return base.pow(e);
         }
         Ok(base)
@@ -622,16 +704,26 @@ impl Parser<'_> {
             Some(b'n') => {
                 self.pos += 1;
                 let start = self.pos;
-                let v = self.uint().map_err(|_| PolyError::Syntax { pos: start, msg: "expected n<index>".into() })?;
+                let v = self.uint().map_err(|_| PolyError::Syntax {
+                    pos: start,
+                    msg: "expected n<index>".into(),
+                })?;
                 let v = v as usize;
                 if v >= self.arity {
-                    return Err(PolyError::VariableOutOfRange { var: v, arity: self.arity });
+                    return Err(PolyError::VariableOutOfRange {
+                        var: v,
+                        arity: self.arity,
+                    });
                 }
                 Ok(Poly::var(v))
             }
             Some(b'd') => {
                 self.pos += 1;
-                if self.s.get(self.pos).is_some_and(|c| c.is_ascii_alphanumeric()) {
+                if self
+                    .s
+                    .get(self.pos)
+                    .is_some_and(|c| c.is_ascii_alphanumeric())
+                {
                     return Err(self.err("unknown identifier"));
                 }
                 if !self.allow_d {
@@ -657,8 +749,14 @@ mod tests {
         assert_eq!(b.to_i128(), None);
         let c = b.sub(&b);
         assert!(c.is_zero());
-        assert_eq!(BigInt::from_i128(-5).add(&BigInt::from_i128(3)).to_i128(), Some(-2));
+        assert_eq!(
+            BigInt::from_i128(-5).add(&BigInt::from_i128(3)).to_i128(),
+            Some(-2)
+        );
         assert_eq!(BigInt::from_i128(i128::MIN).to_i128(), Some(i128::MIN));
-        assert_eq!(BigInt::from_i128(-7).mul(&BigInt::from_i128(6)).to_i128(), Some(-42));
+        assert_eq!(
+            BigInt::from_i128(-7).mul(&BigInt::from_i128(6)).to_i128(),
+            Some(-42)
+        );
     }
 }

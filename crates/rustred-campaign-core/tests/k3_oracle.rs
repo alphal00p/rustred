@@ -54,7 +54,10 @@ fn t178_frame() -> NodeFrame {
 }
 
 fn layer(frame: &NodeFrame, k: &[i32]) -> (i64, i64) {
-    (frame.dots(k).expect("chart key"), frame.rank(k).expect("chart key"))
+    (
+        frame.dots(k).expect("chart key"),
+        frame.rank(k).expect("chart key"),
+    )
 }
 
 /// `F1_box_all.jsonl.gz` rows: key -> smallest covering gid (-1 = uncovered).
@@ -74,7 +77,10 @@ fn f5_closure_all(o: &Oracle) -> Vec<(Key, i64, i64, bool)> {
 }
 
 fn key_set(o: &Oracle, rel: &str) -> HashSet<Key> {
-    o.jsonl(rel).iter().map(|v| as_key(if v.is_object() { &v["key"] } else { v })).collect()
+    o.jsonl(rel)
+        .iter()
+        .map(|v| as_key(if v.is_object() { &v["key"] } else { v }))
+        .collect()
 }
 
 fn headers() -> Value {
@@ -89,8 +95,14 @@ fn headers() -> Value {
 /// `tools/` is listed, and the listed set is exactly 38 files.
 #[test]
 fn k3_sha256sums_every_file() {
-    assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    assert_eq!(sha256_hex(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assert_eq!(
+        sha256_hex(b"abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    assert_eq!(
+        sha256_hex(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
     let o = oracle_or_skip!();
     assert_eq!(o.sums.len(), 38);
     for (_, f) in &o.sums {
@@ -104,15 +116,28 @@ fn k3_sha256sums_every_file() {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                present.push(p.strip_prefix(&o.root).unwrap().to_string_lossy().into_owned());
+                present.push(
+                    p.strip_prefix(&o.root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             }
         }
     }
     let listed: HashSet<&str> = o.sums.iter().map(|(_, f)| f.as_str()).collect();
-    let unlisted: Vec<&String> =
-        present.iter().filter(|f| *f != "SHA256SUMS" && !f.starts_with("tools/") && !listed.contains(f.as_str())).collect();
-    assert!(unlisted.is_empty(), "files outside tools/ not covered by SHA256SUMS: {unlisted:?}");
-    let missing: Vec<&&str> = listed.iter().filter(|f| !present.iter().any(|p| p == **f)).collect();
+    let unlisted: Vec<&String> = present
+        .iter()
+        .filter(|f| *f != "SHA256SUMS" && !f.starts_with("tools/") && !listed.contains(f.as_str()))
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "files outside tools/ not covered by SHA256SUMS: {unlisted:?}"
+    );
+    let missing: Vec<&&str> = listed
+        .iter()
+        .filter(|f| !present.iter().any(|p| p == **f))
+        .collect();
     assert!(missing.is_empty(), "listed but missing: {missing:?}");
 }
 
@@ -132,15 +157,27 @@ fn k3_t162_box_b_and_f1_lists() {
 
     let raw = gunzip(&o.bytes("T162/F1_box_all.jsonl.gz"));
     let s1 = o.json("T162/F1_summary.json");
-    assert_eq!(sha256_hex(&raw), s1["sha256_full_list_uncompressed"].as_str().unwrap());
+    assert_eq!(
+        sha256_hex(&raw),
+        s1["sha256_full_list_uncompressed"].as_str().unwrap()
+    );
     let rows = f1_box_all(&o);
     assert_eq!(rows.len(), 55_704);
     let row_keys: Vec<Key> = rows.iter().map(|(k, _)| k.clone()).collect();
-    assert_eq!(row_keys, boxb, "F1_box_all rows (sorted by key) = crate box B");
+    assert_eq!(
+        row_keys, boxb,
+        "F1_box_all rows (sorted by key) = crate box B"
+    );
 
     let u = key_set(&o, "T162/F1_uncovered_990.jsonl");
     assert_eq!(u.len(), 990);
-    assert_eq!(u, rows.iter().filter(|(_, g)| *g < 0).map(|(k, _)| k.clone()).collect());
+    assert_eq!(
+        u,
+        rows.iter()
+            .filter(|(_, g)| *g < 0)
+            .map(|(k, _)| k.clone())
+            .collect()
+    );
     assert_eq!(rows.iter().filter(|(_, g)| *g >= 0).count(), 54_714);
     assert!(rows.iter().all(|(_, g)| !UNQUALIFIED.contains(g)));
     assert!(rows.iter().all(|(_, g)| *g < 0 || (0..=2447).contains(g)));
@@ -199,14 +236,25 @@ fn unqualified_tables(o: &Oracle) -> (Vec<Value>, Vec<(i64, CaseDomain)>) {
         .map(|v| {
             let rec = RuleRecord {
                 chart: v["chart"].as_str().map(str::to_string),
-                fixed: v["fixed"].as_array().unwrap().iter().map(|x| x.as_i64()).collect(),
+                fixed: v["fixed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_i64())
+                    .collect(),
                 equations: serde_json::from_value(v["equations"].clone()).unwrap(),
                 exceptions: serde_json::from_value(v["exceptions_OR_of_AND"].clone()).unwrap(),
                 recenter: serde_json::from_value(v["recenter"].clone()).unwrap(),
                 ..Default::default()
             };
-            let opts = DomainOptions { recenter_bounds: true, ..Default::default() };
-            (v["gid"].as_i64().unwrap(), CaseDomain::from_rule_record(&rec, &frame, opts).unwrap())
+            let opts = DomainOptions {
+                recenter_bounds: true,
+                ..Default::default()
+            };
+            (
+                v["gid"].as_i64().unwrap(),
+                CaseDomain::from_rule_record(&rec, &frame, opts).unwrap(),
+            )
         })
         .collect();
     (neg, doms)
@@ -225,14 +273,27 @@ fn k3_t162_negctl_unqualified8_domains() {
     let boxb = t162_box_b();
     let u = key_set(&o, "T162/F1_uncovered_990.jsonl");
     let (neg, doms) = unqualified_tables(&o);
-    assert_eq!(neg.iter().map(|x| x["gid"].as_i64().unwrap()).collect::<Vec<_>>(), UNQUALIFIED);
+    assert_eq!(
+        neg.iter()
+            .map(|x| x["gid"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        UNQUALIFIED
+    );
     let mut newc: HashSet<Key> = HashSet::new();
     let mut per_rule = vec![];
     for (x, (gid, d)) in neg.iter().zip(&doms) {
         let dom: HashSet<&Key> = boxb.iter().filter(|k| d.applies(k).applies()).collect();
-        let unc: HashSet<Key> = dom.iter().filter(|k| u.contains(**k)).map(|k| (*k).clone()).collect();
+        let unc: HashSet<Key> = dom
+            .iter()
+            .filter(|k| u.contains(**k))
+            .map(|k| (*k).clone())
+            .collect();
         let want: HashSet<Key> = keys(&x["newly_covered_box_keys"]).into_iter().collect();
-        assert_eq!(dom.len() as i64, x["box_keys_in_domain"].as_i64().unwrap(), "gid {gid}: box keys in domain");
+        assert_eq!(
+            dom.len() as i64,
+            x["box_keys_in_domain"].as_i64().unwrap(),
+            "gid {gid}: box keys in domain"
+        );
         assert_eq!(unc, want, "gid {gid}: newly covered keys");
         per_rule.push((*gid, dom.len(), unc.len()));
         newc.extend(unc);
@@ -240,7 +301,16 @@ fn k3_t162_negctl_unqualified8_domains() {
     println!("k3 F1 negctl (gid, box keys in domain, uncovered among them): {per_rule:?}");
     assert_eq!(
         per_rule.iter().map(|&(g, _, n)| (g, n)).collect::<Vec<_>>(),
-        vec![(1603, 0), (1739, 0), (1740, 3), (1845, 1), (1851, 2), (1856, 0), (2102, 0), (2442, 15)]
+        vec![
+            (1603, 0),
+            (1739, 0),
+            (1740, 3),
+            (1845, 1),
+            (1851, 2),
+            (1856, 0),
+            (2102, 0),
+            (2442, 15)
+        ]
     );
     assert_eq!(newc.len(), 21);
     let mut lay: BTreeMap<(i64, i64), usize> = BTreeMap::new();
@@ -251,13 +321,19 @@ fn k3_t162_negctl_unqualified8_domains() {
     let u8: HashSet<Key> = key_set(&o, "T162/F1_uncovered_with_unqualified8.jsonl");
     assert_eq!(u8.len(), 969);
     assert_eq!(u8, u.difference(&newc).cloned().collect());
-    assert_eq!(o.json("T162/F1_summary.json")["uncovered_with_unqualified8"], 969);
+    assert_eq!(
+        o.json("T162/F1_summary.json")["uncovered_with_unqualified8"],
+        969
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ T162 F2
 
 fn face_of(k: &[i32]) -> (Vec<usize>, Vec<usize>) {
-    ((0..9).filter(|&i| k[i] >= 2).collect(), (9..20).filter(|&j| k[j] <= -1).collect())
+    (
+        (0..9).filter(|&i| k[i] >= 2).collect(),
+        (9..20).filter(|&j| k[j] <= -1).collect(),
+    )
 }
 
 fn cell_state(i: usize, v: i32) -> Value {
@@ -285,9 +361,15 @@ fn face_index(o: &Oracle) -> FaceIndex {
 
 fn in_generic_gap_cell(fidx: &FaceIndex, k: &[i32]) -> bool {
     let (sd, sn) = face_of(k);
-    let Some(f) = fidx.get(&(sd.clone(), sn.clone())) else { return false };
+    let Some(f) = fidx.get(&(sd.clone(), sn.clone())) else {
+        return false;
+    };
     let cell: Vec<Value> = sd.iter().chain(&sn).map(|&i| cell_state(i, k[i])).collect();
-    f["generic_gap_cells"].as_array().unwrap().iter().any(|c| c.as_array().unwrap() == &cell)
+    f["generic_gap_cells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c.as_array().unwrap() == &cell)
 }
 
 /// V25-V30 as DATA checks (the crate has no partition module yet; the face/cell arithmetic is in this test, the
@@ -304,14 +386,26 @@ fn k3_t162_f2_faces_and_locus_points_data() {
     assert_eq!(fidx.len(), 226);
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for f in fidx.values() {
-        *kinds.entry(f["kind"].as_str().unwrap().to_string()).or_default() += 1;
+        *kinds
+            .entry(f["kind"].as_str().unwrap().to_string())
+            .or_default() += 1;
     }
-    assert_eq!(kinds, [("generic".to_string(), 217), ("locus-only".to_string(), 9)].into());
+    assert_eq!(
+        kinds,
+        [("generic".to_string(), 217), ("locus-only".to_string(), 9)].into()
+    );
     let u = key_set(&o, "T162/F1_uncovered_990.jsonl");
     assert!(u.iter().all(|k| fidx.contains_key(&face_of(k))));
     let boxb = t162_box_b();
-    let g: Vec<&Key> = boxb.iter().filter(|k| in_generic_gap_cell(&fidx, k)).collect();
-    let g_cov: HashSet<Key> = g.iter().filter(|k| !u.contains(**k)).map(|k| (*k).clone()).collect();
+    let g: Vec<&Key> = boxb
+        .iter()
+        .filter(|k| in_generic_gap_cell(&fidx, k))
+        .collect();
+    let g_cov: HashSet<Key> = g
+        .iter()
+        .filter(|k| !u.contains(**k))
+        .map(|k| (*k).clone())
+        .collect();
     assert_eq!(g.len(), 972);
     assert_eq!(g.len() - g_cov.len(), 968);
     let s2 = o.json("T162/F2_summary.json");
@@ -321,13 +415,27 @@ fn k3_t162_f2_faces_and_locus_points_data() {
     let lpk: HashSet<Key> = lp.iter().map(|x| as_key(&x["key"])).collect();
     assert_eq!(lpk.len(), 37);
     assert!(lpk.is_subset(&u));
-    assert!(u.iter().filter(|k| !in_generic_gap_cell(&fidx, k)).all(|k| lpk.contains(k)));
-    assert_eq!(u.iter().filter(|k| !in_generic_gap_cell(&fidx, k)).count(), 22);
-    assert_eq!(lpk.iter().filter(|k| in_generic_gap_cell(&fidx, k)).count(), 15);
+    assert!(
+        u.iter()
+            .filter(|k| !in_generic_gap_cell(&fidx, k))
+            .all(|k| lpk.contains(k))
+    );
+    assert_eq!(
+        u.iter().filter(|k| !in_generic_gap_cell(&fidx, k)).count(),
+        22
+    );
+    assert_eq!(
+        lpk.iter().filter(|k| in_generic_gap_cell(&fidx, k)).count(),
+        15
+    );
     for x in &lp {
         let k = as_key(&x["key"]);
         let eq = Poly::parse(x["locus"].as_str().unwrap(), 20, false).unwrap();
-        assert!(eq.is_zero_at(&k).unwrap(), "locus equation {} at {k:?}", x["locus"]);
+        assert!(
+            eq.is_zero_at(&k).unwrap(),
+            "locus equation {} at {k:?}",
+            x["locus"]
+        );
         let sd: Vec<usize> = serde_json::from_value(x["face"]["Sd"].clone()).unwrap();
         let sn: Vec<usize> = serde_json::from_value(x["face"]["Sn"].clone()).unwrap();
         assert_eq!(face_of(&k), (sd, sn));
@@ -369,7 +477,10 @@ fn k3_t162_f3_comparator_pairs() {
         lower += want as usize;
         if kind == "bank_pair" {
             assert!(want);
-            assert_eq!(frame.in_chart_orthant(&r), x["rhs_top_sector"].as_bool().unwrap());
+            assert_eq!(
+                frame.in_chart_orthant(&r),
+                x["rhs_top_sector"].as_bool().unwrap()
+            );
             top_rhs += frame.in_chart_orthant(&r) as usize;
         } else {
             assert!(!want);
@@ -378,15 +489,28 @@ fn k3_t162_f3_comparator_pairs() {
     }
     assert_eq!(
         kinds,
-        [("bank_pair".to_string(), 1000), ("negctl_identical".to_string(), 30), ("negctl_swapped".to_string(), 400)]
-            .into()
+        [
+            ("bank_pair".to_string(), 1000),
+            ("negctl_identical".to_string(), 30),
+            ("negctl_swapped".to_string(), 400)
+        ]
+        .into()
     );
     assert_eq!((lower, top_rhs), (1000, 600));
     let s3 = o.json("T162/F3_summary.json");
     let a = &s3["all2448"];
-    assert_eq!((a["top"].as_i64(), a["top_lowerC"].as_i64()), (Some(380_314), Some(380_314)));
-    assert_eq!((a["sub"].as_i64(), a["sub_lowerC"].as_i64()), (Some(1_163_047), Some(1_163_047)));
-    assert_eq!((a["pts"].as_i64(), a["port_mismatch"].as_i64()), (Some(7341), Some(0)));
+    assert_eq!(
+        (a["top"].as_i64(), a["top_lowerC"].as_i64()),
+        (Some(380_314), Some(380_314))
+    );
+    assert_eq!(
+        (a["sub"].as_i64(), a["sub_lowerC"].as_i64()),
+        (Some(1_163_047), Some(1_163_047))
+    );
+    assert_eq!(
+        (a["pts"].as_i64(), a["port_mismatch"].as_i64()),
+        (Some(7341), Some(0))
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ T162 F4
@@ -406,9 +530,17 @@ fn k3_t162_f4_nearcorner_and_terminal_claim() {
     let nc = o.jsonl("T162/F4_nearcorner.jsonl");
     assert_eq!(nc.len(), 21);
     assert_eq!(nc.iter().filter(|x| x["claimed"] == "terminal").count(), 2);
-    assert_eq!(nc.iter().filter(|x| x["verified_by_us"] == true).count(), 16);
+    assert_eq!(
+        nc.iter().filter(|x| x["verified_by_us"] == true).count(),
+        16
+    );
     for x in &nc {
-        assert_eq!(x["box_gap"].as_bool().unwrap(), u.contains(&as_key(&x["key"])), "{}", x["key"]);
+        assert_eq!(
+            x["box_gap"].as_bool().unwrap(),
+            u.contains(&as_key(&x["key"])),
+            "{}",
+            x["key"]
+        );
     }
     assert_eq!(nc.iter().filter(|x| x["box_gap"] == true).count(), 16);
     let corner: Key = [vec![1; 9], vec![0; 11]].concat();
@@ -423,18 +555,42 @@ fn k3_t162_f4_nearcorner_and_terminal_claim() {
         k[i] = 2;
         want.insert(k);
     }
-    assert_eq!(nc.iter().map(|x| as_key(&x["key"])).collect::<HashSet<_>>(), want);
+    assert_eq!(
+        nc.iter().map(|x| as_key(&x["key"])).collect::<HashSet<_>>(),
+        want
+    );
     let s4 = o.json("T162/F4_summary.json");
-    let covered: HashSet<Key> = nc.iter().filter(|x| x["box_gap"] == false).map(|x| as_key(&x["key"])).collect();
-    assert_eq!(covered, keys(&s4["bank_covered_nearcorner"]).into_iter().collect());
+    let covered: HashSet<Key> = nc
+        .iter()
+        .filter(|x| x["box_gap"] == false)
+        .map(|x| as_key(&x["key"]))
+        .collect();
+    assert_eq!(
+        covered,
+        keys(&s4["bank_covered_nearcorner"]).into_iter().collect()
+    );
 
     let tt = o.json("T162/F4_terminals.json");
-    let tk: Vec<Key> = tt["terminals"].as_array().unwrap().iter().map(|t| as_key(&t["key"])).collect();
+    let tk: Vec<Key> = tt["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| as_key(&t["key"]))
+        .collect();
     let mut spoke = corner.clone();
     spoke[0] = 2;
     assert_eq!(tk, vec![corner, spoke]);
-    assert!(tk.iter().all(|k| u.contains(k)), "both claimed terminals are box-B gaps");
-    assert!(tt["terminals"].as_array().unwrap().iter().all(|t| t["claim_of"].as_str().unwrap().contains("provisional")));
+    assert!(
+        tk.iter().all(|k| u.contains(k)),
+        "both claimed terminals are box-B gaps"
+    );
+    assert!(
+        tt["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["claim_of"].as_str().unwrap().contains("provisional"))
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ T178B F5
@@ -456,7 +612,8 @@ fn k3_t178b_box_and_closure_list_data() {
     assert_eq!(boxk.len(), 286_066);
     let rows = f5_closure_all(&o);
     assert_eq!(rows.len(), 330_287);
-    let ck: HashMap<&Key, (i64, i64, bool)> = rows.iter().map(|(k, p, i, b)| (k, (*p, *i, *b))).collect();
+    let ck: HashMap<&Key, (i64, i64, bool)> =
+        rows.iter().map(|(k, p, i, b)| (k, (*p, *i, *b))).collect();
     assert_eq!(ck.len(), 330_287);
     assert!(rows.iter().all(|(k, _, _, _)| frame.in_chart_orthant(k)));
     assert!(rows.iter().all(|(k, _, _, b)| *b == in_box(k)));
@@ -465,7 +622,13 @@ fn k3_t178b_box_and_closure_list_data() {
 
     let u753: HashSet<Key> = key_set(&o, "T178B/F5_closure_uncovered_753.jsonl");
     assert_eq!(u753.len(), 753);
-    assert_eq!(u753, rows.iter().filter(|r| r.1 < 0).map(|r| r.0.clone()).collect());
+    assert_eq!(
+        u753,
+        rows.iter()
+            .filter(|r| r.1 < 0)
+            .map(|r| r.0.clone())
+            .collect()
+    );
     for x in o.jsonl("T178B/F5_closure_uncovered_753.jsonl") {
         assert_eq!(x["in_box"].as_bool().unwrap(), in_box(&as_key(&x["key"])));
     }
@@ -488,7 +651,11 @@ fn k3_t178b_box_and_closure_list_data() {
         assert_eq!(s5["box_wins_per_piece"][name], wins[i], "wins of {name}");
     }
     assert_eq!(wins.iter().sum::<usize>(), 285_657);
-    assert_eq!((wins[36], wins[2], wins[37]), (248_858, 10_160, 0), "README: R0, rgq-g0-10, R0_try1");
+    assert_eq!(
+        (wins[36], wins[2], wins[37]),
+        (248_858, 10_160, 0),
+        "README: R0, rgq-g0-10, R0_try1"
+    );
     assert_eq!(s5["closure_keys"], 330_287);
     assert_eq!(s5["closure_uncovered"], 753);
 
@@ -498,7 +665,13 @@ fn k3_t178b_box_and_closure_list_data() {
         let k = as_key(&x["key"]);
         let (p, i, b) = ck[&k];
         assert!(b);
-        assert_eq!((p, i), (x["piece_index"].as_i64().unwrap(), x["case_i"].as_i64().unwrap()));
+        assert_eq!(
+            (p, i),
+            (
+                x["piece_index"].as_i64().unwrap(),
+                x["case_i"].as_i64().unwrap()
+            )
+        );
         if p >= 0 {
             assert_eq!(x["piece"].as_str().unwrap(), pieces[p as usize]);
         }
@@ -520,10 +693,17 @@ fn k3_t178b_f5_comparator_and_successors() {
     let fo = o.json("T178B/F5_frame_and_order.json");
     let prio: Vec<usize> = serde_json::from_value(fo["coordinate_priority"].clone()).unwrap();
     let hdr_prio: Vec<usize> =
-        serde_json::from_value(h["t178B_table"]["node_order"]["coordinate_priority"].clone()).unwrap();
+        serde_json::from_value(h["t178B_table"]["node_order"]["coordinate_priority"].clone())
+            .unwrap();
     assert_eq!(prio, hdr_prio);
-    assert_eq!(prio, [6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19]);
-    let ident = NodeComparator::from_descriptor(rustred_order::OrderDescriptor::spired_uncut(20)).unwrap();
+    assert_eq!(
+        prio,
+        [
+            6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19
+        ]
+    );
+    let ident =
+        NodeComparator::from_descriptor(rustred_order::OrderDescriptor::spired_uncut(20)).unwrap();
     let p5 = o.jsonl("T178B/F5_comparator_pairs.jsonl");
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for x in &p5 {
@@ -532,7 +712,11 @@ fn k3_t178b_f5_comparator_and_successors() {
         let want = x["expect_lower_M1"].as_bool().unwrap();
         assert_eq!(c.lower(&r, &t), want, "{kind} {t:?} -> {r:?}");
         assert_eq!(x["lowerM1"], want);
-        assert_eq!(ident.lower(&r, &t), x["lower_identity_order"].as_bool().unwrap(), "identity {kind} {t:?}");
+        assert_eq!(
+            ident.lower(&r, &t),
+            x["lower_identity_order"].as_bool().unwrap(),
+            "identity {kind} {t:?}"
+        );
         match kind.as_str() {
             "closure_edge" => assert!(want),
             "priority_discriminator" => assert!(want && !ident.lower(&r, &t)),
@@ -567,7 +751,10 @@ fn k3_t178b_f5_comparator_and_successors() {
             n_edges += 1;
         }
         let unc: HashSet<Key> = keys(&x["uncovered_successors"]).into_iter().collect();
-        assert_eq!(unc, succ.iter().filter(|s| u753.contains(*s)).cloned().collect());
+        assert_eq!(
+            unc,
+            succ.iter().filter(|s| u753.contains(*s)).cloned().collect()
+        );
     }
     println!("k3 F5: {n_edges} sampled successor edges, all strictly lower under order B");
 }
@@ -586,19 +773,36 @@ fn k3_t178b_empty_domain_rules() {
     let mut found = vec![];
     for x in em {
         let line = serde_json::to_string(&x["case_record"]).unwrap();
-        let mut rd = RecordReader::new(std::io::Cursor::new(line.into_bytes()), ReadOptions::default());
-        let Some(Ok(TableLine::Rule(rec))) = rd.next() else { panic!("case record not read as a rule") };
+        let mut rd = RecordReader::new(
+            std::io::Cursor::new(line.into_bytes()),
+            ReadOptions::default(),
+        );
+        let Some(Ok(TableLine::Rule(rec))) = rd.next() else {
+            panic!("case record not read as a rule")
+        };
         let frame = NodeFrame::from_mask(rec.chart.as_deref().unwrap()).unwrap();
         let d = CaseDomain::from_rule_record(&rec, &frame, DomainOptions::default()).unwrap();
         let free: Vec<usize> = (0..20).filter(|s| rec.fixed[*s].is_none()).collect();
-        assert_eq!(free, serde_json::from_value::<Vec<usize>>(x["free_slots"].clone()).unwrap());
+        assert_eq!(
+            free,
+            serde_json::from_value::<Vec<usize>>(x["free_slots"].clone()).unwrap()
+        );
         let mut no_exc_rec = (*rec).clone();
         no_exc_rec.exceptions.clear();
-        let d0 = CaseDomain::from_rule_record(&no_exc_rec, &frame, DomainOptions::default()).unwrap();
+        let d0 =
+            CaseDomain::from_rule_record(&no_exc_rec, &frame, DomainOptions::default()).unwrap();
         let (mut n, mut n0) = (0usize, 0usize);
         let mut idx = vec![0usize; free.len()];
-        let ranges: Vec<Vec<i32>> =
-            free.iter().map(|&s| if s < 10 { (1..=12).collect() } else { (-12..=0).collect() }).collect();
+        let ranges: Vec<Vec<i32>> = free
+            .iter()
+            .map(|&s| {
+                if s < 10 {
+                    (1..=12).collect()
+                } else {
+                    (-12..=0).collect()
+                }
+            })
+            .collect();
         'outer: loop {
             let mut k: Key = rec.fixed.iter().map(|f| f.unwrap_or(0) as i32).collect();
             for (j, &s) in free.iter().enumerate() {
@@ -615,12 +819,26 @@ fn k3_t178b_empty_domain_rules() {
             }
             break;
         }
-        assert_eq!(n, 0, "{} case {}: domain not empty", x["piece"], x["case_i"]);
-        assert!(n0 > 0, "{} case {}: positive control found no point", x["piece"], x["case_i"]);
+        assert_eq!(
+            n, 0,
+            "{} case {}: domain not empty",
+            x["piece"], x["case_i"]
+        );
+        assert!(
+            n0 > 0,
+            "{} case {}: positive control found no point",
+            x["piece"],
+            x["case_i"]
+        );
         found.push(n0);
     }
-    assert_eq!(o.json("T178B/F5_summary.json")["empty_domain_points_found"], json!([0, 0, 0, 0, 0]));
-    println!("k3 F5 empty domains: 0 points each; without exceptions {found:?} points in the window");
+    assert_eq!(
+        o.json("T178B/F5_summary.json")["empty_domain_points_found"],
+        json!([0, 0, 0, 0, 0])
+    );
+    println!(
+        "k3 F5 empty domains: 0 points each; without exceptions {found:?} points in the window"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ span (F6) data
@@ -635,7 +853,13 @@ fn k3_f6_span_cases_data_and_record_hashes() {
     let o = oracle_or_skip!();
     let sp = o.jsonl("span/F6_span_cases.jsonl");
     assert_eq!(sp.len(), 11);
-    assert_eq!(sp.iter().map(|x| x["id"].as_str().unwrap()).collect::<HashSet<_>>().len(), 11);
+    assert_eq!(
+        sp.iter()
+            .map(|x| x["id"].as_str().unwrap())
+            .collect::<HashSet<_>>()
+            .len(),
+        11
+    );
     let pts = |r: &Value| -> Vec<Value> {
         let mut v = r["C2"].as_array().cloned().unwrap_or_default();
         v.extend(r["C5"].as_array().cloned().unwrap_or_default());
@@ -647,23 +871,39 @@ fn k3_f6_span_cases_data_and_record_hashes() {
         for r in x["clean"].as_array().unwrap() {
             assert_eq!(r["status"], "done");
             assert_eq!(r["C1"]["verdict"], "pass");
-            assert!(pts(r).iter().all(|p| good.contains(&p["verdict"].as_str().unwrap())));
+            assert!(
+                pts(r)
+                    .iter()
+                    .all(|p| good.contains(&p["verdict"].as_str().unwrap()))
+            );
             assert!(r["C1_int"].is_null() || r["C1_int"]["verdict"] == "covered_regular");
         }
         let ctl = &x["control"]["result"];
         assert_eq!(ctl["C1"]["verdict"], "fail");
         assert!(pts(ctl).iter().all(|p| p["verdict"] != "covered_regular"));
-        ncov += pts(&x["clean"][0]).iter().filter(|p| p["verdict"] == "covered_regular").count();
-        nfail += pts(ctl).iter().filter(|p| p["verdict"] == "span_fail").count();
+        ncov += pts(&x["clean"][0])
+            .iter()
+            .filter(|p| p["verdict"] == "covered_regular")
+            .count();
+        nfail += pts(ctl)
+            .iter()
+            .filter(|p| p["verdict"] == "span_fail")
+            .count();
         let want = x["line_sha256"].as_str().unwrap();
         if let Some(rel) = x["inline_record"].as_str() {
-            assert_eq!(sha256_hex(&o.bytes(&format!("span/{rel}"))), want, "{} inline record", x["id"]);
+            assert_eq!(
+                sha256_hex(&o.bytes(&format!("span/{rel}"))),
+                want,
+                "{} inline record",
+                x["id"]
+            );
             inline += 1;
         } else {
             let p = std::path::Path::new(HO).join(x["file"].as_str().unwrap());
             match std::fs::File::open(&p) {
                 Ok(mut f) => {
-                    f.seek(SeekFrom::Start(x["byte_offset"].as_u64().unwrap())).unwrap();
+                    f.seek(SeekFrom::Start(x["byte_offset"].as_u64().unwrap()))
+                        .unwrap();
                     let mut buf = vec![0u8; x["byte_len"].as_u64().unwrap() as usize];
                     f.read_exact(&mut buf).unwrap();
                     assert_eq!(sha256_hex(&buf), want, "{} source line at offset", x["id"]);
@@ -678,7 +918,9 @@ fn k3_f6_span_cases_data_and_record_hashes() {
     }
     assert_eq!((ncov, nfail), (58, 58));
     assert_eq!(inline, 6);
-    println!("k3 F6: 11 cases, 58/58 census points, {inline} inline + {source} source record hashes ({skipped} skipped)");
+    println!(
+        "k3 F6: 11 cases, 58/58 census points, {inline} inline + {source} source record hashes ({skipped} skipped)"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ dispatch (samples)
@@ -692,7 +934,9 @@ fn k3_f6_span_cases_data_and_record_hashes() {
 #[test]
 fn k3_t162_dispatch_samples() {
     let o = oracle_or_skip!();
-    let Some(table) = t162_bank_table() else { return };
+    let Some(table) = t162_bank_table() else {
+        return;
+    };
     let disp = Dispatcher::new(vec![table], vec![0]).unwrap();
     let gid = |k: &[i32]| match disp.first_match(k) {
         Dispatch::Covered(r) => r.label,
@@ -700,13 +944,22 @@ fn k3_t162_dispatch_samples() {
         d => panic!("undecided at {k:?}: {d:?}"),
     };
     for x in o.jsonl("T162/F1_covered_sample2000.jsonl") {
-        assert_eq!(gid(&as_key(&x["key"])), x["first_gid"].as_i64().unwrap(), "{}", x["key"]);
+        assert_eq!(
+            gid(&as_key(&x["key"])),
+            x["first_gid"].as_i64().unwrap(),
+            "{}",
+            x["key"]
+        );
     }
     let u = key_set(&o, "T162/F1_uncovered_990.jsonl");
     assert!(u.iter().all(|k| gid(k) == -1));
     for x in o.jsonl("T162/F4_nearcorner.jsonl") {
         let k = as_key(&x["key"]);
-        assert_eq!(gid(&k), x["bank_first_gid"].as_i64().unwrap(), "near-corner {k:?}");
+        assert_eq!(
+            gid(&k),
+            x["bank_first_gid"].as_i64().unwrap(),
+            "near-corner {k:?}"
+        );
         assert_eq!(gid(&k) < 0, x["box_gap"].as_bool().unwrap());
     }
     for k in keys(&o.json("T162/F2_summary.json")["of_which_covered"]) {
@@ -743,10 +996,19 @@ fn winner(d: &Dispatcher, k: &[i32]) -> (i64, i64) {
 #[test]
 fn k3_t178b_dispatch_samples() {
     let o = oracle_or_skip!();
-    let Some((names, disp)) = t178_dispatcher(&o) else { return };
+    let Some((names, disp)) = t178_dispatcher(&o) else {
+        return;
+    };
     for x in o.jsonl("T178B/F5_box_firstmatch_sample3000.jsonl") {
         let k = as_key(&x["key"]);
-        assert_eq!(winner(&disp, &k), (x["piece_index"].as_i64().unwrap(), x["case_i"].as_i64().unwrap()), "{k:?}");
+        assert_eq!(
+            winner(&disp, &k),
+            (
+                x["piece_index"].as_i64().unwrap(),
+                x["case_i"].as_i64().unwrap()
+            ),
+            "{k:?}"
+        );
     }
     for x in o.jsonl("T178B/F5_closure_uncovered_753.jsonl") {
         assert_eq!(winner(&disp, &as_key(&x["key"])), (-1, -1));
@@ -754,15 +1016,32 @@ fn k3_t178b_dispatch_samples() {
     for x in o.jsonl("T178B/F5_closure_successors_sample300.jsonl") {
         let (p, i) = winner(&disp, &as_key(&x["key"]));
         assert!(p >= 0);
-        assert_eq!((names[p as usize].as_str(), i), (x["piece"].as_str().unwrap(), x["case_i"].as_i64().unwrap()));
+        assert_eq!(
+            (names[p as usize].as_str(), i),
+            (x["piece"].as_str().unwrap(), x["case_i"].as_i64().unwrap())
+        );
     }
-    for x in o.json("T178B/F5_empty_domain_rules.json").as_array().unwrap() {
+    for x in o
+        .json("T178B/F5_empty_domain_rules.json")
+        .as_array()
+        .unwrap()
+    {
         let t: &Table = &disp.tables()[x["piece_index"].as_u64().unwrap() as usize];
-        let pos = t.labels.iter().position(|&l| l == x["case_i"].as_i64().unwrap()).expect("record in the export");
+        let pos = t
+            .labels
+            .iter()
+            .position(|&l| l == x["case_i"].as_i64().unwrap())
+            .expect("record in the export");
         let line = serde_json::to_string(&x["case_record"]).unwrap();
-        let mut rd = RecordReader::new(std::io::Cursor::new(line.into_bytes()), ReadOptions::default());
-        let Some(Ok(TableLine::Rule(rec))) = rd.next() else { panic!() };
-        let d = CaseDomain::from_rule_record(&rec, &t178_frame(), DomainOptions::default()).unwrap();
+        let mut rd = RecordReader::new(
+            std::io::Cursor::new(line.into_bytes()),
+            ReadOptions::default(),
+        );
+        let Some(Ok(TableLine::Rule(rec))) = rd.next() else {
+            panic!()
+        };
+        let d =
+            CaseDomain::from_rule_record(&rec, &t178_frame(), DomainOptions::default()).unwrap();
         assert_eq!(t.domains[pos].canonical_form(), d.canonical_form());
     }
 }
@@ -778,22 +1057,34 @@ fn k3_t178b_dispatch_samples() {
 #[ignore = "full box B dispatch (55,704 keys); run with --release -- --ignored"]
 fn k3_t162_full_box_dispatch() {
     let o = oracle_or_skip!();
-    let Some(table) = t162_bank_table() else { return };
+    let Some(table) = t162_bank_table() else {
+        return;
+    };
     let frame = t162_frame();
     let rows = f1_box_all(&o);
     let boxb: Vec<Key> = rows.iter().map(|r| r.0.clone()).collect();
     assert_eq!(boxb, t162_box_b());
     let disp = Dispatcher::new(vec![table.clone()], vec![0]).unwrap();
     let rep = disp.batch(&boxb, 4);
-    println!("k3 T162 full: covered {} uncovered {} undecided {} in {:.2}s", rep.covered, rep.uncovered, rep.undecided, rep.seconds);
-    assert_eq!((rep.covered, rep.uncovered, rep.undecided), (54_714, 990, 0));
+    println!(
+        "k3 T162 full: covered {} uncovered {} undecided {} in {:.2}s",
+        rep.covered, rep.uncovered, rep.undecided, rep.seconds
+    );
+    assert_eq!(
+        (rep.covered, rep.uncovered, rep.undecided),
+        (54_714, 990, 0)
+    );
     let mut mism = 0;
     for ((_, g), r) in rows.iter().zip(&rep.results) {
         mism += (r.winner().map_or(-1, |w| w.label) != *g) as usize;
     }
     assert_eq!(mism, 0, "first_gid mismatches");
-    let mine: HashSet<Key> =
-        boxb.iter().zip(&rep.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
+    let mine: HashSet<Key> = boxb
+        .iter()
+        .zip(&rep.results)
+        .filter(|(_, r)| r.winner().is_none())
+        .map(|(k, _)| k.clone())
+        .collect();
     assert_eq!(mine, key_set(&o, "T162/F1_uncovered_990.jsonl"));
     let mut lu: BTreeMap<(i64, i64), usize> = BTreeMap::new();
     for k in &mine {
@@ -810,10 +1101,17 @@ fn k3_t162_full_box_dispatch() {
     }
     let disp8 = Dispatcher::new(vec![table, bad], vec![0, 1]).unwrap();
     let rep8 = disp8.batch(&boxb, 4);
-    let mine8: HashSet<Key> =
-        boxb.iter().zip(&rep8.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
+    let mine8: HashSet<Key> = boxb
+        .iter()
+        .zip(&rep8.results)
+        .filter(|(_, r)| r.winner().is_none())
+        .map(|(k, _)| k.clone())
+        .collect();
     assert_eq!((rep8.uncovered, rep8.wins[1]), (969, 21));
-    assert_eq!(mine8, key_set(&o, "T162/F1_uncovered_with_unqualified8.jsonl"));
+    assert_eq!(
+        mine8,
+        key_set(&o, "T162/F1_uncovered_with_unqualified8.jsonl")
+    );
 
     let fidx = face_index(&o);
     let gcov: HashSet<Key> = boxb
@@ -822,10 +1120,23 @@ fn k3_t162_full_box_dispatch() {
         .filter(|(k, r)| in_generic_gap_cell(&fidx, k) && r.winner().is_some())
         .map(|(k, _)| k.clone())
         .collect();
-    assert_eq!(boxb.iter().filter(|k| in_generic_gap_cell(&fidx, k)).count(), 972);
-    assert_eq!(gcov, keys(&o.json("T162/F2_summary.json")["of_which_covered"]).into_iter().collect());
+    assert_eq!(
+        boxb.iter()
+            .filter(|k| in_generic_gap_cell(&fidx, k))
+            .count(),
+        972
+    );
+    assert_eq!(
+        gcov,
+        keys(&o.json("T162/F2_summary.json")["of_which_covered"])
+            .into_iter()
+            .collect()
+    );
     for x in o.jsonl("T162/F4_nearcorner.jsonl") {
-        assert_eq!(x["box_gap"].as_bool().unwrap(), mine.contains(&as_key(&x["key"])));
+        assert_eq!(
+            x["box_gap"].as_bool().unwrap(),
+            mine.contains(&as_key(&x["key"]))
+        );
     }
 }
 
@@ -837,11 +1148,16 @@ fn k3_t162_full_box_dispatch() {
 #[ignore = "full T178B first match on 330,287 closure keys; run with --release -- --ignored"]
 fn k3_t178b_full_closure_first_match() {
     let o = oracle_or_skip!();
-    let Some((names, disp)) = t178_dispatcher(&o) else { return };
+    let Some((names, disp)) = t178_dispatcher(&o) else {
+        return;
+    };
     let rows = f5_closure_all(&o);
     let ks: Vec<Key> = rows.iter().map(|r| r.0.clone()).collect();
     let rep = disp.batch(&ks, 4);
-    println!("k3 T178B closure first match: covered {} uncovered {} in {:.2}s", rep.covered, rep.uncovered, rep.seconds);
+    println!(
+        "k3 T178B closure first match: covered {} uncovered {} in {:.2}s",
+        rep.covered, rep.uncovered, rep.seconds
+    );
     assert_eq!((rep.uncovered, rep.undecided), (753, 0));
     let mut mism = 0;
     let mut wins = vec![0usize; 38];
@@ -881,7 +1197,9 @@ fn placeholder(what: &str) {
 #[test]
 #[ignore = "needs module partition (gap faces from case domains)"]
 fn k3_f2_partition_reproduces_226_faces() {
-    placeholder("partition module: compare with T162/F2_faces_226.jsonl, F2_loci_14.json, F2_summary.json");
+    placeholder(
+        "partition module: compare with T162/F2_faces_226.jsonl, F2_loci_14.json, F2_summary.json",
+    );
 }
 
 /// Placeholder (F5 assertion 3): forward closure of the T178B box under first match (top-sector RHS keys followed,
@@ -893,7 +1211,9 @@ fn k3_f2_partition_reproduces_226_faces() {
 #[test]
 #[ignore = "needs module closure (forward closure with RHS keys)"]
 fn k3_f5_forward_closure() {
-    placeholder("closure module: compare with T178B/F5_closure_all.jsonl.gz, F5_closure_successors_sample300.jsonl, F5_summary.json");
+    placeholder(
+        "closure module: compare with T178B/F5_closure_all.jsonl.gz, F5_closure_successors_sample300.jsonl, F5_summary.json",
+    );
 }
 
 /// Placeholder (F6): the span/acceptance check on the 11 cases of `span/F6_span_cases.jsonl` (records inline in

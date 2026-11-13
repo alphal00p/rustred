@@ -5,7 +5,9 @@ use rustred_campaign_core::order::NodeComparator;
 use rustred_order::{CoordinateGroups, Direction, OrderDescriptor};
 
 /// T178 order B coordinate priority (h13b `common.py` PRIO; requirement R7).
-pub const T178_PRIO: [usize; 20] = [6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19];
+pub const T178_PRIO: [usize; 20] = [
+    6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19,
+];
 
 /// The eleven comparator readings of the checker's d1.py (h13b `common.py` READINGS), in its insertion order, as
 /// descriptors. They are exact on TOP-SECTOR keys (every line active, every numerator inactive):
@@ -33,10 +35,20 @@ pub fn t178_readings() -> Vec<(&'static str, NodeComparator)> {
     specs
         .into_iter()
         .map(|(name, order, dl, dn)| {
-            let dir = |s: i32| if s > 0 { Direction::Descending } else { Direction::Ascending };
+            let dir = |s: i32| {
+                if s > 0 {
+                    Direction::Descending
+                } else {
+                    Direction::Ascending
+                }
+            };
             let mut d = OrderDescriptor::spired_uncut(20);
             // every order list is a block of the 10 lines and a block of the 10 numerators
-            d.coordinate_groups = if order[0] < 10 { CoordinateGroups::ActiveFirst } else { CoordinateGroups::InactiveFirst };
+            d.coordinate_groups = if order[0] < 10 {
+                CoordinateGroups::ActiveFirst
+            } else {
+                CoordinateGroups::InactiveFirst
+            };
             d.coordinate_priority = order;
             d.active_direction = dir(dl);
             d.inactive_direction = dir(dn);
@@ -49,7 +61,9 @@ pub fn t178_readings() -> Vec<(&'static str, NodeComparator)> {
 pub fn t162_o2() -> NodeComparator {
     let mut d = OrderDescriptor::spired_uncut(20);
     d.coordinate_groups = CoordinateGroups::InactiveFirst;
-    d.coordinate_priority = vec![9, 10, 11, 12, 14, 16, 15, 13, 17, 19, 18, 0, 1, 3, 2, 4, 7, 5, 6, 8];
+    d.coordinate_priority = vec![
+        9, 10, 11, 12, 14, 16, 15, 13, 17, 19, 18, 0, 1, 3, 2, 4, 7, 5, 6, 8,
+    ];
     d.active_direction = Direction::Ascending;
     d.inactive_direction = Direction::Ascending;
     NodeComparator::from_descriptor(d).unwrap()
@@ -66,7 +80,11 @@ pub struct PairLine {
 }
 
 pub fn parse_pairs(text: &str) -> Vec<PairLine> {
-    let keys = |s: &str| s.split(',').map(|x| x.parse::<i32>().unwrap()).collect::<Vec<_>>();
+    let keys = |s: &str| {
+        s.split(',')
+            .map(|x| x.parse::<i32>().unwrap())
+            .collect::<Vec<_>>()
+    };
     text.lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .map(|l| {

@@ -15,11 +15,25 @@ fn p(s: &str, n: usize) -> Poly {
 fn parser_forms_found_in_records() {
     let n = 20;
     // "n0+n11+1", "-2+n0", atoms "n7-(2)", "(0)-n9", cached "0+1*n15", "1-1*n1", equation "a=b".
-    let k: Vec<i32> = (0..20).map(|i| if i < 9 { 1 + (i % 3) } else { -(i % 4) }).collect();
-    assert_eq!(p("n0+n11+1", n).eval(&k).unwrap(), Value::Small((k[0] + k[11] + 1) as i128));
-    assert_eq!(p("-2+n0", n).eval(&k).unwrap(), Value::Small((k[0] - 2) as i128));
-    assert_eq!(p("n7-(2)", n).eval(&k).unwrap(), Value::Small((k[7] - 2) as i128));
-    assert_eq!(p("(0)-n9", n).eval(&k).unwrap(), Value::Small(-k[9] as i128));
+    let k: Vec<i32> = (0..20)
+        .map(|i| if i < 9 { 1 + (i % 3) } else { -(i % 4) })
+        .collect();
+    assert_eq!(
+        p("n0+n11+1", n).eval(&k).unwrap(),
+        Value::Small((k[0] + k[11] + 1) as i128)
+    );
+    assert_eq!(
+        p("-2+n0", n).eval(&k).unwrap(),
+        Value::Small((k[0] - 2) as i128)
+    );
+    assert_eq!(
+        p("n7-(2)", n).eval(&k).unwrap(),
+        Value::Small((k[7] - 2) as i128)
+    );
+    assert_eq!(
+        p("(0)-n9", n).eval(&k).unwrap(),
+        Value::Small(-k[9] as i128)
+    );
     assert_eq!(p("0+1*n15", n), p("n15", n));
     assert_eq!(p("1-1*n1", n), p("-n1+1", n));
     assert_eq!(p("n3+n8=n12+3", n), p("n3+n8-n12-3", n));
@@ -32,11 +46,23 @@ fn parser_forms_found_in_records() {
     assert_eq!(Poly::parse_d_free(&q.to_string(), n).unwrap(), q);
     // errors
     assert_eq!(Poly::parse_d_free("n0+d", n), Err(PolyError::ContainsD));
-    assert!(matches!(Poly::parse_d_free("n20", n), Err(PolyError::VariableOutOfRange { var: 20, arity: 20 })));
+    assert!(matches!(
+        Poly::parse_d_free("n20", n),
+        Err(PolyError::VariableOutOfRange { var: 20, arity: 20 })
+    ));
     assert_eq!(Poly::parse_d_free("n0/(n1-1)", n), Err(PolyError::Division));
-    assert!(matches!(Poly::parse_d_free("n0+", n), Err(PolyError::Syntax { .. })));
-    assert!(matches!(Poly::parse_d_free("n0 n1", n), Err(PolyError::Syntax { .. })));
-    assert_eq!(Poly::parse_d_free("999999999999999999999999999999999999999999", n), Err(PolyError::CoefficientOverflow));
+    assert!(matches!(
+        Poly::parse_d_free("n0+", n),
+        Err(PolyError::Syntax { .. })
+    ));
+    assert!(matches!(
+        Poly::parse_d_free("n0 n1", n),
+        Err(PolyError::Syntax { .. })
+    ));
+    assert_eq!(
+        Poly::parse_d_free("999999999999999999999999999999999999999999", n),
+        Err(PolyError::CoefficientOverflow)
+    );
     // d where allowed
     let pd = Poly::parse("-2*n3-n0+d", n, true).unwrap();
     assert!(pd.has_d());
@@ -67,10 +93,16 @@ fn overflow_path_is_exact_and_explicit() {
 fn key_classes_and_sectors() {
     let f = NodeFrame::lines_first(5, 3);
     assert_eq!(f.classify(&[1, 2, 1, 0, -1]).unwrap(), KeyClass::Chart);
-    assert_eq!(f.classify(&[1, 2, 1, 1, 0]).unwrap(), KeyClass::TopPositiveNumerator { slots: vec![3] });
+    assert_eq!(
+        f.classify(&[1, 2, 1, 1, 0]).unwrap(),
+        KeyClass::TopPositiveNumerator { slots: vec![3] }
+    );
     assert_eq!(
         f.classify(&[1, 0, 1, 2, 0]).unwrap(),
-        KeyClass::Subsector { removed_lines: vec![1], positive_numerators: vec![3] }
+        KeyClass::Subsector {
+            removed_lines: vec![1],
+            positive_numerators: vec![3]
+        }
     );
     assert!(f.is_top_sector(&[1, 1, 1, 3, 0]));
     assert!(!f.in_chart_orthant(&[1, 1, 1, 3, 0]));
@@ -84,7 +116,12 @@ fn key_classes_and_sectors() {
     let m = NodeFrame::from_mask("11111111110000000000").unwrap();
     assert_eq!((m.arity(), m.n_lines()), (20, 10));
     assert!(NodeFrame::from_mask("11x").is_err());
-    let s = m.clone().with_power_shifts(vec!["0".into(); 19].into_iter().chain(["1/2".to_string()]).collect());
+    let s = m.clone().with_power_shifts(
+        vec!["0".into(); 19]
+            .into_iter()
+            .chain(["1/2".to_string()])
+            .collect(),
+    );
     assert!(s.require_integer_only().is_err());
     assert!(m.require_integer_only().is_ok());
     assert_eq!(parse_key("I(1,2,-3)").unwrap(), vec![1, 2, -3]);
@@ -132,14 +169,25 @@ fn arities_5_9_14_20() {
         let mut k5 = k.clone();
         k5[2 % lines] = 0; // removed line (slot 2 for lines >= 3)
         assert!(matches!(d.applies(&k5), Verdict::ChartMismatch { .. }));
-        assert_eq!(d.applies(&k[..n - 1]), Verdict::NotInCase(NotInCase::Arity { expected: n, got: n - 1 }));
+        assert_eq!(
+            d.applies(&k[..n - 1]),
+            Verdict::NotInCase(NotInCase::Arity {
+                expected: n,
+                got: n - 1
+            })
+        );
     }
 }
 
 const RULE_LINE: &str = r#"{"type":"rule","chart":"11111111110000000000","index":4,"case":"Coordinate(...)","fixed":[null,null,null,1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0],"equations":["n0=n1+1"],"target":"I(n0,n1,n2,1,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15,n16,n17,n18,0)","rhs":[["I(n0,n1,n2,1,n4+1,n5,n6,n7-1,n8,n9,n10,n11,n12,n13,n14-1,n15,n16,n17,n18,0)","-n4/(-1+n7)"]],"exceptions":[["-1+n7"],["n18","n17"]],"dispatch":"Partition","witness_loci":["1-n7"],"recenter":[0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,0,1,0],"guard_version":2}"#;
 
 fn rule_from(line: &str) -> rustred_campaign_core::record::RuleRecord {
-    let mut rd = RecordReader::new(line.as_bytes(), ReadOptions { rhs: RhsMode::KeysOnly });
+    let mut rd = RecordReader::new(
+        line.as_bytes(),
+        ReadOptions {
+            rhs: RhsMode::KeysOnly,
+        },
+    );
     match rd.next().unwrap().unwrap() {
         TableLine::Rule(r) => *r,
         o => panic!("{o:?}"),
@@ -175,23 +223,42 @@ fn negative_controls_change_verdicts() {
     // shifted fixed slot: n3 fixed to 2 instead of 1
     let mut shifted = d.clone();
     shifted.fixed[3] = Some(2);
-    assert_eq!(shifted.applies(&k), Verdict::NotInCase(NotInCase::FixedSlot { slot: 3, fixed: 2, got: 1 }));
+    assert_eq!(
+        shifted.applies(&k),
+        Verdict::NotInCase(NotInCase::FixedSlot {
+            slot: 3,
+            fixed: 2,
+            got: 1
+        })
+    );
     // the record's own exceptions and witness locus
     let mut ke = k.clone();
     ke[7] = 1;
     assert_eq!(d.applies(&ke), Verdict::OnException { branch: 0 });
     let mut no_exc = d.clone();
     no_exc.exceptions.clear();
-    assert_eq!(no_exc.applies(&ke), Verdict::OnPole { kind: PoleKind::Witness, index: 0 });
+    assert_eq!(
+        no_exc.applies(&ke),
+        Verdict::OnPole {
+            kind: PoleKind::Witness,
+            index: 0
+        }
+    );
     // recenter bounds (opt-in): n7 >= 2, n18 <= -1
-    let o = DomainOptions { recenter_bounds: true, ..Default::default() };
+    let o = DomainOptions {
+        recenter_bounds: true,
+        ..Default::default()
+    };
     let dr = CaseDomain::from_rule_record(&r, &frame, o).unwrap();
     assert_eq!(dr.applies(&k), Verdict::Applies);
     let mut kr = k.clone();
     kr[18] = 0;
     kr[17] = -1;
     assert_eq!(d.applies(&kr), Verdict::Applies);
-    assert!(matches!(dr.applies(&kr), Verdict::NotInCase(NotInCase::Bound(_))));
+    assert!(matches!(
+        dr.applies(&kr),
+        Verdict::NotInCase(NotInCase::Bound(_))
+    ));
 }
 
 #[test]
@@ -213,21 +280,39 @@ fn elided_witness_loci_never_pass() {
     t.push(4, d.clone());
     t.push(5, CaseDomain::free(20, None));
     let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
-    assert!(matches!(disp.first_match(&k), Dispatch::Undecided { verdict: Verdict::Elided, .. }));
+    assert!(matches!(
+        disp.first_match(&k),
+        Dispatch::Undecided {
+            verdict: Verdict::Elided,
+            ..
+        }
+    ));
     // keys outside the case are still decided
     let mut k2 = k.clone();
     k2[3] = 2;
     assert_eq!(disp.first_match(&k2).winner().map(|w| w.label), Some(5));
     // witness check disabled: plain pass (documented option)
-    let o = DomainOptions { witness: false, ..Default::default() };
-    assert_eq!(CaseDomain::from_rule_record(&r, &frame, o).unwrap().applies(&k), Verdict::Applies);
+    let o = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    assert_eq!(
+        CaseDomain::from_rule_record(&r, &frame, o)
+            .unwrap()
+            .applies(&k),
+        Verdict::Applies
+    );
 }
 
 #[test]
 fn eps_shifted_frame_is_refused() {
     let frame = NodeFrame::from_mask("11111111110000000000")
         .unwrap()
-        .with_power_shifts((0..20).map(|i| if i == 3 { "1".into() } else { "0".into() }).collect());
+        .with_power_shifts(
+            (0..20)
+                .map(|i| if i == 3 { "1".into() } else { "0".into() })
+                .collect(),
+        );
     let r = rule_from(RULE_LINE);
     assert!(CaseDomain::from_rule_record(&r, &frame, DomainOptions::default()).is_err());
 }
@@ -242,7 +327,13 @@ fn pole_semantics_identically_zero_in_d() {
     ));
     let mut k = vec![0i32; 20];
     k[6] = 1;
-    assert_eq!(d.applies(&k), Verdict::OnPole { kind: PoleKind::Denominator, index: 0 });
+    assert_eq!(
+        d.applies(&k),
+        Verdict::OnPole {
+            kind: PoleKind::Denominator,
+            index: 0
+        }
+    );
     k[6] = 2;
     assert_eq!(d.applies(&k), Verdict::Applies);
 }
@@ -261,15 +352,32 @@ fn first_match_priority_is_data_and_union_is_separate() {
     let k = [1, 1, 1, 0, 0];
     let ab = Dispatcher::new(vec![a.clone(), b.clone()], vec![0, 1]).unwrap();
     let ba = ab.with_priority(vec![1, 0]).unwrap();
-    assert_eq!(ab.first_match(&k).winner().map(|w| (w.table, w.label)), Some((0, 10)));
-    assert_eq!(ba.first_match(&k).winner().map(|w| (w.table, w.record, w.label)), Some((1, 0, 20)));
+    assert_eq!(
+        ab.first_match(&k).winner().map(|w| (w.table, w.label)),
+        Some((0, 10))
+    );
+    assert_eq!(
+        ba.first_match(&k)
+            .winner()
+            .map(|w| (w.table, w.record, w.label)),
+        Some((1, 0, 20))
+    );
     let (u, und) = ab.union_cover(&k);
-    assert_eq!(u.iter().map(|w| w.label).collect::<Vec<_>>(), vec![10, 20, 21]);
+    assert_eq!(
+        u.iter().map(|w| w.label).collect::<Vec<_>>(),
+        vec![10, 20, 21]
+    );
     assert!(und.is_empty());
-    assert_eq!(ab.first_match(&[2, 1, 1, 0, 0]).winner().map(|w| w.label), Some(20));
+    assert_eq!(
+        ab.first_match(&[2, 1, 1, 0, 0]).winner().map(|w| w.label),
+        Some(20)
+    );
     assert!(Dispatcher::new(vec![a.clone(), b.clone()], vec![0, 0]).is_err());
     let rep = ab.batch(&[k.to_vec(), vec![2, 1, 1, 0, 0]], 2);
-    assert_eq!((rep.covered, rep.uncovered, rep.wins.clone()), (2, 0, vec![1, 1]));
+    assert_eq!(
+        (rep.covered, rep.uncovered, rep.wins.clone()),
+        (2, 0, vec![1, 1])
+    );
     // a table listed by nobody is not used
     let only_a = Dispatcher::new(vec![a, b], vec![0]).unwrap();
     assert_eq!(only_a.first_match(&[2, 1, 1, 0, 0]), Dispatch::Uncovered);

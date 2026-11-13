@@ -30,7 +30,15 @@ fn order_sampled_pairs_match_checker_verdicts() {
             }
             other => panic!("set {other}"),
         };
-        assert_eq!(c.lower(&p.rhs, &p.target), p.expect, "{} {} {:?} -> {:?}", p.set, p.kind, p.target, p.rhs);
+        assert_eq!(
+            c.lower(&p.rhs, &p.target),
+            p.expect,
+            "{} {} {:?} -> {:?}",
+            p.set,
+            p.kind,
+            p.target,
+            p.rhs
+        );
         lower += p.expect as usize;
         if p.kind.starts_with("negctl") {
             controls += 1;
@@ -39,10 +47,22 @@ fn order_sampled_pairs_match_checker_verdicts() {
         // the alternative reading: T178B identity priority (the helper keys header read by the engine rule),
         // T162 O2 (exact on top-sector pairs only)
         if let Some(alt) = p.alt {
-            let alt_c = if p.set == "T178B" { &t178_identity } else { &o2 };
+            let alt_c = if p.set == "T178B" {
+                &t178_identity
+            } else {
+                &o2
+            };
             if p.set == "T178B" || (is_top(&p.target, lines) && is_top(&p.rhs, lines)) {
                 alt_checked += 1;
-                assert_eq!(alt_c.lower(&p.rhs, &p.target), alt, "alt {} {} {:?} -> {:?}", p.set, p.kind, p.target, p.rhs);
+                assert_eq!(
+                    alt_c.lower(&p.rhs, &p.target),
+                    alt,
+                    "alt {} {} {:?} -> {:?}",
+                    p.set,
+                    p.kind,
+                    p.target,
+                    p.rhs
+                );
                 alt_disagree_with_node += (alt != p.expect) as usize;
             }
         }

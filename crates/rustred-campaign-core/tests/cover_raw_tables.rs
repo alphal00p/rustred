@@ -12,7 +12,9 @@ use rustred_campaign_core::key::NodeFrame;
 use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
 
 fn fx() -> PathBuf {
-    PathBuf::from(std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES"))
+    PathBuf::from(
+        std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES"),
+    )
 }
 
 #[test]
@@ -20,19 +22,45 @@ fn fx() -> PathBuf {
 fn raw_tables_match_case_exports() {
     for piece in ["R0_try1", "pool1.pieces_rgq-g0-10"] {
         let t0 = std::time::Instant::now();
-        let raw = read_table_file(fx().join(format!("T178B/raw/{piece}.F.table.jsonl")), ReadOptions::default()).unwrap();
+        let raw = read_table_file(
+            fx().join(format!("T178B/raw/{piece}.F.table.jsonl")),
+            ReadOptions::default(),
+        )
+        .unwrap();
         let t_skip = t0.elapsed().as_secs_f64();
         let t1 = std::time::Instant::now();
-        let raw_k =
-            read_table_file(fx().join(format!("T178B/raw/{piece}.F.table.jsonl")), ReadOptions { rhs: RhsMode::KeysOnly })
-                .unwrap();
+        let raw_k = read_table_file(
+            fx().join(format!("T178B/raw/{piece}.F.table.jsonl")),
+            ReadOptions {
+                rhs: RhsMode::KeysOnly,
+            },
+        )
+        .unwrap();
         let t_keys = t1.elapsed().as_secs_f64();
-        let cases = read_table_file(fx().join(format!("T178B/cases/{piece}.jsonl")), ReadOptions::default()).unwrap();
+        let cases = read_table_file(
+            fx().join(format!("T178B/cases/{piece}.jsonl")),
+            ReadOptions::default(),
+        )
+        .unwrap();
         let h = raw.header.as_ref().unwrap();
         assert_eq!(h.schema.as_deref(), Some("table_dump.v1"));
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap()).unwrap().with_power_shifts(h.power_shifts.clone());
-        let n_rhs: usize = raw_k.rules.iter().map(|r| r.rhs_keys.as_ref().map_or(0, Vec::len)).sum();
-        let elided = raw.rules.iter().filter(|r| r.witness_loci.as_ref().is_some_and(|w| w.iter().any(|s| s == "elided"))).count();
+        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
+            .unwrap()
+            .with_power_shifts(h.power_shifts.clone());
+        let n_rhs: usize = raw_k
+            .rules
+            .iter()
+            .map(|r| r.rhs_keys.as_ref().map_or(0, Vec::len))
+            .sum();
+        let elided = raw
+            .rules
+            .iter()
+            .filter(|r| {
+                r.witness_loci
+                    .as_ref()
+                    .is_some_and(|w| w.iter().any(|s| s == "elided"))
+            })
+            .count();
         println!(
             "{piece}: {} raw rules (read {t_skip:.2}s skipping rhs, {t_keys:.2}s with {n_rhs} rhs keys), {} case records, {elided} with elided witness loci, others {:?}",
             raw.rules.len(),
@@ -40,18 +68,33 @@ fn raw_tables_match_case_exports() {
             raw.others
         );
         // every raw record has a case record with the same index and the same canonical domain (pole loci aside)
-        let no_w = DomainOptions { witness: false, ..Default::default() };
+        let no_w = DomainOptions {
+            witness: false,
+            ..Default::default()
+        };
         let mut matched = 0;
         for r in &raw.rules {
-            let c = cases.rules.iter().find(|c| c.index == r.index).expect("case record with the same index");
-            let a = CaseDomain::from_rule_record(r, &frame, no_w).unwrap().canonical_form();
-            let b = CaseDomain::from_rule_record(c, &frame, no_w).unwrap().canonical_form();
+            let c = cases
+                .rules
+                .iter()
+                .find(|c| c.index == r.index)
+                .expect("case record with the same index");
+            let a = CaseDomain::from_rule_record(r, &frame, no_w)
+                .unwrap()
+                .canonical_form();
+            let b = CaseDomain::from_rule_record(c, &frame, no_w)
+                .unwrap()
+                .canonical_form();
             assert_eq!(a, b, "{piece} index {:?}", r.index);
             matched += 1;
         }
         println!("{piece}: {matched} raw records have identical case domains in the export");
         // elided record: Elided wherever it would otherwise apply, at a key built from its own fixed slots
-        for r in raw.rules.iter().filter(|r| r.witness_loci.as_ref().is_some_and(|w| w.iter().any(|s| s == "elided"))) {
+        for r in raw.rules.iter().filter(|r| {
+            r.witness_loci
+                .as_ref()
+                .is_some_and(|w| w.iter().any(|s| s == "elided"))
+        }) {
             let d = CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap();
             assert!(d.witness_elided);
             let dn = CaseDomain::from_rule_record(r, &frame, no_w).unwrap();
@@ -78,7 +121,10 @@ fn raw_tables_match_case_exports() {
             }
             let k = found.expect("a key in the elided record's domain");
             assert_eq!(d.applies(&k), Verdict::Elided);
-            println!("{piece}: elided record index {:?} gives Elided at {k:?}", r.index);
+            println!(
+                "{piece}: elided record index {:?} gives Elided at {k:?}",
+                r.index
+            );
         }
     }
 }

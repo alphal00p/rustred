@@ -17,15 +17,25 @@ use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
 
 fn data(p: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(p)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(p)
 }
 
 fn jsonl(p: &str) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(data(p)).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    std::fs::read_to_string(data(p))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
 }
 
 fn as_key(v: &serde_json::Value) -> Key {
-    v.as_array().unwrap().iter().map(|x| x.as_i64().unwrap() as i32).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_i64().unwrap() as i32)
+        .collect()
 }
 
 #[test]
@@ -34,7 +44,10 @@ fn t162_sample_smallest_gid() {
     bank.sort_by_key(|p| p.global_ordinal0);
     let mut t = Table::new("T162-sample");
     for p in &bank {
-        t.push(p.global_ordinal0, CaseDomain::from_bank_predicate(p, 20).unwrap());
+        t.push(
+            p.global_ordinal0,
+            CaseDomain::from_bank_predicate(p, 20).unwrap(),
+        );
     }
     let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
     let rows = jsonl("t162_keys_sample.jsonl");
@@ -52,18 +65,28 @@ fn t162_sample_smallest_gid() {
 #[test]
 fn t178_sample_first_match() {
     let order: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(data("t178_piece_order.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(data("t178_piece_order.json")).unwrap())
+            .unwrap();
     let names: Vec<String> = serde_json::from_value(order["piece_order"].clone()).unwrap();
     let pieces: Vec<String> = serde_json::from_value(order["sample_pieces"].clone()).unwrap();
     let mut tables = vec![];
     let mut pos = vec![];
     for p in &pieces {
-        let tf = read_table_file(data(&format!("t178_pieces/{p}.jsonl")), ReadOptions::default()).unwrap();
+        let tf = read_table_file(
+            data(&format!("t178_pieces/{p}.jsonl")),
+            ReadOptions::default(),
+        )
+        .unwrap();
         let h = tf.header.unwrap();
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap()).unwrap().with_power_shifts(h.power_shifts);
+        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
+            .unwrap()
+            .with_power_shifts(h.power_shifts);
         let mut t = Table::new(p.clone());
         for r in &tf.rules {
-            t.push(r.i.unwrap(), CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap());
+            t.push(
+                r.i.unwrap(),
+                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
+            );
         }
         tables.push(t);
         pos.push(names.iter().position(|n| n == p).unwrap() as i64);
@@ -80,12 +103,18 @@ fn t178_sample_first_match() {
         assert!(und.is_empty());
         let first = all.first().map(|w| (pos[w.table], w.label));
         if wp < 0 {
-            assert_eq!(first, None, "uncovered key {k:?} covered by a sampled piece");
+            assert_eq!(
+                first, None,
+                "uncovered key {k:?} covered by a sampled piece"
+            );
         } else if pos.contains(&wp) {
             assert_eq!(first, Some((wp, wi)), "key {k:?}");
             exact += 1;
         } else {
-            assert!(first.is_none_or(|(p, _)| p > wp), "key {k:?}: sampled piece before winner piece {wp} applies");
+            assert!(
+                first.is_none_or(|(p, _)| p > wp),
+                "key {k:?}: sampled piece before winner piece {wp} applies"
+            );
         }
     }
     assert_eq!(exact, 33);

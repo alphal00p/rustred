@@ -18,7 +18,8 @@ use order_common::*;
 use rustred_campaign_core::order::NodeComparator;
 
 fn fixture(name: &str) -> PathBuf {
-    let dir = std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES (see module docs)");
+    let dir = std::env::var("RUSTRED_CAMPAIGN_FIXTURES")
+        .expect("set RUSTRED_CAMPAIGN_FIXTURES (see module docs)");
     PathBuf::from(dir).join("order").join(name)
 }
 
@@ -42,7 +43,12 @@ fn read_pairs(name: &str, size: usize) -> Vec<Pair> {
             } else {
                 (r[40], u16::from_le_bytes([r[42], r[43]]))
             };
-            Pair { target: key(0), rhs: key(20), class, flags }
+            Pair {
+                target: key(0),
+                rhs: key(20),
+                class,
+                flags,
+            }
         })
         .collect()
 }
@@ -55,9 +61,11 @@ fn read_pairs(name: &str, size: usize) -> Vec<Pair> {
 fn order_o1_t162_bank_all_rules() {
     let pairs = read_pairs("o1_t162_bank_pairs.bin", 42);
     let c = NodeComparator::from_header(&headers()["t162_bank"]).unwrap();
-    let program = NodeComparator::from_descriptor(rustred_order::OrderDescriptor::spired_uncut(20)).unwrap();
+    let program =
+        NodeComparator::from_descriptor(rustred_order::OrderDescriptor::spired_uncut(20)).unwrap();
     let (mut top, mut top_lower, mut sub, mut sub_lower) = (0usize, 0usize, 0usize, 0usize);
-    let (mut rank_c_disagree, mut port_disagree, mut program_disagree, mut swapped_lower) = (0, 0, 0, 0);
+    let (mut rank_c_disagree, mut port_disagree, mut program_disagree, mut swapped_lower) =
+        (0, 0, 0, 0);
     let (mut o2_top, mut o2_top_disagree, mut o2_not_lower_all) = (0usize, 0usize, 0usize);
     let o2 = t162_o2();
     let reversed = NodeComparator::legacy(20, Some((0..20).rev().collect())).unwrap();
@@ -108,7 +116,15 @@ fn order_o1_t162_bank_all_rules() {
     assert_eq!(pairs.len(), 1_543_361);
     assert_eq!((top, top_lower), (380_314, 380_314));
     assert_eq!((sub, sub_lower), (1_163_047, 1_163_047));
-    assert_eq!((rank_c_disagree, port_disagree, program_disagree, swapped_lower), (0, 0, 0, 0));
+    assert_eq!(
+        (
+            rank_c_disagree,
+            port_disagree,
+            program_disagree,
+            swapped_lower
+        ),
+        (0, 0, 0, 0)
+    );
     assert_eq!(o2_top_disagree, 0);
     assert!(rev_fail > 10_000 && asc_fail > 10_000 && lrev_fail > 1_000);
 }
@@ -161,10 +177,18 @@ fn order_o2_t178b_all_rules() {
         class_lower[2]
     );
     for (m, (name, _)) in readings.iter().enumerate() {
-        println!("  {name}: not lower {} (bit disagreements with the checker {})", reading_fail[m], reading_disagree[m]);
+        println!(
+            "  {name}: not lower {} (bit disagreements with the checker {})",
+            reading_fail[m], reading_disagree[m]
+        );
     }
-    println!("  helper keys header read by the engine rule (legacy identity): not lower {identity_fail}");
-    println!("  subsector keys not lower: {} (with a positive numerator: {sub_not_lower_with_positive_numerator})", counts[1] - class_lower[1]);
+    println!(
+        "  helper keys header read by the engine rule (legacy identity): not lower {identity_fail}"
+    );
+    println!(
+        "  subsector keys not lower: {} (with a positive numerator: {sub_not_lower_with_positive_numerator})",
+        counts[1] - class_lower[1]
+    );
     assert_eq!(pairs.len(), 4_626_543);
     assert_eq!(counts, [769_226, 3_755_978, 101_339]);
     assert_eq!(class_lower[0], 769_226, "O2: 0 not lower");
@@ -176,9 +200,14 @@ fn order_o2_t178b_all_rules() {
     assert_eq!(swapped_lower, 0);
     assert_eq!(
         reading_fail,
-        vec![0, 225_327, 133_930, 91_397, 78_354, 146_973, 118_462, 106_865, 62_274, 163_053, 50_321]
+        vec![
+            0, 225_327, 133_930, 91_397, 78_354, 146_973, 118_462, 106_865, 62_274, 163_053, 50_321
+        ]
     );
-    assert!(reading_disagree.iter().all(|&d| d == 0), "{reading_disagree:?}");
+    assert!(
+        reading_disagree.iter().all(|&d| d == 0),
+        "{reading_disagree:?}"
+    );
     assert_eq!(identity_fail, 78_354);
 }
 
@@ -194,11 +223,25 @@ fn order_k3_comparator_fixtures_in_full() {
     let f5 = parse_pairs(&std::fs::read_to_string(fixture("F5_T178B_pairs.txt")).unwrap());
     assert_eq!((f3.len(), f5.len()), (1430, 1470));
     for p in &f3 {
-        assert_eq!(t162.lower(&p.rhs, &p.target), p.expect, "{} {:?} {:?}", p.kind, p.target, p.rhs);
+        assert_eq!(
+            t162.lower(&p.rhs, &p.target),
+            p.expect,
+            "{} {:?} {:?}",
+            p.kind,
+            p.target,
+            p.rhs
+        );
     }
     let mut discriminators = 0;
     for p in &f5 {
-        assert_eq!(t178.lower(&p.rhs, &p.target), p.expect, "{} {:?} {:?}", p.kind, p.target, p.rhs);
+        assert_eq!(
+            t178.lower(&p.rhs, &p.target),
+            p.expect,
+            "{} {:?} {:?}",
+            p.kind,
+            p.target,
+            p.rhs
+        );
         assert_eq!(identity.lower(&p.rhs, &p.target), p.alt.unwrap());
         if p.kind == "priority_discriminator" {
             discriminators += 1;
@@ -206,7 +249,9 @@ fn order_k3_comparator_fixtures_in_full() {
         }
     }
     assert_eq!(discriminators, 200);
-    println!("k3 F3 1430/1430 and F5 1470/1470 verdicts reproduced; 200 discriminators fail under identity");
+    println!(
+        "k3 F3 1430/1430 and F5 1470/1470 verdicts reproduced; 200 discriminators fail under identity"
+    );
 }
 
 /// Speed: comparisons per second on the O1 pairs (legacy path, program path, rank).
@@ -228,12 +273,19 @@ fn order_speed() {
             }
         }
         let s = t.elapsed().as_secs_f64();
-        println!("{name}: {:.1} M comparisons/s ({} comparisons, {n} lower)", (reps * pairs.len()) as f64 / s / 1e6, reps * pairs.len());
+        println!(
+            "{name}: {:.1} M comparisons/s ({} comparisons, {n} lower)",
+            (reps * pairs.len()) as f64 / s / 1e6,
+            reps * pairs.len()
+        );
         let t = Instant::now();
         let mut m = 0usize;
         for p in &pairs {
             m += c.rank(&p.rhs).0.len();
         }
-        println!("{name} rank: {:.2} M keys/s ({m})", pairs.len() as f64 / t.elapsed().as_secs_f64() / 1e6);
+        println!(
+            "{name} rank: {:.2} M keys/s ({m})",
+            pairs.len() as f64 / t.elapsed().as_secs_f64() / 1e6
+        );
     }
 }

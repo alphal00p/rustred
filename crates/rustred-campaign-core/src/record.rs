@@ -26,7 +26,10 @@ use serde_json::Value;
 pub enum RecordError {
     Io(std::io::Error),
     /// Malformed JSON or an unexpected field type, with the 1-based line number.
-    Format { line: usize, msg: String },
+    Format {
+        line: usize,
+        msg: String,
+    },
 }
 
 impl fmt::Display for RecordError {
@@ -82,22 +85,42 @@ impl TableHeader {
         let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
         let strs = |x: Option<&Value>| -> Vec<String> {
             x.and_then(Value::as_array)
-                .map(|a| a.iter().map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string())).collect())
+                .map(|a| {
+                    a.iter()
+                        .map(|e| {
+                            e.as_str()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| e.to_string())
+                        })
+                        .collect()
+                })
                 .unwrap_or_default()
         };
         let usizes = |x: Option<&Value>| -> Option<Vec<usize>> {
-            x.and_then(Value::as_array).map(|a| a.iter().filter_map(|e| e.as_u64().map(|u| u as usize)).collect())
+            x.and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(|e| e.as_u64().map(|u| u as usize))
+                    .collect()
+            })
         };
         TableHeader {
             schema: s("schema"),
             family: s("family"),
-            denominators: v.get("denominators").and_then(Value::as_u64).map(|x| x as usize),
+            denominators: v
+                .get("denominators")
+                .and_then(Value::as_u64)
+                .map(|x| x as usize),
             mask: s("mask"),
             power_shifts: strs(v.get("power_shifts")),
             charts: strs(v.get("charts")),
             order_name: s("order_name"),
             coordinate_priority: usizes(v.get("order").and_then(|o| o.get("coordinate_priority")))
-                .or_else(|| usizes(v.get("node_order").and_then(|o| o.get("coordinate_priority")))),
+                .or_else(|| {
+                    usizes(
+                        v.get("node_order")
+                            .and_then(|o| o.get("coordinate_priority")),
+                    )
+                }),
             two_sided: usizes(v.get("order").and_then(|o| o.get("two_sided"))).unwrap_or_default(),
             guard_version: v.get("guard_version").and_then(Value::as_i64),
             raw: v,
@@ -136,7 +159,9 @@ pub enum TableLine {
     Header(Box<TableHeader>),
     Rule(Box<RuleRecord>),
     /// Any other line, with its kind (`type` value, or `other` / `summary` in the case-domain export).
-    Other { kind: String },
+    Other {
+        kind: String,
+    },
 }
 
 /// Streaming reader: one [`TableLine`] per non-empty input line.
@@ -149,14 +174,22 @@ pub struct RecordReader<R: BufRead> {
 
 impl<R: BufRead> RecordReader<R> {
     pub fn new(inner: R, opts: ReadOptions) -> Self {
-        RecordReader { inner, buf: Vec::with_capacity(1 << 16), line_no: 0, opts }
+        RecordReader {
+            inner,
+            buf: Vec::with_capacity(1 << 16),
+            line_no: 0,
+            opts,
+        }
     }
 }
 
 impl RecordReader<std::io::BufReader<std::fs::File>> {
     pub fn open(path: impl AsRef<std::path::Path>, opts: ReadOptions) -> Result<Self, RecordError> {
         let f = std::fs::File::open(path)?;
-        Ok(RecordReader::new(std::io::BufReader::with_capacity(1 << 20, f), opts))
+        Ok(RecordReader::new(
+            std::io::BufReader::with_capacity(1 << 20, f),
+            opts,
+        ))
     }
 }
 
@@ -189,7 +222,10 @@ pub struct TableFile {
 }
 
 /// Read a table file (either JSONL format).
-pub fn read_table_file(path: impl AsRef<std::path::Path>, opts: ReadOptions) -> Result<TableFile, RecordError> {
+pub fn read_table_file(
+    path: impl AsRef<std::path::Path>,
+    opts: ReadOptions,
+) -> Result<TableFile, RecordError> {
     let mut t = TableFile::default();
     for l in RecordReader::open(path, opts)? {
         match l? {
@@ -216,7 +252,10 @@ struct Scan<'a> {
 
 impl<'a> Scan<'a> {
     fn err(&self, msg: impl Into<String>) -> RecordError {
-        RecordError::Format { line: self.line, msg: format!("{} (byte {})", msg.into(), self.pos) }
+        RecordError::Format {
+            line: self.line,
+            msg: format!("{} (byte {})", msg.into(), self.pos),
+        }
     }
     fn ws(&mut self) {
         while self.pos < self.s.len() && self.s[self.pos].is_ascii_whitespace() {
@@ -307,7 +346,8 @@ impl<'a> Scan<'a> {
         }
         loop {
             let (a, b) = self.string_span()?;
-            let k: String = serde_json::from_slice(&self.s[a..b]).map_err(|e| self.err(e.to_string()))?;
+            let k: String =
+                serde_json::from_slice(&self.s[a..b]).map_err(|e| self.err(e.to_string()))?;
             self.expect(b':')?;
             let span = self.skip_value()?;
             out.push((k, span));
@@ -349,12 +389,24 @@ fn rhs_keys(s: &[u8], line: usize) -> Result<Vec<String>, RecordError> {
 }
 
 fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, RecordError> {
-    let mut sc = Scan { s: buf, pos: 0, line };
+    let mut sc = Scan {
+        s: buf,
+        pos: 0,
+        line,
+    };
     let fields = sc.object_fields()?;
-    let get = |k: &str| fields.iter().find(|(n, _)| n == k).map(|(_, sp)| &buf[sp.0..sp.1]);
+    let get = |k: &str| {
+        fields
+            .iter()
+            .find(|(n, _)| n == k)
+            .map(|(_, sp)| &buf[sp.0..sp.1])
+    };
     let fmt = |m: String| RecordError::Format { line, msg: m };
     fn de<'a, T: Deserialize<'a>>(b: &'a [u8], field: &str, line: usize) -> Result<T, RecordError> {
-        serde_json::from_slice(b).map_err(|e| RecordError::Format { line, msg: format!("field {field}: {e}") })
+        serde_json::from_slice(b).map_err(|e| RecordError::Format {
+            line,
+            msg: format!("field {field}: {e}"),
+        })
     }
     let kind: Option<String> = match get("type") {
         Some(b) => Some(de(b, "type", line)?),
@@ -366,19 +418,28 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
             return Ok(TableLine::Header(Box::new(TableHeader::from_value(v))));
         }
         Some("rule") => {}
-        Some(k) => return Ok(TableLine::Other { kind: k.to_string() }),
+        Some(k) => {
+            return Ok(TableLine::Other {
+                kind: k.to_string(),
+            });
+        }
         None => {
             if let Some(h) = get("header") {
                 let v: Value = de(h, "header", line)?;
                 return Ok(TableLine::Header(Box::new(TableHeader::from_value(v))));
             }
             if get("fixed").is_none() {
-                let k = fields.first().map_or("empty".to_string(), |(n, _)| n.clone());
+                let k = fields
+                    .first()
+                    .map_or("empty".to_string(), |(n, _)| n.clone());
                 return Ok(TableLine::Other { kind: k });
             }
         }
     }
-    let mut r = RuleRecord { line_no: line, ..Default::default() };
+    let mut r = RuleRecord {
+        line_no: line,
+        ..Default::default()
+    };
     let opt_i64 = |k: &str| -> Result<Option<i64>, RecordError> {
         match get(k) {
             Some(b) => de::<Option<i64>>(b, k, line),
@@ -390,7 +451,11 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     if let Some(b) = get("chart") {
         r.chart = de(b, "chart", line)?;
     }
-    r.fixed = de(get("fixed").ok_or_else(|| fmt("rule without fixed".into()))?, "fixed", line)?;
+    r.fixed = de(
+        get("fixed").ok_or_else(|| fmt("rule without fixed".into()))?,
+        "fixed",
+        line,
+    )?;
     if let Some(b) = get("equations") {
         r.equations = de::<Option<Vec<String>>>(b, "equations", line)?.unwrap_or_default();
     }
@@ -452,9 +517,14 @@ pub struct BankPredicate {
 }
 
 /// Read the T162 bank predicate file (one JSON array).
-pub fn read_bank_predicates(path: impl AsRef<std::path::Path>) -> Result<Vec<BankPredicate>, RecordError> {
+pub fn read_bank_predicates(
+    path: impl AsRef<std::path::Path>,
+) -> Result<Vec<BankPredicate>, RecordError> {
     let f = std::io::BufReader::new(std::fs::File::open(path)?);
-    serde_json::from_reader(f).map_err(|e| RecordError::Format { line: e.line(), msg: e.to_string() })
+    serde_json::from_reader(f).map_err(|e| RecordError::Format {
+        line: e.line(),
+        msg: e.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -464,14 +534,23 @@ mod tests {
     #[test]
     fn scan_rule_line_skips_rhs() {
         let line = br#"{"type":"rule","chart":"110","index":3,"fixed":[null,1,null],"equations":["n0=n2"],"target":"I(n0,1,n2)","rhs":[["I(n0-1,1,n2)","n0/(n2-1) \"q\""],["I(n0,1,n2-1)","[1]"]],"exceptions":[["-1+n0"],["n2","n0"]],"dispatch":"Partition","witness_loci":["elided"],"recenter":[0,0,1]}"#;
-        let o = ReadOptions { rhs: RhsMode::KeysOnly };
-        let TableLine::Rule(r) = parse_line(line, 7, o).unwrap() else { panic!() };
+        let o = ReadOptions {
+            rhs: RhsMode::KeysOnly,
+        };
+        let TableLine::Rule(r) = parse_line(line, 7, o).unwrap() else {
+            panic!()
+        };
         assert_eq!(r.index, Some(3));
         assert_eq!(r.fixed, vec![None, Some(1), None]);
-        assert_eq!(r.exceptions, vec![vec!["-1+n0".to_string()], vec!["n2".into(), "n0".into()]]);
+        assert_eq!(
+            r.exceptions,
+            vec![vec!["-1+n0".to_string()], vec!["n2".into(), "n0".into()]]
+        );
         assert_eq!(r.rhs_keys.as_ref().unwrap().len(), 2);
         assert_eq!(r.witness_loci, Some(vec!["elided".to_string()]));
-        let TableLine::Rule(r2) = parse_line(line, 7, ReadOptions::default()).unwrap() else { panic!() };
+        let TableLine::Rule(r2) = parse_line(line, 7, ReadOptions::default()).unwrap() else {
+            panic!()
+        };
         assert_eq!(r2.rhs_keys, None);
     }
 }

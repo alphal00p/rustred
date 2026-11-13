@@ -37,7 +37,9 @@ pub enum FrameError {
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FrameError::Arity { expected, got } => write!(f, "key of arity {got}, frame arity {expected}"),
+            FrameError::Arity { expected, got } => {
+                write!(f, "key of arity {got}, frame arity {expected}")
+            }
             FrameError::Unsupported(s) => write!(f, "unsupported: {s}"),
             FrameError::Malformed(s) => write!(f, "malformed frame: {s}"),
         }
@@ -53,7 +55,10 @@ pub enum KeyClass {
     /// Every line >= 1, but these numerator slots are > 0.
     TopPositiveNumerator { slots: Vec<usize> },
     /// These line slots are <= 0 (removed lines); `positive_numerators` lists numerator slots > 0, if any.
-    Subsector { removed_lines: Vec<usize>, positive_numerators: Vec<usize> },
+    Subsector {
+        removed_lines: Vec<usize>,
+        positive_numerators: Vec<usize>,
+    },
 }
 
 /// The frame of a node (or lower-loop owner): arity, line/numerator slots, power shifts.
@@ -70,7 +75,11 @@ impl NodeFrame {
     /// Frame with the line slots first: slots `0..n_lines` are lines, `n_lines..arity` numerators.
     pub fn lines_first(arity: usize, n_lines: usize) -> Self {
         assert!(n_lines <= arity, "n_lines {n_lines} > arity {arity}");
-        NodeFrame { is_line: (0..arity).map(|i| i < n_lines).collect(), power_shifts: vec![], two_sided: vec![] }
+        NodeFrame {
+            is_line: (0..arity).map(|i| i < n_lines).collect(),
+            power_shifts: vec![],
+            two_sided: vec![],
+        }
     }
     /// Frame from a mask string like the table header `mask` / chart (`'1'` = line, `'0'` = numerator).
     pub fn from_mask(mask: &str) -> Result<Self, FrameError> {
@@ -82,7 +91,11 @@ impl NodeFrame {
                 _ => Err(FrameError::Malformed(format!("mask character {c:?}"))),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(NodeFrame { is_line, power_shifts: vec![], two_sided: vec![] })
+        Ok(NodeFrame {
+            is_line,
+            power_shifts: vec![],
+            two_sided: vec![],
+        })
     }
     pub fn with_power_shifts(mut self, shifts: Vec<String>) -> Self {
         self.power_shifts = shifts;
@@ -99,7 +112,10 @@ impl NodeFrame {
     }
     /// The chart mask string (`'1'` line, `'0'` numerator).
     pub fn mask_string(&self) -> String {
-        self.is_line.iter().map(|b| if *b { '1' } else { '0' }).collect()
+        self.is_line
+            .iter()
+            .map(|b| if *b { '1' } else { '0' })
+            .collect()
     }
     /// True if every power shift is zero (or none is given).
     pub fn is_integer_only(&self) -> bool {
@@ -120,7 +136,10 @@ impl NodeFrame {
         if key.len() == self.arity() {
             Ok(())
         } else {
-            Err(FrameError::Arity { expected: self.arity(), got: key.len() })
+            Err(FrameError::Arity {
+                expected: self.arity(),
+                got: key.len(),
+            })
         }
     }
     /// The sector of a key: bit i set iff slot i is a line with index >= 1 (slots >= 64 are not representable:
@@ -137,26 +156,43 @@ impl NodeFrame {
     }
     /// Line slots with index >= 1.
     pub fn sector_slots(&self, key: &[i32]) -> Vec<usize> {
-        key.iter().enumerate().filter(|(i, x)| self.is_line[*i] && **x >= 1).map(|(i, _)| i).collect()
+        key.iter()
+            .enumerate()
+            .filter(|(i, x)| self.is_line[*i] && **x >= 1)
+            .map(|(i, _)| i)
+            .collect()
     }
     /// Every line slot >= 1 (numerators unrestricted).
     pub fn is_top_sector(&self, key: &[i32]) -> bool {
-        key.iter().enumerate().all(|(i, &x)| !self.is_line[i] || x >= 1)
+        key.iter()
+            .enumerate()
+            .all(|(i, &x)| !self.is_line[i] || x >= 1)
     }
     /// Top sector and every numerator slot <= 0.
     pub fn in_chart_orthant(&self, key: &[i32]) -> bool {
-        key.iter().enumerate().all(|(i, &x)| if self.is_line[i] { x >= 1 } else { x <= 0 })
+        key.iter()
+            .enumerate()
+            .all(|(i, &x)| if self.is_line[i] { x >= 1 } else { x <= 0 })
     }
     /// First slot violating the chart orthant, if any.
     pub fn chart_violation(&self, key: &[i32]) -> Option<usize> {
-        key.iter().enumerate().position(|(i, &x)| if self.is_line[i] { x < 1 } else { x > 0 })
+        key.iter()
+            .enumerate()
+            .position(|(i, &x)| if self.is_line[i] { x < 1 } else { x > 0 })
     }
     pub fn classify(&self, key: &[i32]) -> Result<KeyClass, FrameError> {
         self.check_arity(key)?;
-        let removed: Vec<usize> = (0..key.len()).filter(|&i| self.is_line[i] && key[i] <= 0).collect();
-        let pos: Vec<usize> = (0..key.len()).filter(|&i| !self.is_line[i] && key[i] > 0).collect();
+        let removed: Vec<usize> = (0..key.len())
+            .filter(|&i| self.is_line[i] && key[i] <= 0)
+            .collect();
+        let pos: Vec<usize> = (0..key.len())
+            .filter(|&i| !self.is_line[i] && key[i] > 0)
+            .collect();
         Ok(if !removed.is_empty() {
-            KeyClass::Subsector { removed_lines: removed, positive_numerators: pos }
+            KeyClass::Subsector {
+                removed_lines: removed,
+                positive_numerators: pos,
+            }
         } else if !pos.is_empty() {
             KeyClass::TopPositiveNumerator { slots: pos }
         } else {
@@ -165,13 +201,23 @@ impl NodeFrame {
     }
     /// Dots D = sum over lines of (n - 1); `None` outside the chart orthant.
     pub fn dots(&self, key: &[i32]) -> Option<i64> {
-        self.in_chart_orthant(key)
-            .then(|| key.iter().enumerate().filter(|(i, _)| self.is_line[*i]).map(|(_, &x)| x as i64 - 1).sum())
+        self.in_chart_orthant(key).then(|| {
+            key.iter()
+                .enumerate()
+                .filter(|(i, _)| self.is_line[*i])
+                .map(|(_, &x)| x as i64 - 1)
+                .sum()
+        })
     }
     /// Rank r = sum over numerators of |n|; `None` outside the chart orthant.
     pub fn rank(&self, key: &[i32]) -> Option<i64> {
-        self.in_chart_orthant(key)
-            .then(|| key.iter().enumerate().filter(|(i, _)| !self.is_line[*i]).map(|(_, &x)| -(x as i64)).sum())
+        self.in_chart_orthant(key).then(|| {
+            key.iter()
+                .enumerate()
+                .filter(|(i, _)| !self.is_line[*i])
+                .map(|(_, &x)| -(x as i64))
+                .sum()
+        })
     }
 
     /// All chart keys with dots exactly `dots` and rank exactly `rank`, line powers at most `max_line_power`
@@ -231,10 +277,20 @@ pub fn parse_key(s: &str) -> Result<Key, String> {
     if inner.trim().is_empty() {
         return Ok(vec![]);
     }
-    inner.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("bad key entry {x:?}: {e}"))).collect()
+    inner
+        .split(',')
+        .map(|x| {
+            x.trim()
+                .parse::<i32>()
+                .map_err(|e| format!("bad key entry {x:?}: {e}"))
+        })
+        .collect()
 }
 
 /// Format a key as `I(a,b,...)`.
 pub fn key_text(k: &[i32]) -> String {
-    format!("I({})", k.iter().map(i32::to_string).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        k.iter().map(i32::to_string).collect::<Vec<_>>().join(",")
+    )
 }
