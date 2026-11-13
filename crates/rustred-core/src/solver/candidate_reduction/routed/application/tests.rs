@@ -1165,7 +1165,7 @@ fn original_poles_and_exception_witnesses_survive_zero_results_and_cache_hits() 
     let indexed = owners.context.coefficient_context().clone();
     let owner = Arc::get_mut(owners.owners.get_mut(&[true]).unwrap()).unwrap();
     let prepared = &mut Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0];
-    prepared.rhs[0].denominator = polynomial(&indexed, "d-4");
+    prepared.rhs[0].denominator = polynomial(&indexed, "d-4").into();
     prepared.exceptions = vec![vec![
         polynomial(&indexed, "d-5"),
         polynomial(&indexed, "d-6"),
@@ -1213,7 +1213,7 @@ fn vanished_original_denominator_precedes_local_rhs_cancellation() {
     let indexed = owners.context.coefficient_context().clone();
     let owner = Arc::get_mut(owners.owners.get_mut(&[true]).unwrap()).unwrap();
     Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0].rhs[0].denominator =
-        polynomial(&indexed, "n0-2");
+        polynomial(&indexed, "n0-2").into();
     let mut application = RoutedCandidateReducer::try_new(Arc::new(owners), [], Default::default())
         .unwrap()
         .application();
@@ -1527,8 +1527,8 @@ fn selected_alternative_retains_baseline_and_selected_guards_only() {
     let indexed = owners.context.coefficient_context().clone();
     let owner = Arc::get_mut(owners.owners.get_mut(&[true]).unwrap()).unwrap();
     let batch = Arc::get_mut(&mut owner.batches[0]).unwrap();
-    batch.rules[0].rhs[0].denominator = polynomial(&indexed, "d-4");
-    batch.rules[1].rhs[0].denominator = polynomial(&indexed, "d-5");
+    batch.rules[0].rhs[0].denominator = polynomial(&indexed, "d-4").into();
+    batch.rules[1].rhs[0].denominator = polynomial(&indexed, "d-5").into();
     let mut application = RoutedCandidateReducer::try_new(Arc::new(owners), [], Default::default())
         .unwrap()
         .application();

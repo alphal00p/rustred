@@ -33,8 +33,8 @@ fn power_bounded_partition_matches_concrete_ordered_dispatch() {
         .push(vec![minus(&c, 0, 1), minus(&c, 1, 1)]);
     second.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: minus(&c, 0, 3),
+        coefficient: c.zero().into(),
+        denominator: minus(&c, 0, 3).into(),
     });
     batch(&mut p).rules = vec![first, second, rule(2)];
     batch(&mut p)

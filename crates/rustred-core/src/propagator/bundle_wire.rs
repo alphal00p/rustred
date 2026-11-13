@@ -1004,19 +1004,50 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
         max_numerator_rank: Option<u32>,
         finite_case_policy: FiniteCasePolicy,
     ) -> Result<([bool; N], SectorSolution<N>), BundleWireError> {
+        let (sector, mut solution, rules) = self.sector_streamed(
+            program,
+            ordinal,
+            ordering,
+            physical_arity,
+            max_numerator_rank,
+            finite_case_policy,
+        )?;
+        solution.rules = rules.collect::<Result<Vec<_>, BundleWireError>>()?;
+        Ok((sector, solution))
+    }
+
+    /// [`Self::sector`] with the rules restored one at a time (t162-export):
+    /// the solution comes back without rules, the iterator restores them in
+    /// order on demand, so a consumer that prepares rule by rule never holds
+    /// the restored form of the whole sector.
+    #[allow(clippy::type_complexity)]
+    pub fn sector_streamed<'p>(
+        &'p self,
+        program: &'p ProgramRecord,
+        ordinal: usize,
+        ordering: &OrderingPolicy,
+        physical_arity: usize,
+        max_numerator_rank: Option<u32>,
+        finite_case_policy: FiniteCasePolicy,
+    ) -> Result<
+        (
+            [bool; N],
+            SectorSolution<N>,
+            impl Iterator<Item = Result<SectorRule<N>, BundleWireError>> + 'p,
+        ),
+        BundleWireError,
+    > {
         let record = program
             .sectors
             .get(ordinal)
             .ok_or_else(|| BundleWireError::input("no candidate sector of this ordinal"))?;
         let sector: [bool; N] = crate::storage_array(&record.sector, false)
             .ok_or_else(|| BundleWireError::input("candidate reconstruction arity"))?;
-        let rules = (record.rules.iter().enumerate())
-            .map(|(rule_ordinal, record)| {
-                let mut rule = self.rule(record, &sector)?;
-                rule.dispatch_policy = program.dispatch_policy(ordinal, rule_ordinal);
-                Ok(rule)
-            })
-            .collect::<Result<Vec<_>, BundleWireError>>()?;
+        let rules = (record.rules.iter().enumerate()).map(move |(rule_ordinal, record)| {
+            let mut rule = self.rule(record, &sector)?;
+            rule.dispatch_policy = program.dispatch_policy(ordinal, rule_ordinal);
+            Ok(rule)
+        });
         let finite_residuals = (record.finite_residuals.iter())
             .map(integral)
             .collect::<Result<Vec<_>, _>>()?;
@@ -1027,12 +1058,13 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
             sector,
             SectorSolution {
                 order,
-                rules,
+                rules: Vec::new(),
                 finite_residuals,
                 stats: SectorStats::default(),
                 max_numerator_rank,
                 finite_case_policy,
             },
+            rules,
         ))
     }
 }

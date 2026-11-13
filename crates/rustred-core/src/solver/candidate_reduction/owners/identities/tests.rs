@@ -304,7 +304,7 @@ fn generic_dimension_conditions_keep_original_poles_and_one_branch_witness() {
     let owner = Arc::get_mut(owners.owners.get_mut(&[true]).unwrap()).unwrap();
     let prepared = &mut Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0];
     // Original d-4 remains a guard even though the normalized coefficient is 1.
-    prepared.rhs[0].denominator = polynomial(&ctx, "d-4");
+    prepared.rhs[0].denominator = polynomial(&ctx, "d-4").into();
     prepared.exceptions = vec![vec![polynomial(&ctx, "d-5"), polynomial(&ctx, "d-6")]];
     let row = owners.applicable_identities(&key([2])).unwrap().remove(0);
     let base = family.coefficient_context();
@@ -338,7 +338,7 @@ fn original_denominator_zero_blocks_even_cancelled_rhs_terms() {
     let ctx = owners.context.coefficient_context().clone();
     let owner = Arc::get_mut(owners.owners.get_mut(&[true]).unwrap()).unwrap();
     Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0].rhs[0].denominator =
-        polynomial(&ctx, "n0-2");
+        polynomial(&ctx, "n0-2").into();
     assert!(owners.applicable_identities(&key([2])).unwrap().is_empty());
 }
 

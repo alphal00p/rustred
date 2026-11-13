@@ -493,7 +493,7 @@ impl<const N: usize> SampleProgram<N> {
             let mut child = [0_i64; N];
             for axis in 0..N {
                 child[axis] = key[axis]
-                    .checked_add(rule.rhs[term].shift[axis])
+                    .checked_add(i64::from(rule.rhs[term].shift[axis]))
                     .ok_or_else(|| {
                         LiteRedError::InvalidInput(format!(
                             "index overflow in rule {} at axis {axis}",

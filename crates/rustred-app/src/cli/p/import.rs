@@ -4,7 +4,8 @@
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
-//!                        [--coef-form expanded|factored] [--partial-box]
+//!                        [--coef-form expanded|factored] [--partial-box] [--no-verify]
+//! rustred p-import-table --check <dir>/<label>.json [--force]
 //! ```
 //!
 //! Converts one `table_dump.v1` rule table of a 5L-campaign node into a Custom
@@ -40,6 +41,14 @@
 //! covered) and records it in the payload and in the import record (`boxed`).
 //! `--partial-box` accepts a box that is not closed (a pilot table).
 //!
+//! `--no-verify` (t162-export) writes the payload and the import record
+//! without the load-time check (`"verify": null`), so import and check can
+//! run as separate jobs; `--check <dir>/<label>.json` then runs the check on
+//! `<dir>/<label>.rrbin` (presentation rebuilt from the record's slots, family
+//! fingerprint compared) and writes `<dir>/<label>.check.json`. The record of
+//! a boxed payload reports `open_box_keys` (witness keys inside a partial box
+//! without rule) and `box_keys_stepped`.
+//!
 //! `--coef-form factored` (coef-form prototype) writes the payload's
 //! coefficient section in the factored format
 //! (`rustred::persistence::FACTORED_TABLE_VERSION`): every reader decodes it to
@@ -55,9 +64,11 @@ use rustred::persistence::{
     SectionTag, encode_factored_table, encode_program, inspect_program,
 };
 use rustred::propagator::PresentationId;
-use rustred::propagator::custom::{replay_custom_payload, verify_custom_payload};
+use rustred::propagator::custom::{
+    CustomPayloadCheck, inspect_custom_payload, replay_custom_payload, verify_custom_payload,
+};
 use rustred::propagator::error::PError;
-use rustred::propagator::presentation::Slot;
+use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
 use rustred::propagator::table_import::{
     P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table_from,
     slot_map_text,
@@ -86,6 +97,7 @@ struct Arguments {
     order_map: Option<PathBuf>,
     factored: bool,
     partial_box: bool,
+    no_verify: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -93,7 +105,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut table, mut graph, mut ext, mut label) = (None, None, None, None);
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
     let (mut census_family, mut order_map) = (None, None);
-    let (mut factored, mut partial_box) = (false, false);
+    let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -110,6 +122,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--order-map" => "--order-map",
             "--coef-form" => "--coef-form",
             "--partial-box" => "--partial-box",
+            "--no-verify" => "--no-verify",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -161,6 +174,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                 })?);
             }
             "--partial-box" => partial_box = true,
+            "--no-verify" => no_verify = true,
             _ => force = true,
         }
     }
@@ -177,6 +191,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         order_map,
         factored,
         partial_box,
+        no_verify,
     })
 }
 
@@ -189,6 +204,9 @@ fn json_error(error: serde_json::Error) -> CliError {
 }
 
 pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
+    if arguments.first().is_some_and(|first| first == "--check") {
+        return run_check(arguments);
+    }
     let arguments = parse(arguments).map_err(CliError::Usage)?;
     if !arguments
         .label
@@ -259,8 +277,14 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         coef_form_seconds = started.elapsed().as_secs_f64();
     }
     let verify_started = Instant::now();
-    let check = verify_custom_payload(&imported.presentation, &imported.payload, &imported.meta)
-        .map_err(failed)?;
+    let check = if arguments.no_verify {
+        None
+    } else {
+        Some(
+            verify_custom_payload(&imported.presentation, &imported.payload, &imported.meta)
+                .map_err(failed)?,
+        )
+    };
     let verify_seconds = verify_started.elapsed().as_secs_f64();
 
     let presentation = &imported.presentation;
@@ -313,15 +337,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         "affine_rules": imported.affine_rules,
         "rules_with_exceptions": imported.rules_with_exceptions,
         "payload_bytes": imported.payload.len(),
-        "verify": {
-            "charts": check.charts,
-            "rules": check.rules,
-            "support_primary": check.support_primary,
-            "witness_keys": check.witness_keys,
-            "same_sector_children": check.same_sector_children,
-            "subsector_children": check.subsector_children,
-            "terminals": check.terminals,
-        },
+        "verify": check.as_ref().map(check_json),
         "import_seconds": import_seconds,
         "verify_seconds": verify_seconds,
         "versions": {
@@ -428,7 +444,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     )?;
     writeln!(
         std::io::stdout().lock(),
-        "{}: {} rules over {} charts, {} residuals (LP {}), {} bytes; slot map {:?}{}; order {}{}; verify {} witness keys ({} same-sector, {} subsector children) in {:.3} s; import {:.3} s",
+        "{}: {} rules over {} charts, {} residuals (LP {}), {} bytes; slot map {:?}{}; order {}{}; verify {} in {:.3} s; import {:.3} s",
         arguments.label,
         imported.rules,
         imported.summary.charts.len(),
@@ -447,11 +463,156 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             ),
             None => String::new(),
         },
+        check.as_ref().map_or_else(|| "skipped (--no-verify)".to_owned(), check_text),
+        verify_seconds,
+        import_seconds,
+    )
+    .map_err(|error| CliError::OutputIo(error.to_string()))
+}
+
+fn check_json(check: &CustomPayloadCheck) -> serde_json::Value {
+    serde_json::json!({
+        "charts": check.charts,
+        "rules": check.rules,
+        "support_primary": check.support_primary,
+        "witness_keys": check.witness_keys,
+        "same_sector_children": check.same_sector_children,
+        "subsector_children": check.subsector_children,
+        "terminals": check.terminals,
+        "open_box_keys": check.open_box_keys,
+        "box_keys_stepped": check.box_keys_stepped,
+    })
+}
+
+fn check_text(check: &CustomPayloadCheck) -> String {
+    format!(
+        "{} witness keys ({} same-sector, {} subsector children, {} terminals, {} open box keys, {} box keys stepped)",
         check.witness_keys,
         check.same_sector_children,
         check.subsector_children,
-        verify_seconds,
-        import_seconds,
+        check.terminals,
+        check.open_box_keys,
+        check.box_keys_stepped
+    )
+}
+
+/// `--check <dir>/<label>.json [--force]`: the load-time check of an imported
+/// payload as its own job (t162-export).
+fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
+    let mut arguments = arguments.into_iter().skip(1);
+    let record_path =
+        PathBuf::from(next_value(&mut arguments, "--check").map_err(CliError::Usage)?);
+    let mut force = false;
+    for argument in arguments {
+        match argument.to_str() {
+            Some("--force") if !force => force = true,
+            _ => {
+                return Err(CliError::Usage(ArgError::UnknownOption(
+                    argument.to_string_lossy().into_owned(),
+                )));
+            }
+        }
+    }
+    let record: serde_json::Value =
+        serde_json::from_str(&read_input(&StreamPath::File(record_path.clone()))?)
+            .map_err(|error| CliError::Input(format!("{}: {error}", record_path.display())))?;
+    let field = |name: &str| {
+        record
+            .get(name)
+            .ok_or_else(|| CliError::Input(format!("{}: no field {name:?}", record_path.display())))
+    };
+    if field("schema")?.as_str() != Some(P_IMPORTED_OWNER_SCHEMA) {
+        return Err(CliError::Input(format!(
+            "{}: not a {P_IMPORTED_OWNER_SCHEMA} record",
+            record_path.display()
+        )));
+    }
+    let bad = |name: &str| CliError::Input(format!("{}: bad {name}", record_path.display()));
+    let numbers = |value: &serde_json::Value| -> Option<Vec<i64>> {
+        value
+            .as_array()?
+            .iter()
+            .map(serde_json::Value::as_i64)
+            .collect()
+    };
+    let slots = (field("presentation_slots")?
+        .as_array()
+        .ok_or_else(|| bad("slots"))?
+        .iter())
+    .map(|slot| {
+        if let Some(line) = slot.get("line") {
+            Some(Slot::Line(SlotLine {
+                momentum: numbers(line)?,
+                eps_units: u8::try_from(slot.get("eps_units")?.as_u64()?).ok()?,
+            }))
+        } else {
+            let isp = slot.get("isp")?.as_array()?;
+            Some(Slot::Isp(SlotIsp {
+                left: numbers(isp.first()?)?,
+                right: numbers(isp.get(1)?)?,
+            }))
+        }
+    })
+    .collect::<Option<Vec<_>>>()
+    .ok_or_else(|| bad("presentation_slots"))?;
+    let name = field("table_family")?
+        .as_str()
+        .ok_or_else(|| bad("table_family"))?;
+    let loops = (field("loops")?.as_u64())
+        .and_then(|loops| u8::try_from(loops).ok())
+        .ok_or_else(|| bad("loops"))?;
+    let lp_count = (field("lp_count")?.as_u64())
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or_else(|| bad("lp_count"))?;
+    let label = field("label")?.as_str().ok_or_else(|| bad("label"))?;
+    let payload_path = record_path.with_file_name(format!("{label}.rrbin"));
+    let check_path = record_path.with_file_name(format!("{label}.check.json"));
+    preflight_output_destination(&StreamPath::File(check_path.clone()), force)?;
+    let context = rustred::algebra::CoefficientContext::try_new(["d"])
+        .map_err(|error| CliError::Input(format!("context: {error}")))?;
+    let presentation = Presentation::from_slots(
+        PresentationId(0),
+        PresentationKind::Caller,
+        name,
+        loops,
+        slots,
+        &context,
+        None,
+    )
+    .map_err(failed)?;
+    if Some(presentation.family.fingerprint()) != field("family_fingerprint")?.as_str() {
+        return Err(CliError::Input(format!(
+            "{}: the record's slots do not give its family fingerprint",
+            record_path.display()
+        )));
+    }
+    let payload = std::fs::read(&payload_path).map_err(|error| {
+        CliError::InputIo(format!("cannot read {}: {error}", payload_path.display()))
+    })?;
+    let meta = (inspect_custom_payload(&payload).and_then(|summary| summary.meta(lp_count)))
+        .map_err(failed)?;
+    let started = Instant::now();
+    let check = verify_custom_payload(&presentation, &payload, &meta).map_err(failed)?;
+    let seconds = started.elapsed().as_secs_f64();
+    let out = serde_json::json!({
+        "schema": "rustred.p-imported-owner-check.v1",
+        "label": label,
+        "payload": payload_path.display().to_string(),
+        "payload_bytes": payload.len(),
+        "verify": check_json(&check),
+        "verify_seconds": seconds,
+    });
+    let text = serde_json::to_string_pretty(&out).map_err(json_error)?;
+    write_output(
+        &StreamPath::File(check_path),
+        format!("{text}\n").as_bytes(),
+        force,
+    )?;
+    writeln!(
+        std::io::stdout().lock(),
+        "{label}: check of {} bytes: {} in {seconds:.3} s",
+        payload.len(),
+        check_text(&check)
     )
     .map_err(|error| CliError::OutputIo(error.to_string()))
 }
@@ -552,6 +713,29 @@ mod tests {
         .unwrap();
         assert_eq!((parsed.ext, parsed.lp, parsed.force), ((2, 3), 1, false));
         assert!(parsed.partial_box);
+        assert!(!parsed.no_verify);
+        let no_verify = parse(
+            [
+                "--table",
+                "t",
+                "--graph",
+                "0-1",
+                "--ext",
+                "0,1",
+                "--label",
+                "x",
+                "--lp",
+                "0",
+                "--out",
+                "o",
+                "--no-verify",
+            ]
+            .iter()
+            .map(OsString::from)
+            .collect(),
+        )
+        .unwrap();
+        assert!(no_verify.no_verify);
         assert!(matches!(
             parse(vec![OsString::from("--table"), OsString::from("t")]),
             Err(ArgError::MissingRequiredOption(_))

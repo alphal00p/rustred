@@ -80,8 +80,8 @@ fn optional_fixed_and_guard_boundaries_never_split_or_refine_baseline_piece() {
             1 => shortcut.equalities.push(minus(&c, 0, 2)),
             _ => shortcut.rhs.push(PreparedTerm {
                 shift: [0; 3],
-                coefficient: c.zero(),
-                denominator: minus(&c, 0, 2),
+                coefficient: c.zero().into(),
+                denominator: minus(&c, 0, 2).into(),
             }),
         }
         install(&mut p, vec![shortcut, rule(11)]);
@@ -141,8 +141,8 @@ fn optional_excluded_conjunction_can_use_a_later_nonzero_atom_but_keeps_original
     // Even a zero coefficient keeps its original denominator's forbidden face.
     batch(&mut p).rules[0].rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: minus(&c, 0, 2),
+        coefficient: c.zero().into(),
+        denominator: minus(&c, 0, 2).into(),
     });
     let pieces = collect(&p, &[0; 3], &[None, None, Some(0)], Some(0));
     assert_eq!(pieces.len(), 1);
@@ -296,8 +296,8 @@ fn concrete_evaluator_needs_baseline_and_selected_alternative_still_has_descent_
     let mut shortcut = alternative(7);
     shortcut.rhs.push(PreparedTerm {
         shift: [1, 0, 0],
-        coefficient: c.one(),
-        denominator: poly(&c, c.one()),
+        coefficient: c.one().into(),
+        denominator: poly(&c, c.one()).into(),
     });
     install(&mut p, vec![shortcut]);
     let apply = |p: &CandidateOwnerPrograms<3>| {
@@ -335,7 +335,7 @@ fn concrete_evaluator_needs_baseline_and_selected_alternative_still_has_descent_
         result.keys().collect::<Vec<_>>(),
         vec![&IntegralKey::try_new([1, 1, 0]).unwrap()]
     );
-    batch(&mut p).rules[0].rhs[0].denominator = minus(&c, 0, 2);
+    batch(&mut p).rules[0].rhs[0].denominator = minus(&c, 0, 2).into();
     assert!(
         apply(&p).unwrap().is_empty(),
         "pole falls back to the unchanged empty baseline RHS"
@@ -400,8 +400,8 @@ fn native_applied_pipeline_uses_marked_rule_and_reports_bad_descent_without_fall
     let mut shortcut = alternative(7);
     shortcut.rhs.push(PreparedTerm {
         shift: [-1, 0, 0],
-        coefficient: c.one(),
-        denominator: poly(&c, c.one()),
+        coefficient: c.one().into(),
+        denominator: poly(&c, c.one()).into(),
     });
     install(&mut p, vec![shortcut, rule(11)]);
     for raising in [false, true] {

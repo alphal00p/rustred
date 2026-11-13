@@ -43,8 +43,8 @@ use std::sync::Arc;
 use crate::algebra::Coefficient;
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
-    BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
-    SectionTag,
+    BinaryIoLimits, CoefficientId, LazyDecodedCoefficientTable, NativeFamilyRecord,
+    ProgramEnvelope, SectionTag,
 };
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::{Mask, OrderingPolicy, zero};
@@ -59,7 +59,7 @@ use super::bundle_wire::{
     BundleWireError, CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS,
     DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, RuleRecord,
     StoredProgram, candidate_sections, decode_family_record, decode_program_record,
-    import_coefficients, storage_variables, validate_dispatch, validate_sectors,
+    storage_variables, validate_dispatch, validate_rule_ids, validate_sectors,
 };
 use super::error::PError;
 use super::lane::OwnerLane;
@@ -101,8 +101,9 @@ pub fn bundle_guard_version(policy: &str) -> (u32, &str) {
         None => (1, policy),
     }
 }
-/// Structural allocation allowance of one payload's records.
-const MAX_RECORD_BYTES: usize = 1 << 30;
+/// Structural allocation allowance of one payload's records (t162-export:
+/// 8 GiB; the program record of a full boxed 5L node exceeds 1 GiB).
+const MAX_RECORD_BYTES: usize = 1 << 33;
 
 fn payload_error(detail: impl fmt::Display) -> PError {
     PError::MalformedLibrary(format!("custom payload: {detail}"))
@@ -412,10 +413,13 @@ pub fn check_custom_owner(
 // ----- the decoded program -----
 
 /// A payload bound to its presentation's family, with its coefficients.
+/// t162-export: the coefficient table stays ENCODED (a non-retaining lazy
+/// table): each read decodes its frame, nothing is cached, so the loaded form
+/// holds only the prepared (interned) coefficients, never the decoded table.
 struct Decoded {
     program: ProgramRecord,
     ordering: OrderingPolicy,
-    table: DecodedCoefficientTable,
+    table: LazyDecodedCoefficientTable,
 }
 
 impl fmt::Debug for Decoded {
@@ -448,11 +452,25 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             )));
         }
     }
-    let table =
-        import_coefficients(&envelope, &program, BinaryIoLimits::default()).map_err(wire_error)?;
+    let section = |tag| {
+        envelope
+            .section(tag)
+            .map(|bytes| Arc::<[u8]>::from(bytes))
+            .ok_or_else(|| payload_error("expected a generated candidate binary program"))
+    };
+    let table = LazyDecodedCoefficientTable::new(
+        section(SectionTag::SYMBOLICA_STATE)?,
+        section(SectionTag::COEFFICIENTS)?,
+        BinaryIoLimits::default(),
+    )
+    .map_err(payload_error)?
+    .without_retention();
+    for rule in program.sectors.iter().flat_map(|sector| &sector.rules) {
+        validate_rule_ids(rule, table.len()).map_err(wire_error)?;
+    }
     let rebuilt = family
-        .to_family(
-            &table,
+        .to_family_with(
+            |id| table.coefficient(id).map(|value| value.as_ref().clone()),
             IntegralFamilyLimits::default(),
             BinaryIoLimits::default(),
         )
@@ -491,12 +509,13 @@ fn restore_error(error: BundleWireError) -> CandidateReductionError {
 }
 
 impl Decoded {
-    /// The saved solution of `chart`, in `context`'s variables.
-    fn input<const N: usize>(
+    /// The prepared programs of `chart`, in `context`'s variables; the rules
+    /// are restored and prepared one at a time (t162-export).
+    fn programs<const N: usize>(
         &self,
         chart: [bool; N],
-        context: &CandidateOwnerContext<N>,
-    ) -> Result<CandidateOwnerInput<N>, CandidateReductionError> {
+        context: Arc<CandidateOwnerContext<N>>,
+    ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
         let program = &self.program;
         let ordinal = (program.sectors.iter())
             .position(|sector| crate::storage_array(&sector.sector, false) == Some(chart))
@@ -505,13 +524,14 @@ impl Decoded {
             crate::storage_array(&program.root_sector, false).ok_or_else(|| invalid("arity"))?;
         let coefficients = context.coefficient_context();
         let variables = storage_variables::<N>(coefficients);
+        let indices = *context.index_variables();
         let restore = Restore {
             table: &self.table,
             variables: &variables,
-            indices: context.index_variables(),
+            indices: &indices,
         };
-        let (_, solution) = restore
-            .sector(
+        let (_, solution, rules) = restore
+            .sector_streamed(
                 program,
                 ordinal,
                 &self.ordering,
@@ -520,12 +540,17 @@ impl Decoded {
                 FiniteCasePolicy::SearchFinite,
             )
             .map_err(restore_error)?;
-        Ok(CandidateOwnerInput {
+        let input = CandidateOwnerInput {
             sector: chart,
             saved_root: root,
             ordering: self.ordering.clone(),
             solution,
-        })
+        };
+        CandidateOwnerPrograms::try_new_streamed(
+            context,
+            input,
+            rules.map(|rule| rule.map_err(restore_error)),
+        )
     }
 }
 
@@ -668,6 +693,7 @@ pub fn custom_payload_coefficient_table(payload: &[u8]) -> Result<CustomCoeffici
                 .table
                 .coefficient(id)
                 .map_err(payload_error)?
+                .as_ref()
                 .clone(),
         );
     }
@@ -747,10 +773,26 @@ pub fn custom_payload_dump(payload: &[u8]) -> Result<String, PError> {
     Ok(dump)
 }
 
-/// Prepares one chart of a payload on first use.
+/// Prepares one chart of a payload on first use. t162-export: the decoded
+/// payload (rule records + coefficient table) is released once every chart
+/// is prepared; the deferred programs cache each chart's prepared owner (a
+/// success is never prepared again), so nothing reads it afterwards.
 #[derive(Debug)]
 struct PayloadLoader {
-    decoded: Arc<Decoded>,
+    decoded: std::sync::Mutex<Option<Arc<Decoded>>>,
+    unprepared: std::sync::Mutex<BTreeSet<Vec<bool>>>,
+}
+
+impl PayloadLoader {
+    fn new(decoded: Decoded) -> Self {
+        let unprepared = (decoded.program.sectors.iter())
+            .map(|sector| sector.sector.clone())
+            .collect();
+        Self {
+            decoded: std::sync::Mutex::new(Some(Arc::new(decoded))),
+            unprepared: std::sync::Mutex::new(unprepared),
+        }
+    }
 }
 
 impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
@@ -759,8 +801,21 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
         sector: [bool; N],
         context: Arc<CandidateOwnerContext<N>>,
     ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
-        let input = self.decoded.input(sector, &context)?;
-        CandidateOwnerPrograms::try_new(context, [input])
+        let decoded = (self.decoded.lock())
+            .map_err(|_| invalid("payload loader lock poisoned"))?
+            .clone()
+            .ok_or_else(|| invalid("payload released after every chart was prepared"))?;
+        let programs = decoded.programs(sector, context)?;
+        drop(decoded);
+        let mut unprepared =
+            (self.unprepared.lock()).map_err(|_| invalid("payload loader lock poisoned"))?;
+        unprepared.retain(|chart| crate::storage_array(chart, false) != Some(sector));
+        if unprepared.is_empty() {
+            if let Ok(mut decoded) = self.decoded.lock() {
+                decoded.take();
+            }
+        }
+        Ok(programs)
     }
 }
 
@@ -1041,6 +1096,10 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         Ok(POrderKey::Complexity(key))
     }
 
+    fn boxed_node(&self) -> Option<&str> {
+        self.boxed.as_deref().map(|record| record.node.as_str())
+    }
+
     fn box_contains(&self, powers: &[i64]) -> Option<bool> {
         self.boxed.as_ref().map(|record| record.contains(powers))
     }
@@ -1282,9 +1341,7 @@ fn build<const N: usize>(
     let programs = DeferredCandidateOwnerPrograms::try_new(
         context,
         descriptors,
-        Arc::new(PayloadLoader {
-            decoded: Arc::new(decoded),
-        }),
+        Arc::new(PayloadLoader::new(decoded)),
     )
     .map_err(candidate)?;
     let step = CustomStep::<N> {

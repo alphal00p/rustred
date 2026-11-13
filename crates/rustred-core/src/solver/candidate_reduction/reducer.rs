@@ -1082,8 +1082,8 @@ mod guarded_tests {
             .rules
             .get_mut(&[true])
             .unwrap();
-        rules[0].rhs[0].denominator = polynomial("d-4");
-        rules[1].rhs[0].denominator = polynomial("d-5");
+        rules[0].rhs[0].denominator = polynomial("d-4").into();
+        rules[1].rhs[0].denominator = polynomial("d-5").into();
         rules[1].exceptions = vec![vec![polynomial("d-6"), polynomial("d-8")]];
         assert!(reducer.reduce_unit_mass(&key([3])).unwrap().is_zero());
         let (first, conditions, work) = reducer

@@ -28,6 +28,12 @@ pub trait PLaneStep: Send + Sync {
     fn box_contains(&self, _powers: &[i64]) -> Option<bool> {
         None
     }
+
+    /// t162-export: the node named by the box record of a boxed Custom owner
+    /// (`None` for every other owner).
+    fn boxed_node(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// The entries of [`POrderKey::Lexicographic`].

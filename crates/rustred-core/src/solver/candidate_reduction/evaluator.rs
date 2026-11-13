@@ -481,13 +481,13 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
             .zip(&term.shift)
             .enumerate()
         {
-            *out = n
-                .checked_add(shift)
-                .ok_or_else(|| CandidateReductionError::IndexOverflow {
+            *out = n.checked_add(i64::from(shift)).ok_or_else(|| {
+                CandidateReductionError::IndexOverflow {
                     target: target.clone(),
                     axis,
                     rule: rule.ordinal,
-                })?;
+                }
+            })?;
         }
         let child = IntegralKey::try_new(child[..self.context.index_count()].iter().copied())
             .map_err(ReductionError::IntegralKey)?;
