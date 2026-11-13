@@ -559,7 +559,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         let r = span_at_key(&k.kv, &target, &rhs, &rnum[li], &rden[li], &seeds, &recenter, &rows, &row_ids, &zero_masks, args, &base, &k.keystr);
         match r.0.as_str() {
             "EXACT_IN_SPAN_AT_KEY" => n_proved += 1,
-            s if s.starts_with("NOT_IN_SPAN") || s.starts_with("FAIL") => n_fail += 1,
+            s if s.contains("NOT_IN_SPAN") || s.starts_with("FAIL") => n_fail += 1,
             _ => n_other += 1,
         }
         key_json.push(format!("{{\"key\":{{{}}},\"status\":{},{},\"seconds\":{:.3}}}", k.keystr, jstr(&r.0), r.1, tk.elapsed().as_secs_f64()));
@@ -672,7 +672,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
         }
         Some(out)
     };
-    let structure = |m: Mont, d: u64| -> (Vec<usize>, Vec<u32>, usize) {
+    let structure = |m: Mont, d: u64| -> (Vec<usize>, Vec<u32>, usize, Vec<u32>) {
         let p = m.p;
         let mut el = Elim::new(m, ncol);
         let mut s_rows = vec![];
@@ -681,31 +681,90 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
             if el.add(&eq, 0, &choose_col).is_none() { s_rows.push(i); }
         }
         // residual of T v at d
-        let vm = match v_at(p, d) { Some(x) => x, None => return (s_rows, el.piv_unk.clone(), usize::MAX) };
+        let vm = match v_at(p, d) { Some(x) => x, None => return (s_rows, el.piv_unk.clone(), usize::MAX, vec![]) };
         let veq: Vec<(u32, u64)> = vm.iter().map(|&(c, x)| (c, m.to(x))).filter(|x| x.1 != 0).collect();
         el.load(&veq);
         el.reduce(0);
         let res = el.take();
-        (s_rows, el.piv_unk.clone(), res.len())
+        (s_rows, el.piv_unk.clone(), res.len(), res.iter().map(|x| x.0).collect())
     };
-    let (mut s_rows, mut piv_cols, mut res0) = (vec![], vec![], usize::MAX);
-    for _ in 0..16 { let d0 = draw_d(&mut stream, p0); let r = structure(m0, d0); s_rows = r.0; piv_cols = r.1; res0 = r.2; if res0 != usize::MAX { break; } }
+    let (mut s_rows, mut piv_cols, mut res0, mut res_cols) = (vec![], vec![], usize::MAX, vec![]);
+    for _ in 0..16 { let d0 = draw_d(&mut stream, p0); let r = structure(m0, d0); s_rows = r.0; piv_cols = r.1; res0 = r.2; res_cols = r.3; if res0 != usize::MAX { break; } }
     let rank = s_rows.len();
     let t_struct = ts.elapsed().as_secs_f64();
     info.push(format!("\"structure\":{{\"prime\":\"{}\",\"rank\":{},\"residual_nonzero_columns\":{},\"seconds\":{:.3}}}", p0, rank, res0, t_struct));
-    if res0 > 0 {
-        // confirm at a second independent point
-        let p1 = next_prime(&mut stream, &mut used_primes);
-        let mut res1 = usize::MAX;
-        for _ in 0..16 { let d1 = draw_d(&mut stream, p1); res1 = structure(Mont::new(p1), d1).2; if res1 != usize::MAX { break; } }
-        info.push(format!("\"confirm\":{{\"prime\":\"{}\",\"residual_nonzero_columns\":{}}}", p1, res1));
-        if res1 > 0 {
-            return ("NOT_IN_SPAN_MODULAR (rule vector not reduced to zero by the seed rows at 2 independent points: not derivable from these seeds at this key, w.h.p.; no exact non-membership certificate)".into(), info.join(","));
-        }
-        return ("UNDECIDED (structure points disagree)".into(), info.join(","));
-    }
-    // ---------------- square solves at points; reconstruction per prime; CRT; exact check
     let col_in_p: Vec<u32> = { let mut v = vec![u32::MAX; ncol]; for (k, &c) in piv_cols.iter().enumerate() { v[c as usize] = k as u32; } v };
+    if res0 > 0 {
+        // NON-MEMBERSHIP certificate (helper note item 4): residual nonzero in a free column c*; u = e_c* - (A_SP^-1 A_Sc*)
+        // on the pivot columns, reconstructed over Q(d), checked EXACTLY: A u = 0 on ALL rows in Z[d], and
+        // v(d0).u(d0) != 0 at an exact integer d0. Then v is not in the row space over Q(d) of these seed rows.
+        let cstar = *res_cols.iter().filter(|&&c| col_in_p[c as usize] == u32::MAX).min_by_key(|&&c| (std::cmp::Reverse(ckey[c as usize]), inst.cols[c as usize].clone())).unwrap_or(&res_cols[0]);
+        let solve_u = |m: Mont, d: u64| -> Option<Vec<u64>> {
+            let p = m.p;
+            // equations = independent rows: sum_k A[s,P_k] x_k = A[s,c*]
+            let mut el = Elim::new(m, rank);
+            let first = |row: &[(u32, u64)]| -> u32 { row[0].0 };
+            let mut eqs: Vec<(Vec<(u32, u64)>, u64)> = vec![];
+            for &ri in &s_rows {
+                let mut eq = vec![]; let mut rhs = 0u64;
+                for &(c, bb, dc) in &inst.rows[ri] {
+                    let x = ma(mi64(bb, p), mm(mi64(dc, p), d, p), p);
+                    if x == 0 { continue; }
+                    if c == cstar { rhs = m.to(x); } else { let k = col_in_p[c as usize]; if k != u32::MAX { eq.push((k, m.to(x))); } }
+                }
+                eqs.push((eq, rhs));
+            }
+            eqs.sort_by_key(|e| e.0.len());
+            for (eq, rhs) in &eqs { if el.add(eq, *rhs, &first).is_some() { return None; } }
+            Some(el.solve().into_iter().map(|x| m.from(x)).collect())
+        };
+        let verify_u = |l: &BigPoly, w: &[BigPoly]| -> usize {
+            // u_{P_k} = -W_k, u_{c*} = L; every row r: sum_k A[r,P_k] (-W_k) + A[r,c*] L == 0
+            let mut bad = 0;
+            for r in &inst.rows {
+                let mut acc: BigPoly = vec![];
+                for &(c, bb, dc) in r {
+                    let (poly, sign) = if c == cstar { (l, 1i64) } else { let k = col_in_p[c as usize]; if k == u32::MAX { continue; } (&w[k as usize], -1i64) };
+                    if poly.is_empty() { continue; }
+                    let need = poly.len() + 1;
+                    if acc.len() < need { acc.resize(need, Big::zero()); }
+                    for (e, x) in poly.iter().enumerate() { if bb != 0 { acc[e].add(&x.mul_i64(bb * sign)); } if dc != 0 { acc[e + 1].add(&x.mul_i64(dc * sign)); } }
+                }
+                if acc.iter().any(|x| !x.is_zero()) { bad += 1; }
+            }
+            bad
+        };
+        let p1 = next_prime(&mut stream, &mut used_primes);
+        match reconstruct(rank, cap, args.max_primes, p1, &mut stream, &mut used_primes, &solve_u, &verify_u) {
+            Ok((lz, wz, frag)) => {
+                // exact v(d0).u(d0) != 0 at the first integer d0 = 1, 2, ... with every column denominator nonzero
+                let mut found = None;
+                for d0 in 1i128..200 {
+                    if inst.v.iter().any(|(_, _, de)| bp_eval_i128(de, d0).is_zero()) { continue; }
+                    // sum_c num_c(d0)/den_c(d0) * u_c(d0) as one fraction N/D
+                    let (mut nn, mut dd) = (Big::zero(), Big::one());
+                    for (c, num, de) in &inst.v {
+                        let uc = if *c == cstar { bp_eval_i128(&lz, d0) } else { let k = col_in_p[*c as usize]; if k == u32::MAX { continue; } bp_eval_i128(&wz[k as usize], d0).negated() };
+                        if uc.is_zero() { continue; }
+                        let a = bp_eval_i128(num, d0).mul(&uc); let b = bp_eval_i128(de, d0);
+                        let mut t = nn.mul(&b); t.add(&a.mul(&dd)); nn = t; dd = dd.mul(&b);
+                        let g = Big::gcd(&nn, &dd); if !g.is_zero() && !g.is_one() { nn = nn.div_exact(&g); dd = dd.div_exact(&g); }
+                    }
+                    if !nn.is_zero() { if dd.neg { nn = nn.negated(); dd = dd.negated(); } found = Some((d0, nn, dd)); break; }
+                }
+                info.push(format!("\"nonmembership\":{{\"free_column\":{},\"reconstruction\":{},\"u_support\":{}}}", jstr(&format!("{:?}", inst.cols[cstar as usize])), frag, 1 + wz.iter().filter(|x| !x.is_empty()).count()));
+                match found {
+                    Some((d0, nn, dd)) => {
+                        info.push(format!("\"witness\":{{\"d0\":{},\"v_dot_u\":\"{}/{}\"}}", d0, nn.to_dec(), dd.to_dec()));
+                        ("EXACT_NOT_IN_SPAN_AT_KEY (exact certificate u(d): A u = 0 on all rows in Z[d], v(d0).u(d0) != 0; meaning: NOT derivable from THESE seeds at this key)".into(), info.join(","))
+                    }
+                    None => ("UNDECIDED (kernel vector verified but v.u vanished at d0 = 1..199)".into(), info.join(",")),
+                }
+            }
+            Err((st, frag)) => { info.push(format!("\"nonmembership\":{{\"reconstruction\":{}}}", frag)); (format!("NOT_IN_SPAN_MODULAR (residual nonzero; exact certificate not obtained: {})", st), info.join(",")) }
+        }
+    } else {
+    // ---------------- square solves at points; reconstruction per prime; CRT; exact check
     // transposed square system: equations = pivot columns, unknowns = independent rows
     let solve_at = |m: Mont, d: u64| -> Option<Vec<u64>> {
         let p = m.p;
@@ -729,39 +788,57 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
         }
         Some(el.solve().into_iter().map(|x| m.from(x)).collect())
     };
-    type PrimeImage = (u64, MP, Vec<MP>); // (p, monic L mod p, W_i mod p)
+    let verify = |l: &BigPoly, w: &[BigPoly]| -> usize { verify_exact(&inst, &s_rows, l, w) };
+    match reconstruct(rank, cap, args.max_primes, p0, &mut stream, &mut used_primes, &solve_at, &verify) {
+        Ok((lz, wz, frag)) => {
+            info.push(format!("\"reconstruction\":{},\"nonzero_weights\":{},\"deg_L\":{}", frag, wz.iter().filter(|x| !x.is_empty()).count(), lz.len() - 1));
+            ("EXACT_IN_SPAN_AT_KEY".into(), info.join(","))
+        }
+        Err((st, frag)) => { info.push(format!("\"reconstruction\":{}", frag)); (st, info.join(",")) }
+    }
+    }
+}
+
+/// Reconstruct a vector of rational functions in d from modular solves: per prime, values at hash-derived d (early
+/// termination, 3 held-out values, cap `cap`), common monic denominator L and polynomials W_i = L w_i mod p; the
+/// reduced degree pattern must agree across primes (an odd prime is dropped); CRT + rational number reconstruction on
+/// all but the newest prime, checked against the newest; then `verify` (EXACT, in Z[d]) decides. Returns integer
+/// polynomials (L, W) with verify(L, W) == 0, or (status, log).
+#[allow(clippy::too_many_arguments)]
+fn reconstruct(dim: usize, cap: usize, max_primes: usize, first: u64, stream: &mut Stream, used: &mut Vec<u64>, solve: &dyn Fn(Mont, u64) -> Option<Vec<u64>>, verify: &dyn Fn(&BigPoly, &[BigPoly]) -> usize) -> Result<(BigPoly, Vec<BigPoly>, String), (String, String)> {
+    let next_prime = |stream: &mut Stream, used: &mut Vec<u64>| -> u64 { loop { let c = prime_candidate(stream.next()); if is_prime(c) && !used.contains(&c) { used.push(c); return c; } } };
+    let draw_d = |stream: &mut Stream, p: u64| -> u64 { loop { let w = stream.next() >> 1; if w < p { return w; } } };
+    type PrimeImage = (u64, MP, Vec<MP>);
     let mut images: Vec<PrimeImage> = vec![];
     let mut prime_log = vec![];
-    let mut solve_secs = 0.0;
-    let mut recon_secs = 0.0;
-    let mut npoints_total = 0usize;
-    let mut skipped_points = 0usize;
-    let mut verify_log = vec![];
-    let mut first_prime = Some(p0);
+    let (mut solve_secs, mut recon_secs) = (0.0, 0.0);
+    let (mut npoints_total, mut skipped_points) = (0usize, 0usize);
+    let mut verify_log: Vec<String> = vec![];
+    let mut first_prime = Some(first);
     let mut start_points = 8usize;
-    while images.len() < args.max_primes {
-        let p = match first_prime.take() { Some(p) => p, None => next_prime(&mut stream, &mut used_primes) };
+    let log = |prime_log: &Vec<String>, verify_log: &Vec<String>, n: usize, sk: usize, ss: f64, rs: f64| format!("{{\"primes\":[{}],\"points_solved\":{},\"singular_points_skipped\":{},\"solve_seconds\":{:.3},\"reconstruct_seconds\":{:.3},\"exact_checks\":[{}]}}", prime_log.join(","), n, sk, ss, rs, verify_log.join(","));
+    while images.len() < max_primes {
+        let p = match first_prime.take() { Some(p) => p, None => next_prime(stream, used) };
         let m = Mont::new(p);
         let mut xs: Vec<u64> = vec![];
-        let mut ys: Vec<Vec<u64>> = vec![]; // [point][component]
+        let mut ys: Vec<Vec<u64>> = vec![];
         let mut want = start_points.min(cap);
         let mut got: Option<(MP, Vec<MP>)> = None;
         loop {
             while xs.len() < want {
-                let d = draw_d(&mut stream, p);
+                let d = draw_d(stream, p);
                 if xs.contains(&d) { continue; }
                 let t = Instant::now();
-                let s = solve_at(m, d);
+                let s = solve(m, d);
                 solve_secs += t.elapsed().as_secs_f64();
-                match s { Some(w) => { xs.push(d); ys.push(w); npoints_total += 1; } None => { skipped_points += 1; if skipped_points > 64 + 4 * cap { return ("UNDECIDED (too many singular points)".into(), info.join(",")); } } }
+                match s { Some(w) => { xs.push(d); ys.push(w); npoints_total += 1; } None => { skipped_points += 1; if skipped_points > 64 + 4 * cap { return Err(("UNDECIDED (too many singular points)".into(), log(&prime_log, &verify_log, npoints_total, skipped_points, solve_secs, recon_secs))); } } }
             }
             let tr = Instant::now();
-            let n = xs.len() - 3; // 3 held-out values check every reconstruction
-            // (a) common denominator from a pseudo-random combination of the weights (helper h15), then (b) every
-            // q*w_i as a POLYNOMIAL through n values, checked on the held-out ones; fallback (c) per-weight
-            // rational reconstruction + lcm. Only a proposal: the exact check decides.
+            let n = xs.len() - 3;
+            // (a) common denominator from a pseudo-random combination (helper h15), (b) q*w_i as polynomials checked
+            // on the held-out values, (c) fallback per-component rational reconstruction + lcm
             let mut lam_state = p ^ 0x9e37_79b9_7f4a_7c15;
-            let lam: Vec<u64> = (0..rank).map(|_| { lam_state = lam_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (lam_state >> 1) % p }).collect();
+            let lam: Vec<u64> = (0..dim).map(|_| { lam_state = lam_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (lam_state >> 1) % p }).collect();
             let z: Vec<u64> = ys.iter().map(|w| w.iter().zip(&lam).fold(0u64, |a, (&x, &l)| ma(a, mm(x, l, p), p))).collect();
             let mut res: Option<(MP, Vec<MP>)> = None;
             if let Some((_, q)) = mp_ratrec(&xs[..n], &z[..n], &xs[n..], &z[n..], p) {
@@ -769,7 +846,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
                 if qv.iter().all(|&x| x != 0) {
                     let mut w = vec![];
                     let mut ok = true;
-                    for i in 0..rank {
+                    for i in 0..dim {
                         let col: Vec<u64> = ys.iter().zip(&qv).map(|(wv, &qq)| mm(wv[i], qq, p)).collect();
                         let poly = mp_interp(&xs[..n], &col[..n], p);
                         if (n..xs.len()).any(|j| mp_eval(&poly, xs[j], p) != col[j]) { ok = false; break; }
@@ -781,7 +858,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
             if res.is_none() {
                 let mut ok = true;
                 let mut nums = vec![]; let mut dens = vec![];
-                for i in 0..rank {
+                for i in 0..dim {
                     let col: Vec<u64> = ys.iter().map(|w| w[i]).collect();
                     match mp_ratrec(&xs[..n], &col[..n], &xs[n..], &col[n..], p) { Some((a, b)) => { nums.push(a); dens.push(b); } None => { ok = false; break; } }
                 }
@@ -793,27 +870,16 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
                 }
             }
             recon_secs += tr.elapsed().as_secs_f64();
-            if let Some((l, w)) = res {
-                start_points = xs.len();
-                got = Some((l, w));
-                break;
-            }
+            if let Some(r) = res { start_points = xs.len(); got = Some(r); break; }
             if want >= cap { break; }
             want = (want * 2).min(cap);
         }
-        match got {
-            None => return ("UNDECIDED (reconstruction did not terminate within the point cap)".into(), { info.push(format!("\"point_cap\":{}", cap)); info.join(",") }),
-            Some((l, w)) => {
-                prime_log.push(format!("{{\"prime\":\"{}\",\"points\":{},\"deg_L\":{},\"max_deg_W\":{}}}", p, xs.len(), l.len() - 1, w.iter().map(|x| x.len()).max().unwrap_or(0).saturating_sub(1)));
-                images.push((p, l, w));
-            }
-        }
-        // degree pattern of the latest prime must agree with the first (else drop the odd one)
+        let (l, w) = match got { Some(x) => x, None => return Err(("UNDECIDED (reconstruction did not terminate within the point cap)".into(), log(&prime_log, &verify_log, npoints_total, skipped_points, solve_secs, recon_secs))) };
+        prime_log.push(format!("{{\"prime\":\"{}\",\"points\":{},\"deg_L\":{},\"max_deg_W\":{}}}", p, xs.len(), l.len() - 1, w.iter().map(|x| x.len()).max().unwrap_or(0).saturating_sub(1)));
+        images.push((p, l, w));
         let shape = |im: &PrimeImage| -> (usize, Vec<usize>) { (im.1.len(), im.2.iter().map(|x| x.len()).collect()) };
-        let s0 = shape(&images[0]);
-        if shape(images.last().unwrap()) != s0 { images.pop(); continue; }
+        if shape(images.last().unwrap()) != shape(&images[0]) { images.pop(); continue; }
         if images.len() < 2 { continue; }
-        // CRT + rational reconstruction on all but the last prime, check against the last prime
         let tr = Instant::now();
         let use_n = images.len() - 1;
         let rec = crt_ratrec(&images[..use_n]);
@@ -821,21 +887,16 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
         recon_secs += tr.elapsed().as_secs_f64();
         if !checked { continue; }
         let (lq, wq, bits) = rec.unwrap();
-        // exact verification in Z[d]
         let tv = Instant::now();
         let (lz, wz) = integerise(&lq, &wq);
-        let bad = verify_exact(&inst, &s_rows, &lz, &wz);
-        let tver = tv.elapsed().as_secs_f64();
-        verify_log.push(format!("{{\"primes_in_crt\":{},\"failed_columns\":{},\"seconds\":{:.3}}}", use_n, bad, tver));
+        let bad = verify(&lz, &wz);
+        verify_log.push(format!("{{\"primes_in_crt\":{},\"failed_columns_or_rows\":{},\"max_coefficient_bits\":{},\"seconds\":{:.3}}}", use_n, bad, bits, tv.elapsed().as_secs_f64()));
         if bad == 0 && !lz.is_empty() {
-            info.push(format!("\"reconstruction\":{{\"primes\":[{}],\"points_solved\":{},\"singular_points_skipped\":{},\"solve_seconds\":{:.3},\"reconstruct_seconds\":{:.3},\"deg_L\":{},\"max_deg_W\":{},\"max_coefficient_bits\":{},\"nonzero_weights\":{}}}",
-                prime_log.join(","), npoints_total, skipped_points, solve_secs, recon_secs, lz.len() - 1, wz.iter().map(|x| x.len()).max().unwrap_or(0).saturating_sub(1), bits, wz.iter().filter(|x| !x.is_empty()).count()));
-            info.push(format!("\"exact_check\":{}", verify_log.last().unwrap()));
-            return ("EXACT_IN_SPAN_AT_KEY".into(), info.join(","));
+            let frag = format!("{{\"deg_L\":{},\"max_deg_W\":{},\"log\":{}}}", lz.len() - 1, wz.iter().map(|x| x.len()).max().unwrap_or(0).saturating_sub(1), log(&prime_log, &verify_log, npoints_total, skipped_points, solve_secs, recon_secs));
+            return Ok((lz, wz, frag));
         }
     }
-    info.push(format!("\"reconstruction\":{{\"primes\":[{}],\"points_solved\":{},\"exact_checks\":[{}]}}", prime_log.join(","), npoints_total, verify_log.join(",")));
-    ("UNDECIDED (no verified reconstruction within max_primes)".into(), info.join(","))
+    Err(("UNDECIDED (no verified reconstruction within max_primes)".into(), log(&prime_log, &verify_log, npoints_total, skipped_points, solve_secs, recon_secs)))
 }
 
 /// rational number reconstruction (Wang): a mod m -> n/d with |n|, d <= sqrt(m/2)
