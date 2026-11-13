@@ -68,6 +68,7 @@ impl<const N: usize> Case<N> {
     /// the case: never use it for cover, admission or covering checks (use [`Self::intersect_many`]). It has no
     /// production caller; it is crate-private so that none appears without review.
     #[allow(clippy::result_large_err)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn intersect_many_with_max_numerator_rank(
         &self,
         conjunction: &[CoefficientPolynomial],
