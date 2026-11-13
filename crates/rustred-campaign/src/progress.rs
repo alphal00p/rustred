@@ -332,8 +332,9 @@ pub fn derive(
             "blockers": {"full": n.state.full_blockers, "box": n.state.box_blockers},
             "closure": {"rounds": n.state.closure_rounds, "defect_keys": n.state.last_defect, "keyset": n.last_keyset,
                         "closure_keys": n.state.closure_keys, "rules_used": n.state.rules_used,
-                        "used_share": match (n.state.rules_used, n.accepted_by_level.iter().sum::<u64>()) {
-                            (Some(u), t) if t > 0 => json!(round3(u as f64 / t as f64)),
+                        "rules_total": n.state.rules_total,
+                        "used_share": match (n.state.rules_used, n.state.rules_total) {
+                            (Some(u), Some(t)) if t > 0 => json!(round3(u as f64 / t as f64)),
                             _ => Value::Null,
                         }},
             "economy": e,

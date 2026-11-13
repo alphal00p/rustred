@@ -207,6 +207,7 @@ fn boxed_only_after_the_full_attempt_and_only_with_the_spec_box() {
         defect_keys: 0,
         closure_keys: 154_783,
         rules_used: Some(1),
+        rules_total: Some(2_440),
         keyset: None,
     }))
     .unwrap();
