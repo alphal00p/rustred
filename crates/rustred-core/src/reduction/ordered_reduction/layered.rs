@@ -39,6 +39,7 @@
 //! Not used with diagnostic limits, the adjoint tail, a cross-checked
 //! arithmetic, or an adapter without a detached stepper (the sequential or
 //! pipelined path runs instead).
+#![allow(clippy::type_complexity)]
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::BTreeMap;
@@ -75,7 +76,7 @@ thread_local! {
     /// fwd-opt: this worker's light handles of the current request ->
     /// (shared-table id, probe values, zero).
     static HANDLES: std::cell::RefCell<(u64, std::collections::HashMap<u64, (u32, Probe, bool), FrontierHash>)> =
-        std::cell::RefCell::new((u64::MAX, std::collections::HashMap::with_hasher(FrontierHash::Fx)));
+        const { std::cell::RefCell::new((u64::MAX, std::collections::HashMap::with_hasher(FrontierHash::Fx))) };
 }
 
 /// `RUSTRED_ORDERED_LAYERED=on|off` (fwd-opt; default off).
@@ -306,7 +307,7 @@ impl<K: OrderedKernel> OrderedStateView for View<'_, K> {
     fn terminals(
         &self,
     ) -> Box<dyn ExactSizeIterator<Item = (&IntegralKey, Option<&Coefficient>)> + '_> {
-        Box::new(self.terminals.iter().map(|(key, _)| (key, None)))
+        Box::new(self.terminals.keys().map(|key| (key, None)))
     }
 
     fn nonzero_conditions(&self) -> &[Coefficient] {
@@ -430,10 +431,7 @@ where
         weights.layered_append(1)[0] = Op::layered(OpTag::Init, slot, id);
         shard.insert(packed, hash, position, ModularWeight::layered(slot, probe));
     }
-    let live = |shards: &[Mutex<Shard<_, _>>]| -> usize {
-        shards.iter().map(|s| Shard::lock(s).live).sum()
-    };
-    progress.frontier_keys = live(&shards);
+    progress.frontier_keys = shards.iter().map(|s| Shard::lock(s).live).sum::<usize>();
     progress.peak_frontier_keys = progress.frontier_keys;
     progress.frontier_coefficient_monomials = progress.frontier_keys;
     progress.peak_frontier_coefficient_monomials = progress.frontier_keys;
@@ -1177,7 +1175,11 @@ impl LayerStats {
 /// terminal) order; the outcome of each is written to `events` /
 /// `terminal_events`. Returns the first error in parent order, if any (the
 /// merge of that shard stops there).
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::needless_range_loop
+)]
 fn merge_layer<K>(
     workers: &Workers,
     stepper: &K::Detached,

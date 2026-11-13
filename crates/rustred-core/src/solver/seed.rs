@@ -595,10 +595,11 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
         }
         loop {
             let seed = self.inner.next()?;
-            if let (Some(cap), Ok(s)) = (self.skip_symbolic_upto, &seed) {
-                if self.inner.depth() <= cap && self.inner.symbolic_only(s) {
-                    continue;
-                }
+            if let (Some(cap), Ok(s)) = (self.skip_symbolic_upto, &seed)
+                && self.inner.depth() <= cap
+                && self.inner.symbolic_only(s)
+            {
+                continue;
             }
             // Expose the first over-budget shell to the caller's existing
             // depth check, rather than filtering up to a larger first_depth.
@@ -609,13 +610,14 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
                 || seed.is_err()
             {
                 // FixedDotShell: the seed budget ends the stream (an exhausted search, never a partial shell claim)
-                if let Some(left) = self.seeds_left.as_mut() {
-                    if seed.is_ok() && self.inner.depth() >= self.first_depth {
-                        if *left == 0 {
-                            return None;
-                        }
-                        *left -= 1;
+                if let Some(left) = self.seeds_left.as_mut()
+                    && seed.is_ok()
+                    && self.inner.depth() >= self.first_depth
+                {
+                    if *left == 0 {
+                        return None;
                     }
+                    *left -= 1;
                 }
                 return Some(seed);
             }

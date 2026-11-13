@@ -368,6 +368,7 @@ impl InsertionStep {
 
 thread_local! {
     /// fwd-opt: this thread's [`PreparedWeights`] by (step uid, alpha, beta, rank).
+    #[allow(clippy::type_complexity)]
     static PREPARED: std::cell::RefCell<
         std::collections::HashMap<(u64, i64, i64, u32), std::rc::Rc<PreparedWeights>>,
     > = std::cell::RefCell::new(std::collections::HashMap::new());

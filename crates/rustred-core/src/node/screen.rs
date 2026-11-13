@@ -400,6 +400,7 @@ pub(crate) fn record(measure: ScreenMeasure, decision: ScreenDecision) {
 thread_local! {
     /// seed-pose probe: (basis row, seed shift) of every row of the selected trace, recorded by the case search only
     /// while a screen is installed (diagnostic; the default engine path never writes it).
+    #[allow(clippy::type_complexity)]
     static TRACE: RefCell<Option<Vec<(usize, Vec<i32>)>>> = const { RefCell::new(None) };
 }
 

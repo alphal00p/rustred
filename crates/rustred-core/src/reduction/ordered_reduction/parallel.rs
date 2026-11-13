@@ -989,7 +989,7 @@ thread_local! {
     /// fwd-opt: this worker's shared-memo handles of the current pipelined
     /// request -> (shared-table id, zero, interning hash).
     static LIGHT_IDS: std::cell::RefCell<(u64, HashMap<u64, (u32, bool, u64), super::FrontierHash>)> =
-        std::cell::RefCell::new((u64::MAX, HashMap::with_hasher(super::FrontierHash::Fx)));
+        const { std::cell::RefCell::new((u64::MAX, HashMap::with_hasher(super::FrontierHash::Fx))) };
 }
 
 /// `RUSTRED_ORDERED_CROSS_PHASE=on|off` (fwd-opt; default on): speculate

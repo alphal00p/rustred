@@ -2539,6 +2539,7 @@ impl<'l> PStepper<'l> {
         Ok(true)
     }
 
+    #[allow(clippy::mutable_key_type)]
     fn ordered_step(&self, output: PStepOut) -> Result<OrderedStep<PKey>, PError> {
         crate::prof!(ChildAssembly);
         let context = self.library.coefficient_context();

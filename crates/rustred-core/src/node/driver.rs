@@ -2111,6 +2111,7 @@ pub fn fixed_dot_line_momenta(fam: &IntegralFamily) -> Vec<Option<Vec<i64>>> {
 
 /// Rank of integer vectors over Q (computed modulo the prime 2^61 - 1: exact for the small entries of
 /// line momenta).
+#[allow(clippy::needless_range_loop)]
 fn rank_mod_p(rows: &[Vec<i64>]) -> usize {
     const P: i128 = (1 << 61) - 1;
     let pow = |mut b: i128, mut e: i128| {

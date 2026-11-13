@@ -472,8 +472,8 @@ pub fn automorphisms(fam: &Family, mask: &[bool]) -> R<Group> {
             continue;
         }
         let mut images = Vec::with_capacity(n);
-        for s in 0..n {
-            let w = vecmat(&coeffs[s], bp)?;
+        for c in &coeffs[..n] {
+            let w = vecmat(c, bp)?;
             images.push(vecmat(&quad(&w)?, &qmi)?);
         }
         if !seen.insert(images.clone()) {
