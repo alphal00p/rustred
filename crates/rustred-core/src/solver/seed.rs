@@ -159,7 +159,11 @@ impl SeedLayerCap {
                 continue;
             }
             let t = target[i];
-            let line = if t.is_symbolic() { sector[i] } else { t.value() >= 1 };
+            let line = if t.is_symbolic() {
+                sector[i]
+            } else {
+                t.value() >= 1
+            };
             let s = i32::from(seed[i].value()) - i32::from(t.value());
             if line {
                 dd += s;
@@ -715,7 +719,11 @@ mod layer_cap_tests {
         let sector = [true, true, false, false];
         let frozen = [false; 4];
         let t = key([true, false, true, false], [0, 1, 0, 0]);
-        let cap = SeedLayerCap { dots_above: 0, rank_above: 0, dot_free_bonus: 1 };
+        let cap = SeedLayerCap {
+            dots_above: 0,
+            rank_above: 0,
+            dot_free_bonus: 1,
+        };
         assert!(cap.admits(&t, &t, &sector, &frozen));
         // dot moved from line 1 to line 0: same layer
         let s = key([true, false, true, false], [1, 1, 0, 0]);
