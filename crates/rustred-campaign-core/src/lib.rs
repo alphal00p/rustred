@@ -8,5 +8,9 @@
 //! - [`cover`]: prioritized tables, first-match dispatch, batch and union coverage.
 //! - [`order`]: the node comparator on `&[i32]` slices (owned by the sibling package core-order).
 
+pub mod cover;
+pub mod domain;
 pub mod key;
 pub mod order;
+pub mod poly;
+pub mod record;
