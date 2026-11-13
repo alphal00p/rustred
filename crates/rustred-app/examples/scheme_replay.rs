@@ -15,6 +15,12 @@
 //! checks.json: `{"presentation": <oracle presentation id>, "checks": [{"name": ..,
 //!   "inputs": [[key], [[d exponent, "p/q"], ..] numerator, [[e, "p/q"], ..] denominator], ..]}, ..]}`.
 //! out.json: per check: name, inputs, status, nonzero terms, seconds.
+//!
+//! scheme-certs (rank check): a check may instead carry `"terms": [{"shift": [..], "inputs": [..]}, ..]`,
+//! one entry per term `I(n0 + s)` of the rule with unit coefficient; each term is reduced onto the
+//! oracle's masters separately and out.json gets, per term, every master coefficient (`"reductions"`,
+//! Symbolica expressions in d), for the rank of the term images and the rule's kernel check
+//! (SCRATCHPAD/scheme-certs/tools/replay_ext.py).
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -104,8 +110,75 @@ fn main() {
     let context = library.coefficient_context().clone();
     let limits = ReductionLimits::default().exact_algebra;
     let mut results = Vec::new();
+    let reduce = |inputs: Vec<(PresentationId, IntegralKey, Coefficient)>| {
+        library.reduce(PReductionRequest {
+            inputs,
+            arithmetic: OrderedWeightArithmetic::ModularPolynomial(
+                ModularCommon {
+                    threads,
+                    ..ModularCommon::default()
+                },
+                PolynomialOptions::default(),
+            ),
+            scheduler: OrderedSchedulerOptions::with_threads(threads),
+            step_cache: None,
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: true,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        })
+    };
     for check in spec["checks"].as_array().unwrap() {
         let name = check["name"].as_str().unwrap().to_owned();
+        if let Some(terms) = check.get("terms").and_then(|t| t.as_array()) {
+            let started = Instant::now();
+            let mut images = Vec::new();
+            let mut status = "ok".to_owned();
+            for term in terms {
+                let mut inputs = Vec::new();
+                for input in term["inputs"].as_array().unwrap() {
+                    let key: Vec<i64> = (input[0].as_array().unwrap().iter())
+                        .map(|v| v.as_i64().unwrap())
+                        .collect();
+                    let value = context
+                        .try_div(
+                            &poly(&context, &input[1]),
+                            &poly(&context, &input[2]),
+                            limits,
+                        )
+                        .unwrap();
+                    inputs.push((presentation, IntegralKey::try_new(key).unwrap(), value));
+                }
+                let reductions: Vec<serde_json::Value> = if inputs.is_empty() {
+                    Vec::new()
+                } else {
+                    match reduce(inputs) {
+                        Ok(reduction) => (reduction.terms.iter())
+                            .filter(|t| !t.coefficient.is_zero())
+                            .map(|t| {
+                                serde_json::json!([
+                                    format!("{:?}/{:?}", t.basis, t.tag),
+                                    t.coefficient.to_expression().to_string()
+                                ])
+                            })
+                            .collect(),
+                        Err(error) => {
+                            status = format!("error: {error}");
+                            Vec::new()
+                        }
+                    }
+                };
+                images.push(serde_json::json!({"shift": term["shift"], "reductions": reductions}));
+            }
+            let seconds = started.elapsed().as_secs_f64();
+            eprintln!(
+                "[replay] {name}: {} terms reduced separately, {status}, {seconds:.2} s",
+                terms.len()
+            );
+            results.push(serde_json::json!({"name": name, "status": status, "terms": images, "seconds": seconds}));
+            std::fs::write(&args[3], serde_json::to_string_pretty(&results).unwrap()).unwrap();
+            continue;
+        }
         let mut inputs = Vec::new();
         for input in check["inputs"].as_array().unwrap() {
             let key: Vec<i64> = (input[0].as_array().unwrap().iter())

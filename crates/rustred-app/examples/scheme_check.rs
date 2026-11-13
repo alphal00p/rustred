@@ -118,8 +118,61 @@ fn main() {
                 println!("  uncovered {key:?} -> {at:?} Forcer Z{forcer:?}");
             }
         }
+        // scheme-certs: SCHEME_KEYS=<file> of `class<TAB>powers (comma list)<TAB>count` lines (stepped
+        // Apply keys of a census, e.g. p_path_census with P_CENSUS_KEYS=1): the rule the dispatch
+        // takes at each key of this owner, with the values every slot takes under each rule.
+        let mut dispatched = serde_json::Map::new();
+        if let Ok(path) = std::env::var("SCHEME_KEYS") {
+            let class = format!("{:016x}", owner.spec.class.0);
+            let arity = library.presentation(owner.spec.presentation).slots.len();
+            let perm = template.forcer_slots().to_vec();
+            let mut per_rule: std::collections::BTreeMap<
+                String,
+                (u64, u64, Vec<std::collections::BTreeSet<i64>>),
+            > = std::collections::BTreeMap::new();
+            for line in std::fs::read_to_string(&path).unwrap().lines() {
+                let mut fields = line.split('\t');
+                if fields.next() != Some(class.as_str()) {
+                    continue;
+                }
+                let powers: Vec<i64> = fields
+                    .next()
+                    .unwrap()
+                    .split(',')
+                    .take(arity)
+                    .map(|x| x.parse().unwrap())
+                    .collect();
+                let count: u64 = fields.next().map_or(1, |c| c.parse().unwrap());
+                let name = match step.dispatch_rule(&powers).unwrap() {
+                    Some((name, _)) => name,
+                    None => "(none: fallback)".to_owned(),
+                };
+                let entry = per_rule
+                    .entry(name)
+                    .or_insert_with(|| (0, 0, vec![Default::default(); arity]));
+                entry.0 += count;
+                entry.1 += 1;
+                // Forcer slot order (1-based in the report).
+                for (a, &slot) in perm.iter().enumerate() {
+                    entry.2[a].insert(powers[slot]);
+                }
+            }
+            println!(
+                "keys {}: {} rules dispatched",
+                template.name(),
+                per_rule.len()
+            );
+            for (name, (hits, keys, values)) in &per_rule {
+                println!("  dispatched {name:<22} hits {hits} keys {keys}");
+                dispatched.insert(
+                    name.clone(),
+                    serde_json::json!({"hits": hits, "keys": keys, "values": values}),
+                );
+            }
+        }
         report.push(serde_json::json!({
             "scheme": template.name(), "class": format!("{:016x}", owner.spec.class.0),
+            "dispatched": dispatched,
             "descent_witness_shifts": witness,
             "rules": rules.iter().map(|r| serde_json::json!({"name": r.name, "verification": format!("{:?}", r.verification), "meta": r.meta})).collect::<Vec<_>>(),
         }));

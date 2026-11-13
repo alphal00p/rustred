@@ -40,6 +40,7 @@ pub fn sampled_max_box() -> usize {
 pub use semi_numerical::{
     ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
     ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+    select_projected_source_circuit,
 };
 
 #[cfg(all(test, feature = "reconstruction"))]

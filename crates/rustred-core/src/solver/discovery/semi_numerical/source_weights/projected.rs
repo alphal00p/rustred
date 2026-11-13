@@ -419,5 +419,153 @@ pub fn reconstruct_projected_source_weights(
     })
 }
 
+/// The modular first-hit circuit of a projected frame, for choosing the source
+/// rows handed to [`reconstruct_projected_source_weights`] (scheme-certs).
+///
+/// Columns are ordered as there (`[F, target, rest]`). At one random point of
+/// one large prime, a native reducer on the `[F, target]` columns keeps a row
+/// only if it raises the rank on `F` or is the first row whose `F` part is
+/// dependent while its reduced target entry is nonzero (the hit); every other
+/// row is skipped. The modular source weights of the hit (the same native
+/// probe as the reconstruction's) then name the rows of its circuit: their
+/// original ordinals are returned, in source order. With a one-dimensional
+/// circuit space these rows form an admissible prefix of exactly the size of
+/// the circuit. `Ok(None)`: no row hits the target at this point (the target
+/// is not reached by these rows on `F`), or a pole of an input coefficient at
+/// the point. A choice heuristic only: the exact certificate is the full
+/// product of the later reconstruction, never this sample.
+pub fn select_projected_source_circuit(
+    context: &IndexedCoefficientContext,
+    rows: &[BTreeMap<IndexShift, IndexedCoefficient>],
+    target: &IndexShift,
+    forbidden: &BTreeSet<IndexShift>,
+    seed: u64,
+) -> Result<Option<Vec<usize>>> {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use symbolica::domains::finite_field::{
+        FiniteFieldCore, PrimeIteratorU64, ToFiniteField, Zp64,
+    };
+    use symbolica::domains::{Field, Ring};
+    use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
+
+    if rows.is_empty() || forbidden.contains(target) {
+        return Err(ProjectedSourceWeightError::Invalid(
+            "empty frame or forbidden target",
+        ));
+    }
+    let mut universe = BTreeSet::new();
+    for row in rows {
+        universe.extend(row.keys().cloned());
+    }
+    if !universe.contains(target) {
+        return Ok(None);
+    }
+    let columns: Vec<_> = forbidden
+        .iter()
+        .cloned()
+        .chain(std::iter::once(target.clone()))
+        .chain(
+            universe
+                .into_iter()
+                .filter(|key| key != target && !forbidden.contains(key)),
+        )
+        .collect();
+    let target_column = forbidden.len();
+    let registry: BTreeMap<_, _> = columns
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(i, key)| (key, i as u32))
+        .collect();
+    let variables = FrameVariables::from_coefficients(
+        context.one().raw().get_variables().clone(),
+        rows.iter()
+            .flat_map(|row| row.values().map(IndexedCoefficient::raw)),
+    )?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut values = Vec::with_capacity(row.len());
+        for (key, value) in row {
+            values.push((registry[key], variables.map_coefficient(value.raw())?));
+        }
+        values.sort_unstable_by_key(|(id, _)| *id);
+        prepared.push(values);
+    }
+    let prime = PrimeIteratorU64::new(1 << 61)
+        .next()
+        .ok_or(ProjectedSourceWeightError::Invalid("no prime"))?;
+    let field = Zp64::new(prime);
+    let mut random = StdRng::seed_from_u64(seed);
+    let point: Vec<_> = (0..variables.active_len())
+        .map(|_| field.to_element(random.random_range(1..prime)))
+        .collect();
+    let target_id = target_column as u32;
+    // [F, target] plus a trailing zero sentinel (no native full-rank shortcut).
+    let mut reducer = SparseRowReducer::new(target_id + 2, field.clone(), LuLMode::None);
+    let mut kept = Vec::new();
+    let mut hit = false;
+    for (source, row) in prepared.iter().enumerate() {
+        let mut ids = Vec::new();
+        let mut values = Vec::new();
+        for (column, coefficient) in row {
+            if *column > target_id {
+                break;
+            }
+            let numerator = coefficient.numerator.evaluate_with_coeff_map(
+                |value| value.to_finite_field(&field),
+                &point,
+                &field,
+            );
+            let denominator = coefficient.denominator.evaluate_with_coeff_map(
+                |value| value.to_finite_field(&field),
+                &point,
+                &field,
+            );
+            if field.is_zero(&denominator) {
+                return Ok(None);
+            }
+            let value = field.div(&numerator, &denominator);
+            if !field.is_zero(&value) {
+                ids.push(*column);
+                values.push(value);
+            }
+        }
+        match reducer.add_row(&values, &ids) {
+            Some(pivot) if pivot < target_id => kept.push(source),
+            Some(pivot) if pivot == target_id => {
+                kept.push(source);
+                hit = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    if !hit {
+        return Ok(None);
+    }
+    let frame = ProbeFrame::from_ordered_rows(
+        kept.iter()
+            .map(|&source| prepared[source].clone())
+            .collect(),
+        columns.len(),
+    )?;
+    let Some(image) =
+        super::probe::probe_prefix(&frame, target_column, None, kept.len(), &field, &point)?
+    else {
+        return Ok(None);
+    };
+    if image.harder_rank + 1 != image.pivots.len() {
+        return Err(ProjectedSourceWeightError::Invalid(
+            "the kept prefix is not independent on the forbidden columns",
+        ));
+    }
+    Ok(Some(
+        (image.weights.iter().enumerate())
+            .filter(|(_, weight)| !field.is_zero(weight))
+            .map(|(position, _)| kept[position])
+            .collect(),
+    ))
+}
+
 #[cfg(test)]
 mod tests;
