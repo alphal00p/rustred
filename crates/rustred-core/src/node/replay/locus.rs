@@ -7,7 +7,9 @@
 //!   outside the chart sign of a (empty), when an exception branch vanishes identically on case ∩ {y_i = 0} or an
 //!   RHS coefficient has a pole on all of it (the rule never serves those points), or when no integer point exists
 //!   (random search, then an exhaustive small box; reported in `suspects_no_point`). Optional extra loci
-//!   (`--extra-loci`, d-free affine strings) join S.
+//!   (`--extra-loci`, d-free affine strings) join S. Batch 6 (helper Y18 final list, CLI default): the LOW layers of
+//!   the positive axes join S, every intersection of the live ISP-zero layers is tested, and `--sym-census` adds the
+//!   symmetry layers. The list stays incomplete in principle (Y1/Y18): verdicts are Monte-Carlo evidence only.
 //! * flats = the case itself (control) + every live suspect; with `--full` every intersection (one hyperplane per
 //!   parallel class), capped by `--max-flats`. Otherwise phase B tests the intersections of the suspects whose flat
 //!   FAILed or showed a rank drop against the control (T1: no rank drop on a flat = no new failure there).
@@ -58,6 +60,16 @@ pub struct LocusArgs {
     /// Random integer-point attempts per flat (the Python tool: 600; default here 4000: an attempt that is not
     /// integral or not in the chart costs only rational arithmetic).
     pub point_tries: usize,
+    /// Batch 6 (helper Y18 final suspect list): LOW layers of the positive axes, n_a = 1 .. 1-m (m = lowest seed
+    /// offset + recenter on a): own (y = 0), zero-sector seeds (y <= -1), lowered columns (y = 1); as the Python
+    /// tool's `--low-layers`. CLI default on.
+    pub low_layers: bool,
+    /// Batch 6 (Y14/Y18): every intersection (>= 2 layers, one per parallel class) of the live "seed ISP exponent
+    /// = 0" layers is tested as its own flat (at most 2^#ISP per offset class), capped by `max_flats`. CLI default on.
+    pub isp_zero_intersections: bool,
+    /// Batch 6 (helper X1 C1): symmetry layers from a census of the family's slot actions (`census_all.jsonl` of
+    /// the symmetry investigation: `{"node": <table header family>, "elements": [{"action": [..]}]}`).
+    pub sym_census: Option<PathBuf>,
 }
 
 impl LocusArgs {
@@ -324,6 +336,8 @@ fn guards_of(rule: &Rule, chart: Option<&Value>) -> Vec<String> {
 
 /// Per rule the precomputed context of the flats.
 struct RuleCtx {
+    /// Batch 6: the live suspects that are "seed ISP exponent = 0" layers.
+    isp_zero: Vec<Vec<i128>>,
     case: Case,
     guards: Vec<String>,
     coefs: Vec<Expr>,
@@ -594,6 +608,7 @@ fn run_item(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn prepare(
     rule: &Rule,
     chart: Option<&Value>,
@@ -603,6 +618,8 @@ fn prepare(
     rng: &mut PyRandom,
     tries: usize,
     rec: &mut Value,
+    low_layers: bool,
+    sym: &[Vec<Option<usize>>],
 ) -> Result<RuleCtx, Unknown> {
     let n = rule.fixed.len();
     let case = Case::new(rule)?;
@@ -662,7 +679,116 @@ fn prepare(
             }
         }
     }
+    // seed ISP exponent = 0 layers (S_C entries on an ISP axis): their intersections are flats of their own
+    let isp_zero: BTreeSet<Vec<i128>> = suspects
+        .iter()
+        .filter(|(_, reps)| reps.iter().any(|&(_, _, ax, _)| guards[ax] == "n<=0"))
+        .map(|(c, _)| c.clone())
+        .collect();
+    if low_layers {
+        let mut low = Vec::new();
+        for (k, s) in rule.seeds.iter().enumerate() {
+            for (i, (ax, off)) in parse_integral(s, n)?.into_iter().enumerate() {
+                let Some(ax) = ax else { continue };
+                if guards[ax] != "n>=1" {
+                    continue;
+                }
+                for v in 1..(2 - (off + recenter[i])) {
+                    if let Canon::Form(c) = case.canon(&unit_form(n, ax, -(v as i128)))? {
+                        if !suspects.contains_key(&c) {
+                            low.push(form_str(&c));
+                            suspects.insert(c, vec![(k, i, ax, v)]);
+                        }
+                    }
+                }
+            }
+        }
+        rec["low_layers"] = json!(low);
+    }
     let mut cands: BTreeSet<Vec<i128>> = suspects.keys().cloned().collect();
+    if !sym.is_empty() {
+        // symmetry layers (port of locus_rank.py --sym-census): element g (slot action a, None = ISP sent to a
+        // combination) maps seed k onto seed k' on {y^k'_{a(i)} = y^k_i (defined slots), y^k_i = 0 (None slots),
+        // y^k'_j = 0 (slots not hit)}; kept when that set is one hyperplane of the case.
+        let yforms: Vec<Vec<Form>> = rule
+            .seeds
+            .iter()
+            .map(|s| {
+                Ok(parse_integral(s, n)?
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (ax, off))| {
+                        let mut f = vec![Q::ZERO; n + 1];
+                        match ax {
+                            None => f[0] = Q::int(off as i128),
+                            Some(ax) => {
+                                f[0] = Q::int((off + recenter[i]) as i128);
+                                f[ax + 1] = Q::ONE;
+                            }
+                        }
+                        f
+                    })
+                    .collect())
+            })
+            .collect::<Result<_, Unknown>>()?;
+        let mut sym_new: Vec<Vec<i128>> = Vec::new();
+        for a in sym {
+            if a.len() != n {
+                continue;
+            }
+            let hit: BTreeSet<usize> = a.iter().flatten().copied().collect();
+            for y1 in &yforms {
+                for y2 in &yforms {
+                    let mut forms: BTreeSet<Vec<i128>> = BTreeSet::new();
+                    let mut bad = false;
+                    for i in 0..n {
+                        let f: Form = match a[i] {
+                            Some(j) => y2[j]
+                                .iter()
+                                .zip(&y1[i])
+                                .map(|(u, v)| u.sub(*v))
+                                .collect::<Result<_, _>>()?,
+                            None => y1[i].clone(),
+                        };
+                        match case.canon(&f)? {
+                            Canon::Empty => bad = true,
+                            Canon::All => {}
+                            Canon::Form(c) => {
+                                forms.insert(c);
+                            }
+                        }
+                        if bad || forms.len() > 1 {
+                            bad = true;
+                            break;
+                        }
+                    }
+                    if !bad {
+                        for j in (0..n).filter(|j| !hit.contains(j)) {
+                            match case.canon(&y2[j])? {
+                                Canon::Empty => {
+                                    bad = true;
+                                    break;
+                                }
+                                Canon::All => {}
+                                Canon::Form(c) => {
+                                    forms.insert(c);
+                                }
+                            }
+                        }
+                    }
+                    if bad || forms.len() != 1 {
+                        continue;
+                    }
+                    let c = forms.into_iter().next().unwrap();
+                    if !cands.contains(&c) && !sym_new.contains(&c) {
+                        sym_new.push(c);
+                    }
+                }
+            }
+        }
+        rec["sym_layers"] = json!(sym_new.iter().map(|c| form_str(c)).collect::<Vec<_>>());
+        cands.extend(sym_new);
+    }
     for text in extra.into_iter().flatten() {
         let e = Expr::parse(text, n)?;
         if e.has_d() || e.degree()? > 1 {
@@ -673,6 +799,7 @@ fn prepare(
         }
     }
     let mut rcx = RuleCtx {
+        isp_zero: Vec::new(),
         case,
         guards,
         coefs,
@@ -723,7 +850,14 @@ fn prepare(
         }
     }
     rcx.live.sort_by_key(|c| form_str(c));
+    rcx.isp_zero = rcx
+        .live
+        .iter()
+        .filter(|c| isp_zero.contains(*c))
+        .cloned()
+        .collect();
     rec["suspects"] = json!(rcx.live.iter().map(|c| form_str(c)).collect::<Vec<_>>());
+    rec["isp_zero_layers"] = json!(rcx.isp_zero.iter().map(|c| form_str(c)).collect::<Vec<_>>());
     rec["suspects_no_point"] = Value::Array(dropped);
     Ok(rcx)
 }
@@ -801,6 +935,29 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
             }
         }
     }
+    // batch 6: symmetry layers from a census of the family's slot actions
+    let mut sym: Vec<Vec<Option<usize>>> = Vec::new();
+    if let Some(path) = &args.sym_census {
+        let family_name = header["family"].as_str().unwrap_or_default().to_string();
+        let t = std::fs::read_to_string(path).map_err(|e| format!("sym census: {e}"))?;
+        for line in t.lines().filter(|l| !l.trim().is_empty()) {
+            let v: Value = serde_json::from_str(line).map_err(|e| format!("sym census json: {e}"))?;
+            if v["node"].as_str() != Some(family_name.as_str()) {
+                continue;
+            }
+            for e in v["elements"].as_array().into_iter().flatten() {
+                let action: Vec<Option<usize>> = e["action"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|x| x.as_u64().map(|x| x as usize))
+                    .collect();
+                if action.iter().enumerate().any(|(i, a)| *a != Some(i)) {
+                    sym.push(action);
+                }
+            }
+        }
+    }
     let dims: Vec<(String, u64, Q)> = args
         .dimensions
         .iter()
@@ -857,6 +1014,8 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
             &mut rng,
             args.point_tries,
             &mut rec,
+            args.low_layers,
+            &sym,
         );
         let verdict = match prepared {
             Err(e) => {
@@ -939,6 +1098,36 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
                             }
                         }
                     }
+                    // phase C (batch 6, Y14/Y18): every intersection of the live ISP-zero layers
+                    if args.isp_zero_intersections && !args.full && rc.isp_zero.len() >= 2 {
+                        let tested: BTreeSet<Vec<Vec<i128>>> =
+                            done.iter().map(|(it, _)| it.flat.clone()).collect();
+                        let fl3: Vec<Vec<Vec<i128>>> = all_flats(&rc.isp_zero, args.max_flats)
+                            .into_iter()
+                            .filter(|f| f.len() >= 2 && !tested.contains(f))
+                            .collect();
+                        let capped = fl3.len() + 1 >= args.max_flats;
+                        rec["isp_zero_flats"] = json!(fl3.len());
+                        if capped {
+                            rec["flats_capped"] = json!(true);
+                        }
+                        let items =
+                            make_items(rule, &rc, &fl3, &dq, chart, &mut rng, args.point_tries)?;
+                        for (k, it) in items.into_iter().enumerate() {
+                            let r = match (&it.point, args.no_replay) {
+                                (Some(p), false) => Some(run_item(
+                                    rule,
+                                    &rc,
+                                    &ctx,
+                                    &cells.join(format!("c{k}")),
+                                    p,
+                                    args.keep_cells,
+                                )),
+                                _ => None,
+                            };
+                            done.push((it, r));
+                        }
+                    }
                     let mut fr = Vec::new();
                     let mut sts = Vec::new();
                     for (it, r) in &done {
@@ -959,11 +1148,19 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
                     }
                     rec["flat_results"] = Value::Array(fr);
                     // guard-fix (coordinator 18:49Z, helper Y11): a PASS states the strata tested; it never certifies
-                    rec["tested_strata"] = json!(if args.full {
-                        "every intersection of live suspect layers (up to the case dimension)"
-                    } else {
-                        "the case + single live suspect layers + intersections of layers that showed a rank drop"
-                    });
+                    rec["tested_strata"] = json!(format!(
+                        "{}; suspects = own seed-coordinate layers{}{}{}",
+                        if args.full {
+                            "every intersection of live suspect layers (up to the case dimension)"
+                        } else if args.isp_zero_intersections {
+                            "the case + single live suspect layers + intersections of layers that showed a rank drop + every intersection of the live ISP-zero layers"
+                        } else {
+                            "the case + single live suspect layers + intersections of layers that showed a rank drop"
+                        },
+                        if args.low_layers { " + low layers" } else { "" },
+                        if sym.is_empty() { "" } else { " + symmetry layers" },
+                        if extra.contains_key(&key) { " + extra loci" } else { "" }
+                    ));
                     rec["verdict_meaning"] = json!(
                         "PASS_ON_TESTED_FLATS = in the span at one generic point of each tested flat (Monte-Carlo evidence; not a certificate, suspect list incomplete); FAIL = not derived from these seeds at a tested point"
                     );
@@ -1064,6 +1261,9 @@ mod tests {
             keep_cells: false,
             no_replay: false,
             point_tries: 4000,
+            low_layers: false,
+            isp_zero_intersections: false,
+            sym_census: None,
         }
     }
 
