@@ -33,6 +33,8 @@
 //!                   check; exit 0 accepted / 1 not accepted)
 //! rr_node mapcheck --old OLD --new NEW --keys auto|'K;..' --out CHECK.json [--old-masters ..] [--new-masters ..] [--dims ..]
 //!                  (few-integral cross-check only: old reduction == new reduction mapped back; exit 0 equal / 1 not)
+//! rr_node laporta  --family F.sym --mask BITS --target K --basis 'K;..' --box DOTS,RANK --out OUT.json [--dims ..] [--primes N]
+//!                  (t266-10: independent IBP-only Laporta of one target modulo subsectors, node::mastermap::laporta)
 //! rr_node symmasters (--table F.table.jsonl | --family F.sym --mask BITS) --out OUT.json [--masters 'K;..'] [--prefer 'K;..']
 //!                  [--box DOTS,RANK] [--inner T] [--dims ..] [--primes N] [--isp-free-seeds] [--threads N] [--escalate]
 //!                  [--no-tail] [--tail-points 80] [--tail-primes 8]
@@ -894,6 +896,50 @@ fn write_json(path: &str, v: &serde_json::Value) {
         .unwrap_or_else(|e| die(&format!("{path}: {e}")));
 }
 
+/// `rr_node laporta` (t266-10): independent IBP-only Laporta of ONE target in the top sector of MASK modulo
+/// subsectors (node::mastermap::laporta), at every --dims value and the first --primes primes; seeds: lines >= 1 with at
+/// most DOTS dots, ISP rank <= RANK. Prints/writes per (d, p): status ("ok" = target eliminated onto BASIS + the other
+/// free columns listed as extra terms), the basis coefficients mod p, system size. Exit 0 if every cell is ok with no
+/// extra free column, else 1.
+fn cmd_laporta(mut a: Args) -> i32 {
+    let fam_path = a.need("--family");
+    let mask_s = a.need("--mask");
+    let target = keys_arg(&a.need("--target"));
+    let basis = keys_arg(&a.need("--basis"));
+    let bx = a.need("--box");
+    let out = a.need("--out");
+    let dims = dims_arg(&mut a);
+    let primes = primes_arg(&mut a, 2);
+    a.done();
+    let (dots, rank) = bx
+        .split_once(',')
+        .and_then(|(x, y)| Some((x.parse::<i64>().ok()?, y.parse::<i64>().ok()?)))
+        .unwrap_or_else(|| die("--box DOTS,RANK"));
+    let mask: Vec<bool> = mask_s.chars().map(|c| c == '1').collect();
+    let text = std::fs::read_to_string(&fam_path).unwrap_or_else(|e| die(&format!("{fam_path}: {e}")));
+    let fam = rustred::node::replay::family::Family::parse(&text).unwrap_or_else(|e| die(&e));
+    if target.len() != 1 {
+        die("--target takes exactly one key");
+    }
+    let t0 = std::time::Instant::now();
+    let mut cells = vec![];
+    let mut ok = true;
+    for d in &dims {
+        for &p in &primes {
+            let r = rustred::node::mastermap::laporta(&fam, &mask, &target[0], &basis, dots, rank, d, p)
+                .unwrap_or_else(|e| die(&e));
+            ok &= r["status"] == "ok" && r["extra_terms"] == 0;
+            eprintln!("[laporta] d={} p={p} status={} extra_terms={} rows={} cols={} {:.1}s", r["d"], r["status"], r["extra_terms"], r["rows"], r["cols"], t0.elapsed().as_secs_f64());
+            cells.push(r);
+        }
+    }
+    write_json(&out, &serde_json::json!({"tool": "rustred rr_node laporta (t266-10)", "family": fam_path, "mask": mask_s,
+        "box": [dots, rank], "target": rustred::node::mastermap::key_text(&target[0]),
+        "basis": basis.iter().map(|k| rustred::node::mastermap::key_text(k)).collect::<Vec<_>>(),
+        "cells": cells, "all_ok": ok, "seconds": t0.elapsed().as_secs_f64()}));
+    if ok { 0 } else { 1 }
+}
+
 /// `rr_node reduce`: see the header.
 fn cmd_reduce(mut a: Args) -> i32 {
     use rustred::node::mastermap::{RatFun, key_text};
@@ -1213,6 +1259,7 @@ fn main() {
         "mastermap" => cmd_mastermap(a),
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),
+        "laporta" => cmd_laporta(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
