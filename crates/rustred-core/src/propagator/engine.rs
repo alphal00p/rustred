@@ -312,21 +312,23 @@ pub(crate) enum WarmTask {
     PresentationOrbit(PresentationId),
 }
 
-/// `RUSTRED_P_WARM_LEVELS=n` (fwd-opt, default 2): setup tasks only for
+/// `RUSTRED_P_WARM_LEVELS=n` (fwd-opt; default 1 in batch 6): setup tasks only for
 /// sectors with at least `top - n` lines (`top`: the most lines of a
 /// reached presentation). The first phases have few keys and wait for their
 /// setup one step at a time; later phases have enough parallel steps to
 /// hide theirs, where tasks for sectors no step needs would only compete
 /// (measured at 16 threads on NO3 L4_d2_r8: every level warmed cost +220 MB
 /// and slowed the scheduler; 3 levels cost +11..+25 % RSS on NO1-NO3, 2
-/// levels +1..+10 % for about the same time).
+/// levels +1..+10 % for about the same time). Batch 6 ships 1: the final
+/// fwd-opt queue measured 2 levels at +15/+16 % RSS on NO2/NO1 (over the
+/// +10 % bar); 1 level keeps RSS near the setup-free b7 line (+7..+9 %).
 fn warm_levels() -> usize {
     static LEVELS: OnceLock<usize> = OnceLock::new();
     *LEVELS.get_or_init(|| {
         std::env::var("RUSTRED_P_WARM_LEVELS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(2)
+            .unwrap_or(1)
     })
 }
 
