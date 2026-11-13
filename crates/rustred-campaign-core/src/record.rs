@@ -14,6 +14,13 @@
 //! scanned for its keys with the coefficient strings skipped unparsed ([`RhsMode`]). `witness_loci` may contain the
 //! literal `"elided"` (the engine elides witness poles longer than 4000 characters); it is kept verbatim here and turned
 //! into an explicit `Elided` verdict by the domain module.
+//!
+//! Strictness (audit A m4; the engine reads every line with `serde_json` into a `Value`): a duplicate top-level key
+//! and any byte after the closing `}` are format errors (serde_json would keep the LAST duplicate; refusing is the
+//! fail-closed choice). A rule must carry `exceptions` as an array (the engine's load fails with "rule without
+//! exceptions" otherwise; also required of case-domain exports). A `table_dump.v1` rule (`"type":"rule"`) must also
+//! carry `target` (a string) and `rhs` (an array), as `Table::load` requires. `chart` lines are returned as
+//! [`TableLine::Chart`] so that the loader can refuse a chart other than the node mask, as the engine does.
 
 use std::fmt;
 use std::io::BufRead;
@@ -71,17 +78,23 @@ pub struct TableHeader {
     /// `denominators` = arity.
     pub denominators: Option<usize>,
     pub mask: Option<String>,
+    /// Verbatim, informational (non-strings rendered as JSON). The frame reads `raw.power_shifts` itself
+    /// ([`crate::key::NodeFrame::from_header`]).
     pub power_shifts: Vec<String>,
     pub charts: Vec<String>,
     pub order_name: Option<String>,
+    /// `node_order.coordinate_priority` (what the engine uses), else `order.coordinate_priority`. Informational.
     pub coordinate_priority: Option<Vec<usize>>,
-    pub two_sided: Vec<usize>,
+    /// Per-slot flags of `order.two_sided`, read as the engine's `table_import` reads them (a boolean, or a number
+    /// meaning `true` iff it is 1); empty when absent. Informational.
+    pub two_sided: Vec<bool>,
     pub guard_version: Option<i64>,
     pub raw: Value,
 }
 
 impl TableHeader {
-    fn from_value(v: Value) -> Self {
+    /// Parse a header object (errors on a malformed `two_sided` or `coordinate_priority`).
+    pub fn from_value(v: Value) -> Result<Self, String> {
         let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
         let strs = |x: Option<&Value>| -> Vec<String> {
             x.and_then(Value::as_array)
@@ -96,14 +109,41 @@ impl TableHeader {
                 })
                 .unwrap_or_default()
         };
-        let usizes = |x: Option<&Value>| -> Option<Vec<usize>> {
-            x.and_then(Value::as_array).map(|a| {
-                a.iter()
-                    .filter_map(|e| e.as_u64().map(|u| u as usize))
-                    .collect()
-            })
+        let usizes = |x: Option<&Value>| -> Result<Option<Vec<usize>>, String> {
+            match x {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .map(|e| {
+                        e.as_u64()
+                            .and_then(|u| usize::try_from(u).ok())
+                            .ok_or_else(|| format!("coordinate_priority entry {e}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Some),
+                Some(o) => Err(format!("coordinate_priority {o}")),
+            }
         };
-        TableHeader {
+        let two_sided: Vec<bool> = match v.get("order").and_then(|o| o.get("two_sided")) {
+            None | Some(Value::Null) => vec![],
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|f| match f {
+                    Value::Bool(b) => Ok(*b),
+                    Value::Number(n) => Ok(n.as_u64() == Some(1)),
+                    o => Err(format!("order.two_sided flag {o}")),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(o) => return Err(format!("order.two_sided {o}")),
+        };
+        let coordinate_priority = match usizes(
+            v.get("node_order")
+                .and_then(|o| o.get("coordinate_priority")),
+        )? {
+            Some(p) => Some(p),
+            None => usizes(v.get("order").and_then(|o| o.get("coordinate_priority")))?,
+        };
+        Ok(TableHeader {
             schema: s("schema"),
             family: s("family"),
             denominators: v
@@ -114,18 +154,22 @@ impl TableHeader {
             power_shifts: strs(v.get("power_shifts")),
             charts: strs(v.get("charts")),
             order_name: s("order_name"),
-            coordinate_priority: usizes(v.get("order").and_then(|o| o.get("coordinate_priority")))
-                .or_else(|| {
-                    usizes(
-                        v.get("node_order")
-                            .and_then(|o| o.get("coordinate_priority")),
-                    )
-                }),
-            two_sided: usizes(v.get("order").and_then(|o| o.get("two_sided"))).unwrap_or_default(),
+            coordinate_priority,
+            two_sided,
             guard_version: v.get("guard_version").and_then(Value::as_i64),
             raw: v,
-        }
+        })
     }
+}
+
+/// Which JSONL format a rule record came from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecordFormat {
+    /// rr_node `table_dump.v1` (`"type":"rule"`): carries `target` and `rhs`.
+    #[default]
+    TableDump,
+    /// Case-domain export (rule line without `type`): carries NO target.
+    CaseExport,
 }
 
 /// One rule record (domain fields; RHS keys only on request).
@@ -133,6 +177,8 @@ impl TableHeader {
 pub struct RuleRecord {
     /// 1-based line number in the file.
     pub line_no: usize,
+    /// The format of the line.
+    pub format: RecordFormat,
     /// Case-domain export: record number `i`.
     pub i: Option<i64>,
     /// `index` field (engine rule index within the chart).
@@ -158,6 +204,12 @@ pub struct RuleRecord {
 pub enum TableLine {
     Header(Box<TableHeader>),
     Rule(Box<RuleRecord>),
+    /// A `chart` line (`table_dump.v1` `{"type":"chart",..}` or export `{"other":{"type":"chart",..}}`): the chart
+    /// mask and its guards.
+    Chart {
+        chart: String,
+        guards: Vec<String>,
+    },
     /// Any other line, with its kind (`type` value, or `other` / `summary` in the case-domain export).
     Other {
         kind: String,
@@ -217,6 +269,8 @@ impl<R: BufRead> Iterator for RecordReader<R> {
 pub struct TableFile {
     pub header: Option<TableHeader>,
     pub rules: Vec<RuleRecord>,
+    /// `chart` lines (mask, guards) in file order.
+    pub charts: Vec<(String, Vec<String>)>,
     /// Count of other lines by kind.
     pub others: Vec<(String, usize)>,
 }
@@ -229,8 +283,17 @@ pub fn read_table_file(
     let mut t = TableFile::default();
     for l in RecordReader::open(path, opts)? {
         match l? {
-            TableLine::Header(h) => t.header = Some(*h),
+            TableLine::Header(h) => {
+                if t.header.is_some() {
+                    return Err(RecordError::Format {
+                        line: 0,
+                        msg: "second header line".into(),
+                    });
+                }
+                t.header = Some(*h)
+            }
             TableLine::Rule(r) => t.rules.push(*r),
+            TableLine::Chart { chart, guards } => t.charts.push((chart, guards)),
             TableLine::Other { kind } => match t.others.iter_mut().find(|(k, _)| *k == kind) {
                 Some(e) => e.1 += 1,
                 None => t.others.push((kind, 1)),
@@ -353,6 +416,9 @@ impl<'a> Scan<'a> {
                 serde_json::from_slice(&self.s[a..b]).map_err(|e| self.err(e.to_string()))?;
             self.expect(b':')?;
             let span = self.skip_value()?;
+            if out.iter().any(|(n, _)| *n == k) {
+                return Err(self.err(format!("duplicate key {k:?}")));
+            }
             out.push((k, span));
             match self.peek() {
                 Some(b',') => self.pos += 1,
@@ -398,6 +464,10 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
         line,
     };
     let fields = sc.object_fields()?;
+    sc.ws();
+    if sc.pos != buf.len() {
+        return Err(sc.err("trailing bytes after the object"));
+    }
     let get = |k: &str| {
         fields
             .iter()
@@ -415,10 +485,34 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
         Some(b) => Some(de(b, "type", line)?),
         None => None,
     };
+    let chart_line = |v: &Value| -> Result<TableLine, RecordError> {
+        let chart = v
+            .get("chart")
+            .and_then(Value::as_str)
+            .ok_or_else(|| fmt("chart line without chart".into()))?
+            .to_string();
+        let guards = match v.get("guards") {
+            None | Some(Value::Null) => vec![],
+            Some(g) => serde_json::from_value::<Vec<String>>(g.clone())
+                .map_err(|e| fmt(format!("chart guards: {e}")))?,
+        };
+        Ok(TableLine::Chart { chart, guards })
+    };
+    let format = if kind.is_some() {
+        RecordFormat::TableDump
+    } else {
+        RecordFormat::CaseExport
+    };
     match kind.as_deref() {
         Some("header") => {
             let v: Value = serde_json::from_slice(buf).map_err(|e| fmt(e.to_string()))?;
-            return Ok(TableLine::Header(Box::new(TableHeader::from_value(v))));
+            return Ok(TableLine::Header(Box::new(
+                TableHeader::from_value(v).map_err(fmt)?,
+            )));
+        }
+        Some("chart") => {
+            let v: Value = serde_json::from_slice(buf).map_err(|e| fmt(e.to_string()))?;
+            return chart_line(&v);
         }
         Some("rule") => {}
         Some(k) => {
@@ -429,7 +523,15 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
         None => {
             if let Some(h) = get("header") {
                 let v: Value = de(h, "header", line)?;
-                return Ok(TableLine::Header(Box::new(TableHeader::from_value(v))));
+                return Ok(TableLine::Header(Box::new(
+                    TableHeader::from_value(v).map_err(fmt)?,
+                )));
+            }
+            if let Some(o) = get("other") {
+                let v: Value = de(o, "other", line)?;
+                if v.get("type").and_then(Value::as_str) == Some("chart") {
+                    return chart_line(&v);
+                }
             }
             if get("fixed").is_none() {
                 let k = fields
@@ -441,6 +543,7 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     }
     let mut r = RuleRecord {
         line_no: line,
+        format,
         ..Default::default()
     };
     let opt_i64 = |k: &str| -> Result<Option<i64>, RecordError> {
@@ -462,9 +565,12 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     if let Some(b) = get("equations") {
         r.equations = de::<Option<Vec<String>>>(b, "equations", line)?.unwrap_or_default();
     }
-    if let Some(b) = get("exceptions") {
-        r.exceptions = de::<Option<Vec<Vec<String>>>>(b, "exceptions", line)?.unwrap_or_default();
-    }
+    // the engine: `v["exceptions"].as_array().ok_or("rule without exceptions")`
+    r.exceptions = de::<Vec<Vec<String>>>(
+        get("exceptions").ok_or_else(|| fmt("rule without exceptions".into()))?,
+        "exceptions",
+        line,
+    )?;
     if let Some(b) = get("dispatch") {
         r.dispatch = de(b, "dispatch", line)?;
     }
@@ -473,6 +579,16 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     }
     if let Some(b) = get("target") {
         r.target = de(b, "target", line)?;
+    }
+    if format == RecordFormat::TableDump {
+        // `Table::load`: `parse_pat(v["target"])` and `v["rhs"].as_array().ok_or("rule without rhs")`
+        if r.target.is_none() {
+            return Err(fmt("table_dump.v1 rule without target".into()));
+        }
+        match get("rhs") {
+            Some(b) if b.first() == Some(&b'[') => {}
+            _ => return Err(fmt("table_dump.v1 rule without an rhs array".into())),
+        }
     }
     if let Some(b) = get("witness_loci") {
         r.witness_loci = de(b, "witness_loci", line)?;
@@ -517,6 +633,9 @@ pub struct BankPredicate {
     pub source_conditions: Option<Vec<String>>,
     #[serde(default, rename = "raw_rule_witness_loci_generic_d_nonzero")]
     pub witness_loci: Option<Vec<String>>,
+    /// Must be `true` for the domain loader (the bank's own statement that its slots are the canonical ones).
+    #[serde(default)]
+    pub no_recenter_or_permutation_applied: Option<bool>,
 }
 
 /// Read the T162 bank predicate file (one JSON array).

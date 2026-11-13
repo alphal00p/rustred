@@ -100,7 +100,7 @@ fn overflow_path_is_exact_and_explicit() {
 
 #[test]
 fn key_classes_and_sectors() {
-    let f = NodeFrame::lines_first(5, 3);
+    let f = NodeFrame::without_header_lines_first(5, 3);
     assert_eq!(f.classify(&[1, 2, 1, 0, -1]).unwrap(), KeyClass::Chart);
     assert_eq!(
         f.classify(&[1, 2, 1, 1, 0]).unwrap(),
@@ -122,16 +122,9 @@ fn key_classes_and_sectors() {
     assert_eq!(f.rank(&[1, 3, 2, 0, -2]), Some(2));
     assert_eq!(f.dots(&[1, 3, 2, 1, -2]), None);
     assert!(f.classify(&[1, 1]).is_err());
-    let m = NodeFrame::from_mask("11111111110000000000").unwrap();
+    let m = NodeFrame::without_header_from_mask("11111111110000000000").unwrap();
     assert_eq!((m.arity(), m.n_lines()), (20, 10));
-    assert!(NodeFrame::from_mask("11x").is_err());
-    let s = m.clone().with_power_shifts(
-        vec!["0".into(); 19]
-            .into_iter()
-            .chain(["1/2".to_string()])
-            .collect(),
-    );
-    assert!(s.require_integer_only().is_err());
+    assert!(NodeFrame::without_header_from_mask("11x").is_err());
     assert!(m.require_integer_only().is_ok());
     assert_eq!(parse_key("I(1,2,-3)").unwrap(), vec![1, 2, -3]);
     assert_eq!(parse_key("[1, 2, -3]").unwrap(), vec![1, 2, -3]);
@@ -141,7 +134,7 @@ fn key_classes_and_sectors() {
 #[test]
 fn layer_counts_match_combinatorics() {
     // box-layer sizes from the checker's README (T162 box B: 9 lines, 11 numerators).
-    let f = NodeFrame::lines_first(20, 9);
+    let f = NodeFrame::without_header_lines_first(20, 9);
     assert_eq!(f.chart_layer(0, 1, Some(5)).len(), 11);
     assert_eq!(f.chart_layer(1, 2, Some(5)).len(), 594);
     assert_eq!(f.chart_layer(4, 2, Some(5)).len(), 32670);
@@ -153,7 +146,7 @@ fn layer_counts_match_combinatorics() {
 #[test]
 fn arities_5_9_14_20() {
     for (n, lines) in [(5usize, 3usize), (9, 6), (14, 9), (20, 10)] {
-        let f = NodeFrame::lines_first(n, lines);
+        let f = NodeFrame::without_header_lines_first(n, lines);
         let mut d = CaseDomain::free(n, Some((0..n).map(|i| f.is_line(i)).collect()));
         d.fixed[0] = Some(2);
         d.equations.push(p(&format!("n1-n{}", lines - 1), n)); // n1 = n_{lines-1}
@@ -206,7 +199,7 @@ fn rule_from(line: &str) -> rustred_campaign_core::record::RuleRecord {
 /// T3: planted exception, dropped equation, shifted fixed slot each change the verdict at a known key.
 #[test]
 fn negative_controls_change_verdicts() {
-    let frame = NodeFrame::from_mask("11111111110000000000").unwrap();
+    let frame = NodeFrame::without_header_from_mask("11111111110000000000").unwrap();
     let r = rule_from(RULE_LINE);
     assert_eq!(r.rhs_keys.as_ref().map(Vec::len), Some(1));
     let d = CaseDomain::from_rule_record(&r, &frame, DomainOptions::default()).unwrap();
@@ -264,15 +257,12 @@ fn negative_controls_change_verdicts() {
     kr[18] = 0;
     kr[17] = -1;
     assert_eq!(d.applies(&kr), Verdict::Applies);
-    assert!(matches!(
-        dr.applies(&kr),
-        Verdict::NotInCase(NotInCase::Bound(_))
-    ));
+    assert!(matches!(dr.applies(&kr), Verdict::RecenterBound(_)));
 }
 
 #[test]
 fn elided_witness_loci_never_pass() {
-    let frame = NodeFrame::from_mask("11111111110000000000").unwrap();
+    let frame = NodeFrame::without_header_from_mask("11111111110000000000").unwrap();
     let line = RULE_LINE.replace(r#""witness_loci":["1-n7"]"#, r#""witness_loci":["elided"]"#);
     let r = rule_from(&line);
     let d = CaseDomain::from_rule_record(&r, &frame, DomainOptions::default()).unwrap();
@@ -285,21 +275,25 @@ fn elided_witness_loci_never_pass() {
     k[18] = -1;
     assert_eq!(d.applies(&k), Verdict::Elided);
     // first-match dispatch fails closed at the elided rule, even when a later rule applies
-    let mut t = Table::new("elided-first");
-    t.push(4, d.clone());
-    t.push(5, CaseDomain::free(20, None));
+    let mut t = Table::new("elided-first", 20);
+    t.push(4, d.clone()).unwrap();
+    t.push(5, CaseDomain::free(20, None)).unwrap();
     let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    // ruling F1: the elided record is selected and unusable: Blocked, naming it (never a credit of rule 5)
     assert!(matches!(
-        disp.first_match(&k),
-        Dispatch::Undecided {
-            verdict: Verdict::Elided,
+        disp.first_match(&k).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::Elided,
             ..
         }
     ));
     // keys outside the case are still decided
     let mut k2 = k.clone();
     k2[3] = 2;
-    assert_eq!(disp.first_match(&k2).winner().map(|w| w.label), Some(5));
+    assert_eq!(
+        disp.first_match(&k2).unwrap().winner().map(|w| w.label),
+        Some(5)
+    );
     // witness check disabled: plain pass (documented option)
     let o = DomainOptions {
         witness: false,
@@ -315,15 +309,27 @@ fn elided_witness_loci_never_pass() {
 
 #[test]
 fn eps_shifted_frame_is_refused() {
-    let frame = NodeFrame::from_mask("11111111110000000000")
-        .unwrap()
-        .with_power_shifts(
-            (0..20)
-                .map(|i| if i == 3 { "1".into() } else { "0".into() })
-                .collect(),
-        );
-    let r = rule_from(RULE_LINE);
-    assert!(CaseDomain::from_rule_record(&r, &frame, DomainOptions::default()).is_err());
+    let shifts: Vec<String> = (0..20)
+        .map(|i| {
+            if i == 3 {
+                "\"1\"".into()
+            } else {
+                "\"0\"".into()
+            }
+        })
+        .collect();
+    let line = format!(
+        r#"{{"type":"header","denominators":20,"mask":"11111111110000000000","power_shifts":[{}]}}"#,
+        shifts.join(",")
+    );
+    let mut rd = RecordReader::new(line.as_bytes(), ReadOptions::default());
+    let TableLine::Header(h) = rd.next().unwrap().unwrap() else {
+        panic!()
+    };
+    assert!(matches!(
+        NodeFrame::from_header(&h),
+        Err(rustred_campaign_core::key::FrameError::Unsupported(_))
+    ));
 }
 
 #[test]
@@ -349,45 +355,51 @@ fn pole_semantics_identically_zero_in_d() {
 
 #[test]
 fn first_match_priority_is_data_and_union_is_separate() {
-    let mut a = Table::new("A");
+    let mut a = Table::new("A", 5);
     let mut da = CaseDomain::free(5, None);
     da.fixed[0] = Some(1);
-    a.push(10, da);
-    let mut b = Table::new("B");
-    b.push(20, CaseDomain::free(5, None));
+    a.push(10, da).unwrap();
+    let mut b = Table::new("B", 5);
+    b.push(20, CaseDomain::free(5, None)).unwrap();
     let mut db = CaseDomain::free(5, None);
     db.fixed[0] = Some(1);
-    b.push(21, db);
+    b.push(21, db).unwrap();
     let k = [1, 1, 1, 0, 0];
     let ab = Dispatcher::new(vec![a.clone(), b.clone()], vec![0, 1]).unwrap();
     let ba = ab.with_priority(vec![1, 0]).unwrap();
     assert_eq!(
-        ab.first_match(&k).winner().map(|w| (w.table, w.label)),
+        ab.first_match(&k)
+            .unwrap()
+            .winner()
+            .map(|w| (w.table, w.label)),
         Some((0, 10))
     );
     assert_eq!(
         ba.first_match(&k)
+            .unwrap()
             .winner()
             .map(|w| (w.table, w.record, w.label)),
         Some((1, 0, 20))
     );
-    let (u, und) = ab.union_cover(&k);
+    let (u, und) = ab.union_cover(&k).unwrap();
     assert_eq!(
         u.iter().map(|w| w.label).collect::<Vec<_>>(),
         vec![10, 20, 21]
     );
     assert!(und.is_empty());
     assert_eq!(
-        ab.first_match(&[2, 1, 1, 0, 0]).winner().map(|w| w.label),
+        ab.first_match(&[2, 1, 1, 0, 0])
+            .unwrap()
+            .winner()
+            .map(|w| w.label),
         Some(20)
     );
     assert!(Dispatcher::new(vec![a.clone(), b.clone()], vec![0, 0]).is_err());
-    let rep = ab.batch(&[k.to_vec(), vec![2, 1, 1, 0, 0]], 2);
+    let rep = ab.batch(&[k.to_vec(), vec![2, 1, 1, 0, 0]], 2).unwrap();
     assert_eq!(
         (rep.covered, rep.uncovered, rep.wins.clone()),
         (2, 0, vec![1, 1])
     );
-    // a table listed by nobody is not used
-    let only_a = Dispatcher::new(vec![a, b], vec![0]).unwrap();
-    assert_eq!(only_a.first_match(&[2, 1, 1, 0, 0]), Dispatch::Uncovered);
+    // audit A m6: the priority must list every table (a silently unused table is a caller mistake)
+    assert!(Dispatcher::new(vec![a, b], vec![0]).is_err());
 }

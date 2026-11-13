@@ -15,8 +15,14 @@
 //!   the coefficient vanishes. The chart test is separate from the case-domain test (see `domain`).
 //! - [`NodeFrame::classify`] names the three situations; dots D and rank r are defined on chart keys only.
 //! - Power shifts (eps-shifted families, header `power_shifts`) and two-sided axes are CARRIED but not interpreted:
-//!   evaluation is integer-index only. [`NodeFrame::require_integer_only`] returns [`FrameError::Unsupported`] for a
-//!   non-zero shift; callers must not ignore it.
+//!   evaluation is integer-index only. The frame of a table is built FROM ITS HEADER by [`NodeFrame::from_header`],
+//!   which reads `mask`, `denominators`, `power_shifts` and the two-sided flags itself and refuses an eps family
+//!   exactly as the engine's `Table::load` does (every shift must be the JSON string `"0"`). A frame without a header
+//!   (the T162 bank has none; unit tests) needs one of the visibly named escape hatches
+//!   [`NodeFrame::without_header_from_mask`] / [`NodeFrame::without_header_lines_first`], which record
+//!   [`FrameSource::WithoutHeader`] (audit A M5).
+//! - Predicates on a key of the wrong length fail closed (`false` / `None`); [`NodeFrame::sector`] and
+//!   [`NodeFrame::sector_slots`] panic on it (documented), [`NodeFrame::classify`] returns [`FrameError::Arity`].
 
 use std::fmt;
 
@@ -61,45 +67,135 @@ pub enum KeyClass {
     },
 }
 
+/// How a frame was built.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FrameSource {
+    /// From a table header by [`NodeFrame::from_header`]: shifts and flags read from the header.
+    Header,
+    /// Escape hatch without a header: no power shifts are known; the caller asserts the source has none.
+    WithoutHeader,
+}
+
 /// The frame of a node (or lower-loop owner): arity, line/numerator slots, power shifts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeFrame {
     is_line: Vec<bool>,
     /// Header `power_shifts`, verbatim (one string per slot; "0" = no shift). Empty = none given.
-    pub power_shifts: Vec<String>,
-    /// Header `order.two_sided` / `two_sided_axes`: slots with a two-sided order, carried only.
-    pub two_sided: Vec<usize>,
+    power_shifts: Vec<String>,
+    /// Slots flagged two-sided by the header `order.two_sided` (carried only).
+    two_sided: Vec<usize>,
+    source: FrameSource,
+}
+
+fn mask_bits(mask: &str) -> Result<Vec<bool>, FrameError> {
+    mask.chars()
+        .map(|c| match c {
+            '1' => Ok(true),
+            '0' => Ok(false),
+            _ => Err(FrameError::Malformed(format!("mask character {c:?}"))),
+        })
+        .collect()
 }
 
 impl NodeFrame {
-    /// Frame with the line slots first: slots `0..n_lines` are lines, `n_lines..arity` numerators.
-    pub fn lines_first(arity: usize, n_lines: usize) -> Self {
+    /// The frame of a table, from its header (both JSONL formats): `mask` (required, `'1'`/`'0'` only),
+    /// `denominators` (required, must equal the mask length), `power_shifts` (absent or `null` = none; otherwise one
+    /// entry per slot and every entry exactly the JSON string `"0"`, as the engine's `Table::load`: a numeric `0`, a
+    /// padded `"0 "` or any other value is [`FrameError::Unsupported`]), and the two-sided flags
+    /// ([`crate::record::TableHeader::two_sided`]).
+    pub fn from_header(h: &crate::record::TableHeader) -> Result<Self, FrameError> {
+        let mask = h
+            .mask
+            .as_deref()
+            .ok_or_else(|| FrameError::Malformed("header without mask".into()))?;
+        let is_line = mask_bits(mask)?;
+        let n = is_line.len();
+        match h.denominators {
+            Some(d) if d == n => {}
+            Some(d) => {
+                return Err(FrameError::Malformed(format!(
+                    "header denominators {d}, mask of length {n}"
+                )));
+            }
+            None => return Err(FrameError::Malformed("header without denominators".into())),
+        }
+        let mut power_shifts = vec![];
+        match h.raw.get("power_shifts") {
+            None | Some(serde_json::Value::Null) => {}
+            Some(serde_json::Value::Array(a)) => {
+                if a.len() != n {
+                    return Err(FrameError::Malformed(format!(
+                        "power_shifts of length {}, arity {n}",
+                        a.len()
+                    )));
+                }
+                for x in a {
+                    match x.as_str() {
+                        Some("0") => power_shifts.push("0".to_string()),
+                        _ => {
+                            return Err(FrameError::Unsupported(format!(
+                                "power shift {x}: eps-shifted families are not evaluated (integer-index only; \
+                                 the engine accepts only the string \"0\")"
+                            )));
+                        }
+                    }
+                }
+            }
+            Some(o) => return Err(FrameError::Malformed(format!("power_shifts {o}"))),
+        }
+        if !h.two_sided.is_empty() && h.two_sided.len() != n {
+            return Err(FrameError::Malformed(format!(
+                "order.two_sided of length {}, arity {n}",
+                h.two_sided.len()
+            )));
+        }
+        let two_sided = (0..h.two_sided.len()).filter(|&i| h.two_sided[i]).collect();
+        Ok(NodeFrame {
+            is_line,
+            power_shifts,
+            two_sided,
+            source: FrameSource::Header,
+        })
+    }
+    /// ESCAPE HATCH (no header): line slots first, `0..n_lines` lines, `n_lines..arity` numerators. No power shifts
+    /// are known: the caller asserts the source has none. Panics if `n_lines > arity` (constant arguments).
+    pub fn without_header_lines_first(arity: usize, n_lines: usize) -> Self {
         assert!(n_lines <= arity, "n_lines {n_lines} > arity {arity}");
         NodeFrame {
             is_line: (0..arity).map(|i| i < n_lines).collect(),
             power_shifts: vec![],
             two_sided: vec![],
+            source: FrameSource::WithoutHeader,
         }
     }
-    /// Frame from a mask string like the table header `mask` / chart (`'1'` = line, `'0'` = numerator).
-    pub fn from_mask(mask: &str) -> Result<Self, FrameError> {
-        let is_line = mask
-            .chars()
-            .map(|c| match c {
-                '1' => Ok(true),
-                '0' => Ok(false),
-                _ => Err(FrameError::Malformed(format!("mask character {c:?}"))),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+    /// ESCAPE HATCH (no header): frame from a mask string (`'1'` = line, `'0'` = numerator). No power shifts are
+    /// known: the caller asserts the source has none.
+    pub fn without_header_from_mask(mask: &str) -> Result<Self, FrameError> {
         Ok(NodeFrame {
-            is_line,
+            is_line: mask_bits(mask)?,
             power_shifts: vec![],
             two_sided: vec![],
+            source: FrameSource::WithoutHeader,
         })
     }
-    pub fn with_power_shifts(mut self, shifts: Vec<String>) -> Self {
-        self.power_shifts = shifts;
-        self
+    pub fn source(&self) -> &FrameSource {
+        &self.source
+    }
+    /// Header `power_shifts` (all `"0"`; empty when the header gave none or the frame has no header).
+    pub fn power_shifts(&self) -> &[String] {
+        &self.power_shifts
+    }
+    /// Slots flagged two-sided by the header (carried only).
+    pub fn two_sided(&self) -> &[usize] {
+        &self.two_sided
+    }
+    /// The same line mask (equality of the slot structure, whatever the source).
+    pub fn same_mask(&self, o: &NodeFrame) -> bool {
+        self.is_line == o.is_line
+    }
+    /// The line mask as booleans.
+    pub fn mask(&self) -> &[bool] {
+        &self.is_line
     }
     pub fn arity(&self) -> usize {
         self.is_line.len()
@@ -117,9 +213,9 @@ impl NodeFrame {
             .map(|b| if *b { '1' } else { '0' })
             .collect()
     }
-    /// True if every power shift is zero (or none is given).
+    /// True if every power shift is zero (or none is given). Exact string `"0"`, as the engine.
     pub fn is_integer_only(&self) -> bool {
-        self.power_shifts.iter().all(|s| s.trim() == "0")
+        self.power_shifts.iter().all(|s| s == "0")
     }
     /// `Err(Unsupported)` when the frame has a non-zero power shift: evaluation here is integer-index only.
     pub fn require_integer_only(&self) -> Result<(), FrameError> {
@@ -144,8 +240,10 @@ impl NodeFrame {
     }
     /// The sector of a key: bit i set iff slot i is a line with index >= 1 (slots >= 64 are not representable:
     /// use [`NodeFrame::sector_slots`]).
+    /// Panics if the key length differs from the arity.
     pub fn sector(&self, key: &[i32]) -> u64 {
         assert!(self.arity() <= 64, "sector bitmask needs arity <= 64");
+        assert_eq!(key.len(), self.arity(), "NodeFrame::sector: key arity");
         let mut m = 0u64;
         for (i, &x) in key.iter().enumerate() {
             if self.is_line[i] && x >= 1 {
@@ -154,28 +252,41 @@ impl NodeFrame {
         }
         m
     }
-    /// Line slots with index >= 1.
+    /// Line slots with index >= 1. Panics if the key length differs from the arity.
     pub fn sector_slots(&self, key: &[i32]) -> Vec<usize> {
+        assert_eq!(
+            key.len(),
+            self.arity(),
+            "NodeFrame::sector_slots: key arity"
+        );
         key.iter()
             .enumerate()
             .filter(|(i, x)| self.is_line[*i] && **x >= 1)
             .map(|(i, _)| i)
             .collect()
     }
-    /// Every line slot >= 1 (numerators unrestricted).
+    /// Every line slot >= 1 (numerators unrestricted). `false` for a key of the wrong length.
     pub fn is_top_sector(&self, key: &[i32]) -> bool {
-        key.iter()
-            .enumerate()
-            .all(|(i, &x)| !self.is_line[i] || x >= 1)
+        key.len() == self.arity()
+            && key
+                .iter()
+                .enumerate()
+                .all(|(i, &x)| !self.is_line[i] || x >= 1)
     }
-    /// Top sector and every numerator slot <= 0.
+    /// Top sector and every numerator slot <= 0. `false` for a key of the wrong length.
     pub fn in_chart_orthant(&self, key: &[i32]) -> bool {
-        key.iter()
-            .enumerate()
-            .all(|(i, &x)| if self.is_line[i] { x >= 1 } else { x <= 0 })
+        key.len() == self.arity()
+            && key
+                .iter()
+                .enumerate()
+                .all(|(i, &x)| if self.is_line[i] { x >= 1 } else { x <= 0 })
     }
-    /// First slot violating the chart orthant, if any.
+    /// First slot violating the chart orthant, if any. A key of the wrong length violates at slot
+    /// `min(len, arity)`.
     pub fn chart_violation(&self, key: &[i32]) -> Option<usize> {
+        if key.len() != self.arity() {
+            return Some(key.len().min(self.arity()));
+        }
         key.iter()
             .enumerate()
             .position(|(i, &x)| if self.is_line[i] { x < 1 } else { x > 0 })

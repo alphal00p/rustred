@@ -27,7 +27,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use k3_common::*;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
-use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
+use rustred_campaign_core::domain::{CaseDomain, DomainOptions, TargetSource};
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::order::NodeComparator;
 use rustred_campaign_core::poly::{ParseOptions, Poly};
@@ -47,10 +47,23 @@ macro_rules! oracle_or_skip {
 const UNQUALIFIED: [i64; 8] = [1603, 1739, 1740, 1845, 1851, 1856, 2102, 2442];
 
 fn t162_frame() -> NodeFrame {
-    NodeFrame::lines_first(20, 9)
+    NodeFrame::without_header_lines_first(20, 9)
 }
 fn t178_frame() -> NodeFrame {
-    NodeFrame::lines_first(20, 10)
+    NodeFrame::without_header_lines_first(20, 10)
+}
+
+/// The caller's statement for the checker's negative-control records (no target): the checker evaluates their
+/// domains (fixed + chart/recenter bounds + equations + exceptions) on the key itself.
+const NEGCTL_TARGETS: TargetSource = TargetSource::CanonicalByConstruction {
+    attestation: "k3 F1_negctl_unqualified8: the checker's domain definition, evaluated on the key",
+};
+
+fn export_opts() -> DomainOptions {
+    DomainOptions {
+        targets: T178B_EXPORT_TARGETS,
+        ..Default::default()
+    }
 }
 
 fn layer(frame: &NodeFrame, k: &[i32]) -> (i64, i64) {
@@ -249,6 +262,7 @@ fn unqualified_tables(o: &Oracle) -> (Vec<Value>, Vec<(i64, CaseDomain)>) {
             };
             let opts = DomainOptions {
                 recenter_bounds: true,
+                targets: NEGCTL_TARGETS,
                 ..Default::default()
             };
             (
@@ -789,8 +803,8 @@ fn k3_t178b_empty_domain_rules() {
         let Some(Ok(TableLine::Rule(rec))) = rd.next() else {
             panic!("case record not read as a rule")
         };
-        let frame = NodeFrame::from_mask(rec.chart.as_deref().unwrap()).unwrap();
-        let d = CaseDomain::from_rule_record(&rec, &frame, DomainOptions::default()).unwrap();
+        let frame = NodeFrame::without_header_from_mask(rec.chart.as_deref().unwrap()).unwrap();
+        let d = CaseDomain::from_rule_record(&rec, &frame, export_opts()).unwrap();
         let free: Vec<usize> = (0..20).filter(|s| rec.fixed[*s].is_none()).collect();
         assert_eq!(
             free,
@@ -798,8 +812,7 @@ fn k3_t178b_empty_domain_rules() {
         );
         let mut no_exc_rec = (*rec).clone();
         no_exc_rec.exceptions.clear();
-        let d0 =
-            CaseDomain::from_rule_record(&no_exc_rec, &frame, DomainOptions::default()).unwrap();
+        let d0 = CaseDomain::from_rule_record(&no_exc_rec, &frame, export_opts()).unwrap();
         let (mut n, mut n0) = (0usize, 0usize);
         let mut idx = vec![0usize; free.len()];
         let ranges: Vec<Vec<i32>> = free
@@ -947,10 +960,10 @@ fn k3_t162_dispatch_samples() {
         return;
     };
     let disp = Dispatcher::new(vec![table], vec![0]).unwrap();
-    let gid = |k: &[i32]| match disp.first_match(k) {
+    let gid = |k: &[i32]| match disp.first_match(k).unwrap() {
         Dispatch::Covered(r) => r.label,
         Dispatch::Uncovered => -1,
-        d => panic!("undecided at {k:?}: {d:?}"),
+        d => panic!("open but not uncovered at {k:?}: {d:?}"),
     };
     for x in o.jsonl("T162/F1_covered_sample2000.jsonl") {
         assert_eq!(
@@ -989,10 +1002,10 @@ fn t178_dispatcher(o: &Oracle) -> Option<(Vec<String>, Dispatcher)> {
 }
 
 fn winner(d: &Dispatcher, k: &[i32]) -> (i64, i64) {
-    match d.first_match(k) {
+    match d.first_match(k).unwrap() {
         Dispatch::Covered(r) => (r.table as i64, r.label),
         Dispatch::Uncovered => (-1, -1),
-        x => panic!("undecided at {k:?}: {x:?}"),
+        x => panic!("open but not uncovered at {k:?}: {x:?}"),
     }
 }
 
@@ -1049,8 +1062,7 @@ fn k3_t178b_dispatch_samples() {
         let Some(Ok(TableLine::Rule(rec))) = rd.next() else {
             panic!()
         };
-        let d =
-            CaseDomain::from_rule_record(&rec, &t178_frame(), DomainOptions::default()).unwrap();
+        let d = CaseDomain::from_rule_record(&rec, &t178_frame(), export_opts()).unwrap();
         assert_eq!(t.domains[pos].canonical_form(), d.canonical_form());
     }
 }
@@ -1074,14 +1086,20 @@ fn k3_t162_full_box_dispatch() {
     let boxb: Vec<Key> = rows.iter().map(|r| r.0.clone()).collect();
     assert_eq!(boxb, t162_box_b());
     let disp = Dispatcher::new(vec![table.clone()], vec![0]).unwrap();
-    let rep = disp.batch(&boxb, 4);
+    let rep = disp.batch(&boxb, 4).unwrap();
     println!(
-        "k3 T162 full: covered {} uncovered {} undecided {} in {:.2}s",
-        rep.covered, rep.uncovered, rep.undecided, rep.seconds
+        "k3 T162 full: covered {} uncovered {} blocked {} undecided {} outside chart {} in {:.2}s",
+        rep.covered, rep.uncovered, rep.blocked, rep.undecided, rep.outside_chart, rep.seconds
     );
     assert_eq!(
-        (rep.covered, rep.uncovered, rep.undecided),
-        (54_714, 990, 0)
+        (
+            rep.covered,
+            rep.uncovered,
+            rep.blocked,
+            rep.undecided,
+            rep.outside_chart
+        ),
+        (54_714, 990, 0, 0, 0)
     );
     let mut mism = 0;
     for ((_, g), r) in rows.iter().zip(&rep.results) {
@@ -1104,19 +1122,23 @@ fn k3_t162_full_box_dispatch() {
     assert_eq!(lu.values().sum::<usize>(), 990);
 
     let (_, doms) = unqualified_tables(&o);
-    let mut bad = Table::new("T162-unqualified8");
+    let mut bad = Table::new("T162-unqualified8", 20);
     for (g, d) in doms {
-        bad.push(g, d);
+        bad.push(g, d).unwrap();
     }
     let disp8 = Dispatcher::new(vec![table, bad], vec![0, 1]).unwrap();
-    let rep8 = disp8.batch(&boxb, 4);
+    let rep8 = disp8.batch(&boxb, 4).unwrap();
+    println!(
+        "k3 T162 with the 8: covered {} uncovered {} blocked {} undecided {}",
+        rep8.covered, rep8.uncovered, rep8.blocked, rep8.undecided
+    );
     let mine8: HashSet<Key> = boxb
         .iter()
         .zip(&rep8.results)
         .filter(|(_, r)| r.winner().is_none())
         .map(|(k, _)| k.clone())
         .collect();
-    assert_eq!((rep8.uncovered, rep8.wins[1]), (969, 21));
+    assert_eq!((rep8.open(), rep8.wins[1]), (969, 21));
     assert_eq!(
         mine8,
         key_set(&o, "T162/F1_uncovered_with_unqualified8.jsonl")
@@ -1162,12 +1184,15 @@ fn k3_t178b_full_closure_first_match() {
     };
     let rows = f5_closure_all(&o);
     let ks: Vec<Key> = rows.iter().map(|r| r.0.clone()).collect();
-    let rep = disp.batch(&ks, 4);
+    let rep = disp.batch(&ks, 4).unwrap();
     println!(
-        "k3 T178B closure first match: covered {} uncovered {} in {:.2}s",
-        rep.covered, rep.uncovered, rep.seconds
+        "k3 T178B closure first match: covered {} uncovered {} blocked {} undecided {} outside chart {} in {:.2}s",
+        rep.covered, rep.uncovered, rep.blocked, rep.undecided, rep.outside_chart, rep.seconds
     );
-    assert_eq!((rep.uncovered, rep.undecided), (753, 0));
+    assert_eq!(
+        (rep.uncovered, rep.blocked, rep.undecided, rep.outside_chart),
+        (753, 0, 0, 0)
+    );
     let mut mism = 0;
     let mut wins = vec![0usize; 38];
     let mut box_unc = 0;

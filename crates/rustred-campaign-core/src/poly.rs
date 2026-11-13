@@ -101,7 +101,10 @@ impl fmt::Display for EvalError {
             EvalError::ContainsD => write!(f, "polynomial contains d"),
             EvalError::Overflow => write!(f, "overflow"),
             EvalError::EngineZeroTest => {
-                write!(f, "nonzero value that the engine's modular zero test reads as zero")
+                write!(
+                    f,
+                    "nonzero value that the engine's modular zero test reads as zero"
+                )
             }
         }
     }
@@ -302,7 +305,9 @@ impl PartialEq for Value {
         match (self, o) {
             (Value::Small(a), Value::Small(b)) => a == b,
             (Value::Big(a), Value::Big(b)) => a == b, // BigInt is normalised (trimmed, zero non-negative)
-            (Value::Small(a), Value::Big(b)) | (Value::Big(b), Value::Small(a)) => b.to_i128() == Some(*a),
+            (Value::Small(a), Value::Big(b)) | (Value::Big(b), Value::Small(a)) => {
+                b.to_i128() == Some(*a)
+            }
         }
     }
 }

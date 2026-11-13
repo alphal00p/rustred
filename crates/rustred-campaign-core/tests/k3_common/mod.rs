@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rustred_campaign_core::cover::Table;
-use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
+use rustred_campaign_core::domain::{DomainOptions, TargetSource};
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
 use serde_json::Value;
@@ -457,7 +457,7 @@ pub fn box_keys(
 /// T162 box B (presented frame, 9 lines): line power <= 5, D <= 4, r <= 1 if D = 0 else r <= 2.
 pub fn t162_box_b() -> Vec<Key> {
     box_keys(
-        &NodeFrame::lines_first(20, 9),
+        &NodeFrame::without_header_lines_first(20, 9),
         |d| if d == 0 { 1 } else { 2 },
         Some(5),
     )
@@ -466,7 +466,7 @@ pub fn t162_box_b() -> Vec<Key> {
 /// T178 order B box (family frame, 10 lines): D <= 4, r <= 2 if D = 0 else r <= 3.
 pub fn t178_box() -> Vec<Key> {
     box_keys(
-        &NodeFrame::lines_first(20, 10),
+        &NodeFrame::without_header_lines_first(20, 10),
         |d| if d == 0 { 2 } else { 3 },
         None,
     )
@@ -484,6 +484,19 @@ fn verified_path(p: &Path, sha: &str) -> PathBuf {
     );
     p.to_path_buf()
 }
+
+/// The caller's statement for the T162 bank (no target field): every predicate says
+/// `no_recenter_or_permutation_applied: true` and is written on the presented slots.
+pub const T162_BANK_TARGETS: TargetSource = TargetSource::CanonicalByConstruction {
+    attestation: "T162 bank RULE-PREDICATES2440: written on the presented slots, no recenter or permutation applied",
+};
+
+/// The caller's statement for the T178B case exports (no target field): exports of engine-written table_dump.v1
+/// tables, whose targets the node driver canonicalises to zero offsets (driver.rs, recenter canonicalisation); the
+/// two raw tables at hand (R0_try1, rgq-g0-10) have canonical targets on all 1,015 records (tests/cover_raw_tables.rs).
+pub const T178B_EXPORT_TARGETS: TargetSource = TargetSource::CanonicalByConstruction {
+    attestation: "T178B case exports of engine table_dump.v1 tables (targets canonicalised by the node driver)",
+};
 
 /// The 2,440 qualified T162 bank rules as one table labelled by `global_ordinal0`, ascending (so first match =
 /// smallest covering id). Source: `RUSTRED_CAMPAIGN_FIXTURES/T162/RULE-PREDICATES2440.json`, else the handoff copy
@@ -504,14 +517,16 @@ pub fn t162_bank_table() -> Option<Table> {
     let mut bank = read_bank_predicates(&p).unwrap();
     bank.sort_by_key(|b| b.global_ordinal0);
     assert_eq!(bank.len(), 2440);
-    let mut t = Table::new("T162-bank-qualified");
-    for b in &bank {
-        t.push(
-            b.global_ordinal0,
-            CaseDomain::from_bank_predicate(b, 20).unwrap(),
-        );
-    }
-    Some(t)
+    Some(
+        Table::from_bank(
+            "T162-bank-qualified",
+            p.display().to_string(),
+            &bank,
+            20,
+            T162_BANK_TARGETS,
+        )
+        .unwrap(),
+    )
 }
 
 /// The 38 T178 order-B case exports as tables in cfg order (table index = k3 `piece_index`, label = case record
@@ -550,24 +565,28 @@ pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
     for t in cfg["tables"].as_array().unwrap() {
         let rel = t.as_str().unwrap().trim_start_matches("cases/t178B/");
         let p = verified_path(&cases.join(rel), &manifest[&format!("T178B/cases/{rel}")]);
-        let tf = read_table_file(p, ReadOptions::default()).unwrap();
-        let h = tf.header.expect("header");
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
-            .unwrap()
-            .with_power_shifts(h.power_shifts.clone());
+        let tf = read_table_file(&p, ReadOptions::default()).unwrap();
+        let frame = NodeFrame::from_header(tf.header.as_ref().expect("header")).unwrap();
         if let Some(f0) = &frame0 {
             assert_eq!(f0, &frame);
         }
         frame0 = Some(frame.clone());
         let name = rel.trim_end_matches(".jsonl").to_string();
-        let mut table = Table::new(name.clone());
         for r in &tf.rules {
             assert_eq!(r.dispatch.as_deref(), Some("Partition"));
-            table.push(
-                r.i.unwrap(),
-                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
-            );
         }
+        let table = Table::from_table_file(
+            name.clone(),
+            p.display().to_string(),
+            &tf,
+            DomainOptions {
+                targets: T178B_EXPORT_TARGETS,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(table.skipped_count(), 0);
+        assert_eq!(table.len(), tf.rules.len());
         names.push(name);
         tables.push(table);
     }

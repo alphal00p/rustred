@@ -12,8 +12,8 @@
 use std::path::PathBuf;
 
 use rustred_campaign_core::cover::{Dispatcher, Table};
-use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
-use rustred_campaign_core::key::{Key, NodeFrame};
+use rustred_campaign_core::domain::{DomainOptions, TargetSource};
+use rustred_campaign_core::key::Key;
 use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
 
 fn data(p: &str) -> PathBuf {
@@ -42,20 +42,29 @@ fn as_key(v: &serde_json::Value) -> Key {
 fn t162_sample_smallest_gid() {
     let mut bank = read_bank_predicates(data("t162_bank_sample.json")).unwrap();
     bank.sort_by_key(|p| p.global_ordinal0);
-    let mut t = Table::new("T162-sample");
-    for p in &bank {
-        t.push(
-            p.global_ordinal0,
-            CaseDomain::from_bank_predicate(p, 20).unwrap(),
-        );
-    }
+    let t = Table::from_bank(
+        "T162-sample",
+        "tests/data/t162_bank_sample.json",
+        &bank,
+        20,
+        TargetSource::CanonicalByConstruction {
+            attestation: "T162 bank sample: no target field, presented slots, no recenter or permutation",
+        },
+    )
+    .unwrap();
     let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
     let rows = jsonl("t162_keys_sample.jsonl");
     let (mut cov, mut unc) = (0, 0);
     for r in &rows {
         let k = as_key(&r[0]);
         let want = r[1].as_i64().unwrap();
-        let got = disp.first_match(&k).winner().map_or(-1, |w| w.label);
+        let d = disp.first_match(&k).unwrap();
+        assert!(matches!(
+            d,
+            rustred_campaign_core::cover::Dispatch::Covered(_)
+                | rustred_campaign_core::cover::Dispatch::Uncovered
+        ));
+        let got = d.winner().map_or(-1, |w| w.label);
         assert_eq!(got, want, "key {k:?}");
         if want < 0 { unc += 1 } else { cov += 1 }
     }
@@ -77,17 +86,19 @@ fn t178_sample_first_match() {
             ReadOptions::default(),
         )
         .unwrap();
-        let h = tf.header.unwrap();
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
-            .unwrap()
-            .with_power_shifts(h.power_shifts);
-        let mut t = Table::new(p.clone());
-        for r in &tf.rules {
-            t.push(
-                r.i.unwrap(),
-                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
-            );
-        }
+        let t = Table::from_table_file(
+            p.clone(),
+            p.clone(),
+            &tf,
+            DomainOptions {
+                targets: TargetSource::CanonicalByConstruction {
+                    attestation: "T178B case exports of engine table_dump.v1 tables",
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(t.len(), tf.rules.len());
         tables.push(t);
         pos.push(names.iter().position(|n| n == p).unwrap() as i64);
     }
@@ -99,7 +110,7 @@ fn t178_sample_first_match() {
     for r in &rows {
         let k = as_key(&r[0]);
         let (wp, wi) = (r[1].as_i64().unwrap(), r[2].as_i64().unwrap());
-        let (all, und) = disp.union_cover(&k);
+        let (all, und) = disp.union_cover(&k).unwrap();
         assert!(und.is_empty());
         let first = all.first().map(|w| (pos[w.table], w.label));
         if wp < 0 {

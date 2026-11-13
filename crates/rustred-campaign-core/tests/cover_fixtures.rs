@@ -34,7 +34,7 @@ use std::io::BufRead;
 use std::path::PathBuf;
 
 use rustred_campaign_core::cover::{Dispatcher, Table};
-use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
+use rustred_campaign_core::domain::{CaseDomain, DomainOptions, TargetSource};
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::record::{
     ReadOptions, RuleRecord, read_bank_predicates, read_table_file,
@@ -86,7 +86,7 @@ fn box_keys(
 #[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES (large reference files); run with --ignored"]
 fn t1_t162_box_b() {
     let fx = fixtures();
-    let frame = NodeFrame::lines_first(20, 9);
+    let frame = NodeFrame::without_header_lines_first(20, 9);
     let keys = box_keys(&frame, |d| if d == 0 { 1 } else { 2 }, Some(5));
     assert_eq!(keys.len(), 55_704);
 
@@ -94,25 +94,30 @@ fn t1_t162_box_b() {
     let mut bank = read_bank_predicates(fx.join("T162/RULE-PREDICATES2440.json")).unwrap();
     bank.sort_by_key(|p| p.global_ordinal0);
     assert_eq!(bank.len(), 2440);
-    let mut table = Table::new("T162-bank-qualified");
-    for p in &bank {
-        table.push(
-            p.global_ordinal0,
-            CaseDomain::from_bank_predicate(p, 20).unwrap(),
-        );
-    }
+    let table = Table::from_bank(
+        "T162-bank-qualified",
+        "T162/RULE-PREDICATES2440.json",
+        &bank,
+        20,
+        TargetSource::CanonicalByConstruction {
+            attestation: "T162 bank: no target field, presented slots, no recenter or permutation",
+        },
+    )
+    .unwrap();
     let load = t0.elapsed().as_secs_f64();
     let disp = Dispatcher::new(vec![table.clone()], vec![0]).unwrap();
-    let rep = disp.batch(&keys, 4);
+    let rep = disp.batch(&keys, 4).unwrap();
     println!(
-        "T1: load+parse {load:.2}s, {} patterns, dispatch {:.2}s: covered {} uncovered {} undecided {}",
+        "T1: load+parse {load:.2}s, {} patterns, dispatch {:.2}s: covered {} uncovered {} blocked {} undecided {} outside chart {}",
         disp.n_patterns(),
         rep.seconds,
         rep.covered,
         rep.uncovered,
-        rep.undecided
+        rep.blocked,
+        rep.undecided,
+        rep.outside_chart
     );
-    assert_eq!(rep.undecided, 0);
+    assert_eq!((rep.blocked, rep.undecided, rep.outside_chart), (0, 0, 0));
     assert_eq!(rep.covered, 54_714);
     assert_eq!(rep.uncovered, 990);
     let mine: HashSet<Key> = keys
@@ -143,7 +148,7 @@ fn t1_t162_box_b() {
     assert_eq!(mism, 0);
 
     // negative control: the 8 unqualified rules, domains from their records (chart + recenter bounds)
-    let mut bad = Table::new("T162-unqualified8");
+    let mut bad = Table::new("T162-unqualified8", 20);
     for v in lines(fx.join("T162/F1_negctl_unqualified8.jsonl")) {
         let rec = RuleRecord {
             chart: v["chart"].as_str().map(str::to_string),
@@ -160,16 +165,20 @@ fn t1_t162_box_b() {
         };
         let o = DomainOptions {
             recenter_bounds: true,
+            targets: TargetSource::CanonicalByConstruction {
+                attestation: "k3 negative control: the checker's domain definition on the key",
+            },
             ..Default::default()
         };
         bad.push(
             v["gid"].as_i64().unwrap(),
             CaseDomain::from_rule_record(&rec, &frame, o).unwrap(),
-        );
+        )
+        .unwrap();
     }
     assert_eq!(bad.len(), 8);
     let disp8 = Dispatcher::new(vec![table, bad], vec![0, 1]).unwrap();
-    let rep8 = disp8.batch(&keys, 4);
+    let rep8 = disp8.batch(&keys, 4).unwrap();
     let mine8: HashSet<Key> = keys
         .iter()
         .zip(&rep8.results)
@@ -181,10 +190,13 @@ fn t1_t162_box_b() {
         .map(as_key)
         .collect();
     println!(
-        "T1 negative control: with the 8 unqualified rules {} uncovered (wins of the 8: {})",
-        rep8.uncovered, rep8.wins[1]
+        "T1 negative control: with the 8 unqualified rules {} open ({} uncovered, {} blocked; wins of the 8: {})",
+        rep8.open(),
+        rep8.uncovered,
+        rep8.blocked,
+        rep8.wins[1]
     );
-    assert_eq!(rep8.uncovered, 969);
+    assert_eq!(rep8.open(), 969);
     assert_eq!(mine8, ref8);
 }
 
@@ -206,23 +218,28 @@ fn load_t178() -> T178 {
     for t in cfg["tables"].as_array().unwrap() {
         let rel = t.as_str().unwrap().trim_start_matches("cases/t178B/");
         let tf = read_table_file(fx.join("T178B/cases").join(rel), ReadOptions::default()).unwrap();
-        let h = tf.header.expect("header");
-        let frame = NodeFrame::from_mask(h.mask.as_deref().unwrap())
-            .unwrap()
-            .with_power_shifts(h.power_shifts.clone());
+        let frame = NodeFrame::from_header(tf.header.as_ref().expect("header")).unwrap();
         if let Some(f0) = &frame0 {
             assert_eq!(f0, &frame);
         }
         frame0 = Some(frame.clone());
         let name = rel.trim_end_matches(".jsonl").to_string();
-        let mut table = Table::new(name.clone());
         for r in &tf.rules {
             assert_eq!(r.dispatch.as_deref(), Some("Partition"));
-            table.push(
-                r.i.unwrap(),
-                CaseDomain::from_rule_record(r, &frame, DomainOptions::default()).unwrap(),
-            );
         }
+        let table = Table::from_table_file(
+            name.clone(),
+            rel,
+            &tf,
+            DomainOptions {
+                targets: TargetSource::CanonicalByConstruction {
+                    attestation: "T178B case exports of engine table_dump.v1 tables",
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(table.len(), tf.rules.len());
         names.push(name);
         tables.push(table);
     }
@@ -287,16 +304,18 @@ fn t2_t178_order_b() {
 
     let prio: Vec<usize> = (0..38).collect();
     let disp = Dispatcher::new(tables, prio.clone()).unwrap();
-    let rep = disp.batch(&keys, 4);
+    let rep = disp.batch(&keys, 4).unwrap();
     println!(
-        "T2: load {load:.2}s, {} patterns, dispatch {:.2}s: covered {} uncovered {} undecided {}",
+        "T2: load {load:.2}s, {} patterns, dispatch {:.2}s: covered {} uncovered {} blocked {} undecided {} outside chart {}",
         disp.n_patterns(),
         rep.seconds,
         rep.covered,
         rep.uncovered,
-        rep.undecided
+        rep.blocked,
+        rep.undecided,
+        rep.outside_chart
     );
-    assert_eq!(rep.undecided, 0);
+    assert_eq!((rep.blocked, rep.undecided, rep.outside_chart), (0, 0, 0));
     assert_eq!(rep.uncovered, 409);
     let mine: HashSet<Key> = keys
         .iter()
@@ -337,7 +356,7 @@ fn t2_t178_order_b() {
     // reversed priority (within-piece record order kept)
     let rev: Vec<usize> = prio.iter().rev().cloned().collect();
     let disp_r = disp.with_priority(rev).unwrap();
-    let rep_r = disp_r.batch(&keys, 4);
+    let rep_r = disp_r.batch(&keys, 4).unwrap();
     let h13: HashMap<Key, (i64, i64)> = lines(fx.join("T178B/h13_s3_box.jsonl"))
         .iter()
         .map(|v| {
