@@ -1,1 +1,1562 @@
-//! placeholder (module `ibp_rows`, package I-ROWS): replaced by its owning lane.
+//! A2 "IDENTITY-TESTED" (plan 2.5.2, WP-I2, design comment A6): an independent modular test that a rule
+//! `target = sum_k c_k(n, d) I(rhs_k)` lies in the span of the RAW IBP identities of its family, generated from the
+//! family text at the rule's RECORDED seeds. Pure logic on the copied engine replay code ([`crate::replay_base`]); no
+//! engine, no Symbolica, no files, no clock in any verdict field (R22: callable in-process).
+//!
+//! Semantics follow the engine's replay (`replay_cells` of `rustred-core/src/node/replay/mod.rs` at b9f06de7,
+//! re-implemented here): columns = every key of the seeds' rows plus the target and the RHS keys; columns in a
+//! scaleless sector (Lee's criterion on U + F, numerators with index > 0 count as propagators) are dropped from rows
+//! and from the rule vector; the rule vector is `e_target - sum c_k e_rhs_k`; a PASS cell must also reject the +1
+//! mutant of its first nonzero RHS coefficient and keep every sector's lowest numerator-free column out of the span.
+//! Differences from the replay: primes from the verify range (never P61 / P2), random d per cell recorded, generic
+//! points (random field values on the symbolic slots, the checker's C1) besides integer keys, and verdicts typed
+//! for the ledger (interfaces/ibp-rows.md section 2). "Fail" = not in the span of the rows of its recorded seeds at
+//! that point at both primes (not derived from its seeds there); never "the rule is false".
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::io::{BufRead, Write};
+use std::time::Instant;
+
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::poly::Poly;
+use crate::replay_base::arith::{self, Q};
+use crate::replay_base::coeff::{self, Ctx};
+use crate::replay_base::expr::Expr;
+use crate::replay_base::family::Family;
+use crate::replay_base::primes::{self, SplitMix64};
+use crate::replay_base::record::{self, Pat};
+use crate::replay_base::rows::{self, Support};
+use crate::replay_base::span::{Elim, MEMORY_GUARD};
+
+/// Version of the row convention and verdict semantics (bump on any change of either).
+pub const ROWS_VERSION: &str = "rustred.campaign.ibp_rows.v1";
+
+/// A rule record that cannot even be read as a rule (missing / malformed required fields).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum RowsError {
+    Record(String),
+    Io(String),
+}
+
+impl std::fmt::Display for RowsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RowsError::Record(s) => write!(f, "rule record: {s}"),
+            RowsError::Io(s) => write!(f, "io: {s}"),
+        }
+    }
+}
+
+impl std::error::Error for RowsError {}
+
+/// The A2 view of one rule record (interfaces/ibp-rows.md section 3).
+#[derive(Clone, Debug)]
+pub struct RowsRule {
+    pub index: Option<i64>,
+    pub arity: usize,
+    pub chart_text: String,
+    /// `true` = line slot (chart '1')
+    pub chart: Vec<bool>,
+    pub fixed: Vec<Option<i64>>,
+    pub equations: Vec<String>,
+    pub exceptions: Vec<Vec<String>>,
+    pub target_text: String,
+    pub target: Pat,
+    /// (key pattern, coefficient text)
+    pub rhs: Vec<(Pat, String)>,
+    pub seeds: Vec<Pat>,
+    pub recenter: Vec<i64>,
+    /// the raw `sym_rows` value when the record declares symmetry rows (non-null, nonzero, not false)
+    pub sym_rows: Option<String>,
+    /// a key / seed pattern outside the engine's `parse_integral` grammar (the rule is then Unsupported)
+    pub syntax_error: Option<String>,
+}
+
+fn take_str(v: &mut Value, key: &str) -> Result<String, RowsError> {
+    match v.get_mut(key).map(Value::take) {
+        Some(Value::String(s)) => Ok(s),
+        _ => Err(RowsError::Record(format!("field `{key}` missing or not a string"))),
+    }
+}
+
+/// An array field, or a JSON string holding the array (the checker accepts both for `rhs` and `seeds`).
+fn take_array(v: &mut Value, key: &str) -> Result<Option<Vec<Value>>, RowsError> {
+    match v.get_mut(key).map(Value::take) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(a)) => Ok(Some(a)),
+        Some(Value::String(s)) => match serde_json::from_str::<Value>(&s) {
+            Ok(Value::Array(a)) => Ok(Some(a)),
+            _ => Err(RowsError::Record(format!("field `{key}` is a string but not a JSON array"))),
+        },
+        Some(_) => Err(RowsError::Record(format!("field `{key}` is not an array"))),
+    }
+}
+
+fn strings(a: Vec<Value>, key: &str) -> Result<Vec<String>, RowsError> {
+    a.into_iter()
+        .map(|x| match x {
+            Value::String(s) => Ok(s),
+            _ => Err(RowsError::Record(format!("`{key}` holds a non-string"))),
+        })
+        .collect()
+}
+
+impl RowsRule {
+    /// Read one rule record (a `table_dump.v1` rule object or a bare export rule). Strings are moved out of `v`.
+    pub fn from_value(mut v: Value, arity: usize) -> Result<RowsRule, RowsError> {
+        if !v.is_object() {
+            return Err(RowsError::Record("rule is not an object".into()));
+        }
+        let index = v.get("index").and_then(Value::as_i64);
+        let chart_text = take_str(&mut v, "chart")?;
+        if chart_text.len() != arity || !chart_text.bytes().all(|b| b == b'0' || b == b'1') {
+            return Err(RowsError::Record(format!("chart {chart_text:?} is not a 0/1 string of length {arity}")));
+        }
+        let chart = chart_text.bytes().map(|b| b == b'1').collect();
+        let fixed: Vec<Option<i64>> = match v.get("fixed") {
+            Some(Value::Array(a)) if a.len() == arity => a
+                .iter()
+                .map(|x| match x {
+                    Value::Null => Ok(None),
+                    x => x
+                        .as_i64()
+                        .map(Some)
+                        .ok_or_else(|| RowsError::Record("fixed entry is not an integer or null".into())),
+                })
+                .collect::<Result<_, _>>()?,
+            _ => return Err(RowsError::Record(format!("`fixed` must be an array of length {arity}"))),
+        };
+        let equations = strings(take_array(&mut v, "equations")?.unwrap_or_default(), "equations")?;
+        let exceptions = take_array(&mut v, "exceptions")?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| match b {
+                Value::Array(a) => strings(a, "exceptions"),
+                _ => Err(RowsError::Record("exception branch is not an array".into())),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let target_text = take_str(&mut v, "target")?;
+        let rhs_raw = take_array(&mut v, "rhs")?.ok_or_else(|| RowsError::Record("`rhs` missing".into()))?;
+        let mut rhs_text = Vec::with_capacity(rhs_raw.len());
+        for t in rhs_raw {
+            match t {
+                Value::Array(mut pair) if pair.len() == 2 => {
+                    let c = pair.pop().unwrap();
+                    let k = pair.pop().unwrap();
+                    match (k, c) {
+                        (Value::String(k), Value::String(c)) => rhs_text.push((k, c)),
+                        _ => return Err(RowsError::Record("rhs term is not [key string, coefficient string]".into())),
+                    }
+                }
+                _ => return Err(RowsError::Record("rhs term is not a pair".into())),
+            }
+        }
+        let seed_text = strings(take_array(&mut v, "seeds")?.unwrap_or_default(), "seeds")?;
+        let recenter = match v.get("recenter") {
+            None | Some(Value::Null) => vec![0; arity],
+            Some(Value::Array(a)) if a.len() == arity => a
+                .iter()
+                .map(|x| x.as_i64().ok_or_else(|| RowsError::Record("recenter entry not an integer".into())))
+                .collect::<Result<_, _>>()?,
+            Some(_) => return Err(RowsError::Record(format!("`recenter` must be an array of length {arity}"))),
+        };
+        let sym_rows = match v.get("sym_rows") {
+            None | Some(Value::Null) | Some(Value::Bool(false)) => None,
+            Some(x) if x.as_i64() == Some(0) || x.as_u64() == Some(0) => None,
+            Some(x) => Some(x.to_string()),
+        };
+        // keys: the engine's parse_integral grammar; a refusal makes the rule Unsupported (never guessed)
+        let mut syntax_error = None;
+        let mut parse = |t: &str| -> Pat {
+            match record::parse_integral(t, arity) {
+                Ok(p) => p,
+                Err(e) => {
+                    syntax_error.get_or_insert(e);
+                    Vec::new()
+                }
+            }
+        };
+        let target = parse(&target_text);
+        let seeds: Vec<Pat> = seed_text.iter().map(|s| parse(s)).collect();
+        let rhs: Vec<(Pat, String)> = rhs_text.into_iter().map(|(k, c)| (parse(&k), c)).collect();
+        Ok(RowsRule {
+            index,
+            arity,
+            chart_text,
+            chart,
+            fixed,
+            equations,
+            exceptions,
+            target_text,
+            target,
+            rhs,
+            seeds,
+            recenter,
+            sym_rows,
+            syntax_error,
+        })
+    }
+
+    /// All rules of one JSONL line: a `table_dump.v1` rule line, an export wrapper `{"rules": [...]}`, or a bare
+    /// record. Header / chart / residual lines give an empty list.
+    pub fn from_json_line(line: &str, arity: usize) -> Result<Vec<RowsRule>, RowsError> {
+        let v: Value = serde_json::from_str(line).map_err(|e| RowsError::Record(format!("json: {e}")))?;
+        Self::from_line_value(v, arity).map(|(r, _)| r)
+    }
+
+    fn from_line_value(mut v: Value, arity: usize) -> Result<(Vec<RowsRule>, LineContext), RowsError> {
+        let mut ctx = LineContext {
+            run: v.get("run").and_then(Value::as_str).map(str::to_string),
+            gap_points: Vec::new(),
+        };
+        if let Some(Value::Array(g)) = v.get("gap_points") {
+            for p in g {
+                let k: Option<Vec<i64>> = p.as_array().map(|a| a.iter().filter_map(Value::as_i64).collect());
+                if let Some(k) = k.filter(|k| k.len() == arity) {
+                    ctx.gap_points.push(k);
+                }
+            }
+        }
+        if let Some(Value::Array(rules)) = v.get_mut("rules").map(Value::take) {
+            let rs = rules
+                .into_iter()
+                .map(|r| RowsRule::from_value(r, arity))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok((rs, ctx));
+        }
+        match v.get("type").and_then(Value::as_str) {
+            Some("rule") => Ok((vec![RowsRule::from_value(v, arity)?], ctx)),
+            Some(_) => Ok((Vec::new(), ctx)),
+            None if v.get("target").is_some() && v.get("rhs").is_some() => {
+                Ok((vec![RowsRule::from_value(v, arity)?], ctx))
+            }
+            None => Ok((Vec::new(), ctx)),
+        }
+    }
+
+    /// Default stream id: FNV-1a of `chart|index|target`.
+    pub fn default_id(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in format!("{}|{:?}|{}", self.chart_text, self.index, self.target_text).bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        h
+    }
+
+    /// Total number of coefficient bytes (cost accounting).
+    pub fn coefficient_bytes(&self) -> usize {
+        self.rhs.iter().map(|(_, c)| c.len()).sum()
+    }
+}
+
+/// Context of an input line (export wrapper fields the point plan may use).
+#[derive(Clone, Debug, Default)]
+pub struct LineContext {
+    pub run: Option<String>,
+    pub gap_points: Vec<Vec<i64>>,
+}
+
+/// A point at which the identity is tested.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum PointSpec {
+    /// an integer key in the target frame (a served key)
+    Key(Vec<i64>),
+    /// random field values on the symbolic slots (one draw per prime)
+    Generic,
+}
+
+#[derive(Clone, Debug)]
+pub struct RowsOptions {
+    pub seed: u64,
+    pub rule_id: Option<u64>,
+    pub primes: Option<[u64; 2]>,
+    pub lift_primes: Vec<u64>,
+    pub generated_with_symmetry_rows: bool,
+    pub max_entries: usize,
+    pub shell_diagnostic: bool,
+    pub d_attempts: u32,
+    pub controls: bool,
+}
+
+impl Default for RowsOptions {
+    fn default() -> Self {
+        RowsOptions {
+            seed: 20_261_113,
+            rule_id: None,
+            primes: None,
+            lift_primes: Vec::new(),
+            generated_with_symmetry_rows: false,
+            max_entries: 60_000_000,
+            shell_diagnostic: false,
+            d_attempts: 8,
+            controls: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum Unsupported {
+    /// the rule declares `sym_rows` or was generated with symmetry rows: UNKNOWN (needs symmetry rows), D-34
+    NeedsSymmetryRows { declared: Option<String> },
+    /// a key, seed or coefficient outside the grammar (refused, never guessed)
+    Syntax(String),
+    /// a case equation that is not affine (generic points need it solved)
+    NonlinearEquation(String),
+    /// the record has no seeds (nothing to build rows from)
+    NoSeeds,
+    /// a prime that may not decide (range, engine stream, lift prime)
+    BadPrime(String),
+    /// arity mismatch or a malformed record
+    Record(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum NotApplicableReason {
+    Arity { expected: usize, got: usize },
+    TargetConstant { slot: usize },
+    FixedSlot { slot: usize },
+    Equation(usize),
+    OnException { branch: usize },
+    ChartMismatch { slot: usize },
+    InconsistentEquations,
+}
+
+/// The rule-level verdict (interfaces/ibp-rows.md section 2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum Verdict {
+    Pass,
+    Fail { point: usize, prime: u64, d: u64, column: String },
+    SeedsInsufficient { point: usize },
+    Pole { point: usize, coefficient: usize },
+    Unsupported(Unsupported),
+    MemoryGuard { entries: usize },
+    NotApplicable { reasons: Vec<NotApplicableReason> },
+    Undecided { reason: String },
+}
+
+impl Verdict {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Verdict::Pass => "pass",
+            Verdict::Fail { .. } => "fail",
+            Verdict::SeedsInsufficient { .. } => "seeds_insufficient",
+            Verdict::Pole { .. } => "pole",
+            Verdict::Unsupported(Unsupported::NeedsSymmetryRows { .. }) => "unsupported_needs_symmetry_rows",
+            Verdict::Unsupported(_) => "unsupported",
+            Verdict::MemoryGuard { .. } => "memory_guard",
+            Verdict::NotApplicable { .. } => "not_applicable",
+            Verdict::Undecided { .. } => "undecided",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum CellStatus {
+    Pass,
+    Fail,
+    Pole { coefficient: usize },
+    MemoryGuard { entries: usize },
+    Undecided { reason: String },
+}
+
+/// One (point, prime) evaluation.
+#[derive(Clone, Debug, Serialize)]
+pub struct CellReport {
+    pub prime: u64,
+    pub d: u64,
+    /// residues of n0..n{N-1} at a generic point
+    pub generic_values: Option<Vec<u64>>,
+    pub redraws: u32,
+    pub status: CellStatus,
+    /// generated rows (30 per distinct seed key for T162)
+    pub rows: usize,
+    /// non-zero-sector columns met by the rows (the checker's `ncols`)
+    pub row_columns: usize,
+    pub universe_columns: usize,
+    pub zero_columns: usize,
+    pub rank: usize,
+    pub in_span: bool,
+    /// first remainder column when not in the span (the witness)
+    pub witness: Option<String>,
+    pub mutation_rejected: Option<bool>,
+    pub corners_tested: usize,
+    pub corners_in_span: Vec<String>,
+    /// stored elimination entries (pivot rows + dependency lists)
+    pub entries: usize,
+    /// Schwartz-Zippel degree of this cell's false-PASS event
+    pub sz_degree: u64,
+    pub seconds: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum PointStatus {
+    Pass,
+    Fail,
+    SeedsInsufficient,
+    Pole { coefficient: usize },
+    MemoryGuard { entries: usize },
+    NotApplicable(NotApplicableReason),
+    Unsupported(Unsupported),
+    Undecided { reason: String },
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PointReport {
+    pub spec: PointSpec,
+    /// the rule point (values of n0..n{N-1}) for an integer key
+    pub rule_point: Option<Vec<i64>>,
+    pub status: PointStatus,
+    pub cells: Vec<CellReport>,
+    /// cells of the shell retry (diagnostic) when run
+    pub shell: Vec<CellReport>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Cost {
+    pub rows: usize,
+    pub row_columns_max: usize,
+    pub rank_max: usize,
+    pub entries_peak: usize,
+    /// rough upper estimate of the peak heap of one cell (entries, rows, column keys)
+    pub peak_bytes_estimate: usize,
+    pub coefficient_bytes: usize,
+    pub monomials: usize,
+    pub seconds: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RowsVerdict {
+    pub version: &'static str,
+    pub verdict: Verdict,
+    pub rule_index: Option<i64>,
+    pub target: String,
+    pub rule_id: u64,
+    pub seed: u64,
+    pub primes: [u64; 2],
+    pub points: Vec<PointReport>,
+    pub points_passed: usize,
+    /// product over the passed cells of deg / (p - 2) (false-PASS probability bound); 1.0 when nothing passed
+    pub sz_bound: f64,
+    pub sz_bound_per_cell_max: f64,
+    pub meets_a2_policy: bool,
+    pub cost: Cost,
+}
+
+// ------------------------------------------------------------------ columns ------------------------------------------
+
+/// A column: (symbolic-slot mask, values). Integer keys have mask 0; at a generic point a slot with its bit set holds
+/// the offset to the slot's random value, the others hold constants.
+type ColKey = (u64, Vec<i64>);
+
+fn col_text(k: &ColKey) -> String {
+    let parts: Vec<String> = k
+        .1
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            if k.0 >> i & 1 == 1 {
+                match v {
+                    0 => format!("n{i}"),
+                    v if v > 0 => format!("n{i}+{v}"),
+                    v => format!("n{i}{v}"),
+                }
+            } else {
+                v.to_string()
+            }
+        })
+        .collect();
+    format!("I({})", parts.join(","))
+}
+
+/// Active slots of a column (integer: index > 0; generic symbolic slot: the chart's line flag, as the checker).
+fn active(k: &ColKey, chart: &[bool]) -> Vec<bool> {
+    k.1.iter()
+        .enumerate()
+        .map(|(i, &v)| if k.0 >> i & 1 == 1 { chart[i] } else { v > 0 })
+        .collect()
+}
+
+/// Pivot preference (only affects fill-in): more active slots, then more excess, = more complex = pivot first.
+fn col_weight(k: &ColKey, chart: &[bool]) -> (usize, i64) {
+    let act = active(k, chart);
+    let mut excess = 0i64;
+    for (i, &v) in k.1.iter().enumerate() {
+        excess += if k.0 >> i & 1 == 1 {
+            if chart[i] { v } else { -v }
+        } else if v > 0 {
+            v - 1
+        } else {
+            -v
+        };
+    }
+    (act.iter().filter(|&&a| a).count(), excess)
+}
+
+// ------------------------------------------------------------------ coefficients -------------------------------------
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DegStats {
+    max_num_deg: u64,
+    sum_den_deg: u64,
+    max_num_degd: u64,
+    sum_den_degd: u64,
+    monomials: usize,
+}
+
+struct CoeffEval {
+    /// per context: c_k = num_k / den_k, or the first k with den_k = 0
+    values: Vec<Result<Vec<u64>, usize>>,
+    deg: DegStats,
+}
+
+fn eval_coeffs(rule: &RowsRule, ctxs: &[Ctx]) -> Result<CoeffEval, String> {
+    let m = ctxs.len();
+    let mut vals: Vec<Result<Vec<u64>, usize>> = (0..m).map(|_| Ok(Vec::with_capacity(rule.rhs.len()))).collect();
+    let mut deg = DegStats::default();
+    let (mut num, mut den) = (vec![0u64; m], vec![0u64; m]);
+    for (k, (_, text)) in rule.rhs.iter().enumerate() {
+        let st = coeff::eval_ratio(text, rule.arity, ctxs, &mut num, &mut den)
+            .map_err(|e| format!("rhs[{k}] coefficient: {e}"))?;
+        deg.max_num_deg = deg.max_num_deg.max(st.num.deg as u64);
+        deg.max_num_degd = deg.max_num_degd.max(st.num.degd as u64);
+        deg.sum_den_deg += st.den.deg as u64;
+        deg.sum_den_degd += st.den.degd as u64;
+        deg.monomials += st.num.terms + st.den.terms;
+        for (j, c) in ctxs.iter().enumerate() {
+            if let Ok(v) = &mut vals[j] {
+                match arith::inv(c.p, den[j]) {
+                    Some(iv) => v.push(arith::mul(c.p, num[j], iv)),
+                    None => vals[j] = Err(k),
+                }
+            }
+        }
+    }
+    Ok(CoeffEval { values: vals, deg })
+}
+
+/// d-degree of one coefficient's denominator (syntactic).
+fn den_degd(rule: &RowsRule, k: usize, p: u64) -> Result<u32, String> {
+    let c = Ctx {
+        p,
+        vals: vec![1; rule.arity + 1],
+    };
+    let (mut n, mut d) = ([0u64], [0u64]);
+    let st = coeff::eval_ratio(&rule.rhs[k].1, rule.arity, std::slice::from_ref(&c), &mut n, &mut d)
+        .map_err(|e| e.to_string())?;
+    Ok(st.den.degd)
+}
+
+// ------------------------------------------------------------------ draws ---------------------------------------------
+
+const PURPOSE_D: u64 = 1;
+const PURPOSE_POLE: u64 = 3;
+const PURPOSE_SHELL: u64 = 4;
+
+/// d uniform in [2, p), never 37/7 or -11/5 mod p (the engine's fixed dimensions).
+fn draw_d(s: &mut SplitMix64, p: u64) -> u64 {
+    let bad: Vec<u64> = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }]
+        .iter()
+        .filter_map(|q| q.modp(p))
+        .collect();
+    loop {
+        let d = s.range(2, p);
+        if !bad.contains(&d) {
+            return d;
+        }
+    }
+}
+
+// ------------------------------------------------------------------ generic points -----------------------------------
+
+/// Exact solution of the affine case equations: dependent slot -> (constant, [(free slot, coefficient)]).
+type Solved = BTreeMap<usize, (Q, Vec<(usize, Q)>)>;
+
+fn solve_equations(rule: &RowsRule) -> Result<Result<Solved, NotApplicableReason>, Unsupported> {
+    let n = rule.arity;
+    // rows over [slot coefficients .. , const]; fixed slots substituted
+    let mut rows: Vec<Vec<Q>> = Vec::new();
+    let qerr = |e: String| Unsupported::NonlinearEquation(e);
+    for e in &rule.equations {
+        let lin = Expr::parse(e, n)
+            .and_then(|x| x.linear())
+            .map_err(|err| Unsupported::NonlinearEquation(format!("{e}: {err}")))?;
+        if !lin[n + 1].is_zero() {
+            return Err(Unsupported::NonlinearEquation(format!("{e}: contains d")));
+        }
+        let mut row = vec![Q::ZERO; n + 1];
+        let mut c = lin[0];
+        for i in 0..n {
+            let a = lin[i + 1];
+            if a.is_zero() {
+                continue;
+            }
+            match rule.fixed[i] {
+                Some(v) => c = c.add(a.mul(Q::int(v as i128)).map_err(qerr)?).map_err(qerr)?,
+                None => row[i] = a,
+            }
+        }
+        row[n] = c;
+        rows.push(row);
+    }
+    // Gauss-Jordan
+    let mut pivots: Vec<usize> = Vec::new();
+    let mut r = 0;
+    for col in 0..n {
+        let Some(pr) = (r..rows.len()).find(|&i| !rows[i][col].is_zero()) else {
+            continue;
+        };
+        rows.swap(r, pr);
+        let f = rows[r][col];
+        rows[r] = rows[r].iter().map(|x| x.div(f)).collect::<Result<_, _>>().map_err(qerr)?;
+        for i in 0..rows.len() {
+            if i != r && !rows[i][col].is_zero() {
+                let g = rows[i][col];
+                let pivot = rows[r].clone();
+                rows[i] = rows[i]
+                    .iter()
+                    .zip(&pivot)
+                    .map(|(x, y)| x.sub(g.mul(*y)?))
+                    .collect::<Result<_, _>>()
+                    .map_err(qerr)?;
+            }
+        }
+        pivots.push(col);
+        r += 1;
+    }
+    for row in &rows[r..] {
+        if !row[n].is_zero() {
+            return Ok(Err(NotApplicableReason::InconsistentEquations));
+        }
+    }
+    let mut out = Solved::new();
+    for (i, &pc) in pivots.iter().enumerate() {
+        // x_pc + sum_{j != pc} a_j x_j + c = 0  ->  x_pc = -c - sum a_j x_j
+        let deps: Vec<(usize, Q)> = (0..n)
+            .filter(|&j| j != pc && !rows[i][j].is_zero())
+            .map(|j| (j, rows[i][j].neg()))
+            .collect();
+        out.insert(pc, (rows[i][n].neg(), deps));
+    }
+    Ok(Ok(out))
+}
+
+fn generic_values(rule: &RowsRule, solved: &Solved, p: u64, s: &mut SplitMix64) -> Result<Vec<u64>, String> {
+    let n = rule.arity;
+    let mut x = vec![0u64; n];
+    for i in 0..n {
+        x[i] = match rule.fixed[i] {
+            Some(v) => arith::from_i128(p, v as i128),
+            None if solved.contains_key(&i) => 0,
+            None => s.range(2, p),
+        };
+    }
+    for (&i, (c, deps)) in solved {
+        let mut v = c.modp(p).ok_or("equation denominator divisible by p")?;
+        for (j, a) in deps {
+            let av = a.modp(p).ok_or("equation denominator divisible by p")?;
+            v = arith::add(p, v, arith::mul(p, av, x[*j]));
+        }
+        x[i] = v;
+    }
+    Ok(x)
+}
+
+// ------------------------------------------------------------------ applicability ------------------------------------
+
+fn rule_point(rule: &RowsRule, key: &[i64]) -> Result<Result<Vec<i64>, NotApplicableReason>, Unsupported> {
+    let n = rule.arity;
+    if key.len() != n {
+        return Ok(Err(NotApplicableReason::Arity {
+            expected: n,
+            got: key.len(),
+        }));
+    }
+    let mut pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
+    for (j, &(ax, off)) in rule.target.iter().enumerate() {
+        match ax {
+            Some(a) => pt[a] = key[j] - off,
+            None if key[j] != off => return Ok(Err(NotApplicableReason::TargetConstant { slot: j })),
+            None => {}
+        }
+    }
+    for (j, f) in rule.fixed.iter().enumerate() {
+        if let Some(v) = f {
+            if key[j] != *v {
+                return Ok(Err(NotApplicableReason::FixedSlot { slot: j }));
+            }
+        }
+    }
+    let to32: Vec<i32> = match pt.iter().map(|&x| i32::try_from(x)).collect::<Result<Vec<_>, _>>() {
+        Ok(v) => v,
+        Err(_) => return Err(Unsupported::Record("rule point outside i32".into())),
+    };
+    let zero = |s: &str| -> Result<bool, Unsupported> {
+        let p = Poly::parse(s, n, false).map_err(|e| Unsupported::Syntax(format!("{s}: {e}")))?;
+        p.is_zero_at(&to32).map_err(|e| Unsupported::Syntax(format!("{s}: {e}")))
+    };
+    for (i, e) in rule.equations.iter().enumerate() {
+        if !zero(e)? {
+            return Ok(Err(NotApplicableReason::Equation(i)));
+        }
+    }
+    for (b, branch) in rule.exceptions.iter().enumerate() {
+        let mut all = !branch.is_empty();
+        for lit in branch {
+            if !zero(lit)? {
+                all = false;
+                break;
+            }
+        }
+        if all {
+            return Ok(Err(NotApplicableReason::OnException { branch: b }));
+        }
+    }
+    for (j, &line) in rule.chart.iter().enumerate() {
+        if (line && key[j] < 1) || (!line && key[j] > 0) {
+            return Ok(Err(NotApplicableReason::ChartMismatch { slot: j }));
+        }
+    }
+    Ok(Ok(pt))
+}
+
+// ------------------------------------------------------------------ one cell -----------------------------------------
+
+struct CellCtx<'a> {
+    family: &'a Family,
+    rule: &'a RowsRule,
+    opts: &'a RowsOptions,
+}
+
+struct System {
+    rows: Vec<BTreeMap<ColKey, u64>>,
+}
+
+/// Rows at a generic point: seed pattern -> base residues and column offsets; family.rows_at_mod.
+fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Result<System, String> {
+    let n = cx.rule.arity;
+    let rc = &cx.rule.recenter;
+    let mut seen: BTreeSet<ColKey> = BTreeSet::new();
+    let mut out = System { rows: Vec::new() };
+    for s in seeds {
+        let mut mask = 0u64;
+        let mut offs = vec![0i64; n];
+        let mut base = vec![0u64; n];
+        for (i, &(ax, off)) in s.iter().enumerate() {
+            match ax {
+                Some(a) => {
+                    mask |= 1 << i;
+                    offs[i] = off + rc[i];
+                    base[i] = arith::add(p, x[a], arith::from_i128(p, (off + rc[i]) as i128));
+                }
+                None => {
+                    offs[i] = off;
+                    base[i] = arith::from_i128(p, off as i128);
+                }
+            }
+        }
+        if !seen.insert((mask, offs.clone())) {
+            continue;
+        }
+        for r in cx.family.rows_at_mod(&base, d, p)? {
+            let mut row = BTreeMap::new();
+            for (delta, v) in r {
+                let k: Vec<i64> = offs.iter().zip(&delta).map(|(a, b)| a + b).collect();
+                let e = row.entry((mask, k)).or_insert(0u64);
+                *e = arith::add(p, *e, v);
+            }
+            row.retain(|_, v| *v != 0);
+            out.rows.push(row);
+        }
+    }
+    Ok(out)
+}
+
+/// Rows at an integer rule point through the COPIED `rows_for_p`.
+fn integer_rows(cx: &CellCtx, seeds: &[Pat], pt: &[i64], d: u64, p: u64) -> Result<System, String> {
+    let built = rows::rows_for_p(p, &Support::Exported(seeds.to_vec()), pt, &cx.rule.recenter, d, cx.family)?;
+    Ok(System {
+        rows: built
+            .rows
+            .into_iter()
+            .map(|r| r.into_iter().map(|(k, v)| ((0u64, k), v)).collect())
+            .collect(),
+    })
+}
+
+fn pattern_col(pat: &Pat, generic: bool, pt: &[i64]) -> ColKey {
+    if generic {
+        let mut mask = 0u64;
+        let v = pat
+            .iter()
+            .enumerate()
+            .map(|(i, &(ax, off))| {
+                if ax.is_some() {
+                    mask |= 1 << i;
+                }
+                off
+            })
+            .collect();
+        (mask, v)
+    } else {
+        (0, record::key_at(pat, pt))
+    }
+}
+
+struct SolveOut {
+    status: CellStatus,
+    rows: usize,
+    row_columns: usize,
+    universe_columns: usize,
+    zero_columns: usize,
+    rank: usize,
+    in_span: bool,
+    witness: Option<String>,
+    mutation_rejected: Option<bool>,
+    corners_tested: usize,
+    corners_in_span: Vec<String>,
+    entries: usize,
+    bytes: usize,
+}
+
+/// Columns, zero sectors, elimination, span test and controls of one cell.
+fn solve_system(
+    cx: &CellCtx,
+    sys: System,
+    target: ColKey,
+    rhs: Vec<ColKey>,
+    values: &[u64],
+    p: u64,
+) -> SolveOut {
+    let chart = &cx.rule.chart;
+    let n = cx.rule.arity;
+    let mut universe: BTreeSet<&ColKey> = BTreeSet::new();
+    for r in &sys.rows {
+        universe.extend(r.keys());
+    }
+    universe.insert(&target);
+    universe.extend(rhs.iter());
+    let mut zero_cache: HashMap<Vec<bool>, bool> = HashMap::new();
+    let mut is_zero = |k: &ColKey| -> bool {
+        let a = active(k, chart);
+        if let Some(z) = zero_cache.get(&a) {
+            return *z;
+        }
+        let z = cx.family.zero_mask(&a);
+        zero_cache.insert(a, z);
+        z
+    };
+    let mut nonzero: Vec<&ColKey> = Vec::new();
+    let mut zero_columns = 0;
+    for k in &universe {
+        if is_zero(k) {
+            zero_columns += 1;
+        } else {
+            nonzero.push(k);
+        }
+    }
+    let universe_columns = universe.len();
+    // pivot order: most complex first (index 0); ties by key
+    nonzero.sort_by(|a, b| col_weight(b, chart).cmp(&col_weight(a, chart)).then_with(|| a.cmp(b)));
+    let ids: HashMap<&ColKey, usize> = nonzero.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    let enc = |m: &BTreeMap<ColKey, u64>| -> Vec<(usize, u64)> {
+        let mut es: Vec<(usize, u64)> = m
+            .iter()
+            .filter(|(_, v)| **v % p != 0)
+            .filter_map(|(k, v)| ids.get(k).map(|&i| (i, *v)))
+            .collect();
+        es.sort_unstable();
+        es
+    };
+    let enc_rows: Vec<Vec<(usize, u64)>> = sys.rows.iter().map(enc).collect();
+    let mut used = vec![false; nonzero.len()];
+    let mut row_entries = 0usize;
+    for r in &enc_rows {
+        row_entries += r.len();
+        for &(c, _) in r {
+            used[c] = true;
+        }
+    }
+    let row_columns = used.iter().filter(|&&u| u).count();
+    let mut desired: BTreeMap<ColKey, u64> = BTreeMap::new();
+    desired.insert(target.clone(), 1);
+    for (k, v) in rhs.iter().zip(values) {
+        let e = desired.entry(k.clone()).or_insert(0);
+        *e = arith::sub(p, *e, *v);
+    }
+    let enc_desired = enc(&desired);
+    let bytes_cols = nonzero.len() * (n * 8 + 64);
+    let mut out = SolveOut {
+        status: CellStatus::Undecided {
+            reason: String::new(),
+        },
+        rows: sys.rows.len(),
+        row_columns,
+        universe_columns,
+        zero_columns,
+        rank: 0,
+        in_span: false,
+        witness: None,
+        mutation_rejected: None,
+        corners_tested: 0,
+        corners_in_span: Vec::new(),
+        entries: 0,
+        bytes: row_entries * 16 + bytes_cols,
+    };
+    let elim = match Elim::new_guarded(&enc_rows, nonzero.len(), p, cx.opts.max_entries) {
+        Ok(e) => e,
+        Err(e) if e.starts_with(MEMORY_GUARD) => {
+            out.status = CellStatus::MemoryGuard {
+                entries: cx.opts.max_entries,
+            };
+            out.entries = cx.opts.max_entries;
+            return out;
+        }
+        Err(e) => {
+            out.status = CellStatus::Undecided { reason: e };
+            return out;
+        }
+    };
+    out.entries = elim.entries();
+    out.bytes += out.entries * 16;
+    out.rank = elim.rank();
+    let sp = match elim.solve(&enc_desired) {
+        Ok(s) => s,
+        Err(e) => {
+            out.status = CellStatus::Undecided { reason: e };
+            return out;
+        }
+    };
+    out.in_span = sp.in_span;
+    if !sp.in_span {
+        out.witness = sp.remainder.first().map(|&(c, _)| col_text(nonzero[c]));
+        out.status = CellStatus::Fail;
+        return out;
+    }
+    if !cx.opts.controls {
+        out.status = CellStatus::Pass;
+        return out;
+    }
+    // control 1 (engine Y24): the +1 mutant of the first nonzero non-scaleless RHS coefficient must NOT be in the span
+    let mutable = rhs
+        .iter()
+        .zip(values)
+        .position(|(k, v)| *v != 0 && ids.contains_key(k));
+    let Some(mi) = mutable else {
+        out.status = CellStatus::Undecided {
+            reason: "no nonzero non-scaleless RHS coefficient for the +1 mutation control".into(),
+        };
+        return out;
+    };
+    let mut mutant = desired.clone();
+    let e = mutant.entry(rhs[mi].clone()).or_insert(0);
+    *e = arith::sub(p, *e, 1);
+    let rejected = match elim.solve(&enc(&mutant)) {
+        Ok(s) => !s.in_span,
+        Err(e) => {
+            out.status = CellStatus::Undecided { reason: e };
+            return out;
+        }
+    };
+    out.mutation_rejected = Some(rejected);
+    // control 2 (engine Y24): per sector touched, its lowest numerator-free column is not in the span
+    let mut probe: BTreeMap<Vec<bool>, (i64, usize)> = BTreeMap::new();
+    for (c, k) in nonzero.iter().enumerate() {
+        let corner = k.1.iter().enumerate().all(|(i, &v)| {
+            if k.0 >> i & 1 == 1 { chart[i] } else { v >= 1 || v == 0 }
+        });
+        if !corner {
+            continue;
+        }
+        let weight: i64 = k.1.iter().sum();
+        let e = probe.entry(active(k, chart)).or_insert((weight, c));
+        if weight < e.0 {
+            *e = (weight, c);
+        }
+    }
+    for (_, c) in probe.values() {
+        out.corners_tested += 1;
+        match elim.solve(&[(*c, 1)]) {
+            Ok(s) if s.in_span => out.corners_in_span.push(col_text(nonzero[*c])),
+            Ok(_) => {}
+            Err(e) => {
+                out.status = CellStatus::Undecided { reason: e };
+                return out;
+            }
+        }
+    }
+    out.status = if !rejected {
+        CellStatus::Undecided {
+            reason: "control failed: the +1 mutant is also in the span".into(),
+        }
+    } else if !out.corners_in_span.is_empty() {
+        CellStatus::Undecided {
+            reason: "control failed: a nonzero corner integral is in the span".into(),
+        }
+    } else {
+        CellStatus::Pass
+    };
+    out
+}
+
+fn empty_cell(p: u64, d: u64, status: CellStatus) -> CellReport {
+    CellReport {
+        prime: p,
+        d,
+        generic_values: None,
+        redraws: 0,
+        status,
+        rows: 0,
+        row_columns: 0,
+        universe_columns: 0,
+        zero_columns: 0,
+        rank: 0,
+        in_span: false,
+        witness: None,
+        mutation_rejected: None,
+        corners_tested: 0,
+        corners_in_span: Vec::new(),
+        entries: 0,
+        sz_degree: 0,
+        seconds: 0.0,
+    }
+}
+
+fn fill_cell(c: &mut CellReport, s: SolveOut) -> usize {
+    c.status = s.status;
+    c.rows = s.rows;
+    c.row_columns = s.row_columns;
+    c.universe_columns = s.universe_columns;
+    c.zero_columns = s.zero_columns;
+    c.rank = s.rank;
+    c.in_span = s.in_span;
+    c.witness = s.witness;
+    c.mutation_rejected = s.mutation_rejected;
+    c.corners_tested = s.corners_tested;
+    c.corners_in_span = s.corners_in_span;
+    c.entries = s.entries;
+    s.bytes
+}
+
+struct CellRun {
+    cell: CellReport,
+    deg: DegStats,
+    bytes: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn integer_cell(
+    cx: &CellCtx,
+    seeds: &[Pat],
+    pt: &[i64],
+    p: u64,
+    stream: &[u64],
+) -> Result<CellRun, Unsupported> {
+    let t0 = Instant::now();
+    let rule = cx.rule;
+    let mut s = SplitMix64::derive(cx.opts.seed, stream);
+    let base: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+    let mut redraws = 0;
+    let mut deg = DegStats::default();
+    let (d, values) = loop {
+        if redraws >= cx.opts.d_attempts {
+            let mut c = empty_cell(p, 0, CellStatus::Undecided {
+                reason: format!("{redraws} d draws hit a zero denominator"),
+            });
+            c.redraws = redraws;
+            return Ok(CellRun { cell: c, deg, bytes: 0 });
+        }
+        let d = draw_d(&mut s, p);
+        let mut vals = base.clone();
+        vals.push(d);
+        let ev = eval_coeffs(rule, &[Ctx { p, vals }]).map_err(Unsupported::Syntax)?;
+        deg = ev.deg;
+        match ev.values.into_iter().next().unwrap() {
+            Ok(v) => break (d, v),
+            Err(k) => {
+                // identically zero in d at this key? (deg_d + 1 further values)
+                let degd = den_degd(rule, k, p).map_err(Unsupported::Syntax)?;
+                let mut ps = SplitMix64::derive(cx.opts.seed, &[stream, &[PURPOSE_POLE, k as u64]].concat());
+                let mut ds: BTreeSet<u64> = BTreeSet::new();
+                while ds.len() < degd as usize + 1 {
+                    ds.insert(draw_d(&mut ps, p));
+                }
+                let ctxs: Vec<Ctx> = ds
+                    .iter()
+                    .map(|&dd| {
+                        let mut v = base.clone();
+                        v.push(dd);
+                        Ctx { p, vals: v }
+                    })
+                    .collect();
+                let (mut nn, mut dn) = (vec![0; ctxs.len()], vec![0; ctxs.len()]);
+                coeff::eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn)
+                    .map_err(|e| Unsupported::Syntax(e.to_string()))?;
+                if dn.iter().all(|&x| x == 0) {
+                    let mut c = empty_cell(p, d, CellStatus::Pole { coefficient: k });
+                    c.redraws = redraws;
+                    c.seconds = t0.elapsed().as_secs_f64();
+                    return Ok(CellRun { cell: c, deg, bytes: 0 });
+                }
+                redraws += 1;
+            }
+        }
+    };
+    let target = pattern_col(&rule.target, false, pt);
+    let rhs: Vec<ColKey> = rule.rhs.iter().map(|(k, _)| pattern_col(k, false, pt)).collect();
+    let mut c = empty_cell(p, d, CellStatus::Pass);
+    c.redraws = redraws;
+    let bytes = match integer_rows(cx, seeds, pt, d, p) {
+        Ok(sys) => fill_cell(&mut c, solve_system(cx, sys, target, rhs, &values, p)),
+        Err(e) => {
+            c.status = CellStatus::Undecided { reason: e };
+            0
+        }
+    };
+    c.sz_degree = c.rank as u64 + deg.max_num_degd + deg.sum_den_degd;
+    c.seconds = t0.elapsed().as_secs_f64();
+    Ok(CellRun { cell: c, deg, bytes })
+}
+
+fn generic_cell(cx: &CellCtx, seeds: &[Pat], solved: &Solved, p: u64, stream: &[u64]) -> Result<CellRun, Unsupported> {
+    let t0 = Instant::now();
+    let rule = cx.rule;
+    let mut s = SplitMix64::derive(cx.opts.seed, stream);
+    let mut redraws = 0;
+    let mut deg = DegStats::default();
+    let mut last_k = 0;
+    let (x, d, values) = loop {
+        if redraws >= cx.opts.d_attempts {
+            let mut c = empty_cell(p, 0, CellStatus::Pole { coefficient: last_k });
+            c.redraws = redraws;
+            return Ok(CellRun { cell: c, deg, bytes: 0 });
+        }
+        let x = generic_values(rule, solved, p, &mut s).map_err(Unsupported::Record)?;
+        let d = draw_d(&mut s, p);
+        let mut vals = x.clone();
+        vals.push(d);
+        let ev = eval_coeffs(rule, &[Ctx { p, vals }]).map_err(Unsupported::Syntax)?;
+        deg = ev.deg;
+        match ev.values.into_iter().next().unwrap() {
+            Ok(v) => break (x, d, v),
+            Err(k) => {
+                last_k = k;
+                redraws += 1;
+            }
+        }
+    };
+    let target = pattern_col(&rule.target, true, &[]);
+    let rhs: Vec<ColKey> = rule.rhs.iter().map(|(k, _)| pattern_col(k, true, &[])).collect();
+    let mut c = empty_cell(p, d, CellStatus::Pass);
+    c.redraws = redraws;
+    c.generic_values = Some(x.clone());
+    let bytes = match generic_rows(cx, seeds, &x, d, p) {
+        Ok(sys) => fill_cell(&mut c, solve_system(cx, sys, target, rhs, &values, p)),
+        Err(e) => {
+            c.status = CellStatus::Undecided { reason: e };
+            0
+        }
+    };
+    c.sz_degree = c.rank as u64 + deg.max_num_deg + deg.sum_den_deg;
+    c.seconds = t0.elapsed().as_secs_f64();
+    Ok(CellRun { cell: c, deg, bytes })
+}
+
+/// Seeds plus every seed shifted by +-1 in one slot (the checker's `shell`; a diagnostic, never an acceptance).
+fn shell(seeds: &[Pat]) -> Vec<Pat> {
+    let mut out: BTreeSet<Pat> = seeds.iter().cloned().collect();
+    for s in seeds {
+        for i in 0..s.len() {
+            for e in [1i64, -1] {
+                let mut t = s.clone();
+                t[i].1 += e;
+                out.insert(t);
+            }
+        }
+    }
+    out.into_iter().collect()
+}
+
+fn combine(cells: &[CellReport]) -> PointStatus {
+    if let Some(e) = cells.iter().find_map(|c| match c.status {
+        CellStatus::MemoryGuard { entries } => Some(entries),
+        _ => None,
+    }) {
+        return PointStatus::MemoryGuard { entries: e };
+    }
+    let poles: Vec<usize> = cells
+        .iter()
+        .filter_map(|c| match c.status {
+            CellStatus::Pole { coefficient } => Some(coefficient),
+            _ => None,
+        })
+        .collect();
+    if !poles.is_empty() {
+        return if poles.len() == cells.len() {
+            PointStatus::Pole { coefficient: poles[0] }
+        } else {
+            PointStatus::Undecided {
+                reason: "pole at one prime only".into(),
+            }
+        };
+    }
+    if let Some(r) = cells.iter().find_map(|c| match &c.status {
+        CellStatus::Undecided { reason } => Some(reason.clone()),
+        _ => None,
+    }) {
+        return PointStatus::Undecided { reason: r };
+    }
+    let fails = cells.iter().filter(|c| c.status == CellStatus::Fail).count();
+    if fails == 0 {
+        PointStatus::Pass
+    } else if fails == cells.len() {
+        PointStatus::Fail
+    } else {
+        PointStatus::Undecided {
+            reason: "mixed: in the span at one prime, not at the other".into(),
+        }
+    }
+}
+
+fn unsupported_verdict(rule: &RowsRule, rule_id: u64, opts: &RowsOptions, primes: [u64; 2], u: Unsupported) -> RowsVerdict {
+    RowsVerdict {
+        version: ROWS_VERSION,
+        verdict: Verdict::Unsupported(u),
+        rule_index: rule.index,
+        target: rule.target_text.clone(),
+        rule_id,
+        seed: opts.seed,
+        primes,
+        points: Vec::new(),
+        points_passed: 0,
+        sz_bound: 1.0,
+        sz_bound_per_cell_max: 1.0,
+        meets_a2_policy: false,
+        cost: Cost {
+            coefficient_bytes: rule.coefficient_bytes(),
+            ..Cost::default()
+        },
+    }
+}
+
+/// THE A2 test of one rule at the given points (each at both primes). See the module doc and interfaces/ibp-rows.md.
+pub fn identity_test(family: &Family, rule: &RowsRule, points: &[PointSpec], opts: &RowsOptions) -> RowsVerdict {
+    let t0 = Instant::now();
+    let rule_id = opts.rule_id.unwrap_or_else(|| rule.default_id());
+    let primes = match opts.primes {
+        Some(pp) => pp,
+        None => primes::verify_primes(opts.seed, &opts.lift_primes),
+    };
+    if let Some(e) = primes
+        .iter()
+        .find_map(|&p| primes::check_verify_prime(p, &opts.lift_primes).err())
+        .or_else(|| (primes[0] == primes[1]).then(|| "the two primes are equal".to_string()))
+    {
+        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::BadPrime(e));
+    }
+    if family.n != rule.arity {
+        let u = Unsupported::Record(format!("family has {} slots, rule {}", family.n, rule.arity));
+        return unsupported_verdict(rule, rule_id, opts, primes, u);
+    }
+    if rule.sym_rows.is_some() || opts.generated_with_symmetry_rows {
+        let u = Unsupported::NeedsSymmetryRows {
+            declared: rule.sym_rows.clone(),
+        };
+        return unsupported_verdict(rule, rule_id, opts, primes, u);
+    }
+    if let Some(e) = &rule.syntax_error {
+        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::Syntax(e.clone()));
+    }
+    if rule.seeds.is_empty() {
+        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::NoSeeds);
+    }
+    let cx = CellCtx { family, rule, opts };
+    let mut cost = Cost {
+        coefficient_bytes: rule.coefficient_bytes(),
+        ..Cost::default()
+    };
+    let mut reports: Vec<PointReport> = Vec::new();
+    let solved_res: Option<Result<Result<Solved, NotApplicableReason>, Unsupported>> =
+        points.contains(&PointSpec::Generic).then(|| solve_equations(rule));
+    let mut unsupported: Option<Unsupported> = None;
+    let run = |pi: usize, seeds: &[Pat], purpose: u64, pt: Option<&Vec<i64>>| -> Result<Vec<CellRun>, Unsupported> {
+        let mut runs = Vec::new();
+        for (qi, &p) in primes.iter().enumerate() {
+            let stream = [rule_id, pi as u64, qi as u64, purpose];
+            runs.push(match pt {
+                Some(pt) => integer_cell(&cx, seeds, pt, p, &stream)?,
+                None => match &solved_res {
+                    Some(Ok(Ok(solved))) => generic_cell(&cx, seeds, solved, p, &stream)?,
+                    _ => return Err(Unsupported::Record("generic point without solved case equations".into())),
+                },
+            });
+        }
+        Ok(runs)
+    };
+    for (pi, spec) in points.iter().enumerate() {
+        let mut rep = PointReport {
+            spec: spec.clone(),
+            rule_point: None,
+            status: PointStatus::Pass,
+            cells: Vec::new(),
+            shell: Vec::new(),
+        };
+        // applicability / equations
+        let early = match spec {
+            PointSpec::Key(k) => match rule_point(rule, k) {
+                Err(u) => Some(PointStatus::Unsupported(u)),
+                Ok(Err(r)) => Some(PointStatus::NotApplicable(r)),
+                Ok(Ok(pt)) => {
+                    rep.rule_point = Some(pt);
+                    None
+                }
+            },
+            PointSpec::Generic => match &solved_res {
+                Some(Err(u)) => Some(PointStatus::Unsupported(u.clone())),
+                Some(Ok(Err(r))) => Some(PointStatus::NotApplicable(r.clone())),
+                _ => None,
+            },
+        };
+        if let Some(st) = early {
+            if let PointStatus::Unsupported(u) = &st {
+                unsupported.get_or_insert(u.clone());
+            }
+            rep.status = st;
+            reports.push(rep);
+            continue;
+        }
+        let runs = match run(pi, &rule.seeds, PURPOSE_D, rep.rule_point.as_ref()) {
+            Ok(r) => r,
+            Err(u) => {
+                unsupported.get_or_insert(u.clone());
+                rep.status = PointStatus::Unsupported(u);
+                reports.push(rep);
+                continue;
+            }
+        };
+        for r in runs {
+            cost.monomials = cost.monomials.max(r.deg.monomials);
+            cost.peak_bytes_estimate = cost.peak_bytes_estimate.max(r.bytes);
+            rep.cells.push(r.cell);
+        }
+        rep.status = combine(&rep.cells);
+        if rep.status == PointStatus::Fail && opts.shell_diagnostic {
+            let sh = shell(&rule.seeds);
+            if let Ok(runs) = run(pi, &sh, PURPOSE_SHELL, rep.rule_point.as_ref()) {
+                for r in runs {
+                    cost.peak_bytes_estimate = cost.peak_bytes_estimate.max(r.bytes);
+                    rep.shell.push(r.cell);
+                }
+                if combine(&rep.shell) == PointStatus::Pass {
+                    rep.status = PointStatus::SeedsInsufficient;
+                }
+            }
+        }
+        reports.push(rep);
+    }
+    // aggregate
+    for c in reports.iter().flat_map(|r| r.cells.iter().chain(r.shell.iter())) {
+        cost.rows += c.rows;
+        cost.row_columns_max = cost.row_columns_max.max(c.row_columns);
+        cost.rank_max = cost.rank_max.max(c.rank);
+        cost.entries_peak = cost.entries_peak.max(c.entries);
+    }
+    let first = |f: &dyn Fn(&PointStatus) -> bool| reports.iter().position(|r| f(&r.status));
+    let verdict = if let Some(u) = unsupported {
+        Verdict::Unsupported(u)
+    } else if let Some(i) = first(&|s| *s == PointStatus::Fail) {
+        let c = reports[i]
+            .cells
+            .iter()
+            .find(|c| c.status == CellStatus::Fail)
+            .expect("failed cell");
+        Verdict::Fail {
+            point: i,
+            prime: c.prime,
+            d: c.d,
+            column: c.witness.clone().unwrap_or_default(),
+        }
+    } else if let Some(i) = first(&|s| *s == PointStatus::SeedsInsufficient) {
+        Verdict::SeedsInsufficient { point: i }
+    } else if let Some(i) = first(&|s| matches!(s, PointStatus::MemoryGuard { .. })) {
+        match reports[i].status {
+            PointStatus::MemoryGuard { entries } => Verdict::MemoryGuard { entries },
+            _ => unreachable!(),
+        }
+    } else if let Some(i) = first(&|s| matches!(s, PointStatus::Pole { .. })) {
+        match reports[i].status {
+            PointStatus::Pole { coefficient } => Verdict::Pole { point: i, coefficient },
+            _ => unreachable!(),
+        }
+    } else if let Some(i) = first(&|s| matches!(s, PointStatus::Undecided { .. })) {
+        match &reports[i].status {
+            PointStatus::Undecided { reason } => Verdict::Undecided {
+                reason: format!("point {i}: {reason}"),
+            },
+            _ => unreachable!(),
+        }
+    } else if reports.iter().any(|r| r.status == PointStatus::Pass) {
+        Verdict::Pass
+    } else {
+        Verdict::NotApplicable {
+            reasons: reports
+                .iter()
+                .filter_map(|r| match &r.status {
+                    PointStatus::NotApplicable(x) => Some(x.clone()),
+                    _ => None,
+                })
+                .collect(),
+        }
+    };
+    let points_passed = reports.iter().filter(|r| r.status == PointStatus::Pass).count();
+    let (mut sz, mut szmax) = (1.0f64, 0.0f64);
+    if verdict == Verdict::Pass {
+        for c in reports.iter().filter(|r| r.status == PointStatus::Pass).flat_map(|r| &r.cells) {
+            let b = c.sz_degree as f64 / (c.prime - 2) as f64;
+            sz *= b;
+            szmax = szmax.max(b);
+        }
+    } else {
+        szmax = 1.0;
+    }
+    cost.seconds = t0.elapsed().as_secs_f64();
+    RowsVerdict {
+        version: ROWS_VERSION,
+        meets_a2_policy: verdict == Verdict::Pass && points_passed >= 2,
+        verdict,
+        rule_index: rule.index,
+        target: rule.target_text.clone(),
+        rule_id,
+        seed: opts.seed,
+        primes,
+        points: reports,
+        points_passed,
+        sz_bound: sz,
+        sz_bound_per_cell_max: szmax,
+        cost,
+    }
+}
+
+// ------------------------------------------------------------------ batch --------------------------------------------
+
+/// Counts and cost of a batch run.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct BatchSummary {
+    pub lines: usize,
+    pub rules: usize,
+    pub by_verdict: BTreeMap<String, usize>,
+    pub rows: usize,
+    pub entries_peak: usize,
+    pub peak_bytes_estimate: usize,
+    pub seconds: f64,
+}
+
+/// One output line of the batch.
+#[derive(Clone, Debug, Serialize)]
+pub struct BatchLine<'a> {
+    pub line_no: usize,
+    pub run: Option<&'a str>,
+    pub rule_in_line: usize,
+    pub result: &'a RowsVerdict,
+}
+
+/// Stream a JSONL file of rule records (table_dump lines or export wrapper lines; header and other lines skipped),
+/// test each rule at the points `plan` names (it sees the line context: run, gap_points), write one JSON line per
+/// rule to `out` in input order. Unreadable rule records give an `Unsupported(Record)` line; I/O errors stop the run.
+pub fn identity_test_batch<R: BufRead, W: Write>(
+    family: &Family,
+    mut input: R,
+    plan: &dyn Fn(&RowsRule, &LineContext) -> Vec<PointSpec>,
+    opts: &RowsOptions,
+    mut out: W,
+) -> Result<BatchSummary, RowsError> {
+    let t0 = Instant::now();
+    let mut sum = BatchSummary::default();
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line_no = 0usize;
+    loop {
+        buf.clear();
+        let n = input.read_until(b'\n', &mut buf).map_err(|e| RowsError::Io(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        line_no += 1;
+        sum.lines += 1;
+        let text = std::str::from_utf8(&buf).map_err(|e| RowsError::Io(format!("line {line_no}: {e}")))?;
+        if text.trim().is_empty() {
+            continue;
+        }
+        let parsed = serde_json::from_str::<Value>(text)
+            .map_err(|e| RowsError::Record(format!("json: {e}")))
+            .and_then(|v| RowsRule::from_line_value(v, family.n));
+        let mut emit = |v: &RowsVerdict, run: Option<&str>, k: usize| -> Result<(), RowsError> {
+            sum.rules += 1;
+            *sum.by_verdict.entry(v.verdict.kind().to_string()).or_insert(0) += 1;
+            sum.rows += v.cost.rows;
+            sum.entries_peak = sum.entries_peak.max(v.cost.entries_peak);
+            sum.peak_bytes_estimate = sum.peak_bytes_estimate.max(v.cost.peak_bytes_estimate);
+            let line = BatchLine {
+                line_no,
+                run,
+                rule_in_line: k,
+                result: v,
+            };
+            serde_json::to_writer(&mut out, &line).map_err(|e| RowsError::Io(e.to_string()))?;
+            out.write_all(b"\n").map_err(|e| RowsError::Io(e.to_string()))
+        };
+        match parsed {
+            Ok((rules, ctx)) => {
+                for (k, r) in rules.iter().enumerate() {
+                    let pts = plan(r, &ctx);
+                    let v = identity_test(family, r, &pts, opts);
+                    emit(&v, ctx.run.as_deref(), k)?;
+                }
+            }
+            Err(e) => {
+                let v = RowsVerdict {
+                    version: ROWS_VERSION,
+                    verdict: Verdict::Unsupported(Unsupported::Record(e.to_string())),
+                    rule_index: None,
+                    target: String::new(),
+                    rule_id: 0,
+                    seed: opts.seed,
+                    primes: opts.primes.unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes)),
+                    points: Vec::new(),
+                    points_passed: 0,
+                    sz_bound: 1.0,
+                    sz_bound_per_cell_max: 1.0,
+                    meets_a2_policy: false,
+                    cost: Cost::default(),
+                };
+                emit(&v, None, 0)?;
+            }
+        }
+    }
+    sum.seconds = t0.elapsed().as_secs_f64();
+    Ok(sum)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// No deciding call may use the replay's P61 / P2 (plan 3.1 (e)): this file never names them.
+    #[test]
+    fn never_decides_at_the_replay_primes() {
+        let src = include_str!("ibp_rows.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        for forbidden in ["arith::P,", "arith::P)", "arith::P;", "arith::P2", "arith::P "] {
+            assert!(!body.contains(forbidden), "ibp_rows.rs uses {forbidden}");
+        }
+    }
+
+    #[test]
+    fn column_text_round_trip() {
+        let k: ColKey = (0b101, vec![0, 3, -2]);
+        assert_eq!(col_text(&k), "I(n0,3,n2-2)");
+        let pat = record::parse_integral("I(n0,3,n2-2)", 3).unwrap();
+        assert_eq!(pattern_col(&pat, true, &[]), k);
+    }
+}
