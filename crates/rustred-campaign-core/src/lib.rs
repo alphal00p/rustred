@@ -1,0 +1,12 @@
+//! Dependency-light core of the automatic node campaign.
+//!
+//! Modules:
+//! - [`key`]: arity-generic integral keys and node frames (sector, chart orthant).
+//! - [`poly`]: sparse integer polynomials in the indices `n0..n{N-1}`, exact evaluation.
+//! - [`record`]: streaming readers of rule records (rr_node `table_dump.v1`, case-domain export, T162 bank).
+//! - [`domain`]: case domains (fixed slots, equations, chart, exceptions) and their verdict at a key.
+//! - [`cover`]: prioritized tables, first-match dispatch, batch and union coverage.
+//! - [`order`]: the node comparator on `&[i32]` slices (owned by the sibling package core-order).
+
+pub mod key;
+pub mod order;

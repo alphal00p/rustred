@@ -6,6 +6,7 @@ members = [
     "crates/rustred-python",
     "crates/rustred-feynkit",
     "crates/rustred-topology",
+    "crates/rustred-campaign-core",
 ]
 default-members = [
     "crates/rustred-order",
