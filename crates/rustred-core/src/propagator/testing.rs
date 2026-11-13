@@ -187,6 +187,15 @@ fn one_loop_map(linear: i64, external: i64, external_sign: i8) -> SignedAffineLo
 /// no basis map (`Unit` is the only terminal).
 #[doc(hidden)]
 pub fn one_loop_reference_library() -> Result<Arc<PLibrary>, PError> {
+    one_loop_reference_library_with_revision(None)
+}
+
+/// [`one_loop_reference_library`] with a package content revision (batch 6:
+/// `PLibraryBuilder::set_revision`).
+#[doc(hidden)]
+pub fn one_loop_reference_library_with_revision(
+    revision: Option<&str>,
+) -> Result<Arc<PLibrary>, PError> {
     let context = CoefficientContext::try_new(["d"]).map_err(|_| PError::ContextMismatch)?;
     let file: PFamiliesFile = serde_json::from_str(P_FAMILIES_V1_JSON)
         .map_err(|error| PError::MalformedLibrary(format!("p families: {error}")))?;
@@ -259,5 +268,8 @@ pub fn one_loop_reference_library() -> Result<Arc<PLibrary>, PError> {
         },
         OwnerProgram::Lane(Arc::new(FakeSpLane)),
     )?;
+    if let Some(name) = revision {
+        builder.set_revision(name)?;
+    }
     builder.build().map(Arc::new)
 }

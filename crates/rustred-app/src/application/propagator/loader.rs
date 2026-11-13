@@ -868,6 +868,14 @@ pub fn load_p_library(
             builder.set_saved_orbits(PSavedOrbits::decode(&files.read(ORBITS_FILE)?)?);
         }
     }
+    // p5l-library-6: a content revision recorded as the last part of the
+    // identity (`,P_PACKAGE_REVISION=<name>`) joins the library's identity.
+    if let Some((_, name)) = manifest.identity.rsplit_once(&format!(
+        ",{}=",
+        rustred::propagator::library::P_PACKAGE_REVISION_KEY
+    )) {
+        builder.set_revision(name)?;
+    }
     let library = builder.build()?;
     // A package that carries orbits.rrbin runs with orbit canonicalisation on
     // whatever the load (M5 batch 2): the verified load searches the same

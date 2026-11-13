@@ -449,6 +449,43 @@ fn a_warm_run_replays_every_step_with_the_same_result() {
     }
 }
 
+/// Batch 6 (p5l-library eafe73ca): a package content revision ends the
+/// identity, moves the step identity with it (so a cache directory named from
+/// the identity changes), refuses the unrevisioned library's cache, and only
+/// plain names are accepted.
+#[test]
+fn a_package_revision_ends_the_identity_and_refuses_the_old_cache() {
+    use rustred::propagator::testing::one_loop_reference_library_with_revision;
+    let plain = one_loop_reference_library().unwrap();
+    let revised = one_loop_reference_library_with_revision(Some("b6-guard-v2")).unwrap();
+    assert_eq!(
+        revised.identity(),
+        format!("{},P_PACKAGE_REVISION=b6-guard-v2", plain.identity())
+    );
+    assert_eq!(revised.revision(), Some("b6-guard-v2"));
+    assert_eq!(plain.revision(), None);
+    assert_ne!(revised.step_identity(), plain.step_identity());
+    assert!(revised.step_identity().starts_with(&revised.identity()));
+    let old = OrderedStepCacheBinding::new(
+        OrderedStepCacheAdapter::CandidateProgram,
+        plain.identity(),
+        plain.coefficient_context(),
+        Some(UnresolvedPolicy::Reject),
+    );
+    let mut run = request(Vec::new());
+    run.step_cache = Some(OrderedStepCache::in_memory(old, Default::default()));
+    assert!(matches!(
+        revised.reduce(run),
+        Err(PError::Engine(ReductionError::OrderedStepCache { .. }))
+    ));
+    for bad in ["", "a b", "r,1", "r=1", "a/b"] {
+        assert!(
+            one_loop_reference_library_with_revision(Some(bad)).is_err(),
+            "{bad:?} must be refused"
+        );
+    }
+}
+
 #[test]
 fn one_cache_is_refused_by_another_program() {
     let library = one_loop_reference_library().unwrap();

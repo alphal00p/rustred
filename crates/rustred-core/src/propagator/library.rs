@@ -232,6 +232,9 @@ pub struct PLibrary {
     /// tag (`<P_ORDERING_VERSION>:<heuristic>`) that joins the identity.
     rule_orders: BTreeMap<OwnerClassId, Arc<PRuleOrder>>,
     ordering: Option<String>,
+    /// p5l-library-6: the package content revision (a plain name), the last
+    /// part of the identity (`,P_PACKAGE_REVISION=<name>`).
+    revision: Option<String>,
     /// p artefact v2: saved route verifications, restored on a sector's first
     /// use instead of verifying its map ([`super::saved_routes`]).
     saved_routes: Option<Arc<PSavedRoutes>>,
@@ -276,6 +279,7 @@ impl PLibrary {
             basis_map: None,
             rule_orders: BTreeMap::new(),
             ordering: None,
+            revision: None,
             saved_routes: None,
             saved_orbits: None,
         }
@@ -303,8 +307,12 @@ impl PLibrary {
         } else {
             String::new()
         };
+        // p5l-library-6: the content revision of the package, last.
+        let revision = self.revision.as_ref().map_or_else(String::new, |name| {
+            format!(",{P_PACKAGE_REVISION_KEY}={name}")
+        });
         format!(
-            "p-library:scope={}-{}:{}{families_5l}{ordering}",
+            "p-library:scope={}-{}:{}{families_5l}{ordering}{revision}",
             self.scope.start(),
             self.scope.end(),
             versions.join(",")
@@ -321,6 +329,11 @@ impl PLibrary {
     /// ordering (p artefact v2), part of its identity.
     pub fn ordering(&self) -> Option<&str> {
         self.ordering.as_deref()
+    }
+
+    /// p5l-library-6: the package content revision, part of the identity.
+    pub fn revision(&self) -> Option<&str> {
+        self.revision.as_deref()
     }
 
     /// The saved route verifications of this library (p artefact v2).
@@ -701,9 +714,13 @@ pub struct PLibraryBuilder {
     basis_map: Option<Arc<dyn PBasisMap>>,
     rule_orders: BTreeMap<OwnerClassId, Arc<PRuleOrder>>,
     ordering: Option<String>,
+    revision: Option<String>,
     saved_routes: Option<Arc<PSavedRoutes>>,
     saved_orbits: Option<Arc<PSavedOrbits>>,
 }
+
+/// p5l-library-6: the identity key of a package content revision.
+pub const P_PACKAGE_REVISION_KEY: &str = "P_PACKAGE_REVISION";
 
 fn malformed(detail: impl Into<String>) -> PError {
     PError::MalformedLibrary(detail.into())
@@ -875,6 +892,22 @@ impl PLibraryBuilder {
         Ok(())
     }
 
+    /// p5l-library-6: the package content revision, a plain name
+    /// (`[A-Za-z0-9._-]+`, no digest): two packages of one textual identity but
+    /// different content (a single-swap hybrid and its base) get different
+    /// revisions, so different identities and step-cache bindings.
+    pub fn set_revision(&mut self, name: &str) -> Result<(), PError> {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return Err(malformed(format!("package revision name {name:?}")));
+        }
+        self.revision = Some(name.to_owned());
+        Ok(())
+    }
+
     /// p artefact v2: saved route verifications (`routes.rrbin`). Values do
     /// not depend on them (a restored map is the verified one), so they are
     /// not part of the identity.
@@ -933,6 +966,7 @@ impl PLibraryBuilder {
             basis_map: self.basis_map,
             rule_orders: self.rule_orders,
             ordering: self.ordering,
+            revision: self.revision,
             saved_routes: self.saved_routes,
             saved_orbits: self.saved_orbits,
             engine: OnceLock::new(),

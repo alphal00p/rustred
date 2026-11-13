@@ -559,6 +559,17 @@ fn assemble(
     for spec in owners {
         builder.add_owner(spec)?;
     }
+    // Batch 6 (p5l-library eafe73ca): RUSTRED_P_PACKAGE_REVISION=<name> stamps the
+    // package content revision into the identity (`,P_PACKAGE_REVISION=<name>`), so a
+    // package whose content changed under an unchanged textual identity (e.g. Custom
+    // owners regenerated with witness-pole guards) gets its own identity and step-cache
+    // directory; older binaries refuse it. Unset or empty: no revision (as before).
+    if let Some(name) = std::env::var("RUSTRED_P_PACKAGE_REVISION")
+        .ok()
+        .filter(|name| !name.is_empty())
+    {
+        builder.set_revision(&name)?;
+    }
     let library = Arc::new(builder.build()?);
     clock.lap("build");
 
