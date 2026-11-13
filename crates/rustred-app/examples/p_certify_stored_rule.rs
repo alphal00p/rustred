@@ -1907,7 +1907,7 @@ mod app {
         let mut verdicts = Vec::new();
         for e in elements {
             let id = e["element"].as_i64().ok_or("symmetry: element id")?;
-            let flat: Vec<i64> = e["matrix"].as_array().ok_or("symmetry: matrix")?.iter().map(|x| x.as_i64().ok_or("symmetry: matrix entry")).collect::<Result<_>>()?;
+            let flat: Vec<i64> = e["matrix"].as_array().ok_or("symmetry: matrix")?.iter().map(|x| x.as_i64().ok_or_else(|| "symmetry: matrix entry".to_string())).collect::<Result<_>>()?;
             require(flat.len() == nv * nv, "symmetry: matrix size")?;
             let tm = |i: usize, j: usize| flat[nv * i + j];
             // q -> +-q (row convention u -> u T: the external row of T is +-e_q), |det(loop block)| = 1
