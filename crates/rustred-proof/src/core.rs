@@ -227,6 +227,15 @@ pub fn split_coef(s: &[u8]) -> (&[u8], Option<&[u8]>) {
         if den.contains(&b'(') || den.contains(&b')') || den.contains(&b'/') { die("coef: unsupported denominator form"); }
         return (num, Some(den));
     }
+    // rr_node / Symbolica print a single-token denominator without parentheses, e.g. "(3+n9-d)/n15": accept exactly
+    // one token (integer, or a variable with an optional power); anything longer ("/2*n0") stays refused
+    if rest.len() >= 2 && rest[0] == b'/' {
+        let den = trim_ws(&rest[1..]);
+        let tok_ok = !den.is_empty()
+            && (den.iter().all(|c| c.is_ascii_digit())
+                || ((den[0] == b'n' || den[0] == b'd') && den[1..].iter().all(|&c| c.is_ascii_digit() || c == b'^') && !den.ends_with(b"^")));
+        if tok_ok { return (num, Some(den)); }
+    }
     die(&format!("coef: unsupported form: {}", String::from_utf8_lossy(&s[..s.len().min(120)])))
 }
 pub fn trim_ws(s: &[u8]) -> &[u8] { let mut a = 0; let mut b = s.len(); while a < b && s[a] == b' ' { a += 1; } while b > a && s[b - 1] == b' ' { b -= 1; } &s[a..b] }
