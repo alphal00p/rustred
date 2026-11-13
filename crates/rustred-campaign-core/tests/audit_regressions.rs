@@ -841,9 +841,9 @@ fn lin(rng: &mut Rng, n: usize) -> Poly {
 /// blocking witness poles, elided witness loci, recenter bounds, target patterns with offsets and constants.
 fn random_domain(rng: &mut Rng, n: usize, mask: &[bool]) -> CaseDomain {
     let mut d = CaseDomain::free(n, rng.chance(80).then(|| mask.to_vec()));
-    for s in 0..n {
+    for (f, &line) in d.fixed.iter_mut().zip(mask) {
         if rng.chance(25) {
-            d.fixed[s] = Some(if mask[s] { rng.r(1, 3) } else { rng.r(-2, 0) });
+            *f = Some(if line { rng.r(1, 3) } else { rng.r(-2, 0) });
         }
     }
     for _ in 0..rng.r(0, 2) {
@@ -1021,4 +1021,74 @@ fn audit_a_m4_fast_index_equals_reference_scan_random() {
         tally[0] > 500 && tally[1] > 500 && tally[2] > 50 && tally[4] > 500,
         "{tally:?}"
     );
+}
+
+// ============================================================================================== order (audit A)
+
+/// A N3: `cmp` acts on PRESENTED keys; a key in the original frame compared positionally with a presented one gives a
+/// wrong verdict silently (T162: `slot_permutation` swaps slots 0 and 3). `cmp_framed` carries the frame of each key
+/// and converts; the T162 example below gives `Less` for presented keys and `Greater` when the same slices are
+/// original-frame keys.
+#[test]
+fn audit_a_n3_framed_comparison_never_mixes_frames() {
+    use rustred_campaign_core::order::{FramedKey, NodeComparator};
+    use std::cmp::Ordering;
+    let headers: serde_json::Value =
+        serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
+    let c = NodeComparator::from_header(&headers["t162_bank"]).unwrap();
+    assert!(!c.presentation().is_identity());
+    let a = [2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let b = [1, 1, 1, 2, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    use FramedKey::{Original as O, Presented as P};
+    assert_eq!(c.cmp_framed(P(&a), P(&b)).unwrap(), Ordering::Less);
+    assert_eq!(c.cmp_framed(O(&a), O(&b)).unwrap(), Ordering::Greater);
+    // mixed: the original-frame key is presented first
+    let pa = c.presentation().present(&a);
+    assert_eq!(c.cmp_framed(O(&a), P(&b)).unwrap(), c.cmp(&pa, &b));
+    assert_eq!(c.cmp_framed(P(&pa), O(&a)).unwrap(), Ordering::Equal);
+    assert!(c.cmp_framed(P(&a[..5]), P(&b)).is_err());
+}
+
+/// A m5 (order part): `GroupElement::apply` indexed without bounds checks (a line map longer than the key, or a
+/// target slot out of range, panicked). Now typed errors.
+#[test]
+fn audit_a_m5_group_element_apply_is_checked() {
+    use rustred_campaign_core::order::GroupElement;
+    let swap = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: Some(vec![1, 0]),
+    };
+    assert_eq!(
+        swap.apply(&[3, 2, 1, -1, 0]).unwrap(),
+        Some(vec![2, 3, 1, 0, -1])
+    );
+    let line_only = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: None,
+    };
+    assert_eq!(line_only.apply(&[3, 2, 1, -1, 0]).unwrap(), None);
+    for bad in [
+        GroupElement {
+            lines: vec![0, 1, 2, 3, 4, 5],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 1, 7],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 0, 1],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 1, 2],
+            numerators: Some(vec![0, 5]),
+        },
+        GroupElement {
+            lines: vec![0, 1, 2],
+            numerators: Some(vec![0]),
+        },
+    ] {
+        assert!(bad.apply(&[3, 2, 1, -1, 0]).is_err(), "{bad:?}");
+    }
 }

@@ -282,6 +282,24 @@ impl Presentation {
     }
 }
 
+/// A key tagged with the frame it is written in (audit A N3); see [`NodeComparator::cmp_framed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FramedKey<'a> {
+    /// In the PRESENTED frame (the table's keys).
+    Presented(&'a [i32]),
+    /// In the ORIGINAL family frame.
+    Original(&'a [i32]),
+}
+
+impl<'a> FramedKey<'a> {
+    /// The raw slice, whatever the frame.
+    pub fn key(&self) -> &'a [i32] {
+        match *self {
+            FramedKey::Presented(k) | FramedKey::Original(k) => k,
+        }
+    }
+}
+
 /// One slot of a symbolic key pattern: a fixed integer, or the slot's own symbol `n<slot>` plus an offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PatternSlot {
@@ -543,6 +561,11 @@ impl NodeComparator {
 
     /// `Less` iff `a` is LOWER (simpler) than `b`; `Equal` iff `a == b` (the order is total and antisymmetric).
     /// Panics if a key length differs from [`Self::arity`]; use [`Self::try_cmp`] for a checked call.
+    ///
+    /// FRAME (audit A N3): both keys must be in the PRESENTED frame of the header's `slot_permutation` (the frame of
+    /// the table's keys). Keys in the ORIGINAL family frame need [`Self::cmp_original`]; when the frame of a key is
+    /// carried at run time, use [`Self::cmp_framed`] with [`FramedKey`], which converts each key to the presented
+    /// frame. Mixing frames in `cmp` silently gives wrong verdicts when the presentation is not the identity (T162).
     #[inline]
     pub fn cmp(&self, a: &[i32], b: &[i32]) -> Ordering {
         assert!(
@@ -575,6 +598,34 @@ impl NodeComparator {
     #[inline]
     pub fn lower(&self, a: &[i32], b: &[i32]) -> bool {
         self.cmp(a, b) == Ordering::Less
+    }
+
+    /// Compare keys that carry their frame (audit A N3): each key is brought to the PRESENTED frame first, so a
+    /// key in the original frame can never be compared positionally with a presented one. Arity errors are typed.
+    pub fn cmp_framed(&self, a: FramedKey<'_>, b: FramedKey<'_>) -> Result<Ordering, OrderError> {
+        let pa = self.to_presented(a)?;
+        let pb = self.to_presented(b)?;
+        Ok(self.cmp(&pa, &pb))
+    }
+
+    fn to_presented<'k>(
+        &self,
+        k: FramedKey<'k>,
+    ) -> Result<std::borrow::Cow<'k, [i32]>, OrderError> {
+        let raw = k.key();
+        if raw.len() != self.arity {
+            return Err(OrderError::Arity {
+                expected: self.arity,
+                actual: raw.len(),
+            });
+        }
+        Ok(match k {
+            FramedKey::Presented(x) => std::borrow::Cow::Borrowed(x),
+            FramedKey::Original(x) if self.presentation.is_identity() => {
+                std::borrow::Cow::Borrowed(x)
+            }
+            FramedKey::Original(x) => std::borrow::Cow::Owned(self.presentation.present(x)),
+        })
     }
 
     /// Compare keys given in the ORIGINAL frame: both are presented first ([`Presentation::present`]).
@@ -1070,9 +1121,21 @@ pub struct GroupElement {
 }
 
 impl GroupElement {
-    /// `(g k)`; `None` when the key has a non-zero numerator slot and the numerator map is not given.
-    pub fn apply(&self, key: &[i32]) -> Option<Vec<i32>> {
+    /// `(g k)`; `Ok(None)` when the key has a non-zero numerator slot and the numerator map is not given. Errors
+    /// (instead of an index panic, audit A m5): more line slots than the key has, a line map that is not a
+    /// permutation of `0..lines.len()`, a numerator map that is not a permutation of the remaining slots.
+    pub fn apply(&self, key: &[i32]) -> Result<Option<Vec<i32>>, OrderError> {
         let nl = self.lines.len();
+        if nl > key.len() {
+            return Err(OrderError::Arity {
+                expected: key.len(),
+                actual: nl,
+            });
+        }
+        check_permutation("group element lines", &self.lines, nl)?;
+        if let Some(m) = &self.numerators {
+            check_permutation("group element numerators", m, key.len() - nl)?;
+        }
         let mut out = key.to_vec();
         for (i, &j) in self.lines.iter().enumerate() {
             out[j] = key[i];
@@ -1085,11 +1148,11 @@ impl GroupElement {
             }
             None => {
                 if key[nl..].iter().any(|&x| x != 0) {
-                    return None;
+                    return Ok(None);
                 }
             }
         }
-        Some(out)
+        Ok(Some(out))
     }
 
     fn full_permutation(&self, n: usize) -> Vec<usize> {
@@ -1187,7 +1250,7 @@ pub fn automorphism_invariance(
                     actual: a.len().max(b.len()),
                 });
             }
-            let (Some(ga), Some(gb)) = (g.apply(a), g.apply(b)) else {
+            let (Some(ga), Some(gb)) = (g.apply(a)?, g.apply(b)?) else {
                 e.pairs_skipped += 1;
                 continue;
             };
