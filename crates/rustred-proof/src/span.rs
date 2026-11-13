@@ -144,16 +144,27 @@ fn mp_gcd(a: &MP, b: &MP, p: u64) -> MP {
     if x.is_empty() { x } else { mp_monic(&x, p).0 }
 }
 /// Newton interpolation through (xs[i], ys[i]) -> coefficients
+thread_local! {
+    // inverses of the divided-difference denominators of the last point set (shared by all weights of a prime)
+    static INV_CACHE: std::cell::RefCell<(u64, Vec<u64>, Vec<Vec<u64>>)> = std::cell::RefCell::new((0, vec![], vec![]));
+}
 fn mp_interp(xs: &[u64], ys: &[u64], p: u64) -> MP {
     let n = xs.len();
     let mut c = ys.to_vec();
-    for j in 1..n {
-        for i in (j..n).rev() {
-            let num = ms(c[i], c[i - 1], p);
-            let den = ms(xs[i], xs[i - j], p);
-            c[i] = mm(num, minv(den, p), p);
+    INV_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.0 != p || cache.1.as_slice() != xs {
+            let inv: Vec<Vec<u64>> = (0..n).map(|j| (0..n).map(|i| if j >= 1 && i >= j { minv(ms(xs[i], xs[i - j], p), p) } else { 0 }).collect()).collect();
+            *cache = (p, xs.to_vec(), inv);
         }
-    }
+        let inv = &cache.2;
+        for j in 1..n {
+            for i in (j..n).rev() {
+                let num = ms(c[i], c[i - 1], p);
+                c[i] = mm(num, inv[j][i], p);
+            }
+        }
+    });
     // expand Newton form
     let mut poly: MP = vec![];
     for i in (0..n).rev() {
@@ -498,9 +509,11 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     }
     let keypows = |kv: &[i64; 20], maxe: usize| -> Vec<Vec<Big>> { (0..20).map(|v| { let mut t = vec![Big::one()]; for e in 1..=maxe { let y = t[e - 1].mul_i64(kv[v]); t.push(y); } t }).collect() };
     // exceptions
+    let mut exc_maxe = 1u32;
+    for b in &exc { for s in b { let mut it = Terms::new(s); while let Some(t) = it.next() { for q in 0..t.nf { exc_maxe = exc_maxe.max(t.fe[q]); } } } }
     for k in ks.iter_mut() {
         if k.status.is_some() { continue; }
-        let kp = keypows(&k.kv, 16);
+        let kp = keypows(&k.kv, exc_maxe as usize);
         let hit = exc.iter().any(|b| !b.is_empty() && b.iter().all(|s| eval_text_d(s, &kp).is_empty()));
         if hit && !args.ignore_exc { k.status = Some("ON_EXCEPTION_BRANCH (not covered by this rule)".into()); }
     }
