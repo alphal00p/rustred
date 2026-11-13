@@ -66,9 +66,7 @@ pub struct WitnessPoles {
 }
 
 impl WitnessPoles {
-    pub(super) fn recorded(
-        mut denominators: Vec<crate::algebra::CoefficientPolynomial>,
-    ) -> Self {
+    pub(super) fn recorded(mut denominators: Vec<crate::algebra::CoefficientPolynomial>) -> Self {
         use symbolica::domains::InternalOrdering;
         denominators.retain(|d| !d.is_constant());
         denominators.sort_unstable_by(InternalOrdering::internal_cmp);

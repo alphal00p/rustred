@@ -131,7 +131,12 @@ fn ordinary_and_li_source_order_matches_cpp_not_generic_generator_order() {
     for (ported, generic) in [2, 1, 0].into_iter().enumerate() {
         assert_eq!(
             system.rows[ported],
-            lower_relation::<3>(&completed.relations()[generic], &mut Vec::new(), &system.indices).unwrap()
+            lower_relation::<3>(
+                &completed.relations()[generic],
+                &mut Vec::new(),
+                &system.indices
+            )
+            .unwrap()
         );
     }
 

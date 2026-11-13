@@ -38,7 +38,8 @@ use super::{
     rule_from,
 };
 
-pub const VERSION: &str = "locus-rank.v1 (rustred node::replay::locus; port of guard-theory locus_rank.py)";
+pub const VERSION: &str =
+    "locus-rank.v1 (rustred node::replay::locus; port of guard-theory locus_rank.py)";
 
 #[derive(Clone, Debug)]
 pub struct LocusArgs {
@@ -68,7 +69,10 @@ impl LocusArgs {
         let mut out = BTreeSet::new();
         for bit in spec.split(',').filter(|b| !b.is_empty()) {
             if let Some((c, i)) = bit.split_once(':') {
-                out.insert((Some(c.to_string()), i.parse().map_err(|_| format!("rule {bit}"))?));
+                out.insert((
+                    Some(c.to_string()),
+                    i.parse().map_err(|_| format!("rule {bit}"))?,
+                ));
             } else if let Some((a, z)) = bit.split_once('-') {
                 let (a, z): (usize, usize) = (
                     a.parse().map_err(|_| "rule range")?,
@@ -126,7 +130,10 @@ fn rref(forms: &[Form], n: usize) -> Result<Option<(Vec<Form>, Vec<usize>)>, Unk
         };
         rows.swap(rank, k);
         let v = rows[rank][col + 1];
-        rows[rank] = rows[rank].iter().map(|x| x.div(v)).collect::<Result<_, _>>()?;
+        rows[rank] = rows[rank]
+            .iter()
+            .map(|x| x.div(v))
+            .collect::<Result<_, _>>()?;
         for i in 0..rows.len() {
             if i != rank && !rows[i][col + 1].is_zero() {
                 let f = rows[i][col + 1];
@@ -215,7 +222,11 @@ impl Case {
     fn canon(&self, form: &Form) -> Result<Canon, Unknown> {
         let f = self.reduce(form)?;
         if f[1..].iter().all(Q::is_zero) {
-            return Ok(if f[0].is_zero() { Canon::All } else { Canon::Empty });
+            return Ok(if f[0].is_zero() {
+                Canon::All
+            } else {
+                Canon::Empty
+            });
         }
         let g = |mut a: i128, mut b: i128| {
             a = a.abs();
@@ -254,7 +265,11 @@ impl Case {
         for (row, &c) in rows.iter().zip(&piv) {
             let mut x = row[0].modp(P).ok_or("form pole")?;
             for &j in &free {
-                x = arith::add(P, x, arith::mul(P, row[j + 1].modp(P).ok_or("form pole")?, v[j]));
+                x = arith::add(
+                    P,
+                    x,
+                    arith::mul(P, row[j + 1].modp(P).ok_or("form pole")?, v[j]),
+                );
             }
             v[c] = arith::neg(P, x);
         }
@@ -287,11 +302,23 @@ fn guards_of(rule: &Rule, chart: Option<&Value>) -> Vec<String> {
     let g = from_chart.unwrap_or_else(|| {
         rule.chart
             .chars()
-            .map(|b| if b == '1' { "n>=1".into() } else { "n<=0".into() })
+            .map(|b| {
+                if b == '1' {
+                    "n>=1".into()
+                } else {
+                    "n<=0".into()
+                }
+            })
             .collect()
     });
     g.into_iter()
-        .map(|x| if x.starts_with("two_sided") { "any".into() } else { x })
+        .map(|x| {
+            if x.starts_with("two_sided") {
+                "any".into()
+            } else {
+                x
+            }
+        })
         .collect()
 }
 
@@ -324,7 +351,9 @@ fn never_served(rc: &RuleCtx, forms: &[Form], rng: &mut PyRandom) -> Result<Opti
     }
     for br in &rc.exceptions {
         if !br.is_empty()
-            && pts.iter().all(|(p, d)| br.iter().all(|e| e.at_mod(P, p, *d).is_ok_and(|v| v == 0)))
+            && pts
+                .iter()
+                .all(|(p, d)| br.iter().all(|e| e.at_mod(P, p, *d).is_ok_and(|v| v == 0)))
         {
             return Ok(Some(true));
         }
@@ -450,12 +479,21 @@ fn make_items(
     let mut items = Vec::new();
     for fl in flats {
         let forms: Vec<Form> = fl.iter().map(|c| form_of(c)).collect();
-        let avoid: Vec<Form> = rc.live.iter().filter(|c| !fl.contains(c)).map(|c| form_of(c)).collect();
+        let avoid: Vec<Form> = rc
+            .live
+            .iter()
+            .filter(|c| !fl.contains(c))
+            .map(|c| form_of(c))
+            .collect();
         let mut why: Option<String> = None;
         let mut p = int_point(rule, rc, &forms, &avoid, dims, chart, rng, tries)?;
         if p == Err("NO_POINT") {
             p = int_point(rule, rc, &forms, &[], dims, chart, rng, tries)?;
-            why = Some(if p.is_ok() { "NONGENERIC_POINT".into() } else { "NO_POINT".into() });
+            why = Some(if p.is_ok() {
+                "NONGENERIC_POINT".into()
+            } else {
+                "NO_POINT".into()
+            });
         }
         if p.is_err() && fl.len() == 1 {
             if let Some(sp) = rc.smallpt.get(&fl[0]) {
@@ -466,8 +504,16 @@ fn make_items(
         match p {
             Err("EMPTY_RATIONAL") => continue,
             Err(_) if fl.len() > 1 => continue,
-            Err(w) => items.push(Item { flat: fl.clone(), point: None, why: Some(w.into()) }),
-            Ok(pt) => items.push(Item { flat: fl.clone(), point: Some(pt), why }),
+            Err(w) => items.push(Item {
+                flat: fl.clone(),
+                point: None,
+                why: Some(w.into()),
+            }),
+            Ok(pt) => items.push(Item {
+                flat: fl.clone(),
+                point: Some(pt),
+                why,
+            }),
         }
     }
     Ok(items)
@@ -506,10 +552,24 @@ impl Res {
     }
 }
 
-fn run_item(rule: &Rule, rc: &RuleCtx, ctx: &Ctx, dir: &std::path::Path, point: &[i64], keep: bool) -> Res {
+fn run_item(
+    rule: &Rule,
+    rc: &RuleCtx,
+    ctx: &Ctx,
+    dir: &std::path::Path,
+    point: &[i64],
+    keep: bool,
+) -> Res {
     let out = (|| -> Result<Value, Unknown> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        replay_point(rule, &rc.binding, ctx, dir, point, "locus-rank generic flat point".into())
+        replay_point(
+            rule,
+            &rc.binding,
+            ctx,
+            dir,
+            point,
+            "locus-rank generic flat point".into(),
+        )
     })();
     if !keep {
         let _ = std::fs::remove_dir_all(dir);
@@ -550,14 +610,25 @@ fn prepare(
     if guards.len() != n {
         return Err("chart guard length".into());
     }
-    let coefs: Vec<Expr> = rule.rhs.iter().map(|(_, c)| Expr::parse(c, n)).collect::<Result<_, _>>()?;
+    let coefs: Vec<Expr> = rule
+        .rhs
+        .iter()
+        .map(|(_, c)| Expr::parse(c, n))
+        .collect::<Result<_, _>>()?;
     let exceptions: Vec<Vec<Expr>> = rule
         .exceptions
         .iter()
-        .map(|b| b.iter().map(|p| Expr::parse(p, n)).collect::<Result<_, _>>())
+        .map(|b| {
+            b.iter()
+                .map(|p| Expr::parse(p, n))
+                .collect::<Result<_, _>>()
+        })
         .collect::<Result<_, _>>()?;
     // recenter of the suspects = the replay's recenter authority (table recenter / raw pivot / --extra-loci)
-    let has_raw = rule.raw.get("raw_pivot_encoded").is_some_and(|v| !v.is_null());
+    let has_raw = rule
+        .raw
+        .get("raw_pivot_encoded")
+        .is_some_and(|v| !v.is_null());
     let mut binding = json!({});
     let table_rc = rule.raw.get("recenter").filter(|v| !v.is_null()).cloned();
     let rc_val = match (&table_rc, extra_rc) {
@@ -570,7 +641,11 @@ fn prepare(
             binding = json!({"recenter": v, "recenter_authority": "table/extra-loci recenter (locus-rank)"});
         }
     }
-    rec["binding_recenter"] = if has_raw { Value::Null } else { rc_val.clone().unwrap_or(Value::Null) };
+    rec["binding_recenter"] = if has_raw {
+        Value::Null
+    } else {
+        rc_val.clone().unwrap_or(Value::Null)
+    };
     let recenter: Vec<i64> = match &rc_val {
         Some(v) => super::vector(v, n)?,
         None if has_raw => super::recenter_for(rule, &json!({}), n)?.0,
@@ -611,7 +686,10 @@ fn prepare(
     let mut dropped = Vec::new();
     for c in ordered {
         let reps = suspects.get(&c).cloned().unwrap_or_default();
-        if reps.iter().any(|&(_, _, ax, v)| !sign_ok(&rcx.guards[ax], v)) {
+        if reps
+            .iter()
+            .any(|&(_, _, ax, v)| !sign_ok(&rcx.guards[ax], v))
+        {
             continue; // n_a = v outside the chart sign: empty (exact)
         }
         let fl = vec![form_of(&c)];
@@ -629,11 +707,16 @@ fn prepare(
                 let free = n.saturating_sub(rcx.case.piv.len() + 1).max(1) as f64;
                 let size = (20_000f64.powf(1.0 / free).floor() as usize).clamp(2, 64);
                 match box_points(&ext, dims, chart, &rcx.coefs, size, 1) {
-                    Ok((pts, _)) if !pts.is_empty() && point_valid(rule, &pts[0], dims, chart, &rcx.coefs).is_ok() => {
+                    Ok((pts, _))
+                        if !pts.is_empty()
+                            && point_valid(rule, &pts[0], dims, chart, &rcx.coefs).is_ok() =>
+                    {
                         rcx.smallpt.insert(c.clone(), pts[0].clone());
                         rcx.live.push(c);
                     }
-                    Ok(_) => dropped.push(json!([form_str(&c), format!("NO_POINT_SMALLBOX{size}")])),
+                    Ok(_) => {
+                        dropped.push(json!([form_str(&c), format!("NO_POINT_SMALLBOX{size}")]))
+                    }
                     Err(e) => dropped.push(json!([form_str(&c), format!("NO_POINT ({e})")])),
                 }
             }
@@ -697,13 +780,21 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
     if let Some(path) = &args.extra_loci {
         let t = std::fs::read_to_string(path).map_err(|e| format!("extra loci: {e}"))?;
         for line in t.lines().filter(|l| !l.trim().is_empty()) {
-            let v: Value = serde_json::from_str(line).map_err(|e| format!("extra loci json: {e}"))?;
+            let v: Value =
+                serde_json::from_str(line).map_err(|e| format!("extra loci json: {e}"))?;
             let key = (
                 v["chart"].as_str().unwrap_or_default().to_string(),
-                v.get("rule").or_else(|| v.get("index")).and_then(Value::as_u64).ok_or("extra loci record without rule")? as usize,
+                v.get("rule")
+                    .or_else(|| v.get("index"))
+                    .and_then(Value::as_u64)
+                    .ok_or("extra loci record without rule")? as usize,
             );
             extra.entry(key.clone()).or_default().extend(
-                v["loci"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)),
+                v["loci"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|x| x.as_str().map(str::to_string)),
             );
             if let Some(r) = v.get("recenter").filter(|r| !r.is_null()) {
                 extra_rc.insert(key, r.clone());
@@ -753,8 +844,20 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         let mut rng = PyRandom::new((1112 + rule.index) as u32);
         let mut rec = json!({"chart": rule.chart, "rule": rule.index,
             "nsources": rule.raw.get("nsources"), "nseeds": rule.seeds.len()});
-        let cells = args.out.join("cells").join(format!("{}-r{}", rule.chart, rule.index));
-        let prepared = prepare(rule, chart, &dq, extra.get(&key), extra_rc.get(&key), &mut rng, args.point_tries, &mut rec);
+        let cells = args
+            .out
+            .join("cells")
+            .join(format!("{}-r{}", rule.chart, rule.index));
+        let prepared = prepare(
+            rule,
+            chart,
+            &dq,
+            extra.get(&key),
+            extra_rc.get(&key),
+            &mut rng,
+            args.point_tries,
+            &mut rec,
+        );
         let verdict = match prepared {
             Err(e) => {
                 rec["error"] = json!(e);
@@ -763,88 +866,130 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
             }
             Ok(rc) => {
                 let outcome = (|| -> Result<String, Unknown> {
-                let flats: Vec<Vec<Vec<i128>>> = if args.full {
-                    all_flats(&rc.live, args.max_flats)
-                } else {
-                    std::iter::once(Vec::new()).chain(rc.live.iter().map(|c| vec![c.clone()])).collect()
-                };
-                let mut done: Vec<(Item, Option<Res>)> = Vec::new();
-                let items = make_items(rule, &rc, &flats, &dq, chart, &mut rng, args.point_tries)?;
-                for (k, it) in items.into_iter().enumerate() {
-                    let r = match (&it.point, args.no_replay) {
-                        (Some(p), false) => Some(run_item(rule, &rc, &ctx, &cells.join(format!("a{k}")), p, args.keep_cells)),
-                        _ => None,
-                    };
-                    done.push((it, r));
-                }
-                // phase B: intersections of the hot (FAIL or rank-dropping) codim-1 suspects
-                if !args.full && !args.no_replay {
-                    let ctrl = done.first().filter(|(it, _)| it.flat.is_empty()).and_then(|(_, r)| r.clone());
-                    let cr = ctrl.as_ref().and_then(Res::min_rank);
-                    let hot: Vec<Vec<i128>> = done
-                        .iter()
-                        .filter(|(it, _)| it.flat.len() == 1)
-                        .filter_map(|(it, r)| {
-                            let r = r.as_ref()?;
-                            let drop = matches!((cr, r.min_rank()), (Some(c), Some(x)) if x < c);
-                            (r.status.starts_with("FAIL") || drop).then(|| it.flat[0].clone())
-                        })
-                        .collect();
-                    rec["rank_drop_suspects"] = json!(hot.iter().map(|c| form_str(c)).collect::<Vec<_>>());
-                    if hot.len() >= 2 {
-                        let fl2: Vec<Vec<Vec<i128>>> =
-                            all_flats(&hot, args.max_flats).into_iter().filter(|f| f.len() >= 2).collect();
-                        rec["flats_capped"] = json!(fl2.len() + 1 >= args.max_flats);
-                        let items = make_items(rule, &rc, &fl2, &dq, chart, &mut rng, args.point_tries)?;
-                        for (k, it) in items.into_iter().enumerate() {
-                            let r = it
-                                .point
-                                .as_ref()
-                                .map(|p| run_item(rule, &rc, &ctx, &cells.join(format!("b{k}")), p, args.keep_cells));
-                            done.push((it, r));
-                        }
-                    }
-                }
-                let mut fr = Vec::new();
-                let mut sts = Vec::new();
-                for (it, r) in &done {
-                    let mut v = json!({"flat": it.flat.iter().map(|c| form_str(c)).collect::<Vec<_>>(),
-                        "point": it.point, "why": it.why});
-                    if let Some(r) = r {
-                        for (k, x) in r.json().as_object().unwrap() {
-                            v[k] = x.clone();
-                        }
-                    }
-                    if it.point.is_some() {
-                        let e = r.as_ref().map(Res::eff);
-                        if e.as_deref() != Some("GUARDED") {
-                            sts.push(e);
-                        }
-                    }
-                    fr.push(v);
-                }
-                rec["flat_results"] = Value::Array(fr);
-                // guard-fix (coordinator 18:49Z, helper Y11): a PASS states the strata tested; it never certifies
-                rec["tested_strata"] = json!(if args.full {
-                    "every intersection of live suspect layers (up to the case dimension)"
-                } else {
-                    "the case + single live suspect layers + intersections of layers that showed a rank drop"
-                });
-                rec["verdict_meaning"] = json!("PASS_ON_TESTED_FLATS = in the span at one generic point of each tested flat (Monte-Carlo evidence; not a certificate, suspect list incomplete); FAIL = not derived from these seeds at a tested point");
-                Ok(if sts.iter().any(|s| s.as_deref().is_some_and(|s| s.starts_with("FAIL"))) {
-                    "FAIL".into()
-                } else if args.no_replay {
-                    "PLANNED".into()
-                } else if !sts.is_empty() && sts.iter().all(|s| s.as_deref() == Some("PASS_RS2_RS3_SAMPLED")) {
-                    if rec["flats_capped"].as_bool() == Some(true) {
-                        "PASS_ON_TESTED_FLATS_CAPPED".into()
+                    let flats: Vec<Vec<Vec<i128>>> = if args.full {
+                        all_flats(&rc.live, args.max_flats)
                     } else {
-                        "PASS_ON_TESTED_FLATS".into()
+                        std::iter::once(Vec::new())
+                            .chain(rc.live.iter().map(|c| vec![c.clone()]))
+                            .collect()
+                    };
+                    let mut done: Vec<(Item, Option<Res>)> = Vec::new();
+                    let items =
+                        make_items(rule, &rc, &flats, &dq, chart, &mut rng, args.point_tries)?;
+                    for (k, it) in items.into_iter().enumerate() {
+                        let r = match (&it.point, args.no_replay) {
+                            (Some(p), false) => Some(run_item(
+                                rule,
+                                &rc,
+                                &ctx,
+                                &cells.join(format!("a{k}")),
+                                p,
+                                args.keep_cells,
+                            )),
+                            _ => None,
+                        };
+                        done.push((it, r));
                     }
-                } else {
-                    "UNKNOWN".into()
-                })
-            })();
+                    // phase B: intersections of the hot (FAIL or rank-dropping) codim-1 suspects
+                    if !args.full && !args.no_replay {
+                        let ctrl = done
+                            .first()
+                            .filter(|(it, _)| it.flat.is_empty())
+                            .and_then(|(_, r)| r.clone());
+                        let cr = ctrl.as_ref().and_then(Res::min_rank);
+                        let hot: Vec<Vec<i128>> = done
+                            .iter()
+                            .filter(|(it, _)| it.flat.len() == 1)
+                            .filter_map(|(it, r)| {
+                                let r = r.as_ref()?;
+                                let drop =
+                                    matches!((cr, r.min_rank()), (Some(c), Some(x)) if x < c);
+                                (r.status.starts_with("FAIL") || drop).then(|| it.flat[0].clone())
+                            })
+                            .collect();
+                        rec["rank_drop_suspects"] =
+                            json!(hot.iter().map(|c| form_str(c)).collect::<Vec<_>>());
+                        if hot.len() >= 2 {
+                            let fl2: Vec<Vec<Vec<i128>>> = all_flats(&hot, args.max_flats)
+                                .into_iter()
+                                .filter(|f| f.len() >= 2)
+                                .collect();
+                            rec["flats_capped"] = json!(fl2.len() + 1 >= args.max_flats);
+                            let items = make_items(
+                                rule,
+                                &rc,
+                                &fl2,
+                                &dq,
+                                chart,
+                                &mut rng,
+                                args.point_tries,
+                            )?;
+                            for (k, it) in items.into_iter().enumerate() {
+                                let r = it.point.as_ref().map(|p| {
+                                    run_item(
+                                        rule,
+                                        &rc,
+                                        &ctx,
+                                        &cells.join(format!("b{k}")),
+                                        p,
+                                        args.keep_cells,
+                                    )
+                                });
+                                done.push((it, r));
+                            }
+                        }
+                    }
+                    let mut fr = Vec::new();
+                    let mut sts = Vec::new();
+                    for (it, r) in &done {
+                        let mut v = json!({"flat": it.flat.iter().map(|c| form_str(c)).collect::<Vec<_>>(),
+                        "point": it.point, "why": it.why});
+                        if let Some(r) = r {
+                            for (k, x) in r.json().as_object().unwrap() {
+                                v[k] = x.clone();
+                            }
+                        }
+                        if it.point.is_some() {
+                            let e = r.as_ref().map(Res::eff);
+                            if e.as_deref() != Some("GUARDED") {
+                                sts.push(e);
+                            }
+                        }
+                        fr.push(v);
+                    }
+                    rec["flat_results"] = Value::Array(fr);
+                    // guard-fix (coordinator 18:49Z, helper Y11): a PASS states the strata tested; it never certifies
+                    rec["tested_strata"] = json!(if args.full {
+                        "every intersection of live suspect layers (up to the case dimension)"
+                    } else {
+                        "the case + single live suspect layers + intersections of layers that showed a rank drop"
+                    });
+                    rec["verdict_meaning"] = json!(
+                        "PASS_ON_TESTED_FLATS = in the span at one generic point of each tested flat (Monte-Carlo evidence; not a certificate, suspect list incomplete); FAIL = not derived from these seeds at a tested point"
+                    );
+                    Ok(
+                        if sts
+                            .iter()
+                            .any(|s| s.as_deref().is_some_and(|s| s.starts_with("FAIL")))
+                        {
+                            "FAIL".into()
+                        } else if args.no_replay {
+                            "PLANNED".into()
+                        } else if !sts.is_empty()
+                            && sts
+                                .iter()
+                                .all(|s| s.as_deref() == Some("PASS_RS2_RS3_SAMPLED"))
+                        {
+                            if rec["flats_capped"].as_bool() == Some(true) {
+                                "PASS_ON_TESTED_FLATS_CAPPED".into()
+                            } else {
+                                "PASS_ON_TESTED_FLATS".into()
+                            }
+                        } else {
+                            "UNKNOWN".into()
+                        },
+                    )
+                })();
                 match outcome {
                     Ok(v) => v,
                     Err(e) => {
@@ -859,7 +1004,10 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         }
         rec["verdict"] = json!(verdict);
         rec["seconds"] = json!((t0.elapsed().as_secs_f64() * 1000.0).round() / 1000.0);
-        eprintln!("{}", json!({"stage": "locus_rule", "chart": rule.chart, "rule": rule.index, "verdict": verdict}));
+        eprintln!(
+            "{}",
+            json!({"stage": "locus_rule", "chart": rule.chart, "rule": rule.index, "verdict": verdict})
+        );
         *counts.entry(verdict).or_default() += 1;
         lines.push_str(&serde_json::to_string(&rec).unwrap());
         lines.push('\n');
@@ -880,8 +1028,11 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         "rules": rules.len(), "verdicts": counts, "dimensions": args.dimensions, "prime": P,
         "seconds": started.elapsed().as_secs_f64(),
         "scope": "FAIL = a point where the rule is not derived from these seeds (mod-P span test); not evidence that the rule is false. PASS_ON_TESTED_FLATS = PASS on generic points of the tested flats only (Monte-Carlo evidence, not a certificate); the suspect list is not complete (helper Y1/Y11)."});
-    std::fs::write(args.out.join("SUMMARY.json"), serde_json::to_string_pretty(&summary).unwrap() + "\n")
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        args.out.join("SUMMARY.json"),
+        serde_json::to_string_pretty(&summary).unwrap() + "\n",
+    )
+    .map_err(|e| e.to_string())?;
     Ok((status, summary))
 }
 
@@ -928,8 +1079,12 @@ mod tests {
     }
 
     fn strs(v: &Value) -> Vec<String> {
-        let mut s: Vec<String> =
-            v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+        let mut s: Vec<String> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect();
         s.sort();
         s
     }
@@ -945,7 +1100,11 @@ mod tests {
         assert_eq!(f.len(), 1 + 3 + 2);
         assert_eq!(all_flats(&live, 3).len(), 3);
         let r = LocusArgs::parse_rules("1-2,5,1111:7").unwrap().unwrap();
-        assert!(r.contains(&(None, 2)) && r.contains(&(Some("1111".into()), 7)) && !r.contains(&(None, 7)));
+        assert!(
+            r.contains(&(None, 2))
+                && r.contains(&(Some("1111".into()), 7))
+                && !r.contains(&(None, 7))
+        );
     }
 
     /// T157-a4 (pre-guard-fix seed-rung table): rules 1668/1669 FAIL exactly on the layer n2 = 2, the passing
@@ -961,15 +1120,52 @@ mod tests {
         assert_eq!(status, "FAIL", "{summary}");
         let res = results(&out);
         let python: &[(usize, &str, &[&str], &[&str])] = &[
-            (1440, "PASS_ON_TESTED_FLATS", &["n19", "n12", "n11", "n10", "1+n18", "1+n11"], &[]),
-            (1585, "PASS_ON_TESTED_FLATS", &["-1+n9", "-1+n1", "1+n15"], &[]),
-            (1599, "PASS_ON_TESTED_FLATS", &["-1+n1", "n10", "1+n10"], &["n10"]),
-            (1609, "PASS_ON_TESTED_FLATS", &["n19", "n11", "n10", "1+n19", "1+n12", "1+n11", "1+n10", "2+n12"], &[]),
+            (
+                1440,
+                "PASS_ON_TESTED_FLATS",
+                &["n19", "n12", "n11", "n10", "1+n18", "1+n11"],
+                &[],
+            ),
+            (
+                1585,
+                "PASS_ON_TESTED_FLATS",
+                &["-1+n9", "-1+n1", "1+n15"],
+                &[],
+            ),
+            (
+                1599,
+                "PASS_ON_TESTED_FLATS",
+                &["-1+n1", "n10", "1+n10"],
+                &["n10"],
+            ),
+            (
+                1609,
+                "PASS_ON_TESTED_FLATS",
+                &[
+                    "n19", "n11", "n10", "1+n19", "1+n12", "1+n11", "1+n10", "2+n12",
+                ],
+                &[],
+            ),
             (1668, "FAIL", &["-2+n2"], &["-2+n2"]),
             (1669, "FAIL", &["-2+n2"], &["-2+n2"]),
-            (1689, "PASS_ON_TESTED_FLATS", &["n18", "n11", "n10"], &["n18", "n11", "n10"]),
-            (1699, "PASS_ON_TESTED_FLATS", &["n11", "n10", "1+n18", "1+n11"], &["1+n18"]),
-            (1732, "PASS_ON_TESTED_FLATS", &["n12", "n10", "1+n10"], &["n12", "n10"]),
+            (
+                1689,
+                "PASS_ON_TESTED_FLATS",
+                &["n18", "n11", "n10"],
+                &["n18", "n11", "n10"],
+            ),
+            (
+                1699,
+                "PASS_ON_TESTED_FLATS",
+                &["n11", "n10", "1+n18", "1+n11"],
+                &["1+n18"],
+            ),
+            (
+                1732,
+                "PASS_ON_TESTED_FLATS",
+                &["n12", "n10", "1+n10"],
+                &["n12", "n10"],
+            ),
             (1773, "PASS_ON_TESTED_FLATS", &[], &[]),
             (1780, "PASS_ON_TESTED_FLATS", &["-1+n1"], &[]),
             (1816, "PASS_ON_TESTED_FLATS", &["-1+n0"], &[]),
@@ -995,7 +1191,10 @@ mod tests {
             // rank drop on the layer (python: 1070 generic -> 1068 on n2 = 2 for rule 1668)
             assert!(layer["rank"][0].as_u64() < fr[0]["rank"][0].as_u64());
         }
-        assert_eq!(res[&1668]["flat_results"][0]["rank"], json!([1070, 1070, 1070]));
+        assert_eq!(
+            res[&1668]["flat_results"][0]["rank"],
+            json!([1070, 1070, 1070])
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1009,7 +1208,11 @@ mod tests {
         let (status, summary) = run(&args(good, d.join("good"), "0")).unwrap();
         assert_eq!(status, "PASS_ON_TESTED_FLATS", "{summary}");
         let r = &results(&d.join("good"))[&0];
-        assert_eq!(strs(&r["suspects"]), Vec::<String>::new(), "every hidden pole is an exception: {r}");
+        assert_eq!(
+            strs(&r["suspects"]),
+            Vec::<String>::new(),
+            "every hidden pole is an exception: {r}"
+        );
 
         let planted: String = R38
             .lines()

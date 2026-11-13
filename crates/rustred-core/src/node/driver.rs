@@ -591,7 +591,11 @@ impl NodeOptions {
     /// guard-fix D1: the guard semantics this run writes and requires of every reused rule (cover tables, cover
     /// indexes, banks, registry siblings, joins): [`GUARD_VERSION`], or 1 with `--no-witness-guards`.
     pub fn guard_version(&self) -> u32 {
-        if self.no_witness_guards { 1 } else { GUARD_VERSION }
+        if self.no_witness_guards {
+            1
+        } else {
+            GUARD_VERSION
+        }
     }
 }
 
@@ -693,7 +697,9 @@ pub enum StopReason {
         charts: Vec<CaseSpec>,
     },
     /// The caller requested a stop before any numeric search. Endpoints remain open, not masters.
-    BeforeNumeric { pending: usize },
+    BeforeNumeric {
+        pending: usize,
+    },
     /// Per-point numeric searches exhausted or were screened out, and strict mode forbids the shared fallback.
     /// Cases are in PRESENTED slots and remain open, including any possible genuine masters.
     NumericSearchRefused {
@@ -1310,7 +1316,13 @@ fn write_rule<const N: usize>(
                 .windows(2)
                 .any(|w| w[0] == b'n' && w[1].is_ascii_digit())
         })
-        .map(|t| if t.len() > 4000 { "elided".to_string() } else { t })
+        .map(|t| {
+            if t.len() > 4000 {
+                "elided".to_string()
+            } else {
+                t
+            }
+        })
         .collect();
     let opt = |v: &Option<Vec<i16>>| v.as_ref().map_or("null".to_string(), |v| format!("{v:?}"));
     let raw = x
@@ -3897,7 +3909,11 @@ fn rule_extras<const N: usize>(
         numerical,
         monomials: rule_monomials(c),
         oversized_fallback: false,
-        guard_version: if solver.witness_guards() { GUARD_VERSION } else { 1 },
+        guard_version: if solver.witness_guards() {
+            GUARD_VERSION
+        } else {
+            1
+        },
     }
 }
 
@@ -3987,38 +4003,59 @@ mod tests {
         explicit_off["stop_before_numeric"] = serde_json::json!(false);
         let read: NodeOptions = serde_json::from_value(explicit_off).unwrap();
         assert_eq!(serde_json::to_value(read).unwrap(), legacy);
-        let on = NodeOptions { stop_before_numeric: true, ..quiet() };
-        assert_eq!(serde_json::to_value(on).unwrap()["stop_before_numeric"], true);
+        let on = NodeOptions {
+            stop_before_numeric: true,
+            ..quiet()
+        };
+        assert_eq!(
+            serde_json::to_value(on).unwrap()["stop_before_numeric"],
+            true
+        );
     }
 
     #[test]
     fn stop_before_numeric_leaves_every_endpoint_open_without_search() {
         let dir = tmp("before-numeric-points");
         let opts = NodeOptions {
-            initial: [1, 2].into_iter().map(|dot| CaseSpec {
-                fixed: vec![Some(dot), Some(1), Some(1), Some(0), Some(0)],
-                equations: vec![],
-            }).collect(),
+            initial: [1, 2]
+                .into_iter()
+                .map(|dot| CaseSpec {
+                    fixed: vec![Some(dot), Some(1), Some(1), Some(0), Some(0)],
+                    equations: vec![],
+                })
+                .collect(),
             stop_before_numeric: true,
             ..quiet()
         };
         let mut searched = 0;
         let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |e| {
-            if matches!(e, NodeEvent::CaseStarted { .. }) { searched += 1; }
-        }).unwrap();
+            if matches!(e, NodeEvent::CaseStarted { .. }) {
+                searched += 1;
+            }
+        })
+        .unwrap();
         assert_eq!(searched, 0);
         assert_eq!(outcome.numerical_cases, 0);
         assert_eq!(outcome.numeric_bulk_fallback, 0);
         assert_eq!(outcome.rules, 0);
         assert!(outcome.residual_keys.is_empty());
         assert!(!outcome.complete);
-        assert!(matches!(outcome.stop, Some(StopReason::BeforeNumeric { pending: 2 })));
+        assert!(matches!(
+            outcome.stop,
+            Some(StopReason::BeforeNumeric { pending: 2 })
+        ));
         // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
         let table = std::fs::read_to_string(&outcome.table).unwrap();
-        let records: Vec<serde_json::Value> = table.lines()
-            .map(|l| serde_json::from_str(l).unwrap()).collect();
+        let records: Vec<serde_json::Value> = table
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         assert!(records.iter().any(|r| r["type"] == "partial"));
-        assert!(!records.iter().any(|r| r["type"] == "end" || r["type"] == "residual"));
+        assert!(
+            !records
+                .iter()
+                .any(|r| r["type"] == "end" || r["type"] == "residual")
+        );
     }
 
     #[test]
@@ -4039,7 +4076,10 @@ mod tests {
         assert_eq!(outcome.numerical_cases, 0);
         assert_eq!(outcome.numeric_bulk_fallback, 0);
         assert!(outcome.residual_keys.is_empty());
-        assert!(matches!(outcome.stop, Some(StopReason::BeforeNumeric { pending: 1 })));
+        assert!(matches!(
+            outcome.stop,
+            Some(StopReason::BeforeNumeric { pending: 1 })
+        ));
         // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
     }
 
@@ -4055,11 +4095,17 @@ mod tests {
             ..quiet()
         };
         opts.known_terminals = Some(known_file(
-            "before-numeric-known", &opts, vec![vec![1, 1, 1, 0, 0]]));
+            "before-numeric-known",
+            &opts,
+            vec![vec![1, 1, 1, 0, 0]],
+        ));
         let mut searched = 0;
         let outcome = generate(SUNSET, "sunset.sym", &dir, &opts, &mut |e| {
-            if matches!(e, NodeEvent::CaseStarted { .. }) { searched += 1; }
-        }).unwrap();
+            if matches!(e, NodeEvent::CaseStarted { .. }) {
+                searched += 1;
+            }
+        })
+        .unwrap();
         assert_eq!(searched, 0);
         assert_eq!(outcome.numerical_cases, 0);
         // (batch-5 line: no F.obligations.json / open_obligations; the stop reason carries the open count)
@@ -4495,9 +4541,9 @@ mod tests {
             loci: None,
             box_size: 0,
             box_max: 0,
-                dump_weights: false,
-                random_d: false,
-                single_prime: false,
+            dump_weights: false,
+            random_d: false,
+            single_prime: false,
         };
         let (status, _) = crate::node::replay::run(&args).unwrap();
         assert_eq!(status, "FAIL");
@@ -4569,9 +4615,9 @@ mod tests {
             loci: None,
             box_size: 0,
             box_max: 0,
-                dump_weights: false,
-                random_d: false,
-                single_prime: false,
+            dump_weights: false,
+            random_d: false,
+            single_prime: false,
         };
         crate::node::replay::run(&args).unwrap().0
     }
@@ -4697,10 +4743,18 @@ mod tests {
             ..quiet()
         };
         let v1 = generate(SUNSET, "sunset.sym", &root.join("v1"), &v1o, &mut |_| {}).unwrap();
-        let v2 = generate(SUNSET, "sunset.sym", &root.join("v2"), &quiet(), &mut |_| {}).unwrap();
+        let v2 = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("v2"),
+            &quiet(),
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(v1.complete && v2.complete && v1.rules > 0 && v2.rules > 0);
         let head = |t: &str| -> serde_json::Value {
-            serde_json::from_str(std::fs::read_to_string(t).unwrap().lines().next().unwrap()).unwrap()
+            serde_json::from_str(std::fs::read_to_string(t).unwrap().lines().next().unwrap())
+                .unwrap()
         };
         assert_eq!(head(&v1.table)["guard_version"], 1);
         assert_eq!(head(&v2.table)["guard_version"], GUARD_VERSION);
@@ -4723,27 +4777,63 @@ mod tests {
             ..o.clone()
         };
         // a v2 run refuses the v1 table, its cover index, and a stamp-free (pre-fix) table
-        let e = generate(SUNSET, "sunset.sym", &root.join("r1"), &with_cover(&quiet(), &v1.table, v1.rules), &mut |_| {})
-            .unwrap_err();
+        let e = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("r1"),
+            &with_cover(&quiet(), &v1.table, v1.rules),
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(e.contains("guard_version 1") && e.contains("D1"), "{e}");
         let pre = strip_guard_stamps(&v2.table, &root.join("pre"));
-        let e = generate(SUNSET, "sunset.sym", &root.join("r3"), &with_cover(&quiet(), &pre, v2.rules), &mut |_| {})
-            .unwrap_err();
+        let e = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("r3"),
+            &with_cover(&quiet(), &pre, v2.rules),
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(e.contains("absent = 1"), "{e}");
         // a header saying 2 over v1 rule lines (a laundered table) is refused by the rule stamps
         let laundered = root.join("laundered.table.jsonl");
-        let mut lines: Vec<String> = std::fs::read_to_string(&v1.table).unwrap().lines().map(String::from).collect();
+        let mut lines: Vec<String> = std::fs::read_to_string(&v1.table)
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .collect();
         let mut h: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
         h["guard_version"] = serde_json::json!(GUARD_VERSION);
         lines[0] = h.to_string();
         std::fs::write(&laundered, lines.join("\n") + "\n").unwrap();
-        let e = generate(SUNSET, "sunset.sym", &root.join("r4"), &with_cover(&quiet(), laundered.to_str().unwrap(), v1.rules), &mut |_| {})
-            .unwrap_err();
+        let e = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("r4"),
+            &with_cover(&quiet(), laundered.to_str().unwrap(), v1.rules),
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(e.contains("carries guard_version"), "{e}");
         // matching versions are accepted (v2 over v2, v1 over v1)
-        let ok2 = generate(SUNSET, "sunset.sym", &root.join("r5"), &with_cover(&quiet(), &v2.table, v2.rules), &mut |_| {}).unwrap();
+        let ok2 = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("r5"),
+            &with_cover(&quiet(), &v2.table, v2.rules),
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(ok2.complete, "{ok2:?}");
-        let ok1 = generate(SUNSET, "sunset.sym", &root.join("r6"), &with_cover(&v1o, &v1.table, v1.rules), &mut |_| {}).unwrap();
+        let ok1 = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("r6"),
+            &with_cover(&v1o, &v1.table, v1.rules),
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(ok1.complete, "{ok1:?}");
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -4758,30 +4848,76 @@ mod tests {
             no_witness_guards,
             ..quiet()
         };
-        let b1 = generate(SUNSET, "sunset.sym", &root.join("b1"), &bank_opts(true), &mut |_| {}).unwrap();
-        let b2 = generate(SUNSET, "sunset.sym", &root.join("b2"), &bank_opts(false), &mut |_| {}).unwrap();
+        let b1 = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("b1"),
+            &bank_opts(true),
+            &mut |_| {},
+        )
+        .unwrap();
+        let b2 = generate(
+            SUNSET,
+            "sunset.sym",
+            &root.join("b2"),
+            &bank_opts(false),
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(b1.complete && b2.complete);
         let bank_head = |d: &Path| -> serde_json::Value {
-            serde_json::from_str(std::fs::read_to_string(d.join("F.refused.jsonl")).unwrap().lines().next().unwrap()).unwrap()
+            serde_json::from_str(
+                std::fs::read_to_string(d.join("F.refused.jsonl"))
+                    .unwrap()
+                    .lines()
+                    .next()
+                    .unwrap(),
+            )
+            .unwrap()
         };
         assert_eq!(bank_head(&root.join("b1"))["guard_version"], 1);
         assert_eq!(bank_head(&root.join("b2"))["guard_version"], GUARD_VERSION);
-        assert_ne!(bank_head(&root.join("b1"))["key"], bank_head(&root.join("b2"))["key"]);
+        assert_ne!(
+            bank_head(&root.join("b1"))["key"],
+            bank_head(&root.join("b2"))["key"]
+        );
         let adopt = |banks: &str, no_witness_guards: bool, tag: &str| {
             let o = NodeOptions {
                 max_rule_monomials: None,
-                adopt_banks: vec![root.join(banks).join("F.refused.jsonl").display().to_string()],
+                adopt_banks: vec![
+                    root.join(banks)
+                        .join("F.refused.jsonl")
+                        .display()
+                        .to_string(),
+                ],
                 no_witness_guards,
                 ..quiet()
             };
             generate(SUNSET, "sunset.sym", &root.join(tag), &o, &mut |_| {}).unwrap()
         };
-        assert_eq!(adopt("b1", false, "a12").bank_adopted, 0, "v2 never adopts a v1 bank");
-        assert!(adopt("b2", false, "a22").bank_adopted > 0, "v2 adopts a v2 bank");
-        assert_eq!(adopt("b2", true, "a21").bank_adopted, 0, "v1 never adopts a v2 bank");
-        assert!(adopt("b1", true, "a11").bank_adopted > 0, "v1 adopts a v1 bank");
+        assert_eq!(
+            adopt("b1", false, "a12").bank_adopted,
+            0,
+            "v2 never adopts a v1 bank"
+        );
+        assert!(
+            adopt("b2", false, "a22").bank_adopted > 0,
+            "v2 adopts a v2 bank"
+        );
+        assert_eq!(
+            adopt("b2", true, "a21").bank_adopted,
+            0,
+            "v1 never adopts a v2 bank"
+        );
+        assert!(
+            adopt("b1", true, "a11").bank_adopted > 0,
+            "v1 adopts a v1 bank"
+        );
         let q = std::fs::read_to_string(root.join("a12/F.queue.jsonl")).unwrap();
-        assert!(q.contains("bank_skipped") && q.contains("guard_version 1"), "{q}");
+        assert!(
+            q.contains("bank_skipped") && q.contains("guard_version 1"),
+            "{q}"
+        );
         // a header-less-version (pre-fix) bank: absent = 1, refused by a v2 run
         let pre = root.join("pre");
         std::fs::create_dir_all(&pre).unwrap();

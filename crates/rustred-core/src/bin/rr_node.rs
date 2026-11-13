@@ -630,7 +630,10 @@ fn cmd_locus_rank(mut a: Args) -> i32 {
     };
     a.done();
     let (status, summary) = run(&args).unwrap_or_else(|e| die(&e));
-    println!("{}", serde_json::json!({"status": status, "verdicts": summary["verdicts"], "rules": summary["rules"], "seconds": summary["seconds"], "out": args.out}));
+    println!(
+        "{}",
+        serde_json::json!({"status": status, "verdicts": summary["verdicts"], "rules": summary["rules"], "seconds": summary["seconds"], "out": args.out})
+    );
     match status.as_str() {
         "PASS_ON_TESTED_FLATS" => 0,
         "FAIL" => 1,
@@ -908,7 +911,9 @@ fn cmd_witness(mut a: Args) -> i32 {
         .as_ref()
         .is_some_and(|p| p.iter().enumerate().any(|(i, &x)| i != x))
     {
-        die("witness: tables with a (non-identity) slot permutation are not supported (case records are in presented slots)");
+        die(
+            "witness: tables with a (non-identity) slot permutation are not supported (case records are in presented slots)",
+        );
     }
     std::fs::create_dir_all(&out).unwrap_or_else(|e| die(&e.to_string()));
     let mut report = String::new();
@@ -931,7 +936,11 @@ fn cmd_witness(mut a: Args) -> i32 {
             .unwrap_or_default();
         let equations: Vec<String> = r["equations"]
             .as_array()
-            .map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
         let mut opts = base.clone();
         opts.initial = vec![CaseSpec { fixed, equations }];
@@ -987,7 +996,11 @@ fn cmd_witness(mut a: Args) -> i32 {
             // single-polynomial hidden branches are loci the replay can sample on
             let list: Vec<&str> = hidden
                 .iter()
-                .filter_map(|b| b.as_array().filter(|b| b.len() == 1).and_then(|b| b[0].as_str()))
+                .filter_map(|b| {
+                    b.as_array()
+                        .filter(|b| b.len() == 1)
+                        .and_then(|b| b[0].as_str())
+                })
                 .collect();
             if !list.is_empty() {
                 loci.push_str(
@@ -1008,7 +1021,9 @@ fn cmd_witness(mut a: Args) -> i32 {
 fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
-        die("usage: rr_node generate|probe|variants|descent|replay|locus-rank ... (see the source header)");
+        die(
+            "usage: rr_node generate|probe|variants|descent|replay|locus-rank ... (see the source header)",
+        );
     }
     let cmd = items.remove(0);
     let a = Args { items };
@@ -1053,7 +1068,11 @@ mod strict_numeric_tests {
     fn stop_before_numeric_cli_is_opt_in() {
         for enabled in [false, true] {
             let mut args = Args {
-                items: if enabled { vec!["--stop-before-numeric".into()] } else { vec![] },
+                items: if enabled {
+                    vec!["--stop-before-numeric".into()]
+                } else {
+                    vec![]
+                },
             };
             let options = node_options(&mut args, "");
             args.done();

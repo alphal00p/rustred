@@ -545,7 +545,10 @@ fn witness_poles_join_the_guards_on_both_routes_and_for_empty_rhs() {
         context.coefficient_fixture("n0-1").numerator,
     ];
     let want = expected(&context, &[&["n0-1"], &["n0-n1"]]);
-    assert_eq!(extract_exceptions(&rule, &[1, 2], &[true; 2]).unwrap(), want);
+    assert_eq!(
+        extract_exceptions(&rule, &[1, 2], &[true; 2]).unwrap(),
+        want
+    );
     let content = extract_exceptions_content(&rule, &[1, 2], &[true; 2], &[false; 2]).unwrap();
     assert_eq!(content, want);
     let mut empty = candidate::<2>(&context, &[]);

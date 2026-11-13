@@ -3,15 +3,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::domains::InternalOrdering;
+use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::prelude::{Field, Integer, Ring};
 
 use crate::algebra::CoefficientPolynomial;
 
-use super::discovery::{
-    Discovery, DiscoveryStats, exact_materialize_witnessed,
-};
+use super::discovery::{Discovery, DiscoveryStats, exact_materialize_witnessed};
 use super::instantiate::{canonical_shifts, canonicalize, instantiate, translate_polynomial};
 use super::precondition::{
     PreconditionProvenance, precondition_with_provenance, precondition_with_variable_order,
@@ -779,7 +777,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             let mut poles: Vec<_> = witness
                                 .denominators
                                 .iter()
-                                .map(|poly| translate_polynomial(poly, &self.system.indices, &shifts))
+                                .map(|poly| {
+                                    translate_polynomial(poly, &self.system.indices, &shifts)
+                                })
                                 .collect();
                             poles.sort_unstable_by(InternalOrdering::internal_cmp);
                             poles.dedup();

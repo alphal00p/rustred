@@ -269,13 +269,13 @@ fn witness_poles_carry_cancelled_weight_and_pivot_factors_for_every_backend() {
             )
             .unwrap()
         };
-        for terms in [
-            vec![(2, "x"), (0, "x")],
-            vec![(2, "1/x"), (0, "1/x")],
-        ] {
+        for terms in [vec![(2, "x"), (0, "x")], vec![(2, "1/x"), (0, "1/x")]] {
             let rows = [row(&context, &terms)];
             let (result, witness) = witnessed(&rows, 2);
-            assert!(result.iter().all(|term| term.coefficient.is_one()), "{backend:?}");
+            assert!(
+                result.iter().all(|term| term.coefficient.is_one()),
+                "{backend:?}"
+            );
             assert!(witness.recorded, "{backend:?}");
             assert_eq!(witness.denominators.len(), 1, "{backend:?} {terms:?}");
             assert_eq!(

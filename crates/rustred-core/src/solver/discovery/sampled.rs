@@ -568,8 +568,15 @@ fn weight_denominator<const N: usize>(
     for &p in primes.iter().take(12) {
         let f = Fp { p };
         let weights: Vec<u64> = info.weights.iter().map(|&w| w % p).collect();
-        let image =
-            recon::prime_image(&oracle, &f, &boxes, &weights, &mut norm, rng.next(), threads)?;
+        let image = recon::prime_image(
+            &oracle,
+            &f,
+            &boxes,
+            &weights,
+            &mut norm,
+            rng.next(),
+            threads,
+        )?;
         confirmed = lift.add(p, &image);
         if confirmed {
             break;
@@ -601,12 +608,7 @@ fn weight_denominator<const N: usize>(
     let l_scale = lcm_denominators(l_coeffs);
     let l_poly = integer_poly(template, &boxes.l_mons, l_coeffs, &l_scale);
     let restored = variables
-        .restore_coefficient(&Coefficient::from_num_den(
-            l_poly.one(),
-            l_poly,
-            &Z,
-            false,
-        ))
+        .restore_coefficient(&Coefficient::from_num_den(l_poly.one(), l_poly, &Z, false))
         .map_err(|e| e.to_string())?;
     extra.push(restored.denominator);
     Ok(WitnessPoles::recorded(extra))

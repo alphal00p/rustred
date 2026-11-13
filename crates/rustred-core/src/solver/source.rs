@@ -496,9 +496,11 @@ fn reference_source_order(row: &RowId, loops: usize, externals: usize) -> (usize
 /// guard-fix (helper Y3c/Y3e item f): a polynomial that contains an index variable (`indices` = their positions).
 fn has_index_variable(polynomial: &CoefficientPolynomial, indices: &[usize]) -> bool {
     polynomial.nvars() > 0
-        && polynomial
-            .exponents_iter()
-            .any(|exponents| indices.iter().any(|&i| i < exponents.len() && exponents[i] != 0))
+        && polynomial.exponents_iter().any(|exponents| {
+            indices
+                .iter()
+                .any(|&i| i < exponents.len() && exponents[i] != 0)
+        })
 }
 
 fn lower_relation<const N: usize>(
@@ -524,7 +526,8 @@ fn lower_relation<const N: usize>(
         // guard-fix: clearing an index-containing denominator below would hide its zero locus from every guard
         if has_index_variable(&coefficient.raw().denominator, indices) {
             return Err(SolverError::InvalidInput(
-                "guard-fix: a source relation coefficient has an index-containing denominator".into(),
+                "guard-fix: a source relation coefficient has an index-containing denominator"
+                    .into(),
             ));
         }
         let mut powers = [0_i16; N];

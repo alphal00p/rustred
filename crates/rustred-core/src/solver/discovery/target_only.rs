@@ -539,17 +539,14 @@ pub(super) fn check_witness_at_random_point<const N: usize>(
     use symbolica::domains::finite_field::{ToFiniteField, Zp64};
     use symbolica::domains::{Ring, RingOps};
     use symbolica::prelude::Integer;
-    let Some(first) = solution
-        .iter()
-        .chain(rows.iter().flatten())
-        .next()
-    else {
+    let Some(first) = solution.iter().chain(rows.iter().flatten()).next() else {
         return Ok(());
     };
     let nvars = first.coefficient.numerator.variables().len();
     let prime: u64 = 2_305_843_009_213_693_951;
     let field = Zp64::new(prime);
-    let mut state: u64 = 0x9e37_79b9_7f4a_7c15 ^ (rows.len() as u64) ^ ((weights.len() as u64) << 32);
+    let mut state: u64 =
+        0x9e37_79b9_7f4a_7c15 ^ (rows.len() as u64) ^ ((weights.len() as u64) << 32);
     let mut next = move || {
         // splitmix64
         state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
@@ -563,15 +560,22 @@ pub(super) fn check_witness_at_random_point<const N: usize>(
             .map(|_| Integer::from(1 + next() % (prime - 1)).to_finite_field(&field))
             .collect();
         let eval = |c: &Coefficient| -> Option<<Zp64 as symbolica::domains::Set>::Element> {
-            let num = c.numerator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &point, &field);
-            let den = c.denominator.evaluate_with_coeff_map(|v| v.to_finite_field(&field), &point, &field);
+            let num =
+                c.numerator
+                    .evaluate_with_coeff_map(|v| v.to_finite_field(&field), &point, &field);
+            let den = c.denominator.evaluate_with_coeff_map(
+                |v| v.to_finite_field(&field),
+                &point,
+                &field,
+            );
             if field.is_zero(&den) {
                 None
             } else {
                 Some(field.div(&num, &den))
             }
         };
-        let mut acc: BTreeMap<Integral<N>, <Zp64 as symbolica::domains::Set>::Element> = BTreeMap::new();
+        let mut acc: BTreeMap<Integral<N>, <Zp64 as symbolica::domains::Set>::Element> =
+            BTreeMap::new();
         for (j, w) in weights {
             let Some(wv) = eval(w) else { continue 'attempt };
             let row = rows
@@ -581,13 +585,17 @@ pub(super) fn check_witness_at_random_point<const N: usize>(
                 if term.coefficient.is_zero() {
                     continue;
                 }
-                let Some(v) = eval(&term.coefficient) else { continue 'attempt };
+                let Some(v) = eval(&term.coefficient) else {
+                    continue 'attempt;
+                };
                 let e = acc.entry(term.integral).or_insert_with(|| field.zero());
                 *e = field.add(&*e, &field.mul(&wv, &v));
             }
         }
         for term in solution {
-            let Some(v) = eval(&term.coefficient) else { continue 'attempt };
+            let Some(v) = eval(&term.coefficient) else {
+                continue 'attempt;
+            };
             let e = acc.entry(term.integral).or_insert_with(|| field.zero());
             *e = field.sub(&*e, &v);
         }
