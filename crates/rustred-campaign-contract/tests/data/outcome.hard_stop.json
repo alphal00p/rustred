@@ -1,0 +1,105 @@
+{
+  "job": {
+    "schema": "rustred.child-job.outcome.v1",
+    "job_id": "a71d0c9e",
+    "attempt": 1,
+    "kind": "generate",
+    "spec_blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "budget",
+    "exit_code": 21,
+    "stop": {
+      "code": "budget_wall",
+      "detail": null,
+      "source": null,
+      "graceful": false
+    },
+    "program": {
+      "name": "rr_node",
+      "version": "0.1.0",
+      "git_commit": "unknown",
+      "features": [
+        "initial_presented"
+      ],
+      "exe": null
+    },
+    "effective": null,
+    "seed": {
+      "sample_seed": 0,
+      "point_source": "seed"
+    },
+    "inputs": [],
+    "counters": {
+      "cases": 0,
+      "seeds": 0,
+      "rows": 0,
+      "probe_evals": 0,
+      "reducer_rows": 0,
+      "trace_rows_max": 0,
+      "lift_monomials": 0,
+      "rhs_terms": 0,
+      "numeric_points": 0,
+      "rules_committed": 0
+    },
+    "budgets": {
+      "work": {
+        "cases": 1,
+        "seeds_per_case": 200000,
+        "rows_per_case": null,
+        "probe_evals_per_case": null,
+        "trace_rows_max": null
+      },
+      "wall": {
+        "case_s": 300,
+        "job_s": 10800
+      },
+      "mem_soft_bytes": 4500000000,
+      "hit": null
+    },
+    "time_decisions": [
+      {
+        "what": "case_wall",
+        "case_ordinal": 0,
+        "rule": null,
+        "limit_s": 300.0,
+        "measured_s": 300.2,
+        "taken": "hard_stop"
+      }
+    ],
+    "time_decided": true,
+    "per_case": [],
+    "outputs": {
+      "table": {
+        "path": "out/F.table.jsonl",
+        "bytes": null,
+        "blake3": null,
+        "records": null,
+        "rules": 0,
+        "rules_committed": 0,
+        "committed_bytes": 2048,
+        "prefix_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+        "sealed": false,
+        "end": null,
+        "canonical_blake3": null,
+        "witness_loci_elided": 0
+      },
+      "cert": null,
+      "queue": null,
+      "events": null,
+      "resume": null,
+      "extra": []
+    },
+    "timing": {
+      "started_utc": null,
+      "finished_utc": null,
+      "wall_s": null,
+      "cpu_s": null
+    },
+    "memory": {
+      "vmhwm_kb": null,
+      "rss_kb_at_end": null,
+      "helpers_peak_rss_kb": null
+    },
+    "error": null,
+    "resumed": false
+  }
+}
