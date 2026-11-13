@@ -49,6 +49,11 @@
 //! The owner JSON records the selected backend. Discovery and owner guards
 //! are unchanged.
 //!
+//! `--cert` (bebe-cert) also writes `<dir>/<label>.cert.jsonl`: the exact
+//! per-rule IBP certificate of the payload just written (`rustred p-certify`,
+//! schema `rustred.p-rule-certificate.v1`; the presentation's non-square ISP
+//! slots are the flagged dot axes). The payload and owner record are unchanged.
+//!
 //! --trial-log streams compact case/trial diagnostics from the native callback
 //! before bounded session retention, including failed-owner work. It is off
 //! by default. Owner records retain the native aggregate generation TOML.
@@ -96,6 +101,7 @@ struct Arguments {
     discovery: Option<PathBuf>,
     list: bool,
     trial_log: Option<PathBuf>,
+    cert: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -106,6 +112,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut integral_order, mut discovery, mut list) = (None, None, false);
     let mut exact_backend = CandidateExactBackend::default();
     let mut trial_log = None;
+    let mut cert = false;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -124,6 +131,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--list" => "--list",
             "--exact-backend" => "--exact-backend",
             "--trial-log" => "--trial-log",
+            "--cert" => "--cert",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if option != "--owner" && !seen.insert(option) {
@@ -193,6 +201,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             }
             "--discovery" => discovery = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--list" => list = true,
+            "--cert" => cert = true,
             _ => force = true,
         }
     }
@@ -214,6 +223,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         discovery,
         list,
         trial_log,
+        cert,
     })
 }
 
@@ -349,8 +359,13 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let destination = |label: &str, extension: &str| {
         StreamPath::File(arguments.out.join(format!("{label}.{extension}")))
     };
+    let extensions: &[&str] = if arguments.cert {
+        &["rrbin", "json", "cert.jsonl"]
+    } else {
+        &["rrbin", "json"]
+    };
     for (label, _) in &selected {
-        for extension in ["rrbin", "json"] {
+        for extension in extensions {
             preflight_output_destination(&destination(label, extension), arguments.force)?;
         }
     }
@@ -518,6 +533,34 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             format!("{json}\n").as_bytes(),
             arguments.force,
         )?;
+        if arguments.cert {
+            let dot_axes = presentation
+                .slots
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, form)| match form {
+                    rustred::propagator::presentation::Slot::Isp(isp)
+                        if isp.left != isp.right
+                            && isp.left.iter().zip(&isp.right).any(|(l, r)| *l != -r) =>
+                    {
+                        Some(slot)
+                    }
+                    _ => None,
+                })
+                .collect();
+            let options = crate::application::RuleCertificateOptions {
+                dot_axes,
+                only: Vec::new(),
+                provenance: serde_json::json!({
+                    "payload": arguments.out.join(format!("{label}.rrbin")).display().to_string(),
+                    "payload_bytes": payload.bytes.len(),
+                    "command": "rustred p-generate --cert",
+                }),
+            };
+            let path = arguments.out.join(format!("{label}.cert.jsonl"));
+            let summary = super::certify::certify_payload(&payload.bytes, &path, &options)?;
+            writeln!(stdout, "{label} certificate: {summary}").map_err(report_error)?;
+        }
         writeln!(
             stdout,
             "{label} node {} L{} eps {}: {} rules over {} charts, {} residuals (LP {}), {} bytes, {:.3} s",
@@ -619,6 +662,7 @@ mod tests {
                 discovery: None,
                 list: false,
                 trial_log: None,
+                cert: false,
             }
         );
         let all = [

@@ -33,6 +33,8 @@ pub struct BasisDerivation {
 
 /// One multiplier of a rule certificate.
 pub struct FrameEntry<const N: usize> {
+    /// Ordinal of the seed in `RuleCandidate::sources`.
+    pub source: usize,
     pub basis_row: usize,
     /// Seed in the rule's canonical frame: symbolic axes carry their offset
     /// from `n`, numeric axes the absolute power.
@@ -53,6 +55,21 @@ pub struct RuleFrame<const N: usize> {
     /// certificate says nothing at an integer point on such a locus, even
     /// though the rule itself is regular there. Not intersected with the case.
     pub weight_poles: Vec<Vec<CoefficientPolynomial>>,
+    /// Every index-dependent denominator locus of the multipliers, before the
+    /// rule's exceptions are removed (`weight_poles` is a subset).
+    pub all_weight_poles: Vec<Vec<CoefficientPolynomial>>,
+}
+
+/// One multiplier of an ORIGINAL ordinary source row (bebe-cert): the frame
+/// weights composed with the checked basis derivation `B_k = sum_m P_km R_m`.
+pub struct OriginalEntry<const N: usize> {
+    /// Row ordinal in [`SourceSystem::rows`].
+    pub row: usize,
+    /// The seed (as stored) at which row `row` is instantiated.
+    pub seed: super::Seed<N>,
+    /// The seed in the rule's canonical frame (as [`FrameEntry::at`]).
+    pub at: Integral<N>,
+    pub weight: Coefficient,
 }
 
 fn failed(message: impl Into<String>) -> SolverError {
@@ -307,21 +324,24 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             stats: Default::default(),
             hidden_poles: Vec::new(),
         };
-        let weight_poles = extract_exceptions(&weight_candidate, indices, self.order.sector())
+        let all_weight_poles = extract_exceptions(&weight_candidate, indices, self.order.sector())
             .map_err(|error| failed(format!("weight poles: {error}")))?
-            .branches
-            .into_iter()
+            .branches;
+        let weight_poles = all_weight_poles
+            .iter()
             .filter(|branch| !rule.exceptions.branches.contains(branch))
+            .cloned()
             .collect();
 
         let mut entries = Vec::new();
         let mut zero_weights = 0;
-        for (source, weight) in candidate.sources.iter().zip(weights) {
+        for (ordinal, (source, weight)) in candidate.sources.iter().zip(weights).enumerate() {
             if weight.is_zero() {
                 zero_weights += 1;
                 continue;
             }
             entries.push(FrameEntry {
+                source: ordinal,
                 basis_row: source.basis_row,
                 at: source.seed.integral.shifted(recenter)?,
                 weight,
@@ -333,6 +353,124 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             via,
             zero_weights,
             weight_poles,
+            all_weight_poles,
         })
+    }
+
+    /// The multipliers of `frame` on the ORIGINAL ordinary source rows
+    /// (bebe-cert): `w_j * P_{k_j m}` with `P` from `derivation` (of this
+    /// solver), instantiated at seed `j` exactly as the source row, summed per
+    /// (row, seed). The identity `rule = sum W R_m[seed]` is multiplied out
+    /// exactly in the canonical frame (modulo the same proved-zero sector
+    /// projection as `rule_frame`) before anything is returned.
+    pub fn original_frame(
+        &self,
+        rule: &SectorRule<N>,
+        frame: &RuleFrame<N>,
+        derivation: &BasisDerivation,
+    ) -> Result<Vec<OriginalEntry<N>>, SolverError> {
+        let candidate = &rule.candidate;
+        let indices = self.system.index_variables();
+        let fixed = self.system.fixed();
+        let affine = candidate.case.affine();
+        let zero_sectors: &[[bool; N]] = if affine.is_some() {
+            &[]
+        } else {
+            &self.config.zero_sectors
+        };
+        let recenter = frame.recenter;
+        let mut zero: Option<Coefficient> = None;
+        let mut order: Vec<(usize, Integral<N>)> = Vec::new();
+        let mut combined: HashMap<(usize, Integral<N>), (super::Seed<N>, Coefficient)> =
+            HashMap::new();
+        for entry in &frame.entries {
+            let source = candidate
+                .sources
+                .get(entry.source)
+                .ok_or_else(|| failed("frame source out of range"))?;
+            let derived = derivation
+                .rows
+                .get(entry.basis_row)
+                .ok_or_else(|| failed("derivation row out of range"))?;
+            for (m, p) in derived {
+                let numerator = super::instantiate::instantiate_polynomial(
+                    &p.numerator,
+                    &source.seed,
+                    indices,
+                    fixed,
+                    affine,
+                )?;
+                let denominator = super::instantiate::instantiate_polynomial(
+                    &p.denominator,
+                    &source.seed,
+                    indices,
+                    fixed,
+                    affine,
+                )?;
+                let value = &numerator / &denominator;
+                let value = &entry.weight * &translate(&value, indices, &recenter);
+                if value.is_zero() {
+                    continue;
+                }
+                let key = (*m, source.seed.integral);
+                match combined.get_mut(&key) {
+                    Some((_, slot)) => *slot = &*slot + &value,
+                    None => {
+                        zero.get_or_insert_with(|| value.numerator.zero().into());
+                        order.push(key);
+                        combined.insert(key, (source.seed, value));
+                    }
+                }
+            }
+        }
+        let zero = zero.ok_or_else(|| failed("original frame is empty"))?;
+        let one: Coefficient = zero.numerator.one().into();
+        let mut out = Vec::with_capacity(order.len());
+        let mut sum: HashMap<Integral<N>, Coefficient> = HashMap::new();
+        for key in order {
+            let (seed, weight) = combined.remove(&key).expect("recorded key");
+            if weight.is_zero() {
+                continue;
+            }
+            let row = instantiate(
+                &self.system.rows()[key.0],
+                &seed,
+                indices,
+                fixed,
+                &self.order,
+                zero_sectors,
+                affine,
+            )?;
+            for term in &row {
+                let at = term.integral.shifted(recenter)?;
+                let product = &weight * &translate(&term.coefficient, indices, &recenter);
+                let slot = sum.entry(at).or_insert_with(|| zero.clone());
+                *slot = &*slot + &product;
+            }
+            out.push(OriginalEntry {
+                row: key.0,
+                seed,
+                at: seed.integral.shifted(recenter)?,
+                weight,
+            });
+        }
+        let target = sum
+            .remove(&candidate.target)
+            .unwrap_or_else(|| zero.clone());
+        if target != one {
+            return Err(failed(
+                "original product check: target coefficient differs from 1",
+            ));
+        }
+        for term in &candidate.rhs {
+            let value = sum.remove(&term.integral).unwrap_or_else(|| zero.clone());
+            if !(&value + &term.coefficient).is_zero() {
+                return Err(failed("original product check: an RHS coefficient differs"));
+            }
+        }
+        if sum.values().any(|value| !value.is_zero()) {
+            return Err(failed("original product check: an extra term survives"));
+        }
+        Ok(out)
     }
 }

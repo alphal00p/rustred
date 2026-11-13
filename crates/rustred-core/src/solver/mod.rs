@@ -142,7 +142,7 @@ pub use sector::{
 };
 pub use seed::{CaseSeedSchedule, ScheduledSeeds, Seed, SeedSchedule, Seeds, ShellSeedSource};
 pub use source::SourceSystem;
-pub use table_export::{BasisDerivation, FrameEntry, RuleFrame};
+pub use table_export::{BasisDerivation, FrameEntry, OriginalEntry, RuleFrame};
 
 /// Aggregate diagnostics returned by the topology-neutral family solver.
 ///

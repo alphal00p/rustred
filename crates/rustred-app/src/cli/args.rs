@@ -299,6 +299,7 @@ pub(crate) fn parse_args(
         "p-validate" => Ok(Command::P(PSubcommand::Validate, arguments.collect())),
         "p-canary" => Ok(Command::P(PSubcommand::Canary, arguments.collect())),
         "p-import-table" => Ok(Command::P(PSubcommand::ImportTable, arguments.collect())),
+        "p-certify" => Ok(Command::P(PSubcommand::Certify, arguments.collect())),
         "litered-reduce" => Ok(Command::LiteRedReduce(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),
         "preparation-monitor" => Ok(Command::PreparationMonitor(arguments.collect())),
