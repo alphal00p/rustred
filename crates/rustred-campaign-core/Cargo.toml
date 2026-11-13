@@ -16,3 +16,6 @@ path = "src/lib.rs"
 rustred-order = { path = "../rustred-order" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+
+[dev-dependencies]
+proptest = "1"
