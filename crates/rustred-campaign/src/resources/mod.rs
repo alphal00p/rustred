@@ -139,10 +139,10 @@ pub fn live_thread_stat(pid: u32) -> io::Result<Option<ProcStat>> {
         else {
             continue;
         };
-        if let Some(st) = read_stat_path(pid, &format!("/proc/{pid}/task/{tid}/stat"))? {
-            if !st.is_dead() {
-                return Ok(Some(st));
-            }
+        if let Some(st) = read_stat_path(pid, &format!("/proc/{pid}/task/{tid}/stat"))?
+            && !st.is_dead()
+        {
+            return Ok(Some(st));
         }
     }
     Ok(None)
@@ -270,13 +270,11 @@ fn cgroup_headroom() -> Option<u64> {
         if let (Ok(max), Ok(current)) = (
             fs::read_to_string(path.join("memory.max")),
             fs::read_to_string(path.join("memory.current")),
-        ) {
-            if let (Ok(max), Ok(current)) =
-                (max.trim().parse::<u64>(), current.trim().parse::<u64>())
-            {
-                let h = max.saturating_sub(current);
-                best = Some(best.map_or(h, |b| b.min(h)));
-            }
+        ) && let (Ok(max), Ok(current)) =
+            (max.trim().parse::<u64>(), current.trim().parse::<u64>())
+        {
+            let h = max.saturating_sub(current);
+            best = Some(best.map_or(h, |b| b.min(h)));
         }
         if path == root || !path.pop() {
             break;
@@ -407,11 +405,14 @@ pub fn parse_cpu_times(text: &str) -> BTreeMap<usize, (u64, u64)> {
     out
 }
 
+/// Per-CPU (idle + iowait, total) jiffies.
+pub type CpuTimes = BTreeMap<usize, (u64, u64)>;
+
 /// Per-CPU idleness from /proc/stat deltas between two calls of [`IdleTracker::refresh`] (the pick.py rule, without its
 /// 3 s sleep: the control loop refreshes once per tick, and the delta spans the time between refreshes).
 #[derive(Debug, Default)]
 pub struct IdleTracker {
-    prev: Option<(std::time::Instant, BTreeMap<usize, (u64, u64)>)>,
+    prev: Option<(std::time::Instant, CpuTimes)>,
     idle: BTreeMap<usize, f64>,
     span: Option<std::time::Duration>,
 }

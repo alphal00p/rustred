@@ -234,10 +234,10 @@ impl CpuSpec {
                 .map(CpuSpec::Count)
                 .map_err(|_| format!("bad count {n:?}"));
         }
-        if !s.contains([',', '-']) {
-            if let Ok(n) = s.parse::<usize>() {
-                return Ok(CpuSpec::Count(n));
-            }
+        if !s.contains([',', '-'])
+            && let Ok(n) = s.parse::<usize>()
+        {
+            return Ok(CpuSpec::Count(n));
         }
         parse_cpu_list(s).map(CpuSpec::List)
     }
@@ -527,10 +527,11 @@ fn parse_lenient(s: &str) -> BTreeSet<usize> {
     let mut out = BTreeSet::new();
     for part in s.split([' ', ',']).filter(|p| !p.is_empty()) {
         if let Some((a, b)) = part.split_once('-') {
-            if let (Ok(a), Ok(b)) = (a.parse::<usize>(), b.parse::<usize>()) {
-                if a <= b && b - a < 4096 {
-                    out.extend(a..=b);
-                }
+            if let (Ok(a), Ok(b)) = (a.parse::<usize>(), b.parse::<usize>())
+                && a <= b
+                && b - a < 4096
+            {
+                out.extend(a..=b);
             }
         } else if let Ok(n) = part.parse::<usize>() {
             out.insert(n);

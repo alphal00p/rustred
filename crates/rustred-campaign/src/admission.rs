@@ -8,8 +8,8 @@
 //! ```
 //!
 //! MemAvailable already reflects what running jobs USE; `cap_i - rss_i` is what each may still grow (the
-//! "reserved-but-not-yet-used memory of started jobs" of the rule); the candidate is charged its cap (= expected peak
-//! + margin >= expected peak, so the literal "MemAvailable - expected peak >= floor" holds a fortiori). Candidates
+//! "reserved-but-not-yet-used memory of started jobs" of the rule); the candidate is charged its cap (= expected
+//! peak plus margin >= expected peak, so the literal "MemAvailable - expected peak >= floor" holds a fortiori). Candidates
 //! admitted earlier in the same batch count as running jobs with rss 0. GB = 10^9 bytes, as `ops/guarded_run.py`.
 //! Further limits: the campaign memory cap (sum of caps), and the core budget (sum of cores).
 //!
@@ -203,12 +203,12 @@ pub fn admit_one(
             why: format!("{} cores > budget {}", c.cores, policy.core_budget),
         });
     }
-    if let Some(limit) = policy.campaign_mem_cap_bytes {
-        if c.cap_bytes > limit {
-            return Decision::Wait(WaitReason::NeverFits {
-                why: format!("cap {} > campaign memory cap {limit}", c.cap_bytes),
-            });
-        }
+    if let Some(limit) = policy.campaign_mem_cap_bytes
+        && c.cap_bytes > limit
+    {
+        return Decision::Wait(WaitReason::NeverFits {
+            why: format!("cap {} > campaign memory cap {limit}", c.cap_bytes),
+        });
     }
     let in_use: usize = running.iter().map(|j| j.cores).sum();
     if in_use + c.cores > policy.core_budget {

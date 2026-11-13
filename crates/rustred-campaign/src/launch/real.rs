@@ -172,7 +172,7 @@ fn nofile_limit() -> RawFd {
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut r) } != 0 {
         return 1024;
     }
-    (r.rlim_cur as u64).clamp(64, 1 << 20) as RawFd
+    r.rlim_cur.clamp(64, 1 << 20) as RawFd
 }
 
 /// Peek at a child's exit without reaping it (`waitid(P_PID, WEXITED | WNOHANG | WNOWAIT)`).
@@ -613,12 +613,12 @@ impl RealChild {
     }
 
     fn finish(&mut self, verified: bool) -> FinalReport {
-        if let Some(mut c) = self.child.take() {
-            if self.exit.is_some() {
-                let _ = c.wait(); // immediate: the zombie is waiting
-            }
-            // else: the leader never exited (D state); dropping Child neither kills nor reaps.
+        if let Some(mut c) = self.child.take()
+            && self.exit.is_some()
+        {
+            let _ = c.wait(); // immediate: the zombie is waiting
         }
+        // else: the leader never exited (D state); dropping Child neither kills nor reaps.
         self.sampler.untrack(self.sid);
         if let Some(cg) = self.cgroup.take() {
             cg.remove();
@@ -740,29 +740,29 @@ impl ChildHandle for RealChild {
         let now = Instant::now();
         self.poll_exit()?;
         let snap = self.sampler.latest();
-        if let Some(s) = snap.as_deref() {
-            if s.started_at >= self.launched_at {
-                if let Some(u) = s.session(self.sid) {
-                    self.peak_rss = self.peak_rss.max(u.rss_bytes);
-                    self.cpu_ticks = self.cpu_ticks.max(u.cpu_ticks);
-                    self.last_usage = Some(u.clone());
-                }
-            }
+        if let Some(s) = snap.as_deref()
+            && s.started_at >= self.launched_at
+            && let Some(u) = s.session(self.sid)
+        {
+            self.peak_rss = self.peak_rss.max(u.rss_bytes);
+            self.cpu_ticks = self.cpu_ticks.max(u.cpu_ticks);
+            self.last_usage = Some(u.clone());
         }
         // Memory cap (sampling, or the cgroup's own OOM kill).
         let cap_hit = matches!(self.kill_reason, Some(KillReason::MemoryCap { .. }));
-        if self.exit.is_none() && !cap_hit {
-            if let Some(cap) = self.memory_cap {
-                let rss = self.last_usage.as_ref().map_or(0, |u| u.rss_bytes);
-                let oom = self.cgroup.as_ref().is_some_and(|c| c.oom_kills() > 0);
-                if rss > cap || oom {
-                    // A cap kill overrides a pending graceful stop: the job is over its reservation now.
-                    self.kill_reason = Some(KillReason::MemoryCap {
-                        rss_bytes: rss.max(self.peak_rss),
-                        cap_bytes: cap,
-                    });
-                    self.sigkill_all();
-                }
+        if self.exit.is_none()
+            && !cap_hit
+            && let Some(cap) = self.memory_cap
+        {
+            let rss = self.last_usage.as_ref().map_or(0, |u| u.rss_bytes);
+            let oom = self.cgroup.as_ref().is_some_and(|c| c.oom_kills() > 0);
+            if rss > cap || oom {
+                // A cap kill overrides a pending graceful stop: the job is over its reservation now.
+                self.kill_reason = Some(KillReason::MemoryCap {
+                    rss_bytes: rss.max(self.peak_rss),
+                    cap_bytes: cap,
+                });
+                self.sigkill_all();
             }
         }
         // Escalation.
@@ -782,10 +782,10 @@ impl ChildHandle for RealChild {
         }
         // Leader stuck after SIGKILL beyond the verify timeout (D state): give up, report.
         if self.exit.is_none() {
-            if let Some(k) = self.sigkill_at {
-                if now.duration_since(k) > self.config.verify_timeout {
-                    return Ok(ChildProgress::Finished(self.finish(false)));
-                }
+            if let Some(k) = self.sigkill_at
+                && now.duration_since(k) > self.config.verify_timeout
+            {
+                return Ok(ChildProgress::Finished(self.finish(false)));
             }
             return Ok(if self.sigterm_sent || self.sigkill_at.is_some() {
                 ChildProgress::Stopping

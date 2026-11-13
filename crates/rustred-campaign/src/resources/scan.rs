@@ -170,10 +170,10 @@ impl Sampler {
         self.request_now();
         let mut guard = lock(&self.shared.latest);
         loop {
-            if let Some(s) = guard.as_ref() {
-                if s.started_at > after {
-                    return Some(Arc::clone(s));
-                }
+            if let Some(s) = guard.as_ref()
+                && s.started_at > after
+            {
+                return Some(Arc::clone(s));
             }
             let now = Instant::now();
             if now >= deadline {
@@ -199,10 +199,10 @@ impl Drop for Sampler {
         self.shared.stop.store(true, Ordering::SeqCst);
         self.request_now();
         // A scan blocked in the kernel would block a join; the thread holds only Arcs, so detaching is safe.
-        if let Some(t) = self.thread.take() {
-            if t.is_finished() {
-                let _ = t.join();
-            }
+        if let Some(t) = self.thread.take()
+            && t.is_finished()
+        {
+            let _ = t.join();
         }
     }
 }
@@ -304,12 +304,12 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         } else {
             st
         };
-        if let Some(p) = pinned.as_mut() {
-            if !tracked.contains(&st.session) && pid != std::process::id() {
-                if let Some(set) = restricted_affinity(pid, ncpu) {
-                    p.extend(set);
-                }
-            }
+        if let Some(p) = pinned.as_mut()
+            && !tracked.contains(&st.session)
+            && pid != std::process::id()
+            && let Some(set) = restricted_affinity(pid, ncpu)
+        {
+            p.extend(set);
         }
         all.push(st);
     }

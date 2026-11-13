@@ -205,10 +205,10 @@ impl Proc {
                 best = cand;
             }
         }
-        if let Some(k) = self.killed_at {
-            if k < best.0 {
-                best = (k, sigkill, true);
-            }
+        if let Some(k) = self.killed_at
+            && k < best.0
+        {
+            best = (k, sigkill, true);
         }
         best
     }
@@ -220,11 +220,13 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+type Chooser = Box<dyn FnMut(&LaunchSpec) -> Script + Send>;
+
 /// The fake launcher. Scripts are taken in order, or chosen per spec by a closure.
 pub struct ScriptedLauncher {
     time: Arc<dyn TimeSource>,
     scripts: VecDeque<Script>,
-    chooser: Option<Box<dyn FnMut(&LaunchSpec) -> Script + Send>>,
+    chooser: Option<Chooser>,
     events: Arc<Mutex<Vec<FakeEvent>>>,
     registry: Registry,
     next_pid: u32,

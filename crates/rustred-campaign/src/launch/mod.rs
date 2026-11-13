@@ -149,8 +149,9 @@ impl FinalReport {
     }
 }
 
-/// Result of polling a child.
+/// Result of polling a child (the report is large but returned once per child).
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ChildProgress {
     Running,
     /// Termination requested or the leader exited; waiting for grace, kills, or the empty-session check.
