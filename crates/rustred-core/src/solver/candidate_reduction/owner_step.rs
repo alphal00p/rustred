@@ -16,6 +16,10 @@ use crate::family::IntegralKey;
 use crate::reduction::{ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::OrderingPolicy;
 
+/// boxed-node: batches with at least this many rules dispatch through their
+/// exact-key point-rule index (smaller ones scan; both select the same rule).
+pub(crate) const POINT_INDEX_MIN_RULES: usize = 64;
+
 /// The outcome of one owner step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AppliedOwnerStep {
@@ -78,8 +82,15 @@ pub(crate) fn apply_prepared_owner<const N: usize>(
             zero_sectors: &shared.zero_sectors,
             limits,
         };
+        // boxed-node: a large batch dispatches through its exact-key index
+        // of point rules; the selected rule is the same (`PointRuleIndex`).
+        let candidates = (batch.rules.len() >= POINT_INDEX_MIN_RULES).then(|| {
+            batch
+                .point_index(key.powers().len())
+                .candidates(key.powers())
+        });
         Ok(evaluator
-            .apply_with_conditions_rule(key, request, work)
+            .apply_with_conditions_rule_among(key, candidates.as_deref(), request, work)
             .map(|(terms, local, rule)| {
                 position = rule;
                 for condition in local {
@@ -261,6 +272,86 @@ mod tests {
         }
         assert!(conditions.is_empty());
         assert_eq!(work.rule_applications(), 1);
+    }
+
+    /// boxed-node: `I(n, 1) -> n I(n - 1, 1)` for `n = 2..=81` (80 point
+    /// rules, above [`POINT_INDEX_MIN_RULES`]), a terminal at `I(1, 1)`.
+    #[derive(Debug)]
+    struct PointLoader;
+
+    impl DeferredCandidateOwnerLoader<2> for PointLoader {
+        fn prepare(
+            &self,
+            sector: [bool; 2],
+            context: Arc<CandidateOwnerContext<2>>,
+        ) -> Result<CandidateOwnerPrograms<2>, CandidateReductionError> {
+            let family = Arc::clone(context.family_owner());
+            let rules = (2..=81_i16)
+                .map(|n| rule(&family, [n, 1], &[([n - 1, 1], i64::from(n))]))
+                .collect();
+            CandidateOwnerPrograms::try_new(context, [input(sector, None, rules, &[[1, 1]])])
+        }
+    }
+
+    /// boxed-node: a batch of point rules dispatches through its exact-key
+    /// index and selects what the linear first-match scan selects: the rule
+    /// fixed at the key, at its position; a key without a point rule is
+    /// uncovered, the terminal stays a terminal.
+    #[test]
+    fn a_batch_of_point_rules_dispatches_by_exact_key() {
+        let family = bubble(0);
+        let context = Arc::new(
+            CandidateOwnerContext::<2>::try_new_p(
+                Arc::clone(&family),
+                scope(),
+                vec![],
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        let coefficients = family.coefficient_context().clone();
+        let programs = DeferredCandidateOwnerPrograms::try_new(
+            context,
+            [DeferredCandidateOwnerDescriptor {
+                sector: [true, true],
+                saved_root: [true; 2],
+                ordering: OrderingPolicy::SpiredUncutV1,
+                terminals: BTreeSet::from([key([1, 1])]),
+            }],
+            Arc::new(PointLoader),
+        )
+        .unwrap();
+        let mut request = ReductionRequest::default();
+        let mut work = ReductionStatistics::default();
+        let mut conditions = Vec::new();
+        let mut step = |powers| {
+            apply_prepared_owner(
+                &programs,
+                &[true, true],
+                &key(powers),
+                &mut conditions,
+                &mut request,
+                &mut work,
+                &ReductionLimits::default(),
+            )
+            .unwrap()
+        };
+        assert_eq!(step([1, 1]), AppliedOwnerStep::Terminal);
+        for n in [2_i64, 3, 40, 81] {
+            assert_eq!(
+                step([n, 1]),
+                AppliedOwnerStep::Applied(
+                    BTreeMap::from([(key([n - 1, 1]), coefficients.integer(n))]),
+                    usize::try_from(n - 2).unwrap()
+                ),
+                "I({n}, 1)"
+            );
+        }
+        assert_eq!(step([82, 1]), AppliedOwnerStep::Uncovered);
+        assert_eq!(step([2, 2]), AppliedOwnerStep::Uncovered);
+        let owner = programs.owner(&[true, true]).unwrap().unwrap();
+        assert_eq!(owner.batches[0].rules.len(), 80);
+        assert!(owner.batches[0].point_index.get().is_some());
     }
 
     /// A guard of the owner reaches the caller, once however often the step runs.

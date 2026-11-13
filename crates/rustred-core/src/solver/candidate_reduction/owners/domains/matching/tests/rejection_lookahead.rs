@@ -306,6 +306,7 @@ fn rejection_lookahead_uses_current_cut_and_preserves_batch_terminal_priority() 
         rules: vec![],
         terminals: [IntegralKey::try_new([2, 2, 0]).unwrap()].into(),
         deferred_points: None,
+        point_index: Default::default(),
         coalescing_bound: 0,
         overlay: None,
     }));

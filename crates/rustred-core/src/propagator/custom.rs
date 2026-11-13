@@ -66,6 +66,7 @@ use super::lane::OwnerLane;
 use super::library::{CustomOwnerMeta, PTerminal};
 use super::presentation::{Presentation, PresentationKind};
 use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut};
+use super::table_import::BoxedNodeRecord;
 use super::{OwnerClassId, PTerminalId, PresentationId};
 
 /// Bundle schemas a payload may carry: the generated candidate bundle without
@@ -303,6 +304,13 @@ pub fn inspect_custom_payload(payload: &[u8]) -> Result<CustomPayloadSummary, PE
             })
             .collect(),
     })
+}
+
+/// boxed-node: the box record of a payload imported from a boxed table, or
+/// `None`. Read from the payload's structure alone (no coefficient).
+pub fn custom_payload_boxed_node(payload: &[u8]) -> Result<Option<BoxedNodeRecord>, PError> {
+    let structure = read_structure(payload)?;
+    super::table_import::boxed_node_of_source(&structure.program.family_source)
 }
 
 /// The owner support of a Custom presentation: the sector of an induced
@@ -755,6 +763,8 @@ pub struct CustomStep<const N: usize> {
     charts: Vec<u64>,
     residuals: BTreeSet<IntegralKey>,
     programs: DeferredCandidateOwnerPrograms<N>,
+    /// boxed-node: the box of a boxed table's payload.
+    boxed: Option<Arc<BoxedNodeRecord>>,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -766,6 +776,10 @@ impl<const N: usize> fmt::Debug for CustomStep<N> {
             .field("support", &format_args!("{:#x}", self.support))
             .field("charts", &self.charts)
             .field("residuals", &self.residuals)
+            .field(
+                "boxed",
+                &self.boxed.as_ref().map(|record| record.describe()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -788,6 +802,26 @@ impl<const N: usize> CustomStep<N> {
 
     fn chart(&self, powers: &[i64]) -> [bool; N] {
         std::array::from_fn(|slot| powers.get(slot).copied().unwrap_or(0) > 0)
+    }
+
+    /// The box record of a boxed owner.
+    pub fn boxed(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
+    }
+
+    /// The typed refusal of a key no rule covers: [`PError::OutsideBox`] for a
+    /// key outside a boxed owner's box, [`PError::Uncovered`] otherwise (inside
+    /// the box it is a defect of a partial table).
+    fn uncovered(&self, class: OwnerClassId, key: IntegralKey) -> PError {
+        match &self.boxed {
+            Some(record) if !record.contains(key.powers()) => PError::OutsideBox {
+                class,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+            },
+            _ => PError::Uncovered { class, key },
+        }
     }
 
     fn support_of(&self, powers: &[i64]) -> u64 {
@@ -899,6 +933,17 @@ fn step_error(class: OwnerClassId, error: CandidateReductionError) -> PError {
     }
 }
 
+impl<const N: usize> CustomStep<N> {
+    /// [`step_error`], with a boxed owner's uncovered key outside its box as
+    /// [`PError::OutsideBox`].
+    fn step_error(&self, class: OwnerClassId, error: CandidateReductionError) -> PError {
+        match error {
+            CandidateReductionError::Uncovered { target } => self.uncovered(class, target),
+            other => step_error(class, other),
+        }
+    }
+}
+
 impl<const N: usize> PLaneStep for CustomStep<N> {
     fn lane(&self) -> OwnerLane {
         OwnerLane::Custom
@@ -927,7 +972,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             &mut work,
             cx.limits,
         )
-        .map_err(|error| step_error(class, error))?;
+        .map_err(|error| self.step_error(class, error))?;
         let mut out = PStepOut {
             conditions,
             ..PStepOut::default()
@@ -939,10 +984,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
                 out.terminals.push((terminal, key.tag.clone(), one));
             }
             AppliedOwnerStep::Uncovered => {
-                return Err(PError::Uncovered {
-                    class,
-                    key: integral,
-                });
+                return Err(self.uncovered(class, integral));
             }
             AppliedOwnerStep::Applied(terms, position) => {
                 record_rule_hit(mask(&chart), position);
@@ -983,6 +1025,10 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))?;
         Ok(POrderKey::Complexity(key))
+    }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.boxed.as_ref().map(|record| record.contains(powers))
     }
 }
 
@@ -1163,6 +1209,17 @@ fn build<const N: usize>(
         )));
     }
     check_residual_positions(forced, &residuals)?;
+    let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    if let Some(record) = &boxed {
+        let held: BTreeSet<Vec<i64>> = residuals.iter().map(|key| key.powers().to_vec()).collect();
+        let declared: BTreeSet<Vec<i64>> = record.terminals.iter().cloned().collect();
+        if held != declared || record.chart.len() != arity || program.sectors.len() != 1 {
+            return Err(payload_error(format!(
+                "boxed node {}: the record's terminals or chart do not describe the payload",
+                record.node
+            )));
+        }
+    }
     let proofs = zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
@@ -1224,6 +1281,7 @@ fn build<const N: usize>(
         charts,
         residuals: residuals.into_iter().collect(),
         programs,
+        boxed: boxed.map(Arc::new),
     };
     if prepare {
         step.prepare_charts()?;
@@ -1360,13 +1418,10 @@ impl<const N: usize> PCustomFallback for CustomStep<N> {
             &mut ReductionStatistics::default(),
             limits,
         )
-        .map_err(|error| step_error(class, error))?;
+        .map_err(|error| self.step_error(class, error))?;
         match applied {
             AppliedOwnerStep::Terminal => Ok(PFallbackApplied::Residual),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class,
-                key: integral,
-            }),
+            AppliedOwnerStep::Uncovered => Err(self.uncovered(class, integral)),
             AppliedOwnerStep::Applied(terms, _) => {
                 let mut children = Vec::with_capacity(terms.len());
                 for (child, coefficient) in terms {
@@ -1447,6 +1502,9 @@ trait CustomOwnerOps {
     fn is_residual(&self, powers: &[i64]) -> bool;
     fn apply_powers(&self, powers: &[i64]) -> Result<Applied, PError>;
     fn order_of(&self, powers: &[i64]) -> Result<crate::sector::ComplexityKey, PError>;
+    fn box_contains(&self, powers: &[i64]) -> Option<bool>;
+    /// A boxed owner whose box is not closed (a partial table).
+    fn box_partial(&self) -> bool;
 }
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
@@ -1487,13 +1545,10 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
             &mut ReductionStatistics::default(),
             &ReductionLimits::default(),
         )
-        .map_err(|error| step_error(OwnerClassId(0), error))?;
+        .map_err(|error| self.step_error(OwnerClassId(0), error))?;
         match applied {
             AppliedOwnerStep::Terminal => Ok(Applied::Terminal),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class: OwnerClassId(0),
-                key: integral,
-            }),
+            AppliedOwnerStep::Uncovered => Err(self.uncovered(OwnerClassId(0), integral)),
             AppliedOwnerStep::Applied(terms, _) => Ok(Applied::Children(
                 terms
                     .into_iter()
@@ -1510,6 +1565,14 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
         ordering
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))
+    }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.boxed.as_ref().map(|record| record.contains(powers))
+    }
+
+    fn box_partial(&self) -> bool {
+        self.boxed.as_ref().is_some_and(|record| !record.complete)
     }
 }
 
@@ -1555,6 +1618,8 @@ pub struct CustomPayloadCheck {
     pub subsector_children: usize,
     /// Witness keys that are residuals of the owner.
     pub terminals: usize,
+    /// boxed-node: witness keys inside a partial box without rule (skipped).
+    pub open_box_keys: usize,
 }
 
 /// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
@@ -1608,8 +1673,20 @@ pub fn verify_custom_payload(
             .fold(forced, |mask, (slot, _)| mask | 1 << slot)
     };
     for key in super::descent::custom_witness_keys(arity, support, forced) {
+        // boxed-node: a boxed owner is checked inside its box only.
+        if ops.box_contains(&key) == Some(false) {
+            continue;
+        }
         let order = ops.order_of(&key)?;
-        match ops.apply_powers(&key)? {
+        let applied = match ops.apply_powers(&key) {
+            // A partial box (pilot table) has box keys without rule yet.
+            Err(PError::Uncovered { .. }) if ops.box_partial() => {
+                check.open_box_keys += 1;
+                continue;
+            }
+            other => other?,
+        };
+        match applied {
             Applied::Terminal => {
                 if !ops.is_residual(&key) {
                     return Err(fail(format!("the terminal {key:?} is no residual")));

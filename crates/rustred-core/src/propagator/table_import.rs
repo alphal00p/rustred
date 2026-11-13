@@ -161,6 +161,8 @@ pub struct ImportedOwner {
     pub order_name: String,
     /// The slot order the payload records and enforces.
     pub slot_order: SlotOrderRecord,
+    /// boxed-node: the box record of a boxed table (`None` otherwise).
+    pub boxed: Option<BoxedNodeRecord>,
 }
 
 // ----- the family -----
@@ -1227,6 +1229,411 @@ fn check_order_map(
     Ok(())
 }
 
+// ----- boxed nodes (boxed-node) -----
+
+/// Schema of the box record of a boxed table (header field `boxed_node`) and
+/// of the payload's copy of it.
+pub const BOXED_NODE_SCHEMA: &str = "rustred.boxed-node.v1";
+/// The box record is a line of the payload's provenance text (the program
+/// record's `family_source`), after this marker and before the slot order.
+pub const BOXED_NODE_MARKER: &str = "\nboxed_node ";
+/// The one box measure: on the chart (every line slot), `D = sum (a_i - 1)`
+/// over the lines and `r = sum |a_i|` over the ISPs; every line `a_i >= 1`,
+/// every ISP `a_i <= 0`. Invariant under every slot permutation that maps
+/// lines to lines and ISPs to ISPs, so the table frame and the presentation
+/// frame give the same box.
+pub const BOX_MEASURE: &str = "dots-rank-v1";
+/// The importer enumerates the box to check its coverage; larger boxes are
+/// refused.
+pub const MAX_BOX_KEYS: usize = 20_000_000;
+
+/// A finite box of keys on one chart ([`BOX_MEASURE`]): `(D, r_max)` layers
+/// and an optional cap on every line power.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BoxDefinition {
+    pub name: String,
+    pub measure: String,
+    /// `[D, r_max]`: dots `D` with rank `r <= r_max`; a `D` not listed is outside.
+    pub layers: Vec<[u32; 2]>,
+    pub cap: Option<i64>,
+}
+
+impl BoxDefinition {
+    /// `powers` lies in the box on `chart` (`chart[slot]`: a line slot of
+    /// the chart).
+    pub fn contains(&self, powers: &[i64], chart: &[bool]) -> bool {
+        if powers.len() != chart.len() {
+            return false;
+        }
+        let (mut dots, mut rank) = (0_i64, 0_i64);
+        for (&power, &line) in powers.iter().zip(chart) {
+            if line {
+                if power < 1 || self.cap.is_some_and(|cap| power > cap) {
+                    return false;
+                }
+                dots += power - 1;
+            } else {
+                if power > 0 {
+                    return false;
+                }
+                rank -= power;
+            }
+        }
+        self.layers
+            .iter()
+            .any(|&[d, r]| i64::from(d) == dots && rank <= i64::from(r))
+    }
+
+    /// Every key of the box on `chart`, at most `limit` of them.
+    pub fn keys(&self, chart: &[bool], limit: usize) -> Result<Vec<Vec<i64>>, String> {
+        #[allow(clippy::too_many_arguments)]
+        fn spread(
+            slots: &[usize],
+            total: i64,
+            bound: Option<i64>,
+            sign: i64,
+            base: &mut Vec<i64>,
+            out: &mut Vec<Vec<i64>>,
+            limit: usize,
+        ) -> Result<(), String> {
+            let Some((&slot, rest)) = slots.split_first() else {
+                if total == 0 {
+                    if out.len() == limit {
+                        return Err(format!("the box has more than {limit} keys"));
+                    }
+                    out.push(base.clone());
+                }
+                return Ok(());
+            };
+            let most = bound.map_or(total, |bound| total.min(bound));
+            for amount in 0..=most {
+                base[slot] += sign * amount;
+                spread(rest, total - amount, bound, sign, base, out, limit)?;
+                base[slot] -= sign * amount;
+            }
+            Ok(())
+        }
+        let lines: Vec<usize> = (0..chart.len()).filter(|&slot| chart[slot]).collect();
+        let isps: Vec<usize> = (0..chart.len()).filter(|&slot| !chart[slot]).collect();
+        let corner: Vec<i64> = chart.iter().map(|&line| i64::from(line)).collect();
+        let mut layers = self.layers.clone();
+        layers.sort_unstable();
+        layers.dedup();
+        let mut out = Vec::new();
+        for [d, r_max] in layers {
+            let dot_bound = self.cap.map(|cap| (cap - 1).max(0));
+            let mut dotted = Vec::new();
+            spread(
+                &lines,
+                i64::from(d),
+                dot_bound,
+                1,
+                &mut corner.clone(),
+                &mut dotted,
+                limit,
+            )?;
+            for base in dotted {
+                for r in 0..=i64::from(r_max) {
+                    spread(&isps, r, None, -1, &mut base.clone(), &mut out, limit)?;
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+}
+
+/// The provenance of one `symmetry_group` record of a boxed table: dispatch
+/// never reads it (a certified rule is an identity whose right-hand side is
+/// applied as is).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SymmetryGroupProvenance {
+    pub chart: String,
+    /// BLAKE3 of the record's JSONL line.
+    pub blake3: String,
+    pub group_order: Option<u64>,
+}
+
+/// What a boxed table declares and what the importer checked: the node's
+/// keys inside the box are covered by exact-key point rules or are one of
+/// its finitely many terminals ("unknown integral": returned as symbolic
+/// residual terminals, never evaluated); a key of the chart outside the box
+/// is refused at run time with [`PError::OutsideBox`].
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BoxedNodeRecord {
+    pub schema: String,
+    /// The campaign node (`T162`).
+    pub node: String,
+    pub definition: BoxDefinition,
+    /// The chart in presentation slots (every line slot).
+    pub chart: Vec<bool>,
+    /// Keys of the box (enumerated by the importer).
+    pub box_keys: u64,
+    pub point_rules: u64,
+    /// The terminals (every residual record), presentation slots, ascending.
+    pub terminals: Vec<Vec<i64>>,
+    /// Terminals whose residual record carries `"boxed_terminal": true`.
+    pub flagged_terminals: u64,
+    /// Every box key covered, every chart RHS key in the box and covered.
+    pub complete: bool,
+    pub uncovered_box_keys: u64,
+    pub rhs_outside_box: u64,
+    pub rhs_without_rule: u64,
+    /// Rules generated with symmetry rows in their source (`sym_rows > 0`).
+    pub sym_row_rules: u64,
+    pub symmetry_groups: Vec<SymmetryGroupProvenance>,
+}
+
+impl BoxedNodeRecord {
+    /// `powers` (presentation slots) lies in the box.
+    pub fn contains(&self, powers: &[i64]) -> bool {
+        self.definition.contains(powers, &self.chart)
+    }
+
+    /// The box as one line of text (error messages).
+    pub fn describe(&self) -> String {
+        format!(
+            "box {} of node {} ({}: [D, r_max] {:?}, cap {:?}; {} keys, {} terminals)",
+            self.definition.name,
+            self.node,
+            self.definition.measure,
+            self.definition.layers,
+            self.definition.cap,
+            self.box_keys,
+            self.terminals.len()
+        )
+    }
+}
+
+/// The box record of a payload's provenance text, if any.
+pub fn boxed_node_of_source(family_source: &str) -> Result<Option<BoxedNodeRecord>, PError> {
+    let Some(at) = family_source.find(BOXED_NODE_MARKER) else {
+        return Ok(None);
+    };
+    let text = &family_source[at + BOXED_NODE_MARKER.len()..];
+    let text = text.split('\n').next().unwrap_or("");
+    let record: BoxedNodeRecord = serde_json::from_str(text)
+        .map_err(|error| malformed(format!("boxed node record: {error}")))?;
+    if record.schema != BOXED_NODE_SCHEMA || record.definition.measure != BOX_MEASURE {
+        return Err(malformed(format!(
+            "boxed node record schema {:?}, measure {:?}",
+            record.schema, record.definition.measure
+        )));
+    }
+    Ok(Some(record))
+}
+
+#[derive(serde::Deserialize)]
+struct BoxedHeader {
+    schema: String,
+    node: String,
+    chart: String,
+    #[serde(rename = "box")]
+    definition: BoxDefinition,
+    #[serde(default)]
+    box_keys: Option<u64>,
+    #[serde(default)]
+    complete: Option<bool>,
+}
+
+fn charts_of(header: &Value) -> Result<Vec<String>, PError> {
+    header["charts"]
+        .as_array()
+        .ok_or_else(|| malformed("header without charts"))?
+        .iter()
+        .map(|chart| {
+            chart
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| malformed("chart"))
+        })
+        .collect()
+}
+
+/// A numeric key (no symbolic slot) of a boxed table.
+fn numeric_key(text: &str, arity: usize) -> Result<Vec<i64>, PError> {
+    let key = parse_key(text, arity)?;
+    if key.iter().any(|&(symbolic, _)| symbolic) {
+        return Err(gap(
+            "boxed_node",
+            format!("a symbolic key {text} in a boxed table"),
+        ));
+    }
+    Ok(key.into_iter().map(|(_, value)| value).collect())
+}
+
+/// The checks of a boxed table and its record (see [`BoxedNodeRecord`]).
+fn boxed_node_record(
+    value: &Value,
+    records: &[Value],
+    table: &str,
+    family: &TableFamily,
+    charts: &[String],
+    slot_map: &[usize],
+    partial: bool,
+) -> Result<BoxedNodeRecord, PError> {
+    use std::collections::HashSet;
+    let fail = |detail: String| gap("boxed_node", detail);
+    let spec: BoxedHeader = serde_json::from_value(value.clone())
+        .map_err(|error| fail(format!("header field boxed_node: {error}")))?;
+    if spec.schema != BOXED_NODE_SCHEMA {
+        return Err(fail(format!("schema {:?}", spec.schema)));
+    }
+    if spec.definition.measure != BOX_MEASURE {
+        return Err(fail(format!("box measure {:?}", spec.definition.measure)));
+    }
+    if spec.definition.layers.is_empty() || spec.definition.cap.is_some_and(|cap| cap < 1) {
+        return Err(fail("an empty box".into()));
+    }
+    if family.eps_units.iter().any(|&units| units != 0) {
+        return Err(fail("an eps node (not supported for boxed tables)".into()));
+    }
+    let arity = family.slots.len();
+    let chart: Vec<bool> = family.slots.iter().map(|slot| slot.line).collect();
+    if charts.len() != 1 || charts[0] != spec.chart || mask_bits(&spec.chart)? != chart {
+        return Err(fail(format!(
+            "the boxed chart {} must be the table's one chart {charts:?}, every line",
+            spec.chart
+        )));
+    }
+    let definition = spec.definition;
+    let in_box = |key: &[i64]| definition.contains(key, &chart);
+    let on_chart = |key: &[i64]| {
+        key.iter()
+            .zip(&chart)
+            .all(|(&power, &line)| (power > 0) == line)
+    };
+    let mut targets: HashSet<Vec<i64>> = HashSet::new();
+    let mut chart_rhs: HashSet<Vec<i64>> = HashSet::new();
+    let mut terminals: HashSet<Vec<i64>> = HashSet::new();
+    let (mut flagged, mut sym_row_rules) = (0_u64, 0_u64);
+    let mut symmetry_groups = Vec::new();
+    let lines = table.lines().filter(|line| !line.trim().is_empty());
+    for (record, line) in records.iter().zip(lines) {
+        match record["type"].as_str() {
+            Some("rule") => {
+                let target_text = str_field(record, "target")?;
+                let point = str_field(record, "case")?.starts_with("Coordinate(")
+                    && record["equations"].as_array().is_some_and(Vec::is_empty)
+                    && record["exceptions"].as_array().is_some_and(Vec::is_empty)
+                    && matches!(record["dispatch"].as_str(), None | Some("Partition"));
+                let fixed: Option<Vec<i64>> = record["fixed"]
+                    .as_array()
+                    .and_then(|fixed| fixed.iter().map(Value::as_i64).collect());
+                let target = numeric_key(target_text, arity)?;
+                if !point || fixed.as_ref() != Some(&target) {
+                    return Err(fail(format!(
+                        "rule {} ({target_text}) is no point rule (Coordinate case fixed at its target, no equations, no exceptions, Partition)",
+                        record["index"]
+                    )));
+                }
+                if !in_box(&target) {
+                    return Err(fail(format!("rule target {target_text} outside the box")));
+                }
+                if !targets.insert(target) {
+                    return Err(fail(format!("two rules for {target_text}")));
+                }
+                if record["sym_rows"].as_u64().is_some_and(|rows| rows > 0) {
+                    sym_row_rules += 1;
+                }
+                for term in record["rhs"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule rhs"))?
+                {
+                    let text = term
+                        .get(0)
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| malformed("rhs key"))?;
+                    let key = numeric_key(text, arity)?;
+                    if on_chart(&key) {
+                        chart_rhs.insert(key);
+                    }
+                }
+            }
+            Some("residual") => {
+                let text = str_field(record, "key")?;
+                let key = numeric_key(text, arity)?;
+                if !in_box(&key) {
+                    return Err(fail(format!("terminal {text} outside the box")));
+                }
+                if record["boxed_terminal"].as_bool() == Some(true) {
+                    flagged += 1;
+                }
+                terminals.insert(key);
+            }
+            Some("symmetry_group") => {
+                let group = match &record["group"] {
+                    Value::String(text) => serde_json::from_str(text).unwrap_or(Value::Null),
+                    other => other.clone(),
+                };
+                symmetry_groups.push(SymmetryGroupProvenance {
+                    chart: record["chart"].as_str().unwrap_or("").to_owned(),
+                    blake3: blake3::hash(line.trim().as_bytes()).to_hex().to_string(),
+                    group_order: group["group_order"].as_u64(),
+                });
+            }
+            _ => {}
+        }
+    }
+    if let Some(key) = terminals.iter().find(|key| targets.contains(*key)) {
+        return Err(fail(format!("the terminal {key:?} is also a rule target")));
+    }
+    let covered = |key: &Vec<i64>| targets.contains(key) || terminals.contains(key);
+    let rhs_outside_box = chart_rhs.iter().filter(|key| !in_box(key)).count() as u64;
+    let rhs_without_rule = chart_rhs
+        .iter()
+        .filter(|key| in_box(key) && !covered(key))
+        .count() as u64;
+    let keys = definition
+        .keys(&chart, MAX_BOX_KEYS)
+        .map_err(|detail| fail(detail))?;
+    let uncovered: Vec<&Vec<i64>> = keys.iter().filter(|key| !covered(key)).collect();
+    if let Some(declared) = spec.box_keys
+        && declared != keys.len() as u64
+    {
+        return Err(fail(format!(
+            "the header declares {declared} box keys, the box has {}",
+            keys.len()
+        )));
+    }
+    let complete = uncovered.is_empty() && rhs_outside_box == 0 && rhs_without_rule == 0;
+    if !complete && (!partial || spec.complete == Some(true)) {
+        return Err(fail(format!(
+            "the box is not closed: {} of {} box keys without rule or terminal (first {:?}), {rhs_outside_box} chart RHS keys outside the box, {rhs_without_rule} in the box without rule or terminal{}",
+            uncovered.len(),
+            keys.len(),
+            uncovered.first(),
+            if partial {
+                "; the header says complete"
+            } else {
+                ""
+            }
+        )));
+    }
+    let mut presented: Vec<Vec<i64>> = terminals
+        .iter()
+        .map(|key| permuted(key, slot_map))
+        .collect();
+    presented.sort_unstable();
+    Ok(BoxedNodeRecord {
+        schema: BOXED_NODE_SCHEMA.to_owned(),
+        node: spec.node,
+        definition,
+        chart: permuted(&chart, slot_map),
+        box_keys: keys.len() as u64,
+        point_rules: targets.len() as u64,
+        terminals: presented,
+        flagged_terminals: flagged,
+        complete,
+        uncovered_box_keys: uncovered.len() as u64,
+        rhs_outside_box,
+        rhs_without_rule,
+        sym_row_rules,
+        symmetry_groups,
+    })
+}
+
 /// Options of one import.
 #[derive(Clone, Debug)]
 pub struct TableImportOptions {
@@ -1243,6 +1650,11 @@ pub struct TableImportOptions {
     /// An ORDER-MAP.json of the table (Astra imports): checked against the
     /// header; its slot map is the census relation's.
     pub order_map: Option<Value>,
+    /// boxed-node: accept a boxed table whose box is not closed (box keys
+    /// with neither rule nor terminal, or chart RHS keys outside the box or
+    /// without a rule): a pilot or partial table. Off: such a table is
+    /// refused. Ignored for a table without `boxed_node`.
+    pub partial_box: bool,
 }
 
 /// One table (`table_dump.v1` JSONL text) as the Custom payload of `graph`,
@@ -1276,12 +1688,17 @@ pub fn import_table(
             format!("{} chart errors", end["chart_errors"]),
         ));
     }
+    let boxed_header = header.get("boxed_node").filter(|value| !value.is_null());
     for record in &records {
         let kind = record["type"].as_str().unwrap_or("");
         match kind {
             "header" | "zero_sectors" | "chart" | "rule" | "residual" | "chart_end" | "end" => {}
             // Provenance only (Astra's same-order cover-prefix assembly, T206).
             "assembly_provenance" => {}
+            // boxed-node: provenance only in a boxed table (its point rules are
+            // certified identities; dispatch never reads the group). Refused in
+            // any other table, as before.
+            "symmetry_group" if boxed_header.is_some() => {}
             "chart_error" => return Err(gap("chart_error", record["error"].to_string())),
             other => return Err(gap("record", format!("record type {other:?}"))),
         }
@@ -1451,6 +1868,27 @@ pub fn import_table(
         census,
     };
     let slot_order_json = serde_json::to_string(&slot_order).map_err(|error| malformed(error))?;
+    // boxed-node: the box record, checked on the table (box, point rules,
+    // terminals, closure), in presentation slots.
+    let boxed = match boxed_header {
+        Some(value) => Some(boxed_node_record(
+            value,
+            &records,
+            table,
+            &family,
+            &charts_of(header)?,
+            &slot_map,
+            options.partial_box,
+        )?),
+        None => None,
+    };
+    let boxed_provenance = match &boxed {
+        Some(record) => format!(
+            "{BOXED_NODE_MARKER}{}",
+            serde_json::to_string(record).map_err(|error| malformed(error))?
+        ),
+        None => String::new(),
+    };
 
     // 2. The rules, chart by chart in the header's order.
     let indexed = IndexedCoefficientContext::try_new(&context, "p-table-import", arity)
@@ -1460,17 +1898,7 @@ pub fn import_table(
         table: CoefficientTableBuilder::new(BinaryIoLimits::default()),
         slot_map: &slot_map,
     };
-    let charts: Vec<String> = header["charts"]
-        .as_array()
-        .ok_or_else(|| malformed("header without charts"))?
-        .iter()
-        .map(|chart| {
-            chart
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| malformed("chart"))
-        })
-        .collect::<Result<_, _>>()?;
+    let charts = charts_of(header)?;
     let mut sectors: Vec<SectorRecord> = charts
         .iter()
         .map(|chart| {
@@ -1658,7 +2086,7 @@ pub fn import_table(
             IMPORT_SOLVER_POLICY.to_owned()
         },
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{SLOT_ORDER_MARKER}{slot_order_json}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name
@@ -1723,6 +2151,7 @@ pub fn import_table(
         rules_with_exceptions: excepted,
         order_name,
         slot_order,
+        boxed,
     })
 }
 
@@ -1882,6 +2311,370 @@ mod tests {
             ..record.clone()
         };
         assert!(enforce_slot_order(&source(&tampered), &id, 3).is_err());
+    }
+
+    // ----- boxed-node -----
+
+    /// The T162 boxes of t162-box (tools/box.py counts): 9 lines, 11 ISPs.
+    #[test]
+    fn the_t162_boxes_have_their_counted_keys() {
+        let chart: Vec<bool> = (0..20).map(|slot| slot < 9).collect();
+        let union = BoxDefinition {
+            name: "union".into(),
+            measure: BOX_MEASURE.into(),
+            layers: vec![[0, 1], [1, 2], [2, 2], [3, 2], [4, 2]],
+            cap: Some(5),
+        };
+        let keys = union.keys(&chart, MAX_BOX_KEYS).unwrap();
+        assert_eq!(keys.len(), 55_704);
+        assert!(keys.iter().all(|key| union.contains(key, &chart)));
+        let band = BoxDefinition {
+            layers: vec![[2, 0], [3, 1], [4, 2]],
+            ..union.clone()
+        };
+        assert_eq!(band.keys(&chart, MAX_BOX_KEYS).unwrap().len(), 40_635);
+        let mut corner = vec![0_i64; 20];
+        corner[..9].fill(1);
+        assert!(union.contains(&corner, &chart) && !band.contains(&corner, &chart));
+        let mut outside = corner.clone();
+        outside[9] = -1;
+        outside[10] = -1;
+        assert!(!union.contains(&outside, &chart));
+        outside[0] = 0;
+        assert!(!union.contains(&outside, &chart));
+        assert!(union.keys(&chart, 1000).is_err());
+    }
+
+    const KITE: [&str; 5] = ["(k1)^2", "(-k1-k2)^2", "(k2)^2", "(k1+k2-q)^2", "(-k2+q)^2"];
+
+    fn kite_key(powers: [i64; 5]) -> String {
+        let parts: Vec<String> = powers.iter().map(i64::to_string).collect();
+        format!("I({})", parts.join(","))
+    }
+
+    /// A toy boxed table on the two-loop kite (5 lines, no ISP): the box
+    /// `D <= 1` (6 keys), the corner a terminal, one point rule per dotted
+    /// key: `I(1 + e_i) = (d-4)/(d-3) I(corner) + (2d-7) I(corner - e_j)`.
+    fn kite_table(boxed: bool, skip_rule: Option<usize>, extra: &[serde_json::Value]) -> String {
+        let mut source =
+            String::from("I(\n  name(KITE),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
+        for (i, momentum) in KITE.iter().enumerate() {
+            source.push_str(&format!("  prop(D{},{momentum},1),\n", i + 1));
+        }
+        source.push_str("  gram(q,q,1)\n)\n");
+        let mut header = serde_json::json!({
+            "type": "header", "schema": "table_dump.v1", "family": "KITE",
+            "family_file": "KITE.sym", "family_source": source,
+            "power_shifts": ["0", "0", "0", "0", "0"], "mask": "11111",
+            "order_name": "legacy", "order_is_program": false,
+            "order": {"support_priority": [0, 1, 2, 3, 4], "coordinate_priority": [0, 1, 2, 3, 4], "two_sided": []},
+            "charts": ["11111"],
+        });
+        if boxed {
+            header["boxed_node"] = serde_json::json!({
+                "schema": BOXED_NODE_SCHEMA, "node": "KITE", "chart": "11111",
+                "box": {"name": "d1", "measure": BOX_MEASURE, "layers": [[0, 0], [1, 0]], "cap": null},
+                "box_keys": 6,
+            });
+        }
+        let mut lines = vec![
+            header,
+            serde_json::json!({"type": "zero_sectors", "scope": "downset", "count": 0, "masks": []}),
+            serde_json::json!({"type": "chart", "chart": "11111", "zero": false}),
+        ];
+        lines.extend(extra.iter().cloned());
+        let mut index = 0;
+        for i in 0..5 {
+            if skip_rule == Some(i) {
+                continue;
+            }
+            let mut target = [1_i64; 5];
+            target[i] = 2;
+            let mut lower = [1_i64; 5];
+            lower[(i + 1) % 5] = 0;
+            lines.push(serde_json::json!({
+                "type": "rule", "chart": "11111", "index": index,
+                "case": format!("Coordinate(CoordinateCase {{ fixed: {target:?} }})"),
+                "fixed": target, "equations": [], "target": kite_key(target),
+                "rhs": [[kite_key([1; 5]), "(d-4)/(d-3)"], [kite_key(lower), "2*d-7"]],
+                "exceptions": [], "dispatch": "Partition", "sym_rows": i % 2,
+            }));
+            index += 1;
+        }
+        lines.push(
+            serde_json::json!({"type": "residual", "chart": "11111", "key": kite_key([1; 5]),
+            "boxed_terminal": true, "status": "unknown integral"}),
+        );
+        lines.push(
+            serde_json::json!({"type": "chart_end", "chart": "11111", "deferred_cases": 0,
+            "deferred_branches": 0, "deferred_regions": 0}),
+        );
+        lines.push(serde_json::json!({"type": "end", "chart_errors": 0, "state": "complete"}));
+        lines
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>()
+    }
+
+    fn kite_options(partial_box: bool) -> TableImportOptions {
+        TableImportOptions {
+            id: PresentationId(0),
+            node: None,
+            lp_count: 1,
+            census_family: None,
+            order_map: None,
+            partial_box,
+        }
+    }
+
+    fn kite_graph() -> PTopo {
+        canonical_node_graph("0-1 0-2 0-3 1-2 1-3", 2, 3).unwrap().1
+    }
+
+    fn symmetry_record() -> serde_json::Value {
+        serde_json::json!({"type": "symmetry_group", "chart": "11111", "rows": true,
+            "group": {"group_order": 2, "elements": []}})
+    }
+
+    /// A boxed table: imported with its box record; the importer's checks
+    /// pass; each dotted key reduces to the terminal plus a subsector key
+    /// with exactly the table's right-hand side (sign rule `q.q = +1 -> -1`);
+    /// the terminal comes back as itself; a key of the chart outside the box
+    /// is `PError::OutsideBox` naming the box.
+    #[test]
+    fn a_boxed_table_imports_reduces_inside_and_refuses_outside_its_box() {
+        let text = kite_table(true, None, &[symmetry_record()]);
+        let imported = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+        let boxed = imported.boxed.clone().expect("a boxed import");
+        assert_eq!(
+            (boxed.box_keys, boxed.point_rules, boxed.terminals.len()),
+            (6, 5, 1)
+        );
+        assert!(boxed.complete && boxed.flagged_terminals == 1 && boxed.sym_row_rules == 2);
+        assert_eq!(boxed.symmetry_groups.len(), 1);
+        assert_eq!(boxed.symmetry_groups[0].group_order, Some(2));
+        assert_eq!(
+            super::super::custom::custom_payload_boxed_node(&imported.payload).unwrap(),
+            Some(boxed.clone())
+        );
+        let presentation = &imported.presentation;
+        let check = super::super::custom::verify_custom_payload(
+            presentation,
+            &imported.payload,
+            &imported.meta,
+        )
+        .unwrap();
+        // 1 corner + 5 dotted keys inside the box; the 15 D = 2 keys skipped.
+        assert_eq!((check.witness_keys, check.terminals), (6, 1));
+        let to_presentation = |key: [i64; 5]| permuted(&key, &imported.slot_map);
+        let context = presentation.family.coefficient_context();
+        let parse = |text: &str| {
+            super::super::basis::parse_coefficient(
+                context,
+                text,
+                crate::algebra::ExactAlgebraLimits::default(),
+            )
+            .unwrap()
+        };
+        let corner = to_presentation([1; 5]);
+        for i in 0..5 {
+            let mut target = [1_i64; 5];
+            target[i] = 2;
+            let mut lower = [1_i64; 5];
+            lower[(i + 1) % 5] = 0;
+            let replay = super::super::custom::replay_custom_payload(
+                presentation,
+                &imported.payload,
+                &imported.meta,
+                &[to_presentation(target)],
+            )
+            .unwrap()
+            .remove(0);
+            // |target| - |corner| = 1: negated; |target| - |lower| = 2: kept.
+            assert_eq!(
+                replay.residuals,
+                vec![(corner.clone(), -parse("(d-4)/(d-3)"))]
+            );
+            assert_eq!(
+                replay.boundary,
+                vec![(to_presentation(lower), parse("2*d-7"))]
+            );
+            assert_eq!(replay.steps, 2);
+        }
+        let terminal = super::super::custom::replay_custom_payload(
+            presentation,
+            &imported.payload,
+            &imported.meta,
+            std::slice::from_ref(&corner),
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(terminal.residuals, vec![(corner.clone(), context.one())]);
+        assert!(terminal.boundary.is_empty());
+        let outside = to_presentation([3, 1, 1, 1, 1]);
+        match super::super::custom::replay_custom_payload(
+            presentation,
+            &imported.payload,
+            &imported.meta,
+            &[outside.clone()],
+        ) {
+            Err(PError::OutsideBox {
+                key,
+                node,
+                definition,
+                ..
+            }) => {
+                assert_eq!(key.powers(), outside.as_slice());
+                assert_eq!(node, "KITE");
+                assert!(definition.contains("[[0, 0], [1, 0]]"), "{definition}");
+            }
+            other => panic!("expected OutsideBox, got {other:?}"),
+        }
+    }
+
+    /// Without `boxed_node` nothing changes: the payload provenance is the
+    /// pre-boxed-node text (same bytes), no box record, the dispatch selects
+    /// the same rules; a `symmetry_group` record is still refused there.
+    #[test]
+    fn a_table_without_a_box_imports_as_before() {
+        let text = kite_table(false, None, &[]);
+        let imported = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+        assert!(imported.boxed.is_none());
+        let source = format!(
+            "imported from KITE.sym (table_dump.v1), table family KITE, p-table-import v2{SLOT_ORDER_MARKER}{}",
+            serde_json::to_string(&imported.slot_order).unwrap()
+        );
+        let structure = super::super::custom::inspect_custom_payload(&imported.payload).unwrap();
+        assert_eq!(structure.rules(), 5);
+        assert_eq!(
+            super::super::custom::custom_payload_boxed_node(&imported.payload).unwrap(),
+            None
+        );
+        assert!(boxed_node_of_source(&source).unwrap().is_none());
+        // The payload's provenance is exactly the old text: the boxed import
+        // of the same table differs only by its record line.
+        let boxed = import_table(
+            &kite_table(true, None, &[]),
+            &kite_graph(),
+            &kite_options(false),
+        )
+        .unwrap();
+        let record = format!(
+            "{BOXED_NODE_MARKER}{}",
+            serde_json::to_string(boxed.boxed.as_ref().unwrap()).unwrap()
+        );
+        assert!(
+            imported
+                .payload
+                .windows(source.len())
+                .any(|w| w == source.as_bytes()),
+            "the non-boxed payload carries the old provenance text"
+        );
+        assert!(
+            !imported
+                .payload
+                .windows(BOXED_NODE_MARKER.len())
+                .any(|w| w == BOXED_NODE_MARKER.as_bytes())
+        );
+        let boxed_source = source.replacen(
+            SLOT_ORDER_MARKER,
+            &format!("{record}{SLOT_ORDER_MARKER}"),
+            1,
+        );
+        assert!(
+            boxed
+                .payload
+                .windows(boxed_source.len())
+                .any(|w| w == boxed_source.as_bytes())
+        );
+        // The non-boxed replay: same reduction as the boxed one.
+        let replay = super::super::custom::replay_custom_payload(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            &[permuted(&[2_i64, 1, 1, 1, 1], &imported.slot_map)],
+        )
+        .unwrap();
+        assert_eq!(replay[0].steps, 2);
+        // Outside any rule: the plain typed Uncovered, as before.
+        assert!(matches!(
+            super::super::custom::replay_custom_payload(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+                &[permuted(&[3_i64, 1, 1, 1, 1], &imported.slot_map)],
+            ),
+            Err(PError::Uncovered { .. })
+        ));
+        let refused = import_table(
+            &kite_table(false, None, &[symmetry_record()]),
+            &kite_graph(),
+            &kite_options(false),
+        );
+        assert!(
+            matches!(&refused, Err(PError::Unsupported(text)) if text.contains("symmetry_group")),
+            "{refused:?}"
+        );
+    }
+
+    /// The boxed checks: an open box is refused unless partial; a partial box
+    /// imports and its missing box key is plain `Uncovered` (inside the box);
+    /// a non-point rule, a target outside the box, a wrong key count are refused.
+    #[test]
+    fn a_boxed_table_must_be_a_closed_box_of_point_rules() {
+        let open = kite_table(true, Some(2), &[]);
+        let refused = import_table(&open, &kite_graph(), &kite_options(false));
+        assert!(
+            matches!(&refused, Err(PError::Unsupported(text)) if text.contains("not closed")),
+            "{refused:?}"
+        );
+        let partial = import_table(&open, &kite_graph(), &kite_options(true)).unwrap();
+        let record = partial.boxed.clone().unwrap();
+        assert!(!record.complete);
+        assert_eq!((record.uncovered_box_keys, record.point_rules), (1, 4));
+        let missing = permuted(&[1_i64, 1, 2, 1, 1], &partial.slot_map);
+        assert!(matches!(
+            super::super::custom::replay_custom_payload(
+                &partial.presentation,
+                &partial.payload,
+                &partial.meta,
+                &[missing],
+            ),
+            Err(PError::Uncovered { .. })
+        ));
+        let edit = |from: &str, to: &str| {
+            let text = kite_table(true, None, &[]);
+            assert!(text.contains(from), "{from}");
+            import_table(
+                &text.replacen(from, to, 1),
+                &kite_graph(),
+                &kite_options(true),
+            )
+        };
+        for (from, to, why) in [
+            (
+                "\"fixed\":[2,1,1,1,1]",
+                "\"fixed\":[null,1,1,1,1]",
+                "no point rule",
+            ),
+            ("\"box_keys\":6", "\"box_keys\":7", "box keys"),
+            (
+                "\"layers\":[[0,0],[1,0]]",
+                "\"layers\":[[0,0]]",
+                "outside the box",
+            ),
+            (
+                "\"measure\":\"dots-rank-v1\"",
+                "\"measure\":\"other\"",
+                "measure",
+            ),
+        ] {
+            let result = edit(from, to);
+            assert!(
+                matches!(&result, Err(PError::Unsupported(text)) if text.contains(why)),
+                "{why}: {result:?}"
+            );
+        }
     }
 
     #[test]

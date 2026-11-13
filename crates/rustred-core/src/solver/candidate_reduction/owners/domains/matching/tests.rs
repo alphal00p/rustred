@@ -304,6 +304,7 @@ fn later_batch_terminal_does_not_shadow_earlier_formula() {
         rules: vec![],
         terminals: [IntegralKey::try_new([1, 1, 0]).unwrap()].into(),
         deferred_points: None,
+        point_index: Default::default(),
         coalescing_bound: 0,
         overlay: None,
     }));

@@ -4,7 +4,7 @@
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
-//!                        [--coef-form expanded|factored]
+//!                        [--coef-form expanded|factored] [--partial-box]
 //! ```
 //!
 //! Converts one `table_dump.v1` rule table of a 5L-campaign node into a Custom
@@ -32,6 +32,13 @@
 //! (slot permutation + unimodular loop map, recorded; a table that is no
 //! relabelling of it is refused); `--order-map` checks an ORDER-MAP.json of
 //! the table (Astra imports) against the header and takes its slot map.
+//!
+//! A BOXED table (header field `boxed_node`, `table_import::BoxedNodeRecord`)
+//! carries exact-key point rules over a finite box of the node's keys and its
+//! terminals; the import checks the box (point rules, targets and terminals
+//! inside it, every box key covered, every chart RHS key in the box and
+//! covered) and records it in the payload and in the import record (`boxed`).
+//! `--partial-box` accepts a box that is not closed (a pilot table).
 //!
 //! `--coef-form factored` (coef-form prototype) writes the payload's
 //! coefficient section in the factored format
@@ -77,6 +84,7 @@ struct Arguments {
     census_family: Option<PathBuf>,
     order_map: Option<PathBuf>,
     factored: bool,
+    partial_box: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -84,7 +92,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut table, mut graph, mut ext, mut label) = (None, None, None, None);
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
     let (mut census_family, mut order_map) = (None, None);
-    let mut factored = false;
+    let (mut factored, mut partial_box) = (false, false);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -100,6 +108,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--census-family" => "--census-family",
             "--order-map" => "--order-map",
             "--coef-form" => "--coef-form",
+            "--partial-box" => "--partial-box",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -150,6 +159,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
                     expected: "a nonnegative LP master count",
                 })?);
             }
+            "--partial-box" => partial_box = true,
             _ => force = true,
         }
     }
@@ -165,6 +175,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         census_family,
         order_map,
         factored,
+        partial_box,
     })
 }
 
@@ -224,6 +235,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             ),
             None => None,
         },
+        partial_box: arguments.partial_box,
     };
     let mut imported = import_table(&text, &graph, &options).map_err(failed)?;
     let import_seconds = started.elapsed().as_secs_f64();
@@ -307,6 +319,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         },
     });
     record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
+    if let Some(boxed) = &imported.boxed {
+        record["boxed"] = serde_json::to_value(boxed).map_err(json_error)?;
+    }
     if arguments.factored {
         record["coef_form"] = serde_json::json!({
             "form": "factored",
@@ -502,8 +517,21 @@ mod tests {
     fn p_import_table_parses_its_options() {
         let parsed = parse(
             [
-                "--table", "t.jsonl", "--graph", "0-1* 0-2", "--ext", "2,3", "--label", "T012",
-                "--lp", "1", "--out", "o", "--replay", "s.json",
+                "--table",
+                "t.jsonl",
+                "--graph",
+                "0-1* 0-2",
+                "--ext",
+                "2,3",
+                "--label",
+                "T012",
+                "--lp",
+                "1",
+                "--out",
+                "o",
+                "--replay",
+                "s.json",
+                "--partial-box",
             ]
             .iter()
             .map(OsString::from)
@@ -511,6 +539,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((parsed.ext, parsed.lp, parsed.force), ((2, 3), 1, false));
+        assert!(parsed.partial_box);
         assert!(matches!(
             parse(vec![OsString::from("--table"), OsString::from("t")]),
             Err(ArgError::MissingRequiredOption(_))

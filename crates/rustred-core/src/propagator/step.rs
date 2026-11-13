@@ -22,6 +22,12 @@ pub trait PLaneStep: Send + Sync {
     fn order_key(&self, cx: &PStepContext<'_>, powers: &[i64]) -> Result<POrderKey, PError> {
         default_order_key(&cx.owner.spec, powers)
     }
+    /// boxed-node: `Some(inside)` for an owner whose table covers only a box
+    /// of its keys (a boxed Custom owner), `None` for every other owner. The
+    /// load-time descent check steps only witness keys inside the box.
+    fn box_contains(&self, _powers: &[i64]) -> Option<bool> {
+        None
+    }
 }
 
 /// The entries of [`POrderKey::Lexicographic`].
