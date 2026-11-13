@@ -1,0 +1,141 @@
+{
+  "campaign_id": "test-campaign",
+  "cap": 64,
+  "events": [
+    {
+      "kind": "campaign",
+      "seq": 7,
+      "text": "campaign starting (test)",
+      "utc": "2026-11-13T23:00:01.500Z"
+    },
+    {
+      "kind": "campaign",
+      "seq": 8,
+      "text": "campaign running (preflight ok)",
+      "utc": "2026-11-13T23:00:01.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 9,
+      "text": "T162: running",
+      "utc": "2026-11-13T23:00:02.000Z"
+    },
+    {
+      "kind": "evidence",
+      "seq": 10,
+      "text": "imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2 files)",
+      "utc": "2026-11-13T23:00:02.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 16,
+      "text": "T162 F000 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:03.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 20,
+      "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:04.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 26,
+      "text": "T162 F001 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:06.250Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 30,
+      "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:07.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 36,
+      "text": "T162 F002 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:08.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 40,
+      "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:09.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 46,
+      "text": "T162 F003 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:11.250Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 50,
+      "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:12.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 58,
+      "text": "T162 F004 n9=-1 L0: job T162-job (no_rule)",
+      "utc": "2026-11-13T23:00:14.250Z"
+    },
+    {
+      "kind": "item_rejected",
+      "seq": 60,
+      "text": "T162 F004 n9=-1: rejected (rule_covers_none)",
+      "utc": "2026-11-13T23:00:14.750Z"
+    },
+    {
+      "kind": "item_escalated",
+      "seq": 61,
+      "text": "T162 F004 n9=-1: escalated to L1 (rule_covers_none)",
+      "utc": "2026-11-13T23:00:15.000Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 63,
+      "text": "T162 F004 n9=-1: terminal candidate (terminal_after_ladder)",
+      "utc": "2026-11-13T23:00:15.500Z"
+    },
+    {
+      "kind": "terminal_declared",
+      "seq": 64,
+      "text": "T162 F004 n9=-1: 2 terminal key(s) declared",
+      "utc": "2026-11-13T23:00:15.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 69,
+      "text": "T162 F006 L0: job T162-job (complete)",
+      "utc": "2026-11-13T23:00:17.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 71,
+      "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:17.500Z"
+    },
+    {
+      "kind": "item_upgraded",
+      "seq": 72,
+      "text": "T162 F006: evidence -> identity_tested",
+      "utc": "2026-11-13T23:00:17.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 73,
+      "text": "T162: closure round 1, defect 37 keys",
+      "utc": "2026-11-13T23:00:18.000Z"
+    }
+  ],
+  "file": "events",
+  "ledger": {
+    "head": "5a8dd36b35d5e797565eecc938c21dda276603b2ee511dd97122d1343cb7625c",
+    "last_utc": "2026-11-13T23:00:19.250Z",
+    "seq": 78
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

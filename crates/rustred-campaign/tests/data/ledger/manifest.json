@@ -1,0 +1,27 @@
+{
+  "active": {
+    "file": "segment-000002.jsonl",
+    "first_seq": 76,
+    "index": 2,
+    "prev": "8c1e0af8bd903888ab43ea35b126f3f3083e6dcaf18d1e65dd5550f7c41a0ace"
+  },
+  "campaign_id": "test-campaign",
+  "schema": "rustred.campaign.ledger-manifest.v1",
+  "sealed": [
+    {
+      "blake3": "29197215d2e4587ccc7250e516501cb766595f07de7f3f82ddd51407a307b34c",
+      "bytes": 27305,
+      "file": "segment-000001.jsonl",
+      "first_seq": 1,
+      "index": 1,
+      "last_hash": "8c1e0af8bd903888ab43ea35b126f3f3083e6dcaf18d1e65dd5550f7c41a0ace",
+      "last_seq": 75
+    }
+  ],
+  "snapshot": {
+    "blake3": "acde81c12f79fd8c676bf5e73befedfbe36cd7167a7d15864043a70c297930b1",
+    "file": "snapshot-000000000075.json",
+    "seq": 75,
+    "state_digest": "4060f6aca16eecf003254e6fa7b507f1423b514a3644081db69ffcdb4b72f26d"
+  }
+}

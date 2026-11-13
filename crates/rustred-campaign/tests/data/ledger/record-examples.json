@@ -1,0 +1,497 @@
+{
+  "campaign": {
+    "event": {
+      "body": {
+        "ev": "start",
+        "reason": "test"
+      },
+      "kind": "campaign"
+    },
+    "prev": "073e9134cb88f560930119500f5881b9ded48ae17e95ed7bf9715a239ced92df",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 7,
+    "utc": "2026-11-13T23:00:01.500Z"
+  },
+  "campaign_created": {
+    "event": {
+      "body": {
+        "campaign_id": "test-campaign",
+        "spec_blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+        "terminal_bound": 100
+      },
+      "kind": "campaign_created"
+    },
+    "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 1,
+    "utc": "2026-11-13T23:00:00.000Z"
+  },
+  "done": {
+    "event": {
+      "body": {
+        "op": "op-accept-T162-job-00000-L0",
+        "result": {
+          "blake3": "00e89da7a6d82d1329b6ded3452604962cc789d9449a71c47258d7ed31920750",
+          "bytes": 2400,
+          "path": "accepted/T162/00000.json"
+        }
+      },
+      "kind": "done"
+    },
+    "prev": "faee57c1bf154c527f63ab383b653aad5006ce07a2538bea19646e46462a2db9",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 19,
+    "utc": "2026-11-13T23:00:04.500Z"
+  },
+  "evidence_imported": {
+    "event": {
+      "body": {
+        "description": "T162 bank, 2,448 rules; imported as hand-made evidence (M4)",
+        "evidence": "astra-bank-20261113",
+        "files": [
+          {
+            "blake3": "2db7e03454ffcd5597befa2d402481d66db54dc11c3ef31452be39fe6f290a62",
+            "bytes": 3700,
+            "path": "large:handoff/t162-bank/MANIFEST.json"
+          },
+          {
+            "blake3": "bc87b4060cb1220a809e8f0b712c141f63cb5caf672f4ffb2abd38c86d24b899",
+            "bytes": 4800,
+            "path": "large:handoff/t162-bank/NATIVE-RULE-BODIES.jsonl"
+          }
+        ],
+        "producer": "Astra (Codex session), hand closure of T162"
+      },
+      "kind": "evidence_imported"
+    },
+    "prev": "a5a251b0ddccaad06cde1ec61f6d1ecd32f957ed7da201e271a24de83bfad160",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 10,
+    "utc": "2026-11-13T23:00:02.250Z"
+  },
+  "input_registered": {
+    "event": {
+      "body": {
+        "blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+        "bytes": 1200,
+        "input": "spec",
+        "path": "spec.json",
+        "role": "spec"
+      },
+      "kind": "input_registered"
+    },
+    "prev": "915ad0204ad9bb406575272bbc2eca11f8d17a470cba795da9f90fc7eea88d25",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 2,
+    "utc": "2026-11-13T23:00:00.250Z"
+  },
+  "intent": {
+    "event": {
+      "body": {
+        "action": "write_accepted_record",
+        "op": "op-accept-T162-job-00000-L0",
+        "target": "accepted/T162/00000.json"
+      },
+      "kind": "intent"
+    },
+    "prev": "71dfe76cfc96d311f57867cc1fcfe930d2d99e5f49890e1e74c403e46729b776",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 18,
+    "utc": "2026-11-13T23:00:04.250Z"
+  },
+  "item.accept": {
+    "event": {
+      "body": {
+        "ev": {
+          "elided": false,
+          "ev": "accept",
+          "level": "identity_proved",
+          "record": {
+            "blake3": "00e89da7a6d82d1329b6ded3452604962cc789d9449a71c47258d7ed31920750",
+            "bytes": 2400,
+            "path": "accepted/T162/00000.json"
+          },
+          "rule": "T162:R:campaign:0",
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00000-L0",
+            "table_blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e"
+          }
+        },
+        "item": "T162-item-00000"
+      },
+      "kind": "item"
+    },
+    "prev": "bf0594e68887f0842516764cce69f9282d8c1781539b9881c3e3621461af102b",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 20,
+    "utc": "2026-11-13T23:00:04.750Z"
+  },
+  "item.declare_terminal": {
+    "event": {
+      "body": {
+        "ev": {
+          "count": 2,
+          "ev": "declare_terminal",
+          "keys": {
+            "blake3": "00be396c7d7690369a8dc00787d65cc05b0271a6f37fe36b5150ba8ee5a75924",
+            "bytes": 3500,
+            "path": "large:keysets/T162-terminals-1.keys"
+          },
+          "reason": "terminal_after_ladder"
+        },
+        "item": "T162-item-00005"
+      },
+      "kind": "item"
+    },
+    "prev": "a283aef2364d1a107e45c35d3e37c1549041e5f82916fe2ce2ded695d8a94c4d",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 64,
+    "utc": "2026-11-13T23:00:15.750Z"
+  },
+  "item.escalate": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "escalate",
+          "reason": "rule_covers_none",
+          "to": "L1"
+        },
+        "item": "T162-item-00004"
+      },
+      "kind": "item"
+    },
+    "prev": "e704d421222f24d2a195fa19ee07b50cee189f60a067a710c56aca69e4c3c1dc",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 61,
+    "utc": "2026-11-13T23:00:15.000Z"
+  },
+  "item.produce": {
+    "event": {
+      "body": {
+        "ev": {
+          "attempt": 1,
+          "ev": "produce",
+          "job": "T162-job-00000-L0",
+          "table": {
+            "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00000-L0.a1/out/F.table.jsonl"
+          }
+        },
+        "item": "T162-item-00000"
+      },
+      "kind": "item"
+    },
+    "prev": "fd37841c4306178e70b105e2ceab3fda9a1cc68d83e37b1ea208bd10dc2731b6",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 17,
+    "utc": "2026-11-13T23:00:04.000Z"
+  },
+  "item.propose_terminal": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "propose_terminal",
+          "reason": "terminal_after_ladder"
+        },
+        "item": "T162-item-00005"
+      },
+      "kind": "item"
+    },
+    "prev": "2bc701c15de6e3c7ade28dc21d89677db4312ddbd2b1ff51d7383f3dd2c84902",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 63,
+    "utc": "2026-11-13T23:00:15.500Z"
+  },
+  "item.reject": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "reject",
+          "reason": "rule_covers_none"
+        },
+        "item": "T162-item-00004"
+      },
+      "kind": "item"
+    },
+    "prev": "553bbe090e3c66ae5b502d91d78a3228702bb4f73a0f50b7c73c2ea418c7bc36",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 60,
+    "utc": "2026-11-13T23:00:14.750Z"
+  },
+  "item.start": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "start",
+          "job": "T162-job-00000-L0"
+        },
+        "item": "T162-item-00000"
+      },
+      "kind": "item"
+    },
+    "prev": "3a483c2d89b0e3955ba764701defc983261a08546c160b5fa50f2d2a17a19358",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 13,
+    "utc": "2026-11-13T23:00:03.000Z"
+  },
+  "item.upgrade": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "upgrade",
+          "evidence": {
+            "blake3": "5bd8f17c9f961228a70739b25dd55d182398452a8d2fc74df4e6769cdfc0e270",
+            "bytes": 3300,
+            "path": "accepted/T162/bank-1043.span.json"
+          },
+          "level": "identity_tested"
+        },
+        "item": "T162-item-00006"
+      },
+      "kind": "item"
+    },
+    "prev": "75df7c6a0c72a48b1f4020e80229cd23e383f3e1b42f5f1c92b09dab84a8cfe2",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 72,
+    "utc": "2026-11-13T23:00:17.750Z"
+  },
+  "item_created": {
+    "event": {
+      "body": {
+        "inputs": [],
+        "item": "T162-item-00000",
+        "kind": "face",
+        "label": "F000",
+        "node": "T162",
+        "parent": null,
+        "rung": "L0",
+        "weight": 3
+      },
+      "kind": "item_created"
+    },
+    "prev": "a0c4b5105c8836763e2e8a529ba6415546bf14ca2b89f7b545da7a010c0cbe4f",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 11,
+    "utc": "2026-11-13T23:00:02.500Z"
+  },
+  "job.finished": {
+    "event": {
+      "body": {
+        "attempt": 1,
+        "ev": {
+          "class": "rule_found",
+          "cpu_ms": 1000,
+          "ev": "finished",
+          "exit_code": 0,
+          "outcome": null,
+          "peak_rss_bytes": 419430400,
+          "sealed_output": {
+            "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00000-L0.a1/out/F.table.jsonl"
+          },
+          "signal": null,
+          "time_decided": false,
+          "wall_ms": 1050
+        },
+        "job": "T162-job-00000-L0"
+      },
+      "kind": "job"
+    },
+    "prev": "c5ef2977b33bdd97d6e3e059e9530ea1870bc1eafaf5d3135bab186a2a292dc3",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 16,
+    "utc": "2026-11-13T23:00:03.750Z"
+  },
+  "job.interrupt": {
+    "event": {
+      "body": {
+        "attempt": 1,
+        "ev": {
+          "ev": "interrupt",
+          "reason": "campaign stop"
+        },
+        "job": "T162-job-00004-L0"
+      },
+      "kind": "job"
+    },
+    "prev": "641e33c6eecd394c06821972c4019e0423ff15df228715b5bdd4b9304ddda753",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 55,
+    "utc": "2026-11-13T23:00:13.500Z"
+  },
+  "job.launch": {
+    "event": {
+      "body": {
+        "attempt": 1,
+        "ev": {
+          "cpus": [
+            0
+          ],
+          "ev": "launch",
+          "reserved_bytes": 2147483648,
+          "run_dir": "large:jobs/T162-job-00000-L0.a1"
+        },
+        "job": "T162-job-00000-L0"
+      },
+      "kind": "job"
+    },
+    "prev": "017cc8efeb67f95eb694663411501fabbdac7d0ebbcaa2c2932e05c7ea61abba",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 14,
+    "utc": "2026-11-13T23:00:03.250Z"
+  },
+  "job.requeue": {
+    "event": {
+      "body": {
+        "attempt": 2,
+        "ev": {
+          "ev": "requeue",
+          "reason": "resume"
+        },
+        "job": "T162-job-00004-L0"
+      },
+      "kind": "job"
+    },
+    "prev": "cf1959048b1d6c93a0f874196cb396444e546671fee5270f55be64be34b6392d",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 56,
+    "utc": "2026-11-13T23:00:13.750Z"
+  },
+  "job.started": {
+    "event": {
+      "body": {
+        "attempt": 1,
+        "ev": {
+          "boot_id": "boot",
+          "ev": "started",
+          "pid": 10000,
+          "start_ticks": 777
+        },
+        "job": "T162-job-00000-L0"
+      },
+      "kind": "job"
+    },
+    "prev": "9b771865b42fdcc77ce59ad8ede1fe5b02d3c157841389f98faf761d36f9a6a9",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 15,
+    "utc": "2026-11-13T23:00:03.500Z"
+  },
+  "job_progress": {
+    "event": {
+      "body": {
+        "attempt": 1,
+        "counters": {
+          "rows": 412
+        },
+        "job": "T162-job-00000-L0"
+      },
+      "kind": "job_progress"
+    },
+    "prev": "436f967e8ef4d9b2310bbbf6e3aaec60534d61732c06e3e0af1baa806ae2bad4",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 74,
+    "utc": "2026-11-13T23:00:18.250Z"
+  },
+  "job_queued": {
+    "event": {
+      "body": {
+        "binary": "rr_node",
+        "item": "T162-item-00000",
+        "job": "T162-job-00000-L0",
+        "kind": "generate",
+        "reserved_bytes": 2147483648,
+        "rung": "L0",
+        "spec_blake3": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421"
+      },
+      "kind": "job_queued"
+    },
+    "prev": "76e2fce4cb95088a78a64c6088d9fc8be0e8b2a3cad3d8ef9c268ddd12d2f6b4",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 12,
+    "utc": "2026-11-13T23:00:02.750Z"
+  },
+  "node.closure_result": {
+    "event": {
+      "body": {
+        "ev": {
+          "defect_keys": 37,
+          "ev": "closure_result",
+          "keyset": {
+            "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
+            "bytes": 3300,
+            "path": "large:keysets/T162-closure-1.keys"
+          },
+          "round": 1
+        },
+        "node": "T162"
+      },
+      "kind": "node"
+    },
+    "prev": "4312e63bacb539b818542d5bf42dc7306d1b02bf6ac04c4528dc2eea864ef61c",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 73,
+    "utc": "2026-11-13T23:00:18.000Z"
+  },
+  "node.start": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "start"
+        },
+        "node": "T162"
+      },
+      "kind": "node"
+    },
+    "prev": "de22c36d4ac5947361525fdd1c37c072d25a0229765bba58583841852f9f6ada",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 9,
+    "utc": "2026-11-13T23:00:02.000Z"
+  },
+  "node_registered": {
+    "event": {
+      "body": {
+        "inputs": [
+          "T162.family",
+          "T162.bank"
+        ],
+        "node": "T162",
+        "terminal_bound": null
+      },
+      "kind": "node_registered"
+    },
+    "prev": "f4c8b499107abf245dfa3c149c67abb72d9d1a729a15978f605ec6cfd391f646",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 6,
+    "utc": "2026-11-13T23:00:01.250Z"
+  },
+  "note": {
+    "event": {
+      "body": {
+        "text": "scenario end"
+      },
+      "kind": "note"
+    },
+    "prev": "6fd8bda12c1c617d475623b81018b389dac5d0910a548905b2c54cb74aee3b35",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 75,
+    "utc": "2026-11-13T23:00:18.500Z"
+  },
+  "segment_opened": {
+    "event": {
+      "body": {
+        "index": 2,
+        "previous_blake3": "29197215d2e4587ccc7250e516501cb766595f07de7f3f82ddd51407a307b34c",
+        "snapshot_seq": 75
+      },
+      "kind": "segment_opened"
+    },
+    "prev": "8c1e0af8bd903888ab43ea35b126f3f3083e6dcaf18d1e65dd5550f7c41a0ace",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 76,
+    "utc": "2026-11-13T23:00:18.750Z"
+  }
+}
