@@ -44,9 +44,11 @@ mod app {
     use serde::{Deserialize, Serialize};
     use serde_json::{Value, json};
     use symbolica::atom::AtomCore;
-    use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
+    use symbolica::domains::finite_field::{
+        FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64,
+    };
     use symbolica::domains::rational_polynomial::RationalPolynomialField;
-    use symbolica::domains::{Field, Ring, SelfRing};
+    use symbolica::domains::{Field, Ring, RingOps, SelfRing};
     use symbolica::prelude::{IntegerRing, Q, Rational, Z};
     use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
 
@@ -135,6 +137,29 @@ mod app {
         pub origin: Origin,
         pub archive_frame: Option<PathBuf>,
         pub limits: Limits,
+        #[serde(default)]
+        pub source_support: Option<SourceSupport>,
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum SourceSupportMode {
+        NumericCircuit,
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct SourceSupport {
+        pub mode: SourceSupportMode,
+        pub max_rows: usize,
+    }
+    impl SourceSupport {
+        fn validate(&self, limits: &Limits) -> Result<()> {
+            require(
+                self.max_rows > 0
+                    && self.max_rows <= limits.max_raw_rows
+                    && self.max_rows <= limits.max_weight_slots,
+                "invalid numeric source-support row limit",
+            )
+        }
     }
     #[derive(Clone)]
     struct Case {
@@ -971,6 +996,344 @@ mod app {
             "UNKNOWN_SCOUT_NO_TARGET: native re-solved {visited} transformed source rows; selected finite source space only, not global nonmembership"
         ))
     }
+
+    type ScoutValue = FiniteFieldElement<u64>;
+    type NumericRow = Vec<(u32, ScoutValue)>;
+
+    fn validate_source_selection(selected: &[usize], source_count: usize) -> Result<()> {
+        require(
+            !selected.is_empty()
+                && selected.iter().all(|i| *i < source_count)
+                && selected.windows(2).all(|w| w[0] < w[1]),
+            "UNKNOWN_SOURCE_SUPPORT_IDS: empty, repeated, reordered or out-of-range source",
+        )
+    }
+
+    fn numeric_rows(
+        rows: &[Row],
+        registry: &BTreeMap<IndexShift, u32>,
+        point: &[ScoutValue],
+        field: &Zp64,
+    ) -> Result<Option<Vec<NumericRow>>> {
+        let mut output = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut data = Vec::new();
+            for (key, coefficient) in row {
+                require(
+                    coefficient.raw().numerator.nvars() == point.len()
+                        && coefficient.raw().denominator.nvars() == point.len(),
+                    "numeric point variable-map mismatch",
+                )?;
+                let denominator = coefficient.raw().denominator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(field),
+                    point,
+                    field,
+                );
+                if field.is_zero(&denominator) {
+                    return Ok(None);
+                }
+                let numerator = coefficient.raw().numerator.evaluate_with_coeff_map(
+                    |v| v.to_finite_field(field),
+                    point,
+                    field,
+                );
+                let value = field.div(&numerator, &denominator);
+                if !field.is_zero(&value) {
+                    data.push((
+                        *registry
+                            .get(key)
+                            .ok_or("numeric column absent from full original U")?,
+                        value,
+                    ));
+                }
+            }
+            data.sort_unstable_by_key(|x| x.0);
+            output.push(data);
+        }
+        Ok(Some(output))
+    }
+
+    // Native L rows can include dependent inputs. Select their actual row
+    // addresses; L columns are accepted-U ordinals, not source/integral IDs.
+    fn numeric_original_weights(
+        native_l: &SparseMatrix<Zp64>,
+        accepted_l_rows: &[usize],
+        field: &Zp64,
+    ) -> Result<Vec<ScoutValue>> {
+        let count = accepted_l_rows.len();
+        require(
+            count > 0 && native_l.ncols() as usize == count,
+            "numeric accepted L is not square",
+        )?;
+        let mut transposed: Vec<Vec<(u32, ScoutValue)>> = vec![Vec::new(); count];
+        for (accepted, &native_row) in accepted_l_rows.iter().enumerate() {
+            require(
+                native_row < native_l.nrows() as usize,
+                "numeric L source-row embedding out of range",
+            )?;
+            let range = native_l.row_ptrs()[native_row]..native_l.row_ptrs()[native_row + 1];
+            let mut entries: Vec<_> = native_l.col_idcs()[range.clone()]
+                .iter()
+                .copied()
+                .zip(native_l.values()[range].iter().cloned())
+                .collect();
+            entries.sort_unstable_by_key(|x| x.0);
+            require(
+                entries.windows(2).all(|w| w[0].0 < w[1].0),
+                "duplicate numeric L coordinate",
+            )?;
+            require(
+                entries
+                    .iter()
+                    .all(|(column, _)| *column as usize <= accepted),
+                "numeric L is not lower triangular",
+            )?;
+            require(
+                entries
+                    .iter()
+                    .any(|(column, value)| *column as usize == accepted && !field.is_zero(value)),
+                "numeric L has a missing/zero diagonal",
+            )?;
+            for (column, value) in entries {
+                transposed[column as usize].push((accepted as u32, value));
+            }
+        }
+        let mut solver = SparseRowReducer::new(
+            u32::try_from(count)
+                .map_err(err)?
+                .checked_add(1)
+                .ok_or("numeric solve width overflow")?,
+            field.clone(),
+            LuLMode::None,
+        );
+        for (row, entries) in transposed.into_iter().enumerate() {
+            require(
+                entries.first().is_some_and(|(column, value)| {
+                    *column as usize == row && !field.is_zero(value)
+                }),
+                "bad numeric transposed diagonal",
+            )?;
+            let (mut ids, mut values): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+            if row + 1 == count {
+                ids.push(count as u32);
+                values.push(field.one());
+            }
+            // add_row normalizes the actual nonunit diagonal. Raw L must not
+            // enter from_upper_triangular_matrix as if it already had unit pivots.
+            require(
+                solver.add_row(&values, &ids) == Some(row as u32),
+                "numeric triangular pivot changed",
+            )?;
+        }
+        solver.back_substitute();
+        let mut weights = vec![field.zero(); count];
+        for (variable, weight) in weights.iter_mut().enumerate() {
+            let row = solver.pivots()[variable].ok_or("numeric solution pivot absent")? as usize;
+            for position in solver.u().row_ptrs()[row]..solver.u().row_ptrs()[row + 1] {
+                if solver.u().col_idcs()[position] as usize == count {
+                    *weight = solver.u().values()[position].clone();
+                }
+            }
+        }
+        Ok(weights)
+    }
+
+    fn numeric_circuit_at_point(
+        rows: &[Row],
+        original: &[Row],
+        written: &Row,
+        columns: &[IndexShift],
+        target: &IndexShift,
+        conditions: &[&str],
+        p: &Prepared,
+        limits: &Limits,
+        options: &SourceSupport,
+        residues: &[u64],
+    ) -> Result<Option<(Vec<usize>, Value)>> {
+        options.validate(limits)?;
+        require(
+            rows.len() == original.len(),
+            "original/transformed source arity mismatch",
+        )?;
+        let field = Zp64::new((1u64 << 61) - 1);
+        require(
+            residues.len() == p.variables.len() && residues.iter().all(|x| *x < field.get_prime()),
+            "invalid numeric scout residues",
+        )?;
+        let point: Vec<_> = residues.iter().map(|x| field.to_element(*x)).collect();
+        let registry: BTreeMap<_, _> = columns
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as u32))
+            .collect();
+        let target_column = *registry
+            .get(target)
+            .ok_or("numeric target absent from full U")?;
+        // Admit ALL original and written denominators, including post-hit and
+        // omitted rows. Their generic condition ledger is retained unchanged.
+        if numeric_rows(original, &registry, &point, &field)?.is_none()
+            || numeric_rows(std::slice::from_ref(written), &registry, &point, &field)?.is_none()
+        {
+            return Ok(None);
+        }
+        for condition in conditions {
+            let value = p.parse(condition, limits)?;
+            let numerator = value.raw().numerator.evaluate_with_coeff_map(
+                |v| v.to_finite_field(&field),
+                &point,
+                &field,
+            );
+            let denominator = value.raw().denominator.evaluate_with_coeff_map(
+                |v| v.to_finite_field(&field),
+                &point,
+                &field,
+            );
+            if field.is_zero(&numerator) || field.is_zero(&denominator) {
+                return Ok(None);
+            }
+        }
+        let Some(numeric) = numeric_rows(rows, &registry, &point, &field)? else {
+            return Ok(None);
+        };
+        let mut reducer = SparseRowReducer::new(
+            u32::try_from(columns.len())
+                .map_err(err)?
+                .checked_add(1)
+                .ok_or("numeric scout width overflow")?,
+            field.clone(),
+            LuLMode::Full,
+        );
+        let mut accepted_sources = Vec::new();
+        let mut accepted_l_rows = Vec::new();
+        for (ordinal, row) in numeric.iter().enumerate() {
+            let before_l = reducer.l().nrows();
+            let before_u = reducer.u().nrows();
+            let (ids, values): (Vec<_>, Vec<_>) = row.iter().cloned().unzip();
+            let pivot = reducer.add_row(&values, &ids);
+            let growth_l = reducer
+                .l()
+                .nrows()
+                .checked_sub(before_l)
+                .ok_or("numeric L row count decreased")?;
+            let growth_u = reducer
+                .u()
+                .nrows()
+                .checked_sub(before_u)
+                .ok_or("numeric U row count decreased")?;
+            require(
+                growth_l <= 1 && growth_u == u32::from(pivot.is_some()) && growth_u <= growth_l,
+                "unexpected numeric source/L/U embedding",
+            )?;
+            if pivot.is_some() {
+                accepted_sources.push(ordinal);
+                accepted_l_rows.push(before_l as usize);
+            }
+            if pivot != Some(target_column) {
+                continue;
+            }
+            let count = accepted_sources.len();
+            let upper = reducer.u();
+            let range = upper.row_ptrs()[count - 1]..upper.row_ptrs()[count];
+            require(
+                range.len() == 1
+                    && upper.col_idcs()[range.start] == target_column
+                    && field.is_one(&upper.values()[range.start]),
+                "numeric first-target image is not exactly the unit target",
+            )?;
+            let weights = numeric_original_weights(reducer.l(), &accepted_l_rows, &field)?;
+            let selected: Vec<_> = accepted_sources
+                .iter()
+                .zip(&weights)
+                .filter_map(|(i, w)| (!field.is_zero(w)).then_some(*i))
+                .collect();
+            validate_source_selection(&selected, rows.len())?;
+            require(
+                selected.len() <= options.max_rows,
+                "UNKNOWN_SOURCE_SUPPORT_LIMIT: numeric support exceeds admitted row limit",
+            )?;
+            let mut product = vec![field.zero(); columns.len()];
+            for (&source, weight) in accepted_sources.iter().zip(&weights) {
+                if field.is_zero(weight) {
+                    continue;
+                }
+                for (column, value) in &numeric[source] {
+                    let term = field.mul(weight, value);
+                    product[*column as usize] = field.add(&product[*column as usize], &term);
+                }
+            }
+            require(
+                product.iter().enumerate().all(|(i, v)| {
+                    if i == target_column as usize {
+                        field.is_one(v)
+                    } else {
+                        field.is_zero(v)
+                    }
+                }),
+                "UNKNOWN_NUMERIC_CIRCUIT_PRODUCT: full-U diagnostic mismatch",
+            )?;
+            return Ok(Some((
+                selected.clone(),
+                json!({"mode":"numeric_circuit","prime":field.get_prime(),"raw_point_residues":residues,
+                "first_target_independent_rows":count,"source_rows_visited":ordinal+1,"accepted_source_ordinals":accepted_sources,
+                "accepted_native_L_rows":accepted_l_rows,"proposed_original_ordinals":selected,"proposed_rows":selected.len(),
+                "full_original_rows":rows.len(),"full_original_column_count":columns.len(),"all_original_input_denominators_admitted_at_point":true,
+                "numeric_product_all_U":true,"numeric_weights_are_generic_authority":false,"omitted_weights_chosen_zero":rows.len()-selected.len(),
+                "max_rows":options.max_rows,"scope":"proposal only; original FULL A exact product remains mandatory"}),
+            )));
+        }
+        Ok(None)
+    }
+
+    fn numeric_support_scout(
+        rows: &[Row],
+        original: &[Row],
+        written: &Row,
+        columns: &[IndexShift],
+        target: &IndexShift,
+        conditions: &[&str],
+        p: &Prepared,
+        limits: &Limits,
+        options: &SourceSupport,
+        forced_point: Option<&[u64]>,
+    ) -> Result<(Vec<usize>, Value)> {
+        options.validate(limits)?;
+        let mut random = 0x53544f5245445f52;
+        let count = if forced_point.is_some() {
+            1
+        } else {
+            limits.max_scout_points
+        };
+        for pass in 0..count {
+            let generated: Vec<_> = (0..p.variables.len())
+                .map(|_| 1 + splitmix(&mut random) % ((1u64 << 61) - 2))
+                .collect();
+            let residues = forced_point.unwrap_or(&generated);
+            if let Some((selected, mut report)) = numeric_circuit_at_point(
+                rows, original, written, columns, target, conditions, p, limits, options, residues,
+            )? {
+                report["native_scout_pass"] = json!(pass);
+                return Ok((selected, report));
+            }
+        }
+        Err("UNKNOWN_NUMERIC_SUPPORT_NO_TARGET: bounded fresh numeric proposal only; not generic nonmembership".into())
+    }
+
+    fn embed_original_weights(
+        selected: &[usize],
+        weights: &BTreeMap<usize, IndexedCoefficient>,
+        source_count: usize,
+    ) -> Result<BTreeMap<usize, IndexedCoefficient>> {
+        validate_source_selection(selected, source_count)?;
+        weights
+            .iter()
+            .map(|(local, value)| {
+                let source = *selected.get(*local).ok_or(
+                    "UNKNOWN_SOURCE_SUPPORT_IDS: reconstructed local ordinal out of range",
+                )?;
+                Ok((source, value.clone()))
+            })
+            .collect()
+    }
     fn validate_original_product(
         rows: &[Row],
         weights: &BTreeMap<usize, IndexedCoefficient>,
@@ -1097,6 +1460,7 @@ mod app {
             .collect()
     }
 
+    #[cfg(test)]
     fn certify(
         p: &Prepared,
         header: &Value,
@@ -1104,8 +1468,27 @@ mod app {
         limits: &Limits,
         profile_only: bool,
     ) -> Result<Value> {
+        certify_with_support(p, header, rule, limits, profile_only, None, None)
+    }
+
+    fn certify_with_support(
+        p: &Prepared,
+        header: &Value,
+        rule: &Value,
+        limits: &Limits,
+        profile_only: bool,
+        source_support: Option<&SourceSupport>,
+        forced_point: Option<&[u64]>,
+    ) -> Result<Value> {
         let start = Instant::now();
         limits.validate()?;
+        if let Some(options) = source_support {
+            options.validate(limits)?;
+        }
+        require(
+            forced_point.is_none() || source_support.is_some(),
+            "forced scout point requires numeric support",
+        )?;
         require(
             header["family_source"].as_str() == Some(p.family_text.as_str()),
             "presented family.sym differs from native header.family_source",
@@ -1276,15 +1659,44 @@ mod app {
             json!({"phase":"frame_prepared","raw_source_rows":original.len(),"columns":columns.len(),"retained_coefficient_terms":terms,"coefficient_profiles":profiles,"shared_host_seconds":frame_seconds})
         );
         let scout_start = Instant::now();
-        let (selected, scout_report) = scout(&transformed, &columns, &target, p, limits)?;
+        let (selected, mut scout_report) = if let Some(options) = source_support {
+            let conditions: Vec<_> = source_conditions
+                .iter()
+                .chain(written_conditions.iter())
+                .map(String::as_str)
+                .collect();
+            numeric_support_scout(
+                &transformed,
+                &original,
+                &written,
+                &columns,
+                &target,
+                &conditions,
+                p,
+                limits,
+                options,
+                forced_point,
+            )?
+        } else {
+            scout(&transformed, &columns, &target, p, limits)?
+        };
+        if source_support.is_some() {
+            validate_source_selection(&selected, descriptors.len())?;
+            require(
+                selected
+                    .iter()
+                    .all(|i| descriptors[*i].original_ordinal == *i),
+                "UNKNOWN_SOURCE_SUPPORT_IDS: descriptor ordinal mismatch",
+            )?;
+            scout_report["descriptor_bridge"]=json!(selected.iter().enumerate().map(|(local,original)|json!({"proposed_local_ordinal":local,"original_source":descriptors[*original]})).collect::<Vec<_>>());
+        }
         let scout_seconds = scout_start.elapsed().as_secs_f64();
         eprintln!(
             "{}",
             json!({"phase":"scout_finished","selected_rows":selected.len(),"shared_host_seconds":scout_seconds})
         );
         if profile_only {
-            return Ok(
-                json!({"schema":"rustred.stored-rule-profile.v1","status":"PROFILE_ONLY_NO_CERTIFICATE","S2_credit":false,
+            let mut result = json!({"schema":"rustred.stored-rule-profile.v1","status":"PROFILE_ONLY_NO_CERTIFICATE","S2_credit":false,
                 "family_blake3":p.family_digest,"family_fingerprint":p.family.fingerprint(),"stored_native_rule":rule,
                 "full_original_Case":{"fixed":case.fixed,"equations":case.equations},"raw_source_rows":original.len(),
                 "raw_source_nonzeros":original.iter().map(BTreeMap::len).sum::<usize>(),"full_original_column_count":columns.len(),
@@ -1293,8 +1705,11 @@ mod app {
                 "coefficient_profiles":profiles,"native_header":header,
                 "zero_census_generated_or_used":false,"archived_matrix_coefficients_used":false,
                 "reconstruction_executed":false,"original_all_column_exact_product":false,"guard_transfer":false,
-                "limits":limits,"timings_shared_host_seconds":{"frame_and_source":frame_seconds,"scout":scout_seconds,"total":start.elapsed().as_secs_f64()}}),
-            );
+                "limits":limits,"timings_shared_host_seconds":{"frame_and_source":frame_seconds,"scout":scout_seconds,"total":start.elapsed().as_secs_f64()}});
+            if let Some(options) = source_support {
+                result["source_support"] = json!({"options":options,"proposal":scout_report});
+            }
+            return Ok(result);
         }
         let selected_b = selected
             .iter()
@@ -1336,14 +1751,21 @@ mod app {
             }
         }
         let product_start = Instant::now();
-        validate_original_product(
-            &selected_a,
-            &proposal.weights,
-            &columns,
-            &written,
-            p,
-            limits,
-        )?;
+        let full_weights = if source_support.is_some() {
+            let mapped = embed_original_weights(&selected, &proposal.weights, original.len())?;
+            validate_original_product(&original, &mapped, &columns, &written, p, limits)?;
+            Some(mapped)
+        } else {
+            validate_original_product(
+                &selected_a,
+                &proposal.weights,
+                &columns,
+                &written,
+                p,
+                limits,
+            )?;
+            None
+        };
         let product_seconds = product_start.elapsed().as_secs_f64();
         let weights = proposal.weights.iter().map(|(i,w)| json!({"selected_ordinal":i,"original_source":descriptors[selected[*i]],"coefficient":text(w,&p.variables)})).collect::<Vec<_>>();
         let source_rows = selected.iter().map(|i| json!({"descriptor":descriptors[*i],"terms":raw_rows[*i].iter().map(|(k,v)| json!([k,text(v,&p.variables)])).collect::<Vec<_>>()})).collect::<Vec<_>>();
@@ -1352,7 +1774,7 @@ mod app {
             .skip(p.variables.len() - n)
             .map(|v| text(v, &p.variables))
             .collect::<Vec<_>>();
-        Ok(json!({
+        let mut result = json!({
             "schema":"rustred.stored-rule-certificate.v1","status":"S2_ONLY_EXACT_STORED_MEMBERSHIP",
             "app_source_blake3":blake3::hash(include_str!("p_certify_stored_rule.rs").as_bytes()).to_hex().to_string(),
             "family_blake3":p.family_digest,"family_fingerprint":p.family.fingerprint(),"family_source":p.family_text,
@@ -1377,7 +1799,15 @@ mod app {
             "guard_transfer":false,"parent_node_or_table_closure":false,"descent_checked":false,
             "scout":scout_report,"events":events,"limits":limits,
             "timings_shared_host_seconds":{"frame_and_source":frame_seconds,"reconstruction":reconstruction_seconds,"original_exact_product":product_seconds,"total":start.elapsed().as_secs_f64()}
-        }))
+        });
+        if let Some(options) = source_support {
+            result["source_support"] = json!({"options":options,"proposal":scout_report,
+                "full_original_product_source_rows":original.len(),"full_weight_row_domain":original.len(),
+                "chosen_zero_omitted_source_count":original.len()-selected.len(),
+                "exact_nonzero_original_source_ordinals":full_weights.as_ref().ok_or("missing original weight embedding")?.keys().copied().collect::<Vec<_>>(),
+                "reconstruction_local_to_original":selected,"full_original_A_used_for_final_product":true});
+        }
+        Ok(result)
     }
 
     fn execute(
@@ -1390,6 +1820,9 @@ mod app {
             "unsupported request schema",
         )?;
         request.limits.validate()?;
+        if let Some(options) = &request.source_support {
+            options.validate(&request.limits)?;
+        }
         let family_bytes = read_bounded(&request.family_file, request.limits.max_input_bytes)?;
         let family_text = String::from_utf8(family_bytes).map_err(err)?;
         let digest = blake3::hash(family_text.as_bytes()).to_hex().to_string();
@@ -1398,12 +1831,14 @@ mod app {
             cache.insert(digest.clone(), prepare(family_text, &request.limits)?);
         }
         let (header, rule, provenance) = origin(request)?;
-        let mut result = certify(
+        let mut result = certify_with_support(
             &cache[&digest],
             &header,
             &rule,
             &request.limits,
             profile_only,
+            request.source_support.as_ref(),
+            None,
         )?;
         result["app_source_blake3"] = json!(
             blake3::hash(include_str!("p_certify_stored_rule.rs").as_bytes())
@@ -1507,6 +1942,322 @@ mod app {
         }
         fn assert_equal(a: &IndexedCoefficient, b: &IndexedCoefficient) {
             assert_eq!(a.raw(), b.raw());
+        }
+        fn support(max_rows: usize) -> SourceSupport {
+            SourceSupport {
+                mode: SourceSupportMode::NumericCircuit,
+                max_rows,
+            }
+        }
+        fn reversed_seed_rule(rhs: Value) -> Value {
+            let mut r = rule(rhs);
+            r["seeds"] = json!(["I(n0-2)", "I(n0-1)"]);
+            r
+        }
+        fn r1() -> Value {
+            reversed_seed_rule(json!([["I(n0-1)", "-(d-2*n0+2)/(2*n0-2)"]]))
+        }
+        fn r2() -> Value {
+            reversed_seed_rule(json!([
+                ["I(n0-1)", "-(d-2*n0+2)/(2*n0-2)-(2*n0-4)"],
+                ["I(n0-2)", "-(d-2*n0+4)"]
+            ]))
+        }
+
+        #[test]
+        fn numeric_support_is_absent_or_null_by_default_and_reduces_unused_rows() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let input = json!({"schema":"rustred.stored-rule-certificate-request.v1","family_file":"unused.sym",
+                "origin":{"table":"unused.jsonl","index":0,"byte_offset":0,"record_bytes":1},"archive_frame":null,"limits":l});
+            let absent: Request = serde_json::from_value(input.clone()).unwrap();
+            let mut null = input;
+            null["source_support"] = Value::Null;
+            let explicit_null: Request = serde_json::from_value(null).unwrap();
+            assert!(absent.source_support.is_none() && explicit_null.source_support.is_none());
+            let default = certify(&p, &h, &r1(), &l, false).unwrap();
+            let shrunk =
+                certify_with_support(&p, &h, &r1(), &l, false, Some(&support(1)), Some(&[13, 5]))
+                    .unwrap();
+            assert_eq!(default["selected_source_rows"], 2);
+            assert!(default.get("source_support").is_none());
+            assert_eq!(shrunk["selected_source_rows"], 1);
+            assert_eq!(
+                shrunk["source_support"]["proposal"]["proposed_original_ordinals"],
+                json!([1])
+            );
+            assert_eq!(
+                shrunk["source_support"]["chosen_zero_omitted_source_count"],
+                1
+            );
+            assert_eq!(
+                shrunk["source_support"]["full_original_product_source_rows"],
+                2
+            );
+            assert_eq!(
+                shrunk["source_support"]["exact_nonzero_original_source_ordinals"],
+                json!([1])
+            );
+            assert_eq!(shrunk["full_original_column_count"], 3);
+            for field in [
+                "stored_native_rule",
+                "written_signed_row",
+                "full_original_columns",
+                "full_original_Case",
+                "affine_substitution",
+                "input_source_nonzero_conditions",
+                "written_coefficient_nonzero_conditions",
+                "existing_literal_full_AND_guards",
+                "existing_guard_epoch",
+                "original_all_column_exact_product",
+            ] {
+                assert_eq!(
+                    shrunk[field], default[field],
+                    "changed default semantics: {field}"
+                );
+            }
+        }
+
+        #[test]
+        fn numeric_support_certifies_two_different_written_relations() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let first =
+                certify_with_support(&p, &h, &r1(), &l, false, Some(&support(2)), Some(&[13, 5]))
+                    .unwrap();
+            let second =
+                certify_with_support(&p, &h, &r2(), &l, false, Some(&support(2)), Some(&[13, 5]))
+                    .unwrap();
+            assert_ne!(
+                first["stored_native_rule"]["rhs"],
+                second["stored_native_rule"]["rhs"]
+            );
+            assert_eq!(first["selected_source_rows"], 1);
+            assert_eq!(second["selected_source_rows"], 2);
+            assert_eq!(
+                second["source_support"]["proposal"]["proposed_original_ordinals"],
+                json!([0, 1])
+            );
+            for proof in [&first, &second] {
+                assert_eq!(proof["status"], "S2_ONLY_EXACT_STORED_MEMBERSHIP");
+                assert_eq!(proof["original_all_column_exact_product"], true);
+                assert_eq!(
+                    proof["source_support"]["full_original_A_used_for_final_product"],
+                    true
+                );
+                assert_eq!(proof["source_support"]["full_weight_row_domain"], 2);
+                assert_eq!(proof["checked_original_columns"], 3);
+                assert_eq!(proof["zero_erased_columns"], json!([]));
+                assert_eq!(proof["guard_transfer"], false);
+            }
+        }
+
+        #[test]
+        fn special_point_bad_support_is_unknown_and_missing_column_is_retained() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            // d=0,n=2 makes A0 zero and hides its GENERIC contribution to R2.
+            // Written denominators remain nonzero; this is a bad proposal, not
+            // an unusable input point or a change of the full generic Case.
+            let profile =
+                certify_with_support(&p, &h, &r2(), &l, true, Some(&support(2)), Some(&[0, 2]))
+                    .unwrap();
+            assert_eq!(profile["selected_original_ordinals"], json!([1]));
+            assert_eq!(profile["full_original_column_count"], 3);
+            assert_eq!(
+                profile["source_support"]["proposal"]["numeric_product_all_U"],
+                true
+            );
+            let error =
+                certify_with_support(&p, &h, &r2(), &l, false, Some(&support(2)), Some(&[0, 2]))
+                    .unwrap_err();
+            assert!(error.contains("UNKNOWN_RECONSTRUCTION"), "{error}");
+
+            // Independent hand-calculus fixture checks the final authority too:
+            // W=[0,1/(2n-2)] proves R1, but cannot prove the distinct generic R2.
+            let keys = public_keys(&[vec![-2], vec![-1]], &p).unwrap();
+            let parse = |s: &str| p.parse(s, &l).unwrap();
+            let a0 = Row::from([
+                (keys[&vec![-2]].clone(), parse("d-2*n0+4")),
+                (keys[&vec![-1]].clone(), parse("2*n0-4")),
+            ]);
+            let a1 = Row::from([
+                (keys[&vec![-1]].clone(), parse("d-2*n0+2")),
+                (keys[&vec![0]].clone(), parse("2*n0-2")),
+            ]);
+            let written = Row::from([
+                (keys[&vec![-2]].clone(), parse("d-2*n0+4")),
+                (
+                    keys[&vec![-1]].clone(),
+                    parse("(d-2*n0+2)/(2*n0-2)+(2*n0-4)"),
+                ),
+                (keys[&vec![0]].clone(), p.context.one()),
+            ]);
+            let columns = vec![
+                keys[&vec![-2]].clone(),
+                keys[&vec![-1]].clone(),
+                keys[&vec![0]].clone(),
+            ];
+            let wrong = BTreeMap::from([(1, parse("1/(2*n0-2)"))]);
+            assert!(
+                validate_original_product(&[a0, a1], &wrong, &columns, &written, &p, &l)
+                    .unwrap_err()
+                    .contains("UNKNOWN_ORIGINAL_PRODUCT_MISMATCH")
+            );
+        }
+
+        #[test]
+        fn numeric_support_tracks_dependent_empty_and_nonunit_l_rows() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let mut duplicate = r1();
+            duplicate["seeds"] = json!(["I(n0-2)", "I(n0-2)", "I(n0-1)"]);
+            let generic = certify_with_support(
+                &p,
+                &h,
+                &duplicate,
+                &l,
+                true,
+                Some(&support(1)),
+                Some(&[13, 5]),
+            )
+            .unwrap();
+            let g = &generic["source_support"]["proposal"];
+            assert_eq!(g["accepted_source_ordinals"], json!([0, 2]));
+            assert_eq!(g["accepted_native_L_rows"], json!([0, 2]));
+            assert_eq!(g["proposed_original_ordinals"], json!([2]));
+            let empty = certify_with_support(
+                &p,
+                &h,
+                &duplicate,
+                &l,
+                true,
+                Some(&support(1)),
+                Some(&[0, 2]),
+            )
+            .unwrap();
+            let e = &empty["source_support"]["proposal"];
+            assert_eq!(e["accepted_source_ordinals"], json!([2]));
+            assert_eq!(e["accepted_native_L_rows"], json!([0]));
+            assert_eq!(e["proposed_original_ordinals"], json!([2]));
+            // Native accepted L at the generic R2 point has diagonals7 and8.
+            let field = Zp64::new((1u64 << 61) - 1);
+            let mut lower = SparseMatrix::new(0, 2, field.clone());
+            lower.add_row(vec![field.to_element(7)], vec![0]);
+            lower.add_row(
+                vec![
+                    field.to_element(field.get_prime() - 56),
+                    field.to_element(8),
+                ],
+                vec![0, 1],
+            );
+            let weights = numeric_original_weights(&lower, &[0, 1], &field).unwrap();
+            assert!(field.is_one(&weights[0]));
+            assert!(field.is_one(&field.mul(&weights[1], &field.to_element(8))));
+        }
+
+        #[test]
+        fn numeric_support_refuses_bad_ids_limits_and_re_solves_invalid_r() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            for ids in [vec![], vec![0, 0], vec![1, 0], vec![2]] {
+                assert!(validate_source_selection(&ids, 2).is_err());
+            }
+            assert!(validate_source_selection(&[0, 1], 2).is_ok());
+            assert!(
+                embed_original_weights(&[1], &BTreeMap::from([(1, p.context.one())]), 2).is_err()
+            );
+            assert!(support(0).validate(&l).is_err());
+            assert!(support(65).validate(&l).is_err());
+            let cap =
+                certify_with_support(&p, &h, &r2(), &l, false, Some(&support(1)), Some(&[13, 5]))
+                    .unwrap_err();
+            assert!(cap.contains("UNKNOWN_SOURCE_SUPPORT_LIMIT"), "{cap}");
+            let invalid = reversed_seed_rule(json!([["I(n0-1)", "-(d-2*n0+2)/(2*n0-2)+1"]]));
+            let error = certify_with_support(
+                &p,
+                &h,
+                &invalid,
+                &l,
+                false,
+                Some(&support(2)),
+                Some(&[13, 5]),
+            )
+            .unwrap_err();
+            assert!(
+                error.contains("UNKNOWN_NUMERIC_SUPPORT_NO_TARGET"),
+                "{error}"
+            );
+        }
+
+        #[test]
+        fn numeric_support_admits_post_hit_input_denominators_and_condition_ledger() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let keys = public_keys(&[vec![-1], vec![-2]], &p).unwrap();
+            let parse = |s: &str| p.parse(s, &l).unwrap();
+            let needed = Row::from([
+                (keys[&vec![-1]].clone(), parse("d-2*n0+2")),
+                (keys[&vec![0]].clone(), parse("2*n0-2")),
+            ]);
+            // A test-only rationally rescaled ordinary IBP after the target hit
+            // has a pole. It is NOT a production source option or a new basis.
+            let post_hit = Row::from([
+                (keys[&vec![-2]].clone(), parse("(d-2*n0+4)/(n0-5)")),
+                (keys[&vec![-1]].clone(), parse("(2*n0-4)/(n0-5)")),
+            ]);
+            let written = Row::from([
+                (keys[&vec![-1]].clone(), parse("(d-2*n0+2)/(2*n0-2)")),
+                (keys[&vec![0]].clone(), p.context.one()),
+            ]);
+            let original = vec![needed, post_hit];
+            let target = keys[&vec![0]].clone();
+            let transformed = original
+                .iter()
+                .map(|row| transform(row, &target, &written, &p, &l).unwrap())
+                .collect::<Vec<_>>();
+            let columns = vec![
+                keys[&vec![-2]].clone(),
+                keys[&vec![-1]].clone(),
+                target.clone(),
+            ];
+            assert!(
+                numeric_circuit_at_point(
+                    &transformed,
+                    &original,
+                    &written,
+                    &columns,
+                    &target,
+                    &[],
+                    &p,
+                    &l,
+                    &support(2),
+                    &[13, 5]
+                )
+                .unwrap()
+                .is_none()
+            );
+            assert!(
+                numeric_circuit_at_point(
+                    &transformed,
+                    &original,
+                    &written,
+                    &columns,
+                    &target,
+                    &["d-11"],
+                    &p,
+                    &l,
+                    &support(2),
+                    &[11, 4]
+                )
+                .unwrap()
+                .is_none()
+            );
         }
 
         #[test]
@@ -1794,6 +2545,7 @@ mod app {
                 },
                 archive_frame: Some(directory.join("intentionally-absent-poison-matrix")),
                 limits: l,
+                source_support: None,
             };
             let proof = execute(&request, &mut BTreeMap::new(), false).unwrap();
             assert_eq!(
