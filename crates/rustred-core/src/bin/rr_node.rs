@@ -600,7 +600,7 @@ fn cmd_replay(mut a: Args) -> i32 {
 /// `rr_node locus-rank --table T --out DIR [--rules all|I,A-Z,CHART:I] [--chart C] [--family F] [--max-flats 64]
 /// [--full] [--extra-loci FILE] [--keep-cells] [--no-replay] [--point-tries 4000] [--dimensions D..]`:
 /// guard-theory's decisive locus test (seed-coordinate suspect flats, one full-seed-system replay per flat);
-/// writes DIR/RESULTS.jsonl + DIR/SUMMARY.json. Exit 0 = every rule PASS_ALL_FLATS, 1 = some FAIL, 2 = otherwise.
+/// writes DIR/RESULTS.jsonl + DIR/SUMMARY.json. Exit 0 = every rule PASS_ON_TESTED_FLATS, 1 = some FAIL, 2 = otherwise.
 fn cmd_locus_rank(mut a: Args) -> i32 {
     use rustred::node::replay::locus::{LocusArgs, run};
     let mut dims = Vec::new();
@@ -632,7 +632,7 @@ fn cmd_locus_rank(mut a: Args) -> i32 {
     let (status, summary) = run(&args).unwrap_or_else(|e| die(&e));
     println!("{}", serde_json::json!({"status": status, "verdicts": summary["verdicts"], "rules": summary["rules"], "seconds": summary["seconds"], "out": args.out}));
     match status.as_str() {
-        "PASS_ALL_FLATS" => 0,
+        "PASS_ON_TESTED_FLATS" => 0,
         "FAIL" => 1,
         _ => 2,
     }

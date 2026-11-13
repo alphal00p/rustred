@@ -16,9 +16,9 @@
 //!   the exported seeds (3 d, mod P, +1 mutation control).
 //!
 //! Verdict per rule: FAIL (some flat fails: at that point the rule is NOT DERIVED FROM THESE SEEDS; not evidence that
-//! it is false), PASS_ALL_FLATS (every flat
+//! it is false), PASS_ON_TESTED_FLATS (every flat
 //! passes; `_CAPPED` when the flat cap was hit), UNKNOWN (no control point, a replay refused, or a malformed
-//! rule). PASS_ALL_FLATS is a complete validity statement for the case only under Conjecture C (every codim-1 rank
+//! rule). PASS_ON_TESTED_FLATS is a complete validity statement for the case only under Conjecture C (every codim-1 rank
 //! drop of the full seed system that is not an RHS pole lies on S); a FAIL needs no conjecture.
 //!
 //! Points come from the deterministic MT19937 of the replay seeded per rule, so a rule's result does not depend on
@@ -646,7 +646,7 @@ fn prepare(
 }
 
 /// Run the locus-rank test; writes `OUT/RESULTS.jsonl` (one line per rule) and `OUT/SUMMARY.json`.
-/// Returns the overall status: FAIL (some rule fails), PASS_ALL_FLATS (every rule), UNKNOWN otherwise.
+/// Returns the overall status: FAIL (some rule fails), PASS_ON_TESTED_FLATS (every rule), UNKNOWN otherwise.
 pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
     let started = Instant::now();
     std::fs::create_dir_all(&args.out).map_err(|e| e.to_string())?;
@@ -824,15 +824,22 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
                     fr.push(v);
                 }
                 rec["flat_results"] = Value::Array(fr);
+                // guard-fix (coordinator 18:49Z, helper Y11): a PASS states the strata tested; it never certifies
+                rec["tested_strata"] = json!(if args.full {
+                    "every intersection of live suspect layers (up to the case dimension)"
+                } else {
+                    "the case + single live suspect layers + intersections of layers that showed a rank drop"
+                });
+                rec["verdict_meaning"] = json!("PASS_ON_TESTED_FLATS = in the span at one generic point of each tested flat (Monte-Carlo evidence; not a certificate, suspect list incomplete); FAIL = not derived from these seeds at a tested point");
                 Ok(if sts.iter().any(|s| s.as_deref().is_some_and(|s| s.starts_with("FAIL"))) {
                     "FAIL".into()
                 } else if args.no_replay {
                     "PLANNED".into()
                 } else if !sts.is_empty() && sts.iter().all(|s| s.as_deref() == Some("PASS_RS2_RS3_SAMPLED")) {
                     if rec["flats_capped"].as_bool() == Some(true) {
-                        "PASS_ALL_FLATS_CAPPED".into()
+                        "PASS_ON_TESTED_FLATS_CAPPED".into()
                     } else {
-                        "PASS_ALL_FLATS".into()
+                        "PASS_ON_TESTED_FLATS".into()
                     }
                 } else {
                     "UNKNOWN".into()
@@ -863,8 +870,8 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
     std::fs::write(&results_path, lines).map_err(|e| e.to_string())?;
     let status = if counts.contains_key("FAIL") {
         "FAIL"
-    } else if counts.keys().all(|k| k.starts_with("PASS_ALL_FLATS")) {
-        "PASS_ALL_FLATS"
+    } else if counts.keys().all(|k| k.starts_with("PASS_ON_TESTED_FLATS")) {
+        "PASS_ON_TESTED_FLATS"
     } else {
         "UNKNOWN"
     }
@@ -872,7 +879,7 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
     let summary = json!({"schema": "rustred.locus-rank.v1", "tool": VERSION, "table": args.table, "status": status,
         "rules": rules.len(), "verdicts": counts, "dimensions": args.dimensions, "prime": P,
         "seconds": started.elapsed().as_secs_f64(),
-        "scope": "FAIL = a point where the rule is not derived from these seeds (mod-P span test); not evidence that the rule is false. PASS_ALL_FLATS = PASS on generic points of the tested flats only (Monte-Carlo evidence, not a certificate); the suspect list is not complete (helper Y1/Y11)."});
+        "scope": "FAIL = a point where the rule is not derived from these seeds (mod-P span test); not evidence that the rule is false. PASS_ON_TESTED_FLATS = PASS on generic points of the tested flats only (Monte-Carlo evidence, not a certificate); the suspect list is not complete (helper Y1/Y11)."});
     std::fs::write(args.out.join("SUMMARY.json"), serde_json::to_string_pretty(&summary).unwrap() + "\n")
         .map_err(|e| e.to_string())?;
     Ok((status, summary))
@@ -954,19 +961,19 @@ mod tests {
         assert_eq!(status, "FAIL", "{summary}");
         let res = results(&out);
         let python: &[(usize, &str, &[&str], &[&str])] = &[
-            (1440, "PASS_ALL_FLATS", &["n19", "n12", "n11", "n10", "1+n18", "1+n11"], &[]),
-            (1585, "PASS_ALL_FLATS", &["-1+n9", "-1+n1", "1+n15"], &[]),
-            (1599, "PASS_ALL_FLATS", &["-1+n1", "n10", "1+n10"], &["n10"]),
-            (1609, "PASS_ALL_FLATS", &["n19", "n11", "n10", "1+n19", "1+n12", "1+n11", "1+n10", "2+n12"], &[]),
+            (1440, "PASS_ON_TESTED_FLATS", &["n19", "n12", "n11", "n10", "1+n18", "1+n11"], &[]),
+            (1585, "PASS_ON_TESTED_FLATS", &["-1+n9", "-1+n1", "1+n15"], &[]),
+            (1599, "PASS_ON_TESTED_FLATS", &["-1+n1", "n10", "1+n10"], &["n10"]),
+            (1609, "PASS_ON_TESTED_FLATS", &["n19", "n11", "n10", "1+n19", "1+n12", "1+n11", "1+n10", "2+n12"], &[]),
             (1668, "FAIL", &["-2+n2"], &["-2+n2"]),
             (1669, "FAIL", &["-2+n2"], &["-2+n2"]),
-            (1689, "PASS_ALL_FLATS", &["n18", "n11", "n10"], &["n18", "n11", "n10"]),
-            (1699, "PASS_ALL_FLATS", &["n11", "n10", "1+n18", "1+n11"], &["1+n18"]),
-            (1732, "PASS_ALL_FLATS", &["n12", "n10", "1+n10"], &["n12", "n10"]),
-            (1773, "PASS_ALL_FLATS", &[], &[]),
-            (1780, "PASS_ALL_FLATS", &["-1+n1"], &[]),
-            (1816, "PASS_ALL_FLATS", &["-1+n0"], &[]),
-            (1819, "PASS_ALL_FLATS", &[], &[]),
+            (1689, "PASS_ON_TESTED_FLATS", &["n18", "n11", "n10"], &["n18", "n11", "n10"]),
+            (1699, "PASS_ON_TESTED_FLATS", &["n11", "n10", "1+n18", "1+n11"], &["1+n18"]),
+            (1732, "PASS_ON_TESTED_FLATS", &["n12", "n10", "1+n10"], &["n12", "n10"]),
+            (1773, "PASS_ON_TESTED_FLATS", &[], &[]),
+            (1780, "PASS_ON_TESTED_FLATS", &["-1+n1"], &[]),
+            (1816, "PASS_ON_TESTED_FLATS", &["-1+n0"], &[]),
+            (1819, "PASS_ON_TESTED_FLATS", &[], &[]),
         ];
         for (rule, verdict, suspects, hot) in python {
             let r = &res[rule];
@@ -1000,7 +1007,7 @@ mod tests {
         let good = d.join("good.jsonl");
         std::fs::write(&good, R38).unwrap();
         let (status, summary) = run(&args(good, d.join("good"), "0")).unwrap();
-        assert_eq!(status, "PASS_ALL_FLATS", "{summary}");
+        assert_eq!(status, "PASS_ON_TESTED_FLATS", "{summary}");
         let r = &results(&d.join("good"))[&0];
         assert_eq!(strs(&r["suspects"]), Vec::<String>::new(), "every hidden pole is an exception: {r}");
 
