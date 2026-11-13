@@ -26,6 +26,9 @@
 //! Points come from the deterministic MT19937 of the replay seeded per rule, so a rule's result does not depend on
 //! which other rules are selected (the Python tool shares one generator; its points differ, its verdicts agree).
 
+// The rule selector, the rref result and the suspect map are plain tuple collections of the port of locus_rank.py.
+#![allow(clippy::type_complexity)]
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::time::Instant;
