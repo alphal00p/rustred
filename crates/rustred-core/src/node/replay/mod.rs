@@ -1827,24 +1827,31 @@ fn replay_cells(
         addto_p(p, &mut mutant_desired, rhskeys[mutidx].clone(), p - 1);
         let mutant_span = elim.solve(&enc(&mutant_desired))?;
         let mutant_rejected = !mutant_span.in_span;
-        // guard-fix (Y24 control 2): no known nonzero integral lies in the span. Per non-zero sector touched by
-        // the columns, its corner (lines at power 1, ISPs at 0; nonzero for a non-scaleless Euclidean sector) when
-        // it is a column: e_corner in the span would mean the rows (or the zero list) prove a nonzero integral = 0.
+        // guard-fix (Y24 control 2): no known nonzero integral lies in the span. Per non-zero sector touched by the
+        // columns, its lowest column WITHOUT numerators (every line of the sector at power >= 1, every other slot at
+        // exactly 0): a Euclidean integral with a positive integrand, nonzero for generic d. Such a column in the span
+        // would mean the rows (or the zero list) prove a nonzero integral = 0.
         let mut sectors_touched: BTreeSet<Vec<bool>> = BTreeSet::new();
-        for k in columns.iter().filter(|k| !zeros.contains(*k)) {
-            sectors_touched.insert(k.iter().map(|&x| x >= 1).collect());
+        let mut probe_of: BTreeMap<Vec<bool>, (i64, usize)> = BTreeMap::new();
+        for (c, k) in columns.iter().enumerate() {
+            if zeros.contains(k) {
+                continue;
+            }
+            let sec: Vec<bool> = k.iter().map(|&x| x >= 1).collect();
+            sectors_touched.insert(sec.clone());
+            if k.iter().all(|&x| x >= 1 || x == 0) {
+                let weight: i64 = k.iter().sum();
+                let e = probe_of.entry(sec).or_insert((weight, c));
+                if weight < e.0 {
+                    *e = (weight, c);
+                }
+            }
         }
         let (mut corners_tested, mut corners_in_span) = (0usize, Vec::new());
-        for sec in &sectors_touched {
-            let corner: Key = sec.iter().map(|&a| if a { 1 } else { 0 }).collect();
-            if let Some(&c) = ids.get(&corner) {
-                if zeros.contains(&corner) {
-                    continue;
-                }
-                corners_tested += 1;
-                if elim.solve(&[(c, 1)])?.in_span {
-                    corners_in_span.push(corner);
-                }
+        for (_, c) in probe_of.values() {
+            corners_tested += 1;
+            if elim.solve(&[(*c, 1)])?.in_span {
+                corners_in_span.push(columns[*c].clone());
             }
         }
         let nonzero_control_ok = corners_in_span.is_empty();
