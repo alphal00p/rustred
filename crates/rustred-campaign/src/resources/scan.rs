@@ -41,6 +41,8 @@ pub struct SessionUsage {
     pub members: Vec<ProcStat>,
     /// Process groups of the live members.
     pub groups: BTreeSet<u32>,
+    /// RSS per process group of the session (children fork helpers that may change their group).
+    pub group_rss_bytes: BTreeMap<u32, u64>,
     pub rss_bytes: u64,
     pub cpu_ticks: u64,
     /// Largest `rss_bytes` seen in any scan since the session was tracked.
@@ -345,6 +347,7 @@ fn fold(raw: &RawScan, tracked: &mut BTreeMap<u32, Track>) -> BTreeMap<u32, Sess
                 continue;
             }
             u.groups.insert(p.pgrp);
+            *u.group_rss_bytes.entry(p.pgrp).or_default() += p.rss_bytes;
             u.rss_bytes = u.rss_bytes.saturating_add(p.rss_bytes);
             u.cpu_ticks = u.cpu_ticks.saturating_add(p.cpu_ticks);
             u.members.push(p.clone());
@@ -438,6 +441,8 @@ mod tests {
         let u = &out[&100];
         assert_eq!(u.members.len(), 2);
         assert_eq!(u.rss_bytes, 1500);
+        assert_eq!(u.group_rss_bytes[&100], 1000);
+        assert_eq!(u.group_rss_bytes[&101], 500);
         assert_eq!(u.peak_rss_bytes, 1500);
         assert_eq!(u.escapees.len(), 1);
         assert_eq!(u.escapees[0].pid, 200);
