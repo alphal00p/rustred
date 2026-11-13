@@ -389,3 +389,54 @@ fn t2_t178_order_b() {
     assert_eq!(dom_change, 29_287);
     assert_eq!(piece_change, 282_851);
 }
+
+/// Audit A M4 on the full fixture sets: the fixed-value index (`batch`) equals the plain record scan (`batch_slow`)
+/// on every T162 box-B key (2,440 bank rules) and every T178 order-B box key (38 pieces, 5,938 records), key by key.
+#[test]
+#[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES; slow scan of 286,066 x 5,938; run with --release -- --ignored"]
+fn m4_full_fixtures_fast_index_equals_slow_scan() {
+    let fx = fixtures();
+    let frame = NodeFrame::without_header_lines_first(20, 9);
+    let keys = box_keys(&frame, |d| if d == 0 { 1 } else { 2 }, Some(5));
+    let mut bank = read_bank_predicates(fx.join("T162/RULE-PREDICATES2440.json")).unwrap();
+    bank.sort_by_key(|p| p.global_ordinal0);
+    let table = Table::from_bank(
+        "T162-bank-qualified",
+        "T162/RULE-PREDICATES2440.json",
+        &bank,
+        20,
+        TargetSource::CanonicalByConstruction {
+            attestation: "T162 bank: no target field, presented slots, no recenter or permutation",
+        },
+    )
+    .unwrap();
+    let disp = Dispatcher::new(vec![table], vec![0]).unwrap();
+    let (a, b) = (
+        disp.batch(&keys, 4).unwrap(),
+        disp.batch_slow(&keys, 4).unwrap(),
+    );
+    println!(
+        "M4 T162: fast {:.2}s slow {:.2}s, {} keys, covered {}",
+        a.seconds,
+        b.seconds,
+        keys.len(),
+        a.covered
+    );
+    assert_eq!(a.results, b.results);
+    let T178 { tables, keys, .. } = load_t178();
+    let disp = Dispatcher::new(tables, (0..38).collect()).unwrap();
+    let (a, b) = (
+        disp.batch(&keys, 4).unwrap(),
+        disp.batch_slow(&keys, 4).unwrap(),
+    );
+    println!(
+        "M4 T178B: fast {:.2}s slow {:.2}s, {} keys, covered {} uncovered {}",
+        a.seconds,
+        b.seconds,
+        keys.len(),
+        a.covered,
+        a.uncovered
+    );
+    assert_eq!(a.results, b.results);
+    assert_eq!((a.covered, a.uncovered), (285_657, 409));
+}

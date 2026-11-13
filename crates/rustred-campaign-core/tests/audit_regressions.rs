@@ -804,3 +804,221 @@ fn audit_a_m7_header_fields_read_as_the_engine() {
         assert!(read_lines(bad)[0].is_err(), "{bad}");
     }
 }
+
+// ================================================================ fast index versus reference scan (audit A M4)
+
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        // xorshift64*
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+    fn r(&mut self, lo: i32, hi: i32) -> i32 {
+        lo + (self.next() % ((hi - lo + 1) as u64)) as i32
+    }
+    fn chance(&mut self, pct: u64) -> bool {
+        self.next() % 100 < pct
+    }
+}
+
+fn lin(rng: &mut Rng, n: usize) -> Poly {
+    // n_a - n_b - c  or  n_a - c
+    let a = rng.r(0, n as i32 - 1) as usize;
+    let mut p = Poly::var(a)
+        .sub(&Poly::constant(rng.r(-2, 2) as i128))
+        .unwrap();
+    if rng.chance(50) {
+        let b = rng.r(0, n as i32 - 1) as usize;
+        p = p.sub(&Poly::var(b)).unwrap();
+    }
+    p
+}
+
+/// A random domain with planted structure: fixed slots, equations, exception branches (incl. empty AND-lists),
+/// blocking witness poles, elided witness loci, recenter bounds, target patterns with offsets and constants.
+fn random_domain(rng: &mut Rng, n: usize, mask: &[bool]) -> CaseDomain {
+    let mut d = CaseDomain::free(n, rng.chance(80).then(|| mask.to_vec()));
+    for s in 0..n {
+        if rng.chance(25) {
+            d.fixed[s] = Some(if mask[s] { rng.r(1, 3) } else { rng.r(-2, 0) });
+        }
+    }
+    for _ in 0..rng.r(0, 2) {
+        d.equations.push(lin(rng, n));
+    }
+    for _ in 0..rng.r(0, 3) {
+        let len = rng.r(0, 2) as usize;
+        d.exceptions.push((0..len).map(|_| lin(rng, n)).collect());
+    }
+    if rng.chance(10) {
+        let p = lin(rng, n);
+        d.poles.push(rustred_campaign_core::domain::PoleLocus::new(
+            PoleKind::Witness,
+            &p,
+        ));
+    }
+    if rng.chance(4) {
+        d.witness_elided = true;
+    }
+    if rng.chance(15) {
+        // permuted parameters with offsets and a constant slot
+        let mut params: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            params.swap(i, rng.r(0, i as i32) as usize);
+        }
+        let c = rng.r(0, n as i32 - 1) as usize;
+        d.target = TargetMap::Pattern(
+            (0..n)
+                .map(|j| {
+                    if j == c {
+                        TargetSlot::Const(if mask[j] { 1 } else { 0 } as i64)
+                    } else {
+                        TargetSlot::Param {
+                            param: params[j],
+                            offset: rng.r(-1, 1) as i64,
+                        }
+                    }
+                })
+                .collect(),
+        );
+    } else if rng.chance(10) {
+        let s = rng.r(0, n as i32 - 1) as usize;
+        d.recenter_bounds.push(if mask[s] {
+            Poly::slot_minus(s, 2)
+        } else {
+            Poly::slot_minus(s, 0).neg().unwrap()
+        });
+    }
+    d
+}
+
+/// Independent reference written here (not the crate's scan): tables in priority order, records in order, the
+/// engine's selection by verdict.
+fn naive(tables: &[Table], prio: &[usize], mask: Option<&[bool]>, key: &[i32]) -> Dispatch {
+    use rustred_campaign_core::cover::RuleRef;
+    use rustred_campaign_core::domain::Stage;
+    if let Some(m) = mask
+        && let Some(slot) = (0..key.len()).find(|&i| (m[i] && key[i] < 1) || (!m[i] && key[i] > 0))
+    {
+        return Dispatch::OutsideChart { slot };
+    }
+    for &t in prio {
+        for (r, d) in tables[t].domains.iter().enumerate() {
+            let at = RuleRef {
+                table: t,
+                record: r,
+                label: tables[t].labels[r],
+            };
+            let v = d.applies(key);
+            match v.stage() {
+                Stage::Applies => return Dispatch::Covered(at),
+                Stage::NotSelected => {}
+                Stage::Blocked => return Dispatch::Blocked { at, reason: v },
+                Stage::Undecided => return Dispatch::Undecided { at, verdict: v },
+            }
+        }
+    }
+    Dispatch::Uncovered
+}
+
+/// A M4: the fixed-value index (the fast path the coverage figures rest on) had no in-repo test against a plain
+/// scan. Randomized differential test, seeded, arities 5, 9, 14, 20: `first_match` (index) = `first_match_slow`
+/// (crate scan) = an independent naive scan in this file; `batch` = `batch_slow`; the winner is in `union_cover`.
+#[test]
+fn audit_a_m4_fast_index_equals_reference_scan_random() {
+    let mut rng = Rng(0x00c0_ffee_2026_1113);
+    let mut tally = [0usize; 5];
+    for (n, lines) in [(5usize, 3usize), (9, 6), (14, 9), (20, 10)] {
+        let mask: Vec<bool> = (0..n).map(|i| i < lines).collect();
+        for round in 0..3 {
+            let n_tables = rng.r(1, 3) as usize;
+            let mut tables = vec![];
+            for t in 0..n_tables {
+                let mut tb = Table::new(format!("t{t}"), n);
+                for r in 0..rng.r(20, 60) {
+                    tb.push(
+                        (t * 1000) as i64 + r as i64,
+                        random_domain(&mut rng, n, &mask),
+                    )
+                    .unwrap();
+                }
+                tables.push(tb);
+            }
+            let mut prio: Vec<usize> = (0..n_tables).collect();
+            if round % 2 == 1 {
+                prio.reverse();
+            }
+            let disp = Dispatcher::new(tables.clone(), prio.clone()).unwrap();
+            let keys: Vec<Vec<i32>> = (0..1500)
+                .map(|_| {
+                    (0..n)
+                        .map(|i| {
+                            if rng.chance(3) {
+                                rng.r(-1, 2) // occasionally outside the chart
+                            } else if mask[i] {
+                                rng.r(1, 3)
+                            } else {
+                                rng.r(-2, 0)
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            for k in &keys {
+                let fast = disp.first_match(k).unwrap();
+                assert_eq!(fast, disp.first_match_slow(k).unwrap(), "n={n} key {k:?}");
+                assert_eq!(
+                    fast,
+                    naive(&tables, &prio, disp.chart(), k),
+                    "n={n} key {k:?}"
+                );
+                let (yes, open) = disp.union_cover(k).unwrap();
+                match &fast {
+                    Dispatch::Covered(w) => assert!(yes.contains(w)),
+                    Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => {
+                        assert!(open.iter().any(|(r, _)| r == at))
+                    }
+                    Dispatch::Uncovered => assert!(yes.is_empty() && open.is_empty()),
+                    Dispatch::OutsideChart { .. } => assert!(yes.is_empty() && open.is_empty()),
+                }
+                tally[match fast {
+                    Dispatch::Covered(_) => 0,
+                    Dispatch::Uncovered => 1,
+                    Dispatch::Blocked { .. } => 2,
+                    Dispatch::Undecided { .. } => 3,
+                    Dispatch::OutsideChart { .. } => 4,
+                }] += 1;
+            }
+            let (a, b) = (
+                disp.batch(&keys, 3).unwrap(),
+                disp.batch_slow(&keys, 2).unwrap(),
+            );
+            assert_eq!(a.results, b.results);
+            assert_eq!(
+                (
+                    a.covered,
+                    a.uncovered,
+                    a.blocked,
+                    a.undecided,
+                    a.outside_chart
+                ),
+                (
+                    b.covered,
+                    b.uncovered,
+                    b.blocked,
+                    b.undecided,
+                    b.outside_chart
+                )
+            );
+        }
+    }
+    println!("M4 random: covered/uncovered/blocked/undecided/outside = {tally:?}");
+    // every verdict kind occurs, so the comparison is not vacuous
+    assert!(
+        tally[0] > 500 && tally[1] > 500 && tally[2] > 50 && tally[4] > 500,
+        "{tally:?}"
+    );
+}
