@@ -18,7 +18,14 @@ fn finite_depth_is_saved_inspectable_and_cold_applicable_across_backends_and_wor
             inspect_generated_candidate_bundle(baseline.bundle(), Default::default()).unwrap();
         assert_eq!(inspection.numerical_depth, depth);
         let bundle = codec::read(baseline.bundle(), Default::default()).unwrap();
-        assert_eq!(bundle.solver_policy, super::super::policy::encode(depth));
+        assert_eq!(
+            bundle.solver_policy,
+            format!(
+                "{}{}",
+                super::super::policy::encode(depth),
+                rustred::propagator::custom::BUNDLE_GUARD_TAG
+            )
+        );
         if depth == 2 {
             assert_same_program(
                 baseline.bundle(),

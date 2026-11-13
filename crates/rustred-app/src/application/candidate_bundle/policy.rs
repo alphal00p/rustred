@@ -4,6 +4,8 @@
 //! policies share its source definitions and every other search default. Their
 //! canonical tags fit the existing native record without rewriting old output.
 
+use rustred::propagator::custom::{BUNDLE_GUARD_TAG, BUNDLE_GUARD_VERSION, bundle_guard_version};
+
 use crate::AppError;
 
 use super::model::{FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy, SOLVER_POLICY};
@@ -46,6 +48,9 @@ pub(super) struct GenerationPolicy {
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
     pub finite_case_limits: FiniteCaseLimits,
+    /// Batch 6: the guard version of the saved rules (`+witness-guards-v2`
+    /// suffix = 2, absent = 1: generated before the witness-pole guards).
+    pub guard_version: u32,
 }
 
 pub(super) fn encode(depth: u32) -> String {
@@ -69,10 +74,22 @@ pub(super) fn encode_request(request: &FamilyCandidatesRequest) -> String {
         max_numerator_rank: request.max_numerator_rank,
         finite_case_policy: request.finite_case_policy,
         finite_case_limits: request.finite_case_limits,
+        // every generation of this build runs with witness-pole guards
+        // (SectorConfig::default().witness_guards)
+        guard_version: BUNDLE_GUARD_VERSION,
     })
 }
 
 fn encode_configuration(policy: GenerationPolicy) -> String {
+    let untagged = encode_untagged(policy);
+    if policy.guard_version >= BUNDLE_GUARD_VERSION {
+        format!("{untagged}{BUNDLE_GUARD_TAG}")
+    } else {
+        untagged
+    }
+}
+
+fn encode_untagged(policy: GenerationPolicy) -> String {
     let base = encode_scoped(policy.numerical_depth, policy.max_numerator_rank);
     match policy.finite_case_policy {
         FiniteCasePolicy::SearchFinite => base,
@@ -85,13 +102,15 @@ fn encode_configuration(policy: GenerationPolicy) -> String {
     }
 }
 
-pub(super) fn parse(policy: &str) -> Result<GenerationPolicy, AppError> {
+pub(super) fn parse(tagged: &str) -> Result<GenerationPolicy, AppError> {
+    let (guard_version, policy) = bundle_guard_version(tagged);
     if policy == SOLVER_POLICY {
         return Ok(GenerationPolicy {
             numerical_depth: DEFAULT_DEPTH,
             max_numerator_rank: None,
             finite_case_policy: FiniteCasePolicy::SearchFinite,
             finite_case_limits: FiniteCaseLimits::default(),
+            guard_version,
         });
     }
     let values = policy
@@ -129,6 +148,7 @@ pub(super) fn parse(policy: &str) -> Result<GenerationPolicy, AppError> {
                 max_numerator_rank: Some(rank),
                 finite_case_policy,
                 finite_case_limits,
+                guard_version,
             },
         ),
         None => values
@@ -139,13 +159,14 @@ pub(super) fn parse(policy: &str) -> Result<GenerationPolicy, AppError> {
                 max_numerator_rank: None,
                 finite_case_policy,
                 finite_case_limits,
+                guard_version,
             }),
     }
     .filter(|parsed| {
         parsed.finite_case_policy == FiniteCasePolicy::SearchFinite
             || parsed.max_numerator_rank.is_some()
     })
-    .filter(|parsed| encode_configuration(*parsed) == policy)
+    .filter(|parsed| encode_configuration(*parsed) == tagged)
     .ok_or_else(|| AppError::schema("unsupported candidate solver policy"))?;
     Ok(parsed)
 }
@@ -157,6 +178,48 @@ pub(super) fn numerical_depth(policy: &str) -> Result<u32, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Batch 6: new generations are stamped with the guard version; pre-fix
+    /// (untagged) policies still parse as guard version 1 and keep their exact
+    /// string; an unknown guard tag is refused.
+    #[test]
+    fn generations_are_stamped_with_the_guard_version_and_old_policies_still_parse() {
+        let request = FamilyCandidatesRequest::new("not parsed");
+        let tag = encode_request(&request);
+        assert_eq!(tag, format!("{SOLVER_POLICY}{BUNDLE_GUARD_TAG}"));
+        let decoded = parse(&tag).unwrap();
+        assert_eq!(decoded.guard_version, BUNDLE_GUARD_VERSION);
+        assert_eq!(decoded.numerical_depth, DEFAULT_DEPTH);
+        assert_eq!(encode_configuration(decoded), tag);
+        for old in [
+            SOLVER_POLICY.to_owned(),
+            encode(0),
+            encode_scoped(1, Some(3)),
+        ] {
+            let decoded = parse(&old).unwrap();
+            assert_eq!(decoded.guard_version, 1, "{old}");
+            assert_eq!(encode_configuration(decoded), old);
+            let stamped = parse(&format!("{old}{BUNDLE_GUARD_TAG}")).unwrap();
+            assert_eq!(stamped.guard_version, BUNDLE_GUARD_VERSION);
+            assert_eq!(
+                GenerationPolicy {
+                    guard_version: 1,
+                    ..stamped
+                },
+                decoded
+            );
+        }
+        let mut deeper = FamilyCandidatesRequest::new("not parsed");
+        deeper.numerical_depth = 0;
+        assert_eq!(encode_request(&deeper), format!("{}{BUNDLE_GUARD_TAG}", encode(0)));
+        for malformed in [
+            format!("{SOLVER_POLICY}+witness-guards-v3"),
+            format!("{SOLVER_POLICY}{BUNDLE_GUARD_TAG}{BUNDLE_GUARD_TAG}"),
+            format!("{BUNDLE_GUARD_TAG}{SOLVER_POLICY}"),
+        ] {
+            assert!(parse(&malformed).is_err(), "{malformed}");
+        }
+    }
 
     #[test]
     fn finite_diagnostics_are_runtime_policy_and_do_not_change_saved_tags() {

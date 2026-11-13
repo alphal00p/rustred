@@ -1648,7 +1648,15 @@ pub fn import_table(
         }
         .to_owned(),
         status: CANDIDATE_BUNDLE_STATUS.to_owned(),
-        solver_policy: IMPORT_SOLVER_POLICY.to_owned(),
+        // Batch 6: a table generated with witness-pole guards (header
+        // guard_version 2, D1) stamps its imported payload; absent = 1.
+        solver_policy: if header["guard_version"].as_u64()
+            == Some(u64::from(super::custom::BUNDLE_GUARD_VERSION))
+        {
+            format!("{IMPORT_SOLVER_POLICY}{}", super::custom::BUNDLE_GUARD_TAG)
+        } else {
+            IMPORT_SOLVER_POLICY.to_owned()
+        },
         family_source: format!(
             "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
