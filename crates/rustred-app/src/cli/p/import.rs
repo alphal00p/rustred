@@ -43,16 +43,16 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use rustred::persistence::{
+    BinaryIoLimits, BinarySection, CoefficientId, DecodedCoefficientTable, FACTORED_TABLE_VERSION,
+    SectionTag, encode_factored_table, encode_program, inspect_program,
+};
 use rustred::propagator::PresentationId;
 use rustred::propagator::custom::{replay_custom_payload, verify_custom_payload};
 use rustred::propagator::error::PError;
 use rustred::propagator::presentation::Slot;
 use rustred::propagator::table_import::{
     P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table, slot_map_text,
-};
-use rustred::persistence::{
-    BinaryIoLimits, BinarySection, CoefficientId, DecodedCoefficientTable, FACTORED_TABLE_VERSION,
-    SectionTag, encode_factored_table, encode_program, inspect_program,
 };
 use rustred::propagator::{P_CUSTOM_OWNER_VERSION, P_OWNER_LIBRARY_SEMANTICS};
 
@@ -438,9 +438,9 @@ fn factored_payload(payload: &[u8]) -> Result<Vec<u8>, CliError> {
     let limits = BinaryIoLimits::default();
     let envelope = inspect_program(payload, limits).map_err(io)?;
     let section = |tag| {
-        envelope
-            .section(tag)
-            .ok_or_else(|| CliError::Input("coef-form: payload without coefficient sections".into()))
+        envelope.section(tag).ok_or_else(|| {
+            CliError::Input("coef-form: payload without coefficient sections".into())
+        })
     };
     let state = section(SectionTag::SYMBOLICA_STATE)?;
     let atoms = section(SectionTag::COEFFICIENTS)?;
@@ -478,13 +478,17 @@ fn factored_payload(payload: &[u8]) -> Result<Vec<u8>, CliError> {
     )
     .map_err(io)?;
     if decoded.len() != coefficients.len() {
-        return Err(CliError::Input("coef-form: coefficient count changed".into()));
+        return Err(CliError::Input(
+            "coef-form: coefficient count changed".into(),
+        ));
     }
     for (i, original) in coefficients.iter().enumerate() {
         let id = CoefficientId::try_from_index(i).map_err(io)?;
         let value = decoded.coefficient(id).map_err(io)?;
         if value != original || value.get_variables() != original.get_variables() {
-            return Err(CliError::Input(format!("coef-form: coefficient {i} differs")));
+            return Err(CliError::Input(format!(
+                "coef-form: coefficient {i} differs"
+            )));
         }
     }
     Ok(output)

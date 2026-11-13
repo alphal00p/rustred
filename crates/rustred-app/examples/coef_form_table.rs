@@ -328,7 +328,10 @@ impl State {
         // past it the worker is killed (no leaked CPU or memory) and the
         // polynomial is kept whole (counted in full). Results are cached per
         // polynomial, so a slow polynomial costs its budget once per table.
-        let factored = match self.worker.factor(&ptext, self.timeout, &self.vars, self.names.len()) {
+        let factored = match self
+            .worker
+            .factor(&ptext, self.timeout, &self.vars, self.names.len())
+        {
             Some(f) => f,
             None => {
                 self.timeouts += 1;
@@ -373,7 +376,8 @@ impl State {
             return part;
         }
         self.factored_polys += 1;
-        let mut factors: Vec<(u32, u32)> = fs.iter().map(|(f, e)| (self.entry(f, false), *e)).collect();
+        let mut factors: Vec<(u32, u32)> =
+            fs.iter().map(|(f, e)| (self.entry(f, false), *e)).collect();
         factors.sort_unstable();
         let part = Part { content, factors };
         self.part_cache.insert(ph, part.clone());
@@ -484,7 +488,10 @@ impl State {
     fn big_part(&mut self, s: &str) -> (Part, u64) {
         if s.len() <= self.big_text {
             let c = self.parse(s);
-            assert!(c.denominator.is_one(), "big-path part {s:.200} is not a polynomial");
+            assert!(
+                c.denominator.is_one(),
+                "big-path part {s:.200} is not a polynomial"
+            );
             self.buf.clear();
             put_poly(&mut self.buf, &c.numerator);
             let b = std::mem::take(&mut self.buf);
@@ -706,7 +713,9 @@ fn scan_terms(s: &str, names: &[String], mut out: Option<&mut Vec<u8>>) -> Optio
                     let (x, y) = digits(&mut i)?;
                     s[x..y].parse::<usize>().ok()? + 1
                 };
-                if v >= names.len() || (i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_')) {
+                if v >= names.len()
+                    || (i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_'))
+                {
                     return None;
                 }
                 skip(&mut i);
@@ -917,7 +926,9 @@ impl Worker {
         }
         let deadline = Instant::now() + timeout;
         let (_, stdin, rx) = self.child.as_mut().unwrap();
-        let mut ok = stdin.write_all(text.as_bytes()).is_ok() && stdin.write_all(b"\n").is_ok() && stdin.flush().is_ok();
+        let mut ok = stdin.write_all(text.as_bytes()).is_ok()
+            && stdin.write_all(b"\n").is_ok()
+            && stdin.flush().is_ok();
         let mut out = Vec::new();
         while ok {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -948,7 +959,12 @@ impl Worker {
 fn factor_worker(arity: usize) {
     let mut names = vec!["d".to_string()];
     names.extend((0..arity).map(|k| format!("n{k}")));
-    let vars: Arc<Vec<PolyVariable>> = Arc::new(names.iter().map(|s| PolyVariable::Symbol(symbol!(s.as_str()))).collect());
+    let vars: Arc<Vec<PolyVariable>> = Arc::new(
+        names
+            .iter()
+            .map(|s| PolyVariable::Symbol(symbol!(s.as_str())))
+            .collect(),
+    );
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     let mut line = String::new();
@@ -996,8 +1012,14 @@ fn field(body: &[u8], key: &str) -> String {
         i += 1;
     }
     let rest = &body[i..];
-    let end = rest.iter().position(|&c| c == b',' || c == b'}').unwrap_or(rest.len());
-    String::from_utf8_lossy(&rest[..end]).trim().trim_matches('"').to_string()
+    let end = rest
+        .iter()
+        .position(|&c| c == b',' || c == b'}')
+        .unwrap_or(rest.len());
+    String::from_utf8_lossy(&rest[..end])
+        .trim()
+        .trim_matches('"')
+        .to_string()
 }
 
 fn main() {
@@ -1163,7 +1185,11 @@ fn main() {
         }
         let s = st.as_mut().expect("rule before header");
         if let Some(o) = &only {
-            if !o.contains(&format!("{}:{}", field(body, "chart"), field(body, "index"))) {
+            if !o.contains(&format!(
+                "{}:{}",
+                field(body, "chart"),
+                field(body, "index")
+            )) {
                 skipped_rules += 1;
                 out_text.write(&line);
                 if let Some(w) = &mut writer {
@@ -1180,7 +1206,10 @@ fn main() {
             Some(v) => v,
             None => {
                 items = serde_json::from_slice(&body[a..b]).unwrap();
-                items.iter().map(|(k, c)| (k.as_str(), c.as_str())).collect()
+                items
+                    .iter()
+                    .map(|(k, c)| (k.as_str(), c.as_str()))
+                    .collect()
             }
         };
         let audit = sign_count(&body[a..]);
@@ -1204,7 +1233,13 @@ fn main() {
             let info = s.info(coef);
             expanded += info.terms;
             refs += 2 + (info.num.factors.len() + info.den.factors.len()) as u64;
-            ids.extend(info.num.factors.iter().chain(&info.den.factors).map(|x| x.0));
+            ids.extend(
+                info.num
+                    .factors
+                    .iter()
+                    .chain(&info.den.factors)
+                    .map(|x| x.0),
+            );
             let t = Instant::now();
             let text = s.text(&info, coef);
             write_s += t.elapsed().as_secs_f64();

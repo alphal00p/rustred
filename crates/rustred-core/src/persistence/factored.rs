@@ -574,8 +574,15 @@ mod tests {
         for (i, original) in originals.iter().enumerate().rev() {
             let value = section.expand(i).unwrap();
             assert_eq!(value.numerator, original.numerator, "lazy numerator {i}");
-            assert_eq!(value.denominator, original.denominator, "lazy denominator {i}");
-            assert_eq!(value.get_variables(), original.get_variables(), "lazy map {i}");
+            assert_eq!(
+                value.denominator, original.denominator,
+                "lazy denominator {i}"
+            );
+            assert_eq!(
+                value.get_variables(),
+                original.get_variables(),
+                "lazy map {i}"
+            );
         }
         let lazy = crate::persistence::LazyDecodedCoefficientTable::new(
             encoded.state.clone().into(),
