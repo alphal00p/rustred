@@ -286,9 +286,16 @@ pub fn compute_ordering(directory: &Path, heuristic: &str) -> Result<OrderingFil
 }
 
 /// The identity of a library with the ordering tag of `heuristic`
-/// (`PLibrary::identity`): `base` must be an identity without one.
+/// (`PLibrary::identity`): `base` must be an identity without one. The tag
+/// goes before a package content revision (`,P_PACKAGE_REVISION=<name>`,
+/// batch 6), which `PLibrary::identity` writes last.
 pub fn ordered_identity(base: &str, heuristic: &str) -> String {
-    format!("{base},P_ORDERING_VERSION={P_ORDERING_VERSION}:{heuristic}")
+    let ordering = format!(",P_ORDERING_VERSION={P_ORDERING_VERSION}:{heuristic}");
+    let revision = format!(",{}=", rustred::propagator::library::P_PACKAGE_REVISION_KEY);
+    match base.rfind(&revision) {
+        Some(at) => format!("{}{ordering}{}", &base[..at], &base[at..]),
+        None => format!("{base}{ordering}"),
+    }
 }
 
 /// Add an ordering under `heuristic` to the package in `directory`, in place:

@@ -443,6 +443,27 @@ fn a_package_revision_survives_attaching_the_basis_layer() {
     assert_eq!(rebuilt.identity(), identity);
 }
 
+/// Batch 6: an ordering tag goes before the package content revision, so an
+/// ordered revised package keeps the identity `PLibrary::identity` computes.
+#[test]
+fn an_ordering_tag_goes_before_the_package_revision() {
+    use rustred::propagator::P_ORDERING_VERSION;
+    use rustred_app::propagator::ordering::ordered_identity;
+    assert_eq!(
+        ordered_identity("p-library:scope=1-2:X=1", "generation"),
+        format!("p-library:scope=1-2:X=1,P_ORDERING_VERSION={P_ORDERING_VERSION}:generation")
+    );
+    assert_eq!(
+        ordered_identity(
+            "p-library:scope=1-2:X=1,P_PACKAGE_REVISION=b6-test",
+            "generation"
+        ),
+        format!(
+            "p-library:scope=1-2:X=1,P_ORDERING_VERSION={P_ORDERING_VERSION}:generation,P_PACKAGE_REVISION=b6-test"
+        )
+    );
+}
+
 /// The writer publishes a whole directory or nothing; it never writes into a
 /// non-empty one.
 #[test]
