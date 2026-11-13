@@ -107,6 +107,10 @@ impl RunLayout {
     /// Resolve a path recorded in OUTCOME (relative to RUN unless absolute).
     pub fn resolve(&self, p: &str) -> PathBuf {
         let p = Path::new(p);
-        if p.is_absolute() { p.to_path_buf() } else { self.root.join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.root.join(p)
+        }
     }
 }

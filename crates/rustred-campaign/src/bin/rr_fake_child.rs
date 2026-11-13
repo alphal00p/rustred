@@ -9,17 +9,26 @@
 //! stop grace, and performs the hard-safe stop (3.4.3). Canonical outputs depend only on the spec and the resume
 //! state; volatile keys may jitter (`volatile_jitter`).
 
-use rustred_campaign_contract::atomic::{create_reserve, exit_for_io, is_nospace, release_reserve, ENOSPC};
+// Nested `if`s are kept on purpose where the inner condition has a side effect (`FINAL.swap`) or takes a lock.
+#![allow(clippy::collapsible_if)]
+
+use rustred_campaign_contract::atomic::{
+    ENOSPC, create_reserve, exit_for_io, is_nospace, release_reserve,
+};
 use rustred_campaign_contract::events::{Event, EventSink, Phase};
-use rustred_campaign_contract::fake::{fake_rule_record, FakeOp, FakeScript, FaultKind, HelperPlan, OnSigterm};
-use rustred_campaign_contract::layout::{RunLayout, RESERVE_BYTES};
+use rustred_campaign_contract::fake::{
+    FakeOp, FakeScript, FaultKind, HelperPlan, OnSigterm, fake_rule_record,
+};
+use rustred_campaign_contract::layout::{RESERVE_BYTES, RunLayout};
 use rustred_campaign_contract::outcome::*;
-use rustred_campaign_contract::preflight::{preflight, ProgramSelf, Refusal};
+use rustred_campaign_contract::preflight::{ProgramSelf, Refusal, preflight};
 use rustred_campaign_contract::resume::{CaseSpec, Frame, ResumeState};
 use rustred_campaign_contract::seal::{CommitPoint, RecordWriter, WriteError};
-use rustred_campaign_contract::spec::{BudgetHit, Counters, JobKind, JobSpec, OnCaseBudget, Scope, WorkCounter};
+use rustred_campaign_contract::spec::{
+    BudgetHit, Counters, JobKind, JobSpec, OnCaseBudget, Scope, WorkCounter,
+};
 use rustred_campaign_contract::stop::{CaseResult, StopCode, StopSource};
-use rustred_campaign_contract::{ExitCode, VersionInfo, CONTRACT, RESUME_SCHEMA};
+use rustred_campaign_contract::{CONTRACT, ExitCode, RESUME_SCHEMA, VersionInfo};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::*};
@@ -84,10 +93,18 @@ fn page_kb() -> u64 {
 }
 
 fn rss_kb_of(pid: i32) -> u64 {
-    let p = if pid == 0 { "/proc/self/statm".to_string() } else { format!("/proc/{pid}/statm") };
+    let p = if pid == 0 {
+        "/proc/self/statm".to_string()
+    } else {
+        format!("/proc/{pid}/statm")
+    };
     std::fs::read_to_string(p)
         .ok()
-        .and_then(|s| s.split_whitespace().nth(1).and_then(|x| x.parse::<u64>().ok()))
+        .and_then(|s| {
+            s.split_whitespace()
+                .nth(1)
+                .and_then(|x| x.parse::<u64>().ok())
+        })
         .map_or(0, |pages| pages * page_kb())
 }
 
@@ -106,7 +123,9 @@ fn program_info() -> ProgramInfo {
     ProgramInfo {
         name: PROGRAM.into(),
         version: env!("CARGO_PKG_VERSION").into(),
-        git_commit: rustred_campaign_contract::git_commit_from_build_env(option_env!("RUSTRED_BUILD_GIT_COMMIT")),
+        git_commit: rustred_campaign_contract::git_commit_from_build_env(option_env!(
+            "RUSTRED_BUILD_GIT_COMMIT"
+        )),
         features: FEATURES.iter().map(|s| s.to_string()).collect(),
         exe: None,
     }
@@ -159,14 +178,20 @@ impl Ctx {
             return None;
         }
         let x = self.jitter_seed.fetch_add(0x9e37_79b9_7f4a_7c15, Relaxed);
-        Some(((x % 100_000) as f64 / 1000.0 + 0.001, ((x >> 20) % 100_000) as f64 / 1000.0 + 0.002))
+        Some((
+            (x % 100_000) as f64 / 1000.0 + 0.001,
+            ((x >> 20) % 100_000) as f64 / 1000.0 + 0.002,
+        ))
     }
 
     fn request_stop(&self, src: StopSource) {
         if !self.stop_requested.swap(true, SeqCst) {
             *self.stop_source.lock().unwrap() = Some(src);
             *self.stop_at.lock().unwrap() = Some(Instant::now());
-            let _ = self.sink.emit(Event::StopRequested { source: src, count: SIGNALS.load(Relaxed).max(1) });
+            let _ = self.sink.emit(Event::StopRequested {
+                source: src,
+                count: SIGNALS.load(Relaxed).max(1),
+            });
         }
     }
 
@@ -176,7 +201,8 @@ impl Ctx {
 
     fn kill_helpers(&self) -> u64 {
         let mut peak = 0;
-        let pids: Vec<i32> = std::mem::take(&mut *self.helpers.lock().unwrap_or_else(|p| p.into_inner()));
+        let pids: Vec<i32> =
+            std::mem::take(&mut *self.helpers.lock().unwrap_or_else(|p| p.into_inner()));
         for pid in pids {
             // SAFETY: plain syscalls on our own registered children.
             unsafe {
@@ -191,7 +217,14 @@ impl Ctx {
     }
 
     /// The OUTCOME for the current state.
-    fn outcome(&self, code: ExitCode, stop: StopInfo, table: TableOutput, error: Option<ErrorInfo>, helpers_peak: u64) -> Outcome {
+    fn outcome(
+        &self,
+        code: ExitCode,
+        stop: StopInfo,
+        table: TableOutput,
+        error: Option<ErrorInfo>,
+        helpers_peak: u64,
+    ) -> Outcome {
         let st = self.st();
         let mut j = JobOutcome::for_spec(&self.spec, &self.spec_blake3, program_info(), code, stop);
         j.inputs = self.inputs.clone();
@@ -204,9 +237,16 @@ impl Ctx {
         let mut t = table;
         t.witness_loci_elided = st.elided;
         j.outputs.table = Some(t);
-        j.outputs.queue = Some(QueueOutput { bytes: st.queue_bytes });
-        j.outputs.events = Some(EventsOutput { last_seq: self.sink.next_seq() });
-        j.outputs.resume = Some(ResumeOutput { path: rustred_campaign_contract::layout::RESUME.into(), valid: st.resume_valid });
+        j.outputs.queue = Some(QueueOutput {
+            bytes: st.queue_bytes,
+        });
+        j.outputs.events = Some(EventsOutput {
+            last_seq: self.sink.next_seq(),
+        });
+        j.outputs.resume = Some(ResumeOutput {
+            path: rustred_campaign_contract::layout::RESUME.into(),
+            valid: st.resume_valid,
+        });
         let wall = self.started.elapsed().as_secs_f64();
         j.timing = Timing {
             started_utc: Some(self.started_utc.clone()),
@@ -214,12 +254,22 @@ impl Ctx {
             wall_s: Some((wall * 1000.0).round() / 1000.0),
             cpu_s: None,
         };
-        j.memory = Memory { vmhwm_kb: Some(vmhwm_kb()), rss_kb_at_end: Some(rss_kb_of(0)), helpers_peak_rss_kb: Some(helpers_peak) };
+        j.memory = Memory {
+            vmhwm_kb: Some(vmhwm_kb()),
+            rss_kb_at_end: Some(rss_kb_of(0)),
+            helpers_peak_rss_kb: Some(helpers_peak),
+        };
         j.error = error;
         j.resumed = self.resumed;
         let mut o = Outcome::new(j);
-        o.legacy.insert("complete".into(), serde_json::Value::from(code == ExitCode::Complete));
-        o.legacy.insert("rules".into(), serde_json::Value::from(st.counters.rules_committed));
+        o.legacy.insert(
+            "complete".into(),
+            serde_json::Value::from(code == ExitCode::Complete),
+        );
+        o.legacy.insert(
+            "rules".into(),
+            serde_json::Value::from(st.counters.rules_committed),
+        );
         o
     }
 
@@ -248,14 +298,23 @@ impl Ctx {
         let src = *self.stop_source.lock().unwrap_or_else(|p| p.into_inner());
         let o = self.outcome(
             code,
-            StopInfo { code: Some(stop), detail: serde_json::Value::Null, source: src, graceful: false },
+            StopInfo {
+                code: Some(stop),
+                detail: serde_json::Value::Null,
+                source: src,
+                graceful: false,
+            },
             self.unsealed_table(),
             None,
             peak,
         );
         let _ = o.write_atomic(&self.layout.outcome());
         self.sink.try_emit_for(
-            Event::JobFinished { exit_code: code, status: o.job.status, stop_code: Some(stop) },
+            Event::JobFinished {
+                exit_code: code,
+                status: o.job.status,
+                stop_code: Some(stop),
+            },
             Duration::from_secs(1),
         );
         // SAFETY: _exit ends the process without running destructors (the main thread may hold locks).
@@ -267,7 +326,9 @@ impl Ctx {
         let every = self.spec.resume_every_s as u64;
         let due = force
             || every == 0
-            || st.resume_written_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(every));
+            || st
+                .resume_written_at
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(every));
         if !due {
             return;
         }
@@ -329,7 +390,12 @@ fn refuse_exit(r: Refusal) -> ! {
                 digest,
                 program_info(),
                 r.code,
-                StopInfo { code: Some(r.stop), detail: serde_json::Value::Null, source: None, graceful: true },
+                StopInfo {
+                    code: Some(r.stop),
+                    detail: serde_json::Value::Null,
+                    source: None,
+                    graceful: true,
+                },
             );
             j.error = Some(ErrorInfo::new(r.class, r.message.clone()));
             let _ = Outcome::new(j).write_atomic(&RunLayout::new(&spec.run_dir).outcome());
@@ -340,12 +406,18 @@ fn refuse_exit(r: Refusal) -> ! {
 
 /// What ends the main thread's script.
 enum Finish {
-    End { stop: Option<StopCode>, verdict: Option<ExitCode> },
+    End {
+        stop: Option<StopCode>,
+        verdict: Option<ExitCode>,
+    },
     /// Graceful stop at a safe point (stop requested).
     Stopped,
     /// A per-case work budget with `on_case_budget: stop`.
     Budget,
-    Fail { code: ExitCode, message: String },
+    Fail {
+        code: ExitCode,
+        message: String,
+    },
     Io(io::Error),
 }
 
@@ -421,20 +493,35 @@ impl Main {
         }
         self.phase(Phase::CaseSearch);
         let pending = ctx.st().pending.len() as u64;
-        let _ = ctx.sink.emit(Event::CaseStarted { ordinal, case: serde_json::to_value(&cs).unwrap(), pending, numerical: 0 });
+        let _ = ctx.sink.emit(Event::CaseStarted {
+            ordinal,
+            case: serde_json::to_value(&cs).unwrap(),
+            pending,
+            numerical: 0,
+        });
         let base = ctx.st().counters;
         let mut case_c = Counters::default();
         let dur = ctx.ms(ms);
         let t0 = Instant::now();
         let mut budget_open = false;
         loop {
-            let frac = if dur.is_zero() { 1.0 } else { (t0.elapsed().as_secs_f64() / dur.as_secs_f64()).min(1.0) };
+            let frac = if dur.is_zero() {
+                1.0
+            } else {
+                (t0.elapsed().as_secs_f64() / dur.as_secs_f64()).min(1.0)
+            };
             // advance every counter to its linear target, clamped at a per-case limit
             let mut hit = None;
             for (&c, &total) in work {
                 let target = (total as f64 * frac).floor() as u64;
                 let target = if frac >= 1.0 { total } else { target };
-                let lim = ctx.spec.budgets.work.limits().into_iter().find(|&(lc, s, _)| lc == c && s == Scope::Case);
+                let lim = ctx
+                    .spec
+                    .budgets
+                    .work
+                    .limits()
+                    .into_iter()
+                    .find(|&(lc, s, _)| lc == c && s == Scope::Case);
                 let (v, h) = match lim {
                     Some((_, _, l)) if target >= l => (l, Some(l)),
                     _ => (target, None),
@@ -448,7 +535,13 @@ impl Main {
                     }
                 }
                 if let (Some(l), None) = (h, &hit) {
-                    hit = Some(BudgetHit { counter: c, scope: Scope::Case, limit: l, value: l, case: Some(serde_json::to_value(&cs).unwrap()) });
+                    hit = Some(BudgetHit {
+                        counter: c,
+                        scope: Scope::Case,
+                        limit: l,
+                        value: l,
+                        case: Some(serde_json::to_value(&cs).unwrap()),
+                    });
                 }
             }
             {
@@ -472,11 +565,24 @@ impl Main {
                     .work
                     .limits()
                     .into_iter()
-                    .find(|&(c, s, l)| s == Scope::Job && c != WorkCounter::Cases && job.get(c) >= l)
-                    .map(|(c, s, l)| BudgetHit { counter: c, scope: s, limit: l, value: job.get(c), case: None });
+                    .find(|&(c, s, l)| {
+                        s == Scope::Job && c != WorkCounter::Cases && job.get(c) >= l
+                    })
+                    .map(|(c, s, l)| BudgetHit {
+                        counter: c,
+                        scope: s,
+                        limit: l,
+                        value: job.get(c),
+                        case: None,
+                    });
             }
             if let Some(h) = hit {
-                let _ = ctx.sink.emit(Event::BudgetHit { counter: h.counter, scope: h.scope, limit: h.limit, value: h.value });
+                let _ = ctx.sink.emit(Event::BudgetHit {
+                    counter: h.counter,
+                    scope: h.scope,
+                    limit: h.limit,
+                    value: h.value,
+                });
                 let open = ctx.spec.on_case_budget == OnCaseBudget::Open && h.scope == Scope::Case;
                 ctx.st().hit = Some(h);
                 if !open {
@@ -491,19 +597,37 @@ impl Main {
             if let Some(f) = self.safe_point() {
                 return Err(f);
             }
-            std::thread::sleep(Duration::from_millis(50).min(dur.saturating_sub(t0.elapsed()).max(Duration::from_millis(1))));
+            std::thread::sleep(
+                Duration::from_millis(50).min(
+                    dur.saturating_sub(t0.elapsed())
+                        .max(Duration::from_millis(1)),
+                ),
+            );
         }
-        let result = if budget_open { CaseResult::Budget } else { result };
+        let result = if budget_open {
+            CaseResult::Budget
+        } else {
+            result
+        };
         let mut rule_index = None;
         if let (CaseResult::Rule, Some(r)) = (result, rule) {
             let index = ctx.st().counters.rules_committed;
             let (line, elided) = fake_rule_record(r, index, &ctx.spec.output, ctx.jitter());
-            let pos = self.table.as_mut().expect("table").append(&line).map_err(wfin)?;
+            let pos = self
+                .table
+                .as_mut()
+                .expect("table")
+                .append(&line)
+                .map_err(wfin)?;
             {
                 let mut st = ctx.st();
                 st.elided += elided;
                 st.counters.rules_committed += 1;
-                st.counters.rhs_terms += r.record.get("rhs").and_then(|x| x.as_array()).map_or(0, |a| a.len() as u64);
+                st.counters.rhs_terms += r
+                    .record
+                    .get("rhs")
+                    .and_then(|x| x.as_array())
+                    .map_or(0, |a| a.len() as u64);
             }
             rule_index = Some(index);
             let _ = ctx.sink.emit(Event::RuleCommitted {
@@ -511,13 +635,19 @@ impl Main {
                 line_offset: pos.offset,
                 line_bytes: pos.bytes,
                 canon_blake3: pos.canon_blake3,
-                rhs: r.record.get("rhs").and_then(|x| x.as_array()).map_or(0, |a| a.len() as u64),
+                rhs: r
+                    .record
+                    .get("rhs")
+                    .and_then(|x| x.as_array())
+                    .map_or(0, |a| a.len() as u64),
                 trace_rows: case_c.trace_rows_max,
                 monomials: case_c.lift_monomials,
             });
         }
         let qrec = serde_json::json!({"type":"case","ordinal":ordinal,"result":result,"rule":rule_index,"children":children});
-        self.queue.append(&serde_json::to_vec(&qrec).unwrap()).map_err(wfin)?;
+        self.queue
+            .append(&serde_json::to_vec(&qrec).unwrap())
+            .map_err(wfin)?;
         {
             let mut st = ctx.st();
             st.counters.cases += 1;
@@ -535,11 +665,21 @@ impl Main {
         }
         self.commit().map_err(Finish::Io)?;
         let rc = ctx.st().counters.rules_committed;
-        let _ = ctx.sink.emit(Event::CaseFinished { ordinal, result, rule: rule_index, children: children.len() as u64, rules_committed: rc });
+        let _ = ctx.sink.emit(Event::CaseFinished {
+            ordinal,
+            result,
+            rule: rule_index,
+            children: children.len() as u64,
+            rules_committed: rc,
+        });
         Ok(())
     }
 
-    fn fault(&mut self, kind: FaultKind, f: &rustred_campaign_contract::fake::Fault) -> Option<Finish> {
+    fn fault(
+        &mut self,
+        kind: FaultKind,
+        f: &rustred_campaign_contract::fake::Fault,
+    ) -> Option<Finish> {
         let ctx = self.ctx.clone();
         match kind {
             FaultKind::SigkillSelf => sigkill_self(),
@@ -547,7 +687,9 @@ impl Main {
             FaultKind::Panic => panic!("rr_fake_child: scripted panic"),
             FaultKind::TornWrite => {
                 let index = ctx.st().counters.rules_committed;
-                let line = format!("{{\"type\":\"rule\",\"index\":{index},\"target\":\"I(torn)\",\"rhs\":[]}}");
+                let line = format!(
+                    "{{\"type\":\"rule\",\"index\":{index},\"target\":\"I(torn)\",\"rhs\":[]}}"
+                );
                 let n = (f.bytes as usize).min(line.len().saturating_sub(1)).max(1);
                 let file = self.table.as_mut().expect("table").raw_file();
                 let _ = file.write_all(&line.as_bytes()[..n]);
@@ -597,14 +739,24 @@ impl Main {
                         return f;
                     }
                 }
-                FakeOp::Case { ordinal, ms, work, result, rule, children } => {
+                FakeOp::Case {
+                    ordinal,
+                    ms,
+                    work,
+                    result,
+                    rule,
+                    children,
+                } => {
                     cases_seen += 1;
                     if cases_seen <= skip_cases {
                         continue; // committed by the resumed attempt
                     }
                     if let Some(l) = ctx.spec.budgets.work.cases {
                         if ctx.st().counters.cases >= l {
-                            return Finish::End { stop: Some(StopCode::MaxCases), verdict: None };
+                            return Finish::End {
+                                stop: Some(StopCode::MaxCases),
+                                verdict: None,
+                            };
                         }
                     }
                     if let Err(f) = self.run_case(*ordinal, *ms, work, *result, rule, children) {
@@ -617,24 +769,53 @@ impl Main {
                         return f;
                     }
                 }
-                FakeOp::TimeDecision { what, limit_s, measured_s, taken } => {
+                FakeOp::TimeDecision {
+                    what,
+                    limit_s,
+                    measured_s,
+                    taken,
+                } => {
                     let case_ordinal = ctx.st().case_ordinal;
-                    let td = TimeDecision { what: *what, case_ordinal, rule: None, limit_s: *limit_s, measured_s: *measured_s, taken: taken.clone() };
+                    let td = TimeDecision {
+                        what: *what,
+                        case_ordinal,
+                        rule: None,
+                        limit_s: *limit_s,
+                        measured_s: *measured_s,
+                        taken: taken.clone(),
+                    };
                     ctx.st().time_decisions.push(td.clone());
                     let _ = ctx.sink.emit(Event::TimeDecision(td));
                 }
                 FakeOp::Alloc { mb } => alloc_touch(*mb << 20),
                 FakeOp::Helper { index } => fork_helper(&ctx, script.helpers[*index]),
-                FakeOp::End { stop, verdict } => return Finish::End { stop: *stop, verdict: *verdict },
-                FakeOp::Fail { code, message } => return Finish::Fail { code: *code, message: message.clone() },
+                FakeOp::End { stop, verdict } => {
+                    return Finish::End {
+                        stop: *stop,
+                        verdict: *verdict,
+                    };
+                }
+                FakeOp::Fail { code, message } => {
+                    return Finish::Fail {
+                        code: *code,
+                        message: message.clone(),
+                    };
+                }
             }
         }
-        for f in script.faults.iter().filter(|f| f.at_op == script.script.len()) {
+        for f in script
+            .faults
+            .iter()
+            .filter(|f| f.at_op == script.script.len())
+        {
             if let Some(fin) = self.fault(f.kind, f) {
                 return fin;
             }
         }
-        Finish::End { stop: None, verdict: None }
+        Finish::End {
+            stop: None,
+            verdict: None,
+        }
     }
 
     /// Normal end, graceful stop, budget, failure or I/O error: end records, final RESUME, OUTCOME, exit.
@@ -643,12 +824,24 @@ impl Main {
         self.phase(Phase::Finishing);
         let src = *ctx.stop_source.lock().unwrap();
         let (code, stop, graceful_src, error) = match fin {
-            Finish::End { stop, verdict } => (FakeScript::end_exit(stop, verdict), stop, None, None),
+            Finish::End { stop, verdict } => {
+                (FakeScript::end_exit(stop, verdict), stop, None, None)
+            }
             Finish::Stopped => {
                 if src == Some(StopSource::Memory) {
-                    (ExitCode::BudgetMemory, Some(StopCode::BudgetMemory), src, None)
+                    (
+                        ExitCode::BudgetMemory,
+                        Some(StopCode::BudgetMemory),
+                        src,
+                        None,
+                    )
                 } else {
-                    (ExitCode::Interrupted, Some(StopCode::Interrupted), src, None)
+                    (
+                        ExitCode::Interrupted,
+                        Some(StopCode::Interrupted),
+                        src,
+                        None,
+                    )
                 }
             }
             Finish::Budget => (ExitCode::BudgetWork, Some(StopCode::BudgetWork), None, None),
@@ -666,7 +859,9 @@ impl Main {
         };
         let faults = &ctx.script.faults;
         let unsealed_claim = faults.iter().any(|f| f.kind == FaultKind::OutcomeUnsealed);
-        let kill_before = faults.iter().any(|f| f.kind == FaultKind::KillBeforeOutcome);
+        let kill_before = faults
+            .iter()
+            .any(|f| f.kind == FaultKind::KillBeforeOutcome);
         let end_kind = if stop.is_none() { "end" } else { "partial" };
         let (a, b) = ctx.jitter().unwrap_or((0.0, 0.0));
         let rules = ctx.st().counters.rules_committed;
@@ -681,12 +876,18 @@ impl Main {
         if unsealed_claim {
             // contract violation on purpose: no end record, but OUTCOME claims a sealed table
             let st = writer.commit().map_err(Finish::Io);
-            let Ok(st) = st else { io_exit_now(&ctx, io::Error::other("commit")) };
+            let Ok(st) = st else {
+                io_exit_now(&ctx, io::Error::other("commit"))
+            };
             table.bytes = Some(st.bytes);
             table.blake3 = Some(st.prefix_blake3.clone());
             table.records = Some(st.records);
             table.rules = Some(st.rules);
-            table.end = Some(if stop.is_none() { EndKind::End } else { EndKind::Partial });
+            table.end = Some(if stop.is_none() {
+                EndKind::End
+            } else {
+                EndKind::Partial
+            });
             table.sealed = true;
             table.committed_bytes = st.bytes;
             table.prefix_blake3 = Some(st.prefix_blake3);
@@ -704,7 +905,10 @@ impl Main {
             }
         }
         let qend = serde_json::json!({"type": end_kind, "cases": ctx.st().counters.cases});
-        let qbytes = self.queue.append(&serde_json::to_vec(&qend).unwrap()).and_then(|_| self.queue.commit().map_err(WriteError::Io));
+        let qbytes = self
+            .queue
+            .append(&serde_json::to_vec(&qend).unwrap())
+            .and_then(|_| self.queue.commit().map_err(WriteError::Io));
         match qbytes {
             Ok(q) => ctx.st().queue_bytes = q.bytes,
             Err(WriteError::Io(e)) => io_exit_now(&ctx, e),
@@ -718,14 +922,31 @@ impl Main {
             park_forever();
         }
         let peak = ctx.kill_helpers();
-        let detail = ctx.st().hit.clone().map_or(serde_json::Value::Null, |h| serde_json::to_value(h).unwrap());
-        let o = ctx.outcome(code, StopInfo { code: stop, detail, source: graceful_src, graceful: true }, table, error, peak);
+        let detail = ctx.st().hit.clone().map_or(serde_json::Value::Null, |h| {
+            serde_json::to_value(h).unwrap()
+        });
+        let o = ctx.outcome(
+            code,
+            StopInfo {
+                code: stop,
+                detail,
+                source: graceful_src,
+                graceful: true,
+            },
+            table,
+            error,
+            peak,
+        );
         if let Err(e) = o.write_atomic(&ctx.layout.outcome()) {
             let _ = release_reserve(&ctx.layout.reserve());
             eprintln!("rr_fake_child: OUTCOME: {e}");
             std::process::exit(exit_for_io(&e).code());
         }
-        let _ = ctx.sink.emit(Event::JobFinished { exit_code: code, status: o.job.status, stop_code: stop });
+        let _ = ctx.sink.emit(Event::JobFinished {
+            exit_code: code,
+            status: o.job.status,
+            stop_code: stop,
+        });
         let _ = release_reserve(&ctx.layout.reserve());
         std::process::exit(code.code())
     }
@@ -734,7 +955,10 @@ impl Main {
 fn wfin(e: WriteError) -> Finish {
     match e {
         WriteError::Io(e) => Finish::Io(e),
-        other => Finish::Fail { code: ExitCode::Internal, message: other.to_string() },
+        other => Finish::Fail {
+            code: ExitCode::Internal,
+            message: other.to_string(),
+        },
     }
 }
 
@@ -745,19 +969,32 @@ fn io_exit(ctx: &Ctx, e: io::Error) -> ! {
 
 fn io_exit_now(ctx: &Ctx, e: io::Error) -> ! {
     let code = exit_for_io(&e);
-    let (stop, class) = if is_nospace(&e) { (StopCode::Nospace, ErrorClass::Nospace) } else { (StopCode::IoError, ErrorClass::Io) };
+    let (stop, class) = if is_nospace(&e) {
+        (StopCode::Nospace, ErrorClass::Nospace)
+    } else {
+        (StopCode::IoError, ErrorClass::Io)
+    };
     let _ = release_reserve(&ctx.layout.reserve());
     if !FINAL.swap(true, SeqCst) {
         let peak = ctx.kill_helpers();
         let o = ctx.outcome(
             code,
-            StopInfo { code: Some(stop), detail: serde_json::Value::Null, source: None, graceful: true },
+            StopInfo {
+                code: Some(stop),
+                detail: serde_json::Value::Null,
+                source: None,
+                graceful: true,
+            },
             ctx.unsealed_table(),
             Some(ErrorInfo::new(class, e.to_string())),
             peak,
         );
         let _ = o.write_atomic(&ctx.layout.outcome());
-        let _ = ctx.sink.emit(Event::JobFinished { exit_code: code, status: o.job.status, stop_code: Some(stop) });
+        let _ = ctx.sink.emit(Event::JobFinished {
+            exit_code: code,
+            status: o.job.status,
+            stop_code: Some(stop),
+        });
     }
     std::process::exit(code.code())
 }
@@ -789,17 +1026,33 @@ fn fork_helper(ctx: &Ctx, plan: HelperPlan) {
                 libc::setsid();
             }
             if plan.pdeathsig {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as libc::c_ulong, 0, 0, 0);
+                libc::prctl(
+                    libc::PR_SET_PDEATHSIG,
+                    libc::SIGKILL as libc::c_ulong,
+                    0,
+                    0,
+                    0,
+                );
                 if libc::getppid() != parent {
                     libc::_exit(0);
                 }
             }
-            let disp = if plan.ignore_sigterm { libc::SIG_IGN } else { libc::SIG_DFL };
+            let disp = if plan.ignore_sigterm {
+                libc::SIG_IGN
+            } else {
+                libc::SIG_DFL
+            };
             for s in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
                 libc::signal(s, disp);
             }
-            let ts = libc::timespec { tv_sec: (plan.sleep_ms / 1000) as libc::time_t, tv_nsec: ((plan.sleep_ms % 1000) * 1_000_000) as libc::c_long };
-            let mut rem = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+            let ts = libc::timespec {
+                tv_sec: (plan.sleep_ms / 1000) as libc::time_t,
+                tv_nsec: ((plan.sleep_ms % 1000) * 1_000_000) as libc::c_long,
+            };
+            let mut rem = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
             let mut req = ts;
             while libc::nanosleep(&req, &mut rem) != 0 {
                 req = rem;
@@ -834,8 +1087,16 @@ fn watchdog(ctx: Arc<Ctx>) {
             let src = source_of(LAST_SIG.load(Relaxed));
             if n >= 2 && ctx.stop_requested.load(SeqCst) {
                 // second signal: hard-safe path at once
-                let code = if *ctx.stop_source.lock().unwrap() == Some(StopSource::Memory) { ExitCode::BudgetMemory } else { ExitCode::Interrupted };
-                let stop = if code == ExitCode::BudgetMemory { StopCode::BudgetMemory } else { StopCode::Interrupted };
+                let code = if *ctx.stop_source.lock().unwrap() == Some(StopSource::Memory) {
+                    ExitCode::BudgetMemory
+                } else {
+                    ExitCode::Interrupted
+                };
+                let stop = if code == ExitCode::BudgetMemory {
+                    StopCode::BudgetMemory
+                } else {
+                    StopCode::Interrupted
+                };
                 ctx.hard_stop(code, stop, None);
             }
             ctx.request_stop(src);
@@ -851,7 +1112,14 @@ fn watchdog(ctx: Arc<Ctx>) {
         if let Some(j) = w.job_s {
             let el = ctx.started.elapsed();
             if el >= Duration::from_secs(j) {
-                let td = TimeDecision { what: TimeDecisionWhat::JobWall, case_ordinal: ctx.st().case_ordinal, rule: None, limit_s: j as f64, measured_s: el.as_secs_f64(), taken: "hard_stop".into() };
+                let td = TimeDecision {
+                    what: TimeDecisionWhat::JobWall,
+                    case_ordinal: ctx.st().case_ordinal,
+                    rule: None,
+                    limit_s: j as f64,
+                    measured_s: el.as_secs_f64(),
+                    taken: "hard_stop".into(),
+                };
                 ctx.hard_stop(ExitCode::BudgetWall, StopCode::BudgetWall, Some(td));
             }
         }
@@ -859,7 +1127,14 @@ fn watchdog(ctx: Arc<Ctx>) {
             let started = ctx.st().case_started;
             if let Some(t) = started {
                 if t.elapsed() >= Duration::from_secs(c) {
-                    let td = TimeDecision { what: TimeDecisionWhat::CaseWall, case_ordinal: ctx.st().case_ordinal, rule: None, limit_s: c as f64, measured_s: t.elapsed().as_secs_f64(), taken: "hard_stop".into() };
+                    let td = TimeDecision {
+                        what: TimeDecisionWhat::CaseWall,
+                        case_ordinal: ctx.st().case_ordinal,
+                        rule: None,
+                        limit_s: c as f64,
+                        measured_s: t.elapsed().as_secs_f64(),
+                        taken: "hard_stop".into(),
+                    };
                     ctx.hard_stop(ExitCode::BudgetWall, StopCode::BudgetWall, Some(td));
                 }
             }
@@ -867,7 +1142,9 @@ fn watchdog(ctx: Arc<Ctx>) {
         // rss growth plan
         let rp = ctx.script.rss;
         if rp.grow_bytes_per_s > 0 {
-            let target = ((ctx.started.elapsed().as_secs_f64() * rp.grow_bytes_per_s as f64) as u64).min(rp.max_bytes);
+            let target = ((ctx.started.elapsed().as_secs_f64() * rp.grow_bytes_per_s as f64)
+                as u64)
+                .min(rp.max_bytes);
             if target > grown + (1 << 20) {
                 alloc_touch(target - grown);
                 grown = target;
@@ -886,7 +1163,11 @@ fn watchdog(ctx: Arc<Ctx>) {
             let at = *ctx.stop_at.lock().unwrap();
             if at.is_some_and(|t| t.elapsed() >= grace) {
                 let mem = *ctx.stop_source.lock().unwrap() == Some(StopSource::Memory);
-                let (code, stop) = if mem { (ExitCode::BudgetMemory, StopCode::BudgetMemory) } else { (ExitCode::Interrupted, StopCode::Interrupted) };
+                let (code, stop) = if mem {
+                    (ExitCode::BudgetMemory, StopCode::BudgetMemory)
+                } else {
+                    (ExitCode::Interrupted, StopCode::Interrupted)
+                };
                 ctx.hard_stop(code, stop, None);
             }
         }
@@ -919,16 +1200,27 @@ fn run_job(spec_path: &Path) -> ! {
         .and_then(|s| s.fake.map(|f| f.on_sigterm))
         .unwrap_or_default();
     install_signals(on);
-    let me = ProgramSelf { name: PROGRAM, features: &FEATURES, kinds: &[JobKind::Fake], blake3: None };
+    let me = ProgramSelf {
+        name: PROGRAM,
+        features: &FEATURES,
+        kinds: &[JobKind::Fake],
+        blake3: None,
+    };
     let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
         Ok(p) => p,
         Err(r) => refuse_exit(r),
     };
-    let script = prep.spec.fake.clone().expect("validated: kind fake has a script");
+    let script = prep
+        .spec
+        .fake
+        .clone()
+        .expect("validated: kind fake has a script");
     let layout = prep.layout.clone();
     // slow start: nothing written yet (a stop during it is honoured at the first safe point)
     if script.start_delay_ms > 0 {
-        std::thread::sleep(Duration::from_secs_f64(script.start_delay_ms as f64 * script.time_scale / 1000.0));
+        std::thread::sleep(Duration::from_secs_f64(
+            script.start_delay_ms as f64 * script.time_scale / 1000.0,
+        ));
     }
     for d in [layout.out_dir(), layout.tmp_dir()] {
         if let Err(e) = std::fs::create_dir_all(&d) {
@@ -948,10 +1240,16 @@ fn run_job(spec_path: &Path) -> ! {
             std::process::exit(exit_for_io(&e).code());
         }
     };
-    let now_ns = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+    let now_ns = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
     let resume = match &prep.spec.resume {
         None => None,
-        Some(r) => match std::fs::read(&r.from).ok().and_then(|b| serde_json::from_slice::<ResumeState>(&b).ok()) {
+        Some(r) => match std::fs::read(&r.from)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<ResumeState>(&b).ok())
+        {
             Some(s) => Some((r.clone(), s)),
             None => refuse_exit(Refusal {
                 code: ExitCode::Input,
@@ -971,13 +1269,24 @@ fn run_job(spec_path: &Path) -> ! {
         inputs: prep.inputs.clone(),
         sink,
         st: Mutex::new(State {
-            counters: resume.as_ref().map(|(_, s)| s.counters_at_commit).unwrap_or_default(),
-            commit: CommitPoint { bytes: 0, prefix_blake3: rustred_campaign_contract::blake3_hex(b""), records: 0, rules: 0 },
+            counters: resume
+                .as_ref()
+                .map(|(_, s)| s.counters_at_commit)
+                .unwrap_or_default(),
+            commit: CommitPoint {
+                bytes: 0,
+                prefix_blake3: rustred_campaign_contract::blake3_hex(b""),
+                records: 0,
+                rules: 0,
+            },
             phase: Phase::Prepare,
             case_ordinal: None,
             case_started: None,
             current: None,
-            pending: resume.as_ref().map(|(_, s)| s.pending.clone()).unwrap_or_default(),
+            pending: resume
+                .as_ref()
+                .map(|(_, s)| s.pending.clone())
+                .unwrap_or_default(),
             per_case: vec![],
             time_decisions: vec![],
             elided: 0,
@@ -1004,14 +1313,23 @@ fn run_job(spec_path: &Path) -> ! {
                 let peak = ctx.kill_helpers();
                 let o = ctx.outcome(
                     ExitCode::Internal,
-                    StopInfo { code: Some(StopCode::Panic), detail: serde_json::Value::Null, source: None, graceful: false },
+                    StopInfo {
+                        code: Some(StopCode::Panic),
+                        detail: serde_json::Value::Null,
+                        source: None,
+                        graceful: false,
+                    },
                     ctx.unsealed_table(),
                     Some(ErrorInfo::new(ErrorClass::Panic, info.to_string())),
                     peak,
                 );
                 let _ = o.write_atomic(&ctx.layout.outcome());
                 ctx.sink.try_emit_for(
-                    Event::JobFinished { exit_code: ExitCode::Internal, status: o.job.status, stop_code: Some(StopCode::Panic) },
+                    Event::JobFinished {
+                        exit_code: ExitCode::Internal,
+                        status: o.job.status,
+                        stop_code: Some(StopCode::Panic),
+                    },
                     Duration::from_secs(1),
                 );
             }
@@ -1060,15 +1378,26 @@ fn run_job(spec_path: &Path) -> ! {
         Ok(cp) => ctx.st().commit = cp,
         Err(e) => io_exit_now(&ctx, e),
     }
-    let skip = resume.as_ref().map_or(0, |(_, s)| s.counters_at_commit.cases);
-    let mut m = Main { ctx: ctx.clone(), table: Some(table), queue };
+    let skip = resume
+        .as_ref()
+        .map_or(0, |(_, s)| s.counters_at_commit.cases);
+    let mut m = Main {
+        ctx: ctx.clone(),
+        table: Some(table),
+        queue,
+    };
     let fin = m.run(skip);
     m.finish(fin)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["version", "--json"] => {
             let v = VersionInfo {
                 program: PROGRAM.into(),

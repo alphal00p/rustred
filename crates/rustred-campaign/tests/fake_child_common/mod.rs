@@ -3,7 +3,9 @@
 //! supervisor does, contract 3.4.6), in a temp dir under the system temp dir, classify its files with the contract's
 //! decision table, and make sure no process is left behind.
 
-use rustred_campaign_contract::classify::{assess, classify, Classification, KillReason, WaitStatus};
+use rustred_campaign_contract::classify::{
+    Classification, KillReason, WaitStatus, assess, classify,
+};
 use rustred_campaign_contract::events::{Event, EventLine};
 use rustred_campaign_contract::fake::*;
 use rustred_campaign_contract::layout::RunLayout;
@@ -31,10 +33,18 @@ pub struct Root {
 
 impl Root {
     pub fn new(tag: &str) -> Root {
-        let path = std::env::temp_dir().join(format!("rr-fake-{tag}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+        let path = std::env::temp_dir().join(format!(
+            "rr-fake-{tag}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
-        Root { path, pgids: vec![], extra_pids: vec![] }
+        Root {
+            path,
+            pgids: vec![],
+            extra_pids: vec![],
+        }
     }
 
     /// A run directory `jobs/<job>/a<attempt>`.
@@ -63,10 +73,11 @@ impl Root {
     fn live(&self) -> Vec<i32> {
         let mut v = Vec::new();
         for pid in all_pids() {
-            if let Some((state, pgrp)) = stat_of(pid) {
-                if state != 'Z' && (self.pgids.contains(&pgrp) || self.extra_pids.contains(&pid)) {
-                    v.push(pid);
-                }
+            if let Some((state, pgrp)) = stat_of(pid)
+                && state != 'Z'
+                && (self.pgids.contains(&pgrp) || self.extra_pids.contains(&pid))
+            {
+                v.push(pid);
             }
         }
         v
@@ -100,7 +111,10 @@ impl Drop for Root {
 
 pub fn all_pids() -> Vec<i32> {
     std::fs::read_dir("/proc")
-        .map(|d| d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect())
+        .map(|d| {
+            d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -127,7 +141,11 @@ pub fn spec(run_dir: &Path, job: &str, attempt: u32, script: FakeScript) -> JobS
         attempt,
         kind: JobKind::Fake,
         run_dir: run_dir.to_str().unwrap().into(),
-        program: ProgramRef { name: "rr_fake_child".into(), blake3: D0.into(), features_required: vec!["fake".into()] },
+        program: ProgramRef {
+            name: "rr_fake_child".into(),
+            blake3: D0.into(),
+            features_required: vec!["fake".into()],
+        },
         inputs: vec![],
         args: vec![],
         seed: SeedSpec { sample_seed: 7 },
@@ -163,7 +181,12 @@ pub fn rule_case(ordinal: u64, ms: u64) -> FakeOp {
     FakeOp::Case {
         ordinal,
         ms,
-        work: [(WorkCounter::Seeds, 100 * (ordinal + 1)), (WorkCounter::Rows, 1000)].into_iter().collect(),
+        work: [
+            (WorkCounter::Seeds, 100 * (ordinal + 1)),
+            (WorkCounter::Rows, 1000),
+        ]
+        .into_iter()
+        .collect(),
         result: CaseResult::Rule,
         rule: Some(FakeRule {
             record: serde_json::json!({"chart":"11111","case":ordinal,"target":format!("I({ordinal},1,1)"),"rhs":[["I(0,1,1)","-1/2"],["I(1,0,1)",format!("{ordinal}")]]}),
@@ -174,11 +197,21 @@ pub fn rule_case(ordinal: u64, ms: u64) -> FakeOp {
 }
 
 pub fn covered_case(ordinal: u64, ms: u64) -> FakeOp {
-    FakeOp::Case { ordinal, ms, work: Default::default(), result: CaseResult::Covered, rule: None, children: vec![] }
+    FakeOp::Case {
+        ordinal,
+        ms,
+        work: Default::default(),
+        result: CaseResult::Covered,
+        rule: None,
+        children: vec![],
+    }
 }
 
 pub fn end(stop: Option<rustred_campaign_contract::StopCode>) -> FakeOp {
-    FakeOp::End { stop, verdict: None }
+    FakeOp::End {
+        stop,
+        verdict: None,
+    }
 }
 
 /// A spawned child.
@@ -201,7 +234,12 @@ pub fn spawn(root: &mut Root, spec: &JobSpec) -> Running {
     let out = std::fs::File::create(layout.stdout_log()).unwrap();
     let err = std::fs::File::create(layout.stderr_log()).unwrap();
     let mut cmd = Command::new(BIN);
-    cmd.arg("job").arg(&p).stdin(Stdio::null()).stdout(out).stderr(err).env_remove("RUSTRED_PROBE_POINT");
+    cmd.arg("job")
+        .arg(&p)
+        .stdin(Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .env_remove("RUSTRED_PROBE_POINT");
     // SAFETY: setsid is async-signal-safe; it makes the child a session and group leader (contract 3.4.6).
     unsafe {
         cmd.pre_exec(|| {
@@ -214,7 +252,13 @@ pub fn spawn(root: &mut Root, spec: &JobSpec) -> Running {
     let child = cmd.spawn().unwrap();
     let pid = child.id() as i32;
     root.pgids.push(pid);
-    Running { child, pid, layout, spec: spec.clone(), started: Instant::now() }
+    Running {
+        child,
+        pid,
+        layout,
+        spec: spec.clone(),
+        started: Instant::now(),
+    }
 }
 
 impl Running {
@@ -232,7 +276,10 @@ impl Running {
             if Instant::now() > deadline {
                 self.signal_group(libc::SIGKILL);
                 let _ = self.child.wait();
-                panic!("child did not finish within {timeout:?}; stderr: {}", self.stderr());
+                panic!(
+                    "child did not finish within {timeout:?}; stderr: {}",
+                    self.stderr()
+                );
             }
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -264,7 +311,10 @@ impl Running {
                 return e;
             }
             if Instant::now() > deadline {
-                panic!("event not seen within {timeout:?}; stderr: {}", self.stderr());
+                panic!(
+                    "event not seen within {timeout:?}; stderr: {}",
+                    self.stderr()
+                );
             }
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -301,14 +351,18 @@ pub fn read_events(layout: &RunLayout) -> Vec<EventLine> {
         if it.peek().is_none() {
             break; // the part after the last "\n"
         }
-        v.push(EventLine::parse(l).unwrap_or_else(|e| panic!("bad event line {}: {e}", String::from_utf8_lossy(l))));
+        v.push(
+            EventLine::parse(l)
+                .unwrap_or_else(|e| panic!("bad event line {}: {e}", String::from_utf8_lossy(l))),
+        );
     }
     v
 }
 
 /// Spec of a resume attempt `attempt` from the run of `prev` (same script).
 pub fn resume_spec(root: &Root, prev: &Running, attempt: u32) -> JobSpec {
-    let r: ResumeState = serde_json::from_slice(&std::fs::read(prev.layout.resume()).unwrap()).unwrap();
+    let r: ResumeState =
+        serde_json::from_slice(&std::fs::read(prev.layout.resume()).unwrap()).unwrap();
     let (_, d) = file_blake3(&prev.layout.resume()).unwrap();
     let dir = root.run_dir(&prev.spec.job_id, attempt);
     let mut s = prev.spec.clone();
@@ -332,7 +386,8 @@ pub fn resume_spec(root: &Root, prev: &Running, attempt: u32) -> JobSpec {
 pub fn canonical_of(r: &Running) -> String {
     let o = r.outcome();
     let t = o.job.outputs.table.unwrap();
-    let (d, _) = rustred_campaign_contract::canon::canonical_digest_file(&r.layout.table()).unwrap();
+    let (d, _) =
+        rustred_campaign_contract::canon::canonical_digest_file(&r.layout.table()).unwrap();
     assert_eq!(t.canonical_blake3.as_deref(), Some(d.as_str()));
     d
 }

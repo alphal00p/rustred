@@ -4,7 +4,7 @@
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::{CaseDomain, DomainOptions, NotInCase, PoleKind, Verdict};
 use rustred_campaign_core::key::{KeyClass, NodeFrame, compositions, key_text, parse_key};
-use rustred_campaign_core::poly::{EvalError, Poly, PolyError, Value};
+use rustred_campaign_core::poly::{EvalError, ParseOptions, Poly, PolyError, Value};
 use rustred_campaign_core::record::{ReadOptions, RecordReader, RhsMode, TableLine};
 
 fn p(s: &str, n: usize) -> Poly {
@@ -36,7 +36,16 @@ fn parser_forms_found_in_records() {
     );
     assert_eq!(p("0+1*n15", n), p("n15", n));
     assert_eq!(p("1-1*n1", n), p("-n1+1", n));
-    assert_eq!(p("n3+n8=n12+3", n), p("n3+n8-n12-3", n));
+    // the equation form only through the explicit lenient option (audit A m2)
+    let lenient = ParseOptions {
+        allow_d: false,
+        allow_equation: true,
+    };
+    assert_eq!(
+        Poly::parse_with("n3+n8=n12+3", n, lenient).unwrap(),
+        p("n3+n8-n12-3", n)
+    );
+    assert!(Poly::parse_d_free("n3+n8=n12+3", n).is_err());
     assert_eq!(p("n0^2-2*n0*n1+n1^2", n), p("(n0-n1)^2", n));
     assert_eq!(p("-n0^2", n).eval(&[3; 20]).unwrap(), Value::Small(-9));
     assert_eq!(p("2*(n0+1)*(n0-1)", n), p("2*n0^2-2", n));
@@ -179,7 +188,7 @@ fn arities_5_9_14_20() {
     }
 }
 
-const RULE_LINE: &str = r#"{"type":"rule","chart":"11111111110000000000","index":4,"case":"Coordinate(...)","fixed":[null,null,null,1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0],"equations":["n0=n1+1"],"target":"I(n0,n1,n2,1,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15,n16,n17,n18,0)","rhs":[["I(n0,n1,n2,1,n4+1,n5,n6,n7-1,n8,n9,n10,n11,n12,n13,n14-1,n15,n16,n17,n18,0)","-n4/(-1+n7)"]],"exceptions":[["-1+n7"],["n18","n17"]],"dispatch":"Partition","witness_loci":["1-n7"],"recenter":[0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,0,1,0],"guard_version":2}"#;
+const RULE_LINE: &str = r#"{"type":"rule","chart":"11111111110000000000","index":4,"case":"Coordinate(...)","fixed":[null,null,null,1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0],"equations":["n0-n1-1"],"target":"I(n0,n1,n2,1,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15,n16,n17,n18,0)","rhs":[["I(n0,n1,n2,1,n4+1,n5,n6,n7-1,n8,n9,n10,n11,n12,n13,n14-1,n15,n16,n17,n18,0)","-n4/(-1+n7)"]],"exceptions":[["-1+n7"],["n18","n17"]],"dispatch":"Partition","witness_loci":["1-n7"],"recenter":[0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0,0,0,0,1,0],"guard_version":2}"#;
 
 fn rule_from(line: &str) -> rustred_campaign_core::record::RuleRecord {
     let mut rd = RecordReader::new(

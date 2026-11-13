@@ -5,8 +5,15 @@
 //!   never a silent wrap.
 //! - Evaluation first runs in checked `i128` arithmetic; on any overflow it is repeated in the small arbitrary-precision
 //!   integer [`BigInt`] (exact). [`Poly::eval_checked_i128`] exposes the overflow as an explicit error value.
-//! - Grammar of the parser: integers, `n<k>` (k < arity), `d` (only if allowed), `+ - * ^ ( )`, and the equation form
-//!   `a=b` (read as `a-b`). Division is refused ([`PolyError::Division`]): domain literals are polynomials.
+//! - Grammar of the STRICT parser ([`Poly::parse`], the default for every record field): integers, `n<k>` (k < arity,
+//!   no leading zero: `n01` is refused as the engine's `Expr::parse` refuses it), `d` (only if allowed),
+//!   `+ - * ^ ( )`. Division is refused ([`PolyError::Division`]): domain literals are polynomials.
+//! - The equation form `a=b` (read as `a-b`) is NOT accepted by the engine's parser and is refused by default; it is
+//!   accepted only through the explicit lenient entry point [`Poly::parse_with`] with
+//!   [`ParseOptions::allow_equation`] (used for the checker's locus files, e.g. `"n0 + n1 - n4 - 1 = 0"`).
+//! - Zero tests: the crate is exact. The engine's zero test is modulo the two 61-bit primes [`ENGINE_PRIMES`]; a
+//!   nonzero value divisible by both is "zero" for the engine. [`Value::engine_zero_disagrees`] detects that case so
+//!   that the domain module can fail closed instead of disagreeing silently (audit A N1).
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -14,6 +21,23 @@ use std::fmt;
 
 /// Variable id of the dimension `d` inside a monomial (index variables use their slot number).
 pub const D_VAR: u16 = u16::MAX;
+
+/// Largest arity a polynomial can address: index variables must stay below [`D_VAR`] (audit A N4).
+pub const MAX_ARITY: usize = D_VAR as usize;
+
+/// The two 61-bit primes of the engine's exact zero test (`rustred-core/src/node/replay/arith.rs` `P`, `P2`;
+/// `Expr::is_zero_at` calls a value zero iff it vanishes modulo both).
+pub const ENGINE_PRIMES: [u64; 2] = [2_305_843_009_213_693_951, 2_305_843_009_213_693_921];
+
+/// Options of [`Poly::parse_with`]. The default is the strict grammar without `d`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Admit the dimension `d`.
+    pub allow_d: bool,
+    /// LENIENT: admit one top-level `a=b`, read as `a-b`. The engine's parser refuses `=`; use this only for sources
+    /// whose documented format is an equation (the checker's locus files).
+    pub allow_equation: bool,
+}
 
 /// A monomial: sorted `(variable, exponent)` pairs, exponents >= 1. The empty monomial is the constant 1.
 pub type Mono = Vec<(u16, u32)>;
@@ -61,8 +85,11 @@ pub enum EvalError {
     KeyTooShort { needed: usize, len: usize },
     /// `d` occurs in a polynomial evaluated as d-free.
     ContainsD,
-    /// Only from [`Poly::eval_checked_i128`]: the exact value does not fit `i128` arithmetic.
+    /// From [`Poly::eval_checked_i128`]: the exact value does not fit `i128` arithmetic; from the domain module: the
+    /// rule point of a target pattern does not fit `i32`.
     Overflow,
+    /// The exact value is nonzero but vanishes modulo both [`ENGINE_PRIMES`]: the engine would read it as zero.
+    EngineZeroTest,
 }
 
 impl fmt::Display for EvalError {
@@ -72,7 +99,10 @@ impl fmt::Display for EvalError {
                 write!(f, "key of length {len}, polynomial needs {needed}")
             }
             EvalError::ContainsD => write!(f, "polynomial contains d"),
-            EvalError::Overflow => write!(f, "i128 overflow"),
+            EvalError::Overflow => write!(f, "overflow"),
+            EvalError::EngineZeroTest => {
+                write!(f, "nonzero value that the engine's modular zero test reads as zero")
+            }
         }
     }
 }
@@ -140,6 +170,15 @@ impl BigInt {
         } else {
             None
         }
+    }
+    /// The value modulo `p` (in `0..p`).
+    pub fn rem_u64(&self, p: u64) -> u64 {
+        let mut r: u128 = 0;
+        for &l in self.mag.iter().rev() {
+            r = ((r << 32) | l as u128) % p as u128;
+        }
+        let r = r as u64;
+        if self.neg && r != 0 { p - r } else { r }
     }
     fn trim(&mut self) {
         while self.mag.last() == Some(&0) {
@@ -250,14 +289,38 @@ impl BigInt {
     }
 }
 
-/// An exact evaluation result.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An exact evaluation result. Equality is NUMERIC (audit A N2): `Small(0) == Big(0)`, and a `Big` that fits
+/// `i128` equals the `Small` of the same value.
+#[derive(Clone, Debug)]
 pub enum Value {
     Small(i128),
     Big(BigInt),
 }
 
+impl PartialEq for Value {
+    fn eq(&self, o: &Value) -> bool {
+        match (self, o) {
+            (Value::Small(a), Value::Small(b)) => a == b,
+            (Value::Big(a), Value::Big(b)) => a == b, // BigInt is normalised (trimmed, zero non-negative)
+            (Value::Small(a), Value::Big(b)) | (Value::Big(b), Value::Small(a)) => b.to_i128() == Some(*a),
+        }
+    }
+}
+impl Eq for Value {}
+
 impl Value {
+    /// The value modulo `p` (in `0..p`).
+    pub fn rem_u64(&self, p: u64) -> u64 {
+        match self {
+            Value::Small(v) => v.rem_euclid(p as i128) as u64,
+            Value::Big(b) => b.rem_u64(p),
+        }
+    }
+    /// True when the value is NONZERO but vanishes modulo both [`ENGINE_PRIMES`]: the engine's zero test would call
+    /// it zero (audit A N1). Callers fail closed on it.
+    pub fn engine_zero_disagrees(&self) -> bool {
+        !self.is_zero() && ENGINE_PRIMES.iter().all(|&p| self.rem_u64(p) == 0)
+    }
     pub fn signum(&self) -> i32 {
         match self {
             Value::Small(v) => v.signum() as i32,
@@ -319,8 +382,9 @@ impl Poly {
             }
         }
     }
-    /// The variable `n<slot>`.
+    /// The variable `n<slot>`. Panics if `slot >= MAX_ARITY` (it would collide with `d`).
     pub fn var(slot: usize) -> Self {
+        assert!(slot < MAX_ARITY, "variable n{slot} collides with d");
         Poly {
             terms: vec![(vec![(slot as u16, 1)], 1)],
         }
@@ -427,17 +491,29 @@ impl Poly {
         Ok(r)
     }
 
-    /// Parse a literal with variables `n0..n{arity-1}`; `allow_d` admits the dimension `d`.
+    /// Parse a literal with variables `n0..n{arity-1}` with the STRICT grammar (no `=`); `allow_d` admits the
+    /// dimension `d`.
     pub fn parse(s: &str, arity: usize, allow_d: bool) -> Result<Poly, PolyError> {
+        Poly::parse_with(
+            s,
+            arity,
+            ParseOptions {
+                allow_d,
+                allow_equation: false,
+            },
+        )
+    }
+    /// Parse with explicit options; [`ParseOptions::allow_equation`] is the only lenient form.
+    pub fn parse_with(s: &str, arity: usize, opts: ParseOptions) -> Result<Poly, PolyError> {
         let mut p = Parser {
             s: s.as_bytes(),
             pos: 0,
             arity,
-            allow_d,
+            allow_d: opts.allow_d,
         };
         let lhs = p.expr()?;
         p.ws();
-        let r = if p.peek() == Some(b'=') {
+        let r = if opts.allow_equation && p.peek() == Some(b'=') {
             p.pos += 1;
             let rhs = p.expr()?;
             lhs.sub(&rhs)?
@@ -525,7 +601,9 @@ impl Poly {
     }
 
     /// Primitive part with a canonical sign (positive coefficient on the largest monomial): same zero set.
-    /// The zero polynomial stays zero; a nonzero constant becomes 1.
+    /// The zero polynomial stays zero; a nonzero constant becomes 1. Arithmetic is checked (audit A m3): if the
+    /// normal form does not fit `i128` (a coefficient `i128::MIN` with gcd 1 to be negated) the polynomial is returned
+    /// unchanged, which has the same zero set; only de-duplication can be less effective, never a verdict.
     pub fn primitive_normal(&self) -> Poly {
         if self.terms.is_empty() {
             return Poly::zero();
@@ -534,18 +612,22 @@ impl Poly {
         for (_, c) in &self.terms {
             g = gcd(g, c.unsigned_abs());
         }
-        let sign: i128 = if self.terms.last().expect("nonzero").1 < 0 {
-            -1
-        } else {
-            1
-        };
-        Poly {
-            terms: self
-                .terms
-                .iter()
-                .map(|(m, c)| (m.clone(), sign * (*c / g as i128)))
-                .collect(),
+        let negate = self.terms.last().expect("nonzero").1 < 0;
+        let mut terms = Vec::with_capacity(self.terms.len());
+        for (m, c) in &self.terms {
+            // g >= 1 divides |c|; g may be 2^127 only when every coefficient is i128::MIN
+            let q = if g > i128::MAX as u128 {
+                c.signum()
+            } else {
+                *c / g as i128
+            };
+            let q = if negate { q.checked_neg() } else { Some(q) };
+            match q {
+                Some(q) => terms.push((m.clone(), q)),
+                None => return self.clone(),
+            }
         }
+        Poly { terms }
     }
 }
 
@@ -708,8 +790,16 @@ impl Parser<'_> {
                     pos: start,
                     msg: "expected n<index>".into(),
                 })?;
-                let v = v as usize;
-                if v >= self.arity {
+                // the engine refuses a leading zero (`n01`, `n00`); `n0` itself is fine
+                if self.pos - start > 1 && self.s[start] == b'0' {
+                    return Err(PolyError::Syntax {
+                        pos: start,
+                        msg: "leading zero in a variable index".into(),
+                    });
+                }
+                // audit A m1: never truncate (an index of 2^64 used to wrap to n0)
+                let v = usize::try_from(v).unwrap_or(usize::MAX);
+                if v >= self.arity || v >= MAX_ARITY {
                     return Err(PolyError::VariableOutOfRange {
                         var: v,
                         arity: self.arity,

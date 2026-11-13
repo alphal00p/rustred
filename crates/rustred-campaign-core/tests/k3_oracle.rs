@@ -30,7 +30,7 @@ use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::order::NodeComparator;
-use rustred_campaign_core::poly::Poly;
+use rustred_campaign_core::poly::{ParseOptions, Poly};
 use rustred_campaign_core::record::{ReadOptions, RecordReader, RuleRecord, TableLine};
 use serde_json::{Value, json};
 
@@ -430,7 +430,16 @@ fn k3_t162_f2_faces_and_locus_points_data() {
     );
     for x in &lp {
         let k = as_key(&x["key"]);
-        let eq = Poly::parse(x["locus"].as_str().unwrap(), 20, false).unwrap();
+        // the locus files write equations `a = b`: the explicit lenient parser option
+        let eq = Poly::parse_with(
+            x["locus"].as_str().unwrap(),
+            20,
+            ParseOptions {
+                allow_d: false,
+                allow_equation: true,
+            },
+        )
+        .unwrap();
         assert!(
             eq.is_zero_at(&k).unwrap(),
             "locus equation {} at {k:?}",

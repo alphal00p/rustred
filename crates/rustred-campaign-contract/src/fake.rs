@@ -43,7 +43,10 @@ pub fn apply_loci_policy(loci: Vec<String>, opts: &OutputOptions) -> (Vec<String
 
 /// Whether a record's `witness_loci` contains an elided locus (such a record is unusable by the campaign, R-f).
 pub fn record_has_elided_loci(record: &Value) -> bool {
-    record.get("witness_loci").and_then(Value::as_array).is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ELIDED)))
+    record
+        .get("witness_loci")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ELIDED)))
 }
 
 /// Reaction to SIGTERM / SIGINT / SIGHUP.
@@ -130,7 +133,12 @@ pub enum FakeOp {
     /// Wait for `n` heartbeats (n x heartbeat_s), checking the stop flag.
     Heartbeats { n: u32 },
     /// Record a time decision (event + OUTCOME `time_decisions`, so `time_decided = true`).
-    TimeDecision { what: TimeDecisionWhat, limit_s: f64, measured_s: f64, taken: String },
+    TimeDecision {
+        what: TimeDecisionWhat,
+        limit_s: f64,
+        measured_s: f64,
+        taken: String,
+    },
     /// Allocate and touch `mb` MiB, kept until exit.
     Alloc { mb: u64 },
     /// Fork the helper `helpers[index]`.
@@ -261,34 +269,49 @@ impl FakeScript {
         let mut last = None;
         for op in &self.script {
             match op {
-                FakeOp::Case { ordinal, rule, result, .. } => {
+                FakeOp::Case {
+                    ordinal,
+                    rule,
+                    result,
+                    ..
+                } => {
                     if last.is_some_and(|l| *ordinal <= l) {
                         return Err("case ordinals must increase".into());
                     }
                     last = Some(*ordinal);
                     if (*result == CaseResult::Rule) != rule.is_some() {
-                        return Err(format!("case {ordinal}: a rule exactly when result is rule"));
+                        return Err(format!(
+                            "case {ordinal}: a rule exactly when result is rule"
+                        ));
                     }
-                    if let Some(r) = rule {
-                        if !r.record.is_object() {
-                            return Err(format!("case {ordinal}: rule.record must be an object"));
-                        }
+                    if let Some(r) = rule
+                        && !r.record.is_object()
+                    {
+                        return Err(format!("case {ordinal}: rule.record must be an object"));
                     }
                 }
                 FakeOp::Helper { index } if *index >= self.helpers.len() => {
                     return Err(format!("helper index {index} out of range"));
                 }
                 FakeOp::End { stop, verdict } => {
-                    if let Some(v) = verdict {
-                        if !matches!(v, ExitCode::DecidedNegative | ExitCode::Undecided) || stop.is_some() {
-                            return Err("end.verdict is 11 or 12, with stop null".into());
-                        }
+                    if let Some(v) = verdict
+                        && (!matches!(v, ExitCode::DecidedNegative | ExitCode::Undecided)
+                            || stop.is_some())
+                    {
+                        return Err("end.verdict is 11 or 12, with stop null".into());
                     }
                 }
-                FakeOp::Fail { code, .. } => {
-                    if !matches!(code, ExitCode::Usage | ExitCode::Input | ExitCode::Refused | ExitCode::Io | ExitCode::Internal) {
-                        return Err("fail.code is one of 40, 41, 42, 51, 70".into());
-                    }
+                FakeOp::Fail { code, .. }
+                    if !matches!(
+                        code,
+                        ExitCode::Usage
+                            | ExitCode::Input
+                            | ExitCode::Refused
+                            | ExitCode::Io
+                            | ExitCode::Internal
+                    ) =>
+                {
+                    return Err("fail.code is one of 40, 41, 42, 51, 70".into());
                 }
                 _ => {}
             }
@@ -314,7 +337,12 @@ impl FakeScript {
 /// The rule record a fake case writes (deterministic part): `record` with `type` = "rule", `index` = `index`, and
 /// `witness_loci` from `loci` under the output option; `seconds_search` / `lift_seconds` are set to `jitter` (0.0
 /// when no jitter). Returns the compact JSON line and the number of elided loci.
-pub fn fake_rule_record(rule: &FakeRule, index: u64, opts: &OutputOptions, jitter: Option<(f64, f64)>) -> (Vec<u8>, u64) {
+pub fn fake_rule_record(
+    rule: &FakeRule,
+    index: u64,
+    opts: &OutputOptions,
+    jitter: Option<(f64, f64)>,
+) -> (Vec<u8>, u64) {
     let mut m = rule.record.as_object().cloned().unwrap_or_default();
     m.insert("type".into(), Value::from("rule"));
     m.insert("index".into(), Value::from(index));
@@ -327,7 +355,10 @@ pub fn fake_rule_record(rule: &FakeRule, index: u64, opts: &OutputOptions, jitte
         elided = n;
         m.insert("witness_loci".into(), Value::from(v));
     }
-    (serde_json::to_vec(&Value::Object(m)).expect("record serialises"), elided)
+    (
+        serde_json::to_vec(&Value::Object(m)).expect("record serialises"),
+        elided,
+    )
 }
 
 #[cfg(test)]
@@ -338,32 +369,71 @@ mod tests {
     fn loci_policy() {
         let l = FakeLoci { n: 3, len: 5000 }.generate();
         assert!(l.iter().all(|s| s.len() == 5000));
-        let (full, n) = apply_loci_policy(l.clone(), &OutputOptions { elide_witness_loci: false });
+        let (full, n) = apply_loci_policy(
+            l.clone(),
+            &OutputOptions {
+                elide_witness_loci: false,
+            },
+        );
         assert_eq!((full.clone(), n), (l.clone(), 0));
-        let (el, n) = apply_loci_policy(l, &OutputOptions { elide_witness_loci: true });
+        let (el, n) = apply_loci_policy(
+            l,
+            &OutputOptions {
+                elide_witness_loci: true,
+            },
+        );
         assert_eq!(n, 3);
         assert!(el.iter().all(|s| s == ELIDED));
         let short = FakeLoci { n: 2, len: 10 }.generate();
-        assert_eq!(apply_loci_policy(short.clone(), &OutputOptions { elide_witness_loci: true }), (short, 0));
+        assert_eq!(
+            apply_loci_policy(
+                short.clone(),
+                &OutputOptions {
+                    elide_witness_loci: true
+                }
+            ),
+            (short, 0)
+        );
     }
 
     #[test]
     fn end_exit_codes() {
         assert_eq!(FakeScript::end_exit(None, None), ExitCode::Complete);
-        assert_eq!(FakeScript::end_exit(Some(StopCode::MaxCases), None), ExitCode::Incomplete);
-        assert_eq!(FakeScript::end_exit(None, Some(ExitCode::Undecided)), ExitCode::Undecided);
+        assert_eq!(
+            FakeScript::end_exit(Some(StopCode::MaxCases), None),
+            ExitCode::Incomplete
+        );
+        assert_eq!(
+            FakeScript::end_exit(None, Some(ExitCode::Undecided)),
+            ExitCode::Undecided
+        );
     }
 
     #[test]
     fn rule_record_is_deterministic_and_canonical_without_jitter() {
-        let r = FakeRule { record: serde_json::json!({"chart":"C","target":"I(1)","rhs":[["I(0)","1"]]}), loci: Some(FakeLoci { n: 1, len: 5000 }) };
+        let r = FakeRule {
+            record: serde_json::json!({"chart":"C","target":"I(1)","rhs":[["I(0)","1"]]}),
+            loci: Some(FakeLoci { n: 1, len: 5000 }),
+        };
         let (a, n) = fake_rule_record(&r, 4, &OutputOptions::default(), None);
         let (b, _) = fake_rule_record(&r, 4, &OutputOptions::default(), Some((1.5, 2.25)));
         assert_eq!(n, 0);
         assert_ne!(a, b);
-        assert_eq!(crate::canonical_line(&a).unwrap(), crate::canonical_line(&b).unwrap());
-        assert!(!record_has_elided_loci(&serde_json::from_slice(&a).unwrap()));
-        let (c, n) = fake_rule_record(&r, 4, &OutputOptions { elide_witness_loci: true }, None);
+        assert_eq!(
+            crate::canonical_line(&a).unwrap(),
+            crate::canonical_line(&b).unwrap()
+        );
+        assert!(!record_has_elided_loci(
+            &serde_json::from_slice(&a).unwrap()
+        ));
+        let (c, n) = fake_rule_record(
+            &r,
+            4,
+            &OutputOptions {
+                elide_witness_loci: true,
+            },
+            None,
+        );
         assert_eq!(n, 1);
         assert!(record_has_elided_loci(&serde_json::from_slice(&c).unwrap()));
     }

@@ -4,7 +4,7 @@
 //! the committed prefix and the queue state recorded here, and the new attempt's sealed table is what is accepted.
 
 use crate::spec::Counters;
-use crate::{is_blake3_hex, RESUME_SCHEMA};
+use crate::{RESUME_SCHEMA, is_blake3_hex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -124,8 +124,12 @@ pub enum CasesLine {
 pub fn parse_cases_line(line: &str) -> Result<CasesLine, String> {
     let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
     if v.get("type").and_then(Value::as_str) == Some("spill") {
-        serde_json::from_value(v).map(CasesLine::Spill).map_err(|e| e.to_string())
+        serde_json::from_value(v)
+            .map(CasesLine::Spill)
+            .map_err(|e| e.to_string())
     } else {
-        serde_json::from_value(v).map(CasesLine::Case).map_err(|e| e.to_string())
+        serde_json::from_value(v)
+            .map(CasesLine::Case)
+            .map_err(|e| e.to_string())
     }
 }

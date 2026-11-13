@@ -4,7 +4,7 @@
 use crate::exit::ExitCode;
 use crate::spec::{BudgetHit, Counters, JobKind, JobSpec, WallBudgets, WorkBudgets};
 use crate::stop::{CaseResult, JobStatus, StopCode, StopSource};
-use crate::{is_blake3_hex, OUTCOME_SCHEMA};
+use crate::{OUTCOME_SCHEMA, is_blake3_hex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -38,7 +38,12 @@ fn t() -> bool {
 
 impl StopInfo {
     pub fn none() -> StopInfo {
-        StopInfo { code: None, detail: Value::Null, source: None, graceful: true }
+        StopInfo {
+            code: None,
+            detail: Value::Null,
+            source: None,
+            graceful: true,
+        }
     }
 }
 
@@ -328,7 +333,11 @@ pub const ERROR_MESSAGE_MAX: usize = 4000;
 impl ErrorInfo {
     pub fn new(class: ErrorClass, message: impl Into<String>) -> ErrorInfo {
         let m: String = message.into();
-        let message = if m.chars().count() > ERROR_MESSAGE_MAX { m.chars().take(ERROR_MESSAGE_MAX).collect() } else { m };
+        let message = if m.chars().count() > ERROR_MESSAGE_MAX {
+            m.chars().take(ERROR_MESSAGE_MAX).collect()
+        } else {
+            m
+        };
         ErrorInfo { class, message }
     }
 }
@@ -376,7 +385,13 @@ pub struct JobOutcome {
 
 impl JobOutcome {
     /// A skeleton for `spec`: status, exit code and stop from `code` / `stop`, everything else empty.
-    pub fn for_spec(spec: &JobSpec, spec_blake3: &str, program: ProgramInfo, code: ExitCode, stop: StopInfo) -> Self {
+    pub fn for_spec(
+        spec: &JobSpec,
+        spec_blake3: &str,
+        program: ProgramInfo,
+        code: ExitCode,
+        stop: StopInfo,
+    ) -> Self {
         JobOutcome {
             schema: OUTCOME_SCHEMA.to_string(),
             job_id: spec.job_id.clone(),
@@ -388,7 +403,11 @@ impl JobOutcome {
             stop,
             program,
             effective: None,
-            seed: SeedInfo { sample_seed: spec.seed.sample_seed, point_source: PointSource::Seed, point_blake3: None },
+            seed: SeedInfo {
+                sample_seed: spec.seed.sample_seed,
+                point_source: PointSource::Seed,
+                point_blake3: None,
+            },
             inputs: Vec::new(),
             counters: Counters::default(),
             budgets: BudgetsEcho {
@@ -414,16 +433,28 @@ impl JobOutcome {
     /// kind, and its end is `end` iff the stop is null; digests are hex; error message length.
     pub fn check(&self) -> Result<(), String> {
         if self.schema != OUTCOME_SCHEMA {
-            return Err(format!("job.schema {:?} is not {OUTCOME_SCHEMA:?}", self.schema));
+            return Err(format!(
+                "job.schema {:?} is not {OUTCOME_SCHEMA:?}",
+                self.schema
+            ));
         }
         if self.status != JobStatus::for_exit(self.exit_code) {
-            return Err(format!("status {:?} does not go with exit code {}", self.status, self.exit_code));
+            return Err(format!(
+                "status {:?} does not go with exit code {}",
+                self.status, self.exit_code
+            ));
         }
         if let Some(c) = self.stop.code {
             let checker_verdict = self.kind.is_checker()
-                && matches!(self.exit_code, ExitCode::DecidedNegative | ExitCode::Undecided);
+                && matches!(
+                    self.exit_code,
+                    ExitCode::DecidedNegative | ExitCode::Undecided
+                );
             if !c.consistent_with(self.exit_code) && !checker_verdict {
-                return Err(format!("stop {c:?} does not go with exit code {}", self.exit_code));
+                return Err(format!(
+                    "stop {c:?} does not go with exit code {}",
+                    self.exit_code
+                ));
             }
         } else if !matches!(
             self.exit_code,
@@ -447,16 +478,19 @@ impl JobOutcome {
                     return Err("table end kind must be `end` iff there is no stop".into());
                 }
             }
-            for d in [&t.canonical_blake3, &t.prefix_blake3].into_iter().flatten() {
+            for d in [&t.canonical_blake3, &t.prefix_blake3]
+                .into_iter()
+                .flatten()
+            {
                 if !is_blake3_hex(d) {
                     return Err("outputs.table digests must be BLAKE3 hex".into());
                 }
             }
         }
-        if let Some(e) = &self.error {
-            if e.message.chars().count() > ERROR_MESSAGE_MAX {
-                return Err("error.message longer than 4000 characters".into());
-            }
+        if let Some(e) = &self.error
+            && e.message.chars().count() > ERROR_MESSAGE_MAX
+        {
+            return Err("error.message longer than 4000 characters".into());
         }
         Ok(())
     }
@@ -469,7 +503,10 @@ impl JobOutcome {
 
 impl Outcome {
     pub fn new(job: JobOutcome) -> Outcome {
-        Outcome { legacy: serde_json::Map::new(), job }
+        Outcome {
+            legacy: serde_json::Map::new(),
+            job,
+        }
     }
 
     /// Pretty JSON + "\n".

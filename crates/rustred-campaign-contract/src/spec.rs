@@ -8,7 +8,7 @@
 use crate::exit::ExitCode;
 use crate::fake::FakeScript;
 use crate::resume::ResumeRef;
-use crate::{is_blake3_hex, CONTRACT};
+use crate::{CONTRACT, is_blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -83,7 +83,10 @@ impl JobKind {
     /// Kinds whose product is a rule table `out/F.table.jsonl` (the decision table's "S" applies to them; for the
     /// checker kinds S is vacuously true).
     pub const fn produces_table(self) -> bool {
-        matches!(self, JobKind::Generate | JobKind::GenerateAuto | JobKind::TableDump | JobKind::Fake)
+        matches!(
+            self,
+            JobKind::Generate | JobKind::GenerateAuto | JobKind::TableDump | JobKind::Fake
+        )
     }
 
     /// Checker kinds (exit 11 / 12 possible).
@@ -252,7 +255,9 @@ impl WorkBudgets {
             (RhsTerms, Job, self.rhs_terms_total),
             (NumericPoints, Job, self.numeric_points_total),
         ];
-        all.into_iter().filter_map(|(c, s, l)| l.map(|l| (c, s, l))).collect()
+        all.into_iter()
+            .filter_map(|(c, s, l)| l.map(|l| (c, s, l)))
+            .collect()
     }
 
     /// The first limit reached (value >= limit) by the counters of the current case or of the job, in the order of
@@ -264,7 +269,13 @@ impl WorkBudgets {
                 Scope::Case => case.get(c),
                 Scope::Job => job.get(c),
             };
-            (v >= l).then_some(BudgetHit { counter: c, scope: s, limit: l, value: v, case: None })
+            (v >= l).then_some(BudgetHit {
+                counter: c,
+                scope: s,
+                limit: l,
+                value: v,
+                case: None,
+            })
         })
     }
 }
@@ -410,10 +421,20 @@ pub const TYPED_FIELD_FLAGS: [&str; 8] = [
 ];
 
 /// Flags that write outside the run directory; present in `args` => exit 42 (3.1.3).
-pub const REFUSED_FLAGS: [&str; 4] = ["--registry", "--pool", "--unsafe-shared-registry", "--lease-wait"];
+pub const REFUSED_FLAGS: [&str; 4] = [
+    "--registry",
+    "--pool",
+    "--unsafe-shared-registry",
+    "--lease-wait",
+];
 
 /// Environment variables refused in job mode unless listed in `env_allow` (3.2.2).
-pub const GATED_ENV: [&str; 4] = ["RUSTRED_PROBE_POINT", "RUSTRED_TRACE_DUMP", "RUSTRED_TRACE_DUMP_MIN_ROWS", "RUSTRED_TRACE_DUMP_EXIT"];
+pub const GATED_ENV: [&str; 4] = [
+    "RUSTRED_PROBE_POINT",
+    "RUSTRED_TRACE_DUMP",
+    "RUSTRED_TRACE_DUMP_MIN_ROWS",
+    "RUSTRED_TRACE_DUMP_EXIT",
+];
 
 /// A spec that cannot be run. [`SpecError::exit_code`] says 40 or 42.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -421,13 +442,19 @@ pub enum SpecError {
     /// Not JSON, wrong types, missing or unknown fields.
     Parse(String),
     Schema(String),
-    BadField { field: &'static str, why: String },
+    BadField {
+        field: &'static str,
+        why: String,
+    },
     /// A flag carried by a typed field appears in `args` (40).
     TypedFlagInArgs(String),
     /// A flag writing outside RUN appears in `args` (42).
     RefusedFlag(String),
     /// `run_dir` is not the directory of the spec file (42).
-    RunDirMismatch { run_dir: String, spec_dir: String },
+    RunDirMismatch {
+        run_dir: String,
+        spec_dir: String,
+    },
     /// `kind` and `fake` disagree.
     FakeMismatch(String),
 }
@@ -447,10 +474,18 @@ impl fmt::Display for SpecError {
             SpecError::Parse(m) => write!(f, "job spec does not parse: {m}"),
             SpecError::Schema(s) => write!(f, "job spec schema {s:?} is not {CONTRACT:?}"),
             SpecError::BadField { field, why } => write!(f, "job spec field {field}: {why}"),
-            SpecError::TypedFlagInArgs(a) => write!(f, "args carries {a}, which is a typed field of the spec"),
-            SpecError::RefusedFlag(a) => write!(f, "args carries {a}, which writes outside the run directory"),
+            SpecError::TypedFlagInArgs(a) => {
+                write!(f, "args carries {a}, which is a typed field of the spec")
+            }
+            SpecError::RefusedFlag(a) => write!(
+                f,
+                "args carries {a}, which writes outside the run directory"
+            ),
             SpecError::RunDirMismatch { run_dir, spec_dir } => {
-                write!(f, "run_dir {run_dir} is not the directory of the spec file ({spec_dir})")
+                write!(
+                    f,
+                    "run_dir {run_dir} is not the directory of the spec file ({spec_dir})"
+                )
             }
             SpecError::FakeMismatch(m) => write!(f, "job spec kind/fake: {m}"),
         }
@@ -459,7 +494,10 @@ impl fmt::Display for SpecError {
 impl std::error::Error for SpecError {}
 
 fn bad(field: &'static str, why: impl Into<String>) -> SpecError {
-    SpecError::BadField { field, why: why.into() }
+    SpecError::BadField {
+        field,
+        why: why.into(),
+    }
 }
 
 fn flag_name(a: &str) -> &str {
@@ -475,7 +513,8 @@ fn valid_env_name(s: &str) -> bool {
 impl JobSpec {
     /// Parse and validate a spec file's bytes (no file-system checks; see [`JobSpec::check_location`]).
     pub fn from_json(bytes: &[u8]) -> Result<JobSpec, SpecError> {
-        let s: JobSpec = serde_json::from_slice(bytes).map_err(|e| SpecError::Parse(e.to_string()))?;
+        let s: JobSpec =
+            serde_json::from_slice(bytes).map_err(|e| SpecError::Parse(e.to_string()))?;
         s.validate()?;
         Ok(s)
     }
@@ -495,10 +534,16 @@ impl JobSpec {
         }
         if self.job_id.is_empty()
             || self.job_id.len() > 128
-            || !self.job_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+            || !self
+                .job_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
             || self.job_id.starts_with('.')
         {
-            return Err(bad("job_id", "must be 1-128 characters of [A-Za-z0-9._-], not starting with '.'"));
+            return Err(bad(
+                "job_id",
+                "must be 1-128 characters of [A-Za-z0-9._-], not starting with '.'",
+            ));
         }
         if self.attempt == 0 {
             return Err(bad("attempt", "attempts count from 1"));
@@ -510,7 +555,10 @@ impl JobSpec {
             return Err(bad("program.name", "empty"));
         }
         if !is_blake3_hex(&self.program.blake3) {
-            return Err(bad("program.blake3", "not a 64-character lower-case hex BLAKE3 digest"));
+            return Err(bad(
+                "program.blake3",
+                "not a 64-character lower-case hex BLAKE3 digest",
+            ));
         }
         for i in &self.inputs {
             if i.role.is_empty() {
@@ -520,7 +568,10 @@ impl JobSpec {
                 return Err(bad("inputs.path", "empty"));
             }
             if !is_blake3_hex(&i.blake3) {
-                return Err(bad("inputs.blake3", format!("input {:?}: not a BLAKE3 hex digest", i.role)));
+                return Err(bad(
+                    "inputs.blake3",
+                    format!("input {:?}: not a BLAKE3 hex digest", i.role),
+                ));
             }
         }
         for a in &self.args {
@@ -533,13 +584,22 @@ impl JobSpec {
             }
         }
         if self.determinism == Determinism::Strict
-            && self.args.windows(2).any(|w| flag_name(&w[0]) == "--on-heavy" && w[1] == "auto")
+            && self
+                .args
+                .windows(2)
+                .any(|w| flag_name(&w[0]) == "--on-heavy" && w[1] == "auto")
         {
-            return Err(bad("args", "--on-heavy auto is a clock decision, refused under determinism strict"));
+            return Err(bad(
+                "args",
+                "--on-heavy auto is a clock decision, refused under determinism strict",
+            ));
         }
         let w = &self.budgets.work;
         if w.limits().iter().any(|&(_, _, l)| l == 0) {
-            return Err(bad("budgets.work", "a zero limit is not allowed (omit the limit instead)"));
+            return Err(bad(
+                "budgets.work",
+                "a zero limit is not allowed (omit the limit instead)",
+            ));
         }
         if self.budgets.wall.case_s == Some(0) || self.budgets.wall.job_s == Some(0) {
             return Err(bad("budgets.wall", "a zero limit is not allowed"));
@@ -558,18 +618,29 @@ impl JobSpec {
         }
         for e in &self.env_allow {
             if !valid_env_name(e) {
-                return Err(bad("env_allow", format!("{e:?} is not an environment variable name")));
+                return Err(bad(
+                    "env_allow",
+                    format!("{e:?} is not an environment variable name"),
+                ));
             }
         }
         match (self.kind, &self.fake) {
-            (JobKind::Fake, None) => return Err(SpecError::FakeMismatch("kind fake needs a fake script".into())),
+            (JobKind::Fake, None) => {
+                return Err(SpecError::FakeMismatch(
+                    "kind fake needs a fake script".into(),
+                ));
+            }
             (JobKind::Fake, Some(f)) => {
                 if !self.args.is_empty() {
                     return Err(SpecError::FakeMismatch("kind fake takes no args".into()));
                 }
                 f.validate().map_err(SpecError::FakeMismatch)?;
             }
-            (_, Some(_)) => return Err(SpecError::FakeMismatch("a fake script on a non-fake kind".into())),
+            (_, Some(_)) => {
+                return Err(SpecError::FakeMismatch(
+                    "a fake script on a non-fake kind".into(),
+                ));
+            }
             _ => {}
         }
         Ok(())
@@ -582,7 +653,10 @@ impl JobSpec {
         let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
         let (a, b) = (canon(Path::new(&self.run_dir)), canon(dir));
         if a != b {
-            return Err(SpecError::RunDirMismatch { run_dir: self.run_dir.clone(), spec_dir: b.display().to_string() });
+            return Err(SpecError::RunDirMismatch {
+                run_dir: self.run_dir.clone(),
+                spec_dir: b.display().to_string(),
+            });
         }
         Ok(())
     }
@@ -590,7 +664,11 @@ impl JobSpec {
     /// The absolute path of an input (relative paths are relative to `run_dir`).
     pub fn input_path(&self, i: &InputRef) -> PathBuf {
         let p = Path::new(&i.path);
-        if p.is_absolute() { p.to_path_buf() } else { Path::new(&self.run_dir).join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            Path::new(&self.run_dir).join(p)
+        }
     }
 
     /// Whether the campaign may use witness loci of this job's records (R-f: elided loci are unusable).

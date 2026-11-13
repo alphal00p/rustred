@@ -32,11 +32,11 @@ pub mod spec;
 pub mod stop;
 pub mod time;
 
-pub use canon::{canonical_line, CanonError};
-pub use classify::{classify, Classification, Evidence, KillReason, OutcomeKind, WaitStatus};
+pub use canon::{CanonError, canonical_line};
+pub use classify::{Classification, Evidence, KillReason, OutcomeKind, WaitStatus, classify};
 pub use exit::ExitCode;
 pub use outcome::{JobOutcome, Outcome};
-pub use seal::{verify_sealed, SealVerdict, TableSeal};
+pub use seal::{SealVerdict, TableSeal, verify_sealed};
 pub use spec::{JobKind, JobSpec, SpecError};
 pub use stop::{JobStatus, StopCode, StopSource};
 
@@ -60,7 +60,9 @@ pub fn blake3_hex(bytes: &[u8]) -> String {
 
 /// True iff `s` is 64 lower-case hex characters (the form of every digest in the contract).
 pub fn is_blake3_hex(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The git commit to report, from the value of [`BUILD_GIT_COMMIT_ENV`] captured at build time

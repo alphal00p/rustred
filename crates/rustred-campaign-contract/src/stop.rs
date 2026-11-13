@@ -111,10 +111,14 @@ impl JobStatus {
             ExitCode::Incomplete => JobStatus::Incomplete,
             ExitCode::DecidedNegative => JobStatus::DecidedNegative,
             ExitCode::Undecided => JobStatus::Undecided,
-            ExitCode::BudgetWork | ExitCode::BudgetWall | ExitCode::BudgetMemory => JobStatus::Budget,
+            ExitCode::BudgetWork | ExitCode::BudgetWall | ExitCode::BudgetMemory => {
+                JobStatus::Budget
+            }
             ExitCode::Interrupted => JobStatus::Interrupted,
             ExitCode::Usage | ExitCode::Refused => JobStatus::Refused,
-            ExitCode::Input | ExitCode::NoSpace | ExitCode::Io | ExitCode::Internal => JobStatus::Error,
+            ExitCode::Input | ExitCode::NoSpace | ExitCode::Io | ExitCode::Internal => {
+                JobStatus::Error
+            }
         }
     }
 }
@@ -154,7 +158,13 @@ pub enum CaseResult {
 impl CaseResult {
     /// Results meaning "no rule needed" (row 3 of the decision table 6.5).
     pub const fn needs_no_rule(self) -> bool {
-        matches!(self, CaseResult::Covered | CaseResult::Empty | CaseResult::Finite | CaseResult::DeclaredTerminal)
+        matches!(
+            self,
+            CaseResult::Covered
+                | CaseResult::Empty
+                | CaseResult::Finite
+                | CaseResult::DeclaredTerminal
+        )
     }
 }
 
@@ -175,9 +185,18 @@ mod tests {
         assert_eq!(StopCode::Panic.exit_code(), ExitCode::Internal);
         assert_eq!(StopCode::Nospace.exit_code(), ExitCode::NoSpace);
         assert!(StopCode::Refused.consistent_with(ExitCode::Usage));
-        assert_eq!(serde_json::to_string(&StopCode::NumericSearchRefused).unwrap(), "\"numeric_search_refused\"");
-        assert_eq!(serde_json::to_string(&StopSource::Sigterm).unwrap(), "\"SIGTERM\"");
-        assert_eq!(serde_json::to_string(&StopSource::StopFile).unwrap(), "\"stopfile\"");
+        assert_eq!(
+            serde_json::to_string(&StopCode::NumericSearchRefused).unwrap(),
+            "\"numeric_search_refused\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StopSource::Sigterm).unwrap(),
+            "\"SIGTERM\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StopSource::StopFile).unwrap(),
+            "\"stopfile\""
+        );
     }
 
     #[test]

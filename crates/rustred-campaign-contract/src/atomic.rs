@@ -13,7 +13,10 @@ pub const EDQUOT: i32 = 122;
 
 /// The temporary name used for `path` by this process.
 pub fn temp_path(path: &Path) -> PathBuf {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!("{name}.tmp.{}", std::process::id()))
 }
 
@@ -27,7 +30,11 @@ pub fn fsync_dir(dir: &Path) -> io::Result<()> {
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = temp_path(path);
     let r = (|| {
-        let mut f = OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)?;
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
@@ -53,17 +60,26 @@ pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> io::Res
 
 /// Whether an I/O error is "no space" (ENOSPC or EDQUOT): exit 50, else an output error is exit 51.
 pub fn is_nospace(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(ENOSPC) | Some(EDQUOT)) || e.kind() == io::ErrorKind::StorageFull
+    matches!(e.raw_os_error(), Some(ENOSPC) | Some(EDQUOT))
+        || e.kind() == io::ErrorKind::StorageFull
 }
 
 /// The exit code for an output I/O error (3.10).
 pub fn exit_for_io(e: &io::Error) -> crate::ExitCode {
-    if is_nospace(e) { crate::ExitCode::NoSpace } else { crate::ExitCode::Io }
+    if is_nospace(e) {
+        crate::ExitCode::NoSpace
+    } else {
+        crate::ExitCode::Io
+    }
 }
 
 /// Create the disk reserve: `bytes` real bytes (written, not a sparse file) and fsynced.
 pub fn create_reserve(path: &Path, bytes: u64) -> io::Result<()> {
-    let mut f = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    let mut f = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
     let chunk = vec![0u8; 64 * 1024];
     let mut left = bytes;
     while left > 0 {
@@ -91,6 +107,9 @@ mod tests {
         assert!(is_nospace(&io::Error::from_raw_os_error(ENOSPC)));
         assert!(is_nospace(&io::Error::from_raw_os_error(EDQUOT)));
         assert!(!is_nospace(&io::Error::from_raw_os_error(5)));
-        assert_eq!(exit_for_io(&io::Error::from_raw_os_error(5)), crate::ExitCode::Io);
+        assert_eq!(
+            exit_for_io(&io::Error::from_raw_os_error(5)),
+            crate::ExitCode::Io
+        );
     }
 }

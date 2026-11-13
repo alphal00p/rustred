@@ -1,11 +1,11 @@
 //! `EVENTS.jsonl` v1 (child-job.md 3.5): line schema, the child's event sink (one `write_all` per line, fsync after
 //! `job_started`, `rule_committed`, `job_finished`), and the supervisor's torn-line tolerant incremental reader.
 
+use crate::EVENTS_VERSION;
 use crate::exit::ExitCode;
 use crate::outcome::TimeDecision;
 use crate::spec::{Counters, Scope, WorkCounter};
 use crate::stop::{CaseResult, JobStatus, StopCode, StopSource};
-use crate::EVENTS_VERSION;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::File;
@@ -111,11 +111,17 @@ pub enum Event {
 impl Event {
     /// Kinds that carry `utc`.
     pub fn carries_utc(&self) -> bool {
-        matches!(self, Event::JobStarted { .. } | Event::Heartbeat { .. } | Event::JobFinished { .. })
+        matches!(
+            self,
+            Event::JobStarted { .. } | Event::Heartbeat { .. } | Event::JobFinished { .. }
+        )
     }
     /// Kinds after which the sink fsyncs.
     pub fn fsync_after(&self) -> bool {
-        matches!(self, Event::JobStarted { .. } | Event::RuleCommitted { .. } | Event::JobFinished { .. })
+        matches!(
+            self,
+            Event::JobStarted { .. } | Event::RuleCommitted { .. } | Event::JobFinished { .. }
+        )
     }
 }
 
@@ -143,10 +149,15 @@ impl EventLine {
     pub fn parse(line: &[u8]) -> Result<EventLine, String> {
         let e: EventLine = serde_json::from_slice(line).map_err(|e| e.to_string())?;
         if e.v != EVENTS_VERSION {
-            return Err(format!("events version {} (expected {EVENTS_VERSION})", e.v));
+            return Err(format!(
+                "events version {} (expected {EVENTS_VERSION})",
+                e.v
+            ));
         }
         if e.utc.is_some() != e.event.carries_utc() {
-            return Err("utc must be present exactly on job_started, heartbeat, job_finished".into());
+            return Err(
+                "utc must be present exactly on job_started, heartbeat, job_finished".into(),
+            );
         }
         Ok(e)
     }
@@ -174,8 +185,18 @@ pub struct EventSink {
 impl EventSink {
     /// Create (or append to, when resuming in the same file is ever needed) `path`.
     pub fn create(path: &Path) -> io::Result<EventSink> {
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(EventSink { inner: Mutex::new(SinkInner { file, seq: 0, failed: None }), start: Instant::now() })
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        Ok(EventSink {
+            inner: Mutex::new(SinkInner {
+                file,
+                seq: 0,
+                failed: None,
+            }),
+            start: Instant::now(),
+        })
     }
 
     /// Seconds since the sink was created.
@@ -185,16 +206,28 @@ impl EventSink {
 
     /// Emit one event. Returns the `seq` used. A write error is returned once and the sink then goes quiet.
     pub fn emit(&self, event: Event) -> io::Result<u64> {
-        let utc = event.carries_utc().then(|| crate::time::utc_string(SystemTime::now()));
+        let utc = event
+            .carries_utc()
+            .then(|| crate::time::utc_string(SystemTime::now()));
         let fsync = event.fsync_after();
         let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let seq = g.seq;
-        let line = EventLine { v: EVENTS_VERSION, seq, t: round_ms(self.elapsed_s()), utc, event }.to_line();
+        let line = EventLine {
+            v: EVENTS_VERSION,
+            seq,
+            t: round_ms(self.elapsed_s()),
+            utc,
+            event,
+        }
+        .to_line();
         if let Some(k) = g.failed {
             return Err(io::Error::new(k, "event sink failed earlier"));
         }
         g.seq += 1;
-        let r = g.file.write_all(&line).and_then(|_| if fsync { g.file.sync_data() } else { Ok(()) });
+        let r = g
+            .file
+            .write_all(&line)
+            .and_then(|_| if fsync { g.file.sync_data() } else { Ok(()) });
         if let Err(e) = &r {
             g.failed = Some(e.kind());
         }
@@ -250,7 +283,13 @@ pub enum TailItem {
 
 impl EventsTail {
     pub fn new(max_line: usize) -> EventsTail {
-        EventsTail { offset: 0, pending: 0, partial: Vec::new(), skipping: false, max_line }
+        EventsTail {
+            offset: 0,
+            pending: 0,
+            partial: Vec::new(),
+            skipping: false,
+            max_line,
+        }
     }
 
     /// Bytes consumed so far (complete lines only).
@@ -275,7 +314,10 @@ impl EventsTail {
             for &b in &buf[..n] {
                 if b == b'\n' {
                     if self.skipping {
-                        out.push(TailItem::Bad("line longer than the reader's bound".into(), self.pending));
+                        out.push(TailItem::Bad(
+                            "line longer than the reader's bound".into(),
+                            self.pending,
+                        ));
                     } else {
                         match EventLine::parse(&self.partial) {
                             Ok(e) => out.push(TailItem::Event(Box::new(e))),

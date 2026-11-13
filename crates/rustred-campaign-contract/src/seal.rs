@@ -100,7 +100,11 @@ pub struct RecordWriter {
 impl RecordWriter {
     /// Create (truncate) `path`.
     pub fn create(path: &Path) -> io::Result<RecordWriter> {
-        let file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
         Ok(RecordWriter {
             file,
             raw: blake3::Hasher::new(),
@@ -130,12 +134,17 @@ impl RecordWriter {
                 break;
             }
             if line.last() != Some(&b'\n') {
-                return Err(WriteError::Shape("committed prefix does not end at a line boundary".into()));
+                return Err(WriteError::Shape(
+                    "committed prefix does not end at a line boundary".into(),
+                ));
             }
             w.push_raw_line(&line)?;
         }
         if w.bytes != committed_bytes {
-            return Err(WriteError::Shape(format!("source has {} bytes, prefix needs {committed_bytes}", w.bytes)));
+            return Err(WriteError::Shape(format!(
+                "source has {} bytes, prefix needs {committed_bytes}",
+                w.bytes
+            )));
         }
         if w.raw.finalize().to_hex().as_str() != prefix_blake3 {
             return Err(WriteError::Shape("committed prefix digest mismatch".into()));
@@ -160,7 +169,11 @@ impl RecordWriter {
         if ty.as_deref() == Some("rule") {
             self.rules += 1;
         }
-        Ok(RecordPos { offset, bytes: line_nl.len() as u64, canon_blake3: h.finalize().to_hex().to_string() })
+        Ok(RecordPos {
+            offset,
+            bytes: line_nl.len() as u64,
+            canon_blake3: h.finalize().to_hex().to_string(),
+        })
     }
 
     /// Append one record (a JSON object without the trailing newline). The record is validated (it must have a
@@ -195,7 +208,9 @@ impl RecordWriter {
     pub fn seal(mut self, end_record: &[u8]) -> Result<TableSeal, WriteError> {
         let ty = canon::line_type(end_record).map_err(WriteError::Record)?;
         let Some(end) = ty.as_deref().and_then(EndKind::from_type) else {
-            return Err(WriteError::Shape(format!("end record type {ty:?} is not end / partial")));
+            return Err(WriteError::Shape(format!(
+                "end record type {ty:?} is not end / partial"
+            )));
         };
         self.append(end_record)?;
         self.file.sync_all()?;
@@ -233,7 +248,9 @@ pub fn seal_file(path: &Path) -> Result<TableSeal, WriteError> {
             break;
         }
         if line.last() != Some(&b'\n') {
-            return Err(WriteError::Record(CanonError::TornLine { line: records + 1 }));
+            return Err(WriteError::Record(CanonError::TornLine {
+                line: records + 1,
+            }));
         }
         raw.update(&line);
         canon.push_line(&line).map_err(WriteError::Record)?;
@@ -245,9 +262,18 @@ pub fn seal_file(path: &Path) -> Result<TableSeal, WriteError> {
         records += 1;
     }
     let Some(end) = last_type.as_deref().and_then(EndKind::from_type) else {
-        return Err(WriteError::Shape(format!("last record type {last_type:?} is not end / partial")));
+        return Err(WriteError::Shape(format!(
+            "last record type {last_type:?} is not end / partial"
+        )));
     };
-    Ok(TableSeal { bytes, blake3: raw.finalize().to_hex().to_string(), records, rules, end, canonical_blake3: canon.hex() })
+    Ok(TableSeal {
+        bytes,
+        blake3: raw.finalize().to_hex().to_string(),
+        records,
+        rules,
+        end,
+        canonical_blake3: canon.hex(),
+    })
 }
 
 /// BLAKE3 of the first `n` bytes of a file; `None` if the file is shorter. Constant memory.
@@ -294,7 +320,10 @@ pub enum UnsealReason {
     OutcomeIncomplete,
     /// The table file cannot be opened / read.
     FileUnreadable(String),
-    SizeMismatch { expected: u64, actual: u64 },
+    SizeMismatch {
+        expected: u64,
+        actual: u64,
+    },
     DigestMismatch,
     Empty,
     /// The file does not end with "\n".
@@ -304,8 +333,14 @@ pub enum UnsealReason {
     /// The last line is not an end record (its type, if any).
     NoEndRecord(Option<String>),
     /// The last line is an end record of the other kind than OUTCOME says.
-    EndMismatch { outcome: EndKind, file: EndKind },
-    RecordCountMismatch { expected: u64, actual: u64 },
+    EndMismatch {
+        outcome: EndKind,
+        file: EndKind,
+    },
+    RecordCountMismatch {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl fmt::Display for UnsealReason {
@@ -386,7 +421,10 @@ pub fn verify_sealed(table: &Path, out: &TableOutput) -> SealVerdict {
         take(&mut cur, &mut cur_long, &chunk[s..]);
     }
     if size != bytes {
-        return Unsealed(UnsealReason::SizeMismatch { expected: bytes, actual: size });
+        return Unsealed(UnsealReason::SizeMismatch {
+            expected: bytes,
+            actual: size,
+        });
     }
     if h.finalize().to_hex().as_str() != digest {
         return Unsealed(UnsealReason::DigestMismatch);
@@ -407,15 +445,21 @@ pub fn verify_sealed(table: &Path, out: &TableOutput) -> SealVerdict {
     let Some(end) = ty.as_deref().and_then(EndKind::from_type) else {
         return Unsealed(UnsealReason::NoEndRecord(ty));
     };
-    if let Some(o) = out.end {
-        if o != end {
-            return Unsealed(UnsealReason::EndMismatch { outcome: o, file: end });
-        }
+    if let Some(o) = out.end
+        && o != end
+    {
+        return Unsealed(UnsealReason::EndMismatch {
+            outcome: o,
+            file: end,
+        });
     }
-    if let Some(r) = out.records {
-        if r != lines {
-            return Unsealed(UnsealReason::RecordCountMismatch { expected: r, actual: lines });
-        }
+    if let Some(r) = out.records
+        && r != lines
+    {
+        return Unsealed(UnsealReason::RecordCountMismatch {
+            expected: r,
+            actual: lines,
+        });
     }
     SealVerdict::Sealed
 }

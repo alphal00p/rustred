@@ -128,7 +128,13 @@ impl ExitCode {
     /// Whether the table of a job ending with this code is sealed (complete or partial end record). BUDGET_WALL is
     /// the hard-safe stop (unsealed); INTERRUPTED may be either (`stop.graceful`), so it answers `false` here.
     pub const fn table_sealed(self) -> bool {
-        matches!(self, ExitCode::Complete | ExitCode::Incomplete | ExitCode::BudgetWork | ExitCode::BudgetMemory)
+        matches!(
+            self,
+            ExitCode::Complete
+                | ExitCode::Incomplete
+                | ExitCode::BudgetWork
+                | ExitCode::BudgetMemory
+        )
     }
 }
 
@@ -144,7 +150,11 @@ pub struct NotInTable(pub i32);
 
 impl fmt::Display for NotInTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "exit status {} is not in the child-job exit-code table", self.0)
+        write!(
+            f,
+            "exit status {} is not in the child-job exit-code table",
+            self.0
+        )
     }
 }
 impl std::error::Error for NotInTable {}

@@ -45,13 +45,33 @@ pub fn sample_spec(run_dir: &str) -> JobSpec {
         attempt: 1,
         kind: JobKind::Generate,
         run_dir: run_dir.into(),
-        program: ProgramRef { name: "rr_node".into(), blake3: D0.into(), features_required: vec!["initial_presented".into()] },
-        inputs: vec![InputRef { role: "family".into(), path: "/abs/T162.sym".into(), blake3: D1.into(), upto: None }],
-        args: vec!["--order".into(), "{\"name\":\"phys_swap_0_3_rot7\"}".into(), "--symmetry-rows".into()],
+        program: ProgramRef {
+            name: "rr_node".into(),
+            blake3: D0.into(),
+            features_required: vec!["initial_presented".into()],
+        },
+        inputs: vec![InputRef {
+            role: "family".into(),
+            path: "/abs/T162.sym".into(),
+            blake3: D1.into(),
+            upto: None,
+        }],
+        args: vec![
+            "--order".into(),
+            "{\"name\":\"phys_swap_0_3_rot7\"}".into(),
+            "--symmetry-rows".into(),
+        ],
         seed: SeedSpec { sample_seed: 0 },
         budgets: Budgets {
-            work: WorkBudgets { cases: Some(1), seeds_per_case: Some(200000), ..Default::default() },
-            wall: WallBudgets { case_s: Some(300), job_s: Some(10800) },
+            work: WorkBudgets {
+                cases: Some(1),
+                seeds_per_case: Some(200000),
+                ..Default::default()
+            },
+            wall: WallBudgets {
+                case_s: Some(300),
+                job_s: Some(10800),
+            },
             mem_soft_bytes: Some(4_500_000_000),
         },
         on_case_budget: OnCaseBudget::Stop,
@@ -77,13 +97,23 @@ pub fn program_info() -> ProgramInfo {
 }
 
 /// A valid OUTCOME `job` for `spec` with exit `code` and stop `stop`, sealed table if `sealed`.
-pub fn job_outcome(spec: &JobSpec, code: ExitCode, stop: Option<StopCode>, sealed: bool) -> JobOutcome {
+pub fn job_outcome(
+    spec: &JobSpec,
+    code: ExitCode,
+    stop: Option<StopCode>,
+    sealed: bool,
+) -> JobOutcome {
     let mut j = JobOutcome::for_spec(
         spec,
         D0,
         program_info(),
         code,
-        StopInfo { code: stop, detail: serde_json::Value::Null, source: None, graceful: true },
+        StopInfo {
+            code: stop,
+            detail: serde_json::Value::Null,
+            source: None,
+            graceful: true,
+        },
     );
     assert_eq!(j.schema, OUTCOME_SCHEMA);
     j.outputs.table = Some(TableOutput {
@@ -96,7 +126,11 @@ pub fn job_outcome(spec: &JobSpec, code: ExitCode, stop: Option<StopCode>, seale
         committed_bytes: 0,
         prefix_blake3: None,
         sealed,
-        end: sealed.then_some(if stop.is_none() { EndKind::End } else { EndKind::Partial }),
+        end: sealed.then_some(if stop.is_none() {
+            EndKind::End
+        } else {
+            EndKind::Partial
+        }),
         canonical_blake3: None,
         witness_loci_elided: 0,
     });

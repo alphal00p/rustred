@@ -40,7 +40,13 @@ mod tests {
     #[test]
     fn known_instants() {
         assert_eq!(utc_string(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
-        assert_eq!(utc_string(UNIX_EPOCH + Duration::from_millis(951_782_400_123)), "2000-02-29T00:00:00.123Z");
-        assert_eq!(utc_string(UNIX_EPOCH + Duration::from_secs(1_794_614_400)), "2026-11-14T00:00:00.000Z");
+        assert_eq!(
+            utc_string(UNIX_EPOCH + Duration::from_millis(951_782_400_123)),
+            "2000-02-29T00:00:00.123Z"
+        );
+        assert_eq!(
+            utc_string(UNIX_EPOCH + Duration::from_secs(1_794_614_400)),
+            "2026-11-14T00:00:00.000Z"
+        );
     }
 }

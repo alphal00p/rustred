@@ -48,8 +48,13 @@ pub fn is_volatile(record_type: Option<&str>, key: &str) -> bool {
 /// Why a line has no canonical form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CanonError {
-    Utf8 { offset: usize },
-    Syntax { offset: usize, what: &'static str },
+    Utf8 {
+        offset: usize,
+    },
+    Syntax {
+        offset: usize,
+        what: &'static str,
+    },
     /// The line is valid JSON but not an object.
     NotObject,
     DuplicateKey(String),
@@ -57,7 +62,9 @@ pub enum CanonError {
     /// The top-level `type` member is not a string.
     TypeNotString,
     /// A stream ends with bytes after its last "\n".
-    TornLine { line: u64 },
+    TornLine {
+        line: u64,
+    },
     Io(String),
 }
 
@@ -65,12 +72,16 @@ impl fmt::Display for CanonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CanonError::Utf8 { offset } => write!(f, "invalid UTF-8 at byte {offset}"),
-            CanonError::Syntax { offset, what } => write!(f, "JSON syntax at byte {offset}: {what}"),
+            CanonError::Syntax { offset, what } => {
+                write!(f, "JSON syntax at byte {offset}: {what}")
+            }
             CanonError::NotObject => write!(f, "record is not a JSON object"),
             CanonError::DuplicateKey(k) => write!(f, "duplicate key {k}"),
             CanonError::TooDeep => write!(f, "nesting deeper than {MAX_DEPTH}"),
             CanonError::TypeNotString => write!(f, "top-level `type` is not a string"),
-            CanonError::TornLine { line } => write!(f, "torn last line (line {line} has no newline)"),
+            CanonError::TornLine { line } => {
+                write!(f, "torn last line (line {line} has no newline)")
+            }
             CanonError::Io(m) => write!(f, "I/O: {m}"),
         }
     }
@@ -101,7 +112,10 @@ struct Member {
 
 impl<'a> Scan<'a> {
     fn err(&self, what: &'static str) -> CanonError {
-        CanonError::Syntax { offset: self.i, what }
+        CanonError::Syntax {
+            offset: self.i,
+            what,
+        }
     }
     fn ws(&mut self) {
         while self.i < self.b.len() && matches!(self.b[self.i], b' ' | b'\t' | b'\n' | b'\r') {
@@ -125,7 +139,9 @@ impl<'a> Scan<'a> {
         let s = self.i;
         self.expect(b'"', "expected a string")?;
         loop {
-            let Some(c) = self.peek() else { return Err(self.err("unterminated string")) };
+            let Some(c) = self.peek() else {
+                return Err(self.err("unterminated string"));
+            };
             match c {
                 b'"' => {
                     self.i += 1;
@@ -301,7 +317,9 @@ impl<'a> Scan<'a> {
         m.sort_by(|x, y| raw(x).cmp(raw(y)));
         for w in m.windows(2) {
             if raw(&w[0]) == raw(&w[1]) {
-                return Err(CanonError::DuplicateKey(String::from_utf8_lossy(raw(&w[0])).into_owned()));
+                return Err(CanonError::DuplicateKey(
+                    String::from_utf8_lossy(raw(&w[0])).into_owned(),
+                ));
             }
         }
         Ok(m)
@@ -362,7 +380,10 @@ impl<'a> Scan<'a> {
             }
             out.write_all(&self.b[mm.key.0..mm.key.1])?;
             out.write_all(b":")?;
-            let mut sub = Scan { b: self.b, i: mm.val.0 };
+            let mut sub = Scan {
+                b: self.b,
+                i: mm.val.0,
+            };
             sub.write_value(out, depth + 1)?;
         }
         out.write_all(b"}")?;
@@ -379,7 +400,9 @@ fn strip_eol(line: &[u8]) -> &[u8] {
 fn top<'a>(line: &'a [u8]) -> R<(Scan<'a>, Vec<Member>, Option<&'a str>)> {
     let line = strip_eol(line);
     if let Err(e) = std::str::from_utf8(line) {
-        return Err(CanonError::Utf8 { offset: e.valid_up_to() });
+        return Err(CanonError::Utf8 {
+            offset: e.valid_up_to(),
+        });
     }
     let mut sc = Scan { b: line, i: 0 };
     sc.ws();
@@ -417,7 +440,10 @@ fn key_str<'a>(b: &'a [u8], m: &Member) -> &'a str {
 /// Write the canonical form of one record line (without a trailing newline) into `out`.
 pub fn write_canonical<W: Write + ?Sized>(line: &[u8], out: &mut W) -> Result<(), CanonError> {
     let (sc, m, ty) = top(line)?;
-    let kept: Vec<Member> = m.into_iter().filter(|mm| !is_volatile(ty, key_str(sc.b, mm))).collect();
+    let kept: Vec<Member> = m
+        .into_iter()
+        .filter(|mm| !is_volatile(ty, key_str(sc.b, mm)))
+        .collect();
     sc.write_members(out, &kept, 0)
 }
 
@@ -453,7 +479,9 @@ pub fn top_level_float_keys(line: &[u8]) -> Result<Vec<String>, CanonError> {
             continue;
         }
         let v = &sc.b[mm.val.0..mm.val.1];
-        if matches!(v.first(), Some(b'-' | b'0'..=b'9')) && v.iter().any(|c| matches!(c, b'.' | b'e' | b'E')) {
+        if matches!(v.first(), Some(b'-' | b'0'..=b'9'))
+            && v.iter().any(|c| matches!(c, b'.' | b'e' | b'E'))
+        {
             out.push(k.to_string());
         }
     }
@@ -500,7 +528,9 @@ pub fn canonical_digest_reader<Rd: BufRead>(mut r: Rd) -> Result<(String, u64), 
             break;
         }
         if buf.last() != Some(&b'\n') {
-            return Err(CanonError::TornLine { line: d.lines() + 1 });
+            return Err(CanonError::TornLine {
+                line: d.lines() + 1,
+            });
         }
         d.push_line(&buf)?;
     }
@@ -524,31 +554,63 @@ mod tests {
     #[test]
     fn sorts_strips_and_keeps_tokens() {
         assert_eq!(
-            c(r#"{"type":"rule","index":3,"seconds_search":0.71,"rhs":[["I(1)","-1/2"]],"lift_seconds":2.0,"a":{"z":1,"b":[1,{"y":2,"x":1}]}}"#),
+            c(
+                r#"{"type":"rule","index":3,"seconds_search":0.71,"rhs":[["I(1)","-1/2"]],"lift_seconds":2.0,"a":{"z":1,"b":[1,{"y":2,"x":1}]}}"#
+            ),
             r#"{"a":{"b":[1,{"x":1,"y":2}],"z":1},"index":3,"rhs":[["I(1)","-1/2"]],"type":"rule"}"#
         );
         // header strips only zero_seconds; a nested `seconds` is not volatile
-        assert_eq!(c(r#"{ "type" : "header", "zero_seconds": 1.5, "x": {"seconds": 2} }"#), r#"{"type":"header","x":{"seconds":2}}"#);
+        assert_eq!(
+            c(r#"{ "type" : "header", "zero_seconds": 1.5, "x": {"seconds": 2} }"#),
+            r#"{"type":"header","x":{"seconds":2}}"#
+        );
         // verbatim tokens: big integers and escapes survive
-        assert_eq!(c(r#"{"n":123456789012345678901234567890,"s":"é\/"}"#), r#"{"n":123456789012345678901234567890,"s":"é\/"}"#);
+        assert_eq!(
+            c(r#"{"n":123456789012345678901234567890,"s":"é\/"}"#),
+            r#"{"n":123456789012345678901234567890,"s":"é\/"}"#
+        );
         // verdict rule for other types
-        assert_eq!(c(r#"{"type":"verdict","seconds":1,"exact_seconds":2.5,"utc":"x","ok":true}"#), r#"{"ok":true,"type":"verdict"}"#);
-        assert_eq!(c("{\"type\":\"end\",\"seconds\":1.25,\"vmhwm_kb\":77,\"rules\":2}\r\n"), r#"{"rules":2,"type":"end"}"#);
+        assert_eq!(
+            c(r#"{"type":"verdict","seconds":1,"exact_seconds":2.5,"utc":"x","ok":true}"#),
+            r#"{"ok":true,"type":"verdict"}"#
+        );
+        assert_eq!(
+            c("{\"type\":\"end\",\"seconds\":1.25,\"vmhwm_kb\":77,\"rules\":2}\r\n"),
+            r#"{"rules":2,"type":"end"}"#
+        );
     }
 
     #[test]
     fn rejects() {
-        for bad in [r#"[1]"#, r#"{"a":1,"a":2}"#, r#"{"a":01}"#, r#"{"a":1} x"#, r#"{"a":"x"#, r#"{"type":3}"#, r#"{"a":1.}"#, "{\"a\":\"\t\"}"] {
+        for bad in [
+            r#"[1]"#,
+            r#"{"a":1,"a":2}"#,
+            r#"{"a":01}"#,
+            r#"{"a":1} x"#,
+            r#"{"a":"x"#,
+            r#"{"type":3}"#,
+            r#"{"a":1.}"#,
+            "{\"a\":\"\t\"}",
+        ] {
             assert!(canonical_line(bad.as_bytes()).is_err(), "{bad}");
         }
         let deep = format!("{{\"a\":{}{}}}", "[".repeat(200), "]".repeat(200));
         assert_eq!(canonical_line(deep.as_bytes()), Err(CanonError::TooDeep));
-        assert!(matches!(canonical_line(b"{\"a\":\"\xff\"}"), Err(CanonError::Utf8 { .. })));
+        assert!(matches!(
+            canonical_line(b"{\"a\":\"\xff\"}"),
+            Err(CanonError::Utf8 { .. })
+        ));
     }
 
     #[test]
     fn floats_lint() {
-        assert_eq!(top_level_float_keys(br#"{"type":"rule","seconds_search":0.5,"w":1e3,"n":2,"o":{"f":0.5}}"#).unwrap(), vec!["w"]);
+        assert_eq!(
+            top_level_float_keys(
+                br#"{"type":"rule","seconds_search":0.5,"w":1e3,"n":2,"o":{"f":0.5}}"#
+            )
+            .unwrap(),
+            vec!["w"]
+        );
     }
 
     #[test]

@@ -17,7 +17,13 @@ const T: Duration = Duration::from_secs(30);
 
 /// case 0 quick, case 1 long (the one interrupted), case 2 quick.
 fn three(long_ms: u64) -> FakeScript {
-    script(vec![rule_case(0, 0), rule_case(1, long_ms), covered_case(2, 0), rule_case(3, 0), end(None)])
+    script(vec![
+        rule_case(0, 0),
+        rule_case(1, long_ms),
+        covered_case(2, 0),
+        rule_case(3, 0),
+        end(None),
+    ])
 }
 
 /// The canonical digest of an uninterrupted run of `sc` (time_scale shrunk: timings never reach the table).
@@ -44,13 +50,26 @@ fn resume_and_compare(root: &mut Root, prev: &Running, want: &str) {
     assert_eq!(w2, WaitStatus::Exited(0), "resume: {}", r2.stderr());
     let o = r2.outcome();
     assert!(o.job.resumed);
-    assert!(matches!(r2.events()[0].event, Event::JobStarted { resume_from: Some(1), .. }));
+    assert!(matches!(
+        r2.events()[0].event,
+        Event::JobStarted {
+            resume_from: Some(1),
+            ..
+        }
+    ));
     assert_eq!(r2.classify(w2, KillReason::None).row, 1);
-    assert_eq!(canonical_of(&r2), want, "resumed canonical table == uninterrupted");
+    assert_eq!(
+        canonical_of(&r2),
+        want,
+        "resumed canonical table == uninterrupted"
+    );
 }
 
 fn wait_rule(r: &Running, index: u64) {
-    r.wait_event(T, |e| matches!(e, Event::RuleCommitted { index: i, .. } if *i == index));
+    r.wait_event(
+        T,
+        |e| matches!(e, Event::RuleCommitted { index: i, .. } if *i == index),
+    );
 }
 
 #[test]
@@ -69,15 +88,35 @@ fn f4_sigterm_graceful_within_grace_then_resume() {
     let w = r.wait(T);
     let took = t0.elapsed();
     assert_eq!(w, WaitStatus::Exited(30), "{}", r.stderr());
-    assert!(took < Duration::from_millis(1000), "stopped at a safe point in {took:?}");
+    assert!(
+        took < Duration::from_millis(1000),
+        "stopped at a safe point in {took:?}"
+    );
     let o = r.outcome();
     assert!(o.job.stop.graceful);
     assert_eq!(o.job.stop.source, Some(StopSource::Sigterm));
-    assert!(o.job.outputs.table.as_ref().unwrap().sealed, "graceful stop seals a partial table");
+    assert!(
+        o.job.outputs.table.as_ref().unwrap().sealed,
+        "graceful stop seals a partial table"
+    );
     let c = r.classify(w, KillReason::Stop);
-    assert_eq!((c.row, c.kind, c.accept, c.action), (11, OutcomeKind::Interrupted, Accept::Nothing, Action::ResumeOnCampaignResume));
+    assert_eq!(
+        (c.row, c.kind, c.accept, c.action),
+        (
+            11,
+            OutcomeKind::Interrupted,
+            Accept::Nothing,
+            Action::ResumeOnCampaignResume
+        )
+    );
     assert!(c.resume_from_r);
-    assert!(r.events().iter().any(|e| matches!(e.event, Event::StopRequested { source: StopSource::Sigterm, .. })));
+    assert!(r.events().iter().any(|e| matches!(
+        e.event,
+        Event::StopRequested {
+            source: StopSource::Sigterm,
+            ..
+        }
+    )));
     resume_and_compare(&mut root, &r, &want);
     root.assert_no_process_left();
 }
@@ -97,7 +136,10 @@ fn f4_slow_sigterm_below_grace_is_still_graceful() {
     r.signal_group(libc::SIGTERM);
     let w = r.wait(T);
     assert_eq!(w, WaitStatus::Exited(30));
-    assert!(t0.elapsed() >= Duration::from_millis(800), "kept working for slow_ms");
+    assert!(
+        t0.elapsed() >= Duration::from_millis(800),
+        "kept working for slow_ms"
+    );
     assert!(r.outcome().job.stop.graceful);
     assert_eq!(r.classify(w, KillReason::Stop).row, 11);
     root.assert_no_process_left();
@@ -146,7 +188,11 @@ fn second_signal_takes_the_hard_safe_path_at_once() {
     let t0 = Instant::now();
     r.signal_group(libc::SIGTERM);
     let w = r.wait(T);
-    assert!(t0.elapsed() < Duration::from_millis(500), "{:?}", t0.elapsed());
+    assert!(
+        t0.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        t0.elapsed()
+    );
     assert_eq!(w, WaitStatus::Exited(30));
     let o = r.outcome();
     assert!(!o.job.stop.graceful);
@@ -181,21 +227,38 @@ fn hang_without_safe_point_hard_safe_after_grace() {
     let mut root = Root::new("hang");
     let dir = root.run_dir("h", 1);
     let mut sc = three(0);
-    sc.faults = vec![Fault { at_op: 2, kind: FaultKind::Hang, bytes: 0, code: 0, path: None }];
+    sc.faults = vec![Fault {
+        at_op: 2,
+        kind: FaultKind::Hang,
+        bytes: 0,
+        code: 0,
+        path: None,
+    }];
     let s = spec(&dir, "h", 1, sc);
     let mut r = spawn(&mut root, &s);
     wait_rule(&r, 1);
     // heartbeats keep coming while it hangs
-    let n0 = r.events().iter().filter(|e| matches!(e.event, Event::Heartbeat { .. })).count();
+    let n0 = r
+        .events()
+        .iter()
+        .filter(|e| matches!(e.event, Event::Heartbeat { .. }))
+        .count();
     std::thread::sleep(Duration::from_millis(2300));
-    let n1 = r.events().iter().filter(|e| matches!(e.event, Event::Heartbeat { .. })).count();
+    let n1 = r
+        .events()
+        .iter()
+        .filter(|e| matches!(e.event, Event::Heartbeat { .. }))
+        .count();
     assert!(n1 >= n0 + 2, "heartbeat continues ({n0} -> {n1})");
     let t0 = Instant::now();
     r.signal_group(libc::SIGTERM);
     let w = r.wait(T);
     let took = t0.elapsed();
     assert_eq!(w, WaitStatus::Exited(30));
-    assert!(took >= Duration::from_secs(2) && took < Duration::from_secs(4), "grace + ~1 s: {took:?}");
+    assert!(
+        took >= Duration::from_secs(2) && took < Duration::from_secs(4),
+        "grace + ~1 s: {took:?}"
+    );
     let o = r.outcome();
     assert!(!o.job.stop.graceful);
     assert!(!o.job.outputs.table.unwrap().sealed);
@@ -212,22 +275,40 @@ fn hang_without_heartbeats_is_unresponsive() {
     let mut root = Root::new("nohb");
     let dir = root.run_dir("n", 1);
     let mut sc = three(0);
-    sc.faults = vec![Fault { at_op: 2, kind: FaultKind::StopHeartbeat, bytes: 0, code: 0, path: None }];
+    sc.faults = vec![Fault {
+        at_op: 2,
+        kind: FaultKind::StopHeartbeat,
+        bytes: 0,
+        code: 0,
+        path: None,
+    }];
     let s = spec(&dir, "n", 1, sc);
     let mut r = spawn(&mut root, &s);
     wait_rule(&r, 1);
     let seen = Instant::now();
     std::thread::sleep(Duration::from_millis(3500));
-    let last = r.events().iter().filter(|e| matches!(e.event, Event::Heartbeat { .. })).map(|e| e.t).fold(0.0, f64::max);
+    let last = r
+        .events()
+        .iter()
+        .filter(|e| matches!(e.event, Event::Heartbeat { .. }))
+        .map(|e| e.t)
+        .fold(0.0, f64::max);
     let now_t = r.events().last().unwrap().t.max(0.0);
     let _ = now_t;
     assert!(seen.elapsed().as_secs_f64() > 3.0 * s.heartbeat_s as f64);
-    let after: Vec<_> = r.events().into_iter().filter(|e| matches!(e.event, Event::Heartbeat { .. }) && e.t > last).collect();
+    let after: Vec<_> = r
+        .events()
+        .into_iter()
+        .filter(|e| matches!(e.event, Event::Heartbeat { .. }) && e.t > last)
+        .collect();
     assert!(after.is_empty());
     r.signal_group(libc::SIGKILL);
     let w = r.wait(T);
     let c = r.classify(w, KillReason::Unresponsive);
-    assert_eq!((c.row, c.kind, c.time_decided), (19, OutcomeKind::KilledTime, true));
+    assert_eq!(
+        (c.row, c.kind, c.time_decided),
+        (19, OutcomeKind::KilledTime, true)
+    );
     assert!(c.resume_from_r);
     root.assert_no_process_left();
 }
@@ -247,6 +328,9 @@ fn wall_budget_is_a_hard_safe_stop_exit_21() {
     assert_eq!(o.job.stop.code, Some(StopCode::BudgetWall));
     assert!(o.job.time_decided && !o.job.stop.graceful);
     let c = r.classify(w, KillReason::None);
-    assert_eq!((c.row, c.kind, c.time_decided), (9, OutcomeKind::KilledTime, true));
+    assert_eq!(
+        (c.row, c.kind, c.time_decided),
+        (9, OutcomeKind::KilledTime, true)
+    );
     root.assert_no_process_left();
 }
