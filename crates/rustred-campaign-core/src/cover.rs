@@ -89,9 +89,50 @@ impl std::fmt::Display for CoverError {
 }
 impl std::error::Error for CoverError {}
 
+/// Small multiplicative hasher for the fixed-value index (keys are short `i32` vectors; no DoS concern).
+#[derive(Default, Clone, Copy)]
+struct FxHasher(u64);
+
+impl std::hash::Hasher for FxHasher {
+    fn finish(&self) -> u64 {
+        // splitmix64 finaliser: spreads the state over all bits (the table uses both high and low bits)
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut it = bytes.chunks_exact(8);
+        for c in &mut it {
+            self.mix(u64::from_le_bytes(c.try_into().expect("8 bytes")));
+        }
+        let r = it.remainder();
+        if !r.is_empty() {
+            let mut b = [0u8; 8];
+            b[..r.len()].copy_from_slice(r);
+            self.mix(u64::from_le_bytes(b));
+        }
+    }
+    fn write_i32(&mut self, i: i32) {
+        self.mix(i as u32 as u64);
+    }
+    fn write_usize(&mut self, i: usize) {
+        self.mix(i as u64);
+    }
+}
+
+impl FxHasher {
+    #[inline]
+    fn mix(&mut self, x: u64) {
+        self.0 = (self.0.rotate_left(5) ^ x).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+type FxBuild = std::hash::BuildHasherDefault<FxHasher>;
+
 struct Pattern {
     slots: Vec<usize>,
-    map: HashMap<Vec<i32>, Vec<u32>>,
+    map: HashMap<Vec<i32>, Vec<u32>, FxBuild>,
 }
 
 /// Prioritized tables with a fixed-slot index.
@@ -144,7 +185,7 @@ impl Dispatcher {
             let slots = d.fixed_slots();
             let vals: Vec<i32> = slots.iter().map(|&s| d.fixed[s].expect("fixed")).collect();
             let pi = *pidx.entry(slots.clone()).or_insert_with(|| {
-                patterns.push(Pattern { slots, map: HashMap::new() });
+                patterns.push(Pattern { slots, map: HashMap::default() });
                 patterns.len() - 1
             });
             patterns[pi].map.entry(vals).or_default().push(e as u32);
