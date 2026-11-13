@@ -52,8 +52,8 @@ use super::{Builder, Cond, ParsedRule, layout, parity, scheme_at};
 pub struct CertifyOptions {
     /// Frame levels tried in order: 0 = every generator at the relation's
     /// shifts, 1 = every placement touching the relation's support, 2 = level
-    /// 0 and the unit neighbours of the shifts, 3 = levels 1 and 2, 4 = every
-    /// offset within L1 distance 2 of a shift, 5 = levels 1 and 4.
+    /// 0 and the unit neighbours of the shifts, 3 = levels 1 and 2, 4 = level 2
+    /// and every IBP row within L1 distance 2 of a shift, 5 = levels 1 and 4.
     pub levels: Vec<u8>,
     /// Largest frame (row placements) built at one level.
     pub max_rows: usize,
@@ -951,7 +951,9 @@ impl Problem<'_> {
                 }
                 if level >= 2 {
                     for u in neighbours(s) {
-                        if level >= 4 {
+                        // Radius 2: ordinary IBP rows only (the rule generators
+                        // stay at levels 0-3), else the frame explodes.
+                        if level >= 4 && generator.domain.is_none() {
                             for w in neighbours(&u) {
                                 offsets.insert((g, w));
                             }
