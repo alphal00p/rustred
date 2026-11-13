@@ -9,7 +9,8 @@
 //!                  [--case-seed-priority symbolic-isp-first|affine-coupled-first] [--affine-rung]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
 //!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
-//!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check]
+//!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check] [--pose-probe PROBES.jsonl]
+//!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
 //!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
@@ -221,6 +222,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.seed_schedule = match v.as_str() {
             "spired" => SeedScheduleName::Spired,
             "symfirst" | "symbolic-first" => SeedScheduleName::SymbolicFirst,
+            "dotsfirst" | "dots-first" => SeedScheduleName::DotsFirst,
             _ => die("--seed-schedule spired|symfirst"),
         };
     }
@@ -244,6 +246,30 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
                 rustred::node::order::family_props(family).len(),
             )
             .unwrap_or_else(|e| die(&format!("--case-seed-priority: {e}")));
+    }
+    // seed-pose probe mode: JSON-lines probes, refuse-all screen, results in OUT/F.poses.jsonl (no table)
+    o.pose_probe = a.take("--pose-probe");
+    // automatic seed-pose rung (default off): measure the default pose, then a small portfolio when it is heavy
+    if a.flag("--seed-pose-rung") {
+        o.seed_pose_rung = true;
+    }
+    if let Some(k) = a.parse("--seed-pose-keep") {
+        o.seed_pose_keep = k;
+    }
+    // seed-rung: portfolio only when the default relation's cost exceeds K (measured by the normal search's gated
+    // screen); 'none' = measure every case first (the seed-pose agent's rung)
+    if let Some(v) = a.take("--seed-pose-trigger") {
+        o.seed_pose_trigger = if v == "none" {
+            None
+        } else {
+            Some(
+                v.parse()
+                    .unwrap_or_else(|_| die("--seed-pose-trigger K|none")),
+            )
+        };
+    }
+    if let Some(k) = a.parse("--seed-pose-min-rows") {
+        o.seed_pose_min_rows = k;
     }
     if a.flag("--no-symbolic-first-rung") {
         o.symbolic_first_rung = false;
@@ -346,6 +372,9 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     o.no_witness_guards = a.flag("--no-witness-guards");
     if let Some(d) = a.parse("--numeric-depth") {
         o.numeric_depth = d;
+    }
+    if let Some(d) = a.parse("--numeric-depth-max") {
+        o.numeric_depth_max = Some(d);
     }
     let _ = family;
     o

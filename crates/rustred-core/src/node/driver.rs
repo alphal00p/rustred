@@ -477,6 +477,12 @@ pub struct NodeOptions {
     pub known_terminals: Option<KnownTerminalsFile>,
     pub cand_dump: bool,
     pub numeric_depth: u32,
+    /// seed-rung (default None = off): a numeric endpoint whose lift ladder exhausts at `numeric_depth` is searched
+    /// again at depths `numeric_depth + 1 ..= numeric_depth_max` (node source order) before it counts as exhausted
+    /// (T241: a dotted numerator exceptional point had no relation at depth 2, one at depth 3; the bulk fallback
+    /// left it as a false residual).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numeric_depth_max: Option<u32>,
     /// Refuse exhausted per-point numeric searches instead of entering the unscreened shared numeric solve.
     /// The unfinished points stay explicit obligations; this does not classify any of them as masters.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -500,6 +506,34 @@ pub struct NodeOptions {
     /// against each actual Case in PRESENTED family coordinates. None is static.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub case_seed_priority: Option<CaseSeedPriority>,
+    /// seed-pose probe mode (diagnostic, default None): a JSON-lines file of probes {label, case (ORIGINAL slots,
+    /// CaseSpec), presented (bool, default false), schedule (CaseSeedSchedule or null = Reference), in_shell
+    /// ("Spired" | "SymbolicFirst"), source_order (SourceOrder or null = the node's), max_depth}. Each probe runs the
+    /// case search with a refuse-all lift screen: the selected relation (pivot, trace rows, seed shifts of the trace,
+    /// RHS terms, coefficient degrees) is measured modularly and never lifted. Results go to `F.poses.jsonl`; no table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_probe: Option<String>,
+    /// Automatic SEED-POSE rung (seed-pose agent, default off): before the first search of a case, the default pose
+    /// (Reference seeds, node in-shell order) is measured with a refuse-all modular screen; when its relation is
+    /// heavier than `seed_pose_keep` (cost RHS x C(deg+v, v)) a small portfolio of seed poses ([`seed_pose_portfolio`])
+    /// is measured the same way and the cheapest is searched for real. Order, presentation and lift ladder unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub seed_pose_rung: bool,
+    /// Default-pose cost at or below which the rung keeps the default without probing alternatives.
+    #[serde(default = "seed_pose_keep_default")]
+    pub seed_pose_keep: f64,
+    /// seed-rung (overhead cut): the rung no longer measures every case with a separate refuse-all search. The
+    /// node's normal search runs with a seed-pose GATE on its screen ([`super::screen::LiftScreen::pose_gate`]):
+    /// only a case whose default relation costs more than this triggers the portfolio (the default's cost is the
+    /// gate's own measurement). `None` = the seed-pose agent's behaviour (measure every case first).
+    #[serde(
+        default = "seed_pose_trigger_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub seed_pose_trigger: Option<f64>,
+    /// Smallest trace (rows) the gate measures; smaller traces lift as without the rung.
+    #[serde(default = "seed_pose_min_rows_default")]
+    pub seed_pose_min_rows: usize,
     /// Lift ladder rung 1 (coordinator ruling 2026-11-11T04:17Z): a case whose lift the screen refused is searched
     /// again with the `SymbolicFirst` seed schedule (same presentation, same seed ball) before other source orders;
     /// the order portfolio (node level, [`super::auto`]) is the next rung.
@@ -558,6 +592,27 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+fn seed_pose_keep_default() -> f64 {
+    5_000.0
+}
+
+/// seed-rung 2026-11-12: default trigger 5e3 (was 5e4) = the regen-flagged queue's recipe value. [M] 5e3 is the only
+/// trigger with node-level closure evidence (T205 R1 order: complete, largest 26k, where 1e6 never fires and the node
+/// keeps its open region; T267/T241 shipped order, T161/T273 queue attempts complete); its probe overhead is 1.05x
+/// (T266 pieces) to 1.7x (T205) of the rung-off wall, 40-61 % of the wall in probes on dotted-corner nodes. 1e6
+/// (T266 registry pieces: 2.06x faster) stays an explicit `--seed-pose-trigger` for time-bound piece waves.
+fn seed_pose_trigger_default() -> Option<f64> {
+    Some(5_000.0)
+}
+
+fn seed_pose_min_rows_default() -> usize {
+    8
+}
+
 fn three() -> usize {
     3
 }
@@ -572,6 +627,7 @@ pub enum SeedScheduleName {
     #[default]
     Spired,
     SymbolicFirst,
+    DotsFirst,
 }
 
 impl SeedScheduleName {
@@ -579,6 +635,7 @@ impl SeedScheduleName {
         match self {
             Self::Spired => crate::solver::SeedSchedule::Spired,
             Self::SymbolicFirst => crate::solver::SeedSchedule::SymbolicFirst,
+            Self::DotsFirst => crate::solver::SeedSchedule::DotsFirst,
         }
     }
 }
@@ -619,12 +676,18 @@ impl Default for NodeOptions {
             known_terminals: None,
             cand_dump: false,
             numeric_depth: 2,
+            numeric_depth_max: None,
             strict_numeric_search: false,
             stop_before_numeric: false,
             no_witness_guards: false,
             seed_schedule: SeedScheduleName::Spired,
             case_seed_schedule: None,
             case_seed_priority: None,
+            pose_probe: None,
+            seed_pose_rung: false,
+            seed_pose_keep: seed_pose_keep_default(),
+            seed_pose_trigger: seed_pose_trigger_default(),
+            seed_pose_min_rows: seed_pose_min_rows_default(),
             symbolic_first_rung: true,
             empty_domain_check: true,
             max_rule_monomials: None,
@@ -761,6 +824,12 @@ pub struct NodeOutcome {
     pub finite_domains: usize,
     #[serde(default)]
     pub content_routes: usize,
+    /// seed-rung: numeric endpoints on which the seed-pose rung measured its portfolio (written only when > 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub numeric_seed_pose: usize,
+    /// seed-rung: numeric endpoints closed by a deeper search (`numeric_depth_max`; written only when > 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub numeric_deeper: usize,
     pub not_lower: Vec<String>,
     pub stop: Option<StopReason>,
     pub seconds: f64,
@@ -1797,6 +1866,384 @@ fn start_watchdog(budget: u64, spill: PathBuf) {
 
 // ---------------------------------------------------------------------------------------------------------------
 
+/// Cost proxy of a measured relation: RHS terms x dense coefficient box C(deg + v, v) (deg = max(num, den) total
+/// degree, v = active variables); a direct hit costs its RHS; a non-converged degree probe is infinite.
+pub fn relation_cost(m: &super::screen::ScreenMeasure) -> f64 {
+    m.cost()
+}
+
+/// The seed-pose portfolio of a case (seed-pose agent, R3a): label, case seed schedule, in-shell order.
+/// Free axes = the case's unfixed coordinates (affine-coupled ones included), in stored order; `phys` = line mask.
+pub fn seed_pose_portfolio<const N: usize>(
+    case: &Case<N>,
+    phys: &[bool; N],
+) -> Vec<(String, CaseSeedSchedule, SeedScheduleName)> {
+    let fixed = case.fixed();
+    let free: Vec<usize> = (0..N).filter(|&i| fixed[i].is_none()).collect();
+    // free ISPs, free lines, boundary (line 1 / ISP 0), interior
+    let class = |i: usize| match fixed[i] {
+        None if !phys[i] => 0,
+        None => 1,
+        Some(v) if (phys[i] && v == 1) || (!phys[i] && v == 0) => 2,
+        Some(_) => 3,
+    };
+    // free axes first (stored order), then the fixed ones (stored order)
+    let mut free_first: Vec<usize> = (0..N).collect();
+    free_first.sort_by_key(|&i| fixed[i].is_some());
+    let _ = class;
+    let natural: Vec<usize> = (0..N).collect();
+    let _ = free;
+    use SeedScheduleName::{DotsFirst, Spired, SymbolicFirst};
+    let sym = |d: u32, prio: &Vec<usize>, pf: bool| CaseSeedSchedule::SymbolicShells {
+        symbolic_depth: d,
+        then_full: true,
+        last_depth: 3,
+        axis_priority: prio.clone(),
+        positive_first: pf,
+    };
+    let shell2 = |prio: &Vec<usize>, pf: bool| CaseSeedSchedule::ShiftShells {
+        first_depth: 2,
+        last_depth: 2,
+        axis_priority: prio.clone(),
+        positive_first: pf,
+    };
+    // [M] seed-pose sweep (19 hard 5L cases of the shipped legacy order + 41 cases of Astra's measured poses, ~45
+    // poses each): with the default, this portfolio is within 10x of the best measured pose (Astra's hand poses
+    // included) on 19/19 + 39/41 cases (the default alone: 3/19 + 21/41).
+    let reversed: Vec<usize> = (0..N).rev().collect();
+    let _ = (&natural, sym(2, &natural, false));
+    let mut poses: Vec<(String, CaseSeedSchedule, SeedScheduleName)> = Vec::new();
+    // seed-rung: the AFFINE pose (affine-faces R2a, AffineCoupledFirst): on a case with equations, shell 2 with the
+    // equation-COUPLED free axes first (unit shift not tangent to the face), then the other free axes, then the fixed
+    // ones; first in the portfolio of an affine case (T210 #2211 3.5M -> 52 monomials, T255 faces 23-104).
+    if let Some(affine) = case.affine() {
+        let coupled = |axis: usize| {
+            fixed[axis].is_none() && {
+                let mut unit = [0i16; N];
+                unit[axis] = 1;
+                !affine.is_tangent(&unit)
+            }
+        };
+        let coupled_first: Vec<usize> = free_first
+            .iter()
+            .copied()
+            .filter(|&a| coupled(a))
+            .chain(free_first.iter().copied().filter(|&a| !coupled(a)))
+            .collect();
+        if coupled_first.iter().any(|&a| coupled(a)) {
+            poses.push((
+                "shell2-coupled+|spired".into(),
+                shell2(&coupled_first, true),
+                Spired,
+            ));
+        }
+    }
+    poses.extend([
+        ("ref|sf".into(), CaseSeedSchedule::Reference, SymbolicFirst),
+        ("ref|dots".into(), CaseSeedSchedule::Reference, DotsFirst),
+        ("sym1-rev+|spired".into(), sym(1, &reversed, true), Spired),
+        (
+            "shell2-ff+|spired".into(),
+            shell2(&free_first, true),
+            Spired,
+        ),
+    ]);
+    poses
+}
+
+/// Result of the seed-pose rung.
+pub struct SeedPoseChoice {
+    pub label: String,
+    pub schedule: CaseSeedSchedule,
+    pub in_shell: SeedScheduleName,
+    pub cost: f64,
+    pub default_cost: f64,
+    pub probes: usize,
+    pub seconds: f64,
+}
+
+/// Measure one pose with a refuse-all screen: Some(cost) of its selected relation, None when no relation.
+fn measure_pose<const N: usize>(
+    solver: &SectorSolver<N>,
+    case: &Case<N>,
+    options: SearchOptions,
+    visit: Option<&[usize]>,
+    schedule: &CaseSeedSchedule,
+    in_shell: SeedScheduleName,
+) -> Option<f64> {
+    let screen = LiftScreen {
+        min_rows: 0,
+        min_target_block: 0,
+        max_points: 64,
+        max_total_degree: 0,
+        max_rhs_terms: 0,
+        sampled_from_rows: None,
+        on_heavy: super::screen::HeavyAction::Refuse,
+        symbolic_first_from_rows: None,
+        ..Default::default()
+    };
+    let _ = super::screen::take_reports();
+    let result = super::screen::with_seed_schedule(Some(in_shell.schedule()), || {
+        super::screen::with_screen(Some(screen), || {
+            solver.solve_case_with_schedule_and_observer(
+                case.clone(),
+                options,
+                visit,
+                schedule,
+                |_| {},
+            )
+        })
+    });
+    let reports = super::screen::take_reports();
+    let _ = super::screen::take_trace();
+    match result {
+        Ok(candidate) => Some(candidate.rhs.len() as f64),
+        Err(_) => reports.last().map(|r| relation_cost(&r.measure)),
+    }
+}
+
+/// The automatic seed-pose rung: keep the default when it is cheap, else the cheapest measured portfolio pose.
+#[allow(clippy::too_many_arguments)]
+pub fn choose_seed_pose<const N: usize>(
+    solver: &SectorSolver<N>,
+    case: &Case<N>,
+    options: SearchOptions,
+    visit: Option<&[usize]>,
+    phys: &[bool; N],
+    node_in_shell: SeedScheduleName,
+    keep: f64,
+    known_default: Option<f64>,
+) -> Option<SeedPoseChoice> {
+    let t = Instant::now();
+    // seed-rung: the gated normal search already measured the default relation (no second search for it)
+    let default_cost = known_default.unwrap_or_else(|| {
+        measure_pose(
+            solver,
+            case,
+            options,
+            visit,
+            &CaseSeedSchedule::Reference,
+            node_in_shell,
+        )
+        .unwrap_or(f64::INFINITY)
+    });
+    let mut best = SeedPoseChoice {
+        label: "default".into(),
+        schedule: CaseSeedSchedule::Reference,
+        in_shell: node_in_shell,
+        cost: default_cost,
+        default_cost,
+        probes: usize::from(known_default.is_none()),
+        seconds: 0.0,
+    };
+    if default_cost > keep {
+        for (label, schedule, in_shell) in seed_pose_portfolio(case, phys) {
+            best.probes += 1;
+            if let Some(cost) = measure_pose(solver, case, options, visit, &schedule, in_shell) {
+                if cost < best.cost {
+                    best.label = label;
+                    best.schedule = schedule;
+                    best.in_shell = in_shell;
+                    best.cost = cost;
+                }
+            }
+            if best.cost <= keep {
+                break;
+            }
+        }
+    }
+    best.seconds = t.elapsed().as_secs_f64();
+    Some(best)
+}
+
+/// One seed-pose probe (see [`NodeOptions::pose_probe`]).
+#[derive(Clone, Debug, Deserialize)]
+struct PoseProbe {
+    #[serde(default)]
+    label: String,
+    case: CaseSpec,
+    #[serde(default)]
+    presented: bool,
+    #[serde(default)]
+    schedule: Option<CaseSeedSchedule>,
+    #[serde(default)]
+    in_shell: SeedScheduleName,
+    #[serde(default)]
+    source_order: Option<SourceOrder>,
+    #[serde(default)]
+    max_depth: Option<u32>,
+    /// Probe point seed of the modular discovery (default 0 = the engine's).
+    #[serde(default)]
+    sample_seed: u64,
+}
+
+/// seed-pose: run every probe of `path` with a refuse-all screen; write `F.poses.jsonl`.
+#[allow(clippy::too_many_arguments)]
+fn pose_probe_run<const N: usize>(
+    path: &str,
+    solver: &SectorSolver<N>,
+    opts: &NodeOptions,
+    template: &CoefficientPolynomial,
+    idx: &[usize; N],
+    sector: &[bool; N],
+    n: usize,
+    nb: usize,
+    out_dir: &Path,
+    top: &[bool; N],
+) -> Result<NodeOutcome, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("pose probes {path}: {e}"))?;
+    let mut out = std::io::BufWriter::new(
+        std::fs::File::create(out_dir.join("F.poses.jsonl")).map_err(|e| format!("poses: {e}"))?,
+    );
+    let screen = LiftScreen {
+        min_rows: 0,
+        min_target_block: 0,
+        max_points: opts.screen.map_or(80, |s| s.max_points),
+        max_total_degree: 0,
+        max_rhs_terms: 0,
+        sampled_from_rows: None,
+        on_heavy: super::screen::HeavyAction::Refuse,
+        symbolic_first_from_rows: None,
+        ..opts.screen.unwrap_or_default()
+    };
+    let mut symbolic = SectorSolveOptions::default().symbolic;
+    let mut done = 0usize;
+    for (line_no, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let probe: PoseProbe = serde_json::from_str(line)
+            .map_err(|e| format!("pose probe line {}: {e}", line_no + 1))?;
+        let (fixed, equations) = if probe.presented {
+            (probe.case.fixed.clone(), probe.case.equations.clone())
+        } else {
+            opts.order
+                .present_case(&probe.case.fixed, &probe.case.equations)
+        };
+        let spec = CaseSpec { fixed, equations };
+        let Some(case) = build_case::<N>(&spec, template, idx, sector, n)? else {
+            writeln!(
+                out,
+                "{{\"label\":{},\"line\":{},\"result\":\"empty_case\"}}",
+                q(&probe.label),
+                line_no + 1
+            )
+            .map_err(|e| e.to_string())?;
+            continue;
+        };
+        symbolic.max_depth = probe.max_depth.or(opts.max_depth);
+        symbolic.sample_seed = probe.sample_seed;
+        let schedule = probe.schedule.clone().unwrap_or_default();
+        let so = probe
+            .source_order
+            .clone()
+            .unwrap_or_else(|| opts.order.source_order.clone());
+        let visit = so.visit(nb);
+        let mut pivot: Option<Integral<N>> = None;
+        let mut trace_rows = 0usize;
+        let mut discovery = None;
+        let (mut depth, mut seeds, mut rows) = (0u32, 0usize, 0usize);
+        let t = Instant::now();
+        let _ = super::screen::take_reports();
+        let _ = super::screen::take_trace();
+        let result = super::screen::with_seed_schedule(Some(probe.in_shell.schedule()), || {
+            super::screen::with_screen(Some(screen), || {
+                solver.solve_case_with_schedule_and_observer(
+                    case.clone(),
+                    symbolic,
+                    visit.as_deref(),
+                    &schedule,
+                    |event: SearchEvent<N>| match event {
+                        SearchEvent::ExactStarted {
+                            pivot: p,
+                            trace_rows: r,
+                            discovery: d,
+                        } => {
+                            pivot = Some(p);
+                            trace_rows = r;
+                            discovery = Some(d);
+                        }
+                        SearchEvent::DiscoveryProgress {
+                            depth: d,
+                            seeds: s,
+                            rows: r,
+                            ..
+                        } => {
+                            depth = d;
+                            seeds = s;
+                            rows = r;
+                        }
+                        _ => {}
+                    },
+                )
+            })
+        });
+        let seconds = t.elapsed().as_secs_f64();
+        let reports = super::screen::take_reports();
+        let trace = super::screen::take_trace();
+        let (kind, direct_rhs, err) = match &result {
+            Ok(c) => ("direct", Some(c.rhs.len()), String::new()),
+            Err(SolverError::SearchExhausted { .. }) => ("exhausted", None, String::new()),
+            Err(e) => {
+                let s = format!("{e:?}");
+                if s.contains("lift pre-screen refused") {
+                    ("relation", None, String::new())
+                } else {
+                    ("error", None, s)
+                }
+            }
+        };
+        let pivot_json = pivot.map(|p| {
+            // numeric power -> number; symbolic power -> "s<shift>" (displacement from the case's free index)
+            let powers: Vec<String> = (0..n)
+                .map(|i| {
+                    if p[i].is_symbolic() {
+                        format!("\"s{}\"", p[i].value())
+                    } else {
+                        p[i].value().to_string()
+                    }
+                })
+                .collect();
+            format!("[{}]", powers.join(","))
+        });
+        let trace_json = trace.map(|t| {
+            serde_json::to_string(
+                &t.iter()
+                    .map(|(row, shift)| (row, &shift[..n]))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap()
+        });
+        writeln!(
+            out,
+            "{{\"label\":{},\"line\":{},\"case\":{},\"schedule\":{},\"in_shell\":{},\"source_order\":{},\"result\":{},\"error\":{},\"pivot\":{},\"trace_rows\":{},\"direct_rhs\":{},\"last_depth\":{depth},\"seeds\":{seeds},\"rows\":{rows},\"discovery\":{},\"measure\":{},\"trace\":{},\"seconds\":{seconds:.4}}}",
+            q(&probe.label),
+            line_no + 1,
+            serde_json::to_string(&spec).unwrap(),
+            serde_json::to_string(&probe.schedule).unwrap(),
+            serde_json::to_string(&probe.in_shell).unwrap(),
+            q(&so.label()),
+            q(kind),
+            q(&err),
+            pivot_json.unwrap_or_else(|| "null".into()),
+            if kind == "direct" { 1 } else { trace_rows },
+            direct_rhs.map_or("null".into(), |r| r.to_string()),
+            discovery.map_or("null".into(), |d| format!("{{\"rows_seen\":{},\"independent_rows\":{},\"columns\":{}}}", d.rows_seen, d.independent_rows, d.columns)),
+            reports.last().map_or("null".into(), |r| serde_json::to_string(&r.measure).unwrap()),
+            trace_json.unwrap_or_else(|| "null".into()),
+        )
+        .map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        done += 1;
+    }
+    let _ = top;
+    eprintln!("pose probes: {done} done");
+    Ok(NodeOutcome {
+        symbolic_cases: done,
+        ..Default::default()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run<const N: usize>(
     original_text: &str,
@@ -2143,6 +2590,11 @@ fn run<const N: usize>(
         }
         writeln!(qlog, "{{\"type\":\"cover_table\",\"path\":{},\"upto\":{upto},\"loaded\":{loaded},\"skipped\":{skipped}}}", q(path)).map_err(|e| e.to_string())?;
     }
+    if let Some(path) = &opts.pose_probe {
+        return pose_probe_run::<N>(
+            path, &solver, opts, &template, &idx, &sector, n, nb, out_dir, &top,
+        );
+    }
     // initial cases (ORIGINAL slots -> presented)
     let mut initial: Vec<Case<N>> = Vec::new();
     if opts.initial.is_empty() {
@@ -2469,10 +2921,13 @@ fn run<const N: usize>(
         lift_seconds: f64,
         source_order: String,
     }
+    // seed-pose rung firings (portfolio measured), read per numeric endpoint
+    let rung_fired = std::cell::Cell::new(0usize);
     let search = |case: &Case<N>,
                   so: &SourceOrder,
                   seeds: Option<crate::solver::SeedSchedule>,
                   large_gate: bool,
+                  exhausted_rung: bool,
                   options: SearchOptions|
      -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
         // the large-trace "SymbolicFirst rung first" gate applies to the first rung only; later rungs lift such traces
@@ -2482,79 +2937,208 @@ fn run<const N: usize>(
             }
             s
         });
-        let mut raw: Option<Integral<N>> = None;
-        let mut started: Option<Instant> = None;
-        let mut lift = 0.0f64;
-        let result = super::screen::with_seed_schedule(seeds, || {
-            super::screen::with_screen(screen, || {
-                let observe = |event: SearchEvent<N>| match event {
-                    SearchEvent::ExactStarted {
-                        pivot, trace_rows, ..
-                    } => {
-                        raw = Some(pivot);
-                        started = Some(Instant::now());
-                        eprintln!(
-                            "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
-                            t2.elapsed().as_secs_f64()
-                        );
-                    }
-                    SearchEvent::CanonicalizationStarted { .. } => {
-                        if let Some(s) = started {
-                            lift = s.elapsed().as_secs_f64();
+        // one search: in-shell seed override, explicit case seed pose (seed-pose rung), screen
+        let attempt = |seeds: Option<crate::solver::SeedSchedule>,
+                       pose: Option<&CaseSeedSchedule>,
+                       screen: Option<LiftScreen>|
+         -> (Result<Searched<N>, SolverError>, Vec<ScreenReport>) {
+            let mut raw: Option<Integral<N>> = None;
+            let mut started: Option<Instant> = None;
+            let mut lift = 0.0f64;
+            let result = super::screen::with_seed_schedule(seeds, || {
+                super::screen::with_screen(screen, || {
+                    let observe = |event: SearchEvent<N>| match event {
+                        SearchEvent::ExactStarted {
+                            pivot, trace_rows, ..
+                        } => {
+                            raw = Some(pivot);
+                            started = Some(Instant::now());
+                            eprintln!(
+                                "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
+                                t2.elapsed().as_secs_f64()
+                            );
                         }
-                    }
-                    _ => {}
-                };
-                let resolved = opts
-                    .case_seed_priority
-                    .map(|priority| {
-                        resolve_case_seed_schedule(
-                            priority,
-                            opts.case_seed_schedule.as_ref(),
-                            case,
-                            &top,
-                        )
-                    })
-                    .transpose()?
-                    .flatten();
-                // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
-                let fallback = if opts.case_seed_priority.is_some() {
-                    None
-                } else {
-                    opts.case_seed_schedule.as_ref()
-                };
-                if let Some(schedule) = resolved.as_ref().or(fallback) {
-                    let visit = so.visit(nb);
-                    solver.solve_case_with_schedule_and_observer(
-                        case.clone(),
-                        options,
-                        visit.as_deref(),
-                        schedule,
-                        observe,
-                    )
-                } else {
-                    match so.visit(nb) {
-                        None => solver.solve_case_with_observer(case.clone(), options, observe),
-                        Some(order) => solver.solve_case_with_source_order_and_observer(
+                        SearchEvent::CanonicalizationStarted { .. } => {
+                            if let Some(s) = started {
+                                lift = s.elapsed().as_secs_f64();
+                            }
+                        }
+                        _ => {}
+                    };
+                    let resolved = opts
+                        .case_seed_priority
+                        .map(|priority| {
+                            resolve_case_seed_schedule(
+                                priority,
+                                opts.case_seed_schedule.as_ref(),
+                                case,
+                                &top,
+                            )
+                        })
+                        .transpose()?
+                        .flatten();
+                    // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
+                    let fallback = if opts.case_seed_priority.is_some() {
+                        None
+                    } else {
+                        opts.case_seed_schedule.as_ref()
+                    };
+                    if let Some(schedule) = pose.or(resolved.as_ref()).or(fallback) {
+                        let visit = so.visit(nb);
+                        solver.solve_case_with_schedule_and_observer(
                             case.clone(),
                             options,
-                            &order,
+                            visit.as_deref(),
+                            schedule,
                             observe,
-                        ),
+                        )
+                    } else {
+                        match so.visit(nb) {
+                            None => solver.solve_case_with_observer(case.clone(), options, observe),
+                            Some(order) => solver.solve_case_with_source_order_and_observer(
+                                case.clone(),
+                                options,
+                                &order,
+                                observe,
+                            ),
+                        }
+                    }
+                })
+            });
+            let reports = super::screen::take_reports();
+            (
+                result.map(|candidate| Searched {
+                    candidate,
+                    raw_pivot: raw,
+                    lift_seconds: lift,
+                    source_order: so.label(),
+                }),
+                reports,
+            )
+        };
+        // automatic seed-pose rung (first variant of a case only; default off)
+        if opts.seed_pose_rung && seeds.is_none() && large_gate {
+            let visit = so.visit(nb);
+            let rung_choice = |known: Option<f64>| {
+                choose_seed_pose(
+                    &solver,
+                    case,
+                    options,
+                    visit.as_deref(),
+                    &top,
+                    opts.seed_schedule,
+                    opts.seed_pose_keep,
+                    known,
+                )
+            };
+            let report = |choice: &SeedPoseChoice, gated: bool| {
+                rung_fired.set(rung_fired.get() + 1);
+                eprintln!(
+                    "EVENT {:.3}s SeedPose chosen={} cost={:.3e} default_cost={:.3e} probes={} probe_seconds={:.2} gated={gated}",
+                    t2.elapsed().as_secs_f64(),
+                    choice.label,
+                    choice.cost,
+                    choice.default_cost,
+                    choice.probes,
+                    choice.seconds
+                );
+            };
+            let Some(trigger) = opts.seed_pose_trigger else {
+                // seed-pose agent's rung: measure the default with a separate refuse-all search on every case
+                if let Some(choice) = rung_choice(None) {
+                    report(&choice, false);
+                    if choice.label != "default" {
+                        return attempt(
+                            Some(choice.in_shell.schedule()),
+                            Some(&choice.schedule),
+                            screen,
+                        );
                     }
                 }
-            })
-        });
-        let reports = super::screen::take_reports();
-        (
-            result.map(|candidate| Searched {
-                candidate,
-                raw_pivot: raw,
-                lift_seconds: lift,
-                source_order: so.label(),
-            }),
-            reports,
-        )
+                return attempt(seeds, None, screen);
+            };
+            // seed-rung: the normal search with the seed-pose gate on its screen; only a default relation costing more
+            // than the trigger is refused by the gate (its measure is the default's cost) and goes to the portfolio
+            let gated = screen.unwrap_or(LiftScreen {
+                min_rows: usize::MAX,
+                min_target_block: usize::MAX,
+                on_heavy: super::screen::HeavyAction::Proceed,
+                symbolic_first_from_rows: None,
+                sampled_from_rows: None,
+                ..LiftScreen::default()
+            });
+            let gated = LiftScreen {
+                pose_gate: Some(trigger.max(0.0) as u64),
+                pose_gate_min_rows: opts.seed_pose_min_rows,
+                ..gated
+            };
+            let (result, mut reports) = attempt(seeds, None, Some(gated));
+            let gate_cost = reports.iter().find_map(|r| match &r.decision {
+                super::screen::ScreenDecision::Refuse(why)
+                    if why.starts_with(super::screen::POSE_GATE_REFUSAL) =>
+                {
+                    Some(r.measure.cost())
+                }
+                _ => None,
+            });
+            // seed-rung (numeric endpoints, `exhausted_rung`): a default search that found no relation within the
+            // depth is an infinitely costly default: the portfolio poses may seed the missing equations
+            let gate_cost = gate_cost.or_else(|| {
+                (exhausted_rung && matches!(result, Err(SolverError::SearchExhausted { .. })))
+                    .then_some(f64::INFINITY)
+            });
+            let Some(default_cost) = gate_cost else {
+                return (result, reports);
+            };
+            // the gate's refusal is not a screen verdict on the case: drop it from the reports
+            reports.retain(|r| {
+                !matches!(&r.decision, super::screen::ScreenDecision::Refuse(why) if why.starts_with(super::screen::POSE_GATE_REFUSAL))
+            });
+            let (result, more) = match rung_choice(Some(default_cost)) {
+                Some(choice) if choice.label != "default" => {
+                    report(&choice, true);
+                    attempt(
+                        Some(choice.in_shell.schedule()),
+                        Some(&choice.schedule),
+                        screen,
+                    )
+                }
+                choice => {
+                    if let Some(c) = choice {
+                        report(&c, true);
+                    }
+                    attempt(seeds, None, screen)
+                }
+            };
+            reports.extend(more);
+            return (result, reports);
+        }
+        attempt(seeds, None, screen)
+    };
+    // lift ladder of one case: node source order; the SymbolicFirst seed schedule (same presentation); other source
+    // orders (source order, seed schedule override, large-trace gate). The seed-pose rung fires on the first rung
+    // (large_gate = true). Symbolic cases always use it; numeric endpoints use it when the seed-pose rung is on.
+    let lift_ladder = || {
+        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool)> =
+            vec![(node_source.clone(), None, true)];
+        if opts.symbolic_first_rung
+            && screen.is_some()
+            && opts.seed_schedule != SeedScheduleName::SymbolicFirst
+        {
+            orders.push((
+                node_source.clone(),
+                Some(crate::solver::SeedSchedule::SymbolicFirst),
+                true,
+            ));
+            // SymbolicFirst did not help (e.g. it found a larger relation): the node's own relation, lifted
+            orders.push((node_source.clone(), None, false));
+        }
+        for so in &opts.retry_source_orders {
+            if !orders.iter().any(|(o, _, _)| o == so) {
+                orders.push((so.clone(), None, false));
+            }
+        }
+        orders
     };
     let mut symbolic_cases = 0usize;
     while !pending.is_empty() {
@@ -2825,27 +3409,7 @@ fn run<const N: usize>(
         )
         .map_err(|e| e.to_string())?;
         qlog.flush().map_err(|e| e.to_string())?;
-        // lift ladder: node source order; the SymbolicFirst seed schedule (same presentation); other source orders
-        // (source order, seed schedule override, large-trace gate)
-        let mut orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool)> =
-            vec![(node_source.clone(), None, true)];
-        if opts.symbolic_first_rung
-            && screen.is_some()
-            && opts.seed_schedule != SeedScheduleName::SymbolicFirst
-        {
-            orders.push((
-                node_source.clone(),
-                Some(crate::solver::SeedSchedule::SymbolicFirst),
-                true,
-            ));
-            // SymbolicFirst did not help (e.g. it found a larger relation): the node's own relation, lifted
-            orders.push((node_source.clone(), None, false));
-        }
-        for so in &opts.retry_source_orders {
-            if !orders.iter().any(|(o, _, _)| o == so) {
-                orders.push((so.clone(), None, false));
-            }
-        }
+        let orders = lift_ladder();
         let mut found: Option<Searched<N>> = None;
         let mut refusals: Vec<ScreenReport> = Vec::new();
         let mut tried_large: Vec<bool> = Vec::new();
@@ -2892,7 +3456,7 @@ fn run<const N: usize>(
                 .map_err(|e| e.to_string())?;
             }
             log_case_seed_schedule(&mut qlog, opts, &current, &top, n)?;
-            let (result, reports) = search(&current, so, *seeds, *large_gate, symbolic);
+            let (result, reports) = search(&current, so, *seeds, *large_gate, false, symbolic);
             tried_large.push(reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first"))));
             for r in &reports {
                 outcome.screened_lifts += 1;
@@ -3411,7 +3975,7 @@ fn run<const N: usize>(
             ..symbolic
         };
         let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
-        for point in numerical.clone() {
+        for (point_index, point) in numerical.clone().into_iter().enumerate() {
             if terminal_ledger
                 .as_ref()
                 .is_some_and(|ledger| ledger.is_point(&Case::from(point), n))
@@ -3424,6 +3988,21 @@ fn run<const N: usize>(
                 .iter()
                 .map(|v| v.map_or(0, i64::from))
                 .collect();
+            // seed-rung: each numeric endpoint is its own case for the case-budget watchdog (it used to be off for
+            // the whole numerical stage: T183 hung, T270 was killed there)
+            if opts.case_budget_exit.is_some() {
+                let fixed_json = |f: &CoordinateCase<N>| case_json(&Case::from(*f), n);
+                *WATCH.lock().unwrap() = Some(WatchState {
+                    started: Some(Instant::now()),
+                    current: case_json(&case, n),
+                    pending: Vec::new(),
+                    numerical: numerical[point_index + 1..]
+                        .iter()
+                        .map(fixed_json)
+                        .collect(),
+                    rules_done: rules.len() + adopted_rules,
+                });
+            }
             // a numeric case may already be covered by a rule found later than its enqueueing (or by a cover /
             // bank / sibling-piece rule)
             if let Some(k) = rules.iter().position(|r| {
@@ -3456,26 +4035,49 @@ fn run<const N: usize>(
                 continue;
             }
             // every numeric path honours the node's source order (then the retry source orders) and its exact
-            // backend; a point the per-point search exhausts or refuses under all of them goes to the shared solve
-            let mut numeric_orders: Vec<SourceOrder> = vec![node_source.clone()];
-            for so in &opts.retry_source_orders {
-                if !numeric_orders.contains(so) {
-                    numeric_orders.push(so.clone());
-                }
-            }
+            // backend; a point the per-point search exhausts or refuses under all of them goes to the shared solve.
+            // seed-rung: with the seed-pose rung on, a numeric endpoint runs the symbolic cases' lift ladder (first
+            // rung large-gated: the seed-pose rung and the SymbolicFirst gate fire, then SymbolicFirst, the lifted
+            // node relation, the retry source orders); with the rung off the legacy numeric ladder (no gate) is kept.
+            let numeric_orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool)> =
+                if opts.seed_pose_rung {
+                    lift_ladder()
+                } else {
+                    let mut v: Vec<SourceOrder> = vec![node_source.clone()];
+                    for so in &opts.retry_source_orders {
+                        if !v.contains(so) {
+                            v.push(so.clone());
+                        }
+                    }
+                    v.into_iter().map(|so| (so, None, false)).collect()
+                };
+            let mut tried_large = false;
+            let fired_before = rung_fired.get();
             let mut result: Result<Searched<N>, SolverError> = Err(SolverError::SearchExhausted {
                 depth: opts.numeric_depth,
                 rows: 0,
             });
-            for (k, so) in numeric_orders.iter().enumerate() {
+            for (k, (so, seeds, large_gate)) in numeric_orders.iter().enumerate() {
+                // as for symbolic cases: the ungated retry of the node's relation only after a large-trace refusal
+                if k > 0 && !*large_gate && seeds.is_none() && *so == node_source && !tried_large {
+                    continue;
+                }
+                let vlabel = match (seeds, large_gate) {
+                    (Some(_), _) => format!("{}+symbolic_first", so.label()),
+                    (None, false) if k > 0 && *so == node_source => {
+                        format!("{}+lift_large", so.label())
+                    }
+                    _ => so.label(),
+                };
                 if k > 0 {
-                    writeln!(qlog, "{{\"type\":\"relation_retry\",\"numerical\":true,\"source_order\":{},\"fixed\":{fixed:?}}}", q(&so.label())).map_err(|e| e.to_string())?;
+                    writeln!(qlog, "{{\"type\":\"relation_retry\",\"numerical\":true,\"source_order\":{},\"fixed\":{fixed:?}}}", q(&vlabel)).map_err(|e| e.to_string())?;
                 }
                 log_case_seed_schedule(&mut qlog, opts, &case, &top, n)?;
-                let (r, reports) = search(&case, so, None, false, options);
+                let (r, reports) = search(&case, so, *seeds, *large_gate, true, options);
+                tried_large |= reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first")));
                 for rep in &reports {
                     outcome.screened_lifts += 1;
-                    writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"source_order\":{},\"report\":{}}}", q(&so.label()), serde_json::to_string(rep).unwrap()).map_err(|e| e.to_string())?;
+                    writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"source_order\":{},\"report\":{}}}", q(&vlabel), serde_json::to_string(rep).unwrap()).map_err(|e| e.to_string())?;
                 }
                 let refused = reports
                     .iter()
@@ -3492,6 +4094,40 @@ fn run<const N: usize>(
                         break;
                     }
                 }
+            }
+            // seed-rung: deeper per-point searches before the exhausted route (default off)
+            if matches!(result, Err(SolverError::SearchExhausted { .. })) {
+                for depth in opts.numeric_depth + 1..=opts.numeric_depth_max.unwrap_or(0) {
+                    writeln!(qlog, "{{\"type\":\"relation_retry\",\"numerical\":true,\"depth\":{depth},\"source_order\":{},\"fixed\":{fixed:?}}}", q(&node_source.label())).map_err(|e| e.to_string())?;
+                    let deeper = SearchOptions {
+                        max_depth: Some(depth),
+                        ..options
+                    };
+                    let (r, reports) = search(&case, &node_source, None, false, false, deeper);
+                    for rep in &reports {
+                        outcome.screened_lifts += 1;
+                        writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"depth\":{depth},\"source_order\":{},\"report\":{}}}", q(&node_source.label()), serde_json::to_string(rep).unwrap()).map_err(|e| e.to_string())?;
+                    }
+                    let refused = reports
+                        .iter()
+                        .any(|r| matches!(r.decision, super::screen::ScreenDecision::Refuse(_)));
+                    match r {
+                        Ok(x) => {
+                            outcome.numeric_deeper += 1;
+                            result = Ok(x);
+                            break;
+                        }
+                        Err(SolverError::SearchExhausted { .. }) => continue,
+                        Err(_) if refused => continue,
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                }
+            }
+            if rung_fired.get() > fired_before {
+                outcome.numeric_seed_pose += 1;
             }
             match result {
                 Ok(searched) => {
@@ -3586,6 +4222,21 @@ fn run<const N: usize>(
             )
             .map_err(|e| e.to_string())?;
             stop = Some(StopReason::NumericSearchRefused { cases });
+        }
+        // seed-rung: the shared bulk solve of the exhausted points is one more case for the watchdog (spill: the
+        // first exhausted point is `current`, the others are `numerical`); off again once the numeric stage ends
+        if opts.case_budget_exit.is_some() {
+            *WATCH.lock().unwrap() = (error.is_none() && stop.is_none() && !exhausted.is_empty())
+                .then(|| WatchState {
+                    started: Some(Instant::now()),
+                    current: case_json(&Case::from(exhausted[0]), n),
+                    pending: Vec::new(),
+                    numerical: exhausted[1..]
+                        .iter()
+                        .map(|f| case_json(&Case::from(*f), n))
+                        .collect(),
+                    rules_done: rules.len() + adopted_rules,
+                });
         }
         if error.is_none() && stop.is_none() && !exhausted.is_empty() {
             outcome.numeric_bulk_fallback = exhausted.len();
@@ -3686,6 +4337,7 @@ fn run<const N: usize>(
                 Err(e) => error = Some(format!("numerical (shared): {e:?}")),
             }
         }
+        *WATCH.lock().unwrap() = None;
     }
     // deferred regions are obligations: a region is settled when the final rule set covers its chart
     if error.is_none() && stop.is_none() && !deferred_charts.is_empty() {
@@ -5225,6 +5877,37 @@ mod tests {
     }
 
     #[test]
+    fn seed_pose_portfolio_puts_the_coupled_axes_pose_first_on_affine_cases() {
+        let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
+            .unwrap();
+        let physical = [true, true, true, false, false, false];
+        let spec = CaseSpec {
+            fixed: vec![None, Some(1), None, None, Some(0), None],
+            equations: vec!["n3-n5".into()],
+        };
+        let affine = build_case::<6>(&spec, &c.one().numerator, &[0, 1, 2, 3, 4, 5], &physical, 6)
+            .unwrap()
+            .unwrap();
+        let p = seed_pose_portfolio(&affine, &physical);
+        assert_eq!(p.len(), 5);
+        assert_eq!(p[0].0, "shell2-coupled+|spired");
+        assert_eq!(
+            p[0].1,
+            CaseSeedSchedule::ShiftShells {
+                first_depth: 2,
+                last_depth: 2,
+                axis_priority: vec![3, 5, 0, 2, 1, 4],
+                positive_first: true,
+            }
+        );
+        let coordinate =
+            Case::from(CoordinateCase::new([None, Some(1), None, None, Some(0), None]).unwrap());
+        let q = seed_pose_portfolio(&coordinate, &physical);
+        assert_eq!(q.len(), 4);
+        assert_eq!(q[0].0, "ref|sf");
+    }
+
+    #[test]
     fn affine_coupled_first_orders_coupled_axes_and_declines_coordinate_cases() {
         let c = crate::algebra::CoefficientContext::try_new(["n0", "n1", "n2", "n3", "n4", "n5"])
             .unwrap();
@@ -5296,6 +5979,182 @@ mod tests {
             ),
         ] {
             assert!(parse_case_seed_schedule(&invalid, 2).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn seed_pose_rung_fires_on_numeric_endpoints_only_when_on() {
+        // a fully fixed non-master point is a numeric endpoint with a per-point relation
+        let base = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(2), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            ..quiet()
+        };
+        let off_dir = tmp("numeric-rung-off");
+        let off = generate(SUNSET, "sunset.sym", &off_dir, &base, &mut |_| {}).unwrap();
+        assert!(off.complete, "{off:?}");
+        assert_eq!(off.numerical_cases, 1);
+        assert_eq!(off.numeric_seed_pose, 0);
+        assert!(
+            serde_json::to_value(&off)
+                .unwrap()
+                .get("numeric_seed_pose")
+                .is_none(),
+            "rung off: OUTCOME bytes unchanged"
+        );
+        // trigger 0 / min rows 0 / keep < 0: the gate refuses every relation, the portfolio is always measured
+        let on_dir = tmp("numeric-rung-on");
+        let on = generate(
+            SUNSET,
+            "sunset.sym",
+            &on_dir,
+            &NodeOptions {
+                seed_pose_rung: true,
+                seed_pose_trigger: Some(0.0),
+                seed_pose_min_rows: 0,
+                seed_pose_keep: -1.0,
+                ..base.clone()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(on.complete, "{on:?}");
+        assert_eq!(on.numerical_cases, 1);
+        assert_eq!(
+            on.numeric_seed_pose, 1,
+            "the rung fired on the numeric endpoint"
+        );
+        assert_eq!(on.rules, off.rules);
+        assert_eq!(on.residuals, off.residuals);
+        assert_eq!(on.numeric_bulk_fallback, off.numeric_bulk_fallback);
+        // the rung only sees large-gated rungs: with the rung on but an unreachable trigger nothing fires
+        let quiet_dir = tmp("numeric-rung-quiet");
+        let calm = generate(
+            SUNSET,
+            "sunset.sym",
+            &quiet_dir,
+            &NodeOptions {
+                seed_pose_rung: true,
+                seed_pose_trigger: Some(1e300),
+                ..base.clone()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(calm.complete);
+        assert_eq!(calm.numeric_seed_pose, 0);
+        assert_eq!(
+            std::fs::read_to_string(&calm.table)
+                .unwrap()
+                .lines()
+                .filter(|l| l.contains("\"type\":\"rule\""))
+                .map(|l| {
+                    let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+                    v.as_object_mut().unwrap().remove("lift_seconds");
+                    v.as_object_mut().unwrap().remove("seconds_search");
+                    v
+                })
+                .collect::<Vec<_>>(),
+            std::fs::read_to_string(&off.table)
+                .unwrap()
+                .lines()
+                .filter(|l| l.contains("\"type\":\"rule\""))
+                .map(|l| {
+                    let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+                    v.as_object_mut().unwrap().remove("lift_seconds");
+                    v.as_object_mut().unwrap().remove("seconds_search");
+                    v
+                })
+                .collect::<Vec<_>>(),
+            "an untriggered rung leaves the numeric rules as without the rung"
+        );
+        // an EXHAUSTED numeric endpoint (depth 0: no relation) is an infinitely costly default: the portfolio is
+        // measured on it even with an unreachable trigger; nothing found -> the legacy exhausted route, unchanged
+        let ex_base = NodeOptions {
+            initial: vec![CaseSpec {
+                fixed: vec![Some(1), Some(1), Some(1), Some(0), Some(0)],
+                equations: vec![],
+            }],
+            numeric_depth: 0,
+            ..quiet()
+        };
+        let ex_dir = tmp("numeric-rung-exhausted");
+        let ex = generate(
+            SUNSET,
+            "sunset.sym",
+            &ex_dir,
+            &NodeOptions {
+                seed_pose_rung: true,
+                seed_pose_trigger: Some(1e300),
+                ..ex_base.clone()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(ex.numeric_seed_pose, 1, "{ex:?}");
+        assert_eq!(ex.numeric_bulk_fallback, 1);
+        assert_eq!(ex.residuals, 1);
+        let ex_strict_dir = tmp("numeric-rung-exhausted-strict");
+        let ex_strict = generate(
+            SUNSET,
+            "sunset.sym",
+            &ex_strict_dir,
+            &NodeOptions {
+                seed_pose_rung: true,
+                strict_numeric_search: true,
+                ..ex_base
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(matches!(
+            ex_strict.stop,
+            Some(StopReason::NumericSearchRefused { .. })
+        ));
+        // depth escalation (default off): a non-master point exhausted at depth 0 gets its relation at depth <= 2
+        let deep_base = NodeOptions {
+            numeric_depth: 0,
+            ..base.clone()
+        };
+        let shallow_dir = tmp("numeric-depth-shallow");
+        let shallow =
+            generate(SUNSET, "sunset.sym", &shallow_dir, &deep_base, &mut |_| {}).unwrap();
+        assert_eq!(shallow.numeric_bulk_fallback, 1, "{shallow:?}");
+        assert_eq!(shallow.numeric_deeper, 0);
+        let deep_dir = tmp("numeric-depth-deeper");
+        let deep = generate(
+            SUNSET,
+            "sunset.sym",
+            &deep_dir,
+            &NodeOptions {
+                numeric_depth_max: Some(2),
+                ..deep_base
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(deep.complete, "{deep:?}");
+        assert_eq!(deep.numeric_deeper, 1);
+        assert_eq!(deep.numeric_bulk_fallback, 0);
+        assert_eq!(deep.rules, 1);
+        assert!(
+            serde_json::to_value(NodeOptions::default())
+                .unwrap()
+                .get("numeric_depth_max")
+                .is_none()
+        );
+        for d in [
+            off_dir,
+            on_dir,
+            quiet_dir,
+            ex_dir,
+            ex_strict_dir,
+            shallow_dir,
+            deep_dir,
+        ] {
+            let _ = std::fs::remove_dir_all(d);
         }
     }
 

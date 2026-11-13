@@ -746,7 +746,8 @@ pub(super) fn exact_materialize_witnessed<const N: usize>(
     // (crate::node::screen::with_screen); the default engine path is unchanged.
     #[cfg(feature = "reconstruction")]
     if let Some(screen) = crate::node::screen::active() {
-        if screen.screens(rows.len(), target_column + 1) {
+        let screened = screen.screens(rows.len(), target_column + 1);
+        if screened || screen.pose_gated(rows.len()) {
             let measure = sampled::screen(
                 rows,
                 &columns,
@@ -758,7 +759,7 @@ pub(super) fn exact_materialize_witnessed<const N: usize>(
             )?;
             let symbolic_first = crate::node::screen::seed_schedule_override()
                 == Some(super::SeedSchedule::SymbolicFirst);
-            let decision = screen.decide_in(&measure, symbolic_first);
+            let decision = screen.decide_gated(&measure, symbolic_first, screened);
             crate::node::screen::record(measure, decision.clone());
             match decision {
                 crate::node::screen::ScreenDecision::Refuse(reason) => {
