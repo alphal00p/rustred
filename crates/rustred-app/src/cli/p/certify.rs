@@ -15,6 +15,12 @@
 //! `--dot-axes` names the non-square (dot-product) slots: a weighted seed with
 //! a positive power there is flagged. `--only` restricts to table indices.
 //! The summary (counts) goes to stdout as JSON, and to `--summary` if given.
+//! Batch 6: weight-pole layers are recomputed from the ORIGINAL-row weights
+//! against the payload's stored exceptions, dot layers are tested on the
+//! original-row weights, and the command FAILS unless every rule has exactly
+//! one certified record with no hidden layer (`complete`). A `cert_rule` means:
+//! for symbolic d, the rule holds at every integer point of its CHART where no
+//! stored exception branch vanishes.
 //! `p-generate --cert` runs the same certification on each owner it writes.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -136,6 +142,22 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         })?;
     }
     print!("{text}");
+    // Batch 6 (fix 5): one certified record per rule is required; a missing,
+    // failed or not reproduced rule, a hidden weight-pole layer or an exposed
+    // dot layer fails the command (the certificate is still written).
+    if summary["complete"] != serde_json::Value::Bool(true) {
+        return Err(CliError::Application(crate::AppError::execution(format!(
+            "p-certify: the payload is NOT completely certified (rules {}, certified {}, not reproduced {}, failed {}, missing records {}, hidden layers {}, exposed dot layers {}, fixed positive dot seeds {})",
+            summary["rules"],
+            summary["certified"],
+            summary["not_reproduced"],
+            summary["failed"],
+            summary["missing_records"],
+            summary["branches_hidden"],
+            summary["dot_layers_exposed"],
+            summary["dot_fixed_positive"]
+        ))));
+    }
     Ok(())
 }
 

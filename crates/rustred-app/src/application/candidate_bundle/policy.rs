@@ -305,6 +305,7 @@ mod tests {
                         max_numerator_rank: Some(rank),
                         finite_case_policy: FiniteCasePolicy::SearchFinite,
                         finite_case_limits: FiniteCaseLimits::default(),
+                        guard_version: 1,
                     }
                 );
                 assert_eq!(numerical_depth(&tag).unwrap(), depth);

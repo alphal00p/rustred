@@ -22,6 +22,7 @@ mod order;
 mod owner_fixture_extract;
 mod owners;
 mod rank;
+mod rule_cert;
 mod saved_program;
 mod selection;
 mod session_view;
