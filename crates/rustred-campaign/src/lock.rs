@@ -82,21 +82,45 @@ pub enum Liveness {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum LockOutcome {
     Fresh,
-    TookOver { previous: OwnerRecord, reason: DeadReason, orphans: Vec<u32> },
+    TookOver {
+        previous: OwnerRecord,
+        reason: DeadReason,
+        orphans: Vec<u32>,
+    },
 }
 
 #[derive(Debug)]
 pub enum LockError {
-    HeldByLiveOwner { owner: OwnerRecord },
-    OwnerAliveWithoutLock { owner: OwnerRecord },
-    HeldByForeignDescriptor { owner: OwnerRecord, holders: Vec<u32> },
-    OtherHost { owner: OwnerRecord },
-    Busy { owner: Option<OwnerRecord> },
-    Symlink { path: PathBuf },
-    BadOwnerRecord { path: PathBuf, detail: String },
-    Io { path: PathBuf, source: io::Error },
+    HeldByLiveOwner {
+        owner: OwnerRecord,
+    },
+    OwnerAliveWithoutLock {
+        owner: OwnerRecord,
+    },
+    HeldByForeignDescriptor {
+        owner: OwnerRecord,
+        holders: Vec<u32>,
+    },
+    OtherHost {
+        owner: OwnerRecord,
+    },
+    Busy {
+        owner: Option<OwnerRecord>,
+    },
+    Symlink {
+        path: PathBuf,
+    },
+    BadOwnerRecord {
+        path: PathBuf,
+        detail: String,
+    },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
     Atomic(atomic::AtomicError),
 }
 
@@ -109,19 +133,29 @@ impl std::fmt::Display for LockError {
             )
         };
         match self {
-            LockError::HeldByLiveOwner { owner } => write!(f, "campaign is run by a live supervisor: {}", who(owner)),
+            LockError::HeldByLiveOwner { owner } => {
+                write!(f, "campaign is run by a live supervisor: {}", who(owner))
+            }
             LockError::OwnerAliveWithoutLock { owner } => {
-                write!(f, "recorded owner is alive but does not hold the lock: {}; refusing", who(owner))
+                write!(
+                    f,
+                    "recorded owner is alive but does not hold the lock: {}; refusing",
+                    who(owner)
+                )
             }
             LockError::HeldByForeignDescriptor { owner, holders } => write!(
                 f,
                 "recorded owner {} is dead but the lock file is held by pids {holders:?} (leaked descriptor)",
                 who(owner)
             ),
-            LockError::OtherHost { owner } => write!(f, "campaign lock was taken on another host: {}", who(owner)),
+            LockError::OtherHost { owner } => {
+                write!(f, "campaign lock was taken on another host: {}", who(owner))
+            }
             LockError::Busy { owner } => write!(f, "campaign lock busy (owner record: {owner:?})"),
             LockError::Symlink { path } => write!(f, "{} is a symlink; refusing", path.display()),
-            LockError::BadOwnerRecord { path, detail } => write!(f, "unreadable owner record {}: {detail}", path.display()),
+            LockError::BadOwnerRecord { path, detail } => {
+                write!(f, "unreadable owner record {}: {detail}", path.display())
+            }
             LockError::Io { path, source } => write!(f, "lock I/O on {}: {source}", path.display()),
             LockError::Atomic(e) => write!(f, "{e}"),
         }
@@ -150,7 +184,13 @@ impl CampaignLock {
         if let Some(file) = self.file.take() {
             let r = fs::remove_file(self.dir.join(OWNER_FILE));
             drop(file);
-            r.or_else(|e| if e.kind() == io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+            r.or_else(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
         } else {
             Ok(())
         }
@@ -164,8 +204,16 @@ impl Drop for CampaignLock {
 }
 
 /// Acquires the lock of `dir` (created if missing). See the module table.
-pub fn acquire(dir: &Path, clock: &dyn Clock, argv: &[String]) -> Result<(CampaignLock, LockOutcome), LockError> {
-    fs::create_dir_all(dir).map_err(|e| LockError::Io { path: dir.to_path_buf(), source: e })?;
+#[allow(clippy::result_large_err)]
+pub fn acquire(
+    dir: &Path,
+    clock: &dyn Clock,
+    argv: &[String],
+) -> Result<(CampaignLock, LockOutcome), LockError> {
+    fs::create_dir_all(dir).map_err(|e| LockError::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
     let lock_path = dir.join(LOCK_FILE);
     if fs::symlink_metadata(&lock_path).is_ok_and(|m| m.file_type().is_symlink()) {
         return Err(LockError::Symlink { path: lock_path });
@@ -177,10 +225,19 @@ pub fn acquire(dir: &Path, clock: &dyn Clock, argv: &[String]) -> Result<(Campai
         .create(true)
         .truncate(false)
         .open(&lock_path)
-        .map_err(|e| LockError::Io { path: lock_path.clone(), source: e })?;
+        .map_err(|e| LockError::Io {
+            path: lock_path.clone(),
+            source: e,
+        })?;
     let previous = read_owner(dir)?;
-    let me = current_identity().map_err(|e| LockError::Io { path: PathBuf::from("/proc/self"), source: e })?;
-    let got = try_flock(&file).map_err(|e| LockError::Io { path: lock_path.clone(), source: e })?;
+    let me = current_identity().map_err(|e| LockError::Io {
+        path: PathBuf::from("/proc/self"),
+        source: e,
+    })?;
+    let got = try_flock(&file).map_err(|e| LockError::Io {
+        path: lock_path.clone(),
+        source: e,
+    })?;
     if !got {
         return Err(match previous {
             Some(owner) if owner.identity.host == me.host => match liveness(&owner.identity) {
@@ -213,15 +270,20 @@ pub fn acquire(dir: &Path, clock: &dyn Clock, argv: &[String]) -> Result<(Campai
                 Liveness::OtherHost => return Err(LockError::OtherHost { owner }),
                 Liveness::Dead(reason) => {
                     let orphans = scan_token_holders(&owner.token);
-                    LockOutcome::TookOver { previous: owner, reason, orphans }
+                    LockOutcome::TookOver {
+                        previous: owner,
+                        reason,
+                        orphans,
+                    }
                 }
             }
         }
     };
     let now = clock.now_utc();
-    let token = blake3::hash(format!("{}:{}:{}:{}", me.boot_id, me.pid, me.start_ticks, now.0).as_bytes())
-        .to_hex()[..32]
-        .to_string();
+    let token =
+        blake3::hash(format!("{}:{}:{}:{}", me.boot_id, me.pid, me.start_ticks, now.0).as_bytes())
+            .to_hex()[..32]
+            .to_string();
     let owner = OwnerRecord {
         schema: LOCK_SCHEMA.to_string(),
         identity: me,
@@ -230,17 +292,30 @@ pub fn acquire(dir: &Path, clock: &dyn Clock, argv: &[String]) -> Result<(Campai
         token,
     };
     atomic::write_json_atomic(&dir.join(OWNER_FILE), &owner).map_err(LockError::Atomic)?;
-    Ok((CampaignLock { file: Some(file), dir: dir.to_path_buf(), owner }, outcome))
+    Ok((
+        CampaignLock {
+            file: Some(file),
+            dir: dir.to_path_buf(),
+            owner,
+        },
+        outcome,
+    ))
 }
 
 /// Reads LOCK.json if present.
+#[allow(clippy::result_large_err)]
 pub fn read_owner(dir: &Path) -> Result<Option<OwnerRecord>, LockError> {
     let path = dir.join(OWNER_FILE);
     match atomic::read_capped(&path, 1 << 20) {
         Ok(bytes) => serde_json::from_slice::<OwnerRecord>(&bytes)
             .map(Some)
-            .map_err(|e| LockError::BadOwnerRecord { path, detail: e.to_string() }),
-        Err(atomic::AtomicError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => Ok(None),
+            .map_err(|e| LockError::BadOwnerRecord {
+                path,
+                detail: e.to_string(),
+            }),
+        Err(atomic::AtomicError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
+        }
         Err(e) => Err(LockError::Atomic(e)),
     }
 }
@@ -252,7 +327,11 @@ fn try_flock(file: &File) -> io::Result<bool> {
         return Ok(true);
     }
     let e = io::Error::last_os_error();
-    if e.raw_os_error() == Some(libc::EWOULDBLOCK) { Ok(false) } else { Err(e) }
+    if e.raw_os_error() == Some(libc::EWOULDBLOCK) {
+        Ok(false)
+    } else {
+        Err(e)
+    }
 }
 
 /// Liveness of a recorded identity, judged on this host.
@@ -277,7 +356,8 @@ pub fn current_identity() -> io::Result<ProcessIdentity> {
     let pid = std::process::id();
     Ok(ProcessIdentity {
         pid,
-        start_ticks: start_ticks(pid).ok_or_else(|| io::Error::other("cannot read /proc/self/stat"))?,
+        start_ticks: start_ticks(pid)
+            .ok_or_else(|| io::Error::other("cannot read /proc/self/stat"))?,
         boot_id: boot_id()?,
         host: hostname()?,
     })
@@ -285,7 +365,12 @@ pub fn current_identity() -> io::Result<ProcessIdentity> {
 
 /// Identity of another process on this host, if it exists.
 pub fn identity_of(pid: u32) -> Option<ProcessIdentity> {
-    Some(ProcessIdentity { pid, start_ticks: start_ticks(pid)?, boot_id: boot_id().ok()?, host: hostname().ok()? })
+    Some(ProcessIdentity {
+        pid,
+        start_ticks: start_ticks(pid)?,
+        boot_id: boot_id().ok()?,
+        host: hostname().ok()?,
+    })
 }
 
 /// Field 22 (starttime) of /proc/<pid>/stat; None if the process does not exist (zombies count as existing).
@@ -298,7 +383,9 @@ pub fn start_ticks(pid: u32) -> Option<u64> {
 }
 
 pub fn boot_id() -> io::Result<String> {
-    Ok(fs::read_to_string("/proc/sys/kernel/random/boot_id")?.trim().to_string())
+    Ok(fs::read_to_string("/proc/sys/kernel/random/boot_id")?
+        .trim()
+        .to_string())
 }
 
 pub fn hostname() -> io::Result<String> {
@@ -313,8 +400,11 @@ pub fn hostname() -> io::Result<String> {
 }
 
 fn proc_pids() -> Vec<u32> {
-    let Ok(rd) = fs::read_dir("/proc") else { return Vec::new() };
-    rd.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
+    let Ok(rd) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    rd.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect()
 }
 
 /// Pids (of processes readable by us) whose environment contains `TOKEN_ENV=<token>`.
@@ -339,12 +429,17 @@ pub fn scan_token_holders(token: &str) -> Vec<u32> {
 
 /// Pids having `path` open (scan of /proc/*/fd, processes readable by us).
 pub fn holders_of(path: &Path) -> Vec<u32> {
-    let Ok(target) = fs::canonicalize(path) else { return Vec::new() };
+    let Ok(target) = fs::canonicalize(path) else {
+        return Vec::new();
+    };
     let mut out: Vec<u32> = proc_pids()
         .into_iter()
         .filter(|p| {
             fs::read_dir(format!("/proc/{p}/fd"))
-                .map(|rd| rd.filter_map(|e| e.ok()).any(|e| fs::read_link(e.path()).is_ok_and(|l| l == target)))
+                .map(|rd| {
+                    rd.filter_map(|e| e.ok())
+                        .any(|e| fs::read_link(e.path()).is_ok_and(|l| l == target))
+                })
                 .unwrap_or(false)
         })
         .collect();
@@ -362,10 +457,16 @@ mod tests {
         assert_eq!(liveness(&me), Liveness::Alive);
         let mut other = me.clone();
         other.start_ticks += 1;
-        assert!(matches!(liveness(&other), Liveness::Dead(DeadReason::StartTimeDiffers { .. })));
+        assert!(matches!(
+            liveness(&other),
+            Liveness::Dead(DeadReason::StartTimeDiffers { .. })
+        ));
         let mut reboot = me.clone();
         reboot.boot_id = "00000000-0000-0000-0000-000000000000".into();
-        assert!(matches!(liveness(&reboot), Liveness::Dead(DeadReason::BootIdDiffers { .. })));
+        assert!(matches!(
+            liveness(&reboot),
+            Liveness::Dead(DeadReason::BootIdDiffers { .. })
+        ));
         let mut gone = me.clone();
         gone.pid = u32::MAX - 7;
         assert_eq!(liveness(&gone), Liveness::Dead(DeadReason::PidAbsent));

@@ -62,7 +62,16 @@ fn quantile(sorted: &[u64], q: f64) -> u64 {
 
 /// Node file name: characters outside `[A-Za-z0-9_.-]` become `_`.
 pub fn node_file(node: &str) -> String {
-    let s: String = node.chars().map(|c| if c.is_ascii_alphanumeric() || "_.-".contains(c) { c } else { '_' }).collect();
+    let s: String = node
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "_.-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     format!("nodes/{s}.json")
 }
 
@@ -84,7 +93,11 @@ pub fn eta(state: &CampaignState, live_jobs: u32) -> Value {
     let parallelism = if live_jobs > 0 {
         live_jobs as u64
     } else {
-        state.jobs.values().filter(|j| matches!(j.state, AttemptState::Running | AttemptState::Launching)).count() as u64
+        state
+            .jobs
+            .values()
+            .filter(|j| matches!(j.state, AttemptState::Running | AttemptState::Launching))
+            .count() as u64
     };
     if total_remaining == 0 {
         return json!({"estimator": estimator, "remaining_items": 0, "cpu_seconds": {"low": 0.0, "mid": 0.0, "high": 0.0},
@@ -108,7 +121,11 @@ pub fn eta(state: &CampaignState, live_jobs: u32) -> Value {
                           "parallelism": parallelism, "pooled_levels": [],
                           "reason": format!("too little data: {} finished jobs in total, {ETA_MIN_SAMPLES} needed", pooled.len())});
         };
-        let q = [quantile(&samples, 0.25), quantile(&samples, 0.5), quantile(&samples, 0.75)];
+        let q = [
+            quantile(&samples, 0.25),
+            quantile(&samples, 0.5),
+            quantile(&samples, 0.75),
+        ];
         for k in 0..3 {
             cpu[k] += *n as f64 * q[k] as f64 / 1000.0;
         }
@@ -117,10 +134,16 @@ pub fn eta(state: &CampaignState, live_jobs: u32) -> Value {
     }
     let cpu_v = json!({"low": round3(cpu[0]), "mid": round3(cpu[1]), "high": round3(cpu[2])});
     let (wall, reason) = if parallelism == 0 {
-        (Value::Null, Value::String("no live parallelism (no job running)".into()))
+        (
+            Value::Null,
+            Value::String("no live parallelism (no job running)".into()),
+        )
     } else {
         let p = parallelism as f64;
-        (json!({"low": round3(cpu[0] / p), "mid": round3(cpu[1] / p), "high": round3(cpu[2] / p)}), Value::Null)
+        (
+            json!({"low": round3(cpu[0] / p), "mid": round3(cpu[1] / p), "high": round3(cpu[2] / p)}),
+            Value::Null,
+        )
     };
     json!({"estimator": estimator, "remaining_items": total_remaining, "by_level": by_level, "cpu_seconds": cpu_v,
            "wall_seconds": wall, "parallelism": parallelism, "pooled_levels": pooled_levels, "reason": reason})
@@ -148,19 +171,30 @@ fn ledger_block(state: &CampaignState, head: &str) -> Value {
 
 /// Derives every progress file from the reduced state, the ledger head and the resource inputs.
 /// `written_utc` is the only field not determined by (state, head, resources).
-pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &str) -> ProgressSet {
+pub fn derive(
+    state: &CampaignState,
+    head: &str,
+    res: &Resources,
+    written_utc: &str,
+) -> ProgressSet {
     let mut out = ProgressSet::new();
     // by rung x phase over all items
     let mut by_rung: BTreeMap<Rung, [u64; 10]> = BTreeMap::new();
     let mut by_node_rung: BTreeMap<&str, BTreeMap<Rung, [u64; 10]>> = BTreeMap::new();
     for it in state.items.values() {
         by_rung.entry(it.rung).or_insert([0; 10])[it.phase.index()] += 1;
-        by_node_rung.entry(it.node.as_str()).or_default().entry(it.rung).or_insert([0; 10])[it.phase.index()] += 1;
+        by_node_rung
+            .entry(it.node.as_str())
+            .or_default()
+            .entry(it.rung)
+            .or_insert([0; 10])[it.phase.index()] += 1;
     }
     let items_by_phase = state.items_by_phase();
     let mut accepted_by_level = [0u64; 3];
-    let mut nodes_by_phase: BTreeMap<&str, u64> = NodePhase::ALL.iter().map(|p| (p.tag(), 0)).collect();
-    let mut nodes_by_closure: BTreeMap<&str, u64> = ["full", "boxed", "open"].iter().map(|k| (*k, 0)).collect();
+    let mut nodes_by_phase: BTreeMap<&str, u64> =
+        NodePhase::ALL.iter().map(|p| (p.tag(), 0)).collect();
+    let mut nodes_by_closure: BTreeMap<&str, u64> =
+        ["full", "boxed", "open"].iter().map(|k| (*k, 0)).collect();
     let mut nodes_certified = 0u64;
     let mut economy_before = crate::ledger::RuleEconomy::default();
     let mut economy_after = crate::ledger::RuleEconomy::default();
@@ -170,8 +204,8 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
     let mut nodes_with_defect = 0u64;
     let mut candidates = 0u64;
     for n in state.nodes.values() {
-        for k in 0..3 {
-            accepted_by_level[k] += n.accepted_by_level[k];
+        for (a, b) in accepted_by_level.iter_mut().zip(n.accepted_by_level) {
+            *a += b;
         }
         *nodes_by_phase.get_mut(n.state.phase.tag()).unwrap() += 1;
         *nodes_by_closure.get_mut(n.state.closure_kind()).unwrap() += 1;
@@ -188,15 +222,21 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
         candidates += n.items_by_phase[ItemPhase::TerminalCandidate.index()];
     }
     let accepted_total: u64 = accepted_by_level.iter().sum();
-    let certified_share =
-        if accepted_total == 0 { Value::Null } else { json!(round3(accepted_by_level[2] as f64 / accepted_total as f64)) };
-    let mut jobs_by_state: BTreeMap<&str, u64> = AttemptState::TAGS.iter().map(|t| (*t, 0)).collect();
+    let certified_share = if accepted_total == 0 {
+        Value::Null
+    } else {
+        json!(round3(accepted_by_level[2] as f64 / accepted_total as f64))
+    };
+    let mut jobs_by_state: BTreeMap<&str, u64> =
+        AttemptState::TAGS.iter().map(|t| (*t, 0)).collect();
     let mut classes: BTreeMap<&str, u64> = BTreeMap::new();
     let mut reserved_running = 0u64;
     for j in state.jobs.values() {
         *jobs_by_state.get_mut(j.state.tag()).unwrap() += 1;
         match j.state {
-            AttemptState::SucceededSealed(c) | AttemptState::Failed(c) | AttemptState::BudgetStopped(c) => {
+            AttemptState::SucceededSealed(c)
+            | AttemptState::Failed(c)
+            | AttemptState::BudgetStopped(c) => {
                 *classes.entry(crate::state::class_word(c)).or_default() += 1
             }
             AttemptState::Launching | AttemptState::Running => reserved_running += j.reserved_bytes,
@@ -225,7 +265,8 @@ pub fn derive(state: &CampaignState, head: &str, res: &Resources, written_utc: &
         rules_before += e.rules_before;
         rules_after += e.rules_after;
     }
-    let node_files: BTreeMap<&String, String> = state.nodes.keys().map(|k| (k, node_file(k))).collect();
+    let node_files: BTreeMap<&String, String> =
+        state.nodes.keys().map(|k| (k, node_file(k))).collect();
     let campaign = json!({
         "schema": PROGRESS_SCHEMA,
         "file": "campaign",
@@ -328,9 +369,17 @@ pub fn item_detail(state: &CampaignState, item: &str) -> Option<Value> {
         .iter()
         .filter_map(|j| state.jobs.get(j).map(|r| json!({"job": j, "attempt": r.attempt, "state": r.state, "cpu_seconds": r.cpu_ms as f64 / 1000.0, "run_dir": r.run_dir})))
         .collect();
-    let children: Vec<&String> = state.items.iter().filter(|(_, c)| c.parent.as_deref() == Some(item)).map(|(k, _)| k).collect();
+    let children: Vec<&String> = state
+        .items
+        .iter()
+        .filter(|(_, c)| c.parent.as_deref() == Some(item))
+        .map(|(k, _)| k)
+        .collect();
     let why = match &it.phase {
-        ItemPhase::Stale => format!("stale since input {:?} changed (was {:?})", it.stale_input, it.stale_from),
+        ItemPhase::Stale => format!(
+            "stale since input {:?} changed (was {:?})",
+            it.stale_input, it.stale_from
+        ),
         ItemPhase::Rejected(r) => format!("rejected: {r}"),
         ItemPhase::Escalated(r) => format!("escalated to {r}"),
         ItemPhase::Accepted(l) => format!("accepted at {}", l.word()),
@@ -383,7 +432,11 @@ impl ProgressWriter {
             }
             let path = dir.join(&rel);
             if let Some(p) = path.parent() {
-                fs::create_dir_all(p).map_err(|e| AtomicError::Io { path: p.to_path_buf(), op: "create dir", source: e })?;
+                fs::create_dir_all(p).map_err(|e| AtomicError::Io {
+                    path: p.to_path_buf(),
+                    op: "create dir",
+                    source: e,
+                })?;
             }
             let mut bytes = serde_json::to_vec_pretty(&v).expect("progress serialises");
             bytes.push(b'\n');
@@ -416,7 +469,9 @@ pub struct VerifyReport {
 
 impl VerifyReport {
     pub fn clean(&self) -> bool {
-        self.differences.is_empty() && self.snapshot_matches != Some(false) && self.torn_tail_bytes == 0
+        self.differences.is_empty()
+            && self.snapshot_matches != Some(false)
+            && self.torn_tail_bytes == 0
     }
 }
 
@@ -427,11 +482,21 @@ fn diff_values(file: &str, path: &str, exp: &Value, got: &Value, out: &mut Vec<D
                 let p = format!("{path}/{k}");
                 match b.get(k) {
                     Some(vb) => diff_values(file, &p, va, vb, out),
-                    None => out.push(Difference { file: file.into(), path: p, expected: va.to_string(), found: "<missing>".into() }),
+                    None => out.push(Difference {
+                        file: file.into(),
+                        path: p,
+                        expected: va.to_string(),
+                        found: "<missing>".into(),
+                    }),
                 }
             }
             for k in b.keys().filter(|k| !a.contains_key(*k)) {
-                out.push(Difference { file: file.into(), path: format!("{path}/{k}"), expected: "<absent>".into(), found: b[k].to_string() });
+                out.push(Difference {
+                    file: file.into(),
+                    path: format!("{path}/{k}"),
+                    expected: "<absent>".into(),
+                    found: b[k].to_string(),
+                });
             }
         }
         (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
@@ -440,7 +505,12 @@ fn diff_values(file: &str, path: &str, exp: &Value, got: &Value, out: &mut Vec<D
             }
         }
         _ if exp == got => {}
-        _ => out.push(Difference { file: file.into(), path: path.into(), expected: exp.to_string(), found: got.to_string() }),
+        _ => out.push(Difference {
+            file: file.into(),
+            path: path.into(),
+            expected: exp.to_string(),
+            found: got.to_string(),
+        }),
     }
 }
 
@@ -458,7 +528,11 @@ pub fn verify(cdir: &Path) -> Result<VerifyReport, LedgerError> {
     // seqs needed
     let mut wanted: BTreeMap<u64, Option<(CampaignState, String)>> = BTreeMap::new();
     for (rel, v) in &files {
-        match v.get("ledger").and_then(|l| l.get("seq")).and_then(|s| s.as_u64()) {
+        match v
+            .get("ledger")
+            .and_then(|l| l.get("seq"))
+            .and_then(|s| s.as_u64())
+        {
             Some(s) if s <= chain.records => {
                 wanted.insert(s, None);
             }
@@ -466,9 +540,16 @@ pub fn verify(cdir: &Path) -> Result<VerifyReport, LedgerError> {
                 file: rel.clone(),
                 path: "/ledger/seq".into(),
                 expected: format!("<= {} (ledger end)", chain.records),
-                found: format!("{s} (progress ahead of the ledger: records lost or ledger truncated)"),
+                found: format!(
+                    "{s} (progress ahead of the ledger: records lost or ledger truncated)"
+                ),
             }),
-            None => differences.push(Difference { file: rel.clone(), path: "/ledger/seq".into(), expected: "a number".into(), found: "<missing>".into() }),
+            None => differences.push(Difference {
+                file: rel.clone(),
+                path: "/ledger/seq".into(),
+                expected: "a number".into(),
+                found: "<missing>".into(),
+            }),
         }
     }
     let mut st = CampaignState::default();
@@ -484,14 +565,31 @@ pub fn verify(cdir: &Path) -> Result<VerifyReport, LedgerError> {
         wanted.insert(s, Some((st.clone(), head.clone())));
     }
     for (rel, v) in &files {
-        let Some(s) = v.get("ledger").and_then(|l| l.get("seq")).and_then(|s| s.as_u64()) else { continue };
-        let Some(Some((state, head))) = wanted.get(&s) else { continue };
-        let res: Resources = v.get("resources").cloned().and_then(|r| serde_json::from_value(r).ok()).unwrap_or_default();
+        let Some(s) = v
+            .get("ledger")
+            .and_then(|l| l.get("seq"))
+            .and_then(|s| s.as_u64())
+        else {
+            continue;
+        };
+        let Some(Some((state, head))) = wanted.get(&s) else {
+            continue;
+        };
+        let res: Resources = v
+            .get("resources")
+            .cloned()
+            .and_then(|r| serde_json::from_value(r).ok())
+            .unwrap_or_default();
         let written = v.get("written_utc").and_then(|w| w.as_str()).unwrap_or("");
         let set = derive(state, head, &res, written);
         match set.get(rel) {
             Some(exp) => diff_values(rel, "", exp, v, &mut differences),
-            None => differences.push(Difference { file: rel.clone(), path: String::new(), expected: "<no such file at this seq>".into(), found: "file present".into() }),
+            None => differences.push(Difference {
+                file: rel.clone(),
+                path: String::new(),
+                expected: "<no such file at this seq>".into(),
+                found: "file present".into(),
+            }),
         }
     }
     Ok(VerifyReport {
@@ -509,21 +607,22 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<(String, Value)>) {
     let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
     entries.sort();
     for p in entries {
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if name.starts_with('.') {
             continue;
         }
         if p.is_dir() {
             collect_files(root, &p, out);
-        } else if name.ends_with(".json") {
-            if let Ok(bytes) = atomic::read_capped(&p, 64 << 20) {
-                if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
-                    if v.get("schema").and_then(|s| s.as_str()) == Some(PROGRESS_SCHEMA) {
-                        let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
-                        out.push((rel, v));
-                    }
-                }
-            }
+        } else if name.ends_with(".json")
+            && let Ok(bytes) = atomic::read_capped(&p, 64 << 20)
+            && let Ok(v) = serde_json::from_slice::<Value>(&bytes)
+            && v.get("schema").and_then(|s| s.as_str()) == Some(PROGRESS_SCHEMA)
+        {
+            let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+            out.push((rel, v));
         }
     }
 }

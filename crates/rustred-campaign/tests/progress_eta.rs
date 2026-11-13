@@ -17,13 +17,24 @@ fn history(tag: &str, done: &[(u8, Vec<u64>)], open: &[(u8, usize)]) -> (Ledger,
     let mut k = 0;
     for (r, costs) in done {
         for &ms in costs {
-            l.append_all(item_life("T162", k, *r, EvidenceLevel::IdentityTested, ms)).unwrap();
+            l.append_all(item_life("T162", k, *r, EvidenceLevel::IdentityTested, ms))
+                .unwrap();
             k += 1;
         }
     }
     for (r, n) in open {
         for _ in 0..*n {
-            l.append(Event::ItemCreated { item: item_id("T162", k), node: "T162".into(), kind: "face".into(), rung: Rung(*r), parent: None, inputs: vec![], label: "x".into(), weight: 1 }).unwrap();
+            l.append(Event::ItemCreated {
+                item: item_id("T162", k),
+                node: "T162".into(),
+                kind: "face".into(),
+                rung: Rung(*r),
+                parent: None,
+                inputs: vec![],
+                label: "x".into(),
+                weight: 1,
+            })
+            .unwrap();
             k += 1;
         }
     }
@@ -35,14 +46,21 @@ fn too_little_data_gives_null_with_a_reason() {
     let (l, _c) = history("eta0", &[(0, vec![1000, 2000])], &[(0, 10)]);
     let e = eta(l.state(), 4);
     assert!(e["wall_seconds"].is_null() && e["cpu_seconds"].is_null());
-    assert!(e["reason"].as_str().unwrap().contains("too little data"), "{e}");
+    assert!(
+        e["reason"].as_str().unwrap().contains("too little data"),
+        "{e}"
+    );
     assert_eq!(e["remaining_items"], 10);
 }
 
 #[test]
 fn quartile_range_per_level_divided_by_parallelism() {
     // L0: 8 finished jobs 1..8 s -> p25 2 s, p50 4 s, p75 6 s; 20 open L0 items; 4 live jobs
-    let (l, _c) = history("eta1", &[(0, (1..=8).map(|s| s * 1000).collect())], &[(0, 20)]);
+    let (l, _c) = history(
+        "eta1",
+        &[(0, (1..=8).map(|s| s * 1000).collect())],
+        &[(0, 20)],
+    );
     let e = eta(l.state(), 4);
     assert_eq!(e["cpu_seconds"]["low"], 40.0);
     assert_eq!(e["cpu_seconds"]["mid"], 80.0);
@@ -58,7 +76,11 @@ fn quartile_range_per_level_divided_by_parallelism() {
 #[test]
 fn sparse_level_uses_pooled_samples_and_says_so() {
     // L0 has 6 samples of 10 s; L2 has 1 sample of 100 s (< 5): L2's open items use the pooled quantiles
-    let (l, _c) = history("eta2", &[(0, vec![10_000; 6]), (2, vec![100_000])], &[(0, 2), (2, 3)]);
+    let (l, _c) = history(
+        "eta2",
+        &[(0, vec![10_000; 6]), (2, vec![100_000])],
+        &[(0, 2), (2, 3)],
+    );
     let e = eta(l.state(), 1);
     assert_eq!(e["pooled_levels"], serde_json::json!(["L2"]));
     // pooled sorted: [10 x6, 100]: p25 = 10, p50 = 10, p75 = 10 (nearest rank 6 of 7) -> 5 items x 10 s
@@ -72,7 +94,12 @@ fn no_parallelism_and_nothing_left() {
     let e = eta(l.state(), 0);
     assert!(e["wall_seconds"].is_null());
     assert_eq!(e["cpu_seconds"]["mid"], 3.0);
-    assert!(e["reason"].as_str().unwrap().contains("no live parallelism"));
+    assert!(
+        e["reason"]
+            .as_str()
+            .unwrap()
+            .contains("no live parallelism")
+    );
     let (l, _c) = history("eta4", &[(0, vec![1000; 5])], &[]);
     let e = eta(l.state(), 2);
     assert_eq!(e["remaining_items"], 0);

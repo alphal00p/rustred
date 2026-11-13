@@ -18,10 +18,18 @@ use rustred_campaign::lock::{self, DeadReason, LockError, LockOutcome};
 
 /// Helper entry point (runs only in the re-executed child).
 #[test]
+#[allow(clippy::zombie_processes)] // the orphan is the point of the test
 fn zz_lock_helper_process() {
-    let Some(dir) = std::env::var_os("RR_LOCK_HELPER") else { return };
+    let Some(dir) = std::env::var_os("RR_LOCK_HELPER") else {
+        return;
+    };
     let clk = SystemClock::new();
-    let (lk, _) = lock::acquire(std::path::Path::new(&dir), &clk, &["helper-supervisor".into()]).expect("helper takes the lock");
+    let (lk, _) = lock::acquire(
+        std::path::Path::new(&dir),
+        &clk,
+        &["helper-supervisor".into()],
+    )
+    .expect("helper takes the lock");
     let child = Command::new("sleep")
         .arg("120")
         .env(lock::TOKEN_ENV, lk.token())
@@ -40,10 +48,17 @@ fn zz_lock_helper_process() {
     drop(lk);
 }
 
+#[allow(clippy::zombie_processes)] // the caller kills and reaps it
 fn spawn_helper(dir: &std::path::Path) -> (std::process::Child, u32) {
     let exe = std::env::current_exe().unwrap();
     let mut c = Command::new(exe)
-        .args(["--exact", "zz_lock_helper_process", "--nocapture", "--test-threads", "1"])
+        .args([
+            "--exact",
+            "zz_lock_helper_process",
+            "--nocapture",
+            "--test-threads",
+            "1",
+        ])
         .env("RR_LOCK_HELPER", dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -56,10 +71,17 @@ fn spawn_helper(dir: &std::path::Path) -> (std::process::Child, u32) {
         line.clear();
         assert!(r.read_line(&mut line).unwrap() > 0, "helper exited early");
         // the harness may print "test <name> ... " on the same line first
-        if let Some(p) = line.find("ready ").map(|i| &line.trim()[i..]).and_then(|t| t.strip_prefix("ready ")) {
+        if let Some(p) = line
+            .find("ready ")
+            .map(|i| &line.trim()[i..])
+            .and_then(|t| t.strip_prefix("ready "))
+        {
             break (c, p.parse().unwrap());
         }
-        assert!(t0.elapsed() < Duration::from_secs(60), "helper did not become ready");
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "helper did not become ready"
+        );
     }
 }
 
@@ -107,23 +129,59 @@ fn stale_owner_records_are_taken_over() {
         rustred_campaign::atomic::write_json_atomic(&d.join(lock::OWNER_FILE), &rec).unwrap();
     };
     // pid reused (start time differs)
-    write_owner(lock::ProcessIdentity { start_ticks: me.start_ticks + 12345, ..me.clone() });
+    write_owner(lock::ProcessIdentity {
+        start_ticks: me.start_ticks + 12345,
+        ..me.clone()
+    });
     let (lk, out) = lock::acquire(&d, &clk, &["new".into()]).unwrap();
-    assert!(matches!(out, LockOutcome::TookOver { reason: DeadReason::StartTimeDiffers { .. }, .. }), "{out:?}");
+    assert!(
+        matches!(
+            out,
+            LockOutcome::TookOver {
+                reason: DeadReason::StartTimeDiffers { .. },
+                ..
+            }
+        ),
+        "{out:?}"
+    );
     drop(lk);
     // reboot (boot id differs)
-    write_owner(lock::ProcessIdentity { boot_id: "00000000-0000-0000-0000-000000000000".into(), ..me.clone() });
+    write_owner(lock::ProcessIdentity {
+        boot_id: "00000000-0000-0000-0000-000000000000".into(),
+        ..me.clone()
+    });
     let (lk, out) = lock::acquire(&d, &clk, &["new".into()]).unwrap();
-    assert!(matches!(out, LockOutcome::TookOver { reason: DeadReason::BootIdDiffers { .. }, .. }));
+    assert!(matches!(
+        out,
+        LockOutcome::TookOver {
+            reason: DeadReason::BootIdDiffers { .. },
+            ..
+        }
+    ));
     drop(lk);
     // pid absent
-    write_owner(lock::ProcessIdentity { pid: u32::MAX - 3, ..me.clone() });
+    write_owner(lock::ProcessIdentity {
+        pid: u32::MAX - 3,
+        ..me.clone()
+    });
     let (lk, out) = lock::acquire(&d, &clk, &["new".into()]).unwrap();
-    assert!(matches!(out, LockOutcome::TookOver { reason: DeadReason::PidAbsent, .. }));
+    assert!(matches!(
+        out,
+        LockOutcome::TookOver {
+            reason: DeadReason::PidAbsent,
+            ..
+        }
+    ));
     drop(lk);
     // another host: refuse
-    write_owner(lock::ProcessIdentity { host: "elsewhere.invalid".into(), ..me });
-    assert!(matches!(lock::acquire(&d, &clk, &["new".into()]), Err(LockError::OtherHost { .. })));
+    write_owner(lock::ProcessIdentity {
+        host: "elsewhere.invalid".into(),
+        ..me
+    });
+    assert!(matches!(
+        lock::acquire(&d, &clk, &["new".into()]),
+        Err(LockError::OtherHost { .. })
+    ));
 }
 
 #[test]
@@ -138,27 +196,51 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
         other => panic!("expected HeldByLiveOwner, got {other:?}"),
     }
     let token = lock::read_owner(&d).unwrap().unwrap().token;
-    assert_eq!(lock::scan_token_holders(&token), vec![child_pid], "the child carries the token");
+    assert_eq!(
+        lock::scan_token_holders(&token),
+        vec![child_pid],
+        "the child carries the token"
+    );
     // the child does NOT hold the lock file open (no inherited descriptor)
     assert!(!lock::holders_of(&d.join(lock::LOCK_FILE)).contains(&child_pid));
     // hard kill of the supervisor (its child lives on)
     kill(helper.id(), libc::SIGKILL);
     helper.wait().unwrap();
     assert!(lock::start_ticks(child_pid).is_some(), "child still alive");
-    let (lk, out) = lock::acquire(&d, &clk, &["successor".into()]).expect("takeover despite the live child");
-    let LockOutcome::TookOver { previous, reason, orphans } = out else { panic!("expected takeover") };
+    let (lk, out) =
+        lock::acquire(&d, &clk, &["successor".into()]).expect("takeover despite the live child");
+    let LockOutcome::TookOver {
+        previous,
+        reason,
+        orphans,
+    } = out
+    else {
+        panic!("expected takeover")
+    };
     assert_eq!(previous.identity.pid, helper.id());
     assert_eq!(reason, DeadReason::PidAbsent);
-    assert_eq!(orphans, vec![child_pid], "orphan reported for the process layer");
+    assert_eq!(
+        orphans,
+        vec![child_pid],
+        "orphan reported for the process layer"
+    );
     // the takeover goes into the ledger
     let ck: Arc<dyn Clock> = clock();
     let mut l = new_ledger(&d, ck, LedgerConfig::default());
-    l.append(Event::LockTakeover { previous, reason, orphans: orphans.clone() }).unwrap();
+    l.append(Event::LockTakeover {
+        previous,
+        reason,
+        orphans: orphans.clone(),
+    })
+    .unwrap();
     assert_eq!(l.state().takeovers, 1);
     drop(lk);
     kill(child_pid, libc::SIGKILL);
     for _ in 0..100 {
-        if lock::start_ticks(child_pid).is_none() || std::fs::read_to_string(format!("/proc/{child_pid}/stat")).is_ok_and(|s| s.contains(") Z ")) {
+        if lock::start_ticks(child_pid).is_none()
+            || std::fs::read_to_string(format!("/proc/{child_pid}/stat"))
+                .is_ok_and(|s| s.contains(") Z "))
+        {
             break;
         }
         std::thread::sleep(Duration::from_millis(20));

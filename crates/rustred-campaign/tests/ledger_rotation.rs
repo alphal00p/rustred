@@ -10,7 +10,10 @@ use rustred_campaign::ledger::{self, Event, Ledger, LedgerConfig, LedgerError};
 use rustred_campaign::state::{EvidenceLevel, reduce};
 
 fn small() -> LedgerConfig {
-    LedgerConfig { rotate_bytes: 8 * 1024, ..LedgerConfig::default() }
+    LedgerConfig {
+        rotate_bytes: 8 * 1024,
+        ..LedgerConfig::default()
+    }
 }
 
 #[test]
@@ -22,7 +25,13 @@ fn snapshot_plus_tail_equals_full_replay() {
     l.append_all(setup_events("T162")).unwrap();
     for k in 0..60 {
         // one record at a time so rotation happens inside lives
-        for e in item_life("T162", k, (k % 3) as u8, EvidenceLevel::IdentityTested, 100 + k as u64) {
+        for e in item_life(
+            "T162",
+            k,
+            (k % 3) as u8,
+            EvidenceLevel::IdentityTested,
+            100 + k as u64,
+        ) {
             l.append(e).unwrap();
         }
     }
@@ -48,14 +57,39 @@ fn snapshot_plus_tail_equals_full_replay() {
     assert_eq!(reduce(&recs).unwrap(), live);
     // sealed segments are read-only and SegmentOpened records name the previous digest
     for s in &m.sealed {
-        let mode = fs::metadata(ledger::ledger_dir(&d).join(&s.file)).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(ledger::ledger_dir(&d).join(&s.file))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o444, "{}", s.file);
     }
-    let opened: Vec<_> = recs.iter().filter_map(|r| if let Event::SegmentOpened { previous_blake3, .. } = &r.event { Some(previous_blake3.clone()) } else { None }).collect();
+    let opened: Vec<_> = recs
+        .iter()
+        .filter_map(|r| {
+            if let Event::SegmentOpened {
+                previous_blake3, ..
+            } = &r.event
+            {
+                Some(previous_blake3.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
     let sealed_digests: Vec<_> = m.sealed.iter().map(|s| s.blake3.clone()).collect();
     assert_eq!(opened, sealed_digests);
     // at most keep_old_snapshots + 1 snapshot files
-    let snaps = fs::read_dir(ledger::ledger_dir(&d)).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with("snapshot-")).count();
+    let snaps = fs::read_dir(ledger::ledger_dir(&d))
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("snapshot-")
+        })
+        .count();
     assert!(snaps <= 2, "{snaps} snapshots kept");
 }
 
@@ -67,7 +101,8 @@ fn edited_sealed_segment_is_detected() {
     let mut l = new_ledger(&d, as_dyn(&clk), small());
     l.append_all(setup_events("T162")).unwrap();
     for k in 0..30 {
-        l.append_all(item_life("T162", k, 0, EvidenceLevel::IdentityTested, 10)).unwrap();
+        l.append_all(item_life("T162", k, 0, EvidenceLevel::IdentityTested, 10))
+            .unwrap();
     }
     let first = l.manifest().sealed[0].file.clone();
     drop(l);
@@ -101,14 +136,30 @@ fn crash_during_rotation_leaves_removable_leftovers() {
     let ld = ledger::ledger_dir(&d);
     // a rotation that died after writing the snapshot and creating the new segment, before the manifest
     fs::write(ld.join(format!("snapshot-{:012}.json", 999_999)), b"{}").unwrap();
-    fs::write(ld.join(format!("segment-{:06}.jsonl", m.active.index + 1)), b"").unwrap();
+    fs::write(
+        ld.join(format!("segment-{:06}.jsonl", m.active.index + 1)),
+        b"",
+    )
+    .unwrap();
     fs::write(ld.join(".MANIFEST.json.rr-tmp-1-0"), b"partial").unwrap();
     let (l2, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
-    assert_eq!(rep.removed_unreferenced.len(), 2, "{:?}", rep.removed_unreferenced);
+    assert_eq!(
+        rep.removed_unreferenced.len(),
+        2,
+        "{:?}",
+        rep.removed_unreferenced
+    );
     assert_eq!(l2.state().digest(), digest);
     assert!(!ld.join(".MANIFEST.json.rr-tmp-1-0").exists());
     drop(l2);
     // a NON-empty unreferenced segment is corruption
-    fs::write(ld.join(format!("segment-{:06}.jsonl", m.active.index + 1)), b"x\n").unwrap();
-    assert!(matches!(Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()), Err(LedgerError::Corrupt { .. })));
+    fs::write(
+        ld.join(format!("segment-{:06}.jsonl", m.active.index + 1)),
+        b"x\n",
+    )
+    .unwrap();
+    assert!(matches!(
+        Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()),
+        Err(LedgerError::Corrupt { .. })
+    ));
 }

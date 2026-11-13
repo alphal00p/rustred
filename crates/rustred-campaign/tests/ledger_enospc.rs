@@ -5,12 +5,14 @@ mod ledger_support;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use ledger_support::*;
 use rustred_campaign::atomic::{self, AtomicError, Mode, Staging, StagingWrite};
-use rustred_campaign::ledger::{self, Event, Ledger, LedgerConfig, LedgerError, SegmentFile, SegmentOpener};
+use rustred_campaign::ledger::{
+    self, Event, Ledger, LedgerConfig, LedgerError, SegmentFile, SegmentOpener,
+};
 use rustred_campaign::state::EvidenceLevel;
 
 /// A writer that accepts `budget` bytes, then fails like a full disk (ENOSPC) or a quota (EDQUOT).
@@ -49,8 +51,15 @@ struct QuotaStaging {
 
 impl Staging for QuotaStaging {
     fn create(&self, temp: &Path) -> io::Result<Box<dyn StagingWrite>> {
-        let inner = fs::OpenOptions::new().write(true).create_new(true).open(temp)?;
-        Ok(Box::new(Quota { inner, budget: self.budget.clone(), errno: self.errno }))
+        let inner = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(temp)?;
+        Ok(Box::new(Quota {
+            inner,
+            budget: self.budget.clone(),
+            errno: self.errno,
+        }))
     }
 }
 
@@ -74,27 +83,41 @@ impl StagingWrite for DevFull {
 
 impl Staging for DevFullStaging {
     fn create(&self, temp: &Path) -> io::Result<Box<dyn StagingWrite>> {
-        fs::OpenOptions::new().write(true).create_new(true).open(temp)?;
-        Ok(Box::new(DevFull(fs::OpenOptions::new().write(true).open("/dev/full")?)))
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(temp)?;
+        Ok(Box::new(DevFull(
+            fs::OpenOptions::new().write(true).open("/dev/full")?,
+        )))
     }
 }
 
 fn entries(d: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(d).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    let mut v: Vec<String> = fs::read_dir(d)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
     v.sort();
     v
 }
 
 #[test]
 fn dev_full_is_classified_as_no_space() {
-    let mut f = fs::OpenOptions::new().write(true).open("/dev/full").unwrap();
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .unwrap();
     let e = f.write_all(b"x").unwrap_err();
     assert!(atomic::is_no_space(&e), "{e:?}");
     let d = scratch("devfull");
     let _c = Cleanup(d.clone());
     let p = d.join("progress.json");
     atomic::write_atomic(&p, b"old").unwrap();
-    let err = atomic::write_atomic_with(&p, Mode::Replace, &DevFullStaging, |w| w.write_all(&[7u8; 100_000])).unwrap_err();
+    let err = atomic::write_atomic_with(&p, Mode::Replace, &DevFullStaging, |w| {
+        w.write_all(&[7u8; 100_000])
+    })
+    .unwrap_err();
     assert!(matches!(err, AtomicError::NoSpace { .. }), "{err}");
     assert_eq!(fs::read(&p).unwrap(), b"old", "old file intact");
     assert_eq!(entries(&d), vec!["progress.json"], "no stray temporary");
@@ -107,19 +130,35 @@ fn quota_like_failure_keeps_old_file_and_removes_temp() {
         let _c = Cleanup(d.clone());
         let p = d.join("campaign.json");
         atomic::write_atomic(&p, b"{\"old\":true}\n").unwrap();
-        let staging = QuotaStaging { budget: Arc::new(AtomicI64::new(4096)), errno };
-        let err = atomic::write_atomic_with(&p, Mode::Replace, &staging, |w| w.write_all(&vec![b'a'; 10_000])).unwrap_err();
+        let staging = QuotaStaging {
+            budget: Arc::new(AtomicI64::new(4096)),
+            errno,
+        };
+        let err = atomic::write_atomic_with(&p, Mode::Replace, &staging, |w| {
+            w.write_all(&vec![b'a'; 10_000])
+        })
+        .unwrap_err();
         assert!(err.is_no_space(), "{err}");
         assert_eq!(fs::read(&p).unwrap(), b"{\"old\":true}\n");
         assert_eq!(entries(&d), vec!["campaign.json"]);
         // within the budget the same call succeeds
-        let staging = QuotaStaging { budget: Arc::new(AtomicI64::new(1 << 20)), errno };
+        let staging = QuotaStaging {
+            budget: Arc::new(AtomicI64::new(1 << 20)),
+            errno,
+        };
         atomic::write_atomic_with(&p, Mode::Replace, &staging, |w| w.write_all(b"new")).unwrap();
         assert_eq!(fs::read(&p).unwrap(), b"new");
         // no-clobber create under quota: typed error, nothing created
         let q = d.join("fresh.json");
-        let staging = QuotaStaging { budget: Arc::new(AtomicI64::new(3)), errno };
-        assert!(atomic::write_atomic_with(&q, Mode::NoClobber, &staging, |w| w.write_all(b"too long")).unwrap_err().is_no_space());
+        let staging = QuotaStaging {
+            budget: Arc::new(AtomicI64::new(3)),
+            errno,
+        };
+        assert!(
+            atomic::write_atomic_with(&q, Mode::NoClobber, &staging, |w| w.write_all(b"too long"))
+                .unwrap_err()
+                .is_no_space()
+        );
         assert!(!q.exists());
         assert_eq!(entries(&d), vec!["campaign.json"]);
     }
@@ -156,7 +195,13 @@ impl SegmentFile for QuotaSegment {
 struct QuotaOpener(Arc<AtomicI64>);
 impl SegmentOpener for QuotaOpener {
     fn open(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
-        Ok(Box::new(QuotaSegment { f: fs::OpenOptions::new().append(true).create(true).open(path)?, budget: self.0.clone() }))
+        Ok(Box::new(QuotaSegment {
+            f: fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(path)?,
+            budget: self.0.clone(),
+        }))
     }
 }
 
@@ -166,28 +211,59 @@ fn ledger_append_on_full_disk_is_typed_and_leaves_a_valid_ledger() {
     let _c = Cleanup(d.clone());
     let clk = clock();
     let budget = Arc::new(AtomicI64::new(i64::MAX));
-    let mut l = Ledger::create_with(&d, as_dyn(&clk), LedgerConfig::default(), Arc::new(QuotaOpener(budget.clone())), "c", &digest("spec"), 100).unwrap();
+    let mut l = Ledger::create_with(
+        &d,
+        as_dyn(&clk),
+        LedgerConfig::default(),
+        Arc::new(QuotaOpener(budget.clone())),
+        "c",
+        &digest("spec"),
+        100,
+    )
+    .unwrap();
     l.append_all(setup_events("T162")).unwrap();
-    l.append_all(item_life("T162", 0, 0, EvidenceLevel::IdentityTested, 10)).unwrap();
+    l.append_all(item_life("T162", 0, 0, EvidenceLevel::IdentityTested, 10))
+        .unwrap();
     let (seq, head) = (l.seq(), l.head().to_string());
     let seg = ledger::ledger_dir(&d).join(&l.manifest().active.file);
     let len = fs::metadata(&seg).unwrap().len();
     budget.store(100, Ordering::SeqCst); // the next record does not fit
-    let err = l.append_all(item_life("T162", 1, 0, EvidenceLevel::IdentityTested, 10)).unwrap_err();
+    let err = l
+        .append_all(item_life("T162", 1, 0, EvidenceLevel::IdentityTested, 10))
+        .unwrap_err();
     assert!(matches!(err, LedgerError::NoSpace { .. }), "{err}");
-    assert_eq!(fs::metadata(&seg).unwrap().len(), len, "partial bytes rolled back");
-    assert!(matches!(l.append(Event::Note { text: "x".into() }), Err(LedgerError::Poisoned)));
+    assert_eq!(
+        fs::metadata(&seg).unwrap().len(),
+        len,
+        "partial bytes rolled back"
+    );
+    assert!(matches!(
+        l.append(Event::Note { text: "x".into() }),
+        Err(LedgerError::Poisoned)
+    ));
     drop(l);
     // space is freed: reopen, no recovery needed, same head
     budget.store(i64::MAX, Ordering::SeqCst);
-    let (mut l2, rep) = Ledger::open_with(&d, as_dyn(&clk), LedgerConfig::default(), Arc::new(QuotaOpener(budget.clone()))).unwrap();
+    let (mut l2, rep) = Ledger::open_with(
+        &d,
+        as_dyn(&clk),
+        LedgerConfig::default(),
+        Arc::new(QuotaOpener(budget.clone())),
+    )
+    .unwrap();
     assert_eq!(rep.recovery, None);
     assert_eq!((l2.seq(), l2.head()), (seq, head.as_str()));
-    l2.append_all(item_life("T162", 1, 0, EvidenceLevel::IdentityTested, 10)).unwrap();
+    l2.append_all(item_life("T162", 1, 0, EvidenceLevel::IdentityTested, 10))
+        .unwrap();
     assert!(ledger::verify_chain(&d).is_ok());
     // and even if the rollback had failed (torn bytes left), open recovers by truncation
     drop(l2);
-    fs::OpenOptions::new().append(true).open(&seg).unwrap().write_all(b"{\"schema\":\"rustred.camp").unwrap();
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&seg)
+        .unwrap()
+        .write_all(b"{\"schema\":\"rustred.camp")
+        .unwrap();
     let (_l3, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert!(rep.recovery.is_some());
 }
@@ -198,8 +274,20 @@ fn rotation_on_full_disk_keeps_the_previous_manifest() {
     let _c = Cleanup(d.clone());
     let clk = clock();
     let budget = Arc::new(AtomicI64::new(i64::MAX));
-    let cfg = LedgerConfig { rotate_bytes: u64::MAX, ..LedgerConfig::default() };
-    let mut l = Ledger::create_with(&d, as_dyn(&clk), cfg.clone(), Arc::new(QuotaOpener(budget.clone())), "c", &digest("spec"), 100).unwrap();
+    let cfg = LedgerConfig {
+        rotate_bytes: u64::MAX,
+        ..LedgerConfig::default()
+    };
+    let mut l = Ledger::create_with(
+        &d,
+        as_dyn(&clk),
+        cfg.clone(),
+        Arc::new(QuotaOpener(budget.clone())),
+        "c",
+        &digest("spec"),
+        100,
+    )
+    .unwrap();
     l.append_all(scenario()).unwrap();
     let digest_before = l.state().digest();
     let m_before = l.manifest().clone();

@@ -10,14 +10,24 @@ use rustred_campaign::state::{CampaignState, EvidenceLevel, reduce};
 
 /// Builds `n_items` item lives (10 records each) as serialised, hash-chained lines.
 fn build_lines(n_items: usize) -> Vec<u8> {
-    let mut events: Vec<Event> = vec![Event::CampaignCreated { campaign_id: "speed".into(), spec_blake3: digest("spec"), terminal_bound: 100 }];
+    let mut events: Vec<Event> = vec![Event::CampaignCreated {
+        campaign_id: "speed".into(),
+        spec_blake3: digest("spec"),
+        terminal_bound: 100,
+    }];
     events.extend(setup_events("T162"));
     let mut out = Vec::new();
     let mut prev = ledger::GENESIS.to_string();
     let mut seq = 0u64;
     let mut push = |e: Event, out: &mut Vec<u8>| {
         seq += 1;
-        let r = Record { schema: LEDGER_SCHEMA.into(), seq, utc: "2026-11-13T23:00:00.000Z".into(), prev: prev.clone(), event: e };
+        let r = Record {
+            schema: LEDGER_SCHEMA.into(),
+            seq,
+            utc: "2026-11-13T23:00:00.000Z".into(),
+            prev: prev.clone(),
+            event: e,
+        };
         let line = serde_json::to_vec(&r).unwrap();
         prev = ledger::line_hash(&line);
         out.extend_from_slice(&line);
@@ -27,7 +37,13 @@ fn build_lines(n_items: usize) -> Vec<u8> {
         push(e, &mut out);
     }
     for k in 0..n_items {
-        for e in item_life("T162", k, (k % 5) as u8, EvidenceLevel::IdentityTested, (k % 1000) as u64) {
+        for e in item_life(
+            "T162",
+            k,
+            (k % 5) as u8,
+            EvidenceLevel::IdentityTested,
+            (k % 1000) as u64,
+        ) {
             push(e, &mut out);
         }
     }
@@ -56,7 +72,10 @@ fn reducer_speed_small() {
     let (st, n) = parse_and_reduce(&bytes);
     let dt = t.elapsed();
     assert_eq!(st.rules.accepted, 5_000);
-    eprintln!("{n} records ({} bytes) parsed + chain-checked + reduced in {dt:?} (debug build)", bytes.len());
+    eprintln!(
+        "{n} records ({} bytes) parsed + chain-checked + reduced in {dt:?} (debug build)",
+        bytes.len()
+    );
     assert!(dt.as_secs() < 60);
 }
 
@@ -70,7 +89,11 @@ fn reducer_speed_one_million() {
     assert!(n >= 1_000_000);
     // reduction alone over pre-parsed records
     let mb = bytes.len() >> 20;
-    let recs: Vec<Record> = bytes.split(|&b| b == b'\n').filter(|l| !l.is_empty()).map(|l| serde_json::from_slice(l).unwrap()).collect();
+    let recs: Vec<Record> = bytes
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect();
     drop(bytes);
     let t = Instant::now();
     let st2 = reduce(&recs).unwrap();

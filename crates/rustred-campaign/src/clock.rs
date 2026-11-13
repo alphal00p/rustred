@@ -58,7 +58,9 @@ impl UtcMillis {
             ms = digits.parse().ok()?;
         }
         let days = days_from_civil(y, mo as u32, d as u32);
-        Some(UtcMillis(((days * 86_400) + h * 3600 + mi * 60 + s) * 1000 + ms))
+        Some(UtcMillis(
+            ((days * 86_400) + h * 3600 + mi * 60 + s) * 1000 + ms,
+        ))
     }
 }
 
@@ -108,7 +110,9 @@ pub struct SystemClock {
 
 impl SystemClock {
     pub fn new() -> Self {
-        SystemClock { origin: Instant::now() }
+        SystemClock {
+            origin: Instant::now(),
+        }
     }
 }
 
@@ -120,7 +124,9 @@ impl Default for SystemClock {
 
 impl Clock for SystemClock {
     fn now_utc(&self) -> UtcMillis {
-        let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let d = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
         UtcMillis(d.as_millis() as i64)
     }
     fn monotonic(&self) -> Duration {
@@ -145,7 +151,13 @@ struct ManualInner {
 
 impl ManualClock {
     pub fn new(start: UtcMillis) -> Self {
-        ManualClock { inner: Mutex::new(ManualInner { utc: start.0, mono: Duration::ZERO, tick_ms: 0 }) }
+        ManualClock {
+            inner: Mutex::new(ManualInner {
+                utc: start.0,
+                mono: Duration::ZERO,
+                tick_ms: 0,
+            }),
+        }
     }
     /// Starts at `iso` (panics on a malformed literal: test helper).
     pub fn at(iso: &str) -> Self {
@@ -190,10 +202,28 @@ mod tests {
         assert_eq!(UtcMillis(0).to_iso(), "1970-01-01T00:00:00.000Z");
         let t = UtcMillis::parse_iso("2026-11-13T23:05:01.250Z").unwrap();
         assert_eq!(t.to_iso(), "2026-11-13T23:05:01.250Z");
-        assert_eq!(UtcMillis::parse_iso("2000-02-29T12:00:00Z").unwrap().to_iso(), "2000-02-29T12:00:00.000Z");
-        assert_eq!(UtcMillis(951_825_600_000).to_iso(), "2000-02-29T12:00:00.000Z");
-        for x in [0i64, 1, 86_399_999, 1_700_000_000_123, 4_102_444_800_000, 1_234_567_890_999] {
-            assert_eq!(UtcMillis::parse_iso(&UtcMillis(x).to_iso()), Some(UtcMillis(x)));
+        assert_eq!(
+            UtcMillis::parse_iso("2000-02-29T12:00:00Z")
+                .unwrap()
+                .to_iso(),
+            "2000-02-29T12:00:00.000Z"
+        );
+        assert_eq!(
+            UtcMillis(951_825_600_000).to_iso(),
+            "2000-02-29T12:00:00.000Z"
+        );
+        for x in [
+            0i64,
+            1,
+            86_399_999,
+            1_700_000_000_123,
+            4_102_444_800_000,
+            1_234_567_890_999,
+        ] {
+            assert_eq!(
+                UtcMillis::parse_iso(&UtcMillis(x).to_iso()),
+                Some(UtcMillis(x))
+            );
         }
         assert!(UtcMillis::parse_iso("2026-13-01T00:00:00Z").is_none());
         assert!(UtcMillis::parse_iso("garbage").is_none());

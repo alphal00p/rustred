@@ -17,7 +17,10 @@ use rustred_campaign::ledger::{self, Event, ItemEvent, JobEvent, Ledger, LedgerC
 use rustred_campaign::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase};
 
 fn cfg() -> LedgerConfig {
-    LedgerConfig { rotate_bytes: 32 * 1024, ..LedgerConfig::default() }
+    LedgerConfig {
+        rotate_bytes: 32 * 1024,
+        ..LedgerConfig::default()
+    }
 }
 
 /// True if the effect of `e` is already in `st` (the writer's resume rule: never write a record twice).
@@ -26,20 +29,30 @@ fn already_applied(st: &CampaignState, e: &Event) -> bool {
         Event::ItemCreated { item, .. } => st.items.contains_key(item),
         Event::JobQueued { job, .. } => st.jobs.contains_key(job),
         Event::Item { item, ev } => {
-            let Some(it) = st.items.get(item) else { return false };
+            let Some(it) = st.items.get(item) else {
+                return false;
+            };
             match ev {
                 ItemEvent::Start { .. } => it.phase != ItemPhase::Open,
-                ItemEvent::Produce { .. } => matches!(it.phase, ItemPhase::Produced | ItemPhase::Accepted(_)),
+                ItemEvent::Produce { .. } => {
+                    matches!(it.phase, ItemPhase::Produced | ItemPhase::Accepted(_))
+                }
                 ItemEvent::Accept { .. } => matches!(it.phase, ItemPhase::Accepted(_)),
                 _ => false,
             }
         }
         Event::Job { job, ev, .. } => {
-            let Some(j) = st.jobs.get(job) else { return false };
+            let Some(j) = st.jobs.get(job) else {
+                return false;
+            };
             match ev {
                 JobEvent::Launch { .. } => j.state != AttemptState::Queued,
-                JobEvent::Started { .. } => !matches!(j.state, AttemptState::Queued | AttemptState::Launching),
-                JobEvent::Finished { .. } => j.state.is_settled() && j.state != AttemptState::Queued,
+                JobEvent::Started { .. } => {
+                    !matches!(j.state, AttemptState::Queued | AttemptState::Launching)
+                }
+                JobEvent::Finished { .. } => {
+                    j.state.is_settled() && j.state != AttemptState::Queued
+                }
                 _ => false,
             }
         }
@@ -51,7 +64,9 @@ fn already_applied(st: &CampaignState, e: &Event) -> bool {
 
 #[test]
 fn zz_crash_writer_process() {
-    let Some(dir) = std::env::var_os("RR_CRASH_WRITER") else { return };
+    let Some(dir) = std::env::var_os("RR_CRASH_WRITER") else {
+        return;
+    };
     let cdir = std::path::PathBuf::from(dir);
     let clk: std::sync::Arc<dyn Clock> = std::sync::Arc::new(SystemClock::new());
     let (mut l, _) = Ledger::open(&cdir, clk, cfg()).expect("writer opens");
@@ -60,11 +75,23 @@ fn zz_crash_writer_process() {
     // the last item may be half done: finish it first (resume from the reduced state)
     let first = start.saturating_sub(1);
     for k in first..first + 100_000 {
-        for e in item_life("T162", k, (k % 4) as u8, EvidenceLevel::IdentityTested, (k % 97) as u64 * 10 + 5) {
+        for e in item_life(
+            "T162",
+            k,
+            (k % 4) as u8,
+            EvidenceLevel::IdentityTested,
+            (k % 97) as u64 * 10 + 5,
+        ) {
             if already_applied(l.state(), &e) {
                 continue;
             }
-            let is_accept = matches!(e, Event::Item { ev: ItemEvent::Accept { .. }, .. });
+            let is_accept = matches!(
+                e,
+                Event::Item {
+                    ev: ItemEvent::Accept { .. },
+                    ..
+                }
+            );
             l.append(e).expect("append");
             if is_accept {
                 let mut o = out.lock();
@@ -99,7 +126,13 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
     let mut rotations_seen = 0;
     for round in 0..kills {
         let mut child = Command::new(&exe)
-            .args(["--exact", "zz_crash_writer_process", "--nocapture", "--test-threads", "1"])
+            .args([
+                "--exact",
+                "zz_crash_writer_process",
+                "--nocapture",
+                "--test-threads",
+                "1",
+            ])
             .env("RR_CRASH_WRITER", &d)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -117,7 +150,9 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
             }
         });
         // wait for the first ack of this round (so every round makes progress), then a seeded delay
-        let first = rx.recv_timeout(Duration::from_secs(60)).expect("writer acknowledges");
+        let first = rx
+            .recv_timeout(Duration::from_secs(60))
+            .expect("writer acknowledges");
         acked.insert(first);
         std::thread::sleep(Duration::from_millis(1 + next() % 40));
         // SAFETY: our own child.
@@ -129,36 +164,63 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
 
         // after the kill: open (recovering a torn tail if any), verify, check acknowledgements
         let clk = clock();
-        let (l, rep) = Ledger::open(&d, as_dyn(&clk), cfg()).unwrap_or_else(|e| panic!("round {round}: open failed: {e}"));
+        let (l, rep) = Ledger::open(&d, as_dyn(&clk), cfg())
+            .unwrap_or_else(|e| panic!("round {round}: open failed: {e}"));
         if rep.recovery.is_some() {
             recoveries += 1;
         }
         rotations_seen = l.manifest().sealed.len();
         let st = l.state();
         for a in &acked {
-            assert!(matches!(st.items.get(a).map(|i| &i.phase), Some(ItemPhase::Accepted(_))), "round {round}: acknowledged {a} lost");
+            assert!(
+                matches!(
+                    st.items.get(a).map(|i| &i.phase),
+                    Some(ItemPhase::Accepted(_))
+                ),
+                "round {round}: acknowledged {a} lost"
+            );
         }
-        let accepted = st.items.values().filter(|i| matches!(i.phase, ItemPhase::Accepted(_))).count() as u64;
-        assert_eq!(st.rules.accepted, accepted, "round {round}: each acceptance counted once");
+        let accepted = st
+            .items
+            .values()
+            .filter(|i| matches!(i.phase, ItemPhase::Accepted(_)))
+            .count() as u64;
+        assert_eq!(
+            st.rules.accepted, accepted,
+            "round {round}: each acceptance counted once"
+        );
         drop(l);
-        let chain = ledger::verify_chain(&d).unwrap_or_else(|e| panic!("round {round}: chain: {e}"));
+        let chain =
+            ledger::verify_chain(&d).unwrap_or_else(|e| panic!("round {round}: chain: {e}"));
         assert_eq!(chain.torn_tail_bytes, 0);
         assert_ne!(chain.snapshot_matches, Some(false));
         // no acceptance record twice in the raw ledger
         let mut count: BTreeMap<String, u32> = BTreeMap::new();
         for r in ledger::read_records(&d).unwrap() {
-            if let Event::Item { item, ev: ItemEvent::Accept { .. } } = r.event {
+            if let Event::Item {
+                item,
+                ev: ItemEvent::Accept { .. },
+            } = r.event
+            {
                 *count.entry(item).or_default() += 1;
             }
         }
-        assert!(count.values().all(|&c| c == 1), "round {round}: duplicate acceptance records");
+        assert!(
+            count.values().all(|&c| c == 1),
+            "round {round}: duplicate acceptance records"
+        );
     }
     eprintln!(
         "crash test: {kills} kills, {} acknowledged acceptances, {} accepted in total, {recoveries} torn-tail recoveries, {rotations_seen} sealed segments",
         acked.len(),
         {
             let clk = clock();
-            Ledger::open(&d, as_dyn(&clk), cfg()).unwrap().0.state().rules.accepted
+            Ledger::open(&d, as_dyn(&clk), cfg())
+                .unwrap()
+                .0
+                .state()
+                .rules
+                .accepted
         }
     );
     assert!(rotations_seen >= 2, "rotation exercised under kills");

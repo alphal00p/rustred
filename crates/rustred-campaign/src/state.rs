@@ -60,8 +60,11 @@ pub enum EvidenceLevel {
 }
 
 impl EvidenceLevel {
-    pub const ALL: [EvidenceLevel; 3] =
-        [EvidenceLevel::GeometryAccepted, EvidenceLevel::IdentityTested, EvidenceLevel::IdentityProved];
+    pub const ALL: [EvidenceLevel; 3] = [
+        EvidenceLevel::GeometryAccepted,
+        EvidenceLevel::IdentityTested,
+        EvidenceLevel::IdentityProved,
+    ];
     pub fn word(self) -> &'static str {
         match self {
             EvidenceLevel::GeometryAccepted => "geometry_accepted",
@@ -81,14 +84,28 @@ pub struct IllegalTransition {
 }
 
 impl IllegalTransition {
-    fn new(machine: &'static str, from: impl Into<String>, event: impl Into<String>, why: impl Into<String>) -> Self {
-        IllegalTransition { machine, from: from.into(), event: event.into(), why: why.into() }
+    fn new(
+        machine: &'static str,
+        from: impl Into<String>,
+        event: impl Into<String>,
+        why: impl Into<String>,
+    ) -> Self {
+        IllegalTransition {
+            machine,
+            from: from.into(),
+            event: event.into(),
+            why: why.into(),
+        }
     }
 }
 
 impl std::fmt::Display for IllegalTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "illegal {} transition: {} --{}--> ({})", self.machine, self.from, self.event, self.why)
+        write!(
+            f,
+            "illegal {} transition: {} --{}--> ({})",
+            self.machine, self.from, self.event, self.why
+        )
     }
 }
 
@@ -127,7 +144,9 @@ pub const FINISH_CLASSES: [FinishClass; 14] = [
 pub fn class_target(c: FinishClass) -> AttemptTarget {
     use FinishClass::*;
     match c {
-        Complete | RuleFound | NoRule | DecidedNegative | Undecided => AttemptTarget::SucceededSealed,
+        Complete | RuleFound | NoRule | DecidedNegative | Undecided => {
+            AttemptTarget::SucceededSealed
+        }
         Spill | KilledTime | KilledMemory => AttemptTarget::BudgetStopped,
         Interrupted => AttemptTarget::Interrupted,
         Lost => AttemptTarget::Lost,
@@ -216,7 +235,10 @@ impl AttemptState {
 pub enum AttemptEvent {
     Launch,
     Started,
-    Finished { class: FinishClass, sealed: bool },
+    Finished {
+        class: FinishClass,
+        sealed: bool,
+    },
     Interrupt,
     Lose,
     /// New attempt after `interrupted` / `lost` (campaign resume).
@@ -260,10 +282,20 @@ pub const ATTEMPT_TABLE: &[(&str, &str, &str)] = &[
 
 /// The attempt machine. Returns the new state; `Requeue` / `Retry` return `Queued` (the caller increments the
 /// attempt number). A success class without a sealed output is refused (acceptance needs a sealed table).
-pub fn apply_attempt(state: AttemptState, ev: AttemptEvent) -> Result<AttemptState, IllegalTransition> {
+pub fn apply_attempt(
+    state: AttemptState,
+    ev: AttemptEvent,
+) -> Result<AttemptState, IllegalTransition> {
     use AttemptEvent as E;
     use AttemptState as S;
-    let illegal = |why: &str| Err(IllegalTransition::new("job attempt", state.tag(), ev.tag(), why));
+    let illegal = |why: &str| {
+        Err(IllegalTransition::new(
+            "job attempt",
+            state.tag(),
+            ev.tag(),
+            why,
+        ))
+    };
     let finish = |class: FinishClass, sealed: bool| -> Result<AttemptState, IllegalTransition> {
         match class_target(class) {
             AttemptTarget::SucceededSealed if !sealed => Err(IllegalTransition::new(
@@ -298,14 +330,30 @@ pub fn apply_attempt(state: AttemptState, ev: AttemptEvent) -> Result<AttemptSta
         (S::SucceededSealed(c), E::Finished { class, .. }) if c == class => Ok(state),
         (S::SucceededSealed(_), _) => illegal("attempt succeeded (final)"),
         (S::BudgetStopped(c), E::Finished { class, .. }) if c == class => Ok(state),
-        (S::BudgetStopped(_), _) => illegal("attempt stopped by budget (final; the item escalates)"),
+        (S::BudgetStopped(_), _) => {
+            illegal("attempt stopped by budget (final; the item escalates)")
+        }
         (S::Failed(c), E::Finished { class, .. }) if c == class => Ok(state),
         (S::Failed(_), E::Retry) => Ok(S::Queued),
         (S::Failed(_), _) => illegal("attempt failed (only retry)"),
-        (S::Interrupted, E::Interrupt | E::Finished { class: FinishClass::Interrupted, .. }) => Ok(state),
+        (
+            S::Interrupted,
+            E::Interrupt
+            | E::Finished {
+                class: FinishClass::Interrupted,
+                ..
+            },
+        ) => Ok(state),
         (S::Interrupted, E::Requeue) => Ok(S::Queued),
         (S::Interrupted, _) => illegal("attempt interrupted (only requeue)"),
-        (S::Lost, E::Lose | E::Finished { class: FinishClass::Lost, .. }) => Ok(state),
+        (
+            S::Lost,
+            E::Lose
+            | E::Finished {
+                class: FinishClass::Lost,
+                ..
+            },
+        ) => Ok(state),
         (S::Lost, E::Requeue) => Ok(S::Queued),
         (S::Lost, _) => illegal("attempt lost (only requeue)"),
         (S::Cancelled, E::Cancel) => Ok(state),
@@ -368,7 +416,13 @@ impl ItemPhase {
     }
     /// Open work: everything that is not accepted, escalated (superseded by its child) or terminal.
     pub fn is_open(&self) -> bool {
-        !matches!(self, ItemPhase::Accepted(_) | ItemPhase::Escalated(_) | ItemPhase::Terminal | ItemPhase::Retired)
+        !matches!(
+            self,
+            ItemPhase::Accepted(_)
+                | ItemPhase::Escalated(_)
+                | ItemPhase::Terminal
+                | ItemPhase::Retired
+        )
     }
 }
 
@@ -424,23 +478,54 @@ pub const ITEM_TABLE: &[(&str, &str, &str)] = &[
     ("in_progress", "propose_terminal", "terminal_candidate"),
     ("produced", "accept", "accepted(level)"),
     ("produced", "reject", "rejected(reason)"),
-    ("accepted", "upgrade", "accepted(higher level)  [guard: level > current]"),
-    ("accepted", "reject", "rejected(reason)  (identity test or proof failed after geometry acceptance)"),
+    (
+        "accepted",
+        "upgrade",
+        "accepted(higher level)  [guard: level > current]",
+    ),
+    (
+        "accepted",
+        "reject",
+        "rejected(reason)  (identity test or proof failed after geometry acceptance)",
+    ),
     ("rejected", "escalate", "escalated  [guard: to > rung]"),
     ("rejected", "requeue", "open"),
     ("rejected", "propose_terminal", "terminal_candidate"),
-    ("terminal_candidate", "declare_terminal", "terminal  [guard: node bound, checked by the reducer]"),
+    (
+        "terminal_candidate",
+        "declare_terminal",
+        "terminal  [guard: node bound, checked by the reducer]",
+    ),
     ("terminal_candidate", "reopen", "open"),
     ("<any but stale>", "mark_stale", "stale"),
     ("stale", "reopen", "open"),
-    ("accepted", "retire", "retired  [guards (reducer): retirement proof; box-closure proofs only on a boxed node]"),
+    (
+        "accepted",
+        "retire",
+        "retired  [guards (reducer): retirement proof; box-closure proofs only on a boxed node]",
+    ),
 ];
 
-pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState, IllegalTransition> {
+pub fn apply_item(
+    state: &ItemState,
+    ev: &ItemMachineEvent,
+) -> Result<ItemState, IllegalTransition> {
     use ItemMachineEvent as E;
     use ItemPhase as P;
-    let illegal = |why: &str| Err(IllegalTransition::new("work item", state.phase.tag(), ev.tag(), why));
-    let to = |phase: ItemPhase| Ok(ItemState { phase, rung: state.rung });
+    let illegal = |why: &str| {
+        Err(IllegalTransition::new(
+            "work item",
+            state.phase.tag(),
+            ev.tag(),
+            why,
+        ))
+    };
+    let to = |phase: ItemPhase| {
+        Ok(ItemState {
+            phase,
+            rung: state.rung,
+        })
+    };
     let same = || Ok(state.clone());
     match (&state.phase, ev) {
         (_, E::MarkStale) => to(P::Stale), // from any phase; repeat at stale is a no-op
@@ -473,7 +558,9 @@ pub fn apply_item(state: &ItemState, ev: &ItemMachineEvent) -> Result<ItemState,
         (P::Rejected(_), E::ProposeTerminal) => to(P::TerminalCandidate),
         (P::Rejected(_), _) => illegal("item rejected"),
         (P::Escalated(cur), E::Escalate(r)) if r == cur => same(),
-        (P::Escalated(_), _) => illegal("item escalated (final; its next-rung item carries the work)"),
+        (P::Escalated(_), _) => {
+            illegal("item escalated (final; its next-rung item carries the work)")
+        }
         (P::TerminalCandidate, E::ProposeTerminal) => same(),
         (P::TerminalCandidate, E::DeclareTerminal) => to(P::Terminal),
         (P::TerminalCandidate, E::Reopen) => to(P::Open),
@@ -618,24 +705,45 @@ pub struct NodeContext {
 pub enum NodeEvent {
     Start,
     /// A closure pass of the current target: defect keys, closure size, rules used on it, the key-set file.
-    ClosureResult { round: u32, defect_keys: u64, closure_keys: u64, rules_used: Option<u64>, keyset: Option<FileRef> },
+    ClosureResult {
+        round: u32,
+        defect_keys: u64,
+        closure_keys: u64,
+        rules_used: Option<u64>,
+        keyset: Option<FileRef>,
+    },
     /// The attempt on the current target ended within its budgets without closure.
-    AttemptEnded { blockers: Blockers, reason: String },
+    AttemptEnded {
+        blockers: Blockers,
+        reason: String,
+    },
     /// Fall back from FULL to the spec's box (only after the full attempt ended; `box_id` must be the spec box).
-    FallBackToBox { box_id: String },
+    FallBackToBox {
+        box_id: String,
+    },
     /// No closure: ended OPEN with the blockers already recorded.
-    DeclareOpen { reason: String },
+    DeclareOpen {
+        reason: String,
+    },
     DeclareClosed,
     DeclareCertified,
     /// Back to work; the target is FULL again (a later run tries full closure first).
-    Reopen { reason: String },
-    MarkStale { reason: String },
+    Reopen {
+        reason: String,
+    },
+    MarkStale {
+        reason: String,
+    },
     /// Internal (emitted by the reducer when an item of the node is declared terminal; never written).
     #[serde(skip)]
-    TerminalDeclared { count: u32 },
+    TerminalDeclared {
+        count: u32,
+    },
     /// Internal (emitted by the reducer for a rule retirement; `box_only` = the proof is a box closure pass).
     #[serde(skip)]
-    Retirement { box_only: bool },
+    Retirement {
+        box_only: bool,
+    },
 }
 
 impl NodeEvent {
@@ -658,9 +766,21 @@ impl NodeEvent {
 
 pub const NODE_TABLE: &[(&str, &str, &str)] = &[
     ("registered", "start", "running (target full)"),
-    ("running|closure_check", "closure_result", "closure_check  [guard: round > last round]"),
-    ("closed|certified", "closure_result", "same phase if defect = 0, else closure_check"),
-    ("running|closure_check", "attempt_ended", "same phase, attempt_ended, blockers of the target recorded"),
+    (
+        "running|closure_check",
+        "closure_result",
+        "closure_check  [guard: round > last round]",
+    ),
+    (
+        "closed|certified",
+        "closure_result",
+        "same phase if defect = 0, else closure_check",
+    ),
+    (
+        "running|closure_check",
+        "attempt_ended",
+        "same phase, attempt_ended, blockers of the target recorded",
+    ),
     (
         "running|closure_check",
         "fall_back_to_box",
@@ -671,17 +791,48 @@ pub const NODE_TABLE: &[(&str, &str, &str)] = &[
         "declare_open",
         "open  [guards: attempt ended; target boxed, or no spec box (a spec box must be tried first)]",
     ),
-    ("closure_check", "declare_closed", "closed  [guard: last defect = 0 and no open item]"),
-    ("closed", "declare_certified", "certified  [guard: every accepted item identity-proved]"),
-    ("closure_check|closed|certified|open|stale", "reopen", "running, target full, attempt not ended"),
+    (
+        "closure_check",
+        "declare_closed",
+        "closed  [guard: last defect = 0 and no open item]",
+    ),
+    (
+        "closed",
+        "declare_certified",
+        "certified  [guard: every accepted item identity-proved]",
+    ),
+    (
+        "closure_check|closed|certified|open|stale",
+        "reopen",
+        "running, target full, attempt not ended",
+    ),
     ("<any>", "mark_stale", "stale"),
-    ("<any but stale>", "terminal_declared", "same phase, terminals += n  [guard: terminals <= bound]"),
-    ("<any but stale>", "retirement", "same phase  [guard: a box-closure proof only on a boxed target]"),
+    (
+        "<any but stale>",
+        "terminal_declared",
+        "same phase, terminals += n  [guard: terminals <= bound]",
+    ),
+    (
+        "<any but stale>",
+        "retirement",
+        "same phase  [guard: a box-closure proof only on a boxed target]",
+    ),
 ];
 
-pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result<NodeState, IllegalTransition> {
+pub fn apply_node(
+    state: &NodeState,
+    ev: &NodeEvent,
+    ctx: NodeContext,
+) -> Result<NodeState, IllegalTransition> {
     use NodePhase as P;
-    let illegal = |why: String| Err(IllegalTransition::new("node", state.phase.tag(), ev.tag(), why));
+    let illegal = |why: String| {
+        Err(IllegalTransition::new(
+            "node",
+            state.phase.tag(),
+            ev.tag(),
+            why,
+        ))
+    };
     let mut next = state.clone();
     match (state.phase, ev) {
         (_, NodeEvent::MarkStale { .. }) => next.phase = P::Stale,
@@ -691,7 +842,16 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
         (P::Registered | P::Stale | P::Open, NodeEvent::ClosureResult { .. }) => {
             return illegal("closure results need a running node".into());
         }
-        (phase, NodeEvent::ClosureResult { round, defect_keys, closure_keys, rules_used, .. }) => {
+        (
+            phase,
+            NodeEvent::ClosureResult {
+                round,
+                defect_keys,
+                closure_keys,
+                rules_used,
+                ..
+            },
+        ) => {
             if *round == state.closure_rounds
                 && state.last_defect == Some(*defect_keys)
                 && state.closure_keys == Some(*closure_keys)
@@ -699,7 +859,10 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
                 return Ok(next); // exact repeat
             }
             if *round <= state.closure_rounds {
-                return illegal(format!("closure round {round} not after round {}", state.closure_rounds));
+                return illegal(format!(
+                    "closure round {round} not after round {}",
+                    state.closure_rounds
+                ));
             }
             next.closure_rounds = *round;
             next.last_defect = Some(*defect_keys);
@@ -736,28 +899,45 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
                 return illegal("already boxed with another box".into());
             }
             match &state.spec_box {
-                None => return illegal("BOXED needs a box in the node's spec (the campaign never chooses one)".into()),
+                None => {
+                    return illegal(
+                        "BOXED needs a box in the node's spec (the campaign never chooses one)"
+                            .into(),
+                    );
+                }
                 Some(b) if b != box_id => {
-                    return illegal(format!("box {box_id} is not the spec box {b} (never chosen or widened)"));
+                    return illegal(format!(
+                        "box {box_id} is not the spec box {b} (never chosen or widened)"
+                    ));
                 }
                 Some(_) => {}
             }
             if !state.attempt_ended {
-                return illegal("the FULL attempt must end (within its budgets) before falling back to the box".into());
+                return illegal(
+                    "the FULL attempt must end (within its budgets) before falling back to the box"
+                        .into(),
+                );
             }
-            next.target = ClosureTarget::Boxed { box_id: box_id.clone() };
+            next.target = ClosureTarget::Boxed {
+                box_id: box_id.clone(),
+            };
             next.attempt_ended = false;
             next.phase = P::Running;
             next.last_defect = None;
         }
-        (_, NodeEvent::FallBackToBox { .. }) => return illegal("fallback needs a running attempt".into()),
+        (_, NodeEvent::FallBackToBox { .. }) => {
+            return illegal("fallback needs a running attempt".into());
+        }
         (P::Open, NodeEvent::DeclareOpen { .. }) => {}
         (P::Running | P::ClosureCheck, NodeEvent::DeclareOpen { .. }) => {
             if !state.attempt_ended {
                 return illegal("the attempt has not ended".into());
             }
             if state.target == ClosureTarget::Full && state.spec_box.is_some() {
-                return illegal("the spec provides a box: fall back to it before declaring the node open".into());
+                return illegal(
+                    "the spec provides a box: fall back to it before declaring the node open"
+                        .into(),
+                );
             }
             next.phase = P::Open;
         }
@@ -772,16 +952,24 @@ pub fn apply_node(state: &NodeState, ev: &NodeEvent, ctx: NodeContext) -> Result
             next.phase = P::Closed;
         }
         (P::Closed | P::Certified, NodeEvent::DeclareClosed) => {}
-        (_, NodeEvent::DeclareClosed) => return illegal("needs a closure check with defect 0".into()),
+        (_, NodeEvent::DeclareClosed) => {
+            return illegal("needs a closure check with defect 0".into());
+        }
         (P::Closed, NodeEvent::DeclareCertified) => {
             if ctx.items_unproved > 0 {
-                return illegal(format!("{} accepted items are not identity-proved", ctx.items_unproved));
+                return illegal(format!(
+                    "{} accepted items are not identity-proved",
+                    ctx.items_unproved
+                ));
             }
             next.phase = P::Certified;
         }
         (P::Certified, NodeEvent::DeclareCertified) => {}
         (_, NodeEvent::DeclareCertified) => return illegal("needs closed first".into()),
-        (P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale, NodeEvent::Reopen { .. }) => {
+        (
+            P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale,
+            NodeEvent::Reopen { .. },
+        ) => {
             next.phase = P::Running;
             next.target = ClosureTarget::Full;
             next.attempt_ended = false;
@@ -871,7 +1059,11 @@ impl CampaignEvent {
 
 pub const CAMPAIGN_TABLE: &[(&str, &str, &str)] = &[
     ("<created>|stopped|finished", "start", "starting"),
-    ("starting|running|draining", "start", "starting  (previous supervisor died: crash recovery)"),
+    (
+        "starting|running|draining",
+        "start",
+        "starting  (previous supervisor died: crash recovery)",
+    ),
     ("starting", "run", "running"),
     ("starting|running", "drain", "draining"),
     ("starting|running|draining", "stop", "stopped"),
@@ -948,7 +1140,10 @@ impl NodeRec {
             .filter(|(_, t)| !matches!(**t, "accepted" | "escalated" | "terminal" | "retired"))
             .map(|(i, _)| self.items_by_phase[i])
             .sum();
-        NodeContext { items_open: open, items_unproved: self.accepted_by_level[0] + self.accepted_by_level[1] }
+        NodeContext {
+            items_open: open,
+            items_unproved: self.accepted_by_level[0] + self.accepted_by_level[1],
+        }
     }
 }
 
@@ -1098,7 +1293,9 @@ impl std::fmt::Display for ReduceError {
 impl std::error::Error for ReduceError {}
 
 /// Reduces records (in order) to the campaign state. The ONLY way campaign state is computed.
-pub fn reduce<'a>(records: impl IntoIterator<Item = &'a Record>) -> Result<CampaignState, ReduceError> {
+pub fn reduce<'a>(
+    records: impl IntoIterator<Item = &'a Record>,
+) -> Result<CampaignState, ReduceError> {
     let mut st = CampaignState::default();
     for r in records {
         st.apply_record(r)?;
@@ -1113,13 +1310,20 @@ impl CampaignState {
         let invalid = |why: String| ReduceError::Invalid { seq, why };
         let illegal = |err: IllegalTransition| ReduceError::Illegal { seq, err };
         if self.last_seq != 0 && seq != self.last_seq + 1 {
-            return Err(invalid(format!("sequence gap: expected {}", self.last_seq + 1)));
+            return Err(invalid(format!(
+                "sequence gap: expected {}",
+                self.last_seq + 1
+            )));
         }
         if self.last_seq == 0 && !matches!(rec.event, Event::CampaignCreated { .. }) {
             return Err(invalid("the first record must be campaign_created".into()));
         }
         match &rec.event {
-            Event::CampaignCreated { campaign_id, spec_blake3, terminal_bound } => {
+            Event::CampaignCreated {
+                campaign_id,
+                spec_blake3,
+                terminal_bound,
+            } => {
                 if self.last_seq != 0 {
                     return Err(invalid("campaign_created after the first record".into()));
                 }
@@ -1130,7 +1334,14 @@ impl CampaignState {
             }
             Event::Campaign { ev, reason } => {
                 let crash = *ev == CampaignEvent::Start
-                    && matches!(self.phase, Some(CampaignPhase::Starting | CampaignPhase::Running | CampaignPhase::Draining));
+                    && matches!(
+                        self.phase,
+                        Some(
+                            CampaignPhase::Starting
+                                | CampaignPhase::Running
+                                | CampaignPhase::Draining
+                        )
+                    );
                 let next = apply_campaign(self.phase, *ev).map_err(illegal)?;
                 if *ev == CampaignEvent::Start {
                     self.sessions += 1;
@@ -1139,12 +1350,20 @@ impl CampaignState {
                     }
                 }
                 if Some(next) != self.phase {
-                    self.push_recent(rec, "campaign", format!("campaign {} ({reason})", next.tag()));
+                    self.push_recent(
+                        rec,
+                        "campaign",
+                        format!("campaign {} ({reason})", next.tag()),
+                    );
                 }
                 self.phase = Some(next);
             }
             Event::SupervisorStarted { .. } => {}
-            Event::LockTakeover { previous, reason, orphans } => {
+            Event::LockTakeover {
+                previous,
+                reason,
+                orphans,
+            } => {
                 self.takeovers += 1;
                 self.push_recent(
                     rec,
@@ -1156,7 +1375,11 @@ impl CampaignState {
                     ),
                 );
             }
-            Event::Recovery { truncated_bytes, last_good_seq, .. } => {
+            Event::Recovery {
+                truncated_bytes,
+                last_good_seq,
+                ..
+            } => {
                 self.torn_tail_recoveries += 1;
                 self.push_recent(
                     rec,
@@ -1165,24 +1388,56 @@ impl CampaignState {
                 );
             }
             Event::SegmentOpened { .. } => self.segments_opened += 1,
-            Event::InputRegistered { input, role, path, bytes, blake3 } => self.apply_input(rec, input, role, path, *bytes, blake3),
-            Event::EvidenceImported { evidence, producer, description, files } => {
+            Event::InputRegistered {
+                input,
+                role,
+                path,
+                bytes,
+                blake3,
+            } => self.apply_input(rec, input, role, path, *bytes, blake3),
+            Event::EvidenceImported {
+                evidence,
+                producer,
+                description,
+                files,
+            } => {
                 if let Some(e) = self.evidence.get(evidence) {
                     if e.files != *files || e.producer != *producer {
-                        return Err(invalid(format!("evidence {evidence} re-imported with different content")));
+                        return Err(invalid(format!(
+                            "evidence {evidence} re-imported with different content"
+                        )));
                     }
                 } else {
                     self.evidence.insert(
                         evidence.clone(),
-                        EvidenceRec { producer: producer.clone(), description: description.clone(), files: files.clone(), seq },
+                        EvidenceRec {
+                            producer: producer.clone(),
+                            description: description.clone(),
+                            files: files.clone(),
+                            seq,
+                        },
                     );
-                    self.push_recent(rec, "evidence", format!("imported evidence {evidence} by {producer} ({} files)", files.len()));
+                    self.push_recent(
+                        rec,
+                        "evidence",
+                        format!(
+                            "imported evidence {evidence} by {producer} ({} files)",
+                            files.len()
+                        ),
+                    );
                 }
             }
-            Event::NodeRegistered { node, inputs, terminal_bound, spec_box } => {
+            Event::NodeRegistered {
+                node,
+                inputs,
+                terminal_bound,
+                spec_box,
+            } => {
                 if let Some(n) = self.nodes.get(node) {
                     if n.inputs != *inputs || n.state.spec_box != *spec_box {
-                        return Err(invalid(format!("node {node} re-registered with other inputs or box")));
+                        return Err(invalid(format!(
+                            "node {node} re-registered with other inputs or box"
+                        )));
                     }
                 } else {
                     for i in inputs {
@@ -1193,14 +1448,26 @@ impl CampaignState {
                     if let Some(b) = spec_box {
                         match self.inputs.get(b) {
                             Some(i) if i.role == "box" => {}
-                            Some(i) => return Err(invalid(format!("node {node}: spec box {b} has role {:?}, not \"box\"", i.role))),
-                            None => return Err(invalid(format!("node {node}: unknown spec box input {b}"))),
+                            Some(i) => {
+                                return Err(invalid(format!(
+                                    "node {node}: spec box {b} has role {:?}, not \"box\"",
+                                    i.role
+                                )));
+                            }
+                            None => {
+                                return Err(invalid(format!(
+                                    "node {node}: unknown spec box input {b}"
+                                )));
+                            }
                         }
                     }
                     self.nodes.insert(
                         node.clone(),
                         NodeRec {
-                            state: NodeState::new(spec_box.clone(), terminal_bound.unwrap_or(self.terminal_bound)),
+                            state: NodeState::new(
+                                spec_box.clone(),
+                                terminal_bound.unwrap_or(self.terminal_bound),
+                            ),
                             inputs: inputs.clone(),
                             items_by_phase: [0; 10],
                             accepted_by_level: [0; 3],
@@ -1212,49 +1479,84 @@ impl CampaignState {
                 }
             }
             Event::Node { node, ev } => {
-                if matches!(ev, NodeEvent::TerminalDeclared { .. } | NodeEvent::Retirement { .. }) {
+                if matches!(
+                    ev,
+                    NodeEvent::TerminalDeclared { .. } | NodeEvent::Retirement { .. }
+                ) {
                     return Err(invalid(format!("{} is internal", ev.tag())));
                 }
-                let n = self.nodes.get(node).ok_or_else(|| invalid(format!("unknown node {node}")))?;
+                let n = self
+                    .nodes
+                    .get(node)
+                    .ok_or_else(|| invalid(format!("unknown node {node}")))?;
                 let next = apply_node(&n.state, ev, n.context()).map_err(illegal)?;
                 let changed = next != n.state;
                 let n = self.nodes.get_mut(node).unwrap();
                 n.state = next;
                 match ev {
-                    NodeEvent::ClosureResult { keyset, .. } if changed => n.last_keyset = keyset.clone(),
+                    NodeEvent::ClosureResult { keyset, .. } if changed => {
+                        n.last_keyset = keyset.clone()
+                    }
                     NodeEvent::MarkStale { reason } => n.stale_reason = Some(reason.clone()),
                     NodeEvent::Reopen { .. } => n.stale_reason = None,
                     _ => {}
                 }
                 if changed {
                     let text = match ev {
-                        NodeEvent::ClosureResult { round, defect_keys, closure_keys, .. } => {
-                            format!("{node}: closure round {round}, defect {defect_keys} of {closure_keys} keys")
+                        NodeEvent::ClosureResult {
+                            round,
+                            defect_keys,
+                            closure_keys,
+                            ..
+                        } => {
+                            format!(
+                                "{node}: closure round {round}, defect {defect_keys} of {closure_keys} keys"
+                            )
                         }
                         NodeEvent::AttemptEnded { blockers, reason } => format!(
                             "{node}: attempt ended ({reason}): {} faces, {} loci, {} keys block closure",
                             blockers.faces, blockers.loci, blockers.keys
                         ),
-                        NodeEvent::FallBackToBox { box_id } => format!("{node}: full closure not reached; falling back to spec box {box_id}"),
-                        _ => format!("{node}: {} ({})", n.state.phase.tag(), n.state.closure_kind()),
+                        NodeEvent::FallBackToBox { box_id } => format!(
+                            "{node}: full closure not reached; falling back to spec box {box_id}"
+                        ),
+                        _ => format!(
+                            "{node}: {} ({})",
+                            n.state.phase.tag(),
+                            n.state.closure_kind()
+                        ),
                     };
                     self.push_recent(rec, "node", text);
                 }
             }
-            Event::ItemCreated { item, node, kind, rung, parent, inputs, label, weight } => {
+            Event::ItemCreated {
+                item,
+                node,
+                kind,
+                rung,
+                parent,
+                inputs,
+                label,
+                weight,
+            } => {
                 if let Some(it) = self.items.get(item) {
                     if it.node != *node || it.rung != *rung || it.kind != *kind {
-                        return Err(invalid(format!("item {item} re-created with other identity")));
+                        return Err(invalid(format!(
+                            "item {item} re-created with other identity"
+                        )));
                     }
                 } else {
-                    let n = self.nodes.get(node).ok_or_else(|| invalid(format!("item {item}: unknown node {node}")))?;
+                    let n = self
+                        .nodes
+                        .get(node)
+                        .ok_or_else(|| invalid(format!("item {item}: unknown node {node}")))?;
                     if n.state.phase == NodePhase::Stale {
                         return Err(invalid(format!("item {item}: node {node} is stale")));
                     }
-                    if let Some(p) = parent {
-                        if !self.items.contains_key(p) {
-                            return Err(invalid(format!("item {item}: unknown parent {p}")));
-                        }
+                    if let Some(p) = parent
+                        && !self.items.contains_key(p)
+                    {
+                        return Err(invalid(format!("item {item}: unknown parent {p}")));
                     }
                     for i in inputs {
                         if !self.inputs.contains_key(i) {
@@ -1289,24 +1591,46 @@ impl CampaignState {
             }
             Event::Item { item, ev } => self.apply_item_event(rec, item, ev)?,
             Event::RuleEconomy { item, economy } => {
-                let it = self.items.get(item).ok_or_else(|| invalid(format!("economy: unknown item {item}")))?;
+                let it = self
+                    .items
+                    .get(item)
+                    .ok_or_else(|| invalid(format!("economy: unknown item {item}")))?;
                 if !matches!(it.phase, ItemPhase::Accepted(_)) {
-                    return Err(invalid(format!("economy of {item}: item is {}, not accepted", it.phase.tag())));
+                    return Err(invalid(format!(
+                        "economy of {item}: item is {}, not accepted",
+                        it.phase.tag()
+                    )));
                 }
                 self.items.get_mut(item).unwrap().economy = Some(economy.clone());
             }
-            Event::JobQueued { job, item, rung, kind, spec_blake3, binary, reserved_bytes } => {
+            Event::JobQueued {
+                job,
+                item,
+                rung,
+                kind,
+                spec_blake3,
+                binary,
+                reserved_bytes,
+            } => {
                 if let Some(j) = self.jobs.get(job) {
                     if j.item != *item || j.spec_blake3 != *spec_blake3 {
                         return Err(invalid(format!("job {job} re-queued with other identity")));
                     }
                 } else {
-                    let it = self.items.get(item).ok_or_else(|| invalid(format!("job {job}: unknown item {item}")))?;
+                    let it = self
+                        .items
+                        .get(item)
+                        .ok_or_else(|| invalid(format!("job {job}: unknown item {item}")))?;
                     if !it.phase.is_open() || it.phase == ItemPhase::Stale {
-                        return Err(invalid(format!("job {job}: item {item} is {}", it.phase.tag())));
+                        return Err(invalid(format!(
+                            "job {job}: item {item} is {}",
+                            it.phase.tag()
+                        )));
                     }
                     if !self.inputs.contains_key(binary) {
-                        return Err(invalid(format!("job {job}: binary {binary} not registered (M1)")));
+                        return Err(invalid(format!(
+                            "job {job}: binary {binary} not registered (M1)"
+                        )));
                     }
                     self.items.get_mut(item).unwrap().jobs.push(job.clone());
                     self.jobs.insert(
@@ -1336,7 +1660,14 @@ impl CampaignState {
             Event::Job { job, attempt, ev } => self.apply_job_event(rec, job, *attempt, ev)?,
             Event::Intent { op, action, target } => {
                 if !self.done_ops.contains(op) && !self.pending_ops.contains_key(op) {
-                    self.pending_ops.insert(op.clone(), PendingOp { action: action.clone(), target: target.clone(), seq });
+                    self.pending_ops.insert(
+                        op.clone(),
+                        PendingOp {
+                            action: action.clone(),
+                            target: target.clone(),
+                            seq,
+                        },
+                    );
                 }
             }
             Event::Done { op, .. } => {
@@ -1354,7 +1685,15 @@ impl CampaignState {
         Ok(())
     }
 
-    fn apply_input(&mut self, rec: &Record, input: &str, role: &str, path: &str, bytes: u64, blake3: &str) {
+    fn apply_input(
+        &mut self,
+        rec: &Record,
+        input: &str,
+        role: &str,
+        path: &str,
+        bytes: u64,
+        blake3: &str,
+    ) {
         let seq = rec.seq;
         match self.inputs.get_mut(input) {
             Some(cur) if cur.blake3 == blake3 => {} // repeat (or re-verification at resume): no-op
@@ -1368,13 +1707,24 @@ impl CampaignState {
                 self.push_recent(
                     rec,
                     "stale_inputs",
-                    format!("input {input} changed ({}.. -> {}..): {n} items marked stale", &old[..old.len().min(8)], &blake3[..blake3.len().min(8)]),
+                    format!(
+                        "input {input} changed ({}.. -> {}..): {n} items marked stale",
+                        &old[..old.len().min(8)],
+                        &blake3[..blake3.len().min(8)]
+                    ),
                 );
             }
             None => {
                 self.inputs.insert(
                     input.to_string(),
-                    InputRec { role: role.to_string(), path: path.to_string(), bytes, blake3: blake3.to_string(), versions: 1, registered_seq: seq },
+                    InputRec {
+                        role: role.to_string(),
+                        path: path.to_string(),
+                        bytes,
+                        blake3: blake3.to_string(),
+                        versions: 1,
+                        registered_seq: seq,
+                    },
                 );
             }
         }
@@ -1383,10 +1733,12 @@ impl CampaignState {
     /// Marks stale (never deletes) every item depending on `input`: its own inputs, its node's inputs, or the
     /// binary of the job its acceptance came from. Nodes listing the input are marked stale too.
     fn mark_stale_by_input(&mut self, input: &str, seq: u64) -> usize {
-        let nodes_hit: BTreeSet<String> =
-            self.nodes
+        let nodes_hit: BTreeSet<String> = self
+            .nodes
             .iter()
-            .filter(|(_, n)| n.inputs.iter().any(|i| i == input) || n.state.spec_box.as_deref() == Some(input))
+            .filter(|(_, n)| {
+                n.inputs.iter().any(|i| i == input) || n.state.spec_box.as_deref() == Some(input)
+            })
             .map(|(k, _)| k.clone())
             .collect();
         let mut hit = Vec::new();
@@ -1395,7 +1747,9 @@ impl CampaignState {
                 continue;
             }
             let via_job = it.accepted.as_ref().is_some_and(|a| match &a.source {
-                crate::ledger::AcceptSource::Job { job, .. } => self.jobs.get(job).is_some_and(|j| j.binary == input),
+                crate::ledger::AcceptSource::Job { job, .. } => {
+                    self.jobs.get(job).is_some_and(|j| j.binary == input)
+                }
                 _ => false,
             });
             if nodes_hit.contains(&it.node) || it.inputs.iter().any(|i| i == input) || via_job {
@@ -1429,12 +1783,20 @@ impl CampaignState {
         hit.len()
     }
 
-    fn apply_item_event(&mut self, rec: &Record, item: &str, ev: &crate::ledger::ItemEvent) -> Result<(), ReduceError> {
+    fn apply_item_event(
+        &mut self,
+        rec: &Record,
+        item: &str,
+        ev: &crate::ledger::ItemEvent,
+    ) -> Result<(), ReduceError> {
         use crate::ledger::{AcceptSource, ItemEvent as IE};
         let seq = rec.seq;
         let invalid = |why: String| ReduceError::Invalid { seq, why };
         let illegal = |err: IllegalTransition| ReduceError::Illegal { seq, err };
-        let it = self.items.get(item).ok_or_else(|| invalid(format!("unknown item {item}")))?;
+        let it = self
+            .items
+            .get(item)
+            .ok_or_else(|| invalid(format!("unknown item {item}")))?;
         let machine_ev = match ev {
             IE::Start { .. } => ItemMachineEvent::Start,
             IE::Produce { .. } => ItemMachineEvent::Produce,
@@ -1449,29 +1811,57 @@ impl CampaignState {
             IE::Reopen { .. } => ItemMachineEvent::Reopen,
             IE::Retire { .. } => ItemMachineEvent::Retire,
         };
-        let cur = ItemState { phase: it.phase.clone(), rung: it.rung };
+        let cur = ItemState {
+            phase: it.phase.clone(),
+            rung: it.rung,
+        };
         let next = apply_item(&cur, &machine_ev).map_err(illegal)?;
         let repeat = next == cur;
         // Additional guards (all before mutation).
         let mut accepted = None;
         match ev {
             IE::Produce { job, attempt, .. } if !repeat => {
-                let j = self.jobs.get(job).ok_or_else(|| invalid(format!("produce: unknown job {job}")))?;
-                if j.item != item || j.attempt != *attempt || !matches!(j.state, AttemptState::SucceededSealed(_)) {
-                    return Err(invalid(format!("produce: job {job} attempt {attempt} is not a sealed success of this item")));
+                let j = self
+                    .jobs
+                    .get(job)
+                    .ok_or_else(|| invalid(format!("produce: unknown job {job}")))?;
+                if j.item != item
+                    || j.attempt != *attempt
+                    || !matches!(j.state, AttemptState::SucceededSealed(_))
+                {
+                    return Err(invalid(format!(
+                        "produce: job {job} attempt {attempt} is not a sealed success of this item"
+                    )));
                 }
             }
-            IE::Accept { rule, level, record, source, elided } => {
+            IE::Accept {
+                rule,
+                level,
+                record,
+                source,
+                elided,
+            } => {
                 if *elided {
-                    return Err(invalid(format!("accept of {rule}: records with elided witness loci are unusable (fail closed)")));
+                    return Err(invalid(format!(
+                        "accept of {rule}: records with elided witness loci are unusable (fail closed)"
+                    )));
                 }
                 match source {
-                    AcceptSource::Job { job, attempt, table_blake3 } => {
-                        let j = self.jobs.get(job).ok_or_else(|| invalid(format!("accept: unknown job {job}")))?;
+                    AcceptSource::Job {
+                        job,
+                        attempt,
+                        table_blake3,
+                    } => {
+                        let j = self
+                            .jobs
+                            .get(job)
+                            .ok_or_else(|| invalid(format!("accept: unknown job {job}")))?;
                         let sealed_ok = matches!(j.state, AttemptState::SucceededSealed(_))
                             && j.attempt == *attempt
                             && j.item == item
-                            && j.sealed_table.as_ref().is_some_and(|t| t.blake3 == *table_blake3);
+                            && j.sealed_table
+                                .as_ref()
+                                .is_some_and(|t| t.blake3 == *table_blake3);
                         if !sealed_ok {
                             return Err(invalid(format!(
                                 "accept of {rule}: accepted records come only from a sealed table (job {job} attempt {attempt})"
@@ -1480,43 +1870,92 @@ impl CampaignState {
                     }
                     AcceptSource::Evidence { evidence } => {
                         if !self.evidence.contains_key(evidence) {
-                            return Err(invalid(format!("accept of {rule}: unknown evidence {evidence}")));
+                            return Err(invalid(format!(
+                                "accept of {rule}: unknown evidence {evidence}"
+                            )));
                         }
                     }
                 }
                 if repeat {
                     let a = it.accepted.as_ref().unwrap();
                     if a.rule != *rule || a.record != *record {
-                        return Err(invalid(format!("item {item} already accepted with rule {}", a.rule)));
+                        return Err(invalid(format!(
+                            "item {item} already accepted with rule {}",
+                            a.rule
+                        )));
                     }
                 } else {
-                    accepted = Some(AcceptedRec { rule: rule.clone(), level: *level, record: record.clone(), source: source.clone(), seq });
+                    accepted = Some(AcceptedRec {
+                        rule: rule.clone(),
+                        level: *level,
+                        record: record.clone(),
+                        source: source.clone(),
+                        seq,
+                    });
                 }
             }
-            IE::Retire { rule, proof, superseded_by } if !repeat => {
-                let a = it.accepted.as_ref().ok_or_else(|| invalid(format!("retire: {item} has no accepted rule")))?;
+            IE::Retire {
+                rule,
+                proof,
+                superseded_by,
+            } if !repeat => {
+                let a = it
+                    .accepted
+                    .as_ref()
+                    .ok_or_else(|| invalid(format!("retire: {item} has no accepted rule")))?;
                 if a.rule != *rule {
-                    return Err(invalid(format!("retire: {item} carries rule {}, not {rule}", a.rule)));
+                    return Err(invalid(format!(
+                        "retire: {item} carries rule {}, not {rule}",
+                        a.rule
+                    )));
                 }
-                if matches!(proof, crate::ledger::RetirementProof::ReplacedBy { .. }) && superseded_by.is_none() {
-                    return Err(invalid("retire by replacement must name the superseding item".into()));
+                if matches!(proof, crate::ledger::RetirementProof::ReplacedBy { .. })
+                    && superseded_by.is_none()
+                {
+                    return Err(invalid(
+                        "retire by replacement must name the superseding item".into(),
+                    ));
                 }
                 if let Some(by) = superseded_by {
-                    let b = self.items.get(by).ok_or_else(|| invalid(format!("retire: unknown superseding item {by}")))?;
-                    if by == item || b.node != it.node || !matches!(b.phase, ItemPhase::Accepted(_)) {
-                        return Err(invalid(format!("retire: {by} is not another accepted item of node {}", it.node)));
+                    let b = self
+                        .items
+                        .get(by)
+                        .ok_or_else(|| invalid(format!("retire: unknown superseding item {by}")))?;
+                    if by == item || b.node != it.node || !matches!(b.phase, ItemPhase::Accepted(_))
+                    {
+                        return Err(invalid(format!(
+                            "retire: {by} is not another accepted item of node {}",
+                            it.node
+                        )));
                     }
                 }
                 let n = &self.nodes[&it.node];
-                apply_node(&n.state, &NodeEvent::Retirement { box_only: proof.box_only() }, n.context()).map_err(illegal)?;
+                apply_node(
+                    &n.state,
+                    &NodeEvent::Retirement {
+                        box_only: proof.box_only(),
+                    },
+                    n.context(),
+                )
+                .map_err(illegal)?;
             }
             IE::DeclareTerminal { count, .. } if !repeat => {
                 let n = &self.nodes[&it.node];
-                apply_node(&n.state, &NodeEvent::TerminalDeclared { count: *count }, n.context()).map_err(illegal)?;
+                apply_node(
+                    &n.state,
+                    &NodeEvent::TerminalDeclared { count: *count },
+                    n.context(),
+                )
+                .map_err(illegal)?;
             }
             IE::Escalate { .. } | IE::Reopen { .. } if !repeat => {
-                if self.nodes[&it.node].state.phase == NodePhase::Stale && matches!(ev, IE::Reopen { .. }) {
-                    return Err(invalid(format!("reopen of {item}: node {} is stale (reopen the node first)", it.node)));
+                if self.nodes[&it.node].state.phase == NodePhase::Stale
+                    && matches!(ev, IE::Reopen { .. })
+                {
+                    return Err(invalid(format!(
+                        "reopen of {item}: node {} is stale (reopen the node first)",
+                        it.node
+                    )));
                 }
             }
             _ => {}
@@ -1553,14 +1992,28 @@ impl CampaignState {
                         it.inputs.push(b);
                     }
                 }
-                Some(format!("{node} {label}: rule {rule} accepted ({})", level.word()))
+                Some(format!(
+                    "{node} {label}: rule {rule} accepted ({})",
+                    level.word()
+                ))
             }
-            IE::Retire { rule, proof, superseded_by } => {
+            IE::Retire {
+                rule,
+                proof,
+                superseded_by,
+            } => {
                 self.rules.retired += 1;
                 let it = self.items.get_mut(item).unwrap();
-                it.retired = Some(RetiredRec { proof: proof.clone(), superseded_by: superseded_by.clone(), seq });
+                it.retired = Some(RetiredRec {
+                    proof: proof.clone(),
+                    superseded_by: superseded_by.clone(),
+                    seq,
+                });
                 Some(match superseded_by {
-                    Some(by) => format!("{node} {label}: rule {rule} superseded by {by} ({})", proof.word()),
+                    Some(by) => format!(
+                        "{node} {label}: rule {rule} superseded by {by} ({})",
+                        proof.word()
+                    ),
                     None => format!("{node} {label}: rule {rule} retired ({})", proof.word()),
                 })
             }
@@ -1574,13 +2027,19 @@ impl CampaignState {
             }
             IE::Reject { reason } => {
                 self.rules.rejected += 1;
-                *self.rules.rejected_by_reason.entry(reason.clone()).or_default() += 1;
+                *self
+                    .rules
+                    .rejected_by_reason
+                    .entry(reason.clone())
+                    .or_default() += 1;
                 if matches!(from, ItemPhase::Accepted(_)) {
                     self.items.get_mut(item).unwrap().accepted = None;
                 }
                 Some(format!("{node} {label}: rejected ({reason})"))
             }
-            IE::Escalate { to, reason } => Some(format!("{node} {label}: escalated to {to} ({reason})")),
+            IE::Escalate { to, reason } => {
+                Some(format!("{node} {label}: escalated to {to} ({reason})"))
+            }
             IE::DeclareTerminal { count, .. } => {
                 let n = self.nodes.get_mut(&node).unwrap();
                 n.state.terminals += *count;
@@ -1588,7 +2047,9 @@ impl CampaignState {
                 self.items.get_mut(item).unwrap().terminal_keys = *count;
                 Some(format!("{node} {label}: {count} terminal key(s) declared"))
             }
-            IE::ProposeTerminal { reason } => Some(format!("{node} {label}: terminal candidate ({reason})")),
+            IE::ProposeTerminal { reason } => {
+                Some(format!("{node} {label}: terminal candidate ({reason})"))
+            }
             IE::MarkStale { input } => {
                 let it = self.items.get_mut(item).unwrap();
                 it.stale_from = Some(from.tag().to_string());
@@ -1630,16 +2091,32 @@ impl CampaignState {
         Ok(())
     }
 
-    fn apply_job_event(&mut self, rec: &Record, job: &str, attempt: u32, ev: &crate::ledger::JobEvent) -> Result<(), ReduceError> {
+    fn apply_job_event(
+        &mut self,
+        rec: &Record,
+        job: &str,
+        attempt: u32,
+        ev: &crate::ledger::JobEvent,
+    ) -> Result<(), ReduceError> {
         use crate::ledger::JobEvent as JE;
         let seq = rec.seq;
         let invalid = |why: String| ReduceError::Invalid { seq, why };
         let illegal = |err: IllegalTransition| ReduceError::Illegal { seq, err };
-        let j = self.jobs.get(job).ok_or_else(|| invalid(format!("unknown job {job}")))?;
+        let j = self
+            .jobs
+            .get(job)
+            .ok_or_else(|| invalid(format!("unknown job {job}")))?;
         let machine_ev = match ev {
             JE::Launch { .. } => AttemptEvent::Launch,
             JE::Started { .. } => AttemptEvent::Started,
-            JE::Finished { class, sealed_output, .. } => AttemptEvent::Finished { class: *class, sealed: sealed_output.is_some() },
+            JE::Finished {
+                class,
+                sealed_output,
+                ..
+            } => AttemptEvent::Finished {
+                class: *class,
+                sealed: sealed_output.is_some(),
+            },
             JE::Interrupt { .. } => AttemptEvent::Interrupt,
             JE::Lose { .. } => AttemptEvent::Lose,
             JE::Requeue { .. } => AttemptEvent::Requeue,
@@ -1656,10 +2133,16 @@ impl CampaignState {
                 return Ok(()); // repeat of the record that created this attempt
             }
             if attempt != j.attempt + 1 {
-                return Err(invalid(format!("job {job}: new attempt must be {}, got {attempt}", j.attempt + 1)));
+                return Err(invalid(format!(
+                    "job {job}: new attempt must be {}, got {attempt}",
+                    j.attempt + 1
+                )));
             }
         } else if attempt != j.attempt {
-            return Err(invalid(format!("job {job}: event for attempt {attempt}, current is {}", j.attempt)));
+            return Err(invalid(format!(
+                "job {job}: event for attempt {attempt}, current is {}",
+                j.attempt
+            )));
         }
         let next = apply_attempt(j.state, machine_ev).map_err(illegal)?;
         if next == j.state && !new_attempt {
@@ -1680,12 +2163,23 @@ impl CampaignState {
         }
         match ev {
             JE::Launch { run_dir, .. } => j.run_dir = Some(run_dir.clone()),
-            JE::Started { pid, start_ticks, boot_id } => {
+            JE::Started {
+                pid,
+                start_ticks,
+                boot_id,
+            } => {
                 j.pid = Some(*pid);
                 j.start_ticks = Some(*start_ticks);
                 j.boot_id = Some(boot_id.clone());
             }
-            JE::Finished { class, sealed_output, cpu_ms, peak_rss_bytes, time_decided, .. } => {
+            JE::Finished {
+                class,
+                sealed_output,
+                cpu_ms,
+                peak_rss_bytes,
+                time_decided,
+                ..
+            } => {
                 j.sealed_table = sealed_output.clone();
                 j.time_decided = *time_decided;
                 j.cpu_ms += *cpu_ms;
@@ -1701,7 +2195,15 @@ impl CampaignState {
                     if let Some(n) = self.nodes.get_mut(&node) {
                         n.cpu_ms += *cpu_ms;
                     }
-                    self.push_recent(rec, "job_finished", format!("{node} {label} {rung}: job {} ({})", short(job), class_word(*class)));
+                    self.push_recent(
+                        rec,
+                        "job_finished",
+                        format!(
+                            "{node} {label} {rung}: job {} ({})",
+                            short(job),
+                            class_word(*class)
+                        ),
+                    );
                 }
             }
             _ => {}
@@ -1713,7 +2215,12 @@ impl CampaignState {
         if self.recent.len() == RECENT_CAP {
             self.recent.pop_front();
         }
-        self.recent.push_back(RecentEvent { seq: rec.seq, utc: rec.utc.clone(), kind: kind.to_string(), text });
+        self.recent.push_back(RecentEvent {
+            seq: rec.seq,
+            utc: rec.utc.clone(),
+            kind: kind.to_string(),
+            text,
+        });
     }
 
     /// Economy report of a node (R31): `before` = every rule ever accepted (still accepted or retired /
@@ -1723,7 +2230,9 @@ impl CampaignState {
         let mut e = NodeEconomy::default();
         for it in self.items.values().filter(|i| i.node == node) {
             let live = matches!(it.phase, ItemPhase::Accepted(_));
-            let was = live || it.phase == ItemPhase::Retired || (it.phase == ItemPhase::Stale && it.stale_from.as_deref() == Some("retired"));
+            let was = live
+                || it.phase == ItemPhase::Retired
+                || (it.phase == ItemPhase::Stale && it.stale_from.as_deref() == Some("retired"));
             if !was {
                 continue;
             }
@@ -1740,7 +2249,11 @@ impl CampaignState {
                 }
                 None => e.unmeasured += 1,
             }
-            if it.retired.as_ref().is_some_and(|r| r.superseded_by.is_some()) {
+            if it
+                .retired
+                .as_ref()
+                .is_some_and(|r| r.superseded_by.is_some())
+            {
                 e.superseded += 1;
             }
         }
@@ -1750,7 +2263,10 @@ impl CampaignState {
     /// Attempts that may still have a process (launching / running): what a resuming supervisor must settle
     /// (orphan check by identity, then `interrupt` / `lose` records, then `requeue`).
     pub fn unsettled_jobs(&self) -> Vec<(&String, &JobRec)> {
-        self.jobs.iter().filter(|(_, j)| !j.state.is_settled()).collect()
+        self.jobs
+            .iter()
+            .filter(|(_, j)| !j.state.is_settled())
+            .collect()
     }
 
     /// Items with phase counts over the whole campaign, indexed like [`ItemPhase::TAGS`].
@@ -1766,7 +2282,9 @@ impl CampaignState {
 
     /// Stable digest of the state (blake3 of its JSON): used to compare snapshot + tail with full replay.
     pub fn digest(&self) -> String {
-        blake3::hash(&serde_json::to_vec(self).expect("state serialises")).to_hex().to_string()
+        blake3::hash(&serde_json::to_vec(self).expect("state serialises"))
+            .to_hex()
+            .to_string()
     }
 }
 
@@ -1827,14 +2345,22 @@ mod tests {
             AttemptEvent::Cancel,
         ];
         for c in FINISH_CLASSES {
-            v.push(AttemptEvent::Finished { class: c, sealed: true });
-            v.push(AttemptEvent::Finished { class: c, sealed: false });
+            v.push(AttemptEvent::Finished {
+                class: c,
+                sealed: true,
+            });
+            v.push(AttemptEvent::Finished {
+                class: c,
+                sealed: false,
+            });
         }
         v
     }
 
     fn table_has(table: &[(&str, &str, &str)], from: &str, ev: &str) -> bool {
-        table.iter().any(|(f, e, _)| *e == ev && (f.split('|').any(|x| x == from) || f.starts_with("<any")))
+        table
+            .iter()
+            .any(|(f, e, _)| *e == ev && (f.split('|').any(|x| x == from) || f.starts_with("<any")))
     }
 
     #[test]
@@ -1843,18 +2369,27 @@ mod tests {
             for e in all_attempt_events() {
                 match apply_attempt(s, e) {
                     Ok(n) if n == s => {} // repeat: allowed only for the event that produced s (checked below)
-                    Ok(_) => assert!(table_has(ATTEMPT_TABLE, s.tag(), e.tag()), "{s:?} --{e:?}--> not in table"),
+                    Ok(_) => assert!(
+                        table_has(ATTEMPT_TABLE, s.tag(), e.tag()),
+                        "{s:?} --{e:?}--> not in table"
+                    ),
                     Err(_) => {
                         // a listed (from, event) may only fail on the seal guard
                         if table_has(ATTEMPT_TABLE, s.tag(), e.tag()) {
-                            assert!(matches!(e, AttemptEvent::Finished { sealed: false, .. }), "{s:?} {e:?}");
+                            assert!(
+                                matches!(e, AttemptEvent::Finished { sealed: false, .. }),
+                                "{s:?} {e:?}"
+                            );
                         }
                     }
                 }
             }
         }
         // settled states never go back to a live state
-        for s in all_attempt_states().into_iter().filter(|s| s.is_settled() && *s != AttemptState::Queued) {
+        for s in all_attempt_states()
+            .into_iter()
+            .filter(|s| s.is_settled() && *s != AttemptState::Queued)
+        {
             for e in all_attempt_events() {
                 if let Ok(n) = apply_attempt(s, e) {
                     assert!(n.is_settled(), "{s:?} -> {n:?}");
@@ -1862,7 +2397,16 @@ mod tests {
             }
         }
         // success needs a seal
-        assert!(apply_attempt(AttemptState::Running, AttemptEvent::Finished { class: FinishClass::RuleFound, sealed: false }).is_err());
+        assert!(
+            apply_attempt(
+                AttemptState::Running,
+                AttemptEvent::Finished {
+                    class: FinishClass::RuleFound,
+                    sealed: false
+                }
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1884,7 +2428,15 @@ mod tests {
 
     fn item_events() -> Vec<ItemMachineEvent> {
         use ItemMachineEvent as E;
-        let mut v = vec![E::Start, E::Produce, E::Requeue, E::ProposeTerminal, E::DeclareTerminal, E::MarkStale, E::Reopen];
+        let mut v = vec![
+            E::Start,
+            E::Produce,
+            E::Requeue,
+            E::ProposeTerminal,
+            E::DeclareTerminal,
+            E::MarkStale,
+            E::Reopen,
+        ];
         for l in EvidenceLevel::ALL {
             v.push(E::Accept(l));
             v.push(E::Upgrade(l));
@@ -1898,7 +2450,14 @@ mod tests {
     }
 
     fn item_phases() -> Vec<ItemPhase> {
-        let mut v = vec![ItemPhase::Open, ItemPhase::InProgress, ItemPhase::Produced, ItemPhase::TerminalCandidate, ItemPhase::Terminal, ItemPhase::Stale];
+        let mut v = vec![
+            ItemPhase::Open,
+            ItemPhase::InProgress,
+            ItemPhase::Produced,
+            ItemPhase::TerminalCandidate,
+            ItemPhase::Terminal,
+            ItemPhase::Stale,
+        ];
         for l in EvidenceLevel::ALL {
             v.push(ItemPhase::Accepted(l));
         }
@@ -1910,16 +2469,24 @@ mod tests {
     #[test]
     fn item_machine_matches_its_table_exhaustively() {
         for p in item_phases() {
-            let s = ItemState { phase: p.clone(), rung: Rung(1) };
+            let s = ItemState {
+                phase: p.clone(),
+                rung: Rung(1),
+            };
             for e in item_events() {
                 match apply_item(&s, &e) {
                     Ok(n) if n == s => {}
                     Ok(n) => {
-                        assert!(table_has(ITEM_TABLE, s.phase.tag(), e.tag()), "{p:?} --{e:?}--> {n:?} not in table");
+                        assert!(
+                            table_has(ITEM_TABLE, s.phase.tag(), e.tag()),
+                            "{p:?} --{e:?}--> {n:?} not in table"
+                        );
                         if let ItemMachineEvent::Escalate(r) = e {
                             assert!(r > s.rung);
                         }
-                        if let (ItemPhase::Accepted(a), ItemPhase::Accepted(b)) = (&s.phase, &n.phase) {
+                        if let (ItemPhase::Accepted(a), ItemPhase::Accepted(b)) =
+                            (&s.phase, &n.phase)
+                        {
                             assert!(b > a, "level decreased");
                         }
                     }
@@ -1929,7 +2496,10 @@ mod tests {
         }
         // terminal and escalated are final except for staleness
         for p in [ItemPhase::Terminal, ItemPhase::Escalated(Rung(2))] {
-            let s = ItemState { phase: p, rung: Rung(1) };
+            let s = ItemState {
+                phase: p,
+                rung: Rung(1),
+            };
             for e in item_events() {
                 if let Ok(n) = apply_item(&s, &e) {
                     assert!(n == s || n.phase == ItemPhase::Stale);
@@ -1942,21 +2512,50 @@ mod tests {
     fn node_and_campaign_machines() {
         let base = NodeState::new(None, 2);
         let ctx = NodeContext::default();
-        let cr = |round, defect| NodeEvent::ClosureResult { round, defect_keys: defect, closure_keys: 100, rules_used: Some(7), keyset: None };
+        let cr = |round, defect| NodeEvent::ClosureResult {
+            round,
+            defect_keys: defect,
+            closure_keys: 100,
+            rules_used: Some(7),
+            keyset: None,
+        };
         let s = apply_node(&base, &NodeEvent::Start, ctx).unwrap();
         assert!(apply_node(&s, &NodeEvent::DeclareClosed, ctx).is_err());
         let s = apply_node(&s, &cr(1, 5), ctx).unwrap();
         assert!(apply_node(&s, &NodeEvent::DeclareClosed, ctx).is_err());
         assert!(apply_node(&s, &cr(1, 0), ctx).is_err());
         let s = apply_node(&s, &cr(2, 0), ctx).unwrap();
-        assert!(apply_node(&s, &NodeEvent::DeclareClosed, NodeContext { items_open: 1, items_unproved: 0 }).is_err());
+        assert!(
+            apply_node(
+                &s,
+                &NodeEvent::DeclareClosed,
+                NodeContext {
+                    items_open: 1,
+                    items_unproved: 0
+                }
+            )
+            .is_err()
+        );
         let s = apply_node(&s, &NodeEvent::DeclareClosed, ctx).unwrap();
         assert_eq!((s.phase, s.closure_kind()), (NodePhase::Closed, "full"));
-        assert!(apply_node(&s, &NodeEvent::DeclareCertified, NodeContext { items_open: 0, items_unproved: 3 }).is_err());
+        assert!(
+            apply_node(
+                &s,
+                &NodeEvent::DeclareCertified,
+                NodeContext {
+                    items_open: 0,
+                    items_unproved: 3
+                }
+            )
+            .is_err()
+        );
         let s2 = apply_node(&s, &NodeEvent::DeclareCertified, ctx).unwrap();
         assert!(s2.certified() && s2.closure_kind() == "full");
         let t = apply_node(&s, &NodeEvent::TerminalDeclared { count: 2 }, ctx).unwrap();
-        assert!(apply_node(&t, &NodeEvent::TerminalDeclared { count: 1 }, ctx).is_err(), "bound 2");
+        assert!(
+            apply_node(&t, &NodeEvent::TerminalDeclared { count: 1 }, ctx).is_err(),
+            "bound 2"
+        );
         // R33: a box closure pass never retires a rule of a FULL node; coverage-preserving proofs may
         assert!(apply_node(&s, &NodeEvent::Retirement { box_only: true }, ctx).is_err());
         assert!(apply_node(&s, &NodeEvent::Retirement { box_only: false }, ctx).is_ok());
@@ -1965,40 +2564,127 @@ mod tests {
     #[test]
     fn full_first_then_spec_box_or_open() {
         let ctx = NodeContext::default();
-        let blk = Blockers { faces: 3, loci: 1, keys: 87, list: None };
-        let ended = |s: &NodeState| apply_node(s, &NodeEvent::AttemptEnded { blockers: blk.clone(), reason: "budget".into() }, ctx).unwrap();
+        let blk = Blockers {
+            faces: 3,
+            loci: 1,
+            keys: 87,
+            list: None,
+        };
+        let ended = |s: &NodeState| {
+            apply_node(
+                s,
+                &NodeEvent::AttemptEnded {
+                    blockers: blk.clone(),
+                    reason: "budget".into(),
+                },
+                ctx,
+            )
+            .unwrap()
+        };
         let fb = |id: &str| NodeEvent::FallBackToBox { box_id: id.into() };
         // no spec box: BOXED is illegal; OPEN after the full attempt ended
         let s = apply_node(&NodeState::new(None, 100), &NodeEvent::Start, ctx).unwrap();
-        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "BOXED without a spec box");
-        assert!(apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(), "attempt not ended");
+        assert!(
+            apply_node(&s, &fb("box-R*"), ctx).is_err(),
+            "BOXED without a spec box"
+        );
+        assert!(
+            apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(),
+            "attempt not ended"
+        );
         let s = ended(&s);
-        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "still no spec box after the full attempt");
-        let o = apply_node(&s, &NodeEvent::DeclareOpen { reason: "blocked".into() }, ctx).unwrap();
+        assert!(
+            apply_node(&s, &fb("box-R*"), ctx).is_err(),
+            "still no spec box after the full attempt"
+        );
+        let o = apply_node(
+            &s,
+            &NodeEvent::DeclareOpen {
+                reason: "blocked".into(),
+            },
+            ctx,
+        )
+        .unwrap();
         assert_eq!((o.phase, o.closure_kind()), (NodePhase::Open, "open"));
         assert_eq!(o.full_blockers.as_ref().unwrap().keys, 87);
         // spec box: fallback only after the full attempt ended, only to that box
-        let s = apply_node(&NodeState::new(Some("box-R*".into()), 100), &NodeEvent::Start, ctx).unwrap();
-        assert!(apply_node(&s, &fb("box-R*"), ctx).is_err(), "full attempt first (R35)");
+        let s = apply_node(
+            &NodeState::new(Some("box-R*".into()), 100),
+            &NodeEvent::Start,
+            ctx,
+        )
+        .unwrap();
+        assert!(
+            apply_node(&s, &fb("box-R*"), ctx).is_err(),
+            "full attempt first (R35)"
+        );
         let s = ended(&s);
-        assert!(apply_node(&s, &fb("box-wider"), ctx).is_err(), "never another / wider box");
-        assert!(apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(), "box must be tried first");
+        assert!(
+            apply_node(&s, &fb("box-wider"), ctx).is_err(),
+            "never another / wider box"
+        );
+        assert!(
+            apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).is_err(),
+            "box must be tried first"
+        );
         let b = apply_node(&s, &fb("box-R*"), ctx).unwrap();
-        assert_eq!(b.target, ClosureTarget::Boxed { box_id: "box-R*".into() });
+        assert_eq!(
+            b.target,
+            ClosureTarget::Boxed {
+                box_id: "box-R*".into()
+            }
+        );
         assert!(!b.attempt_ended && b.full_blockers.is_some());
-        let b = apply_node(&b, &NodeEvent::ClosureResult { round: 1, defect_keys: 0, closure_keys: 55704, rules_used: Some(906), keyset: None }, ctx).unwrap();
+        let b = apply_node(
+            &b,
+            &NodeEvent::ClosureResult {
+                round: 1,
+                defect_keys: 0,
+                closure_keys: 55704,
+                rules_used: Some(906),
+                keyset: None,
+            },
+            ctx,
+        )
+        .unwrap();
         let c = apply_node(&b, &NodeEvent::DeclareClosed, ctx).unwrap();
         assert_eq!(c.closure_kind(), "boxed");
-        assert!(apply_node(&c, &NodeEvent::Retirement { box_only: true }, ctx).is_ok(), "box pruning only on BOXED");
+        assert!(
+            apply_node(&c, &NodeEvent::Retirement { box_only: true }, ctx).is_ok(),
+            "box pruning only on BOXED"
+        );
         let cc = apply_node(&c, &NodeEvent::DeclareCertified, ctx).unwrap();
         assert!(cc.certified() && cc.closure_kind() == "boxed");
         // reopen: back to FULL first
-        let r = apply_node(&cc, &NodeEvent::Reopen { reason: "later run".into() }, ctx).unwrap();
-        assert_eq!((r.phase, &r.target), (NodePhase::Running, &ClosureTarget::Full));
+        let r = apply_node(
+            &cc,
+            &NodeEvent::Reopen {
+                reason: "later run".into(),
+            },
+            ctx,
+        )
+        .unwrap();
+        assert_eq!(
+            (r.phase, &r.target),
+            (NodePhase::Running, &ClosureTarget::Full)
+        );
         // a box attempt that ends too -> OPEN with both blocker lists
-        let e2 = apply_node(&b, &NodeEvent::AttemptEnded { blockers: Blockers { keys: 2, ..Default::default() }, reason: "box budget".into() }, ctx).unwrap();
+        let e2 = apply_node(
+            &b,
+            &NodeEvent::AttemptEnded {
+                blockers: Blockers {
+                    keys: 2,
+                    ..Default::default()
+                },
+                reason: "box budget".into(),
+            },
+            ctx,
+        )
+        .unwrap();
         let o2 = apply_node(&e2, &NodeEvent::DeclareOpen { reason: "x".into() }, ctx).unwrap();
-        assert!(o2.full_blockers.is_some() && o2.box_blockers.is_some() && o2.closure_kind() == "open");
+        assert!(
+            o2.full_blockers.is_some() && o2.box_blockers.is_some() && o2.closure_kind() == "open"
+        );
     }
 
     #[test]
@@ -2013,19 +2699,42 @@ mod tests {
         let d = apply_campaign(Some(p), E::Drain).unwrap();
         assert!(apply_campaign(Some(d), E::Finish).is_err());
         let st = apply_campaign(Some(d), E::Stop).unwrap();
-        assert_eq!(apply_campaign(Some(st), E::Start).unwrap(), CampaignPhase::Starting);
+        assert_eq!(
+            apply_campaign(Some(st), E::Start).unwrap(),
+            CampaignPhase::Starting
+        );
         for s in CampaignPhase::ALL {
             for e in [E::Start, E::Run, E::Drain, E::Stop, E::Finish] {
                 if let Ok(n) = apply_campaign(Some(s), e) {
-                    assert!(n == s || table_has(CAMPAIGN_TABLE, s.tag(), e.tag()), "{s:?} {e:?}");
+                    assert!(
+                        n == s || table_has(CAMPAIGN_TABLE, s.tag(), e.tag()),
+                        "{s:?} {e:?}"
+                    );
                 }
             }
         }
         for s in NodePhase::ALL {
-            let st = NodeState { phase: s, ..base.clone() };
-            for e in [NodeEvent::Start, NodeEvent::DeclareClosed, NodeEvent::DeclareCertified, NodeEvent::Reopen { reason: "x".into() }, NodeEvent::DeclareOpen { reason: "x".into() }, NodeEvent::FallBackToBox { box_id: "b".into() }] {
+            let st = NodeState {
+                phase: s,
+                ..base.clone()
+            };
+            for e in [
+                NodeEvent::Start,
+                NodeEvent::DeclareClosed,
+                NodeEvent::DeclareCertified,
+                NodeEvent::Reopen { reason: "x".into() },
+                NodeEvent::DeclareOpen { reason: "x".into() },
+                NodeEvent::FallBackToBox { box_id: "b".into() },
+            ] {
                 if let Ok(n) = apply_node(&st, &e, ctx) {
-                    assert!(n == st || NODE_TABLE.iter().any(|(f, ev, _)| *ev == e.tag() && f.split('|').any(|x| x == s.tag())), "{s:?} {e:?}");
+                    assert!(
+                        n == st
+                            || NODE_TABLE
+                                .iter()
+                                .any(|(f, ev, _)| *ev == e.tag()
+                                    && f.split('|').any(|x| x == s.tag())),
+                        "{s:?} {e:?}"
+                    );
                 }
             }
         }

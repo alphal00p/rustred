@@ -39,7 +39,9 @@ use serde::{Deserialize, Serialize};
 use crate::atomic::{self, AtomicError};
 use crate::clock::Clock;
 use crate::lock::{DeadReason, OwnerRecord, ProcessIdentity};
-use crate::state::{CampaignEvent, CampaignState, EvidenceLevel, FinishClass, NodeEvent, ReduceError, Rung};
+use crate::state::{
+    CampaignEvent, CampaignState, EvidenceLevel, FinishClass, NodeEvent, ReduceError, Rung,
+};
 
 pub const LEDGER_SCHEMA: &str = "rustred.campaign.ledger.v1";
 pub const MANIFEST_SCHEMA: &str = "rustred.campaign.ledger-manifest.v1";
@@ -67,31 +69,73 @@ pub struct FileRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "from", rename_all = "snake_case")]
 pub enum AcceptSource {
-    Job { job: String, attempt: u32, table_blake3: String },
-    Evidence { evidence: String },
+    Job {
+        job: String,
+        attempt: u32,
+        table_blake3: String,
+    },
+    Evidence {
+        evidence: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "ev", rename_all = "snake_case")]
 pub enum ItemEvent {
-    Start { job: Option<String> },
+    Start {
+        job: Option<String>,
+    },
     /// The attempt's sealed table holds a candidate rule for this item.
-    Produce { job: String, attempt: u32, table: FileRef },
+    Produce {
+        job: String,
+        attempt: u32,
+        table: FileRef,
+    },
     /// `record` = the accepted rule record, written (atomically, content-addressed) BEFORE this line.
-    Accept { rule: String, level: EvidenceLevel, record: FileRef, source: AcceptSource, elided: bool },
+    Accept {
+        rule: String,
+        level: EvidenceLevel,
+        record: FileRef,
+        source: AcceptSource,
+        elided: bool,
+    },
     /// Higher evidence for the accepted rule (identity test / proof); `evidence` names its certificate file.
-    Upgrade { level: EvidenceLevel, evidence: FileRef },
-    Reject { reason: String },
-    Escalate { to: Rung, reason: String },
-    Requeue { reason: String },
-    ProposeTerminal { reason: String },
+    Upgrade {
+        level: EvidenceLevel,
+        evidence: FileRef,
+    },
+    Reject {
+        reason: String,
+    },
+    Escalate {
+        to: Rung,
+        reason: String,
+    },
+    Requeue {
+        reason: String,
+    },
+    ProposeTerminal {
+        reason: String,
+    },
     /// `count` keys become terminals (counted against the node's fallback bound); `keys` = the key-set file.
-    DeclareTerminal { count: u32, keys: Option<FileRef>, reason: String },
-    MarkStale { input: String },
-    Reopen { reason: String },
+    DeclareTerminal {
+        count: u32,
+        keys: Option<FileRef>,
+        reason: String,
+    },
+    MarkStale {
+        input: String,
+    },
+    Reopen {
+        reason: String,
+    },
     /// Retire the item's accepted rule (economy, R31 / R33). Never deletion: the item becomes `retired`, its
     /// record and economy stay. `superseded_by` = the item whose rule replaces it (required for `replaced_by`).
-    Retire { rule: String, proof: RetirementProof, superseded_by: Option<String> },
+    Retire {
+        rule: String,
+        proof: RetirementProof,
+        superseded_by: Option<String>,
+    },
 }
 
 /// The reason a rule may be retired, each naming its proof artefact by digest. On a FULL node only the
@@ -158,8 +202,16 @@ impl RuleEconomy {
 #[serde(tag = "ev", rename_all = "snake_case")]
 pub enum JobEvent {
     /// WRITE-AHEAD intent: fsynced before the child is spawned.
-    Launch { run_dir: String, cpus: Vec<u32>, reserved_bytes: u64 },
-    Started { pid: u32, start_ticks: u64, boot_id: String },
+    Launch {
+        run_dir: String,
+        cpus: Vec<u32>,
+        reserved_bytes: u64,
+    },
+    Started {
+        pid: u32,
+        start_ticks: u64,
+        boot_id: String,
+    },
     Finished {
         class: FinishClass,
         exit_code: Option<i32>,
@@ -172,11 +224,21 @@ pub enum JobEvent {
         peak_rss_bytes: u64,
         time_decided: bool,
     },
-    Interrupt { reason: String },
-    Lose { reason: String },
-    Requeue { reason: String },
-    Retry { reason: String },
-    Cancel { reason: String },
+    Interrupt {
+        reason: String,
+    },
+    Lose {
+        reason: String,
+    },
+    Requeue {
+        reason: String,
+    },
+    Retry {
+        reason: String,
+    },
+    Cancel {
+        reason: String,
+    },
 }
 
 /// The closed list of record kinds of `rustred.campaign.ledger.v1` (additions = minor version, readers of an
@@ -184,19 +246,67 @@ pub enum JobEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", rename_all = "snake_case")]
 pub enum Event {
-    CampaignCreated { campaign_id: String, spec_blake3: String, terminal_bound: u32 },
-    Campaign { ev: CampaignEvent, reason: String },
-    SupervisorStarted { identity: ProcessIdentity, argv: Vec<String>, version: String, lock_token: String },
-    LockTakeover { previous: OwnerRecord, reason: DeadReason, orphans: Vec<u32> },
-    Recovery { segment: u32, last_good_seq: u64, truncated_bytes: u64, saved_as: Option<String>, detail: String },
-    SegmentOpened { index: u32, previous_blake3: String, snapshot_seq: u64 },
-    InputRegistered { input: String, role: String, path: String, bytes: u64, blake3: String },
-    EvidenceImported { evidence: String, producer: String, description: String, files: Vec<FileRef> },
+    CampaignCreated {
+        campaign_id: String,
+        spec_blake3: String,
+        terminal_bound: u32,
+    },
+    Campaign {
+        ev: CampaignEvent,
+        reason: String,
+    },
+    SupervisorStarted {
+        identity: ProcessIdentity,
+        argv: Vec<String>,
+        version: String,
+        lock_token: String,
+    },
+    LockTakeover {
+        previous: OwnerRecord,
+        reason: DeadReason,
+        orphans: Vec<u32>,
+    },
+    Recovery {
+        segment: u32,
+        last_good_seq: u64,
+        truncated_bytes: u64,
+        saved_as: Option<String>,
+        detail: String,
+    },
+    SegmentOpened {
+        index: u32,
+        previous_blake3: String,
+        snapshot_seq: u64,
+    },
+    InputRegistered {
+        input: String,
+        role: String,
+        path: String,
+        bytes: u64,
+        blake3: String,
+    },
+    EvidenceImported {
+        evidence: String,
+        producer: String,
+        description: String,
+        files: Vec<FileRef>,
+    },
     /// `spec_box` = the input id (role `box`) of the user-provided box of the node's spec, if any (R35).
-    NodeRegistered { node: String, inputs: Vec<String>, terminal_bound: Option<u32>, spec_box: Option<String> },
+    NodeRegistered {
+        node: String,
+        inputs: Vec<String>,
+        terminal_bound: Option<u32>,
+        spec_box: Option<String>,
+    },
     /// Economy measures of the item's accepted rule (re-measuring replaces the previous values).
-    RuleEconomy { item: String, economy: RuleEconomy },
-    Node { node: String, ev: NodeEvent },
+    RuleEconomy {
+        item: String,
+        economy: RuleEconomy,
+    },
+    Node {
+        node: String,
+        ev: NodeEvent,
+    },
     ItemCreated {
         item: String,
         node: String,
@@ -207,14 +317,42 @@ pub enum Event {
         label: String,
         weight: u64,
     },
-    Item { item: String, ev: ItemEvent },
-    JobQueued { job: String, item: String, rung: Rung, kind: String, spec_blake3: String, binary: String, reserved_bytes: u64 },
-    Job { job: String, attempt: u32, ev: JobEvent },
+    Item {
+        item: String,
+        ev: ItemEvent,
+    },
+    JobQueued {
+        job: String,
+        item: String,
+        rung: Rung,
+        kind: String,
+        spec_blake3: String,
+        binary: String,
+        reserved_bytes: u64,
+    },
+    Job {
+        job: String,
+        attempt: u32,
+        ev: JobEvent,
+    },
     /// Write-ahead intent of a side effect (`action` e.g. `write_accepted_record`, `write_keyset`, `kill_orphan`).
-    Intent { op: String, action: String, target: String },
-    Done { op: String, result: Option<FileRef> },
-    JobProgress { job: String, attempt: u32, counters: BTreeMap<String, u64> },
-    Note { text: String },
+    Intent {
+        op: String,
+        action: String,
+        target: String,
+    },
+    Done {
+        op: String,
+        result: Option<FileRef>,
+    },
+    JobProgress {
+        job: String,
+        attempt: u32,
+        counters: BTreeMap<String, u64>,
+    },
+    Note {
+        text: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,7 +391,10 @@ impl Event {
         match self {
             Event::ItemCreated { .. }
             | Event::JobQueued { .. }
-            | Event::Item { ev: ItemEvent::Start { .. }, .. }
+            | Event::Item {
+                ev: ItemEvent::Start { .. },
+                ..
+            }
             | Event::JobProgress { .. }
             | Event::Note { .. } => Durability::Lazy,
             _ => Durability::Sync,
@@ -367,7 +508,9 @@ pub struct RealOpener;
 
 impl SegmentOpener for RealOpener {
     fn open(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
-        Ok(Box::new(RealSegment(OpenOptions::new().append(true).create(true).open(path)?)))
+        Ok(Box::new(RealSegment(
+            OpenOptions::new().append(true).create(true).open(path)?,
+        )))
     }
 }
 
@@ -379,18 +522,34 @@ impl SegmentOpener for RealOpener {
 pub enum LedgerError {
     /// ENOSPC / EDQUOT: nothing of the failed record remains on disk; the handle is poisoned (reopen after
     /// freeing space).
-    NoSpace { path: PathBuf },
-    Io { path: PathBuf, op: &'static str, source: io::Error },
+    NoSpace {
+        path: PathBuf,
+    },
+    Io {
+        path: PathBuf,
+        op: &'static str,
+        source: io::Error,
+    },
     Atomic(AtomicError),
     /// The record was refused by the reducer and NOT written.
     Refused(ReduceError),
     /// A stored record is refused by the reducer (code/ledger mismatch or tampering).
     Replay(ReduceError),
     /// Hash chain / sequence / digest / schema violation that is not a torn tail.
-    Corrupt { file: String, line: u64, why: String },
-    NotALedger { dir: PathBuf },
-    AlreadyExists { dir: PathBuf },
-    TooLarge { bytes: usize },
+    Corrupt {
+        file: String,
+        line: u64,
+        why: String,
+    },
+    NotALedger {
+        dir: PathBuf,
+    },
+    AlreadyExists {
+        dir: PathBuf,
+    },
+    TooLarge {
+        bytes: usize,
+    },
     /// A previous write failed; the in-memory state may be ahead of the disk.
     Poisoned,
 }
@@ -398,16 +557,31 @@ pub enum LedgerError {
 impl std::fmt::Display for LedgerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LedgerError::NoSpace { path } => write!(f, "disk full appending to {}; ledger intact, reopen after freeing space", path.display()),
-            LedgerError::Io { path, op, source } => write!(f, "ledger I/O ({op}) on {}: {source}", path.display()),
+            LedgerError::NoSpace { path } => write!(
+                f,
+                "disk full appending to {}; ledger intact, reopen after freeing space",
+                path.display()
+            ),
+            LedgerError::Io { path, op, source } => {
+                write!(f, "ledger I/O ({op}) on {}: {source}", path.display())
+            }
             LedgerError::Atomic(e) => write!(f, "{e}"),
             LedgerError::Refused(e) => write!(f, "record refused (not written): {e}"),
             LedgerError::Replay(e) => write!(f, "stored record refused on replay: {e}"),
-            LedgerError::Corrupt { file, line, why } => write!(f, "ledger corrupt at {file}:{line}: {why}"),
+            LedgerError::Corrupt { file, line, why } => {
+                write!(f, "ledger corrupt at {file}:{line}: {why}")
+            }
             LedgerError::NotALedger { dir } => write!(f, "{} holds no ledger", dir.display()),
-            LedgerError::AlreadyExists { dir } => write!(f, "{} already holds a ledger", dir.display()),
-            LedgerError::TooLarge { bytes } => write!(f, "record of {bytes} bytes exceeds {MAX_RECORD_BYTES}"),
-            LedgerError::Poisoned => write!(f, "ledger handle poisoned by an earlier write failure; reopen"),
+            LedgerError::AlreadyExists { dir } => {
+                write!(f, "{} already holds a ledger", dir.display())
+            }
+            LedgerError::TooLarge { bytes } => {
+                write!(f, "record of {bytes} bytes exceeds {MAX_RECORD_BYTES}")
+            }
+            LedgerError::Poisoned => write!(
+                f,
+                "ledger handle poisoned by an earlier write failure; reopen"
+            ),
         }
     }
 }
@@ -426,9 +600,15 @@ impl From<AtomicError> for LedgerError {
 fn io_err<'a>(path: &'a Path, op: &'static str) -> impl FnOnce(io::Error) -> LedgerError + 'a {
     move |e| {
         if atomic::is_no_space(&e) {
-            LedgerError::NoSpace { path: path.to_path_buf() }
+            LedgerError::NoSpace {
+                path: path.to_path_buf(),
+            }
         } else {
-            LedgerError::Io { path: path.to_path_buf(), op, source: e }
+            LedgerError::Io {
+                path: path.to_path_buf(),
+                op,
+                source: e,
+            }
         }
     }
 }
@@ -445,7 +625,12 @@ pub struct LedgerConfig {
 
 impl Default for LedgerConfig {
     fn default() -> Self {
-        LedgerConfig { rotate_bytes: 64 << 20, lazy_max_records: 256, lazy_max_ms: 1000, keep_old_snapshots: 1 }
+        LedgerConfig {
+            rotate_bytes: 64 << 20,
+            lazy_max_records: 256,
+            lazy_max_ms: 1000,
+            keep_old_snapshots: 1,
+        }
     }
 }
 
@@ -490,7 +675,11 @@ pub struct Ledger {
 
 impl std::fmt::Debug for Ledger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ledger").field("dir", &self.dir).field("seq", &self.seq).field("head", &self.head).finish()
+        f.debug_struct("Ledger")
+            .field("dir", &self.dir)
+            .field("seq", &self.seq)
+            .field("head", &self.head)
+            .finish()
     }
 }
 
@@ -509,7 +698,15 @@ impl Ledger {
         spec_blake3: &str,
         terminal_bound: u32,
     ) -> Result<Ledger, LedgerError> {
-        Self::create_with(cdir, clock, cfg, Arc::new(RealOpener), campaign_id, spec_blake3, terminal_bound)
+        Self::create_with(
+            cdir,
+            clock,
+            cfg,
+            Arc::new(RealOpener),
+            campaign_id,
+            spec_blake3,
+            terminal_bound,
+        )
     }
 
     pub fn create_with(
@@ -530,7 +727,12 @@ impl Ledger {
             schema: MANIFEST_SCHEMA.into(),
             campaign_id: campaign_id.into(),
             sealed: Vec::new(),
-            active: ActiveSegment { index: 1, file: segment_name(1), first_seq: 1, prev: GENESIS.into() },
+            active: ActiveSegment {
+                index: 1,
+                file: segment_name(1),
+                first_seq: 1,
+                prev: GENESIS.into(),
+            },
             snapshot: None,
         };
         let seg = dir.join(&manifest.active.file);
@@ -575,7 +777,11 @@ impl Ledger {
     ///    fsync, and append a `recovery` record (fsynced) saying how many bytes were dropped after which seq.
     ///
     /// A reducer refusal of a COMPLETE, chain-valid record is never treated as torn: `Replay` error.
-    pub fn open(cdir: &Path, clock: Arc<dyn Clock>, cfg: LedgerConfig) -> Result<(Ledger, OpenReport), LedgerError> {
+    pub fn open(
+        cdir: &Path,
+        clock: Arc<dyn Clock>,
+        cfg: LedgerConfig,
+    ) -> Result<(Ledger, OpenReport), LedgerError> {
         Self::open_with(cdir, clock, cfg, Arc::new(RealOpener))
     }
 
@@ -587,8 +793,10 @@ impl Ledger {
     ) -> Result<(Ledger, OpenReport), LedgerError> {
         let dir = ledger_dir(cdir);
         let manifest = read_manifest(&dir)?;
-        let mut report = OpenReport::default();
-        report.removed_unreferenced = remove_unreferenced(&dir, &manifest)?;
+        let mut report = OpenReport {
+            removed_unreferenced: remove_unreferenced(&dir, &manifest)?,
+            ..OpenReport::default()
+        };
         // State at the start of the active segment.
         let (mut state, mut seq, mut head) = match &manifest.snapshot {
             Some(s) => {
@@ -613,7 +821,10 @@ impl Ledger {
             return Err(LedgerError::Corrupt {
                 file: MANIFEST_FILE.into(),
                 line: 0,
-                why: format!("active segment starts at {} / {}, state ends at {seq} / {head}", manifest.active.first_seq, manifest.active.prev),
+                why: format!(
+                    "active segment starts at {} / {}, state ends at {seq} / {head}",
+                    manifest.active.first_seq, manifest.active.prev
+                ),
             });
         }
         // Active segment.
@@ -626,7 +837,10 @@ impl Ledger {
         while pos < bytes.len() {
             line_no += 1;
             let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') else {
-                torn = Some(format!("incomplete last line ({} bytes, no newline)", bytes.len() - pos));
+                torn = Some(format!(
+                    "incomplete last line ({} bytes, no newline)",
+                    bytes.len() - pos
+                ));
                 break;
             };
             let line = &bytes[pos..pos + nl];
@@ -653,7 +867,9 @@ impl Ledger {
             if let Some(first_nl) = rest.iter().position(|&b| b == b'\n') {
                 let mut p = first_nl + 1;
                 while let Some(nl) = rest[p..].iter().position(|&b| b == b'\n') {
-                    if serde_json::from_slice::<Record>(&rest[p..p + nl]).is_ok_and(|r| r.schema == LEDGER_SCHEMA) {
+                    if serde_json::from_slice::<Record>(&rest[p..p + nl])
+                        .is_ok_and(|r| r.schema == LEDGER_SCHEMA)
+                    {
                         later_valid = true;
                         break;
                     }
@@ -661,11 +877,17 @@ impl Ledger {
                 }
             }
             if later_valid {
-                return Err(LedgerError::Corrupt { file: manifest.active.file.clone(), line: line_no, why: format!("{why}; valid records follow") });
+                return Err(LedgerError::Corrupt {
+                    file: manifest.active.file.clone(),
+                    line: line_no,
+                    why: format!("{why}; valid records follow"),
+                });
             }
         }
         let now_mono = clock.monotonic();
-        let file = opener.open(&seg_path).map_err(io_err(&seg_path, "open segment"))?;
+        let file = opener
+            .open(&seg_path)
+            .map_err(io_err(&seg_path, "open segment"))?;
         let mut l = Ledger {
             dir: dir.clone(),
             cfg,
@@ -687,7 +909,9 @@ impl Ledger {
             let utc = l.clock.now_utc();
             let saved = format!("torn-{seq:012}-{}.bin", utc.0);
             atomic::create_new_atomic(&dir.join(&saved), dropped)?;
-            l.file.truncate(pos as u64).map_err(io_err(&seg_path, "truncate torn tail"))?;
+            l.file
+                .truncate(pos as u64)
+                .map_err(io_err(&seg_path, "truncate torn tail"))?;
             let info = RecoveryInfo {
                 segment: l.manifest.active.index,
                 last_good_seq: seq,
@@ -743,11 +967,21 @@ impl Ledger {
         let mut need_sync = false;
         let mut buf = Vec::new();
         let mut lines: Vec<(usize, usize)> = Vec::new();
-        let saved_state = if events.len() > 1 { Some(self.state.clone()) } else { None };
+        let saved_state = if events.len() > 1 {
+            Some(self.state.clone())
+        } else {
+            None
+        };
         let (mut seq, mut head) = (self.seq, self.head.clone());
         for ev in events {
             need_sync |= ev.durability() == Durability::Sync;
-            let rec = Record { schema: LEDGER_SCHEMA.into(), seq: seq + 1, utc: self.clock.now_utc().to_iso(), prev: head.clone(), event: ev };
+            let rec = Record {
+                schema: LEDGER_SCHEMA.into(),
+                seq: seq + 1,
+                utc: self.clock.now_utc().to_iso(),
+                prev: head.clone(),
+                event: ev,
+            };
             let line = serde_json::to_vec(&rec).expect("records serialise");
             if line.len() > MAX_RECORD_BYTES {
                 if let Some(s) = saved_state {
@@ -812,8 +1046,8 @@ impl Ledger {
 
     /// Seals the active segment, writes a snapshot of the reduced state, starts a new segment. Steps (the
     /// manifest write is the commit point; a crash before it leaves unreferenced files that `open` removes):
-    /// 1. fsync active; 2. snapshot file (atomic); 3. new empty segment (create + dir fsync); 4. manifest
-    /// (atomic); 5. old segment chmod 0444; 6. `segment_opened` record in the new segment; 7. prune snapshots.
+    /// (1) fsync active; (2) snapshot file (atomic); (3) new empty segment (create + dir fsync); (4) manifest
+    /// (atomic); (5) old segment chmod 0444; (6) `segment_opened` record in the new segment; (7) prune snapshots.
     pub fn rotate(&mut self) -> Result<(), LedgerError> {
         if self.poisoned {
             return Err(LedgerError::Poisoned);
@@ -824,7 +1058,12 @@ impl Ledger {
         self.sync()?;
         let old = self.manifest.active.clone();
         let seg_blake3 = self.active_hasher.clone().finalize().to_hex().to_string();
-        let snap = Snapshot { schema: SNAPSHOT_SCHEMA.into(), seq: self.seq, head: self.head.clone(), state: self.state.clone() };
+        let snap = Snapshot {
+            schema: SNAPSHOT_SCHEMA.into(),
+            seq: self.seq,
+            head: self.head.clone(),
+            state: self.state.clone(),
+        };
         let snap_name = snapshot_name(self.seq);
         let mut snap_bytes = serde_json::to_vec(&snap).expect("snapshot serialises");
         snap_bytes.push(b'\n');
@@ -832,7 +1071,10 @@ impl Ledger {
         let new_index = old.index + 1;
         let new_name = segment_name(new_index);
         let new_path = self.dir.join(&new_name);
-        let new_file = self.opener.open(&new_path).map_err(io_err(&new_path, "create segment"))?;
+        let new_file = self
+            .opener
+            .open(&new_path)
+            .map_err(io_err(&new_path, "create segment"))?;
         atomic::sync_dir(&self.dir).map_err(io_err(&self.dir, "sync dir"))?;
         let mut m = self.manifest.clone();
         m.sealed.push(SealedSegment {
@@ -844,7 +1086,12 @@ impl Ledger {
             blake3: seg_blake3.clone(),
             last_hash: self.head.clone(),
         });
-        m.active = ActiveSegment { index: new_index, file: new_name, first_seq: self.seq + 1, prev: self.head.clone() };
+        m.active = ActiveSegment {
+            index: new_index,
+            file: new_name,
+            first_seq: self.seq + 1,
+            prev: self.head.clone(),
+        };
         let old_snapshot = m.snapshot.replace(SnapshotRef {
             file: snap_name,
             seq: self.seq,
@@ -858,7 +1105,11 @@ impl Ledger {
         self.active_len = 0;
         self.active_hasher = blake3::Hasher::new();
         let snapshot_seq = self.seq;
-        self.append(Event::SegmentOpened { index: new_index, previous_blake3: seg_blake3, snapshot_seq })?;
+        self.append(Event::SegmentOpened {
+            index: new_index,
+            previous_blake3: seg_blake3,
+            snapshot_seq,
+        })?;
         // Prune snapshots older than the kept ones (never the manifest's).
         let _ = old_snapshot;
         prune_snapshots(&self.dir, &self.manifest, self.cfg.keep_old_snapshots);
@@ -887,13 +1138,22 @@ fn write_manifest(dir: &Path, m: &Manifest) -> Result<(), LedgerError> {
 pub fn read_manifest(dir: &Path) -> Result<Manifest, LedgerError> {
     let p = dir.join(MANIFEST_FILE);
     if !p.exists() {
-        return Err(LedgerError::NotALedger { dir: dir.to_path_buf() });
+        return Err(LedgerError::NotALedger {
+            dir: dir.to_path_buf(),
+        });
     }
     let bytes = atomic::read_capped(&p, 64 << 20)?;
-    let m: Manifest = serde_json::from_slice(&bytes)
-        .map_err(|e| LedgerError::Corrupt { file: MANIFEST_FILE.into(), line: 0, why: e.to_string() })?;
+    let m: Manifest = serde_json::from_slice(&bytes).map_err(|e| LedgerError::Corrupt {
+        file: MANIFEST_FILE.into(),
+        line: 0,
+        why: e.to_string(),
+    })?;
     if m.schema != MANIFEST_SCHEMA {
-        return Err(LedgerError::Corrupt { file: MANIFEST_FILE.into(), line: 0, why: format!("schema {:?}", m.schema) });
+        return Err(LedgerError::Corrupt {
+            file: MANIFEST_FILE.into(),
+            line: 0,
+            why: format!("schema {:?}", m.schema),
+        });
     }
     Ok(m)
 }
@@ -902,12 +1162,23 @@ fn load_snapshot(dir: &Path, s: &SnapshotRef) -> Result<Snapshot, LedgerError> {
     let p = dir.join(&s.file);
     let bytes = atomic::read_capped(&p, 16 << 30)?;
     if blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
-        return Err(LedgerError::Corrupt { file: s.file.clone(), line: 0, why: "snapshot digest differs from the manifest".into() });
+        return Err(LedgerError::Corrupt {
+            file: s.file.clone(),
+            line: 0,
+            why: "snapshot digest differs from the manifest".into(),
+        });
     }
-    let snap: Snapshot =
-        serde_json::from_slice(&bytes).map_err(|e| LedgerError::Corrupt { file: s.file.clone(), line: 0, why: e.to_string() })?;
+    let snap: Snapshot = serde_json::from_slice(&bytes).map_err(|e| LedgerError::Corrupt {
+        file: s.file.clone(),
+        line: 0,
+        why: e.to_string(),
+    })?;
     if snap.schema != SNAPSHOT_SCHEMA || snap.seq != s.seq {
-        return Err(LedgerError::Corrupt { file: s.file.clone(), line: 0, why: "snapshot schema or seq mismatch".into() });
+        return Err(LedgerError::Corrupt {
+            file: s.file.clone(),
+            line: 0,
+            why: "snapshot schema or seq mismatch".into(),
+        });
     }
     Ok(snap)
 }
@@ -925,17 +1196,29 @@ fn replay_sealed(
     let p = dir.join(&s.file);
     let bytes = fs::read(&p).map_err(io_err(&p, "read sealed segment"))?;
     if check_digest && blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
-        return Err(LedgerError::Corrupt { file: s.file.clone(), line: 0, why: "sealed segment digest differs from the manifest (edited or truncated)".into() });
+        return Err(LedgerError::Corrupt {
+            file: s.file.clone(),
+            line: 0,
+            why: "sealed segment digest differs from the manifest (edited or truncated)".into(),
+        });
     }
     let mut head = head.to_string();
     let mut n = 0u64;
     let mut pos = 0usize;
     while pos < bytes.len() {
         let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') else {
-            return Err(LedgerError::Corrupt { file: s.file.clone(), line: n + 1, why: "sealed segment ends inside a line".into() });
+            return Err(LedgerError::Corrupt {
+                file: s.file.clone(),
+                line: n + 1,
+                why: "sealed segment ends inside a line".into(),
+            });
         };
         let line = &bytes[pos..pos + nl];
-        let rec = check_line(line, seq, &head).map_err(|why| LedgerError::Corrupt { file: s.file.clone(), line: n + 1, why })?;
+        let rec = check_line(line, seq, &head).map_err(|why| LedgerError::Corrupt {
+            file: s.file.clone(),
+            line: n + 1,
+            why,
+        })?;
         st.apply_record(&rec).map_err(LedgerError::Replay)?;
         seq = rec.seq;
         head = line_hash(line);
@@ -943,7 +1226,11 @@ fn replay_sealed(
         pos += nl + 1;
     }
     if seq != s.last_seq || head != s.last_hash {
-        return Err(LedgerError::Corrupt { file: s.file.clone(), line: n, why: "sealed segment ends elsewhere than the manifest says".into() });
+        return Err(LedgerError::Corrupt {
+            file: s.file.clone(),
+            line: n,
+            why: "sealed segment ends elsewhere than the manifest says".into(),
+        });
     }
     Ok((n, head))
 }
@@ -957,20 +1244,31 @@ fn remove_unreferenced(dir: &Path, m: &Manifest) -> Result<Vec<String>, LedgerEr
     for e in rd {
         let e = e.map_err(io_err(dir, "list"))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(idx) = name.strip_prefix("segment-").and_then(|r| r.strip_suffix(".jsonl")).and_then(|n| n.parse::<u32>().ok()) {
+        if let Some(idx) = name
+            .strip_prefix("segment-")
+            .and_then(|r| r.strip_suffix(".jsonl"))
+            .and_then(|n| n.parse::<u32>().ok())
+        {
             if idx > m.active.index {
                 let len = e.metadata().map(|md| md.len()).unwrap_or(1);
                 if len != 0 {
-                    return Err(LedgerError::Corrupt { file: name, line: 0, why: "non-empty segment not in the manifest".into() });
+                    return Err(LedgerError::Corrupt {
+                        file: name,
+                        line: 0,
+                        why: "non-empty segment not in the manifest".into(),
+                    });
                 }
                 fs::remove_file(e.path()).map_err(io_err(dir, "remove"))?;
                 removed.push(name);
             }
-        } else if let Some(sq) = name.strip_prefix("snapshot-").and_then(|r| r.strip_suffix(".json")).and_then(|n| n.parse::<u64>().ok()) {
-            if m.snapshot.as_ref().is_none_or(|s| sq > s.seq) {
-                fs::remove_file(e.path()).map_err(io_err(dir, "remove"))?;
-                removed.push(name);
-            }
+        } else if let Some(sq) = name
+            .strip_prefix("snapshot-")
+            .and_then(|r| r.strip_suffix(".json"))
+            .and_then(|n| n.parse::<u64>().ok())
+            && m.snapshot.as_ref().is_none_or(|s| sq > s.seq)
+        {
+            fs::remove_file(e.path()).map_err(io_err(dir, "remove"))?;
+            removed.push(name);
         }
     }
     let _ = atomic::remove_stale_temporaries(dir);
@@ -983,7 +1281,14 @@ fn prune_snapshots(dir: &Path, m: &Manifest, keep_old: usize) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     let mut old: Vec<u64> = rd
         .filter_map(|e| e.ok())
-        .filter_map(|e| e.file_name().to_str()?.strip_prefix("snapshot-")?.strip_suffix(".json")?.parse::<u64>().ok())
+        .filter_map(|e| {
+            e.file_name()
+                .to_str()?
+                .strip_prefix("snapshot-")?
+                .strip_suffix(".json")?
+                .parse::<u64>()
+                .ok()
+        })
         .filter(|&s| s < cur.seq)
         .collect();
     old.sort_unstable();
@@ -1024,22 +1329,29 @@ pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
         n += k;
         seq = s.last_seq;
         head = h;
-        if let Some(sr) = &m.snapshot {
-            if sr.seq == seq {
-                let snap = load_snapshot(&dir, sr)?;
-                snapshot_matches = Some(snap.state == st && snap.head == head && sr.state_digest == st.digest());
-            }
+        if let Some(sr) = &m.snapshot
+            && sr.seq == seq
+        {
+            let snap = load_snapshot(&dir, sr)?;
+            snapshot_matches =
+                Some(snap.state == st && snap.head == head && sr.state_digest == st.digest());
         }
     }
     let p = dir.join(&m.active.file);
     let mut bytes = Vec::new();
-    File::open(&p).and_then(|mut f| f.read_to_end(&mut bytes)).map_err(io_err(&p, "read"))?;
+    File::open(&p)
+        .and_then(|mut f| f.read_to_end(&mut bytes))
+        .map_err(io_err(&p, "read"))?;
     let mut pos = 0;
     let mut line_no = 0u64;
     while let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') {
         line_no += 1;
         let line = &bytes[pos..pos + nl];
-        let rec = check_line(line, seq, &head).map_err(|why| LedgerError::Corrupt { file: m.active.file.clone(), line: line_no, why })?;
+        let rec = check_line(line, seq, &head).map_err(|why| LedgerError::Corrupt {
+            file: m.active.file.clone(),
+            line: line_no,
+            why,
+        })?;
         st.apply_record(&rec).map_err(LedgerError::Replay)?;
         seq = rec.seq;
         head = line_hash(line);
@@ -1061,14 +1373,24 @@ pub fn read_records(cdir: &Path) -> Result<Vec<Record>, LedgerError> {
     let dir = ledger_dir(cdir);
     let m = read_manifest(&dir)?;
     let mut out = Vec::new();
-    let files: Vec<String> = m.sealed.iter().map(|s| s.file.clone()).chain(std::iter::once(m.active.file.clone())).collect();
+    let files: Vec<String> = m
+        .sealed
+        .iter()
+        .map(|s| s.file.clone())
+        .chain(std::iter::once(m.active.file.clone()))
+        .collect();
     for f in files {
         let p = dir.join(&f);
         let bytes = fs::read(&p).map_err(io_err(&p, "read"))?;
         let mut pos = 0;
         while let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') {
-            let rec: Record = serde_json::from_slice(&bytes[pos..pos + nl])
-                .map_err(|e| LedgerError::Corrupt { file: f.clone(), line: 0, why: e.to_string() })?;
+            let rec: Record = serde_json::from_slice(&bytes[pos..pos + nl]).map_err(|e| {
+                LedgerError::Corrupt {
+                    file: f.clone(),
+                    line: 0,
+                    why: e.to_string(),
+                }
+            })?;
             out.push(rec);
             pos += nl + 1;
         }
