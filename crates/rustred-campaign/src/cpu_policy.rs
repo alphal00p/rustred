@@ -922,6 +922,46 @@ pub fn describe_exclusions(p: &SitePolicy) -> String {
 mod tests {
     use super::*;
 
+    /// The example of `plan/auto-campaign/interfaces/process-layer.md` section 7 (this host's values) parses and
+    /// validates; keep the two in sync.
+    #[test]
+    fn documented_site_example_parses() {
+        let c: SiteConfig = serde_json::from_str(SITE_EXAMPLE).unwrap();
+        c.validate().unwrap();
+        let mut ex = BTreeSet::new();
+        for e in &c.exclude {
+            ex.extend(parse_cpu_list(e).unwrap());
+        }
+        for cpu in [168, 175, 288, 319, 128, 162, 166, 192, 335, 378] {
+            assert!(ex.contains(&cpu), "{cpu}");
+        }
+        assert!(!ex.contains(&163) && !ex.contains(&0));
+        assert_eq!(c.max_cores, 48);
+        assert_eq!(c.held_files.len(), 4);
+    }
+
+    const SITE_EXAMPLE: &str = r#"{
+  "schema": "rustred.campaign.site-policy.v1",
+  "tag": "rr-campaign",
+  "lock_dir": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/locks",
+  "lock_name": "cpu.{n}",
+  "ledger_file": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/CPU_LEDGER.md",
+  "ledger_scan_lines": 1500,
+  "candidates": null,
+  "exclude": ["168-175", "288-319", "128-162,164-166", "192-215,258-260,262,271,335", "342,362,363,378"],
+  "held_files": [
+    {"path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.held", "key": "held"},
+    {"path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.json", "key": "all_cpus_listed"},
+    {"path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/OUR_PINS.json", "key": "entries[].cpus"},
+    {"path": "/shared/vhirschi/t3code/vakint/scratchpad/5l-pilot/coordinator/admission/LIFT16359_CPUS.json", "key": "cpus"}
+  ],
+  "pause_files": ["/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/PAUSE"],
+  "idle_min": 0.85,
+  "max_cores": 48,
+  "respect_foreign_pinning": true,
+  "ignore_own_tag_claims": true
+}"#;
+
     #[test]
     fn ledger_parsing_matches_pick_free() {
         let lines = [
