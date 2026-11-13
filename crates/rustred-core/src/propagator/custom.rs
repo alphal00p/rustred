@@ -307,10 +307,24 @@ pub fn inspect_custom_payload(payload: &[u8]) -> Result<CustomPayloadSummary, PE
 }
 
 /// boxed-node: the box record of a payload imported from a boxed table, or
-/// `None`. Read from the payload's structure alone (no coefficient).
+/// `None`. Read from the program record's leading provenance strings only
+/// (no rule, no coefficient is decoded: cheap on a multi-GB payload).
 pub fn custom_payload_boxed_node(payload: &[u8]) -> Result<Option<BoxedNodeRecord>, PError> {
-    let structure = read_structure(payload)?;
-    super::table_import::boxed_node_of_source(&structure.program.family_source)
+    /// The leading fields every program record schema shares.
+    #[derive(bincode::Decode)]
+    struct ProvenancePrefix {
+        _schema: String,
+        _status: String,
+        _solver_policy: String,
+        family_source: String,
+    }
+    let envelope = candidate_sections(payload, BinaryIoLimits::default()).map_err(wire_error)?;
+    let program = envelope
+        .section(SectionTag::PROGRAM)
+        .ok_or_else(|| payload_error("no program section"))?;
+    let (prefix, _): (ProvenancePrefix, usize) =
+        super::bundle_wire::decode_record(program, MAX_RECORD_BYTES).map_err(wire_error)?;
+    super::table_import::boxed_node_of_source(&prefix.family_source)
 }
 
 /// The owner support of a Custom presentation: the sector of an induced
@@ -1505,6 +1519,8 @@ trait CustomOwnerOps {
     fn box_contains(&self, powers: &[i64]) -> Option<bool>;
     /// A boxed owner whose box is not closed (a partial table).
     fn box_partial(&self) -> bool;
+    /// The box record of a boxed owner.
+    fn box_record(&self) -> Option<&BoxedNodeRecord>;
 }
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
@@ -1574,6 +1590,10 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
     fn box_partial(&self) -> bool {
         self.boxed.as_ref().is_some_and(|record| !record.complete)
     }
+
+    fn box_record(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
+    }
 }
 
 fn custom_owner_ops(
@@ -1620,6 +1640,9 @@ pub struct CustomPayloadCheck {
     pub terminals: usize,
     /// boxed-node: witness keys inside a partial box without rule (skipped).
     pub open_box_keys: usize,
+    /// boxed-node, mixed box (point rules + parametric rules): box keys
+    /// stepped by the closure check (every non-terminal key of the box).
+    pub box_keys_stepped: usize,
 }
 
 /// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
@@ -1714,6 +1737,42 @@ pub fn verify_custom_payload(
             }
         }
         check.witness_keys += 1;
+    }
+    // boxed-node, mixed box: the importer cannot evaluate parametric rules, so
+    // the closure of the box is checked here by stepping every box key: a
+    // rule (point or parametric, first match) applies and every child on the
+    // chart lies in the box.
+    if let Some(record) = ops
+        .box_record()
+        .filter(|record| record.parametric_rules > 0 && record.complete)
+    {
+        let keys = record
+            .definition
+            .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
+            .map_err(|detail| fail(format!("boxed node {}: {detail}", record.node)))?;
+        for key in keys {
+            if ops.is_residual(&key) {
+                continue;
+            }
+            let applied = ops.apply_powers(&key).map_err(|error| {
+                fail(format!(
+                    "boxed node {}: the box key {key:?} has no rule ({error})",
+                    record.node
+                ))
+            })?;
+            if let Applied::Children(children) = applied {
+                for (child, _) in children {
+                    if support_of(&child) == support && !record.contains(&child) {
+                        return Err(fail(format!(
+                            "boxed node {}: the box is not closed: the rule of {key:?} gives {child:?} outside {}",
+                            record.node,
+                            record.describe()
+                        )));
+                    }
+                }
+            }
+            check.box_keys_stepped += 1;
+        }
     }
     Ok(check)
 }

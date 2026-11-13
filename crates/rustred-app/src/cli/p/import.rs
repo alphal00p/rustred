@@ -59,7 +59,8 @@ use rustred::propagator::custom::{replay_custom_payload, verify_custom_payload};
 use rustred::propagator::error::PError;
 use rustred::propagator::presentation::Slot;
 use rustred::propagator::table_import::{
-    P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table, slot_map_text,
+    P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table_from,
+    slot_map_text,
 };
 use rustred::propagator::{P_CUSTOM_OWNER_VERSION, P_OWNER_LIBRARY_SEMANTICS};
 
@@ -217,7 +218,13 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         preflight_output_destination(&destination(extension), arguments.force)?;
     }
     let started = Instant::now();
-    let text = read_input(&StreamPath::File(arguments.table.clone()))?;
+    // Streaming (t162-export): the table is read record by record, never held.
+    let table = std::fs::File::open(&arguments.table).map_err(|error| {
+        CliError::InputIo(format!(
+            "cannot open input {}: {error}",
+            arguments.table.display()
+        ))
+    })?;
     let (_key, graph) =
         canonical_node_graph(&arguments.graph, arguments.ext.0, arguments.ext.1).map_err(failed)?;
     let options = TableImportOptions {
@@ -237,7 +244,12 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         },
         partial_box: arguments.partial_box,
     };
-    let mut imported = import_table(&text, &graph, &options).map_err(failed)?;
+    let mut imported = import_table_from(
+        std::io::BufReader::with_capacity(1 << 20, table),
+        &graph,
+        &options,
+    )
+    .map_err(failed)?;
     let import_seconds = started.elapsed().as_secs_f64();
     let expanded_payload_bytes = imported.payload.len();
     let mut coef_form_seconds = 0.0;

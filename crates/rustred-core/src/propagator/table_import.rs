@@ -62,8 +62,8 @@ use crate::sector::OrderingPolicy;
 use super::PresentationId;
 use super::bundle_wire::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS, CaseRecord, DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
-    IntegralRecord, ProgramRecord, RuleDispatchRecord, RuleRecord, SectorRecord, TermRecord,
-    encode_program_record,
+    EncodedSectorRecord, IntegralRecord, ProgramRecord, RuleDispatchRecord, RuleRecord, TermRecord,
+    encode_program_record_with_sectors,
 };
 use super::custom::{CustomPayloadSummary, inspect_custom_payload};
 use super::error::PError;
@@ -1382,6 +1382,14 @@ pub struct BoxedNodeRecord {
     pub rhs_without_rule: u64,
     /// Rules generated with symmetry rows in their source (`sym_rows > 0`).
     pub sym_row_rules: u64,
+    /// Parametric (non-point) rules after the point rules (header
+    /// `parametric_after_points`): first match = the point rule of a key if
+    /// it has one, else the first parametric rule that applies, else
+    /// [`PError::OutsideBox`] outside the box. The box keys without point rule
+    /// or terminal (`uncovered_box_keys`) are left to them; the load-time
+    /// check steps every box key ([`super::custom::verify_custom_payload`]).
+    #[serde(default)]
+    pub parametric_rules: u64,
     pub symmetry_groups: Vec<SymmetryGroupProvenance>,
 }
 
@@ -1435,6 +1443,10 @@ struct BoxedHeader {
     box_keys: Option<u64>,
     #[serde(default)]
     complete: Option<bool>,
+    /// Non-point (parametric, e.g. an existing bank) rules may follow the
+    /// point rules (see [`BoxedNodeRecord::parametric_rules`]).
+    #[serde(default)]
+    parametric_after_points: bool,
 }
 
 fn charts_of(header: &Value) -> Result<Vec<String>, PError> {
@@ -1463,54 +1475,74 @@ fn numeric_key(text: &str, arity: usize) -> Result<Vec<i64>, PError> {
     Ok(key.into_iter().map(|(_, value)| value).collect())
 }
 
-/// The checks of a boxed table and its record (see [`BoxedNodeRecord`]).
-fn boxed_node_record(
-    value: &Value,
-    records: &[Value],
-    table: &str,
-    family: &TableFamily,
-    charts: &[String],
-    slot_map: &[usize],
-    partial: bool,
-) -> Result<BoxedNodeRecord, PError> {
-    use std::collections::HashSet;
-    let fail = |detail: String| gap("boxed_node", detail);
-    let spec: BoxedHeader = serde_json::from_value(value.clone())
-        .map_err(|error| fail(format!("header field boxed_node: {error}")))?;
-    if spec.schema != BOXED_NODE_SCHEMA {
-        return Err(fail(format!("schema {:?}", spec.schema)));
+/// The checks of a boxed table and its record (see [`BoxedNodeRecord`]),
+/// fed record by record (the streaming import keeps only the keys).
+struct BoxChecker {
+    spec: BoxedHeader,
+    arity: usize,
+    chart: Vec<bool>,
+    targets: std::collections::HashSet<Vec<i64>>,
+    chart_rhs: std::collections::HashSet<Vec<i64>>,
+    terminals: std::collections::HashSet<Vec<i64>>,
+    flagged: u64,
+    sym_row_rules: u64,
+    symmetry_groups: Vec<SymmetryGroupProvenance>,
+    parametric_rules: u64,
+}
+
+fn box_fail(detail: String) -> PError {
+    gap("boxed_node", detail)
+}
+
+impl BoxChecker {
+    fn new(value: &Value, family: &TableFamily, charts: &[String]) -> Result<Self, PError> {
+        let spec: BoxedHeader = serde_json::from_value(value.clone())
+            .map_err(|error| box_fail(format!("header field boxed_node: {error}")))?;
+        if spec.schema != BOXED_NODE_SCHEMA {
+            return Err(box_fail(format!("schema {:?}", spec.schema)));
+        }
+        if spec.definition.measure != BOX_MEASURE {
+            return Err(box_fail(format!(
+                "box measure {:?}",
+                spec.definition.measure
+            )));
+        }
+        if spec.definition.layers.is_empty() || spec.definition.cap.is_some_and(|cap| cap < 1) {
+            return Err(box_fail("an empty box".into()));
+        }
+        if family.eps_units.iter().any(|&units| units != 0) {
+            return Err(box_fail(
+                "an eps node (not supported for boxed tables)".into(),
+            ));
+        }
+        let chart: Vec<bool> = family.slots.iter().map(|slot| slot.line).collect();
+        if charts.len() != 1 || charts[0] != spec.chart || mask_bits(&spec.chart)? != chart {
+            return Err(box_fail(format!(
+                "the boxed chart {} must be the table's one chart {charts:?}, every line",
+                spec.chart
+            )));
+        }
+        Ok(Self {
+            spec,
+            arity: family.slots.len(),
+            chart,
+            targets: Default::default(),
+            chart_rhs: Default::default(),
+            terminals: Default::default(),
+            flagged: 0,
+            sym_row_rules: 0,
+            symmetry_groups: Vec::new(),
+            parametric_rules: 0,
+        })
     }
-    if spec.definition.measure != BOX_MEASURE {
-        return Err(fail(format!("box measure {:?}", spec.definition.measure)));
+
+    fn in_box(&self, key: &[i64]) -> bool {
+        self.spec.definition.contains(key, &self.chart)
     }
-    if spec.definition.layers.is_empty() || spec.definition.cap.is_some_and(|cap| cap < 1) {
-        return Err(fail("an empty box".into()));
-    }
-    if family.eps_units.iter().any(|&units| units != 0) {
-        return Err(fail("an eps node (not supported for boxed tables)".into()));
-    }
-    let arity = family.slots.len();
-    let chart: Vec<bool> = family.slots.iter().map(|slot| slot.line).collect();
-    if charts.len() != 1 || charts[0] != spec.chart || mask_bits(&spec.chart)? != chart {
-        return Err(fail(format!(
-            "the boxed chart {} must be the table's one chart {charts:?}, every line",
-            spec.chart
-        )));
-    }
-    let definition = spec.definition;
-    let in_box = |key: &[i64]| definition.contains(key, &chart);
-    let on_chart = |key: &[i64]| {
-        key.iter()
-            .zip(&chart)
-            .all(|(&power, &line)| (power > 0) == line)
-    };
-    let mut targets: HashSet<Vec<i64>> = HashSet::new();
-    let mut chart_rhs: HashSet<Vec<i64>> = HashSet::new();
-    let mut terminals: HashSet<Vec<i64>> = HashSet::new();
-    let (mut flagged, mut sym_row_rules) = (0_u64, 0_u64);
-    let mut symmetry_groups = Vec::new();
-    let lines = table.lines().filter(|line| !line.trim().is_empty());
-    for (record, line) in records.iter().zip(lines) {
+
+    /// One record of the table and its JSONL line.
+    fn feed(&mut self, record: &Value, line: &str) -> Result<(), PError> {
+        let arity = self.arity;
         match record["type"].as_str() {
             Some("rule") => {
                 let target_text = str_field(record, "target")?;
@@ -1521,21 +1553,40 @@ fn boxed_node_record(
                 let fixed: Option<Vec<i64>> = record["fixed"]
                     .as_array()
                     .and_then(|fixed| fixed.iter().map(Value::as_i64).collect());
+                let numeric = parse_key(target_text, arity)?
+                    .iter()
+                    .all(|&(symbolic, _)| !symbolic);
+                let is_point =
+                    point && numeric && fixed.as_ref() == Some(&numeric_key(target_text, arity)?);
+                if !is_point && self.spec.parametric_after_points {
+                    // Dispatch reads it; its keys and right-hand side are
+                    // checked by the load-time closure check, not here.
+                    self.parametric_rules += 1;
+                    return Ok(());
+                }
+                if self.parametric_rules > 0 {
+                    return Err(box_fail(format!(
+                        "the point rule {} ({target_text}) follows a parametric rule: point rules come first",
+                        record["index"]
+                    )));
+                }
                 let target = numeric_key(target_text, arity)?;
                 if !point || fixed.as_ref() != Some(&target) {
-                    return Err(fail(format!(
+                    return Err(box_fail(format!(
                         "rule {} ({target_text}) is no point rule (Coordinate case fixed at its target, no equations, no exceptions, Partition)",
                         record["index"]
                     )));
                 }
-                if !in_box(&target) {
-                    return Err(fail(format!("rule target {target_text} outside the box")));
+                if !self.in_box(&target) {
+                    return Err(box_fail(format!(
+                        "rule target {target_text} outside the box"
+                    )));
                 }
-                if !targets.insert(target) {
-                    return Err(fail(format!("two rules for {target_text}")));
+                if !self.targets.insert(target) {
+                    return Err(box_fail(format!("two rules for {target_text}")));
                 }
                 if record["sym_rows"].as_u64().is_some_and(|rows| rows > 0) {
-                    sym_row_rules += 1;
+                    self.sym_row_rules += 1;
                 }
                 for term in record["rhs"]
                     .as_array()
@@ -1546,28 +1597,32 @@ fn boxed_node_record(
                         .and_then(Value::as_str)
                         .ok_or_else(|| malformed("rhs key"))?;
                     let key = numeric_key(text, arity)?;
-                    if on_chart(&key) {
-                        chart_rhs.insert(key);
+                    let on_chart = key
+                        .iter()
+                        .zip(&self.chart)
+                        .all(|(&power, &line)| (power > 0) == line);
+                    if on_chart {
+                        self.chart_rhs.insert(key);
                     }
                 }
             }
             Some("residual") => {
                 let text = str_field(record, "key")?;
                 let key = numeric_key(text, arity)?;
-                if !in_box(&key) {
-                    return Err(fail(format!("terminal {text} outside the box")));
+                if !self.in_box(&key) {
+                    return Err(box_fail(format!("terminal {text} outside the box")));
                 }
                 if record["boxed_terminal"].as_bool() == Some(true) {
-                    flagged += 1;
+                    self.flagged += 1;
                 }
-                terminals.insert(key);
+                self.terminals.insert(key);
             }
             Some("symmetry_group") => {
                 let group = match &record["group"] {
                     Value::String(text) => serde_json::from_str(text).unwrap_or(Value::Null),
                     other => other.clone(),
                 };
-                symmetry_groups.push(SymmetryGroupProvenance {
+                self.symmetry_groups.push(SymmetryGroupProvenance {
                     chart: record["chart"].as_str().unwrap_or("").to_owned(),
                     blake3: blake3::hash(line.trim().as_bytes()).to_hex().to_string(),
                     group_order: group["group_order"].as_u64(),
@@ -1575,63 +1630,89 @@ fn boxed_node_record(
             }
             _ => {}
         }
+        Ok(())
     }
-    if let Some(key) = terminals.iter().find(|key| targets.contains(*key)) {
-        return Err(fail(format!("the terminal {key:?} is also a rule target")));
+
+    /// Coverage and closure; the record in presentation slots.
+    fn finish(self, slot_map: &[usize], partial: bool) -> Result<BoxedNodeRecord, PError> {
+        let Self {
+            spec,
+            chart,
+            targets,
+            chart_rhs,
+            terminals,
+            flagged,
+            sym_row_rules,
+            symmetry_groups,
+            parametric_rules,
+            ..
+        } = self;
+        let definition = spec.definition;
+        let in_box = |key: &[i64]| definition.contains(key, &chart);
+        if let Some(key) = terminals.iter().find(|key| targets.contains(*key)) {
+            return Err(box_fail(format!(
+                "the terminal {key:?} is also a rule target"
+            )));
+        }
+        let covered = |key: &Vec<i64>| targets.contains(key) || terminals.contains(key);
+        let rhs_outside_box = chart_rhs.iter().filter(|key| !in_box(key)).count() as u64;
+        let rhs_without_rule = chart_rhs
+            .iter()
+            .filter(|key| in_box(key) && !covered(key))
+            .count() as u64;
+        let keys = definition
+            .keys(&chart, MAX_BOX_KEYS)
+            .map_err(|detail| box_fail(detail))?;
+        let uncovered: Vec<&Vec<i64>> = keys.iter().filter(|key| !covered(key)).collect();
+        if let Some(declared) = spec.box_keys
+            && declared != keys.len() as u64
+        {
+            return Err(box_fail(format!(
+                "the header declares {declared} box keys, the box has {}",
+                keys.len()
+            )));
+        }
+        // A mixed box leaves the box keys without point rule or terminal to
+        // its parametric rules (checked at load by stepping them).
+        let left_to_parametric = parametric_rules > 0;
+        let complete = rhs_outside_box == 0
+            && (left_to_parametric || (uncovered.is_empty() && rhs_without_rule == 0));
+        if !complete && (!partial || spec.complete == Some(true)) {
+            return Err(box_fail(format!(
+                "the box is not closed: {} of {} box keys without rule or terminal (first {:?}), {rhs_outside_box} chart RHS keys outside the box, {rhs_without_rule} in the box without rule or terminal{}",
+                uncovered.len(),
+                keys.len(),
+                uncovered.first(),
+                if partial {
+                    "; the header says complete"
+                } else {
+                    ""
+                }
+            )));
+        }
+        let mut presented: Vec<Vec<i64>> = terminals
+            .iter()
+            .map(|key| permuted(key, slot_map))
+            .collect();
+        presented.sort_unstable();
+        Ok(BoxedNodeRecord {
+            schema: BOXED_NODE_SCHEMA.to_owned(),
+            node: spec.node,
+            definition,
+            chart: permuted(&chart, slot_map),
+            box_keys: keys.len() as u64,
+            point_rules: targets.len() as u64,
+            terminals: presented,
+            flagged_terminals: flagged,
+            complete,
+            uncovered_box_keys: uncovered.len() as u64,
+            rhs_outside_box,
+            rhs_without_rule,
+            sym_row_rules,
+            symmetry_groups,
+            parametric_rules,
+        })
     }
-    let covered = |key: &Vec<i64>| targets.contains(key) || terminals.contains(key);
-    let rhs_outside_box = chart_rhs.iter().filter(|key| !in_box(key)).count() as u64;
-    let rhs_without_rule = chart_rhs
-        .iter()
-        .filter(|key| in_box(key) && !covered(key))
-        .count() as u64;
-    let keys = definition
-        .keys(&chart, MAX_BOX_KEYS)
-        .map_err(|detail| fail(detail))?;
-    let uncovered: Vec<&Vec<i64>> = keys.iter().filter(|key| !covered(key)).collect();
-    if let Some(declared) = spec.box_keys
-        && declared != keys.len() as u64
-    {
-        return Err(fail(format!(
-            "the header declares {declared} box keys, the box has {}",
-            keys.len()
-        )));
-    }
-    let complete = uncovered.is_empty() && rhs_outside_box == 0 && rhs_without_rule == 0;
-    if !complete && (!partial || spec.complete == Some(true)) {
-        return Err(fail(format!(
-            "the box is not closed: {} of {} box keys without rule or terminal (first {:?}), {rhs_outside_box} chart RHS keys outside the box, {rhs_without_rule} in the box without rule or terminal{}",
-            uncovered.len(),
-            keys.len(),
-            uncovered.first(),
-            if partial {
-                "; the header says complete"
-            } else {
-                ""
-            }
-        )));
-    }
-    let mut presented: Vec<Vec<i64>> = terminals
-        .iter()
-        .map(|key| permuted(key, slot_map))
-        .collect();
-    presented.sort_unstable();
-    Ok(BoxedNodeRecord {
-        schema: BOXED_NODE_SCHEMA.to_owned(),
-        node: spec.node,
-        definition,
-        chart: permuted(&chart, slot_map),
-        box_keys: keys.len() as u64,
-        point_rules: targets.len() as u64,
-        terminals: presented,
-        flagged_terminals: flagged,
-        complete,
-        uncovered_box_keys: uncovered.len() as u64,
-        rhs_outside_box,
-        rhs_without_rule,
-        sym_row_rules,
-        symmetry_groups,
-    })
 }
 
 /// Options of one import.
@@ -1664,61 +1745,97 @@ pub fn import_table(
     graph: &PTopo,
     options: &TableImportOptions,
 ) -> Result<ImportedOwner, PError> {
-    let records: Vec<Value> = table
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()
-        .map_err(|error| malformed(format!("JSONL: {error}")))?;
+    import_table_from(table.as_bytes(), graph, options)
+}
+
+/// The JSONL records of a table, one at a time (blank lines skipped): the
+/// record and its line.
+struct TableRecords<R> {
+    reader: R,
+    line: String,
+}
+
+impl<R: std::io::BufRead> TableRecords<R> {
+    fn next(&mut self) -> Result<Option<Value>, PError> {
+        loop {
+            self.line.clear();
+            let read = self
+                .reader
+                .read_line(&mut self.line)
+                .map_err(|error| malformed(format!("JSONL: {error}")))?;
+            if read == 0 {
+                return Ok(None);
+            }
+            if self.line.trim().is_empty() {
+                continue;
+            }
+            return serde_json::from_str(&self.line)
+                .map(Some)
+                .map_err(|error| malformed(format!("JSONL: {error}")));
+        }
+    }
+}
+
+/// The checks of one record that do not depend on its content (record kind,
+/// deferred counters, zero charts).
+fn check_record_kind(record: &Value, boxed: bool) -> Result<(), PError> {
+    let kind = record["type"].as_str().unwrap_or("");
+    match kind {
+        "header" | "zero_sectors" | "chart" | "rule" | "residual" | "chart_end" | "end" => {}
+        // Provenance only (Astra's same-order cover-prefix assembly, T206).
+        "assembly_provenance" => {}
+        // boxed-node: provenance only in a boxed table (its point rules are
+        // certified identities; dispatch never reads the group). Refused in
+        // any other table, as before.
+        "symmetry_group" if boxed => {}
+        "chart_error" => return Err(gap("chart_error", record["error"].to_string())),
+        other => return Err(gap("record", format!("record type {other:?}"))),
+    }
+    if kind == "chart_end" {
+        for counter in ["deferred_cases", "deferred_branches", "deferred_regions"] {
+            if record[counter].as_u64().unwrap_or(0) != 0 {
+                return Err(gap(
+                    "deferred",
+                    format!("chart {}: {counter} = {}", record["chart"], record[counter]),
+                ));
+            }
+        }
+    }
+    if kind == "chart" && record["zero"] == true {
+        return Err(gap(
+            "zero_chart",
+            format!("chart {} is zero", record["chart"]),
+        ));
+    }
+    Ok(())
+}
+
+/// [`import_table`] reading the table record by record (t162-export): only
+/// the header, the current record, the box record's key sets and the encoded
+/// payload are held, never the table text or its parsed records. Same
+/// payload bytes and the same refusals as [`import_table`] (a refusal found
+/// only at the end of the table, as a missing `end`, comes after the
+/// refusals of the records before it).
+pub fn import_table_from<R: std::io::BufRead>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+) -> Result<ImportedOwner, PError> {
+    let mut records = TableRecords {
+        reader,
+        line: String::new(),
+    };
     let header = records
-        .first()
+        .next()?
         .filter(|record| record["type"] == "header")
         .ok_or_else(|| malformed("no header record"))?;
+    let header = &header;
     let schema = str_field(header, "schema")?;
     if !schema.starts_with(TABLE_IMPORT_SCHEMA_PREFIX) {
         return Err(gap("schema", schema.to_owned()));
     }
-    let end = records
-        .iter()
-        .find(|record| record["type"] == "end")
-        .ok_or_else(|| gap("partial", "no end record: a partial run"))?;
-    if end["chart_errors"].as_u64().unwrap_or(0) != 0 {
-        return Err(gap(
-            "chart_error",
-            format!("{} chart errors", end["chart_errors"]),
-        ));
-    }
     let boxed_header = header.get("boxed_node").filter(|value| !value.is_null());
-    for record in &records {
-        let kind = record["type"].as_str().unwrap_or("");
-        match kind {
-            "header" | "zero_sectors" | "chart" | "rule" | "residual" | "chart_end" | "end" => {}
-            // Provenance only (Astra's same-order cover-prefix assembly, T206).
-            "assembly_provenance" => {}
-            // boxed-node: provenance only in a boxed table (its point rules are
-            // certified identities; dispatch never reads the group). Refused in
-            // any other table, as before.
-            "symmetry_group" if boxed_header.is_some() => {}
-            "chart_error" => return Err(gap("chart_error", record["error"].to_string())),
-            other => return Err(gap("record", format!("record type {other:?}"))),
-        }
-        if kind == "chart_end" {
-            for counter in ["deferred_cases", "deferred_branches", "deferred_regions"] {
-                if record[counter].as_u64().unwrap_or(0) != 0 {
-                    return Err(gap(
-                        "deferred",
-                        format!("chart {}: {counter} = {}", record["chart"], record[counter]),
-                    ));
-                }
-            }
-        }
-        if kind == "chart" && record["zero"] == true {
-            return Err(gap(
-                "zero_chart",
-                format!("chart {} is zero", record["chart"]),
-            ));
-        }
-    }
+    check_record_kind(header, boxed_header.is_some())?;
 
     let power_shifts: Vec<String> = header["power_shifts"]
         .as_array()
@@ -1869,25 +1986,11 @@ pub fn import_table(
     };
     let slot_order_json = serde_json::to_string(&slot_order).map_err(|error| malformed(error))?;
     // boxed-node: the box record, checked on the table (box, point rules,
-    // terminals, closure), in presentation slots.
-    let boxed = match boxed_header {
-        Some(value) => Some(boxed_node_record(
-            value,
-            &records,
-            table,
-            &family,
-            &charts_of(header)?,
-            &slot_map,
-            options.partial_box,
-        )?),
+    // terminals, closure) while its records are read, in presentation slots.
+    let charts = charts_of(header)?;
+    let mut box_checker = match boxed_header {
+        Some(value) => Some(BoxChecker::new(value, &family, &charts)?),
         None => None,
-    };
-    let boxed_provenance = match &boxed {
-        Some(record) => format!(
-            "{BOXED_NODE_MARKER}{}",
-            serde_json::to_string(record).map_err(|error| malformed(error))?
-        ),
-        None => String::new(),
     };
 
     // 2. The rules, chart by chart in the header's order.
@@ -1898,14 +2001,12 @@ pub fn import_table(
         table: CoefficientTableBuilder::new(BinaryIoLimits::default()),
         slot_map: &slot_map,
     };
-    let charts = charts_of(header)?;
-    let mut sectors: Vec<SectorRecord> = charts
+    let mut sectors: Vec<EncodedSectorRecord> = charts
         .iter()
         .map(|chart| {
-            Ok(SectorRecord {
+            Ok(EncodedSectorRecord {
                 sector: permuted(&mask_bits(chart)?, &slot_map),
-                rules: Vec::new(),
-                finite_residuals: Vec::new(),
+                ..Default::default()
             })
         })
         .collect::<Result<_, PError>>()?;
@@ -1918,7 +2019,16 @@ pub fn import_table(
     };
     let mut dispatch = Vec::new();
     let (mut rules, mut rhs_terms, mut negated, mut affine_rules, mut excepted) = (0, 0, 0, 0, 0);
-    for record in &records {
+    let mut end: Option<Value> = None;
+    while let Some(record) = records.next()? {
+        let record = &record;
+        check_record_kind(record, boxed_header.is_some())?;
+        if end.is_none() && record["type"] == "end" {
+            end = Some(record.clone());
+        }
+        if let Some(checker) = &mut box_checker {
+            checker.feed(record, &records.line)?;
+        }
         match record["type"].as_str() {
             Some("residual") => {
                 let sector = ordinal(str_field(record, "chart")?)?;
@@ -1935,7 +2045,7 @@ pub fn import_table(
                 let index = record["index"]
                     .as_u64()
                     .ok_or_else(|| malformed("rule index"))? as usize;
-                if index != sectors[sector].rules.len() {
+                if index != sectors[sector].rules {
                     return Err(malformed(format!(
                         "rule {index} of chart {} out of order",
                         charts[sector]
@@ -2051,18 +2161,38 @@ pub fn import_table(
                     }),
                     Some(other) => return Err(gap("dispatch", other.to_owned())),
                 }
-                sectors[sector].rules.push(RuleRecord {
-                    case,
-                    target: integral_record(&target_key, &slot_map)?,
-                    rhs,
-                    sources: Vec::new(),
-                    exclusions,
-                });
+                sectors[sector]
+                    .push_rule(&RuleRecord {
+                        case,
+                        target: integral_record(&target_key, &slot_map)?,
+                        rhs,
+                        sources: Vec::new(),
+                        exclusions,
+                    })
+                    .map_err(|error| malformed(error))?;
                 rules += 1;
             }
             _ => {}
         }
     }
+    let end = end.ok_or_else(|| gap("partial", "no end record: a partial run"))?;
+    if end["chart_errors"].as_u64().unwrap_or(0) != 0 {
+        return Err(gap(
+            "chart_error",
+            format!("{} chart errors", end["chart_errors"]),
+        ));
+    }
+    let boxed = match box_checker {
+        Some(checker) => Some(checker.finish(&slot_map, options.partial_box)?),
+        None => None,
+    };
+    let boxed_provenance = match &boxed {
+        Some(record) => format!(
+            "{BOXED_NODE_MARKER}{}",
+            serde_json::to_string(record).map_err(|error| malformed(error))?
+        ),
+        None => String::new(),
+    };
     dispatch.sort_by_key(|entry| (entry.sector, entry.rule));
     let dispatched_rules = dispatch.len();
     let root_sector: Vec<bool> = (0..arity)
@@ -2096,7 +2226,7 @@ pub fn import_table(
         root_sector,
         permutation: None,
         integral_order: policy.stable_id().to_string(),
-        sectors,
+        sectors: Vec::new(),
         rule_dispatch: dispatch,
     };
     let mut table_builder = coefficients.table;
@@ -2105,7 +2235,9 @@ pub fn import_table(
     let encoded = table_builder
         .finish()
         .map_err(|error| malformed(format!("coefficient table: {error}")))?;
-    let program_bytes = encode_program_record(&program).map_err(|error| malformed(error))?;
+    let program_bytes =
+        encode_program_record_with_sectors(&program, &sectors).map_err(|error| malformed(error))?;
+    drop(sectors);
     let family_bytes = bincode::encode_to_vec(&family_record, bincode::config::standard())
         .map_err(|error| malformed(error))?;
     let payload = encode_program(
@@ -2516,7 +2648,7 @@ mod tests {
             presentation,
             &imported.payload,
             &imported.meta,
-            &[outside.clone()],
+            std::slice::from_ref(&outside),
         ) {
             Err(PError::OutsideBox {
                 key,
@@ -2615,6 +2747,155 @@ mod tests {
             matches!(&refused, Err(PError::Unsupported(text)) if text.contains("symmetry_group")),
             "{refused:?}"
         );
+    }
+
+    /// `kite_table(true, Some(0))` with `parametric_after_points` and the
+    /// parametric rule `I(n0,1,1,1,1) -> 1/(d-3) I(n0-1,1,1,1,1)` (or the
+    /// given right-hand side) after the four point rules (or before them).
+    fn mixed_kite_table(rhs: &str, parametric_first: bool) -> String {
+        let text = kite_table(true, Some(0), &[]);
+        let mut records: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        records[0]["boxed_node"]["parametric_after_points"] = serde_json::json!(true);
+        let parametric = serde_json::json!({
+            "type": "rule", "chart": "11111", "index": 4,
+            "case": "Coordinate(CoordinateCase { fixed: [None, Some(1), Some(1), Some(1), Some(1)] })",
+            "fixed": [null, 1, 1, 1, 1], "equations": [], "target": "I(n0,1,1,1,1)",
+            "rhs": [[rhs, "1/(d-3)"]], "exceptions": [], "dispatch": "Partition",
+        });
+        let first_rule = records.iter().position(|r| r["type"] == "rule").unwrap();
+        let residual = records
+            .iter()
+            .position(|r| r["type"] == "residual")
+            .unwrap();
+        if parametric_first {
+            for record in records.iter_mut().filter(|r| r["type"] == "rule") {
+                record["index"] = serde_json::json!(record["index"].as_u64().unwrap() + 1);
+            }
+            let mut first = parametric;
+            first["index"] = serde_json::json!(0);
+            records.insert(first_rule, first);
+        } else {
+            records.insert(residual, parametric);
+        }
+        records.iter().map(|r| format!("{r}\n")).collect()
+    }
+
+    /// t162-export, mixed box: point rules first, then parametric rules (an
+    /// existing bank). First match: the point rule of a key, else the first
+    /// parametric rule that applies (also outside the box), else OutsideBox.
+    /// The box keys left to the parametric rules are stepped at load; a
+    /// parametric rule leaving the box, or a point rule after a parametric
+    /// one, is refused.
+    #[test]
+    fn a_boxed_node_may_carry_point_rules_and_parametric_rules() {
+        let text = mixed_kite_table("I(n0-1,1,1,1,1)", false);
+        let imported = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+        let boxed = imported.boxed.clone().unwrap();
+        assert_eq!(
+            (
+                boxed.point_rules,
+                boxed.parametric_rules,
+                boxed.uncovered_box_keys
+            ),
+            (4, 1, 1)
+        );
+        assert!(boxed.complete);
+        let presentation = &imported.presentation;
+        let check = super::super::custom::verify_custom_payload(
+            presentation,
+            &imported.payload,
+            &imported.meta,
+        )
+        .unwrap();
+        assert_eq!(check.box_keys_stepped, 5);
+        let to_presentation = |key: [i64; 5]| permuted(&key, &imported.slot_map);
+        let replay = |key: [i64; 5]| {
+            super::super::custom::replay_custom_payload(
+                presentation,
+                &imported.payload,
+                &imported.meta,
+                &[to_presentation(key)],
+            )
+        };
+        // Inside the box by the parametric rule, outside by it too (3 -> 2 -> 1).
+        assert_eq!(replay([2, 1, 1, 1, 1]).unwrap()[0].steps, 2);
+        assert_eq!(replay([3, 1, 1, 1, 1]).unwrap()[0].steps, 3);
+        // A point rule still wins at its key.
+        assert_eq!(replay([1, 2, 1, 1, 1]).unwrap()[0].boundary.len(), 1);
+        assert!(matches!(
+            replay([1, 3, 1, 1, 1]),
+            Err(PError::OutsideBox { .. })
+        ));
+        // A parametric rule whose child leaves the box fails the load check.
+        let leaving = mixed_kite_table("I(n0,2,1,1,1)", false);
+        let imported = import_table(&leaving, &kite_graph(), &kite_options(false)).unwrap();
+        assert!(
+            super::super::custom::verify_custom_payload(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+            )
+            .is_err()
+        );
+        // Point rules come first.
+        let refused = import_table(
+            &mixed_kite_table("I(n0-1,1,1,1,1)", true),
+            &kite_graph(),
+            &kite_options(false),
+        );
+        assert!(
+            matches!(&refused, Err(PError::Unsupported(text)) if text.contains("point rules come first")),
+            "{refused:?}"
+        );
+        // Without the header flag a parametric rule is refused, as before.
+        let flagless = text.replace(
+            "\"parametric_after_points\":true",
+            "\"parametric_after_points\":false",
+        );
+        assert_ne!(flagless, text);
+        assert!(import_table(&flagless, &kite_graph(), &kite_options(false)).is_err());
+    }
+
+    /// The streaming import (t162-export): a reader with a tiny buffer, blank
+    /// and CRLF lines give the payload bytes of the in-memory import, boxed
+    /// or not; a table without its end record is refused after its records.
+    #[test]
+    fn the_streaming_import_gives_the_same_payload() {
+        for boxed in [false, true] {
+            let text = kite_table(boxed, None, &[]);
+            let whole = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+            let spaced = text.replace('\n', "\r\n\n  \n");
+            let streamed = import_table_from(
+                std::io::BufReader::with_capacity(7, spaced.as_bytes()),
+                &kite_graph(),
+                &kite_options(false),
+            )
+            .unwrap();
+            assert_eq!(streamed.payload, whole.payload);
+            assert_eq!(streamed.boxed, whole.boxed);
+            assert_eq!(streamed.rules, whole.rules);
+            assert_eq!(streamed.rhs_terms, whole.rhs_terms);
+            let cut = text
+                .lines()
+                .filter(|line| {
+                    !line.contains("\"type\":\"end\"") && !line.contains("\"type\": \"end\"")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(cut.len() < text.len(), "the toy table has an end record");
+            let refused = import_table_from(
+                std::io::BufReader::new(cut.as_bytes()),
+                &kite_graph(),
+                &kite_options(false),
+            );
+            assert!(
+                matches!(&refused, Err(PError::Unsupported(text)) if text.contains("partial")),
+                "{refused:?}"
+            );
+        }
     }
 
     /// The boxed checks: an open box is refused unless partial; a partial box

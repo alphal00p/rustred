@@ -274,8 +274,9 @@ mod tests {
         assert_eq!(work.rule_applications(), 1);
     }
 
-    /// boxed-node: `I(n, 1) -> n I(n - 1, 1)` for `n = 2..=81` (80 point
-    /// rules, above [`POINT_INDEX_MIN_RULES`]), a terminal at `I(1, 1)`.
+    /// boxed-node: `I(n, m) -> n I(n - 1, m)` for `n = 2..=41`, `m = 1, 2`
+    /// (80 point rules, above [`POINT_INDEX_MIN_RULES`]; powers stay below
+    /// the numeric integral bound 64), terminals `I(1, 1)`, `I(1, 2)`.
     #[derive(Debug)]
     struct PointLoader;
 
@@ -286,10 +287,14 @@ mod tests {
             context: Arc<CandidateOwnerContext<2>>,
         ) -> Result<CandidateOwnerPrograms<2>, CandidateReductionError> {
             let family = Arc::clone(context.family_owner());
-            let rules = (2..=81_i16)
-                .map(|n| rule(&family, [n, 1], &[([n - 1, 1], i64::from(n))]))
+            let rules = (2..=41_i16)
+                .flat_map(|n| (1..=2_i16).map(move |m| (n, m)))
+                .map(|(n, m)| rule(&family, [n, m], &[([n - 1, m], i64::from(n))]))
                 .collect();
-            CandidateOwnerPrograms::try_new(context, [input(sector, None, rules, &[[1, 1]])])
+            CandidateOwnerPrograms::try_new(
+                context,
+                [input(sector, None, rules, &[[1, 1], [1, 2]])],
+            )
         }
     }
 
@@ -316,7 +321,7 @@ mod tests {
                 sector: [true, true],
                 saved_root: [true; 2],
                 ordering: OrderingPolicy::SpiredUncutV1,
-                terminals: BTreeSet::from([key([1, 1])]),
+                terminals: BTreeSet::from([key([1, 1]), key([1, 2])]),
             }],
             Arc::new(PointLoader),
         )
@@ -337,18 +342,19 @@ mod tests {
             .unwrap()
         };
         assert_eq!(step([1, 1]), AppliedOwnerStep::Terminal);
-        for n in [2_i64, 3, 40, 81] {
+        assert_eq!(step([1, 2]), AppliedOwnerStep::Terminal);
+        for (n, m) in [(2_i64, 1_i64), (3, 2), (40, 1), (41, 2)] {
             assert_eq!(
-                step([n, 1]),
+                step([n, m]),
                 AppliedOwnerStep::Applied(
-                    BTreeMap::from([(key([n - 1, 1]), coefficients.integer(n))]),
-                    usize::try_from(n - 2).unwrap()
+                    BTreeMap::from([(key([n - 1, m]), coefficients.integer(n))]),
+                    usize::try_from(2 * (n - 2) + m - 1).unwrap()
                 ),
-                "I({n}, 1)"
+                "I({n}, {m})"
             );
         }
-        assert_eq!(step([82, 1]), AppliedOwnerStep::Uncovered);
-        assert_eq!(step([2, 2]), AppliedOwnerStep::Uncovered);
+        assert_eq!(step([42, 1]), AppliedOwnerStep::Uncovered);
+        assert_eq!(step([2, 3]), AppliedOwnerStep::Uncovered);
         let owner = programs.owner(&[true, true]).unwrap().unwrap();
         assert_eq!(owner.batches[0].rules.len(), 80);
         assert!(owner.batches[0].point_index.get().is_some());
