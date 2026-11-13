@@ -694,7 +694,8 @@ fn prepare(
                 }
                 for v in 1..(2 - (off + recenter[i])) {
                     if let Canon::Form(c) = case.canon(&unit_form(n, ax, -(v as i128)))? {
-                        if let std::collections::btree_map::Entry::Vacant(slot) = suspects.entry(c) {
+                        if let std::collections::btree_map::Entry::Vacant(slot) = suspects.entry(c)
+                        {
                             low.push(form_str(slot.key()));
                             slot.insert(vec![(k, i, ax, v)]);
                         }
@@ -940,7 +941,8 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         let family_name = header["family"].as_str().unwrap_or_default().to_string();
         let t = std::fs::read_to_string(path).map_err(|e| format!("sym census: {e}"))?;
         for line in t.lines().filter(|l| !l.trim().is_empty()) {
-            let v: Value = serde_json::from_str(line).map_err(|e| format!("sym census json: {e}"))?;
+            let v: Value =
+                serde_json::from_str(line).map_err(|e| format!("sym census json: {e}"))?;
             if v["node"].as_str() != Some(family_name.as_str()) {
                 continue;
             }
@@ -1157,8 +1159,16 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
                             "the case + single live suspect layers + intersections of layers that showed a rank drop"
                         },
                         if args.low_layers { " + low layers" } else { "" },
-                        if sym.is_empty() { "" } else { " + symmetry layers" },
-                        if extra.contains_key(&key) { " + extra loci" } else { "" }
+                        if sym.is_empty() {
+                            ""
+                        } else {
+                            " + symmetry layers"
+                        },
+                        if extra.contains_key(&key) {
+                            " + extra loci"
+                        } else {
+                            ""
+                        }
                     ));
                     rec["verdict_meaning"] = json!(
                         "PASS_ON_TESTED_FLATS = in the span at one generic point of each tested flat (Monte-Carlo evidence; not a certificate, suspect list incomplete); FAIL = not derived from these seeds at a tested point"

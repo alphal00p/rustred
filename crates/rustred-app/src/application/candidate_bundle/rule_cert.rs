@@ -372,7 +372,11 @@ fn certify<const N: usize>(
                 stats: Default::default(),
                 hidden_poles: Vec::new(),
             };
-            let original_poles = match extract_exceptions(&original_candidate, indices, solver.ordering().sector()) {
+            let original_poles = match extract_exceptions(
+                &original_candidate,
+                indices,
+                solver.ordering().sector(),
+            ) {
                 Ok(conditions) => conditions.branches,
                 Err(e) => {
                     summary.failed += 1;

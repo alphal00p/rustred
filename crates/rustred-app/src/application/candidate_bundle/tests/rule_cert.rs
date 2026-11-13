@@ -60,8 +60,8 @@ fn rule_certificates_certify_a_small_payload_and_reject_planted_errors() {
     let mut planted = false;
     'outer: for sector in &mut swapped.sectors {
         for rule in &mut sector.rules {
-            if let Some(j) = (1..rule.rhs.len())
-                .find(|&j| rule.rhs[j].coefficient != rule.rhs[0].coefficient)
+            if let Some(j) =
+                (1..rule.rhs.len()).find(|&j| rule.rhs[j].coefficient != rule.rhs[0].coefficient)
             {
                 let (a, b) = (rule.rhs[0].coefficient, rule.rhs[j].coefficient);
                 rule.rhs[0].coefficient = b;
@@ -96,9 +96,17 @@ fn rule_certificates_certify_a_small_payload_and_reject_planted_errors() {
                 .iter()
                 .any(|p| p["status"] == "exception")
         })
-        .map(|r| (r["chart"].as_str().unwrap().to_owned(), r["rule"].as_u64().unwrap()))
+        .map(|r| {
+            (
+                r["chart"].as_str().unwrap().to_owned(),
+                r["rule"].as_u64().unwrap(),
+            )
+        })
         .collect();
-    println!("K3 rules with an exception weight-pole layer: {}", with_poles.len());
+    println!(
+        "K3 rules with an exception weight-pole layer: {}",
+        with_poles.len()
+    );
     if let Some((chart, ordinal)) = with_poles.first() {
         let mut dropped = bundle.clone();
         let sector = dropped

@@ -633,10 +633,7 @@ fn checked_factor(input: &CoefficientPolynomial) -> Vec<(CoefficientPolynomial, 
     use symbolica::domains::finite_field::{ToFiniteField, Zp64};
     use symbolica::domains::{Ring, RingOps};
     use symbolica::prelude::{Field, Integer};
-    let factors: Vec<(CoefficientPolynomial, usize)> = input
-        .factor()
-        .into_iter()
-        .collect();
+    let factors: Vec<(CoefficientPolynomial, usize)> = input.factor().into_iter().collect();
     let prime: u64 = 2_305_843_009_213_693_951;
     let field = Zp64::new(prime);
     let nvars = input.nvars();

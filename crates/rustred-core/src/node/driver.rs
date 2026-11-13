@@ -2284,9 +2284,10 @@ pub fn fixed_dot_static<const N: usize>(
         .collect();
     rising.sort_unstable();
     let some_all_below = free.is_empty()
-        || sets
-            .iter()
-            .any(|e| e.iter().all(|&a| free.iter().all(|&f| below(a, f) == Some(true))));
+        || sets.iter().any(|e| {
+            e.iter()
+                .all(|&a| free.iter().all(|&f| below(a, f) == Some(true)))
+        });
     FixedDotStaticReport {
         verdict: if some_all_below {
             FixedDotStatic::Undecided
@@ -3115,7 +3116,17 @@ fn run<const N: usize>(
     }
     if let Some(path) = &opts.pose_probe {
         return pose_probe_run::<N>(
-            path, &solver, opts, &template, &idx, &sector, n, nb, out_dir, &top, &fd_momenta,
+            path,
+            &solver,
+            opts,
+            &template,
+            &idx,
+            &sector,
+            n,
+            nb,
+            out_dir,
+            &top,
+            &fd_momenta,
         );
     }
     // initial cases (ORIGINAL slots -> presented)
@@ -6487,14 +6498,34 @@ mod tests {
         assert!(!json.contains("fixed_dot"));
         let cfg = FixedDotConfig::from_options(&o);
         assert_eq!(
-            (cfg.enabled, cfg.lines, cfg.max_seeds, cfg.first, cfg.priority.is_none(), cfg.static_skip),
-            (true, FIXED_DOT_LINES_DEFAULT, FIXED_DOT_SEEDS_DEFAULT, false, true, true)
+            (
+                cfg.enabled,
+                cfg.lines,
+                cfg.max_seeds,
+                cfg.first,
+                cfg.priority.is_none(),
+                cfg.static_skip
+            ),
+            (
+                true,
+                FIXED_DOT_LINES_DEFAULT,
+                FIXED_DOT_SEEDS_DEFAULT,
+                false,
+                true,
+                true
+            )
         );
         assert_eq!(FIXED_DOT_LINES_DEFAULT, 0);
         // --seed-pose-fixed-dot 0 = off; K >= 1 keeps its earlier meaning (K line poses); -lines wins
-        let off = FixedDotConfig::from_options(&NodeOptions { seed_pose_fixed_dot: Some(0), ..NodeOptions::default() });
+        let off = FixedDotConfig::from_options(&NodeOptions {
+            seed_pose_fixed_dot: Some(0),
+            ..NodeOptions::default()
+        });
         assert!(!off.enabled);
-        let four = FixedDotConfig::from_options(&NodeOptions { seed_pose_fixed_dot: Some(4), ..NodeOptions::default() });
+        let four = FixedDotConfig::from_options(&NodeOptions {
+            seed_pose_fixed_dot: Some(4),
+            ..NodeOptions::default()
+        });
         assert!(four.enabled && four.lines == 4);
         let two = FixedDotConfig::from_options(&NodeOptions {
             seed_pose_fixed_dot: Some(4),
@@ -6528,7 +6559,10 @@ mod tests {
         assert_eq!(r.cyc, Some(0));
         assert_eq!(r.mu, Some(1));
         assert!(r.exposed.contains(&vec![1]) && r.exposed.contains(&vec![2]));
-        assert!(matches!(r.verdict, FixedDotStatic::Needed | FixedDotStatic::Undecided));
+        assert!(matches!(
+            r.verdict,
+            FixedDotStatic::Needed | FixedDotStatic::Undecided
+        ));
         // free lines 0, 1: the fixed line k1 + k2 leaves the direction k1 - k2 free -> cyc 1
         let two = Case::from(
             CoordinateCase::new([None, None, Some(1), Some(0), Some(0), Some(0)]).unwrap(),

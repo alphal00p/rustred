@@ -211,7 +211,10 @@ mod tests {
         }
         let mut deeper = FamilyCandidatesRequest::new("not parsed");
         deeper.numerical_depth = 0;
-        assert_eq!(encode_request(&deeper), format!("{}{BUNDLE_GUARD_TAG}", encode(0)));
+        assert_eq!(
+            encode_request(&deeper),
+            format!("{}{BUNDLE_GUARD_TAG}", encode(0))
+        );
         for malformed in [
             format!("{SOLVER_POLICY}+witness-guards-v3"),
             format!("{SOLVER_POLICY}{BUNDLE_GUARD_TAG}{BUNDLE_GUARD_TAG}"),

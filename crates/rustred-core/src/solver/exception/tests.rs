@@ -607,7 +607,10 @@ fn assert_exact_on_box<const N: usize>(
             )
             .unwrap_or_else(|error| panic!("branch {branch:?}: {:?}", error.failure));
         for case in result.cases {
-            assert!(parent.contains(&case).unwrap(), "{case:?} outside the parent");
+            assert!(
+                parent.contains(&case).unwrap(),
+                "{case:?} outside the parent"
+            );
             cases.push(case);
         }
     }
@@ -631,10 +634,11 @@ fn assert_exact_on_box<const N: usize>(
             .map(|term| &term.coefficient.denominator)
             .chain(rule.hidden_poles.iter())
             .any(|denominator| vanishes_for_all_d(denominator, indices, &point));
-        let got = cases
-            .iter()
-            .any(|case| case.contains(&coordinate).unwrap());
-        assert_eq!(got, pole, "point {point:?}: excluded {got}, guard input vanishes {pole}");
+        let got = cases.iter().any(|case| case.contains(&coordinate).unwrap());
+        assert_eq!(
+            got, pole,
+            "point {point:?}: excluded {got}, guard input vanishes {pole}"
+        );
         excluded += usize::from(pole);
     }
     excluded
@@ -742,7 +746,10 @@ fn d3_a_factorisation_timeout_fails_closed_to_the_exact_content_route() {
     )
     .unwrap();
     assert!(
-        matches!(report.route, GuardRouteTaken::Native | GuardRouteTaken::Content),
+        matches!(
+            report.route,
+            GuardRouteTaken::Native | GuardRouteTaken::Content
+        ),
         "{report:?}"
     );
     assert!(!got.branches.is_empty());
@@ -773,6 +780,9 @@ fn n2_primitive_factors_list_the_d_only_factors_of_witness_poles() {
             "{want} missing from {factors:?}"
         );
     }
-    let d_only: Vec<_> = factors.iter().filter(|f| f.degree(1) == 0 && f.degree(2) == 0).collect();
+    let d_only: Vec<_> = factors
+        .iter()
+        .filter(|f| f.degree(1) == 0 && f.degree(2) == 0)
+        .collect();
     assert_eq!(d_only.len(), 2);
 }
