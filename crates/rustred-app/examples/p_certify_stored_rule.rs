@@ -148,6 +148,10 @@ mod app {
         /// a row is formed at a stored NUMERIC chart seed y only when every slot with y_i != 0 is exact.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub symmetry_rows: Option<SymmetryRowsRequest>,
+        /// sym-gen (opt-in, default false): a FULLY FIXED Case with zero recenter has a trivial frame (the raw pivot
+        /// is the target key), so a numeric rule without `raw_pivot_encoded` is accepted. Implied by `symmetry_rows`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub numeric_case_frame: bool,
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
@@ -1813,7 +1817,7 @@ mod app {
         source_support: Option<&SourceSupport>,
         forced_point: Option<&[u64]>,
     ) -> Result<Value> {
-        certify_with_support_sym(p, header, rule, limits, profile_only, source_support, forced_point, None, &mut Value::Null)
+        certify_with_support_sym(p, header, rule, limits, profile_only, source_support, forced_point, None, false, &mut Value::Null)
     }
 
     /// sym-gen: the momentum vectors (over loops + externals) and line flags of the presented family text.
@@ -1982,6 +1986,7 @@ mod app {
         source_support: Option<&SourceSupport>,
         forced_point: Option<&[u64]>,
         symmetry: Option<&Value>,
+        numeric_case_frame: bool,
         symmetry_report: &mut Value,
     ) -> Result<Value> {
         let start = Instant::now();
@@ -2038,10 +2043,16 @@ mod app {
             recenter.len() == p.context.index_count(),
             "recenter arity mismatch",
         )?;
+        let trivial_numeric_frame = (numeric_case_frame || symmetry.is_some())
+            && case.fixed.iter().all(Option::is_some)
+            && case.equations.is_empty()
+            && recenter.iter().all(|&x| x == 0)
+            && rule["raw_pivot_encoded"].is_null();
         require(
-            rule["raw_pivot_encoded"]
-                .as_array()
-                .is_some_and(|a| a.len() == recenter.len()),
+            trivial_numeric_frame
+                || rule["raw_pivot_encoded"]
+                    .as_array()
+                    .is_some_and(|a| a.len() == recenter.len()),
             "missing raw-pivot frame binding",
         )?;
         let substitutions = case_substitution(&case, p, limits)?;
@@ -2439,6 +2450,7 @@ mod app {
             request.source_support.as_ref(),
             None,
             group.as_ref().map(|g| &g.0),
+            request.numeric_case_frame,
             &mut symmetry_report,
         )?;
         if let Some((_, h)) = &group {
