@@ -1198,16 +1198,26 @@ mod pair_tests {
         assert!(explicit_row(&[vec![0, 0, 0], vec![0, 1, 0]], 3).is_err());
     }
 
-    /// The embedded table (P_PRESENTATION_VERSION 3) parses, names 55 nodes,
-    /// and has no pair with `q` in both factors (a constant `q^2` breaks the
-    /// massless family admission, `family::unit_scale`).
+    /// The embedded table (P_PRESENTATION_VERSION 4) parses, names 58 nodes
+    /// (57 route-basis-2 presentations + the bebe entry), every entry has
+    /// explicit rows of one width that are massless-shaped (no `q` in both
+    /// factors: a constant `q^2` breaks the massless family admission,
+    /// `family::unit_scale`), and has no pair with `q` in both factors.
     #[test]
-    fn the_embedded_preference_table_is_version_3() {
-        assert_eq!(super::super::P_PRESENTATION_VERSION, 3);
+    fn the_embedded_preference_table_is_version_4() {
+        assert_eq!(super::super::P_PRESENTATION_VERSION, 4);
         let table: BTreeMap<String, IspPreference> =
             serde_json::from_str(P_ISP_PREFERENCES_JSON).unwrap();
-        assert_eq!(table.len(), 55);
+        assert_eq!(table.len(), 58);
         assert!(table.keys().all(|name| name.starts_with("p_node_")));
+        for (name, preference) in &table {
+            let rows = preference.rows();
+            assert!(!rows.is_empty(), "{name}: no explicit rows");
+            let width = rows[0][0].len();
+            for row in rows {
+                assert!(explicit_row(row, width).is_ok(), "{name}: {row:?}");
+            }
+        }
         assert!(
             table
                 .values()
