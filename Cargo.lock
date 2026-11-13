@@ -1466,6 +1466,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustred-campaign"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "libc",
+ "rustred-campaign-contract",
+ "rustred-campaign-core",
+ "serde",
+ "serde_json",
+ "signal-hook",
+]
+
+[[package]]
+name = "rustred-campaign-contract"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rustred-campaign-core"
 version = "0.1.0"
 dependencies = [

@@ -7,6 +7,8 @@ members = [
     "crates/rustred-feynkit",
     "crates/rustred-topology",
     "crates/rustred-campaign-core",
+    "crates/rustred-campaign-contract",
+    "crates/rustred-campaign",
 ]
 default-members = [
     "crates/rustred-order",
