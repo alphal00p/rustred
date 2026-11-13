@@ -586,7 +586,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
          P_CLASS_KEY_VERSION=1,P_CENSUS_VERSION=2,P_PRESENTATION_VERSION=4,\
          P_FAMILIES_VERSION=1,P_GAMMA_TAG_VERSION=1,P_GAMMA_TAG_MAX_M=8,\
          P_GAMMA_TAG_WIDTH=16,P_INSERTION_KERNEL_VERSION=1,P_CARPET_KERNEL_VERSION=1,\
-         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=4,P_CUSTOM_OWNER_VERSION=2,\
+         P_TRIANGLE_TEMPLATE_VERSION=1,P_DIAMOND_TEMPLATE_VERSION=1,P_SCHEME_TEMPLATE_VERSION=5,P_CUSTOM_OWNER_VERSION=2,\
          P_LIBRARY_SCHEMA=rustred.p-owner-library.v1,P_FAMILIES_SCHEMA=rustred.p-families.v1,\
          P_BASIS_LAYER_SCHEMA=rustred.p-basis-layer.v1,P_TOPOLOGY_VERSION=1";
     let mut changed = Vec::new();
@@ -598,7 +598,9 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
             // default (records without them); the identity moved with
             // P_PRESENTATION_VERSION 3. Before: 5aecae8b... M5 batch 5: the
             // identity moved with P_PRESENTATION_VERSION 4. Before: 4f1a1956...
-            "a164f8e82974504c1506e1dfaa48fbabad1a5286c0ef6ba1e5aff8c514352c97",
+            // M5 batch 6: the identity moved with P_SCHEME_TEMPLATE_VERSION 5.
+            // Before: a164f8e8...
+            "487c25c80a47992fa1483db5502b040757d3ad86a19dbce927e7b74de362e9a8",
         ),
         (
             true,
@@ -644,9 +646,11 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
 
 /// The records of the reference program with orbit canonicalisation on
 /// (M5 batch 4: known-zero children pruned; before: 0abd5420...; M5 batch 5:
-/// the identity moved with P_PRESENTATION_VERSION 4, before: 0843333d...).
+/// the identity moved with P_PRESENTATION_VERSION 4, before: 0843333d...;
+/// M5 batch 6: the identity moved with P_SCHEME_TEMPLATE_VERSION 5, before:
+/// 1ab091dd...).
 const ORBIT_CANON_RECORDS_DIGEST: &str =
-    "1ab091dd3df5b95b5b526ee3d25cbe5d3b2629286dd1cc2f54667c381d8b49d3";
+    "b1da5910b8c0ddeeedc409378f9407aaf2c3ce46dadafceb357c69aa8e463021";
 
 fn line(momentum: &[i64]) -> Slot {
     Slot::Line(SlotLine {

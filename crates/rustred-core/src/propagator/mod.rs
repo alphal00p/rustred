@@ -115,8 +115,12 @@ pub const P_DIAMOND_TEMPLATE_VERSION: u32 = 1;
 /// M5 no6: no6 is embedded with the shipped Custom no6 rules as the fallback
 /// of the keys outside its reach (`"fallback": "custom"`). 4 (M5 batch 2,
 /// coordinator 15:38Z): no6 is on by default (Scheme lane: no1, haha, bubu,
-/// no2, no6).
-pub const P_SCHEME_TEMPLATE_VERSION: u32 = 4;
+/// no2, no6). 5 (M5 batch 6, coordinator ruling 2026-11-13, scheme-certs):
+/// stored certificates for 169 of the 215 replay-only rules (no2, no6, bubu,
+/// haha, no1; `relation` + `certificate` + `"dispatch": "terms"`), verified at
+/// program build; patterns, terms, rule order, replay records and dispatch are
+/// unchanged.
+pub const P_SCHEME_TEMPLATE_VERSION: u32 = 5;
 /// Custom-owner generation options and the false-knock-out guard. 2 (M5 B2):
 /// a payload order may be rank-gated (an ISP-rank row before the support,
 /// `descent::is_rank_gated`), and the scope 1-4 package ships such owners.
