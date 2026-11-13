@@ -593,3 +593,34 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
 pub fn emit(o: &Vec<(String, String)>) -> String {
     format!("{{{}}}", o.iter().map(|(k, v)| format!("{}:{}", jstr(k), v)).collect::<Vec<_>>().join(","))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn affine_case_solved_with_unit_pivots_and_refused_otherwise() {
+        let fixed: [Option<i64>; 20] = std::array::from_fn(|i| if i == 4 { Some(1) } else { None });
+        // n7 = n11 - n10 + 2 ; n1 = n9 + 2 n8 - n6 + n5 + n2 - 1 + n4 (n4 fixed to 1)
+        let e1 = parse_affine(b"-2-n11+n10+n7").unwrap();
+        let e2 = parse_affine(b"1-n9-2*n8+n6-n5-n2+n1-n4").unwrap();
+        let s = solve_case(&[e1.clone(), e2.clone()], &fixed).unwrap();
+        assert_eq!(s.len(), 2);
+        // every solved form uses only independent variables, and the equations hold at a random point
+        let deps: Vec<usize> = s.iter().map(|x| x.0).collect();
+        for (_, f) in &s { assert!(f.lin.iter().all(|(v, _)| !deps.contains(&(*v as usize)))); }
+        let mut kv = [0i64; 21];
+        for (i, x) in kv.iter_mut().enumerate() { *x = (i as i64 * 7 + 3) % 11 - 5; }
+        kv[4] = 1;
+        for (v, f) in &s { kv[*v] = f.lin.iter().fold(f.c0, |a, &(w, c)| a + c * kv[w as usize]); }
+        for e in [&e1, &e2] { assert_eq!(e.lin.iter().fold(e.c0, |a, &(w, c)| a + c * kv[w as usize]), 0); }
+        assert!(solve_case(&[parse_affine(b"2*n0-3*n1").unwrap()], &[None; 20]).is_err());
+        assert!(solve_case(&[parse_affine(b"1").unwrap()], &[None; 20]).is_err());
+    }
+    #[test]
+    fn primes_lie_in_the_lane_window() {
+        for w in [0u64, u64::MAX, 0x1234_5678_9abc_def0] {
+            let c = prime_candidate(w);
+            assert!(c >= 7u64 << 60 && c < (7u64 << 60) + (1u64 << 59) && c & 1 == 1);
+        }
+    }
+}
