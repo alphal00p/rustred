@@ -17,6 +17,11 @@ pub use application::{
     CandidateTerminalNormalization, CandidateTerminalNormalizationLimits,
 };
 pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
+/// bebe-cert / batch 6: exact per-rule certificates of a saved Custom owner payload (`rustred p-certify`).
+pub use application::{
+    RULE_CERTIFICATE_SCHEMA, RULE_CERTIFICATE_STATEMENT, RuleCertificateOptions,
+    RuleCertificateSummary, rule_certificates,
+};
 pub use application::{
     FiniteDemandMode, FiniteDemandPolicy, FiniteDemandRunRequest, FiniteDemandRunResult,
     inspect_finite_demand, inspect_finite_demand_with_policy, publish_finite_demand_with_progress,
