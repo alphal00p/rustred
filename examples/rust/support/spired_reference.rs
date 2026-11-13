@@ -443,6 +443,7 @@ pub fn compare_pre_rules<const N: usize>(
             rhs: rule.rhs.clone(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         };
         compare(
             &format!("{{{}}}", expected[&axis]),
@@ -639,6 +640,7 @@ mod guard_tests {
                 }],
                 sources: Vec::new(),
                 stats: SearchStats::default(),
+                hidden_poles: Vec::new(),
             },
             exceptions: ExceptionalConditions {
                 branches: vec![vec![
@@ -1170,6 +1172,7 @@ mod tests {
             }],
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         };
         (source, candidate)
     }

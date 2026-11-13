@@ -608,7 +608,6 @@ fn run_item(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn prepare(
     rule: &Rule,
     chart: Option<&Value>,
@@ -695,9 +694,9 @@ fn prepare(
                 }
                 for v in 1..(2 - (off + recenter[i])) {
                     if let Canon::Form(c) = case.canon(&unit_form(n, ax, -(v as i128)))? {
-                        if !suspects.contains_key(&c) {
-                            low.push(form_str(&c));
-                            suspects.insert(c, vec![(k, i, ax, v)]);
+                        if let std::collections::btree_map::Entry::Vacant(slot) = suspects.entry(c) {
+                            low.push(form_str(slot.key()));
+                            slot.insert(vec![(k, i, ax, v)]);
                         }
                     }
                 }

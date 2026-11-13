@@ -24,7 +24,8 @@ pub(super) mod preparation;
 mod priority;
 mod rule_cert;
 pub use rule_cert::{
-    RULE_CERTIFICATE_SCHEMA, RuleCertificateOptions, RuleCertificateSummary, rule_certificates,
+    RULE_CERTIFICATE_SCHEMA, RULE_CERTIFICATE_STATEMENT, RuleCertificateOptions,
+    RuleCertificateSummary, rule_certificates,
 };
 mod save;
 mod selection;

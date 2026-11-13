@@ -150,7 +150,7 @@ pub use candidate_bundle::{
     CandidateSourceSupportOptions, CandidateSourceVisitPlan, CandidateTermInspection,
     CandidateTerminalNormalization, CandidateTerminalNormalizationLimits, CaseIntersectionLimits,
     CheckedPriorityOwnerExport, FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest,
-    FiniteCaseLimits, FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES, RuleCertificateOptions,
+    FiniteCaseLimits, FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES, RULE_CERTIFICATE_SCHEMA, RULE_CERTIFICATE_STATEMENT, RuleCertificateOptions, RuleCertificateSummary,
     SectorFailurePolicy, certify_candidates, certify_candidates_with_progress,
     encode_checked_priority_owner, encode_checked_priority_owner_with_policy,
     encode_generated_candidate_sector, encode_generated_domain_overlay, family_candidates,

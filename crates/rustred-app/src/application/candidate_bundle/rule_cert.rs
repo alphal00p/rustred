@@ -238,7 +238,7 @@ fn certify<const N: usize>(
             "permutation": bundle.permutation,
             "source_rows": sources.rows().len(),
             "conditions": sources.conditions().iter().map(|c| c.to_string()).collect::<Vec<_>>(),
-            "zero_sectors": prepared.zeros.iter().map(|z| mask(z)).collect::<Vec<_>>(),
+            "zero_sectors": prepared.zeros.iter().map(&mask).collect::<Vec<_>>(),
             "dot_axes": options.dot_axes,
             "statement": RULE_CERTIFICATE_STATEMENT,
             "row_convention": "m = differentiated_loop * (externals + loops) + c; contraction c = 0.. over reversed externals then loops k1..kL (momentum index j: j < loops is k_{j+1}, j >= loops the external)",

@@ -23,6 +23,7 @@ fn fixture() -> (CoefficientContext, SourceSystem<1>, RuleCandidate<1>) {
         }],
         sources: Vec::new(),
         stats: SearchStats::default(),
+        hidden_poles: Vec::new(),
     };
     (context, source, candidate)
 }

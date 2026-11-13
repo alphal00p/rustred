@@ -620,7 +620,7 @@ pub fn primitive_factors(poles: &[CoefficientPolynomial]) -> Vec<CoefficientPoly
     let mut factors: Vec<CoefficientPolynomial> = poles
         .iter()
         .filter(|pole| !pole.is_zero() && !pole.is_constant())
-        .flat_map(|pole| checked_factor(pole))
+        .flat_map(checked_factor)
         .map(|(factor, _)| factor)
         .filter(|factor| !factor.is_constant())
         .map(primitive)
@@ -636,7 +636,6 @@ fn checked_factor(input: &CoefficientPolynomial) -> Vec<(CoefficientPolynomial, 
     let factors: Vec<(CoefficientPolynomial, usize)> = input
         .factor()
         .into_iter()
-        .map(|(f, m)| (f, m as usize))
         .collect();
     let prime: u64 = 2_305_843_009_213_693_951;
     let field = Zp64::new(prime);

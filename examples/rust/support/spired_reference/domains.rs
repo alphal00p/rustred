@@ -274,6 +274,7 @@ fn reference_exceptions<const N: usize>(
             rhs: Vec::new(),
             sources: Vec::new(),
             stats: SearchStats::default(),
+            hidden_poles: Vec::new(),
         },
         exceptions: ExceptionalConditions { branches },
         dispatch_policy: Default::default(),
