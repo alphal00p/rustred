@@ -324,7 +324,7 @@ struct Inst {
 }
 
 /// value of a sum text at an integer key as a polynomial in d (exact). keypow[v][e] = key_v^e.
-fn eval_text_d(s: &[u8], keypow: &[Vec<Big>]) -> BigPoly {
+pub(crate) fn eval_text_d(s: &[u8], keypow: &[Vec<Big>]) -> BigPoly {
     let mut acc: Vec<(i128, Big)> = vec![];
     let mut it = Terms::new(s);
     while let Some(t) = it.next() {
@@ -368,7 +368,7 @@ fn eval_text_d(s: &[u8], keypow: &[Vec<Big>]) -> BigPoly {
     out
 }
 
-fn pat_at(p: &Pat, key: &[i64; 20]) -> Vec<i64> {
+pub(crate) fn pat_at(p: &Pat, key: &[i64; 20]) -> Vec<i64> {
     p.iter().enumerate().map(|(i, &(s, o))| if s { key[i] + o } else { o }).collect()
 }
 fn complexity(c: &[i64]) -> (i64, i64, i64) {

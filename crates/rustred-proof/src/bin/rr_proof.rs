@@ -94,6 +94,15 @@ fn engine_rows(_table: &str, _family: Option<&str>) -> Result<EngineRows, String
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
+    if a.get(1).map(|x| x.as_str()) == Some("instantiate") {
+        // rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl   (EC-2: exact per-key facts, no proof)
+        let get = |f: &str| a.iter().position(|x| x == f).and_then(|i| a.get(i + 1)).cloned();
+        let (req, out) = match (get("--requests"), get("--out")) { (Some(r), Some(o)) => (r, o), _ => { println!("{}", rustred_proof::error_record("usage: rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl")); std::process::exit(2); } };
+        match rustred_proof::guarded(|| rustred_proof::instantiate::run_instantiate(&req, &out)) {
+            Ok(s) => { println!("{}", s); std::process::exit(0); }
+            Err(e) => { println!("{}", rustred_proof::error_record(&e)); std::process::exit(2); }
+        }
+    }
     let mut mode = "streaming-eval".to_string();
     let mut sa = StoredArgs::default();
     let mut pa = SpanArgs::default();

@@ -539,6 +539,13 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
         // affine case: equations must hold at the key
         let in_case = eq_aff.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize].unwrap_or(0)) == 0);
         if !in_case { inst_other += 1; inst_json.push(format!("{{\"key\":{{{}}},\"status\":\"NOT_IN_CASE\"}}", keystr)); continue; }
+        {
+            // chart guards on the target at the key (the rule is used only inside its chart)
+            let tp = parse_pat(tj.get(&tline, "target").unwrap().s(&tline));
+            let cb = chart.as_bytes();
+            let ok = (0..20).all(|i| { let x = if tp[i].0 { kv[i].unwrap() + tp[i].1 } else { tp[i].1 }; if cb[i] == b'1' { x >= 1 } else { x <= 0 } });
+            if !ok { inst_other += 1; inst_json.push(format!("{{\"key\":{{{}}},\"status\":\"NOT_IN_CHART (target at the key violates the chart guards)\"}}", keystr)); continue; }
+        }
         let mut kp = mk_point(PKind::Ex, "key".into()); for i in 0..20 { kp.ev[i] = Big::from_i128(kv[i].unwrap() as i128); } kp.ev[DV] = Big::zero();
         let mut emaxe = [0u32; NV]; for b in &exc { for s in b { let d = text_deg(s, &idv); for v in 0..NV { emaxe[v] = emaxe[v].max(d.v[v]); } } }
         build_tables(&mut kp, &emaxe, 0);

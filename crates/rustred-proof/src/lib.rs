@@ -18,6 +18,7 @@
 //! rows stored in a certificate. The H8 kernel (handoff/helper-h10-kernel) is the origin of `core` and `stream`.
 pub mod big;
 pub mod core;
+pub mod instantiate;
 pub mod span;
 pub mod stream;
 #[cfg(feature = "engine")]
