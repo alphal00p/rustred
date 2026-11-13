@@ -141,6 +141,19 @@ mod app {
         pub limits: Limits,
         #[serde(default)]
         pub source_support: Option<SourceSupport>,
+        /// sym-gen (2026-11-13, opt-in; absent = unchanged behaviour): add EXACT ONE-TERM SYMMETRY ROWS
+        /// e_y - e_{g y} as extra original source rows, built here from the table's `symmetry_group` record (read
+        /// from the origin table at this address) and the presented family text: every element's slot images are
+        /// RECOMPUTED from the family momenta and the element's matrix (the record's `action` is only compared),
+        /// a row is formed at a stored NUMERIC chart seed y only when every slot with y_i != 0 is exact.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub symmetry_rows: Option<SymmetryRowsRequest>,
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct SymmetryRowsRequest {
+        pub byte_offset: u64,
+        pub record_bytes: usize,
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(rename_all = "snake_case")]
@@ -1800,6 +1813,177 @@ mod app {
         source_support: Option<&SourceSupport>,
         forced_point: Option<&[u64]>,
     ) -> Result<Value> {
+        certify_with_support_sym(p, header, rule, limits, profile_only, source_support, forced_point, None, &mut Value::Null)
+    }
+
+    /// sym-gen: the momentum vectors (over loops + externals) and line flags of the presented family text.
+    fn family_momenta(text: &str) -> Result<(Vec<Vec<i64>>, Vec<bool>, usize)> {
+        let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let list = |name: &str| -> Result<Vec<String>> {
+            let a = t.find(&format!("{name}(")).ok_or(format!("family without {name}"))? + name.len() + 1;
+            let b = a + t[a..].find(')').ok_or("unterminated list")?;
+            Ok(t[a..b].split(',').filter(|x| !x.is_empty()).map(str::to_string).collect())
+        };
+        let mut vars = list("loops")?;
+        let nloops = vars.len();
+        vars.extend(list("externals")?);
+        let mut moms = Vec::new();
+        let mut lines = Vec::new();
+        let mut rest = t.as_str();
+        while let Some(i) = rest.find("prop(") {
+            let body = &rest[i + 5..];
+            let mut depth = 1i32;
+            let mut end = None;
+            for (j, ch) in body.char_indices() {
+                if ch == '(' { depth += 1; }
+                if ch == ')' { depth -= 1; if depth == 0 { end = Some(j); break; } }
+            }
+            let end = end.ok_or("unterminated prop")?;
+            let inner = &body[..end];
+            let c1 = inner.find(',').ok_or("prop without momentum")?;
+            let c2 = inner.rfind(',').ok_or("prop without flag")?;
+            let mom = &inner[c1 + 1..c2];
+            let flag = &inner[c2 + 1..];
+            let mom = mom.strip_prefix('(').and_then(|m| m.strip_suffix(")^2")).ok_or("prop momentum is not a square")?;
+            let mut v = vec![0i64; vars.len()];
+            let mut term = String::new();
+            let push = |term: &str, v: &mut Vec<i64>| -> Result<()> {
+                if term.is_empty() { return Ok(()); }
+                let (sign, body) = match term.as_bytes()[0] { b'-' => (-1, &term[1..]), b'+' => (1, &term[1..]), _ => (1, term) };
+                let (c, name) = match body.find('*') { Some(k) => (body[..k].parse::<i64>().map_err(err)?, &body[k + 1..]), None => (1, body) };
+                let k = vars.iter().position(|x| x == name).ok_or(format!("unknown momentum {name}"))?;
+                v[k] += sign * c;
+                Ok(())
+            };
+            for ch in mom.chars() {
+                if (ch == '+' || ch == '-') && !term.is_empty() { push(&term, &mut v)?; term.clear(); }
+                term.push(ch);
+            }
+            push(&term, &mut v)?;
+            moms.push(v);
+            lines.push(flag == "1");
+            rest = &body[end..];
+        }
+        Ok((moms, lines, nloops))
+    }
+
+    fn det_i128(mut a: Vec<Vec<i128>>) -> i128 {
+        // Bareiss fraction-free elimination (exact for integer matrices)
+        let n = a.len();
+        let mut sign = 1i128;
+        let mut prev = 1i128;
+        for k in 0..n {
+            if a[k][k] == 0 {
+                match (k + 1..n).find(|&r| a[r][k] != 0) { Some(r) => { a.swap(k, r); sign = -sign; } None => return 0 }
+            }
+            for i in k + 1..n {
+                for j in k + 1..n {
+                    a[i][j] = (a[i][j] * a[k][k] - a[i][k] * a[k][j]) / prev;
+                }
+            }
+            prev = a[k][k];
+        }
+        sign * a[n - 1][n - 1]
+    }
+
+    /// sym-gen: exact one-term symmetry rows at the stored numeric chart seeds, as extra original rows.
+    #[allow(clippy::type_complexity)]
+    fn symmetry_rows(
+        group: &Value,
+        chart: &str,
+        seeds: &[String],
+        seed_offsets: &[Vec<i64>],
+        p: &Prepared,
+        first_ordinal: usize,
+    ) -> Result<(Vec<RawRow>, Vec<SourceDescriptor>, Value)> {
+        let (moms, lines, nloops) = family_momenta(&p.family_text)?;
+        let n = moms.len();
+        let nv = moms.first().map_or(0, Vec::len);
+        let chart_lines: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+        require(chart_lines == lines, "symmetry: chart differs from the family's line flags")?;
+        require(group["type"] == "symmetry_group" && group["chart"].as_str() == Some(chart), "symmetry: record is not the chart's symmetry_group")?;
+        let elements = group["group"]["elements"].as_array().ok_or("symmetry: record without elements")?;
+        let mut pis: Vec<(i64, Vec<Option<usize>>)> = Vec::new();
+        let mut verdicts = Vec::new();
+        for e in elements {
+            let id = e["element"].as_i64().ok_or("symmetry: element id")?;
+            let flat: Vec<i64> = e["matrix"].as_array().ok_or("symmetry: matrix")?.iter().map(|x| x.as_i64().ok_or("symmetry: matrix entry")).collect::<Result<_>>()?;
+            require(flat.len() == nv * nv, "symmetry: matrix size")?;
+            let tm = |i: usize, j: usize| flat[nv * i + j];
+            // q -> +-q (row convention u -> u T: the external row of T is +-e_q), |det(loop block)| = 1
+            let q_ok = (0..nv).all(|j| if j < nloops { tm(nv - 1, j) == 0 } else { true }) && nv == nloops + 1 && tm(nv - 1, nv - 1).abs() == 1;
+            let det = det_i128((0..nloops).map(|i| (0..nloops).map(|j| tm(i, j) as i128).collect()).collect());
+            let mut pi: Vec<Option<usize>> = vec![None; n];
+            for (i, u) in moms.iter().enumerate() {
+                let w: Vec<i64> = (0..nv).map(|j| (0..nv).map(|r| u[r] * tm(r, j)).sum()).collect();
+                let neg: Vec<i64> = w.iter().map(|x| -x).collect();
+                pi[i] = moms.iter().position(|v| *v == w || *v == neg);
+            }
+            let lines_ok = (0..n).all(|i| !lines[i] || pi[i].is_some_and(|t| lines[t]));
+            let action = e["action"].as_array().ok_or("symmetry: action")?;
+            let record_ok = action.len() == n && action.iter().enumerate().all(|(i, a)| a.is_null() || a[0].as_u64().map(|t| t as usize) == pi[i]);
+            let ok = q_ok && det.abs() == 1 && lines_ok && record_ok;
+            verdicts.push(json!({"element": id, "q_to_pm_q": q_ok, "loop_det": det.to_string(), "lines_onto_lines": lines_ok, "record_action_equals_geometry": record_ok,
+                "exact_slots": pi.iter().enumerate().filter(|(_, x)| x.is_some()).map(|(i, _)| i).collect::<Vec<_>>(), "pass": ok}));
+            require(ok, &format!("SYMMETRY_ELEMENT_REJECTED: element {id} fails the geometry check"))?;
+            pis.push((id, pi));
+        }
+        let mut rows = Vec::new();
+        let mut descs = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut list = Vec::new();
+        for (s, seed) in seeds.iter().enumerate() {
+            let parts = integral_parts(seed, n)?;
+            let Ok(y) = parts.iter().map(|x| x.parse::<i64>()).collect::<std::result::Result<Vec<i64>, _>>() else {
+                return Err("SYMMETRY_ROWS_NUMERIC_SEEDS_ONLY: a stored seed is symbolic".into());
+            };
+            if (0..n).any(|i| chart_lines[i] && y[i] < 1) {
+                continue;
+            }
+            for (id, pi) in &pis {
+                let mut gy = vec![0i64; n];
+                let mut exact = true;
+                for i in 0..n {
+                    if y[i] == 0 { continue; }
+                    match pi[i] { Some(t) => gy[t] = y[i], None => { exact = false; break; } }
+                }
+                if !exact || gy == y { continue; }
+                let pair = if y <= gy { (y.clone(), gy.clone()) } else { (gy.clone(), y.clone()) };
+                if !seen.insert(pair) { continue; }
+                let o = &seed_offsets[s];
+                let o2: Vec<i64> = (0..n).map(|i| o[i] + gy[i] - y[i]).collect();
+                let mut row = RawRow::new();
+                row.insert(o.clone(), p.context.integer(1));
+                row.insert(o2, p.context.integer(-1));
+                let image = format!("I({})", gy.iter().map(i64::to_string).collect::<Vec<_>>().join(","));
+                descs.push(SourceDescriptor {
+                    original_ordinal: first_ordinal + rows.len(),
+                    stored_seed_ordinal: s,
+                    raw_seed: seed.clone(),
+                    written_frame_offset: o.clone(),
+                    differentiated_loop: usize::MAX,
+                    contraction: format!("symmetry_row:element={id}:image={image}:sign=+1"),
+                });
+                list.push(json!({"seed": seed, "element": id, "image": image, "sign": 1}));
+                rows.push(row);
+            }
+        }
+        Ok((rows, descs, json!({"elements": verdicts, "rows": list.len(), "pairs": list,
+            "statement": "rows e_y - e_{g y} at stored numeric chart seeds; slot images recomputed from the presented family text (u -> u T); exact on the support of y; squares only (sign +1)"})))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn certify_with_support_sym(
+        p: &Prepared,
+        header: &Value,
+        rule: &Value,
+        limits: &Limits,
+        profile_only: bool,
+        source_support: Option<&SourceSupport>,
+        forced_point: Option<&[u64]>,
+        symmetry: Option<&Value>,
+        symmetry_report: &mut Value,
+    ) -> Result<Value> {
         let start = Instant::now();
         limits.validate()?;
         if let Some(options) = source_support {
@@ -1902,7 +2086,7 @@ mod app {
             "nonunit written pivot: no silent normalization or division on a Case layer",
         )?;
         let seeds = strings(&rule["seeds"], "stored raw seed integrals")?;
-        let (raw_rows, descriptors, mut raw_universe, seed_offsets) = sources(
+        let (mut raw_rows, mut descriptors, mut raw_universe, seed_offsets) = sources(
             &seeds,
             &recenter,
             &substitutions,
@@ -1910,6 +2094,17 @@ mod app {
             limits,
             &mut source_conditions,
         )?;
+        if let Some(group) = symmetry {
+            let chart = rule["chart"].as_str().ok_or("rule without chart")?;
+            let (rows, descs, report) = symmetry_rows(group, chart, &seeds, &seed_offsets, p, raw_rows.len())?;
+            for r in &rows {
+                raw_universe.extend(r.keys().cloned());
+            }
+            require(raw_rows.len() + rows.len() <= limits.max_raw_rows, "raw source-row budget exceeded (with symmetry rows)")?;
+            raw_rows.extend(rows);
+            descriptors.extend(descs);
+            *symmetry_report = report;
+        }
         let mut terms = 0;
         for row in &raw_rows {
             for value in row.values() {
@@ -2215,7 +2410,27 @@ mod app {
             cache.insert(digest.clone(), prepare(family_text, &request.limits)?);
         }
         let (header, rule, provenance) = origin(request)?;
-        let mut result = certify_with_support(
+        let group = match &request.symmetry_rows {
+            None => None,
+            Some(sr) => {
+                require(sr.record_bytes <= request.limits.max_input_bytes, "symmetry_group record byte limit")?;
+                let mut file = File::open(&request.origin.table).map_err(err)?;
+                if sr.byte_offset > 0 {
+                    file.seek(SeekFrom::Start(sr.byte_offset - 1)).map_err(err)?;
+                    let mut byte = [0];
+                    file.read_exact(&mut byte).map_err(err)?;
+                    require(byte[0] == b'\n', "symmetry_group address is not a record boundary")?;
+                }
+                file.seek(SeekFrom::Start(sr.byte_offset)).map_err(err)?;
+                let mut bytes = vec![0; sr.record_bytes];
+                file.read_exact(&mut bytes).map_err(err)?;
+                require(bytes.last() == Some(&b'\n'), "symmetry_group record must include its LF boundary")?;
+                let v: Value = serde_json::from_slice(&bytes).map_err(err)?;
+                Some((v, blake3::hash(&bytes).to_hex().to_string()))
+            }
+        };
+        let mut symmetry_report = Value::Null;
+        let mut result = certify_with_support_sym(
             &cache[&digest],
             &header,
             &rule,
@@ -2223,7 +2438,14 @@ mod app {
             profile_only,
             request.source_support.as_ref(),
             None,
+            group.as_ref().map(|g| &g.0),
+            &mut symmetry_report,
         )?;
+        if let Some((_, h)) = &group {
+            symmetry_report["record_blake3"] = json!(h);
+            symmetry_report["record_address"] = json!(request.symmetry_rows);
+            result["symmetry_rows"] = symmetry_report;
+        }
         result["app_source_blake3"] = json!(
             blake3::hash(include_str!("p_certify_stored_rule.rs").as_bytes())
                 .to_hex()
