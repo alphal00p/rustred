@@ -262,12 +262,25 @@ fn the_scope_four_layer_is_square_and_maps_each_residual_onto_its_master() {
         let eps_lines = (presentation.slots.iter())
             .filter(|slot| matches!(slot, Slot::Line(line) if line.eps_units > 0))
             .count();
-        assert_eq!(
-            presentation.kind == PresentationKind::EpsNode,
-            eps_lines > 0,
-            "{name}: {:?}",
-            presentation.kind
-        );
+        // M5 batch 5 (c34c8e28, bebe-basis): bebe, an integer Custom node with
+        // an entry in the ISP table (P_PRESENTATION_VERSION 4), is presented in
+        // its own family: kind EpsNode WITHOUT an eps line (as in the core test
+        // `custom_presentations_are_induced_or_eps_nodes`). Every other master
+        // keeps "EpsNode iff an eps line".
+        if name == "bebe" {
+            assert_eq!(
+                (&presentation.kind, eps_lines, presentation.forced_axes()),
+                (&PresentationKind::EpsNode, 0, 0),
+                "{name}"
+            );
+        } else {
+            assert_eq!(
+                presentation.kind == PresentationKind::EpsNode,
+                eps_lines > 0,
+                "{name}: {:?}",
+                presentation.kind
+            );
+        }
         println!(
             "master {name} ({}, sign {:+}): node {}, presentation {} ({:?}), key {:?}",
             site.master.topology,
