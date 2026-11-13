@@ -391,7 +391,10 @@ mod tests {
             vec!["I(1,n1,n2,n3,n4)".to_string()],
         )];
         let one_sided = check_keyed::<5>(&NodeOrder::identity(), 5, &rules).unwrap();
-        assert!(!one_sided.passed(), "the one-sided order misreads the eps axis");
+        assert!(
+            !one_sided.passed(),
+            "the one-sided order misreads the eps axis"
+        );
         let mut descriptor = rustred_order::OrderDescriptor::spired_uncut_two_sided(vec![
             true, false, false, false, false,
         ]);
@@ -402,7 +405,10 @@ mod tests {
             chart,
             "r#1".to_string(),
             "I(2,n1,n2,n3,n4)".to_string(),
-            vec!["I(-1,n1,n2,n3,n4)".to_string(), "I(1,n1,n2,n3,n4)".to_string()],
+            vec![
+                "I(-1,n1,n2,n3,n4)".to_string(),
+                "I(1,n1,n2,n3,n4)".to_string(),
+            ],
         )];
         let eps_up = check_keyed_descriptor::<5>(&descriptor, 5, &up).unwrap();
         assert_eq!(eps_up.not_lower.len(), 1, "{:?}", eps_up.not_lower);

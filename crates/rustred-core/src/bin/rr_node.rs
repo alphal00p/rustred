@@ -1155,7 +1155,8 @@ fn cmd_laporta(mut a: Args) -> i32 {
         .and_then(|(x, y)| Some((x.parse::<i64>().ok()?, y.parse::<i64>().ok()?)))
         .unwrap_or_else(|| die("--box DOTS,RANK"));
     let mask: Vec<bool> = mask_s.chars().map(|c| c == '1').collect();
-    let text = std::fs::read_to_string(&fam_path).unwrap_or_else(|e| die(&format!("{fam_path}: {e}")));
+    let text =
+        std::fs::read_to_string(&fam_path).unwrap_or_else(|e| die(&format!("{fam_path}: {e}")));
     let fam = rustred::node::replay::family::Family::parse(&text).unwrap_or_else(|e| die(&e));
     if target.len() != 1 {
         die("--target takes exactly one key");
@@ -1165,17 +1166,30 @@ fn cmd_laporta(mut a: Args) -> i32 {
     let mut ok = true;
     for d in &dims {
         for &p in &primes {
-            let r = rustred::node::mastermap::laporta(&fam, &mask, &target[0], &basis, dots, rank, d, p)
-                .unwrap_or_else(|e| die(&e));
+            let r = rustred::node::mastermap::laporta(
+                &fam, &mask, &target[0], &basis, dots, rank, d, p,
+            )
+            .unwrap_or_else(|e| die(&e));
             ok &= r["status"] == "ok" && r["extra_terms"] == 0;
-            eprintln!("[laporta] d={} p={p} status={} extra_terms={} rows={} cols={} {:.1}s", r["d"], r["status"], r["extra_terms"], r["rows"], r["cols"], t0.elapsed().as_secs_f64());
+            eprintln!(
+                "[laporta] d={} p={p} status={} extra_terms={} rows={} cols={} {:.1}s",
+                r["d"],
+                r["status"],
+                r["extra_terms"],
+                r["rows"],
+                r["cols"],
+                t0.elapsed().as_secs_f64()
+            );
             cells.push(r);
         }
     }
-    write_json(&out, &serde_json::json!({"tool": "rustred rr_node laporta (t266-10)", "family": fam_path, "mask": mask_s,
+    write_json(
+        &out,
+        &serde_json::json!({"tool": "rustred rr_node laporta (t266-10)", "family": fam_path, "mask": mask_s,
         "box": [dots, rank], "target": rustred::node::mastermap::key_text(&target[0]),
         "basis": basis.iter().map(|k| rustred::node::mastermap::key_text(k)).collect::<Vec<_>>(),
-        "cells": cells, "all_ok": ok, "seconds": t0.elapsed().as_secs_f64()}));
+        "cells": cells, "all_ok": ok, "seconds": t0.elapsed().as_secs_f64()}),
+    );
     if ok { 0 } else { 1 }
 }
 
