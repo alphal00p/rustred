@@ -536,8 +536,9 @@ pub(super) fn check_witness_at_random_point<const N: usize>(
     solution: &ExactRow<N>,
 ) -> Result<(), MaterializationError> {
     use std::collections::BTreeMap;
-    use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
-    use symbolica::prelude::{Integer, Ring};
+    use symbolica::domains::finite_field::{ToFiniteField, Zp64};
+    use symbolica::domains::{Ring, RingOps};
+    use symbolica::prelude::Integer;
     let Some(first) = solution
         .iter()
         .chain(rows.iter().flatten())
@@ -582,13 +583,13 @@ pub(super) fn check_witness_at_random_point<const N: usize>(
                 }
                 let Some(v) = eval(&term.coefficient) else { continue 'attempt };
                 let e = acc.entry(term.integral).or_insert_with(|| field.zero());
-                *e = field.add(e, &field.mul(&wv, &v));
+                *e = field.add(&*e, &field.mul(&wv, &v));
             }
         }
         for term in solution {
             let Some(v) = eval(&term.coefficient) else { continue 'attempt };
             let e = acc.entry(term.integral).or_insert_with(|| field.zero());
-            *e = field.sub(e, &v);
+            *e = field.sub(&*e, &v);
         }
         if acc.values().any(|v| !field.is_zero(v)) {
             return Err(invalid(

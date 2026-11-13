@@ -614,8 +614,9 @@ fn extract_with<const N: usize>(
 /// the same nonzero constant at two pseudo-random points mod 2^61 - 1 (a lost factor changes the ratio). Panics on a
 /// mismatch: a guard set built from an incomplete factorisation must never be written.
 fn checked_factor(input: &CoefficientPolynomial) -> Vec<(CoefficientPolynomial, usize)> {
-    use symbolica::domains::finite_field::{FiniteFieldCore, ToFiniteField, Zp64};
-    use symbolica::prelude::{Field, Integer, Ring};
+    use symbolica::domains::finite_field::{ToFiniteField, Zp64};
+    use symbolica::domains::{Ring, RingOps};
+    use symbolica::prelude::{Field, Integer};
     let factors: Vec<(CoefficientPolynomial, usize)> = input
         .factor()
         .into_iter()
