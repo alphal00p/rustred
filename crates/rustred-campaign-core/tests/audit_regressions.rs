@@ -68,7 +68,7 @@ fn audit_a_m3_primitive_normal_is_checked() {
         Poly::parse_d_free("-4*n0+6*n1", 3)
             .unwrap()
             .primitive_normal(),
-        Poly::parse_d_free("2*n0-3*n1", 3).unwrap()
+        Poly::parse_d_free("-2*n0+3*n1", 3).unwrap() // positive on the largest monomial n1
     );
 }
 
