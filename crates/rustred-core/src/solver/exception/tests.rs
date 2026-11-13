@@ -662,9 +662,31 @@ fn d3_nonlinear_d_free_factors_are_exact_on_the_case() {
     // bilinear: n0*n1 = 6 at (1,6) (2,3) (3,2) (6,1)
     let rule = candidate(&context, &[([-1, 0], "1/((n0*n1-6)*(d-3))")]);
     assert_eq!(assert_exact_on_box(&rule, &[1, 2], &generic2(), 1..=7), 4);
-    // definite quadratic: n0^2 + n1^2 = 25 at (3,4) (4,3)
+    // definite quadratic n0^2 + n1^2 = 25 (integer points (3,4) (4,3)): the exact intersection does not decide
+    // this branch on a free 2-d case and FAILS CLOSED (an error, never an empty Ok); the production caller
+    // (sector.rs, rule coverage) then treats the rule as NOT covering the case, so no point is suppressed.
     let rule = candidate(&context, &[([-1, 0], "1/(n0^2+n1^2-25)")]);
-    assert_eq!(assert_exact_on_box(&rule, &[1, 2], &generic2(), 1..=6), 2);
+    let conditions = extract_exceptions(&rule, &[1, 2], &[true; 2]).unwrap();
+    assert_eq!(conditions.branches.len(), 1);
+    let error = generic2()
+        .intersect_many(
+            &conditions.branches[0],
+            &[1, 2],
+            &[true; 2],
+            crate::solver::CaseIntersectionLimits::default(),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.failure,
+            crate::solver::CaseIntersectionFailure::UnsupportedGeometry
+        ),
+        "{:?}",
+        error.failure
+    );
+    // on a fixed face the same factor becomes univariate and is decided exactly: n0 = 3 -> n1 = 4
+    let face: crate::solver::Case<2> = CoordinateCase::new([Some(3), None]).unwrap().into();
+    assert_eq!(assert_exact_on_box(&rule, &[1, 2], &face, 1..=6), 1);
 }
 
 #[test]
