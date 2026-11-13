@@ -654,6 +654,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut unit: Option<crate::algebra::Coefficient> = None;
         let mut sym_pairs: std::collections::BTreeSet<(Integral<N>, Integral<N>, bool)> =
             std::collections::BTreeSet::new();
+        // t266-tight: optional seed layer cap (default off)
+        let layer_cap = super::SeedLayerCap::installed();
+        let frozen = self.seed_frozen();
         while let Some(seed) = seeds.next() {
             let depth = seeds.depth();
             if options.max_depth.is_some_and(|limit| depth > limit) {
@@ -664,6 +667,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .into());
             }
             let seed = seed?;
+            if let Some(cap) = &layer_cap
+                && !cap.admits(&initial, &seed.integral, self.order.sector(), &frozen)
+            {
+                continue;
+            }
             work.seed_first_depth.get_or_insert(depth);
             work.seed_last_depth = Some(depth);
             stats.seeds += 1;

@@ -196,6 +196,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 continue;
             }
             let seed = next.expect("checked seed availability")?;
+            // t266-tight: optional seed layer cap relative to the point the seeds are centred on (default off)
+            if let (Some(cap), Some(centre)) = (super::SeedLayerCap::installed(), current)
+                && !cap.admits(
+                    &cases[centre].integral(),
+                    &seed.integral,
+                    self.order.sector(),
+                    &self.seed_frozen(),
+                )
+            {
+                continue;
+            }
             if !visited.insert(seed.integral) {
                 stats.duplicate_seeds += 1;
                 continue;

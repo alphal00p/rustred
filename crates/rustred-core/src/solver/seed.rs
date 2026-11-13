@@ -118,6 +118,75 @@ impl CaseSeedSchedule {
     }
 }
 
+/// t266-tight (2026-11-13, default OFF = every search unchanged): seed LAYER CAP. A seed `S` of a search whose target
+/// is `T` is offered only when its layer does not rise above the target's: with displacements `s_i = S_i - T_i`
+/// (symbolic slots: the seed's shift; numeric slots: the value difference), `dD = sum over line axes s_i` and
+/// `dr = -sum over numerator axes s_i`, the seed is admitted iff `dD <= dots_above (+ dot_free_bonus when every line
+/// of T is numeric at 1)` and `dr <= rank_above`. Line axes: sector-true axes (symbolic) or numeric target value >= 1;
+/// frozen axes are ignored. Seeds BELOW the target (dD < 0, dr < 0) are admitted. The filter never changes the shell
+/// depths, so the caller's `max_depth` stays the single exhaustion authority (use a finite `--max-depth`: layer-keeping
+/// seeds exist at every depth). Process-global, set once by `rr_node --seed-layer-cap`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SeedLayerCap {
+    pub dots_above: i32,
+    pub rank_above: i32,
+    pub dot_free_bonus: i32,
+}
+
+static SEED_LAYER_CAP: std::sync::OnceLock<SeedLayerCap> = std::sync::OnceLock::new();
+
+impl SeedLayerCap {
+    /// Install the process-wide cap (first call wins; returns false if one was already set differently).
+    pub fn install(self) -> bool {
+        SEED_LAYER_CAP.get_or_init(|| self) == &self
+    }
+
+    /// The installed cap, if any.
+    pub fn installed() -> Option<SeedLayerCap> {
+        SEED_LAYER_CAP.get().copied()
+    }
+
+    /// (dD, dr) of `seed` relative to `target`, and whether every line of `target` is numeric at 1.
+    pub fn layer<const N: usize>(
+        target: &Integral<N>,
+        seed: &Integral<N>,
+        sector: &[bool; N],
+        frozen: &[bool; N],
+    ) -> (i32, i32, bool) {
+        let (mut dd, mut dr, mut dot_free) = (0i32, 0i32, true);
+        for i in 0..N {
+            if frozen[i] {
+                continue;
+            }
+            let t = target[i];
+            let line = if t.is_symbolic() { sector[i] } else { t.value() >= 1 };
+            let s = i32::from(seed[i].value()) - i32::from(t.value());
+            if line {
+                dd += s;
+                if t.is_symbolic() || t.value() != 1 {
+                    dot_free = false;
+                }
+            } else {
+                dr -= s;
+            }
+        }
+        (dd, dr, dot_free)
+    }
+
+    /// True when `seed` lies in the admitted layers of `target`.
+    pub fn admits<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        seed: &Integral<N>,
+        sector: &[bool; N],
+        frozen: &[bool; N],
+    ) -> bool {
+        let (dd, dr, dot_free) = Self::layer(target, seed, sector, frozen);
+        let dots = self.dots_above + if dot_free { self.dot_free_bonus } else { 0 };
+        dd <= dots && dr <= self.rank_above
+    }
+}
+
 /// One seed for a simple coordinate case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Seed<const N: usize> {
@@ -628,6 +697,44 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
 impl<const N: usize> ShellSeedSource<N> for CaseSeedStream<N> {
     fn shell_depth(&self) -> u32 {
         self.depth()
+    }
+}
+
+#[cfg(test)]
+mod layer_cap_tests {
+    use super::super::Power;
+    use super::*;
+
+    fn key(sym: [bool; 4], v: [i16; 4]) -> Integral<4> {
+        Integral::new(std::array::from_fn(|i| Power::new(sym[i], v[i]).unwrap()))
+    }
+
+    #[test]
+    fn layer_cap_admits_own_layer_and_below_only() {
+        // axes 0,1 lines (sector true), 2,3 numerators; target: line 0 symbolic, line 1 = 1, numerators n2 symbolic, 0
+        let sector = [true, true, false, false];
+        let frozen = [false; 4];
+        let t = key([true, false, true, false], [0, 1, 0, 0]);
+        let cap = SeedLayerCap { dots_above: 0, rank_above: 0, dot_free_bonus: 1 };
+        assert!(cap.admits(&t, &t, &sector, &frozen));
+        // dot moved from line 1 to line 0: same layer
+        let s = key([true, false, true, false], [1, 1, 0, 0]);
+        assert_eq!(SeedLayerCap::layer(&t, &s, &sector, &frozen), (1, 0, false));
+        assert!(!cap.admits(&t, &s, &sector, &frozen));
+        // one dot below, one rank above (trade): refused on rank
+        let s = key([true, false, true, false], [-1, 1, 0, -1]);
+        assert_eq!(SeedLayerCap::layer(&t, &s, &sector, &frozen), (-1, 1, false));
+        assert!(!cap.admits(&t, &s, &sector, &frozen));
+        // below in both
+        let s = key([true, false, true, false], [-1, 1, 1, 0]);
+        assert!(cap.admits(&t, &s, &sector, &frozen));
+        // dot-free target: one dot level allowed
+        let t0 = key([false, false, true, false], [1, 1, 0, 0]);
+        let s = key([false, false, true, false], [2, 1, 0, 0]);
+        assert_eq!(SeedLayerCap::layer(&t0, &s, &sector, &frozen), (1, 0, true));
+        assert!(cap.admits(&t0, &s, &sector, &frozen));
+        let s = key([false, false, true, false], [2, 2, 0, 0]);
+        assert!(!cap.admits(&t0, &s, &sector, &frozen));
     }
 }
 

@@ -183,6 +183,33 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.exact_backend = b;
     }
     o.max_depth = a.parse("--max-depth");
+    // t266-tight: seed layer cap D,R[,B] (default off): seeds above the target by more than D dots (D+B when the
+    // target is dot-free) or R ranks are not offered (solver::SeedLayerCap); needs a finite --max-depth
+    if let Some(v) = a.take("--seed-layer-cap") {
+        let p: Vec<i32> = v
+            .split(',')
+            .map(|x| {
+                x.trim()
+                    .parse()
+                    .unwrap_or_else(|_| die("--seed-layer-cap D,R[,B]"))
+            })
+            .collect();
+        if !(2..=3).contains(&p.len()) {
+            die("--seed-layer-cap D,R[,B]");
+        }
+        let cap = rustred::solver::SeedLayerCap {
+            dots_above: p[0],
+            rank_above: p[1],
+            dot_free_bonus: p.get(2).copied().unwrap_or(1),
+        };
+        if !cap.install() {
+            die("--seed-layer-cap given twice with different values");
+        }
+        if o.max_depth.is_none() {
+            die("--seed-layer-cap needs a finite --max-depth");
+        }
+        eprintln!("seed_layer_cap {cap:?}");
+    }
     o.max_cases = a.parse("--max-cases");
     if let Some(s) = a.take("--native-try") {
         o.native_try = if s == "none" {
