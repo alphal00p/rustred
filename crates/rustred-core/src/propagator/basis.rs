@@ -1964,6 +1964,12 @@ pub fn with_basis_layer(library: &PLibrary, layer: Arc<PBasisLayer>) -> Result<P
         builder.add_owner_with_program(owner.spec.clone(), program)?;
     }
     builder.set_basis_map(layer)?;
+    // Batch 6: the package content revision is part of the identity; attaching
+    // the basis layer keeps it ("same programs, same identity"), so a package
+    // assembled under RUSTRED_P_PACKAGE_REVISION keeps its revision.
+    if let Some(name) = library.revision() {
+        builder.set_revision(name)?;
+    }
     builder.build()
 }
 

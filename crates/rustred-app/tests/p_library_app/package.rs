@@ -420,6 +420,29 @@ fn structural_equivalence_tells_programs_apart() {
     assert!(!equivalent_p_libraries(two, &one.library).unwrap());
 }
 
+/// Batch 6: a package content revision (`,P_PACKAGE_REVISION=<name>`) survives
+/// attaching the basis layer, which `rustred p-package` does after assembly
+/// (`with_basis_layer` rebuilds the library: same programs, same identity).
+#[test]
+fn a_package_revision_survives_attaching_the_basis_layer() {
+    let (_scratch, directory) = written(scope_two(), "revision-layer");
+    let mut manifest = manifest_of(&directory);
+    let identity = format!(
+        "{},P_PACKAGE_REVISION=b6-test",
+        manifest["identity"].as_str().unwrap()
+    );
+    manifest["identity"] = identity.clone().into();
+    write_manifest(&directory, &manifest);
+    let revised = load(&directory).unwrap();
+    assert_eq!(revised.revision(), Some("b6-test"));
+    assert_eq!(revised.identity(), identity);
+    let layer = derive_basis_layer(&revised, &PBasisOptions::default()).unwrap();
+    let rebuilt =
+        rustred::propagator::basis::with_basis_layer(&revised, Arc::new(layer.layer)).unwrap();
+    assert_eq!(rebuilt.revision(), Some("b6-test"));
+    assert_eq!(rebuilt.identity(), identity);
+}
+
 /// The writer publishes a whole directory or nothing; it never writes into a
 /// non-empty one.
 #[test]
