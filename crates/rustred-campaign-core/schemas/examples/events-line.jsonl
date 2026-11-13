@@ -1,0 +1,12 @@
+{"v":1,"seq":0,"t":0.0,"utc":"2026-11-13T23:00:00.000Z","kind":"job_started","job_id":"a71d0c9e","attempt":1,"spec_blake3":"0000000000000000000000000000000000000000000000000000000000000000","pid":4242,"program":"rr_node","version":"0.1.0","git_commit":"unknown","resume_from":null}
+{"v":1,"seq":1,"t":1.235,"kind":"phase","phase":"case_search"}
+{"v":1,"seq":2,"t":2.469,"kind":"case_started","ordinal":0,"case":{"fixed":[1,null],"frame":"PRESENTED"},"pending":3,"numerical":0}
+{"v":1,"seq":3,"t":3.704,"kind":"rule_committed","index":0,"line_offset":812,"line_bytes":1904,"canon_blake3":"1111111111111111111111111111111111111111111111111111111111111111","rhs":12,"trace_rows":40,"monomials":300}
+{"v":1,"seq":4,"t":4.938,"kind":"case_finished","ordinal":0,"result":"rule","rule":0,"children":2,"rules_committed":1}
+{"v":1,"seq":5,"t":6.172,"kind":"engine","event":{"ExactStarted":{"trace_rows":40}}}
+{"v":1,"seq":6,"t":7.407,"kind":"time_decision","what":"guard_route","case_ordinal":0,"rule":0,"limit_s":60.0,"measured_s":60.0,"taken":"content"}
+{"v":1,"seq":7,"t":8.641,"utc":"2026-11-13T23:00:10.000Z","kind":"heartbeat","phase":"exact_lift","case_ordinal":0,"pending":3,"rules_committed":1,"counters":{"cases":1,"seeds":10,"rows":0,"probe_evals":0,"reducer_rows":0,"trace_rows_max":0,"lift_monomials":0,"rhs_terms":0,"numeric_points":0,"rules_committed":0},"rss_kb":1000,"vmhwm_kb":2000,"helpers":0,"stop_requested":false}
+{"v":1,"seq":8,"t":9.876,"kind":"budget_hit","counter":"seeds","scope":"case","limit":10,"value":10}
+{"v":1,"seq":9,"t":11.111,"kind":"stop_requested","source":"SIGTERM","count":1}
+{"v":1,"seq":10,"t":12.345,"kind":"resume_written","rules_committed":1,"pending":2,"table_bytes":2716}
+{"v":1,"seq":11,"t":13.58,"utc":"2026-11-13T23:00:11.000Z","kind":"job_finished","exit_code":30,"status":"interrupted","stop_code":"interrupted"}

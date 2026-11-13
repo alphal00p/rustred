@@ -1,0 +1,41 @@
+{
+  "schema": "rustred.campaign.site-policy.v1",
+  "tag": "rr-campaign",
+  "lock_dir": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/locks",
+  "lock_name": "cpu.{n}",
+  "ledger_file": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/CPU_LEDGER.md",
+  "ledger_scan_lines": 1500,
+  "candidates": null,
+  "exclude": [
+    "168-175",
+    "288-319",
+    "128-162,164-166",
+    "192-215,258-260,262,271,335",
+    "342,362,363,378"
+  ],
+  "held_files": [
+    {
+      "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.held",
+      "key": "held"
+    },
+    {
+      "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.json",
+      "key": "all_cpus_listed"
+    },
+    {
+      "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/OUR_PINS.json",
+      "key": "entries[].cpus"
+    },
+    {
+      "path": "/shared/vhirschi/t3code/vakint/scratchpad/5l-pilot/coordinator/admission/LIFT16359_CPUS.json",
+      "key": "cpus"
+    }
+  ],
+  "pause_files": [
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/PAUSE"
+  ],
+  "idle_min": 0.85,
+  "max_cores": 48,
+  "respect_foreign_pinning": true,
+  "ignore_own_tag_claims": true
+}

@@ -1,0 +1,934 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign-spec.schema.json",
+  "title": "Campaign spec CDIR/spec.json (immutable for a campaign; amendments are patch files recorded in the ledger)",
+  "description": "NO AS-BUILT WRITER yet: plan 3.3.1 re-expressed against the as-built ledger and contract (input ids registered by `input_registered` / `node_registered`, BLAKE3 digests, `large:` root, the contract's work / wall budgets, determinism and elision options, the site / plain CPU policy of process-layer.md 9, the per-node box as an OPTIONAL user-provided input (R35) and the fallback terminal bound of `campaign_created` / `node_registered`). Integers only (no floats, no '2G' strings): the spec is an identifying document (plan 3.3.0). Readers ignore unknown fields of a known major. USER RULINGS R40 applied: per-node `certification` (U-12), optional user `box` (U-7), `full_attempt` budget (U-6), `economy.extra_budget_factor` (U-13), campaign `mode` close | optimise (U-13), seed-policy file (R37); NO knock-out flag, master count, lp or old residuals as inputs (U-9): such numbers only inside a node's `reference` block marked comparison only; no publication into the existing ledgers (U-11).",
+  "x-rr-names": [
+    "rustred.campaign.spec.v1"
+  ],
+  "x-rr-owner": "I-INT (spec) / I-SUP (reader)",
+  "x-rr-struct": "rustred_campaign_core::schema::spec::CampaignSpec",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": [
+    "schema",
+    "campaign",
+    "kind",
+    "description",
+    "dirs",
+    "programs",
+    "licence",
+    "recipe_version",
+    "phases",
+    "terminal_bound",
+    "nodes",
+    "ladders",
+    "acceptance",
+    "resources",
+    "determinism",
+    "output",
+    "progress",
+    "outputs",
+    "seeds",
+    "mode",
+    "economy"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rustred.campaign.spec.v1"
+    },
+    "campaign": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "description": "campaign id (ledger campaign_created.campaign_id)"
+    },
+    "kind": {
+      "enum": [
+        "boxed",
+        "reproduce",
+        "test"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "dirs": {
+      "type": "object",
+      "required": [
+        "campaign_dir",
+        "large_root"
+      ],
+      "properties": {
+        "campaign_dir": {
+          "$ref": "common.schema.json#/$defs/abs_path",
+          "description": "CDIR: small, snapshotted, read by the website"
+        },
+        "large_root": {
+          "$ref": "common.schema.json#/$defs/abs_path",
+          "description": "the non-snapshotted large-output root (records name files under it as `large:<rel>`); plan 3.3.1 calls it work_dir / `wdir:`"
+        }
+      }
+    },
+    "programs": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/program"
+      },
+      "description": "binaries by absolute path + digest (frozen copies, plan 4.0); registered as inputs `program:<name>` of role `binary`"
+    },
+    "licence": {
+      "type": "object",
+      "required": [
+        "env"
+      ],
+      "properties": {
+        "env": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$"
+        },
+        "env_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "presence checked; the value is never read into logs"
+    },
+    "recipe_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "inputs",
+          "library",
+          "generate",
+          "boxed",
+          "package"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "terminal_bound": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "default fallback terminal bound per node (ledger campaign_created.terminal_bound; default 100)"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "descendants": {
+          "enum": [
+            "auto",
+            "listed",
+            "none"
+          ]
+        }
+      }
+    },
+    "ladders": {
+      "type": "object",
+      "required": [
+        "phase2",
+        "max_item_attempts",
+        "max_redraws"
+      ],
+      "properties": {
+        "phase2": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rung"
+          }
+        },
+        "phase1": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "max_item_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_redraws": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "required": [
+        "policy",
+        "certify",
+        "generic_threshold",
+        "verify_prime_range",
+        "random_d",
+        "canary_every"
+      ],
+      "properties": {
+        "policy": {
+          "type": "string"
+        },
+        "certify": {
+          "enum": [
+            "used_keys",
+            "all_keys",
+            "none"
+          ]
+        },
+        "generic_threshold": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replay_primes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verify_prime_range": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 2305843009213693952
+            },
+            {
+              "type": "integer",
+              "minimum": 2305843009213693952
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[lo, hi) of >= 61-bit verification primes, disjoint from every lift prime (plan 2.5.3, 6.7)"
+        },
+        "random_d": {
+          "const": true,
+          "description": "never the engine default 37/7 (plan 2.5.3)"
+        },
+        "canary_every": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "not_certified_ceiling": {
+          "type": "object",
+          "properties": {
+            "knockout": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other_share": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "cert_cpu_h": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "lift_primes_unknown": {
+          "enum": [
+            "verify_range_only",
+            "refuse"
+          ]
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "max_cores",
+        "max_jobs",
+        "mem_total_bytes",
+        "host_floor_bytes",
+        "cpu_policy",
+        "grace_seconds"
+      ],
+      "properties": {
+        "max_cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_jobs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mem_total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "host_floor_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "host MemAvailable floor (ops/MEMORY_RULE.md: 50 GB)"
+        },
+        "disk_floor_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cpu_policy": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "site_policy"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "site"
+                },
+                "site_policy": {
+                  "$ref": "#/$defs/file"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "cpus"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "plain"
+                },
+                "cpus": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$"
+                }
+              }
+            }
+          ],
+          "description": "process-layer.md 9: `--cpu-policy site --site-policy FILE` or `--cpu-policy plain --cpus LIST`"
+        },
+        "memcap": {
+          "enum": [
+            "auto",
+            "rss",
+            "systemd"
+          ]
+        },
+        "grace_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parallel_nodes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "node_priority": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "honour_ops_locks": {
+          "type": "boolean"
+        },
+        "pause_on_ops_pause": {
+          "type": "boolean"
+        },
+        "certification_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "determinism": {
+      "enum": [
+        "recorded",
+        "strict"
+      ],
+      "description": "child-job 3.3.4: strict = no clock decides anything (a goal, R-g)"
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "elide_witness_loci"
+      ],
+      "properties": {
+        "elide_witness_loci": {
+          "const": false,
+          "description": "the campaign forbids elided witness loci (R-f); records with elided loci are unusable"
+        }
+      }
+    },
+    "progress": {
+      "type": "object",
+      "required": [
+        "cadence_seconds"
+      ],
+      "properties": {
+        "cadence_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "registry": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/abs_path"
+            }
+          ]
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "required": [
+        "export"
+      ],
+      "properties": {
+        "export": {
+          "type": "boolean"
+        }
+      },
+      "not": {
+        "required": [
+          "publish"
+        ]
+      },
+      "description": "U-11: the campaign writes only its own directories; no `publish` into P5L_STATUS / P5L_TERMINALS"
+    },
+    "seeds": {
+      "type": "object",
+      "required": [
+        "master"
+      ],
+      "properties": {
+        "master": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{1,32}$"
+        }
+      },
+      "description": "all random choices derive from (master, item id, rung, check index), plan 3.3.0"
+    },
+    "inputs": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "kind reproduce: the test-B input manifest (plan 3.3.1)"
+    },
+    "mode": {
+      "enum": [
+        "close",
+        "optimise"
+      ],
+      "description": "U-13: optimise boots from an existing campaign result or table set (`optimise_from`) and writes its result BESIDE the old one"
+    },
+    "optimise_from": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "campaign",
+                "table_set"
+              ]
+            },
+            "path": {
+              "$ref": "common.schema.json#/$defs/abs_path"
+            },
+            "blake3": {
+              "$ref": "common.schema.json#/$defs/blake3"
+            }
+          }
+        }
+      ]
+    },
+    "seed_policy": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/file"
+        }
+      ],
+      "description": "file of schema rustred.campaign.seed-policy.v1 (owner I-LADDER, interfaces/seed-policy.md)"
+    },
+    "economy": {
+      "type": "object",
+      "required": [
+        "extra_budget_factor"
+      ],
+      "properties": {
+        "extra_budget_factor": {
+          "type": "number",
+          "minimum": 1,
+          "description": "U-13: up to this multiple of the CPU of the first acceptable rule to find a better one (default 2.0)"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "blake3"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "common.schema.json#/$defs/abs_path"
+        },
+        "blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "program": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/file"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "optional": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "rung": {
+      "type": "object",
+      "required": [
+        "rung",
+        "work",
+        "wall",
+        "mem_bytes"
+      ],
+      "properties": {
+        "rung": {
+          "type": "string",
+          "pattern": "^L[0-9]+[a-z]?$"
+        },
+        "kind": {
+          "type": "string",
+          "description": "child-job kind used at this rung (default generate)"
+        },
+        "work": {
+          "$ref": "common.schema.json#/$defs/work_budgets"
+        },
+        "wall": {
+          "$ref": "common.schema.json#/$defs/wall_budgets"
+        },
+        "mem_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "laporta": {
+          "type": "boolean"
+        },
+        "search": {
+          "type": "string"
+        },
+        "depth3": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "wall",
+                "mem_bytes"
+              ],
+              "properties": {
+                "work": {
+                  "$ref": "common.schema.json#/$defs/work_budgets"
+                },
+                "wall": {
+                  "$ref": "common.schema.json#/$defs/wall_budgets"
+                },
+                "mem_bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "box": {
+      "type": "object",
+      "description": "OPTIONAL user-provided box of a node (R35): an input with its own id (ledger node_registered.spec_box, input_registered role `box`) and digest; never chosen or widened by the campaign",
+      "required": [
+        "id",
+        "path",
+        "blake3",
+        "measure",
+        "kind"
+      ],
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/input_file"
+        }
+      ],
+      "properties": {
+        "measure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cap": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "table": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/input_file"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "priority",
+        "trust"
+      ],
+      "properties": {
+        "priority": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trust": {
+          "enum": [
+            "pre_fix",
+            "uncertified",
+            "certified",
+            "campaign",
+            "imported"
+          ]
+        },
+        "filter": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "class",
+        "lines",
+        "arity",
+        "family",
+        "order",
+        "tables",
+        "box",
+        "terminals",
+        "certification",
+        "full_attempt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "class": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "arity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "family": {
+          "$ref": "common.schema.json#/$defs/input_file"
+        },
+        "order": {
+          "type": "object",
+          "required": [
+            "node_order"
+          ],
+          "properties": {
+            "node_order": {
+              "type": "object"
+            },
+            "two_sided": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "human": {
+              "type": "string"
+            }
+          }
+        },
+        "rows_file": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/input_file"
+            }
+          ]
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/table"
+          }
+        },
+        "box": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/box"
+            }
+          ]
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "symmetry": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "terminals": {
+          "type": "object",
+          "required": [
+            "declared",
+            "bound"
+          ],
+          "properties": {
+            "declared": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/key"
+              }
+            },
+            "bound": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "fallback terminal bound of this node (ledger node_registered.terminal_bound); null = the campaign's terminal_bound"
+            },
+            "fallback": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "route": {
+          "enum": [
+            "reproduced",
+            "imported",
+            "library_given"
+          ]
+        },
+        "import": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "comparison_only"
+              ],
+              "properties": {
+                "comparison_only": {
+                  "const": true
+                },
+                "name": {
+                  "type": "string"
+                },
+                "file": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "common.schema.json#/$defs/input_file"
+                    }
+                  ]
+                },
+                "knockout": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "masters": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "terminals": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "rules": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              }
+            }
+          ],
+          "description": "U-9 / U-10: old-ledger numbers for comparison ONLY; never steer the ladder or acceptance"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "phase1": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "certification": {
+          "enum": [
+            "replay",
+            "per-key"
+          ],
+          "description": "U-12: complete nodes at replay level; per-key = the exact per-key proof (BOXED nodes)"
+        },
+        "full_attempt": {
+          "type": "object",
+          "required": [
+            "cpu_hours",
+            "fixer_rounds"
+          ],
+          "properties": {
+            "cpu_hours": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "fixer_rounds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "description": "U-6: full-closure attempt before the box fallback; stop at whichever comes first (default 50 CPU-h / 5 rounds)"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "knockout"
+            ]
+          },
+          {
+            "required": [
+              "lp"
+            ]
+          },
+          {
+            "required": [
+              "master_lower_bound"
+            ]
+          },
+          {
+            "required": [
+              "masters"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

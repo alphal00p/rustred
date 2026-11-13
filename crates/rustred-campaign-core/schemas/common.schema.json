@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "Shared definitions of the campaign contract (not a document schema)",
+  "x-rr-names": [],
+  "$defs": {
+    "blake3": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "lower-case hex BLAKE3-256 (every digest of the as-built crates)"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "lower-case hex SHA-256 (plan 3.3.0 file digests; optional where the as-built code uses BLAKE3)"},
+    "content_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "plan 3.3.0 content id: first 16 bytes of a BLAKE3, hex"},
+    "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$", "description": "ISO-8601 UTC with Z (milliseconds optional)"},
+    "utc_ms": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$", "description": "as-built Clock format, millisecond precision"},
+    "u64": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
+    "u32": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "u8": {"type": "integer", "minimum": 0, "maximum": 255},
+    "i64": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+    "nonneg_number": {"type": "number", "minimum": 0},
+    "id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "abs_path": {"type": "string", "pattern": "^/"},
+    "rung": {"type": "string", "pattern": "^L[0-9]{1,3}$", "description": "ladder rung L0..L255 (as-built state::Rung)"},
+    "key": {"type": "array", "items": {"type": "integer", "minimum": -128, "maximum": 127}, "minItems": 1, "maxItems": 64},
+    "fileref": {
+      "type": "object",
+      "description": "as-built ledger::FileRef: path relative to CDIR or `large:`-prefixed (large root), size, BLAKE3",
+      "required": ["path", "bytes", "blake3"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"$ref": "#/$defs/u64"},
+        "blake3": {"$ref": "#/$defs/blake3"}
+      }
+    },
+    "fileref_or_null": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/fileref"}]},
+    "input_file": {
+      "type": "object",
+      "description": "an input named by the spec: absolute path + digest; `id` = the input id registered in the ledger",
+      "required": ["id", "path", "blake3"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "path": {"$ref": "#/$defs/abs_path"},
+        "blake3": {"$ref": "#/$defs/blake3"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"$ref": "#/$defs/u64"}
+      }
+    },
+    "evidence_level": {"enum": ["geometry_accepted", "identity_tested", "identity_proved"], "description": "as-built state::EvidenceLevel (A6)"},
+    "acceptance_level": {"enum": ["A0", "A1", "A2", "A3", "A4"], "description": "plan 2.5.2 acceptance levels"},
+    "finish_class": {
+      "enum": ["rule_found", "complete", "no_rule", "spill", "refused", "killed_time", "killed_memory", "interrupted", "crashed", "usage_error", "setup_error", "lost", "decided_negative", "undecided"],
+      "description": "as-built contract classify::OutcomeKind (= ledger FinishClass)"
+    },
+    "item_phase": {"enum": ["open", "in_progress", "produced", "accepted", "rejected", "escalated", "terminal_candidate", "terminal", "stale", "retired"], "description": "as-built state::ItemPhase tags"},
+    "node_phase": {"enum": ["registered", "running", "closure_check", "closed", "certified", "open", "stale"], "description": "as-built state::NodePhase"},
+    "campaign_phase": {"enum": ["starting", "running", "draining", "stopped", "finished"]},
+    "closure_kind": {"enum": ["full", "boxed", "open"], "description": "R33 / R35 FULL / BOXED / OPEN"},
+    "attempt_state_tag": {"enum": ["queued", "launching", "running", "succeeded_sealed", "failed", "budget_stopped", "interrupted", "lost", "cancelled"]},
+    "work_budgets": {
+      "type": "object",
+      "description": "as-built contract spec::WorkBudgets (child-job 3.3.1); null or absent = no limit; 0 is a usage error",
+      "additionalProperties": false,
+      "properties": {
+        "cases": {"type": ["integer", "null"], "minimum": 1},
+        "seeds_per_case": {"type": ["integer", "null"], "minimum": 1},
+        "seeds_total": {"type": ["integer", "null"], "minimum": 1},
+        "rows_per_case": {"type": ["integer", "null"], "minimum": 1},
+        "rows_total": {"type": ["integer", "null"], "minimum": 1},
+        "probe_evals_per_case": {"type": ["integer", "null"], "minimum": 1},
+        "reducer_rows_per_case": {"type": ["integer", "null"], "minimum": 1},
+        "trace_rows_max": {"type": ["integer", "null"], "minimum": 1},
+        "lift_monomials_total": {"type": ["integer", "null"], "minimum": 1},
+        "rhs_terms_total": {"type": ["integer", "null"], "minimum": 1},
+        "numeric_points_total": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "wall_budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_s": {"type": ["integer", "null"], "minimum": 1},
+        "job_s": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "counters": {
+      "type": "object",
+      "description": "as-built contract spec::Counters",
+      "properties": {
+        "cases": {"$ref": "#/$defs/u64"}, "seeds": {"$ref": "#/$defs/u64"}, "rows": {"$ref": "#/$defs/u64"},
+        "probe_evals": {"$ref": "#/$defs/u64"}, "reducer_rows": {"$ref": "#/$defs/u64"}, "trace_rows_max": {"$ref": "#/$defs/u64"},
+        "lift_monomials": {"$ref": "#/$defs/u64"}, "rhs_terms": {"$ref": "#/$defs/u64"}, "numeric_points": {"$ref": "#/$defs/u64"},
+        "rules_committed": {"$ref": "#/$defs/u64"}
+      }
+    },
+    "economy": {
+      "type": "object",
+      "description": "as-built ledger::RuleEconomy (R31 (a))",
+      "required": ["cases", "rules", "rhs_terms", "monomials", "coefficient_degree", "bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "cases": {"$ref": "#/$defs/u64"}, "rules": {"$ref": "#/$defs/u64"}, "rhs_terms": {"$ref": "#/$defs/u64"},
+        "monomials": {"$ref": "#/$defs/u64"}, "coefficient_degree": {"$ref": "#/$defs/u64"}, "bytes": {"$ref": "#/$defs/u64"}
+      }
+    },
+    "why": {
+      "type": "object",
+      "required": ["code", "text"],
+      "properties": {
+        "code": {"$ref": "#/$defs/reason_code"},
+        "text": {"type": "string", "maxLength": 300}
+      }
+    },
+    "reason_code": {
+      "enum": ["initial_face", "initial_locus", "initial_orbit_rep", "spawned_by_exception", "spawned_by_defect", "spawned_by_obligation", "refused_spill", "refused_timeout", "refused_mem", "rule_covers_none", "partial_cover", "irregular_point", "not_descending", "exception_unknown", "empty_domain", "cert_failed", "cert_pending", "cert_single_prime_only", "rung_unavailable", "mem_guard_at_cap", "exceeds_largest_class", "declared_terminal", "terminal_after_ladder", "operator_skip", "operator_pause", "operator_retry", "stale_inputs", "out_of_box", "comparator_unread", "partition_disagrees", "knockout_regression", "false_knockout", "terminals_over_cap", "fixer_not_converging", "interrupted", "infra_retry", "faces_open", "waiting_ancestors"],
+      "description": "plan 3.P.5 reason codes"
+    }
+  }
+}

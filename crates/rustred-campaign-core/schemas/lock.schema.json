@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lock.schema.json",
+  "title": "Owner record of the campaign lock (CDIR/LOCK.json)",
+  "description": "AS BUILT: rustred_campaign::lock::OwnerRecord (ledger-and-progress.md 6). Plan 3.P.1 names the files LEDGER.lock / LEDGER.lock.json.",
+  "x-rr-names": ["rustred.campaign.lock.v1"],
+  "x-rr-owner": "I-LEDGER",
+  "x-rr-struct": "rustred_campaign::lock::OwnerRecord",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "pid", "start_ticks", "boot_id", "host", "argv", "started_utc", "token"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rustred.campaign.lock.v1"},
+    "pid": {"$ref": "common.schema.json#/$defs/u32"},
+    "start_ticks": {"$ref": "common.schema.json#/$defs/u64"},
+    "boot_id": {"type": "string"},
+    "host": {"type": "string"},
+    "argv": {"type": "array", "items": {"type": "string"}},
+    "started_utc": {"$ref": "common.schema.json#/$defs/utc_ms"},
+    "token": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+  }
+}

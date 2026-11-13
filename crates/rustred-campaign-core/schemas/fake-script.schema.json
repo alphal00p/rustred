@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fake-script.schema.json",
+  "title": "Script of the fake child rr_fake_child (the `fake` member of a job spec with kind `fake`)",
+  "description": "AS BUILT: rustred_campaign_contract::fake::FakeScript (child-job.md 4, IMPLEMENTED form; strict: unknown fields refused). Invocation: `rr_fake_child job RUN/job.json`, `rr_fake_child version --json`. No `schema` field of its own.",
+  "x-rr-names": [],
+  "x-rr-owner": "package contract (WP-I6)",
+  "x-rr-struct": "rustred_campaign_contract::fake::FakeScript",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["script"],
+  "additionalProperties": false,
+  "properties": {
+    "script": {"type": "array", "items": {"$ref": "#/$defs/op"}},
+    "on_sigterm": {"enum": ["graceful", "slow", "ignore", "die"]},
+    "slow_ms": {"$ref": "common.schema.json#/$defs/u64"},
+    "start_delay_ms": {"$ref": "common.schema.json#/$defs/u64"},
+    "rss": {"type": "object", "additionalProperties": false, "properties": {"grow_bytes_per_s": {"$ref": "common.schema.json#/$defs/u64"}, "max_bytes": {"$ref": "common.schema.json#/$defs/u64"}}},
+    "helpers": {"type": "array", "items": {"type": "object", "required": ["sleep_ms"], "additionalProperties": false, "properties": {
+      "sleep_ms": {"$ref": "common.schema.json#/$defs/u64"}, "pdeathsig": {"type": "boolean"}, "ignore_sigterm": {"type": "boolean"}, "escape_group": {"type": "boolean"}}}},
+    "faults": {"type": "array", "items": {"type": "object", "required": ["at_op", "kind"], "additionalProperties": false, "properties": {
+      "at_op": {"$ref": "common.schema.json#/$defs/u64"},
+      "kind": {"enum": ["sigkill_self", "abort", "panic", "torn_write", "enospc", "io_error", "hang", "stop_heartbeat", "exit", "kill_before_outcome", "outcome_unsealed"]},
+      "bytes": {"$ref": "common.schema.json#/$defs/u64"}, "code": {"type": "integer"}, "path": {"type": ["string", "null"]}}}},
+    "time_scale": {"type": "number", "exclusiveMinimum": 0},
+    "volatile_jitter": {"type": "boolean"}
+  },
+  "$defs": {
+    "work_counter": {"enum": ["cases", "seeds", "rows", "probe_evals", "reducer_rows", "trace_rows", "lift_monomials", "rhs_terms", "numeric_points"]},
+    "case_result": {"enum": ["rule", "covered", "empty", "finite", "refused", "budget", "declared_terminal", "registry_covered", "error"]},
+    "stop_code": {"enum": ["max_cases", "lift_refused", "guard_timeout", "open_regions", "open_obligations", "before_numeric", "numeric_search_refused", "not_lower", "budget_work", "budget_wall", "budget_memory", "interrupted", "input_error", "io_error", "nospace", "internal_error", "panic", "refused"]},
+    "exit_code": {"enum": [0, 10, 11, 12, 20, 21, 22, 30, 40, 41, 42, 50, 51, 70]},
+    "op": {"type": "object", "required": ["op"],
+      "properties": {"op": {"enum": ["prepare", "case", "heartbeats", "time_decision", "alloc", "helper", "end", "fail"]}},
+      "allOf": [
+        {"if": {"properties": {"op": {"const": "prepare"}}}, "then": {"additionalProperties": false, "properties": {"op": true, "ms": {"$ref": "common.schema.json#/$defs/u64"}}}},
+        {"if": {"properties": {"op": {"const": "case"}}}, "then": {"required": ["ordinal", "result"], "additionalProperties": false, "properties": {"op": true,
+          "ordinal": {"$ref": "common.schema.json#/$defs/u64"}, "ms": {"$ref": "common.schema.json#/$defs/u64"},
+          "work": {"type": "object", "propertyNames": {"$ref": "#/$defs/work_counter"}, "additionalProperties": {"$ref": "common.schema.json#/$defs/u64"}},
+          "result": {"$ref": "#/$defs/case_result"},
+          "rule": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["record"], "additionalProperties": false, "properties": {
+            "record": true, "loci": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["n", "len"], "additionalProperties": false, "properties": {"n": {"$ref": "common.schema.json#/$defs/u32"}, "len": {"$ref": "common.schema.json#/$defs/u64"}}}]}}}]},
+          "children": {"type": "array", "items": {"$ref": "resume.schema.json#/$defs/case"}}}}},
+        {"if": {"properties": {"op": {"const": "heartbeats"}}}, "then": {"required": ["n"], "additionalProperties": false, "properties": {"op": true, "n": {"$ref": "common.schema.json#/$defs/u32"}}}},
+        {"if": {"properties": {"op": {"const": "time_decision"}}}, "then": {"required": ["what", "limit_s", "measured_s", "taken"], "additionalProperties": false, "properties": {"op": true,
+          "what": {"$ref": "outcome.schema.json#/$defs/time_decision_what"}, "limit_s": {"type": "number"}, "measured_s": {"type": "number"}, "taken": {"type": "string"}}}},
+        {"if": {"properties": {"op": {"const": "alloc"}}}, "then": {"required": ["mb"], "additionalProperties": false, "properties": {"op": true, "mb": {"$ref": "common.schema.json#/$defs/u64"}}}},
+        {"if": {"properties": {"op": {"const": "helper"}}}, "then": {"required": ["index"], "additionalProperties": false, "properties": {"op": true, "index": {"$ref": "common.schema.json#/$defs/u64"}}}},
+        {"if": {"properties": {"op": {"const": "end"}}}, "then": {"additionalProperties": false, "properties": {"op": true, "stop": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/stop_code"}]}, "verdict": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/exit_code"}]}}}},
+        {"if": {"properties": {"op": {"const": "fail"}}}, "then": {"required": ["code", "message"], "additionalProperties": false, "properties": {"op": true, "code": {"$ref": "#/$defs/exit_code"}, "message": {"type": "string"}}}}
+      ]}
+  }
+}
