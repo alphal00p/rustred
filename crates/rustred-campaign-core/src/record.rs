@@ -244,6 +244,9 @@ pub fn read_table_file(
 // Byte scanner
 // ------------------------------------------------------------------------------------------------------------------
 
+/// Top-level object fields: (key, byte span of the unparsed value).
+type FieldSpans = Vec<(String, (usize, usize))>;
+
 struct Scan<'a> {
     s: &'a [u8],
     pos: usize,
@@ -337,7 +340,7 @@ impl<'a> Scan<'a> {
         }
     }
     /// Top-level object: (key, value span) pairs, values skipped (not parsed).
-    fn object_fields(&mut self) -> Result<Vec<(String, (usize, usize))>, RecordError> {
+    fn object_fields(&mut self) -> Result<FieldSpans, RecordError> {
         self.expect(b'{')?;
         let mut out = vec![];
         if self.peek() == Some(b'}') {
@@ -477,10 +480,10 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     if let Some(b) = get("recenter") {
         r.recenter = de(b, "recenter", line)?;
     }
-    if opts.rhs == RhsMode::KeysOnly {
-        if let Some(b) = get("rhs") {
-            r.rhs_keys = Some(rhs_keys(b, line)?);
-        }
+    if opts.rhs == RhsMode::KeysOnly
+        && let Some(b) = get("rhs")
+    {
+        r.rhs_keys = Some(rhs_keys(b, line)?);
     }
     Ok(TableLine::Rule(Box::new(r)))
 }

@@ -32,7 +32,7 @@ impl Rng {
     fn key(&mut self, n: usize, lines: usize) -> Vec<i32> {
         (0..n)
             .map(|s| {
-                let wild = self.next() % 8 == 0;
+                let wild = self.next().is_multiple_of(8);
                 match (s < lines, wild) {
                     (true, false) => self.range(1, 4),
                     (true, true) => self.range(-2, 0),
@@ -286,7 +286,7 @@ const T162_PERM: [usize; 20] = [
 fn order_presentation_t162_phys_swap_0_3() {
     let p = Presentation::from_new_to_old(&T162_PERM).unwrap();
     assert!(!p.is_identity());
-    let original: Vec<i32> = (0..20).map(|i| i as i32 * 10 - 50).collect();
+    let original: Vec<i32> = (0..20).map(|i| i * 10 - 50).collect();
     let presented = p.present(&original);
     assert_eq!(presented[0], original[3]);
     assert_eq!(presented[3], original[0]);

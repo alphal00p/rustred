@@ -177,8 +177,8 @@ impl BigInt {
     fn sub_mag(a: &[u32], b: &[u32]) -> Vec<u32> {
         let mut out = Vec::with_capacity(a.len());
         let mut borrow = 0i64;
-        for i in 0..a.len() {
-            let mut s = a[i] as i64 - *b.get(i).unwrap_or(&0) as i64 - borrow;
+        for (i, &ai) in a.iter().enumerate() {
+            let mut s = ai as i64 - *b.get(i).unwrap_or(&0) as i64 - borrow;
             if s < 0 {
                 s += 1 << 32;
                 borrow = 1;

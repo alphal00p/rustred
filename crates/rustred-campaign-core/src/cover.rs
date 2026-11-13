@@ -109,11 +109,10 @@ impl std::hash::Hasher for FxHasher {
         z ^ (z >> 31)
     }
     fn write(&mut self, bytes: &[u8]) {
-        let mut it = bytes.chunks_exact(8);
-        for c in &mut it {
-            self.mix(u64::from_le_bytes(c.try_into().expect("8 bytes")));
+        let (chunks, r) = bytes.as_chunks::<8>();
+        for c in chunks {
+            self.mix(u64::from_le_bytes(*c));
         }
-        let r = it.remainder();
         if !r.is_empty() {
             let mut b = [0u8; 8];
             b[..r.len()].copy_from_slice(r);

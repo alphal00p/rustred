@@ -276,28 +276,28 @@ impl CaseDomain {
             poles: vec![],
             witness_elided: false,
         };
-        if opts.witness {
-            if let Some(w) = &r.witness_loci {
-                let (elided, listed): (Vec<String>, Vec<String>) =
-                    w.iter().cloned().partition(|s| s.trim() == "elided");
-                d.witness_elided = !elided.is_empty();
-                parse_poles(&listed, n, PoleKind::Witness, &mut d.poles)?;
-            }
+        if opts.witness
+            && let Some(w) = &r.witness_loci
+        {
+            let (elided, listed): (Vec<String>, Vec<String>) =
+                w.iter().cloned().partition(|s| s.trim() == "elided");
+            d.witness_elided = !elided.is_empty();
+            parse_poles(&listed, n, PoleKind::Witness, &mut d.poles)?;
         }
-        if opts.recenter_bounds {
-            if let Some(rc) = &r.recenter {
-                let mask = d
-                    .chart
-                    .clone()
-                    .unwrap_or_else(|| (0..n).map(|i| frame.is_line(i)).collect());
-                for (i, &c) in rc.iter().enumerate().take(n) {
-                    let c = c as i128;
-                    d.bounds.push(if mask[i] {
-                        Poly::slot_minus(i, (1i128).max(1 - c)) // n_i - max(1, 1-c) >= 0
-                    } else {
-                        Poly::slot_minus(i, (0i128).min(-c)).neg().expect("small") // min(0,-c) - n_i >= 0
-                    });
-                }
+        if opts.recenter_bounds
+            && let Some(rc) = &r.recenter
+        {
+            let mask = d
+                .chart
+                .clone()
+                .unwrap_or_else(|| (0..n).map(|i| frame.is_line(i)).collect());
+            for (i, &c) in rc.iter().enumerate().take(n) {
+                let c = c as i128;
+                d.bounds.push(if mask[i] {
+                    Poly::slot_minus(i, (1i128).max(1 - c)) // n_i - max(1, 1-c) >= 0
+                } else {
+                    Poly::slot_minus(i, (0i128).min(-c)).neg().expect("small") // min(0,-c) - n_i >= 0
+                });
             }
         }
         Ok(d)
@@ -394,14 +394,14 @@ impl CaseDomain {
     /// The verdict without the chart test (key length must equal the arity).
     pub fn applies_in_chart(&self, key: &[i32]) -> Verdict {
         for (i, f) in self.fixed.iter().enumerate() {
-            if let Some(v) = f {
-                if key[i] != *v {
-                    return Verdict::NotInCase(NotInCase::FixedSlot {
-                        slot: i,
-                        fixed: *v,
-                        got: key[i],
-                    });
-                }
+            if let Some(v) = f
+                && key[i] != *v
+            {
+                return Verdict::NotInCase(NotInCase::FixedSlot {
+                    slot: i,
+                    fixed: *v,
+                    got: key[i],
+                });
             }
         }
         for (j, e) in self.equations.iter().enumerate() {

@@ -108,9 +108,9 @@ fn raw_tables_match_case_exports() {
                             k[i] = *v as i32;
                         }
                     }
-                    for i in 0..10 {
-                        if r.fixed[i].is_none() {
-                            k[i] += (a + i as i32 * b) % 3;
+                    for (i, (ki, f)) in k.iter_mut().zip(&r.fixed).take(10).enumerate() {
+                        if f.is_none() {
+                            *ki += (a + i as i32 * b) % 3;
                         }
                     }
                     if dn.applies(&k) == Verdict::Applies {
