@@ -8,6 +8,7 @@ use super::error::CliError;
 mod basis;
 mod canary;
 mod census;
+mod certify;
 mod generate;
 mod import;
 mod package;
@@ -22,6 +23,7 @@ pub(crate) enum PSubcommand {
     Validate,
     Canary,
     ImportTable,
+    Certify,
 }
 
 pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(), CliError> {
@@ -33,6 +35,7 @@ pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(
         PSubcommand::Validate => validate::run(arguments),
         PSubcommand::Canary => canary::run(arguments),
         PSubcommand::ImportTable => import::run(arguments),
+        PSubcommand::Certify => certify::run(arguments),
     }
 }
 
