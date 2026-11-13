@@ -152,11 +152,13 @@ fn budgets_first_hit() {
         (WorkCounter::Seeds, Scope::Case, 10, 10)
     );
     case = Counters::default();
+    assert!(!w.cases_exhausted(&job));
     job.add(WorkCounter::Cases, 2);
-    assert_eq!(
-        w.first_hit(&case, &job).unwrap().counter,
-        WorkCounter::Cases
+    assert!(
+        w.first_hit(&case, &job).is_none(),
+        "cases is max_cases, not a work budget"
     );
+    assert!(w.cases_exhausted(&job));
     job.add(WorkCounter::TraceRows, 5);
     job.add(WorkCounter::TraceRows, 3);
     assert_eq!(job.trace_rows_max, 5);

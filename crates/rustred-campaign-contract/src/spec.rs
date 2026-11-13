@@ -260,23 +260,35 @@ impl WorkBudgets {
             .collect()
     }
 
-    /// The first limit reached (value >= limit) by the counters of the current case or of the job, in the order of
-    /// [`WorkBudgets::limits`]. The `cases` job limit counts cases already finished, so it is checked BEFORE a case
-    /// starts by the caller; here it fires when `job.cases >= limit`.
+    /// The first WORK limit reached (value >= limit) by the counters of the current case or of the job, in the order
+    /// of [`WorkBudgets::limits`]; a hit ends the job with stop `budget_work` (exit 20). The `cases` limit is NOT part
+    /// of it: it is the old `--max-cases`, checked before a case starts ([`WorkBudgets::cases_exhausted`]), and ends
+    /// the job with stop `max_cases` (exit 10).
     pub fn first_hit(&self, case: &Counters, job: &Counters) -> Option<BudgetHit> {
-        self.limits().into_iter().find_map(|(c, s, l)| {
-            let v = match s {
-                Scope::Case => case.get(c),
-                Scope::Job => job.get(c),
-            };
-            (v >= l).then_some(BudgetHit {
-                counter: c,
-                scope: s,
-                limit: l,
-                value: v,
-                case: None,
+        self.limits()
+            .into_iter()
+            .filter(|&(c, _, _)| c != WorkCounter::Cases)
+            .find_map(|(c, s, l)| {
+                let v = match s {
+                    Scope::Case => case.get(c),
+                    Scope::Job => job.get(c),
+                };
+                (v >= l).then_some(BudgetHit {
+                    counter: c,
+                    scope: s,
+                    limit: l,
+                    value: v,
+                    case: None,
+                })
             })
-        })
+    }
+}
+
+impl WorkBudgets {
+    /// Whether the `cases` limit (old `--max-cases`) forbids starting another case: the job then ends with stop
+    /// `max_cases`.
+    pub fn cases_exhausted(&self, job: &Counters) -> bool {
+        self.cases.is_some_and(|l| job.cases >= l)
     }
 }
 

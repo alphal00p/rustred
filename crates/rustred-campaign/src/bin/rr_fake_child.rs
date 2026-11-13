@@ -751,13 +751,12 @@ impl Main {
                     if cases_seen <= skip_cases {
                         continue; // committed by the resumed attempt
                     }
-                    if let Some(l) = ctx.spec.budgets.work.cases {
-                        if ctx.st().counters.cases >= l {
-                            return Finish::End {
-                                stop: Some(StopCode::MaxCases),
-                                verdict: None,
-                            };
-                        }
+                    let done = ctx.st().counters;
+                    if ctx.spec.budgets.work.cases_exhausted(&done) {
+                        return Finish::End {
+                            stop: Some(StopCode::MaxCases),
+                            verdict: None,
+                        };
                     }
                     if let Err(f) = self.run_case(*ordinal, *ms, work, *result, rule, children) {
                         return f;
