@@ -829,6 +829,12 @@ pub(crate) fn begin(threads: usize) -> bool {
     SINGLE.with(|single| single.set(threads <= 1));
     let counted = shared_requested() && threads > 1;
     if counted {
+        // Under the memo lock, like the drop in `end_shared`: a request never
+        // starts between another request's last decrement and its drop of the
+        // memo (Held::Shared values carry only indices since fwd-opt 93126217,
+        // so a memo replaced under a running request made them dangle:
+        // "an interned shared memo coefficient" with concurrent requests).
+        let _memo = SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner());
         SHARED_ACTIVE.fetch_add(1, Ordering::AcqRel);
     }
     counted
@@ -847,13 +853,14 @@ pub(crate) fn end(counted: bool) {
 }
 
 fn end_shared() {
+    // The decrement and the drop under one lock (see `begin`).
+    let mut memo = SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner());
     let before = SHARED_ACTIVE
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             Some(n.saturating_sub(1))
         })
         .unwrap_or(0);
     if before <= 1 {
-        let mut memo = SHARED_MEMO.lock().unwrap_or_else(|e| e.into_inner());
         SHARED_GENERATION.fetch_add(1, Ordering::AcqRel);
         *memo = None;
         SHARED_LOCAL.with(|local| *local.borrow_mut() = None);
