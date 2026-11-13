@@ -36,6 +36,7 @@ pub(super) use source_weights::materialize as materialize_source_weights;
 pub use source_weights::projected::{
     ProjectedSourceWeightError, ProjectedSourceWeightEvent, ProjectedSourceWeightLimits,
     ProjectedSourceWeightProposal, reconstruct_projected_source_weights,
+    select_projected_source_circuit,
 };
 
 type Fp = FiniteFieldElement<u64>;
