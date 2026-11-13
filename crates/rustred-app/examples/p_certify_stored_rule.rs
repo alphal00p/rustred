@@ -2115,6 +2115,26 @@ mod app {
             raw_rows.extend(rows);
             descriptors.extend(descs);
             *symmetry_report = report;
+            // a written rule that IS one geometry-checked symmetry row (all weights constant: the projected weight API
+            // refuses constant-only frames) is certified by exact equality of the two rows on every column
+            for (i, row) in raw_rows.iter().enumerate() {
+                if descriptors[i].differentiated_loop != usize::MAX {
+                    continue;
+                }
+                let negated: RawRow = row
+                    .iter()
+                    .map(|(k, v)| Ok((k.clone(), p.context.neg_with_limits(v, limits.arithmetic()).map_err(err)?)))
+                    .collect::<Result<_>>()?;
+                let same = *row == written_raw;
+                if same || negated == written_raw {
+                    return Ok(json!({"schema":"rustred.stored-rule-certificate.v1","status":"S2_ONLY_EXACT_STORED_MEMBERSHIP",
+                        "certificate_kind":"written rule equals ONE geometry-checked symmetry row exactly (constant frame; no weight reconstruction)",
+                        "original_all_column_exact_product":true,"quotient_used":false,"zero_census_generated_or_used":false,
+                        "archived_matrix_coefficients_used":false,"checked_original_columns":written_raw.len(),"raw_source_rows":raw_rows.len(),
+                        "exhibited_weights":[{"original_source":descriptors[i],"coefficient":if same {"1"} else {"-1"}}],
+                        "stored_native_rule":{"index":rule["index"],"target":rule["target"],"chart":rule["chart"]}}));
+                }
+            }
         }
         let mut terms = 0;
         for row in &raw_rows {
