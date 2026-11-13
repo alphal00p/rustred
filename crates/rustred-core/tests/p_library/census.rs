@@ -2256,15 +2256,18 @@ fn the_four_loop_dag_is_complete() {
     // are the 183 of the tops. The 4L sectors are those of the Diamond- and
     // Scheme-lane presentations (176,608 / 156,045 / 20,563 with the diamonds
     // as Custom owners; 173,024 / 153,475 / 19,549 before the Scheme lane;
-    // 171,488 / 152,304 / 19,184 before no2 and no6 joined it), as
-    // in golden/inventory_1-4.txt.
+    // 171,488 / 152,304 / 19,184 before no2 and no6 joined it; 170,464 /
+    // 151,608 / 18,856 before M5 batch 5: bebe, Induced until then with the 11
+    // lines of its top (2,048 sectors: 1,656 zero, 392 nonzero), is an EpsNode
+    // of its own family with its 8 lines (256 sectors: 234 zero, 22 nonzero);
+    // every other sector is unchanged), as in golden/inventory_1-4.txt.
     assert_eq!(
         count_rows(&census.counts(&library.presentations).unwrap()),
         [
             (1, 7, 16, 9, 7, 6),
             (2, 30, 298, 211, 87, 29),
             (3, 125, 8_216, 6_794, 1_422, 92),
-            (4, 291, 170_464, 151_608, 18_856, 183),
+            (4, 291, 168_672, 150_186, 18_486, 183),
         ]
     );
 }
