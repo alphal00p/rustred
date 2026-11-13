@@ -2239,13 +2239,17 @@ fn the_four_loop_dag_is_complete() {
         census.counts(&library.presentations).unwrap()
     );
 
-    // All 10,989 pairs take five minutes: the twins and a sample stay. (10,654
+    // All 11,074 pairs take five minutes: the twins and a sample stay. (10,654
     // before the Diamond lane: the 4 diamond-adapted presentations add pairs;
     // 10,830 before the Scheme lane of M5 combined: the 3 scheme-adapted ones;
-    // 10,938 before no2 and no6 joined the Scheme lane in M5 batch 2.)
+    // 10,938 before no2 and no6 joined the Scheme lane in M5 batch 2; 10,989
+    // before M5 batch 5: bebe, Induced until then, is an EpsNode of its own
+    // family (ISP-table entry, P_PRESENTATION_VERSION 4) and pairs with the 85
+    // other non-induced presentations of shape (4 loops, 8 lines, 0 eps lines),
+    // 82 insertion- and 3 carpet-adapted; no new twin.)
     assert_eq!(
         assert_traded_nodes_are_refused(&library, &census, 64),
-        (10_989, 172)
+        (11_074, 172)
     );
 
     // 437 nodes with loops on 310 classes; eps nodes end at 3L, so the 4L classes
