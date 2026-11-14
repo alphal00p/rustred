@@ -94,7 +94,11 @@ impl Builder {
     fn intern(&mut self, p: &MPoly, is_ge: bool) -> Result<Norm, PartitionError> {
         if let Some(c) = p.as_constant() {
             return Ok(if is_ge {
-                if c >= 0 { Norm::Zero } else { Norm::NonZeroConst }
+                if c >= 0 {
+                    Norm::Zero
+                } else {
+                    Norm::NonZeroConst
+                }
             } else if c == 0 {
                 Norm::Zero
             } else {
@@ -103,12 +107,12 @@ impl Builder {
         }
         let q = if is_ge {
             let g = p.content();
-            p.scale(1).and_then(|x| {
+            p.scale(1).map(|x| {
                 let mut r = MPoly::zero(x.nvars);
                 for (e, &c) in &x.terms {
                     r.terms.insert(e.clone(), c / g);
                 }
-                Ok(r)
+                r
             })
         } else {
             p.primitive()
@@ -153,7 +157,11 @@ fn mp(p: &Poly, arity: usize) -> Result<MPoly, PartitionError> {
 
 /// Branches of a pole locus given by its d-coefficients: union over the exact linear factors of the reconstructed
 /// polynomial `sum_k c_k d^k` and its cofactor of the AND of their d-coefficients. Returns the AND-lists (d-free).
-fn pole_branches(coeffs: &[Poly], arity: usize, nlin: &mut usize) -> Result<Vec<Vec<MPoly>>, PartitionError> {
+fn pole_branches(
+    coeffs: &[Poly],
+    arity: usize,
+    nlin: &mut usize,
+) -> Result<Vec<Vec<MPoly>>, PartitionError> {
     if coeffs.is_empty() {
         return Ok(vec![vec![]]); // identically zero: always forbidden
     }
@@ -233,7 +241,11 @@ fn split_products(members: &[MPoly]) -> Result<Vec<Vec<MPoly>>, PartitionError> 
 }
 
 /// Build the normal form of the selected domains of `src`.
-pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Result<NfRules, PartitionError> {
+pub fn build(
+    src: &dyn DomainSource,
+    frame: &NodeFrame,
+    opts: &NfOptions,
+) -> Result<NfRules, PartitionError> {
     let arity = frame.arity();
     if src.arity() != arity {
         return Err(PartitionError::Arity {
@@ -414,7 +426,10 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
 /// `g <= -1` for each bound g of h, and with every member of each exception branch of h as equations. Disjoint
 /// fixed slots: v unchanged.
 fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, PartitionError> {
-    let fv: Vec<(usize, i64)> = v.eq.iter().filter_map(|&l| unit_fixed(&b.lits[l as usize])).collect();
+    let fv: Vec<(usize, i64)> =
+        v.eq.iter()
+            .filter_map(|&l| unit_fixed(&b.lits[l as usize]))
+            .collect();
     for &l in &h.eq {
         if let Some((s, x)) = unit_fixed(&b.lits[l as usize])
             && fv.iter().any(|&(t, y)| t == s && y != x)
@@ -434,7 +449,10 @@ fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, Part
         out.push(w);
     }
     for &g in &h.ge {
-        let neg = b.lits[g as usize].poly.scale(-1).and_then(|p| p.sub(&MPoly::constant(p.nvars, 1)));
+        let neg = b.lits[g as usize]
+            .poly
+            .scale(-1)
+            .and_then(|p| p.sub(&MPoly::constant(p.nvars, 1)));
         let neg = neg.map_err(PartitionError::Exact)?;
         match b.intern(&neg, true)? {
             Norm::Zero => out.push(v.clone()),

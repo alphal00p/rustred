@@ -24,17 +24,22 @@ use serde_json::{Value as Json, json};
 use crate::cover::{Dispatcher, RuleRef};
 use crate::domain::CaseDomain;
 use crate::key::{Key, NodeFrame};
+pub use crate::loci::contain::{Containment, Emptiness, contained_in, is_empty, shadowed};
 pub use classes::{Class, EnumStats, Label, Node};
 pub use exact::{ExactError, Range};
 pub use nf::{NfRules, NfStats};
-pub use crate::loci::contain::{Containment, Emptiness, contained_in, is_empty, shadowed};
 
 /// Errors of the partition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PartitionError {
-    Arity { expected: usize, got: usize },
+    Arity {
+        expected: usize,
+        got: usize,
+    },
     /// A domain's chart differs from the frame mask.
-    ChartNotFrame { source: usize },
+    ChartNotFrame {
+        source: usize,
+    },
     Exact(ExactError),
     Eval(String),
     Unsupported(String),
@@ -70,7 +75,10 @@ pub struct DomainList {
 
 impl DomainList {
     pub fn new(arity: usize) -> Self {
-        DomainList { arity, items: vec![] }
+        DomainList {
+            arity,
+            items: vec![],
+        }
     }
     pub fn push(&mut self, r: RuleRef, d: CaseDomain) {
         self.items.push((r, d));
@@ -160,6 +168,8 @@ pub enum LiteralTests {
 pub struct Budget {
     pub max_nodes: Option<u64>,
     pub wall: Option<Duration>,
+    /// Memo entries kept at most (memory bound; exactness unaffected).
+    pub max_memo: Option<usize>,
 }
 
 /// Progress report (no floating point: milliseconds).
@@ -324,12 +334,15 @@ pub enum ClassHit {
     Fragile,
 }
 
+/// (Sd, Sn) of a face.
+pub type FaceKey = (Vec<usize>, Vec<usize>);
+
 /// Exact census of a finite key set.
 #[derive(Clone, Debug, Default)]
 pub struct KeyCensus {
     pub n_keys: usize,
     /// (key, face, label of its class: Uncovered = generic gap, Fragile = locus gap).
-    pub uncovered: Vec<(Key, (Vec<usize>, Vec<usize>), Label)>,
+    pub uncovered: Vec<(Key, FaceKey, Label)>,
     /// Covered keys in U classes (on coupled case-equation loci).
     pub covered_in_u: Vec<Key>,
     /// Uncovered keys in C classes: must be empty (a soundness check).
@@ -340,10 +353,16 @@ pub struct KeyCensus {
 
 impl KeyCensus {
     pub fn n_generic(&self) -> usize {
-        self.uncovered.iter().filter(|x| x.2 == Label::Uncovered).count()
+        self.uncovered
+            .iter()
+            .filter(|x| x.2 == Label::Uncovered)
+            .count()
     }
     pub fn n_locus(&self) -> usize {
-        self.uncovered.iter().filter(|x| x.2 == Label::Fragile).count()
+        self.uncovered
+            .iter()
+            .filter(|x| x.2 == Label::Fragile)
+            .count()
     }
     pub fn faces(&self) -> BTreeSet<(Vec<usize>, Vec<usize>)> {
         self.uncovered.iter().map(|x| x.1.clone()).collect()
@@ -390,9 +409,15 @@ pub fn gap_partition(
     // FailClosed: each elided record blocks its domain minus the domains before it (first match stops there).
     // Its BLOCKED region = the uncovered set of {domains before it} u {complement of its domain}: a separate exact
     // partition whose classes are gaps of the node.
-    let order: Vec<usize> = opts.rule_subset.clone().unwrap_or_else(|| (0..src.len()).collect());
+    let order: Vec<usize> = opts
+        .rule_subset
+        .clone()
+        .unwrap_or_else(|| (0..src.len()).collect());
     for e in elided {
-        let pos = order.iter().position(|&x| x == e).expect("elided source in the order");
+        let pos = order
+            .iter()
+            .position(|&x| x == e)
+            .expect("elided source in the order");
         let mut subset: Vec<usize> = order[..pos].to_vec();
         subset.push(e);
         let sub = nf::build(
@@ -432,6 +457,7 @@ pub fn partition_nf(
         eng.use_memo = opts.memo;
         eng.cap = opts.max_off_floor;
         eng.max_nodes = opts.budget.max_nodes;
+        eng.max_memo = opts.budget.max_memo;
         eng.deadline = opts.budget.wall.map(|w| t0 + w);
         let root = eng.run(progress);
         (root, eng.stats.clone())
@@ -505,7 +531,10 @@ impl PartitionReport {
 
     /// State index of a value in a slot.
     pub fn state_index(&self, slot: usize, v: i64) -> Option<u16> {
-        self.states[slot].iter().position(|r| r.contains(v)).map(|i| i as u16)
+        self.states[slot]
+            .iter()
+            .position(|r| r.contains(v))
+            .map(|i| i as u16)
     }
 
     fn check_chart(&self, key: &[i32]) -> Result<(), PartitionError> {
@@ -543,7 +572,10 @@ impl PartitionReport {
         let idx: Vec<u16> = key
             .iter()
             .enumerate()
-            .map(|(i, &x)| self.state_index(i, x as i64).expect("states cover the chart"))
+            .map(|(i, &x)| {
+                self.state_index(i, x as i64)
+                    .expect("states cover the chart")
+            })
             .collect();
         let main = match classes::lookup(&self.root, &idx) {
             None => ClassHit::Covered,
@@ -610,8 +642,14 @@ impl PartitionReport {
             let unc = self.uncovered(k)?;
             let hit = self.class_of(k)?;
             match (unc, hit) {
-                (true, ClassHit::Uncovered) => c.uncovered.push((k.clone(), face_of(&self.nf.lines, k), Label::Uncovered)),
-                (true, ClassHit::Fragile) => c.uncovered.push((k.clone(), face_of(&self.nf.lines, k), Label::Fragile)),
+                (true, ClassHit::Uncovered) => {
+                    c.uncovered
+                        .push((k.clone(), face_of(&self.nf.lines, k), Label::Uncovered))
+                }
+                (true, ClassHit::Fragile) => {
+                    c.uncovered
+                        .push((k.clone(), face_of(&self.nf.lines, k), Label::Fragile))
+                }
                 (true, ClassHit::Covered) => c.uncovered_in_c.push(k.clone()),
                 (false, ClassHit::Uncovered) => c.covered_in_u.push(k.clone()),
                 _ => {}
@@ -621,14 +659,20 @@ impl PartitionReport {
     }
 
     pub fn n_u(&self) -> usize {
-        self.classes.iter().filter(|c| c.label == Label::Uncovered).count()
+        self.classes
+            .iter()
+            .filter(|c| c.label == Label::Uncovered)
+            .count()
     }
     pub fn n_f(&self) -> usize {
-        self.classes.iter().filter(|c| c.label == Label::Fragile).count()
+        self.classes
+            .iter()
+            .filter(|c| c.label == Label::Fragile)
+            .count()
     }
 
     /// Expand the `any` slots of a class into (floor, any off-floor): (face, cell states over all slots).
-    pub fn expand(&self, c: &Class) -> Vec<((Vec<usize>, Vec<usize>), Vec<CellState>)> {
+    pub fn expand(&self, c: &Class) -> Vec<(FaceKey, Vec<CellState>)> {
         let n = self.nf.arity;
         let stars: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
         let mut out = vec![];
@@ -640,8 +684,12 @@ impl PartitionReport {
                     cell[s] = ANY_OFF;
                 }
             }
-            let sd: Vec<usize> = (0..n).filter(|&i| self.nf.lines[i] && cell[i] != 0).collect();
-            let sn: Vec<usize> = (0..n).filter(|&i| !self.nf.lines[i] && cell[i] != 0).collect();
+            let sd: Vec<usize> = (0..n)
+                .filter(|&i| self.nf.lines[i] && cell[i] != 0)
+                .collect();
+            let sn: Vec<usize> = (0..n)
+                .filter(|&i| !self.nf.lines[i] && cell[i] != 0)
+                .collect();
             out.push(((sd, sn), cell));
         }
         out
@@ -691,19 +739,29 @@ impl PartitionReport {
             let thresholds = self.thresholds(&slots, &a.u);
             let unb = |range: std::ops::Range<usize>| {
                 a.u.iter().any(|c| {
-                    range.clone().any(|j| c[j] == ANY_OFF || c[j] as usize + 1 == self.states[slots[j]].len())
+                    range.clone().any(|j| {
+                        c[j] == ANY_OFF || c[j] as usize + 1 == self.states[slots[j]].len()
+                    })
                 })
             };
             let mut unbounded_in_dots = unb(0..sd.len());
             let unbounded_in_rank = unb(sd.len()..slots.len());
             if let Some(res) = &self.resolution {
-                for l in res.loci.iter().filter(|l| l.face == (sd.clone(), sn.clone())) {
+                for l in res
+                    .loci
+                    .iter()
+                    .filter(|l| l.face == (sd.clone(), sn.clone()))
+                {
                     if l.unbounded_in_dots {
                         unbounded_in_dots = true;
                     }
                 }
             }
-            let kind = if a.u.is_empty() { FaceKind::LocusOnly } else { FaceKind::Generic };
+            let kind = if a.u.is_empty() {
+                FaceKind::LocusOnly
+            } else {
+                FaceKind::Generic
+            };
             let mut face = GapFace {
                 sd,
                 sn,
@@ -787,7 +845,14 @@ impl PartitionReport {
                 break;
             }
             let r = self.states[s][t_found as usize];
-            out.push((s, if self.nf.lines[s] { r.lo.expect("line state") } else { r.hi.expect("numerator state") }));
+            out.push((
+                s,
+                if self.nf.lines[s] {
+                    r.lo.expect("line state")
+                } else {
+                    r.hi.expect("numerator state")
+                },
+            ));
         }
         out
     }
@@ -802,7 +867,11 @@ impl PartitionReport {
         };
         let mut v = vec![];
         for r in ranges {
-            let base = if line { r.lo.expect("line") } else { r.hi.expect("num") };
+            let base = if line {
+                r.lo.expect("line")
+            } else {
+                r.hi.expect("num")
+            };
             for d in 0..3 {
                 let x = if line { base + d } else { base - d };
                 if r.contains(x) {
@@ -821,11 +890,17 @@ impl PartitionReport {
             vec![]
         };
         for cell in cells.iter().take(16) {
-            let per: Vec<Vec<i64>> = slots.iter().zip(cell).map(|(&s, &st)| self.reps(s, st)).collect();
+            let per: Vec<Vec<i64>> = slots
+                .iter()
+                .zip(cell)
+                .map(|(&s, &st)| self.reps(s, st))
+                .collect();
             // walk a few combinations
             let mut idx = vec![0usize; per.len()];
             for _ in 0..64 {
-                let mut key: Key = (0..self.nf.arity).map(|i| self.nf.floor(i) as i32).collect();
+                let mut key: Key = (0..self.nf.arity)
+                    .map(|i| self.nf.floor(i) as i32)
+                    .collect();
                 for (j, &s) in slots.iter().enumerate() {
                     key[s] = per[j][idx[j]] as i32;
                 }
@@ -851,7 +926,11 @@ impl PartitionReport {
             }
         }
         if let Some(res) = &self.resolution {
-            for l in res.loci.iter().filter(|l| l.face == (f.sd.clone(), f.sn.clone())) {
+            for l in res
+                .loci
+                .iter()
+                .filter(|l| l.face == (f.sd.clone(), f.sn.clone()))
+            {
                 if let Some(w) = l.witness.first() {
                     return Some(w.clone());
                 }
@@ -863,7 +942,11 @@ impl PartitionReport {
     /// Render a cell state.
     pub fn cell_label(&self, slot: usize, st: CellState) -> String {
         if st == ANY_OFF {
-            return if self.nf.lines[slot] { ">=2".into() } else { "<=-1".into() };
+            return if self.nf.lines[slot] {
+                ">=2".into()
+            } else {
+                "<=-1".into()
+            };
         }
         let r = self.states[slot][st as usize];
         match (r.lo, r.hi) {
@@ -898,11 +981,21 @@ impl PartitionReport {
                 })
             })
             .collect();
-        let loci: Vec<Json> = self.resolution.as_ref().map(|r| r.loci_json()).unwrap_or_default();
+        let loci: Vec<Json> = self
+            .resolution
+            .as_ref()
+            .map(|r| r.loci_json())
+            .unwrap_or_default();
         let unresolved: Vec<String> = self
             .resolution
             .as_ref()
-            .map(|r| r.loci.iter().filter(|l| l.unresolved).map(|l| l.id.clone()).collect())
+            .map(|r| {
+                r.loci
+                    .iter()
+                    .filter(|l| l.unresolved)
+                    .map(|l| l.id.clone())
+                    .collect()
+            })
             .unwrap_or_default();
         json!({
             "schema": "rustred.campaign.partition.v1",

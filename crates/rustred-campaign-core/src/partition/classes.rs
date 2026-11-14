@@ -22,7 +22,10 @@ pub enum Label {
 #[derive(Debug)]
 pub enum Node {
     Leaf(Label),
-    Split { slot: usize, children: Vec<(u16, Rc<Node>)> },
+    Split {
+        slot: usize,
+        children: Vec<(u16, Rc<Node>)>,
+    },
 }
 
 /// Status of a zero-set literal on a class.
@@ -97,13 +100,17 @@ pub struct EnumStats {
     pub pruned_off_floor: u64,
     pub unknown_literal_tests: u64,
     pub status_cache: u64,
+    pub memo_clears: u64,
     pub aborted: bool,
 }
 
 /// Per-slot states in the general form: index 0 = the floor singleton, then outward; the last is the half-infinite
 /// tail. Critical values: every integer root in chart range of every one-slot zero-set literal, and the sign
 /// boundary of every one-slot GE literal.
-pub fn slot_states(nf: &NfRules, extra: Option<&[Vec<i64>]>) -> Result<(Vec<Vec<Range>>, u64), PartitionError> {
+pub fn slot_states(
+    nf: &NfRules,
+    extra: Option<&[Vec<i64>]>,
+) -> Result<(Vec<Vec<Range>>, u64), PartitionError> {
     let n = nf.arity;
     let mut crit: Vec<Vec<i64>> = (0..n).map(|i| vec![nf.floor(i)]).collect();
     let mut unknown = 0u64;
@@ -219,12 +226,18 @@ pub struct Engine<'a> {
     pub cap: Option<usize>,
     pub stats: EnumStats,
     pub max_nodes: Option<u64>,
+    /// Memo entries kept at most (the memo is cleared beyond: results stay exact, only work is repeated).
+    pub max_memo: Option<usize>,
     pub deadline: Option<Instant>,
     t0: Instant,
 }
 
 impl<'a> Engine<'a> {
-    pub fn new(nf: &'a NfRules, states: Vec<Vec<Range>>, tests: LiteralTests) -> Result<Self, PartitionError> {
+    pub fn new(
+        nf: &'a NfRules,
+        states: Vec<Vec<Range>>,
+        tests: LiteralTests,
+    ) -> Result<Self, PartitionError> {
         let n = nf.arity;
         if n > 64 {
             return Err(PartitionError::Unsupported("arity above 64".into()));
@@ -234,7 +247,10 @@ impl<'a> Engine<'a> {
         let mut conds = vec![];
         for (ri, r) in nf.rules.iter().enumerate() {
             let sup_of = |ls: &[u32]| {
-                let mut s: Vec<usize> = ls.iter().flat_map(|&l| nf.lits[l as usize].support.clone()).collect();
+                let mut s: Vec<usize> = ls
+                    .iter()
+                    .flat_map(|&l| nf.lits[l as usize].support.clone())
+                    .collect();
                 s.sort_unstable();
                 s.dedup();
                 s
@@ -294,6 +310,7 @@ impl<'a> Engine<'a> {
             cap: None,
             stats: EnumStats::default(),
             max_nodes: None,
+            max_memo: None,
             deadline: None,
             t0: Instant::now(),
         };
@@ -341,7 +358,11 @@ impl<'a> Engine<'a> {
         }
         let mut complete = vec![vec![0u64; words]; n + 1];
         for (ri, &sup) in support.iter().enumerate() {
-            let k = if sup == 0 { 0 } else { 64 - sup.leading_zeros() as usize };
+            let k = if sup == 0 {
+                0
+            } else {
+                64 - sup.leading_zeros() as usize
+            };
             set(&mut complete[k], ri);
         }
         let mut compl_upto = vec![];
@@ -398,7 +419,11 @@ impl<'a> Engine<'a> {
         if let Some(&s) = self.cache.get(&(l, key.clone())) {
             return s;
         }
-        let ranges: Vec<(usize, Range)> = lit.support.iter().map(|&s| (s, self.states[s][st[s] as usize])).collect();
+        let ranges: Vec<(usize, Range)> = lit
+            .support
+            .iter()
+            .map(|&s| (s, self.states[s][st[s] as usize]))
+            .collect();
         let (s, unknown) = literal_status(&lit.poly, &ranges, self.tests);
         if unknown {
             self.stats.unknown_literal_tests += 1;
@@ -414,7 +439,11 @@ impl<'a> Engine<'a> {
         if let Some(&s) = self.ge_cache.get(&(l, key.clone())) {
             return s;
         }
-        let ranges: Vec<(usize, Range)> = lit.support.iter().map(|&s| (s, self.states[s][st[s] as usize])).collect();
+        let ranges: Vec<(usize, Range)> = lit
+            .support
+            .iter()
+            .map(|&s| (s, self.states[s][st[s] as usize]))
+            .collect();
         let v = match ge_status(&lit.poly, &ranges) {
             Some(true) => CondVal::Ok,
             _ => CondVal::Kill,
@@ -477,13 +506,13 @@ impl<'a> Engine<'a> {
         progress: Option<&dyn Fn(&Progress)>,
     ) -> Option<Rc<Node>> {
         self.stats.nodes += 1;
-        if self.stats.nodes % 4096 == 0 {
+        if self.stats.nodes.is_multiple_of(4096) {
             if self.max_nodes.is_some_and(|m| self.stats.nodes > m)
                 || self.deadline.is_some_and(|d| Instant::now() > d)
             {
                 self.stats.aborted = true;
             }
-            if self.stats.nodes % (1 << 18) == 0
+            if self.stats.nodes.is_multiple_of(1 << 18)
                 && let Some(p) = progress
             {
                 p(&Progress {
@@ -515,7 +544,10 @@ impl<'a> Engine<'a> {
                     need |= mask;
                 }
             }
-            let pend: Vec<(u16, u16)> = (0..k).filter(|&s| (need >> s) & 1 == 1).map(|s| (s as u16, st[s])).collect();
+            let pend: Vec<(u16, u16)> = (0..k)
+                .filter(|&s| (need >> s) & 1 == 1)
+                .map(|s| (s as u16, st[s]))
+                .collect();
             let key = MemoKey {
                 k: k as u16,
                 alive: a.clone(),
@@ -576,6 +608,10 @@ impl<'a> Engine<'a> {
         if let Some(key) = key
             && !self.stats.aborted
         {
+            if self.max_memo.is_some_and(|m| self.memo.len() >= m) {
+                self.memo.clear();
+                self.stats.memo_clears += 1;
+            }
             self.memo.insert(key, res.clone());
             self.stats.memo_size = self.memo.len() as u64;
         }
@@ -616,7 +652,12 @@ pub fn literal_status(
             false,
         );
     }
-    let range_of = |s: usize| free.iter().find(|(x, _)| *x == s).map(|(_, r)| *r).expect("free slot");
+    let range_of = |s: usize| {
+        free.iter()
+            .find(|(x, _)| *x == s)
+            .map(|(_, r)| *r)
+            .expect("free slot")
+    };
     if vars.len() == 1 {
         let s = vars[0];
         let r = range_of(s);

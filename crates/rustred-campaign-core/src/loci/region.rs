@@ -5,7 +5,9 @@
 
 use std::collections::HashSet;
 
-use crate::partition::exact::{Affine, ExactError, MPoly, XResult, div_ceil, div_floor, ext_gcd, gcd};
+use crate::partition::exact::{
+    Affine, ExactError, MPoly, XResult, div_ceil, div_floor, ext_gcd, gcd,
+};
 
 /// A lattice region.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,7 +31,11 @@ fn ck(o: Option<i128>) -> XResult<i128> {
 fn normalise(c: &Affine) -> Option<Affine> {
     let g = c.coef.iter().fold(0, |g, &a| gcd(g, a));
     if g == 0 {
-        return if c.c >= 0 { None } else { Some(Affine::constant(c.coef.len(), -1)) };
+        return if c.c >= 0 {
+            None
+        } else {
+            Some(Affine::constant(c.coef.len(), -1))
+        };
     }
     Some(Affine {
         coef: c.coef.iter().map(|&a| a / g).collect(),
@@ -79,8 +85,10 @@ pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
             for n in &neg {
                 let (ap, an) = (p.coef[v], -n.coef[v]);
                 let mut coef = vec![0i128; k];
-                for j in 0..k {
-                    coef[j] = ck(ck(an.checked_mul(p.coef[j]))?.checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
+                for (j, cj) in coef.iter_mut().enumerate() {
+                    *cj =
+                        ck(ck(an.checked_mul(p.coef[j]))?
+                            .checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
                 }
                 let c = ck(ck(an.checked_mul(p.c))?.checked_add(ck(ap.checked_mul(n.c))?))?;
                 if let Some(nc) = normalise(&Affine { coef, c }) {
@@ -97,7 +105,9 @@ pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
             }
         }
         if rest.len() > 20_000 {
-            return Err(ExactError::TooLarge("Fourier-Motzkin: more than 20000 constraints"));
+            return Err(ExactError::TooLarge(
+                "Fourier-Motzkin: more than 20000 constraints",
+            ));
         }
         cur = rest;
     }
@@ -147,8 +157,10 @@ fn project0(cons: &[Affine], k: usize) -> XResult<Vec<Affine>> {
             for n in &neg {
                 let (ap, an) = (p.coef[v], -n.coef[v]);
                 let mut coef = vec![0i128; k];
-                for j in 0..k {
-                    coef[j] = ck(ck(an.checked_mul(p.coef[j]))?.checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
+                for (j, cj) in coef.iter_mut().enumerate() {
+                    *cj =
+                        ck(ck(an.checked_mul(p.coef[j]))?
+                            .checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
                 }
                 let c = ck(ck(an.checked_mul(p.c))?.checked_add(ck(ap.checked_mul(n.c))?))?;
                 if let Some(nc) = normalise(&Affine { coef, c })
@@ -159,7 +171,9 @@ fn project0(cons: &[Affine], k: usize) -> XResult<Vec<Affine>> {
             }
         }
         if rest.len() > 20_000 {
-            return Err(ExactError::TooLarge("projection: more than 20000 constraints"));
+            return Err(ExactError::TooLarge(
+                "projection: more than 20000 constraints",
+            ));
         }
         cur = rest;
     }
@@ -180,9 +194,18 @@ fn fix0(cons: &[Affine], v: i128) -> XResult<Vec<Affine>> {
 
 /// An integer point of `cons >= 0` found by exact search (variable by variable from the projected bounds, values
 /// nearest to a bound or to `anchor` first, at most `tries` values per level). `None` = none found (not a proof).
-pub fn find_point(cons: &[Affine], k: usize, tries: usize, anchor: &[i128]) -> XResult<Option<Vec<i128>>> {
+pub fn find_point(
+    cons: &[Affine],
+    k: usize,
+    tries: usize,
+    anchor: &[i128],
+) -> XResult<Option<Vec<i128>>> {
     if k == 0 {
-        return Ok(if cons.iter().all(|c| c.c >= 0) { Some(vec![]) } else { None });
+        return Ok(if cons.iter().all(|c| c.c >= 0) {
+            Some(vec![])
+        } else {
+            None
+        });
     }
     let proj = project0(cons, k)?;
     let (lo, hi, ok) = bounds0(&proj);
@@ -251,7 +274,9 @@ impl Region {
         let k = self.k;
         // column reduction of the row `coef` to (g, 0, ..., 0) by unimodular U: coef U = (g, 0, ...)
         let mut row = coef.to_vec();
-        let mut u: Vec<Vec<i128>> = (0..k).map(|i| (0..k).map(|j| i128::from(i == j)).collect()).collect();
+        let mut u: Vec<Vec<i128>> = (0..k)
+            .map(|i| (0..k).map(|j| i128::from(i == j)).collect())
+            .collect();
         // bring a nonzero entry to column 0 by combining columns
         for j in 1..k {
             if row[j] == 0 {
@@ -300,8 +325,8 @@ impl Region {
                     continue;
                 }
                 cc = ck(cc.checked_add(ck(ai.checked_mul(map[i].c))?))?;
-                for j in 0..nk {
-                    coef[j] = ck(coef[j].checked_add(ck(ai.checked_mul(map[i].coef[j]))?))?;
+                for (cj, mj) in coef.iter_mut().zip(&map[i].coef) {
+                    *cj = ck(cj.checked_add(ck(ai.checked_mul(*mj))?))?;
                 }
             }
             Ok(Affine { coef, c: cc })
@@ -309,8 +334,15 @@ impl Region {
         let x = self.x.iter().map(comp).collect::<XResult<Vec<_>>>()?;
         let cons = self.cons.iter().map(comp).collect::<XResult<Vec<_>>>()?;
         let cons: Vec<Affine> = cons.into_iter().filter_map(|c| normalise(&c)).collect();
-        let names = (0..nk).map(|j| format!("s{}_{j}", self.names.len())).collect();
-        Ok(Some(Region { k: nk, x, cons, names }))
+        let names = (0..nk)
+            .map(|j| format!("s{}_{j}", self.names.len()))
+            .collect();
+        Ok(Some(Region {
+            k: nk,
+            x,
+            cons,
+            names,
+        }))
     }
 
     /// Fix parameter `j` to `v`.
@@ -328,7 +360,14 @@ impl Region {
         Ok(Region {
             k: self.k - 1,
             x: self.x.iter().map(sub).collect::<XResult<_>>()?,
-            cons: self.cons.iter().map(sub).collect::<XResult<Vec<_>>>()?.into_iter().filter_map(|c| normalise(&c)).collect(),
+            cons: self
+                .cons
+                .iter()
+                .map(sub)
+                .collect::<XResult<Vec<_>>>()?
+                .into_iter()
+                .filter_map(|c| normalise(&c))
+                .collect(),
             names,
         })
     }
@@ -384,7 +423,10 @@ mod tests {
     use super::*;
 
     fn aff(coef: &[i128], c: i128) -> Affine {
-        Affine { coef: coef.to_vec(), c }
+        Affine {
+            coef: coef.to_vec(),
+            c,
+        }
     }
 
     #[test]
@@ -406,7 +448,11 @@ mod tests {
         let r = Region {
             k: 3,
             x: (0..3).map(|j| Affine::var(3, j)).collect(),
-            cons: vec![aff(&[1, 0, 0], -2), aff(&[0, 1, 0], -2), aff(&[0, 0, 1], -2)],
+            cons: vec![
+                aff(&[1, 0, 0], -2),
+                aff(&[0, 1, 0], -2),
+                aff(&[0, 0, 1], -2),
+            ],
             names: vec!["a".into(), "b".into(), "c".into()],
         };
         let s = r.cut(&[2, -1, -2], 4).unwrap().unwrap();

@@ -154,14 +154,18 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
         .filter(|&s| cell[s] == ANY_OFF || rep.states[s][cell[s] as usize].singleton().is_none())
         .collect();
     let k = free.len();
-    for s in 0..n {
+    for (s, &cs) in cell.iter().enumerate().take(n) {
         if let Some(j) = free.iter().position(|&f| f == s) {
             x.push(Affine::var(k, j));
             names.push(format!("n{s}"));
-            let (lo, hi) = if cell[s] == ANY_OFF {
-                if rep.nf.lines[s] { (Some(2), None) } else { (None, Some(-1)) }
+            let (lo, hi) = if cs == ANY_OFF {
+                if rep.nf.lines[s] {
+                    (Some(2), None)
+                } else {
+                    (None, Some(-1))
+                }
             } else {
-                let r = rep.states[s][cell[s] as usize];
+                let r = rep.states[s][cs as usize];
                 (r.lo, r.hi)
             };
             if let Some(l) = lo {
@@ -176,7 +180,7 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
                 cons.push(a);
             }
         } else {
-            let v = rep.states[s][cell[s] as usize].singleton().expect("singleton");
+            let v = rep.states[s][cs as usize].singleton().expect("singleton");
             x.push(Affine::constant(k, v as i128));
         }
     }
@@ -222,6 +226,9 @@ pub fn lit_status(r: &Region, q: &MPoly) -> (Status, bool) {
     }
     (Status::V, false)
 }
+
+/// Live exception branches of a rule on a region: per branch its varying members (literal id, polynomial in t).
+type LiveBranches = Vec<Vec<(u32, MPoly)>>;
 
 pub(crate) struct Resolver<'a> {
     pub nf: &'a NfRules,
@@ -290,7 +297,7 @@ impl<'a> Resolver<'a> {
         }
         let mut qcache: BTreeMap<u32, MPoly> = BTreeMap::new();
         let mut scache: BTreeMap<u32, Status> = BTreeMap::new();
-        let mut alive: Vec<(usize, Vec<Vec<(u32, MPoly)>>)> = vec![];
+        let mut alive: Vec<(usize, LiveBranches)> = vec![];
         let mut eq_loci: Vec<(usize, MPoly)> = vec![];
         let mut next_among = vec![];
         for &ri in among {
@@ -354,8 +361,14 @@ impl<'a> Resolver<'a> {
                     GeV::Varies => {
                         // split the region exactly on the bound: q >= 0 and q <= -1
                         if let Some((coef, c)) = q.linear_form() {
-                            let pos = Affine { coef: coef.clone(), c };
-                            let neg = Affine { coef: coef.iter().map(|a| -a).collect(), c: -c - 1 };
+                            let pos = Affine {
+                                coef: coef.clone(),
+                                c,
+                            };
+                            let neg = Affine {
+                                coef: coef.iter().map(|a| -a).collect(),
+                                c: -c - 1,
+                            };
                             let mut t = trail.clone();
                             t.push(format!("{}>=0", self.nf.lits[l as usize].text));
                             self.resolve(region.with(pos), among, t, depth + 1);
@@ -436,9 +449,12 @@ impl<'a> Resolver<'a> {
             return;
         }
         // fragile rule with the fewest live branches, preferring branches with a linear member
-        let nonlin = |live: &Vec<Vec<(u32, MPoly)>>| {
+        let nonlin = |live: &LiveBranches| {
             live.iter()
-                .filter(|a| !a.iter().any(|(_, q)| q.total_degree() == 1 || q.support().len() == 1))
+                .filter(|a| {
+                    !a.iter()
+                        .any(|(_, q)| q.total_degree() == 1 || q.support().len() == 1)
+                })
                 .count()
         };
         alive.sort_by_key(|(ri, live)| (nonlin(live), live.len(), *ri));
@@ -453,7 +469,10 @@ impl<'a> Resolver<'a> {
                 if rest.as_constant().is_none() {
                     facs.push(rest);
                 }
-                let nl = facs.iter().filter(|f| f.total_degree() > 1 && f.support().len() > 1).count();
+                let nl = facs
+                    .iter()
+                    .filter(|f| f.total_degree() > 1 && f.support().len() > 1)
+                    .count();
                 let key = (nl, facs.len());
                 if best.as_ref().is_none_or(|b| key < b.0) {
                     best = Some((key, facs, *lid));
@@ -468,7 +487,11 @@ impl<'a> Resolver<'a> {
                     continue;
                 }
                 done.push(f.clone());
-                let label = if nfacs == 1 { lit_text.clone() } else { format!("{lit_text} [factor {fi}: {}]", f.render(&region.names)) };
+                let label = if nfacs == 1 {
+                    lit_text.clone()
+                } else {
+                    format!("{lit_text} [factor {fi}: {}]", f.render(&region.names))
+                };
                 if let Some((coef, c)) = f.linear_form() {
                     match region.cut(&coef, c) {
                         Ok(Some(sub)) => match sub.feasible() {
@@ -513,10 +536,15 @@ impl<'a> Resolver<'a> {
         // exact window: L1 ball around an anchor point of the region, f = 0 and uncovered
         let k = region.k;
         let radius = self.opts.window_radius[k.min(5)];
-        let anchor = region.point(self.opts.tries).ok().flatten().unwrap_or(vec![0; k]);
+        let anchor = region
+            .point(self.opts.tries)
+            .ok()
+            .flatten()
+            .unwrap_or(vec![0; k]);
         let mut pts = vec![];
         let mut n = 0u64;
         let mut t = vec![0i128; k];
+        #[allow(clippy::too_many_arguments)]
         fn rec(
             j: usize,
             budget: i64,
@@ -530,7 +558,9 @@ impl<'a> Resolver<'a> {
         ) {
             if j == t.len() {
                 *n += 1;
-                if !region.contains_t(t).unwrap_or(false) || f.eval(t).map(|v| v != 0).unwrap_or(true) {
+                if !region.contains_t(t).unwrap_or(false)
+                    || f.eval(t).map(|v| v != 0).unwrap_or(true)
+                {
                     return;
                 }
                 if let Ok(x) = region.at(t) {
@@ -549,7 +579,9 @@ impl<'a> Resolver<'a> {
                 rec(j + 1, budget - d.abs(), t, anchor, f, region, nf, n, pts);
             }
         }
-        rec(0, radius, &mut t, &anchor, &f, &region, self.nf, &mut n, &mut pts);
+        rec(
+            0, radius, &mut t, &anchor, &f, &region, self.nf, &mut n, &mut pts,
+        );
         self.unresolved.push(Unresolved {
             bound: format!("L1 <= {radius} around parameters {anchor:?}"),
             region,
@@ -560,7 +592,14 @@ impl<'a> Resolver<'a> {
         });
     }
 
-    fn emit_piece(&mut self, region: Region, among: &[usize], eq_loci: &[(usize, MPoly)], trail: Vec<String>, depth: usize) {
+    fn emit_piece(
+        &mut self,
+        region: Region,
+        among: &[usize],
+        eq_loci: &[(usize, MPoly)],
+        trail: Vec<String>,
+        depth: usize,
+    ) {
         if !region.feasible().unwrap_or(true) {
             return;
         }
@@ -587,7 +626,9 @@ impl<'a> Resolver<'a> {
                 inner.resolve(sub, among, vec![], depth + 1);
                 covered_on.push(CoveredSubLocus {
                     equation: q.render(&region.names),
-                    fully_covered: inner.pieces.is_empty() && inner.unresolved.is_empty() && !inner.capped,
+                    fully_covered: inner.pieces.is_empty()
+                        && inner.unresolved.is_empty()
+                        && !inner.capped,
                 });
             }
         }
@@ -632,7 +673,10 @@ impl<'a> Resolver<'a> {
 
 /// Resolve every F class of a partition (each `any` slot expanded into floor / off-floor first, so every piece lies
 /// on one face) and group the pieces into loci (face, cut equations).
-pub fn resolve_fragile_classes(rep: &PartitionReport, opts: &LociOptions) -> Result<LociReport, PartitionError> {
+pub fn resolve_fragile_classes(
+    rep: &PartitionReport,
+    opts: &LociOptions,
+) -> Result<LociReport, PartitionError> {
     let mut out = LociReport::default();
     type Gk = ((Vec<usize>, Vec<usize>), Vec<String>, bool);
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
@@ -679,7 +723,12 @@ pub fn resolve_fragile_classes(rep: &PartitionReport, opts: &LociOptions) -> Res
                 }
                 if p.unbounded == Some(true) {
                     let lines = &rep.nf.lines;
-                    if p.region.x.iter().enumerate().any(|(s, a)| lines[s] && !a.is_constant()) {
+                    if p.region
+                        .x
+                        .iter()
+                        .enumerate()
+                        .any(|(s, a)| lines[s] && !a.is_constant())
+                    {
                         e.unbounded_in_dots = true;
                     }
                 }
@@ -717,7 +766,9 @@ pub fn resolve_fragile_classes(rep: &PartitionReport, opts: &LociOptions) -> Res
     }
     let mut loci: Vec<Locus> = groups.into_values().collect();
     // a resolved locus without any confirmed uncovered witness is kept only if no searched point was covered
-    loci.retain(|l| l.unresolved || !l.witness.is_empty() || l.pieces.iter().any(|p| p.covered_on.is_empty()));
+    loci.retain(|l| {
+        l.unresolved || !l.witness.is_empty() || l.pieces.iter().any(|p| p.covered_on.is_empty())
+    });
     for (i, l) in loci.iter_mut().enumerate() {
         l.id = format!("L{}", i + 1);
     }

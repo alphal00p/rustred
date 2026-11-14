@@ -62,7 +62,11 @@ pub fn ext_gcd(a: i128, b: i128) -> XResult<(i128, i128, i128)> {
         t1 = t2;
     }
     if r0 < 0 {
-        Ok((ck(r0.checked_neg())?, ck(s0.checked_neg())?, ck(t0.checked_neg())?))
+        Ok((
+            ck(r0.checked_neg())?,
+            ck(s0.checked_neg())?,
+            ck(t0.checked_neg())?,
+        ))
     } else {
         Ok((r0, s0, t0))
     }
@@ -97,7 +101,7 @@ pub fn divisors(n: u128) -> Option<Vec<u128>> {
     let mut large = vec![];
     let mut d: u128 = 1;
     while d * d <= n {
-        if n % d == 0 {
+        if n.is_multiple_of(d) {
             small.push(d);
             if d * d != n {
                 large.push(n / d);
@@ -196,7 +200,11 @@ fn fujiwara_bound(c: &[i128]) -> u128 {
         if a == 0 {
             continue;
         }
-        let q = if i == n { a.div_ceil(2 * lead) } else { a.div_ceil(lead) };
+        let q = if i == n {
+            a.div_ceil(2 * lead)
+        } else {
+            a.div_ceil(lead)
+        };
         m = m.max(iroot_ceil(q, i as u32));
     }
     m.saturating_mul(2).saturating_add(1)
@@ -223,11 +231,15 @@ pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
     let bound = cauchy_bound(c).min(fujiwara_bound(c)).min(i32::MAX as u128);
     let c0 = c[0].unsigned_abs();
     let cands: Vec<u128> = if bound <= 1_000_000 {
-        (1..=bound).filter(|x| c0 % x == 0).collect()
+        (1..=bound).filter(|x| c0.is_multiple_of(*x)).collect()
     } else {
         match divisors(c0) {
             Some(d) => d.into_iter().filter(|&x| x <= bound).collect(),
-            None => return Err(ExactError::TooLarge("integer roots: constant term and root bound both large")),
+            None => {
+                return Err(ExactError::TooLarge(
+                    "integer roots: constant term and root bound both large",
+                ));
+            }
         }
     };
     for x in cands {
@@ -321,7 +333,9 @@ fn bounded_sums(vars: &[(i128, i128)]) -> XResult<(i128, Vec<bool>)> {
     }
     let width = ck(smax.checked_sub(smin))?;
     if width > DP_CAP {
-        return Err(ExactError::TooLarge("linear feasibility: bounded sum range above 4e6"));
+        return Err(ExactError::TooLarge(
+            "linear feasibility: bounded sum range above 4e6",
+        ));
     }
     let n = (width + 1) as usize;
     let mut cur = vec![false; n];
@@ -330,7 +344,9 @@ fn bounded_sums(vars: &[(i128, i128)]) -> XResult<(i128, Vec<bool>)> {
     for &(b, u) in vars {
         work += (u + 1) * width;
         if work > 40 * DP_CAP {
-            return Err(ExactError::TooLarge("linear feasibility: bounded sum DP work"));
+            return Err(ExactError::TooLarge(
+                "linear feasibility: bounded sum DP work",
+            ));
         }
         let mut next = vec![false; n];
         for (i, &on) in cur.iter().enumerate() {
@@ -413,7 +429,9 @@ pub fn linear_feasible(terms: &[(i128, Range)], c: i128) -> XResult<bool> {
             h = gcd(h, b);
         }
         if h > 1_000_000 {
-            return Err(ExactError::TooLarge("linear feasibility: residue modulus above 1e6"));
+            return Err(ExactError::TooLarge(
+                "linear feasibility: residue modulus above 1e6",
+            ));
         }
         let hm = h as usize;
         let mut reach = vec![false; hm];
@@ -459,7 +477,9 @@ pub fn linear_feasible(terms: &[(i128, Range)], c: i128) -> XResult<bool> {
     let lim = ck((bmin / hp).checked_mul(bmax / hp))?; // every multiple of hp at or above lim*hp is representable
     let lim_v = ck(lim.checked_mul(hp))?;
     if lim_v > DP_CAP {
-        return Err(ExactError::TooLarge("linear feasibility: Frobenius bound above 4e6"));
+        return Err(ExactError::TooLarge(
+            "linear feasibility: Frobenius bound above 4e6",
+        ));
     }
     // representable values below lim_v
     let mut rep = vec![false; lim_v.max(1) as usize];
@@ -594,7 +614,9 @@ impl MPoly {
                     continue;
                 }
                 let base = if v == arity { Poly::d() } else { Poly::var(v) };
-                t = t.mul(&base.pow(x as u64).expect("small")).expect("checked by construction");
+                t = t
+                    .mul(&base.pow(x as u64).expect("small"))
+                    .expect("checked by construction");
             }
             acc = acc.add(&t).expect("checked by construction");
         }
@@ -638,7 +660,11 @@ impl MPoly {
         (0..self.nvars).filter(|&v| s[v]).collect()
     }
     pub fn total_degree(&self) -> u32 {
-        self.terms.keys().map(|e| e.iter().sum::<u32>()).max().unwrap_or(0)
+        self.terms
+            .keys()
+            .map(|e| e.iter().sum::<u32>())
+            .max()
+            .unwrap_or(0)
     }
     pub fn degree_in(&self, v: usize) -> u32 {
         self.terms.keys().map(|e| e[v]).max().unwrap_or(0)
@@ -718,9 +744,9 @@ impl MPoly {
                 if x == 0 {
                     continue;
                 }
-                if !powcache.contains_key(&(v, x)) {
+                if let std::collections::btree_map::Entry::Vacant(e) = powcache.entry((v, x)) {
                     let pw = lin[v].pow(x)?;
-                    powcache.insert((v, x), pw);
+                    e.insert(pw);
                 }
                 t = t.mul(&powcache[&(v, x)])?;
             }
@@ -780,7 +806,11 @@ impl MPoly {
         if g == 0 {
             return Ok(self.clone());
         }
-        let s = if *self.terms.values().next_back().expect("nonzero") < 0 { -g } else { g };
+        let s = if *self.terms.values().next_back().expect("nonzero") < 0 {
+            -g
+        } else {
+            g
+        };
         let mut r = MPoly::zero(self.nvars);
         for (e, &c) in &self.terms {
             r.terms.insert(e.clone(), c / s);
@@ -844,7 +874,13 @@ impl MPoly {
                 .iter()
                 .enumerate()
                 .filter(|(_, x)| **x > 0)
-                .map(|(v, &x)| if x == 1 { names[v].clone() } else { format!("{}^{x}", names[v]) })
+                .map(|(v, &x)| {
+                    if x == 1 {
+                        names[v].clone()
+                    } else {
+                        format!("{}^{x}", names[v])
+                    }
+                })
                 .collect();
             let (neg, a) = (c < 0, c.unsigned_abs());
             if i == 0 {
@@ -878,7 +914,11 @@ pub fn slot_names(arity: usize, with_d: bool) -> Vec<String> {
 
 fn signed_divisors(n: i128) -> Option<Vec<i128>> {
     let d = divisors(n.unsigned_abs())?;
-    Some(d.into_iter().flat_map(|x| [x as i128, -(x as i128)]).collect())
+    Some(
+        d.into_iter()
+            .flat_map(|x| [x as i128, -(x as i128)])
+            .collect(),
+    )
 }
 
 /// Extract the linear (total degree 1) factors of `p` over Z exactly: `p = c * prod(factors) * cofactor`, every factor
@@ -960,19 +1000,29 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
             }
             // cheap necessary test at two integer points y: a^n P(-m(y)/a, y) = 0
             let pts: Vec<Vec<i128>> = (0..2)
-                .map(|r| (0..rest.nvars).map(|i| ((i as i128 * (7 + 4 * r) + 3 + r) % 29) + 2).collect())
+                .map(|r| {
+                    (0..rest.nvars)
+                        .map(|i| ((i as i128 * (7 + 4 * r) + 3 + r) % 29) + 2)
+                        .collect()
+                })
                 .collect();
-            let evs: Vec<Option<Vec<i128>>> = pts.iter().map(|y| cs.iter().map(|c| c.eval(y).ok()).collect()).collect();
+            let evs: Vec<Option<Vec<i128>>> = pts
+                .iter()
+                .map(|y| cs.iter().map(|c| c.eval(y).ok()).collect())
+                .collect();
             let passes = |a: i128, m: &MPoly| -> bool {
                 for (y, ev) in pts.iter().zip(&evs) {
-                    let (Some(ev), Ok(mv)) = (ev, m.eval(y)) else { continue };
+                    let (Some(ev), Ok(mv)) = (ev, m.eval(y)) else {
+                        continue;
+                    };
                     let n = ev.len() - 1;
                     // sum_k e_k (-mv)^k a^(n-k)
                     let mut acc: Option<i128> = Some(0);
                     let mut pw_m: Option<i128> = Some(1);
                     for (k, &e) in ev.iter().enumerate() {
                         let pw_a = (0..n - k).try_fold(1i128, |x, _| x.checked_mul(a));
-                        let t = pw_m.and_then(|pm| pw_a.and_then(|pa| e.checked_mul(pm)?.checked_mul(pa)));
+                        let t = pw_m
+                            .and_then(|pm| pw_a.and_then(|pa| e.checked_mul(pm)?.checked_mul(pa)));
                         acc = match (acc, t) {
                             (Some(x), Some(t)) => x.checked_add(t),
                             _ => None,
@@ -1009,7 +1059,11 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
     }
     if rest.total_degree() == 1 {
         let g = rest.content();
-        let s = if *rest.terms.values().next_back().expect("nonzero") < 0 { -g } else { g };
+        let s = if *rest.terms.values().next_back().expect("nonzero") < 0 {
+            -g
+        } else {
+            g
+        };
         out.push(rest.primitive()?);
         rest = MPoly::constant(rest.nvars, s);
     }
@@ -1042,8 +1096,14 @@ mod tests {
 
     #[test]
     fn linear_feasibility() {
-        let up = |l| Range { lo: Some(l), hi: None };
-        let dn = |h| Range { lo: None, hi: Some(h) };
+        let up = |l| Range {
+            lo: Some(l),
+            hi: None,
+        };
+        let dn = |h| Range {
+            lo: None,
+            hi: Some(h),
+        };
         // n8 - n12 - 2 = 0 with n8 >= 2, n12 <= -1: n8 - n12 >= 3 -> infeasible
         assert!(!linear_feasible(&[(1, up(2)), (-1, dn(-1))], -2).unwrap());
         assert!(linear_feasible(&[(1, up(2)), (-1, dn(0))], -2).unwrap());
@@ -1055,7 +1115,10 @@ mod tests {
         assert!(!linear_feasible(&[(3, up(0)), (5, up(0))], -7).unwrap());
         assert!(linear_feasible(&[(3, up(0)), (5, up(0))], -8).unwrap());
         // bounded: x in [2,3], y in [2,2]: x + y = 6 no, 5 yes
-        let b = |l, h| Range { lo: Some(l), hi: Some(h) };
+        let b = |l, h| Range {
+            lo: Some(l),
+            hi: Some(h),
+        };
         assert!(!linear_feasible(&[(1, b(2, 3)), (1, b(2, 2))], -6).unwrap());
         assert!(linear_feasible(&[(1, b(2, 3)), (1, b(2, 2))], -5).unwrap());
     }

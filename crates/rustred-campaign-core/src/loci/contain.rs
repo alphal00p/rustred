@@ -63,7 +63,10 @@ fn ge_val(r: &Region, q: &MPoly) -> Option<bool> {
         c: -c - 1,
     };
     let pos = Affine { coef, c };
-    match (r.with(pos).feasible().unwrap_or(true), r.with(neg).feasible().unwrap_or(true)) {
+    match (
+        r.with(pos).feasible().unwrap_or(true),
+        r.with(neg).feasible().unwrap_or(true),
+    ) {
         (true, false) => Some(true),
         (false, true) => Some(false),
         _ => None,
@@ -185,15 +188,18 @@ impl Splitter {
         if holes.is_empty() && others.is_empty() {
             return match r.point(10) {
                 Ok(Some(t)) => Sub::Witness(t),
-                Ok(None) => Sub::Unknown("no integer point found in a rationally feasible leaf".into()),
+                Ok(None) => {
+                    Sub::Unknown("no integer point found in a rationally feasible leaf".into())
+                }
                 Err(e) => Sub::Unknown(format!("{e}")),
             };
         }
         // pick a splitting literal: linear zero-set literal, then linear bound, then a one-parameter polynomial
-        let zs = holes
-            .iter()
-            .flatten()
-            .chain(others.iter().flat_map(|o| o.eq.iter().chain(o.bad.iter().flatten())));
+        let zs = holes.iter().flatten().chain(
+            others
+                .iter()
+                .flat_map(|o| o.eq.iter().chain(o.bad.iter().flatten())),
+        );
         let mut lin: Option<MPoly> = None;
         let mut uni: Option<MPoly> = None;
         for q in zs {
@@ -208,7 +214,10 @@ impl Splitter {
         }
         if let Some(f) = lin {
             let (coef, c) = f.linear_form().expect("linear");
-            let pos = Affine { coef: coef.clone(), c: c - 1 }; // f >= 1
+            let pos = Affine {
+                coef: coef.clone(),
+                c: c - 1,
+            }; // f >= 1
             let neg = Affine {
                 coef: coef.iter().map(|a| -a).collect(),
                 c: -c - 1,
@@ -221,9 +230,17 @@ impl Splitter {
             }
             return self.combine(parts, &holes, &others, &r);
         }
-        if let Some(g) = others.iter().flat_map(|o| o.ge.iter()).map(t).find(|q| q.total_degree() == 1) {
+        if let Some(g) = others
+            .iter()
+            .flat_map(|o| o.ge.iter())
+            .map(t)
+            .find(|q| q.total_degree() == 1)
+        {
             let (coef, c) = g.linear_form().expect("linear");
-            let pos = Affine { coef: coef.clone(), c };
+            let pos = Affine {
+                coef: coef.clone(),
+                c,
+            };
             let neg = Affine {
                 coef: coef.iter().map(|a| -a).collect(),
                 c: -c - 1,
@@ -274,7 +291,9 @@ impl Splitter {
             parts.push(last);
             if roots.is_empty() {
                 // the polynomial has no integer root: it is NZ everywhere; lit_status says so, so this is unreachable
-                return Sub::Unknown("univariate literal without integer root left undecided".into());
+                return Sub::Unknown(
+                    "univariate literal without integer root left undecided".into(),
+                );
             }
             return self.combine(parts, &holes, &others, &r);
         }
@@ -285,7 +304,13 @@ impl Splitter {
         }
     }
 
-    fn combine(&mut self, parts: Vec<Region>, holes: &[Vec<MPoly>], others: &[Other], parent: &Region) -> Sub {
+    fn combine(
+        &mut self,
+        parts: Vec<Region>,
+        holes: &[Vec<MPoly>],
+        others: &[Other],
+        parent: &Region,
+    ) -> Sub {
         let mut unknown: Option<String> = None;
         for p in parts {
             let _ = parent;
@@ -352,7 +377,9 @@ fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPo
     let mut eq_nl = vec![];
     let mut ge_nl = vec![];
     for &l in &rule.eq {
-        let q = reg.lit(&nfr.lits[l as usize].poly).map_err(|e| format!("{e}"))?;
+        let q = reg
+            .lit(&nfr.lits[l as usize].poly)
+            .map_err(|e| format!("{e}"))?;
         if let Some(c) = q.as_constant() {
             if c != 0 {
                 reg.cons.push(Affine::constant(reg.k, -1));
@@ -371,7 +398,9 @@ fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPo
         }
     }
     for &l in &rule.ge {
-        let q = reg.lit(&nfr.lits[l as usize].poly).map_err(|e| format!("{e}"))?;
+        let q = reg
+            .lit(&nfr.lits[l as usize].poly)
+            .map_err(|e| format!("{e}"))?;
         match q.linear_form() {
             Some((coef, c)) => reg.cons.push(Affine { coef, c }),
             None => ge_nl.push(nfr.lits[l as usize].poly.clone()),
@@ -381,7 +410,8 @@ fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPo
 }
 
 fn applies(d: &CaseDomain, key: &[i32]) -> bool {
-    matches!(d.applies(key), Verdict::Applies) || (d.witness_elided && matches!(d.applies(key), Verdict::Elided))
+    matches!(d.applies(key), Verdict::Applies)
+        || (d.witness_elided && matches!(d.applies(key), Verdict::Elided))
 }
 
 /// Is `d \ (others)` empty? Exact for linear structure.
@@ -405,9 +435,17 @@ pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -
     let lift = |p: &MPoly| Some(p.clone());
     let mut holes: Vec<Vec<MPoly>> = vec![];
     for b in &nfr.rules[0].bad {
-        match b.iter().map(|&l| lift(&nfr.lits[l as usize].poly)).collect::<Option<Vec<_>>>() {
+        match b
+            .iter()
+            .map(|&l| lift(&nfr.lits[l as usize].poly))
+            .collect::<Option<Vec<_>>>()
+        {
             Some(v) => holes.push(v),
-            None => return Containment::Unknown { reason: "overflow lifting a literal".into() },
+            None => {
+                return Containment::Unknown {
+                    reason: "overflow lifting a literal".into(),
+                };
+            }
         }
     }
     if !eq_nl.is_empty() || !ge_nl.is_empty() {
@@ -415,7 +453,8 @@ pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -
         // so fall back to Unknown unless the region is already empty
         if let Ok(false) = reg.feasible() {
             return Containment::Proved {
-                certificate: "linear part of the case is integer-infeasible (Fourier-Motzkin)".into(),
+                certificate: "linear part of the case is integer-infeasible (Fourier-Motzkin)"
+                    .into(),
             };
         }
         return Containment::Unknown {
@@ -425,12 +464,20 @@ pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -
     let mut os = vec![];
     for (ri, rule) in nfr.rules.iter().enumerate().skip(1) {
         let _ = ri;
-        let conv = |ls: &[u32]| ls.iter().map(|&l| lift(&nfr.lits[l as usize].poly)).collect::<Option<Vec<_>>>();
+        let conv = |ls: &[u32]| {
+            ls.iter()
+                .map(|&l| lift(&nfr.lits[l as usize].poly))
+                .collect::<Option<Vec<_>>>()
+        };
         let (Some(eq), Some(ge)) = (conv(&rule.eq), conv(&rule.ge)) else {
-            return Containment::Unknown { reason: "overflow lifting a literal".into() };
+            return Containment::Unknown {
+                reason: "overflow lifting a literal".into(),
+            };
         };
         let Some(bad) = rule.bad.iter().map(|b| conv(b)).collect::<Option<Vec<_>>>() else {
-            return Containment::Unknown { reason: "overflow lifting a literal".into() };
+            return Containment::Unknown {
+                reason: "overflow lifting a literal".into(),
+            };
         };
         os.push(Other { eq, ge, bad });
     }
@@ -465,7 +512,10 @@ fn verified_witness(reg: &Region, d: &CaseDomain, others: &[&CaseDomain]) -> Opt
     let k = reg.k;
     let check = |t: &[i128]| -> Option<Key> {
         let x = reg.at(t).ok()?;
-        let key: Key = x.iter().map(|&v| i32::try_from(v).ok()).collect::<Option<_>>()?;
+        let key: Key = x
+            .iter()
+            .map(|&v| i32::try_from(v).ok())
+            .collect::<Option<_>>()?;
         if applies(d, &key) && !others.iter().any(|o| applies(o, &key)) {
             Some(key)
         } else {
@@ -481,7 +531,8 @@ fn verified_witness(reg: &Region, d: &CaseDomain, others: &[&CaseDomain]) -> Opt
         let mut stack: Vec<(usize, i128, Vec<i128>)> = vec![(0, radius, base.clone())];
         while let Some((j, left, t)) = stack.pop() {
             if j == k {
-                if left == 0 && reg.contains_t(&t).unwrap_or(false)
+                if left == 0
+                    && reg.contains_t(&t).unwrap_or(false)
                     && let Some(w) = check(&t)
                 {
                     return Some(w);
