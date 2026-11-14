@@ -166,7 +166,7 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                     cover.members.iter().map(|m| m.setting.label()).collect::<Vec<_>>().join(" + ")
                 ),
             ),
-            Disposition::Split { cover, children } => (
+            Disposition::Split { cover, children, .. } => (
                 "split".into(),
                 format!("{} child item(s)", children.len()),
                 None,

@@ -13,10 +13,8 @@
 use std::collections::BTreeMap;
 
 use super::affine::{AffineEq, fit_loci};
-use super::items::{
-    CaseSpec, ChildOrigin, Derived, Item, ItemKind, Key, NodeParams, STANDARD_LINE_VALUES, STANDARD_NUMERATOR_VALUES,
-};
-use super::ladder::{Accepted, CandidateRule};
+use super::items::{CaseSpec, ChildOrigin, Derived, Item, ItemKind, Key, NodeParams};
+use super::ladder::CandidateRule;
 use crate::domain::Verdict;
 
 /// The affine literals of the exception branch (or pole locus) of `rule` that excepts `key`, if every literal of
@@ -45,7 +43,7 @@ pub fn excepting_branch(rule: &CandidateRule, key: &[i32]) -> Option<(String, Ve
 
 fn child_item(parent: &Item, case: CaseSpec, pts: Vec<Key>, origin: ChildOrigin, params: &NodeParams) -> Item {
     let kind = if case.is_point() { ItemKind::Point } else { ItemKind::Child };
-    Item::new(
+    let mut it = Item::new(
         &params.node,
         kind,
         case,
@@ -55,17 +53,22 @@ fn child_item(parent: &Item, case: CaseSpec, pts: Vec<Key>, origin: ChildOrigin,
         parent.root_dim,
         origin,
         parent.box_id.clone(),
-    )
+    );
+    it.range = parent.range;
+    it
 }
 
-/// Children for the left-over points (see the module documentation). Deterministic: groups in canonical case order.
+/// Children for the left-over points (see the module documentation) and the ALTERNATIVE standard-plane children
+/// (every other standard plane holding left-over points, run only for points the primaries leave). Deterministic:
+/// groups in canonical case order.
 pub(crate) fn derive_children(
     item: &Item,
-    cover: &[&Accepted],
-    others: &[&Accepted],
+    cover: &[&CandidateRule],
+    reserve: &[&CandidateRule],
+    others: &[&CandidateRule],
     leftover: &[Key],
     params: &NodeParams,
-) -> Vec<Item> {
+) -> (Vec<Item>, Vec<Item>) {
     let dim = item.case.dim();
     let mut groups: BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)> = BTreeMap::new();
     let add = |case: CaseSpec, p: Key, origin: ChildOrigin, groups: &mut BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)>| {
@@ -80,7 +83,7 @@ pub(crate) fn derive_children(
             let mut names = Vec::new();
             let mut eqs = Vec::new();
             for a in pool {
-                if let Some((name, e)) = excepting_branch(&a.rule, p) {
+                if let Some((name, e)) = excepting_branch(a, p) {
                     names.push(name);
                     eqs.extend(e);
                 }
@@ -110,7 +113,7 @@ pub(crate) fn derive_children(
         }
         // 2. standard planes (line at 2 or 3, numerator at -1 or -2)
         for s in item.case.free() {
-            let vals: &[i32] = if params.lines[s] { &STANDARD_LINE_VALUES } else { &STANDARD_NUMERATOR_VALUES };
+            let vals = params.standard_values.for_slot(params.lines[s]);
             if vals.contains(&p[s])
                 && let Ok(c) = item.case.constrained(&[(s, p[s])], &[])
                 && c.dim() < dim
@@ -162,7 +165,63 @@ pub(crate) fn derive_children(
         .map(|(c, pts, origin)| child_item(item, c, pts, origin, params))
         .collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
-    out
+    // alternatives: (a) the conjunction of the branches of the cover AND reserve rules that except the point (the
+    // intersection of the loci the pruned candidates leave, e.g. a diagonal where two centres' planes meet), then (b)
+    // every standard plane (default values from the node's spec) holding left-over points; never the point's own
+    // primary case
+    let mut alt: BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)> = BTreeMap::new();
+    if !reserve.is_empty() {
+        for p in leftover {
+            let mut names = Vec::new();
+            let mut eqs = Vec::new();
+            for a in cover.iter().chain(reserve) {
+                if let Some((name, e)) = excepting_branch(a, p) {
+                    names.push(name);
+                    eqs.extend(e);
+                }
+            }
+            if eqs.is_empty() {
+                continue;
+            }
+            if let Ok(c) = item.case.constrained(&[], &eqs)
+                && c.dim() < dim
+                && !out.iter().any(|o| o.case == c && o.gap_points.contains(p))
+            {
+                alt.entry(c.canonical_text())
+                    .or_insert((
+                        c,
+                        Vec::new(),
+                        ChildOrigin::ExceptionBranch {
+                            derived: Derived::FromRule,
+                            branches: names,
+                        },
+                    ))
+                    .1
+                    .push(p.clone());
+            }
+        }
+    }
+    for p in leftover {
+        for s in item.case.free() {
+            let vals = params.standard_values.for_slot(params.lines[s]);
+            if !vals.contains(&p[s]) {
+                continue;
+            }
+            let Ok(c) = item.case.constrained(&[(s, p[s])], &[]) else { continue };
+            if c.dim() >= dim || out.iter().any(|o| o.case == c && o.gap_points.contains(p)) {
+                continue;
+            }
+            alt.entry(c.canonical_text())
+                .or_insert((c, Vec::new(), ChildOrigin::Standard { slot: s, value: p[s] }))
+                .1
+                .push(p.clone());
+        }
+    }
+    let alternatives: Vec<Item> = alt
+        .into_values()
+        .map(|(c, pts, origin)| child_item(item, c, pts, origin, params))
+        .collect();
+    (out, alternatives)
 }
 
 /// Gate of a standard child created with its parent in state `blocked: parent_pending` (2.4.4): after the parent's

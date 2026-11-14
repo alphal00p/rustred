@@ -4,7 +4,7 @@
 //! No clock, no files, no global state: budgets are arguments; CPU is what the solver reports.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 use crate::cover::{Dispatch, Dispatcher};
 use crate::order::NodeComparator;
@@ -169,13 +169,15 @@ impl TreeReport {
         out
     }
 
-    /// Terminal proposals over all items.
+    /// Terminal proposals over all items (each key once: the first exhausted ladder that proposed it).
     pub fn terminal_candidates(&self) -> Vec<(Key, LadderExhausted)> {
-        let mut out = Vec::new();
+        let mut out: Vec<(Key, LadderExhausted)> = Vec::new();
         for r in &self.items {
             if let Some(Disposition::TerminalCandidates { keys, exhausted }) = &r.disposition {
                 for k in keys {
-                    out.push((k.clone(), exhausted.clone()));
+                    if !out.iter().any(|(o, _)| o == k) {
+                        out.push((k.clone(), exhausted.clone()));
+                    }
                 }
             }
         }
@@ -183,9 +185,10 @@ impl TreeReport {
     }
 }
 
-/// Sequential in-process driver of the ladder over a tree of items (roots, then their children breadth first):
-/// one solve at a time in wave order, verdicts through `facts` + `descent`, evidence through `prover`. Used by
-/// [`repair_key`] and by the replay tests; the batch campaign drives [`next_steps`] itself.
+/// Sequential in-process driver of the ladder over a tree of items: each root, then depth first its PRIMARY
+/// children, then its ALTERNATIVE children for the points the primaries' subtrees left unserved; one solve at a
+/// time in wave order, verdicts through `facts` + `descent`, evidence through `prover`. Used by [`repair_key`] and by
+/// the replay tests; the batch campaign drives [`next_steps`] itself.
 #[allow(clippy::too_many_arguments)]
 pub fn drive_tree(
     roots: Vec<Item>,
@@ -194,68 +197,87 @@ pub fn drive_tree(
     solver: &mut dyn CaseSolver,
     facts: &mut dyn FactSource,
     prover: &mut dyn KeyProver,
-    mut containment: Option<&mut dyn ContainmentCheck>,
+    containment: Option<&mut dyn ContainmentCheck>,
     limits: &TreeLimits,
 ) -> TreeReport {
-    let mut report = TreeReport::default();
-    let mut queue: VecDeque<Item> = roots.into();
-    let mut seen: BTreeMap<ItemId, usize> = BTreeMap::new();
-    let mut attempts = 0u32;
-    while let Some(item) = queue.pop_front() {
-        if report.items.len() as u32 >= limits.max_items {
-            report.stopped = Some(format!("item limit {}", limits.max_items));
+    let mut d = Driver {
+        params,
+        descent,
+        solver,
+        facts,
+        prover,
+        containment,
+        limits,
+        report: TreeReport::default(),
+        served: BTreeSet::new(),
+        attempts: 0,
+    };
+    for r in roots {
+        if d.report.stopped.is_some() {
             break;
         }
-        if let Some(&i) = seen.get(&item.id) {
-            // the same case reached twice: run only the points the earlier run did not serve
-            let served: BTreeSet<Key> = match &report.items[i].disposition {
-                Some(Disposition::Covered { cover }) | Some(Disposition::Split { cover, .. }) => {
-                    cover.members.iter().flat_map(|m| m.served.iter().cloned()).collect()
-                }
-                _ => BTreeSet::new(),
-            };
-            let new: Vec<Key> = item
-                .gap_points
-                .iter()
-                .filter(|k| !served.contains(*k) && !report.items[i].state.item.gap_points.contains(k))
-                .cloned()
-                .collect();
-            if new.is_empty() {
-                continue;
-            }
-            let mut again = item.clone();
-            again.gap_points = new;
-            again.weight = again.gap_points.len() as u64;
-            // fresh state; attempt keys repeat (counted against the limits)
-            report.items.push(ItemReport {
-                state: ItemState::new(again),
-                disposition: None,
-            });
-        } else {
-            seen.insert(item.id.clone(), report.items.len());
-            report.items.push(ItemReport {
-                state: ItemState::new(item),
-                disposition: None,
-            });
+        d.process(r);
+    }
+    let served = d.served;
+    let mut report = d.report;
+    // a terminal proposal that a later (alternative) rule serves is not a terminal
+    for r in &mut report.items {
+        if let Some(Disposition::TerminalCandidates { keys, .. }) = &mut r.disposition {
+            keys.retain(|k| !served.contains(k));
         }
-        let idx = report.items.len() - 1;
+    }
+    report
+}
+
+struct Driver<'a, 'b, 's, 'f, 'p, 'c> {
+    params: &'a NodeParams,
+    descent: &'a dyn Descent,
+    solver: &'b mut (dyn CaseSolver + 's),
+    facts: &'b mut (dyn FactSource + 'f),
+    prover: &'b mut (dyn KeyProver + 'p),
+    containment: Option<&'b mut (dyn ContainmentCheck + 'c)>,
+    limits: &'a TreeLimits,
+    report: TreeReport,
+    served: BTreeSet<Key>,
+    attempts: u32,
+}
+
+impl Driver<'_, '_, '_, '_, '_, '_> {
+    fn process(&mut self, mut item: Item) {
+        if self.report.stopped.is_some() {
+            return;
+        }
+        item.gap_points.retain(|k| !self.served.contains(k));
+        item.weight = item.gap_points.len() as u64;
+        if item.gap_points.is_empty() && item.kind != crate::worklist::items::ItemKind::Optimise {
+            return;
+        }
+        if self.report.items.len() as u32 >= self.limits.max_items {
+            self.report.stopped = Some(format!("item limit {}", self.limits.max_items));
+            return;
+        }
+        self.report.items.push(ItemReport {
+            state: ItemState::new(item),
+            disposition: None,
+        });
+        let idx = self.report.items.len() - 1;
         loop {
-            let st = &mut report.items[idx].state;
-            match next_steps(st, params) {
+            let st = &mut self.report.items[idx].state;
+            match next_steps(st, self.params) {
                 Next::Run(list) => {
-                    if attempts >= limits.max_attempts {
-                        report.stopped = Some(format!("attempt limit {}", limits.max_attempts));
-                        return report;
+                    if self.attempts >= self.limits.max_attempts {
+                        self.report.stopped = Some(format!("attempt limit {}", self.limits.max_attempts));
+                        return;
                     }
-                    if report.cpu_ms >= limits.max_cpu_ms {
-                        report.stopped = Some(format!("cpu limit {} ms", limits.max_cpu_ms));
-                        return report;
+                    if self.report.cpu_ms >= self.limits.max_cpu_ms {
+                        self.report.stopped = Some(format!("cpu limit {} ms", self.limits.max_cpu_ms));
+                        return;
                     }
                     let a = &list[0];
-                    let ans = solver.solve(&CaseRequest::from_attempt(&params.node, a), &a.budget);
-                    attempts += 1;
-                    report.cpu_ms = report.cpu_ms.saturating_add(ans.cpu_ms);
-                    report.attempts.push(AttemptSummary {
+                    let ans = self.solver.solve(&CaseRequest::from_attempt(&self.params.node, a), &a.budget);
+                    self.attempts += 1;
+                    self.report.cpu_ms = self.report.cpu_ms.saturating_add(ans.cpu_ms);
+                    self.report.attempts.push(AttemptSummary {
                         item: a.item.clone(),
                         setting: a.setting.label(),
                         outcome: ans.outcome.tag().into(),
@@ -270,14 +292,14 @@ pub fn drive_tree(
                 Next::NeedVerdicts(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let v = judge_points(&cand, &r.keys, facts, descent);
+                        let v = judge_points(&cand, &r.keys, self.facts, self.descent);
                         st.record_verdicts(&r.attempt_key, r.index, v);
                     }
                 }
                 Next::NeedEvidence(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let mut ev = prover.prove(&cand, &r.keys, r.level);
+                        let mut ev = self.prover.prove(&cand, &r.keys, r.level);
                         // a key the prover did not answer counts as Unknown (never PASS)
                         for k in &r.keys {
                             if !ev.iter().any(|e| &e.key == k) {
@@ -296,7 +318,7 @@ pub fn drive_tree(
                 Next::NeedContainment(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let t = match containment.as_deref_mut() {
+                        let t = match self.containment.as_deref_mut() {
                             Some(c) => c.contains(&cand, &r.old),
                             None => Tri::Unknown,
                         };
@@ -304,16 +326,45 @@ pub fn drive_tree(
                     }
                 }
                 Next::Done(d) => {
-                    if let Disposition::Split { children, .. } = &d {
-                        queue.extend(children.iter().cloned());
+                    if let Disposition::Covered { cover } | Disposition::Split { cover, .. } = &d {
+                        for m in &cover.members {
+                            self.served.extend(m.served.iter().cloned());
+                        }
                     }
-                    report.items[idx].disposition = Some(d);
-                    break;
+                    let follow = match &d {
+                        Disposition::Split {
+                            children,
+                            alternatives,
+                            reserve,
+                            ..
+                        } => Some((children.clone(), alternatives.clone(), reserve.clone())),
+                        _ => None,
+                    };
+                    self.report.items[idx].disposition = Some(d);
+                    if let Some((children, alternatives, reserve)) = follow {
+                        for c in children {
+                            self.process(c);
+                        }
+                        for c in alternatives {
+                            self.process(c);
+                        }
+                        // reserve members serve what the subtrees left (economy pruning, repair-library.md 4.2)
+                        for mut m in reserve {
+                            m.served.retain(|k| !self.served.contains(k));
+                            if m.served.is_empty() {
+                                continue;
+                            }
+                            self.served.extend(m.served.iter().cloned());
+                            if let Some(Disposition::Split { cover, .. }) = &mut self.report.items[idx].disposition {
+                                cover.members.push(m);
+                            }
+                        }
+                    }
+                    return;
                 }
             }
         }
     }
-    report
 }
 
 /// Inputs of one live repair.

@@ -16,6 +16,7 @@ pub enum CentreKind {
     NumUp(usize),
     Pair { line: usize, num: usize },
     Combined,
+    CombinedNum,
     /// A child's (or point's) fixed off-floor slot, one step towards its floor (H s.2).
     FixedSlot(usize),
     UnionLines,
@@ -31,6 +32,7 @@ impl CentreKind {
             CentreKind::NumUp(_) => CentreSpec::Num,
             CentreKind::Pair { .. } => CentreSpec::Pair,
             CentreKind::Combined => CentreSpec::Combined,
+            CentreKind::CombinedNum => CentreSpec::CombinedNum,
             CentreKind::FixedSlot(_) => CentreSpec::Fixed,
             CentreKind::UnionLines => CentreSpec::UnionLines,
             CentreKind::UnionPairs => CentreSpec::UnionPairs,
@@ -94,6 +96,7 @@ impl SeedSetting {
             CentreKind::NumUp(j) => format!("num:{j}"),
             CentreKind::Pair { line, num } => format!("pair:{line}:{num}"),
             CentreKind::Combined => "combined".into(),
+            CentreKind::CombinedNum => "combined_num".into(),
             CentreKind::FixedSlot(s) => format!("fixed:{s}"),
             CentreKind::UnionLines | CentreKind::UnionPairs | CentreKind::Explicit => {
                 let slots: BTreeSet<usize> = self.offsets.iter().flat_map(|m| m.keys().copied()).collect();
@@ -209,6 +212,15 @@ fn expand(spec: &SettingSpec, depth: u8, case: &CaseSpec, params: &NodeParams, c
                 out.push(mk(CentreKind::Combined, vec![m], floor));
             }
         }
+        CentreSpec::CombinedNum => {
+            let mut m = BTreeMap::new();
+            for &x in nums_free.iter().chain(fixed_off.iter().filter(|&&s| !lines[s])) {
+                m.insert(x, 1);
+            }
+            if m.len() >= 2 {
+                out.push(mk(CentreKind::CombinedNum, vec![m], floor));
+            }
+        }
         CentreSpec::UnionLines => {
             let cs: Vec<BTreeMap<usize, i32>> = lines_free
                 .iter()
@@ -300,7 +312,7 @@ pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
     (raises + 2 * n) * (s.offsets.len().max(1) as u64)
 }
 
-/// Attempt budget: seconds = base(depth) x max(1, estimated seeds / 1,771), capped (R34 (d)); memory by depth; the
+/// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d)); memory by depth; the
 /// point and oversized classes have their own figures.
 pub fn attempt_budget(s: &SeedSetting, params: &NodeParams, point: bool, oversized: bool) -> AttemptBudget {
     let b = &params.budgets;
@@ -321,7 +333,8 @@ pub fn attempt_budget(s: &SeedSetting, params: &NodeParams, point: bool, oversiz
     } else {
         (b.base_seconds_d2, b.mem_mb_d2, BudgetClass::Standard)
     };
-    let scaled = if est > 1771 { base.saturating_mul(est) / 1771 } else { base };
+    let r = b.scale_reference_seeds.max(1);
+    let scaled = if est > r { base.saturating_mul(est) / r } else { base };
     AttemptBudget {
         seconds: scaled.min(b.cap_seconds),
         mem_mb: mem,

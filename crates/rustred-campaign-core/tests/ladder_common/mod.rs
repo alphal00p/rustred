@@ -127,7 +127,8 @@ pub fn setting_of(r: &Rec, case: &CaseSpec, lines: &[bool]) -> SeedSetting {
 pub struct Scripted {
     pub params: NodeParams,
     pub recs: Vec<Rec>,
-    pub index: BTreeMap<(String, String), usize>,
+    /// (case, setting) -> recorded attempts (all measures; a relation of any of them is a valid answer).
+    pub index: BTreeMap<(String, String), Vec<usize>>,
     /// The reference worker read census "exception" verdicts as covered (item -> bool).
     pub exception_covered: BTreeMap<i64, bool>,
     pub calls: usize,
@@ -136,22 +137,11 @@ pub struct Scripted {
 
 impl Scripted {
     pub fn new(params: NodeParams, recs: Vec<Rec>, exception_covered: BTreeMap<i64, bool>) -> Self {
-        let mut index: BTreeMap<(String, String), usize> = BTreeMap::new();
+        let mut index: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
         for (i, r) in recs.iter().enumerate() {
             let c = case_of(&r.case, params.arity);
             let s = setting_of(r, &c, &params.lines);
-            let k = (c.canonical_text(), s.canonical_key());
-            // prefer a record WITH a relation, then the full-comparator (C) record
-            let better = match index.get(&k) {
-                None => true,
-                Some(&j) => {
-                    let o = &recs[j];
-                    (r.exists, r.meas == "C") > (o.exists, o.meas == "C")
-                }
-            };
-            if better {
-                index.insert(k, i);
-            }
+            index.entry((c.canonical_text(), s.canonical_key())).or_default().push(i);
         }
         Scripted {
             params,
@@ -235,17 +225,27 @@ impl CaseSolver for Scripted {
     fn solve(&mut self, req: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
         self.calls += 1;
         let k = (req.case.canonical_text(), req.setting.canonical_key());
-        match self.index.get(&k).copied() {
-            Some(i) if self.recs[i].exists => SolveAnswer {
-                outcome: SolveOutcome::Rules(vec![self.candidate(i)]),
-                cpu_ms: self.recs[i].cpu_ms.max(1),
-                rows: self.recs[i].rows,
-            },
-            Some(i) => SolveAnswer {
-                outcome: SolveOutcome::NoRelation,
-                cpu_ms: self.recs[i].cpu_ms.max(1),
-                rows: None,
-            },
+        match self.index.get(&k).cloned() {
+            Some(list) => {
+                // every recorded relation of this (case, setting) is a candidate (the grid "reports every relation
+                // found", 2.4.13); the C record first
+                let mut with: Vec<usize> = list.iter().copied().filter(|&i| self.recs[i].exists).collect();
+                with.sort_by_key(|&i| (self.recs[i].meas != "C", i));
+                let cpu: u64 = list.iter().map(|&i| self.recs[i].cpu_ms.max(1)).max().unwrap_or(1);
+                if with.is_empty() {
+                    SolveAnswer {
+                        outcome: SolveOutcome::NoRelation,
+                        cpu_ms: cpu,
+                        rows: None,
+                    }
+                } else {
+                    SolveAnswer {
+                        outcome: SolveOutcome::Rules(with.iter().map(|&i| self.candidate(i)).collect()),
+                        cpu_ms: cpu,
+                        rows: self.recs[with[0]].rows,
+                    }
+                }
+            }
             None => {
                 self.unrecorded.insert(k);
                 SolveAnswer {

@@ -300,6 +300,9 @@ pub struct Item {
     /// Optimise items only: the rules to replace.
     #[serde(default)]
     pub replaces: Vec<OldRule>,
+    /// MEASURED or PROVED target range (P-2), inherited by children.
+    #[serde(default)]
+    pub range: RangeLabel,
 }
 
 impl Item {
@@ -332,6 +335,7 @@ impl Item {
             box_id,
             proof: None,
             replaces: Vec::new(),
+            range: RangeLabel::Unspecified,
         }
     }
 
@@ -398,6 +402,9 @@ pub struct Budgets {
     /// Re-runs of a time-decided outcome (default 0: move on, marked time_decided).
     pub time_retries: u32,
     pub infra_retries: u32,
+    /// Seed count at which an attempt gets its base budget; above it the budget scales linearly (R34 (d); default
+    /// learned on the reference: the depth-3 shell of a single-dot face, 1,771 seeds).
+    pub scale_reference_seeds: u64,
 }
 
 impl Default for Budgets {
@@ -415,6 +422,7 @@ impl Default for Budgets {
             economy_extra_factor: 2.0,
             time_retries: 0,
             infra_retries: 10,
+            scale_reference_seeds: 1771,
         }
     }
 }
@@ -448,16 +456,37 @@ pub struct NodeParams {
     pub reference_masters: MasterCounts,
     pub enable_freeze_rung: bool,
     pub max_item_attempts: u32,
+    /// IBP rows per seed of the family (spec / family data; 0 = unknown, no work counter).
     pub ibp_rows_per_seed: u32,
+    pub standard_values: StandardValues,
+    /// PREFERRED terminals of the spec (P-4; interfaces/preferred-terminals.md): a preference, never a restriction.
+    pub preferred_terminals: Vec<Key>,
+    /// Whether the key sets this node closes against are a MEASURED or a PROVED range (P-2); carried into items.
+    pub target_range: RangeLabel,
+}
+
+/// Provenance of a target key set (R41 P-2): closure against a MEASURED hand-down range is provisional (the caller
+/// labels it), against a PROVED range final.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RangeLabel {
+    Proved,
+    Measured,
+    #[default]
+    Unspecified,
 }
 
 impl NodeParams {
     /// Defaults of plan 2.10 for a node with `n_lines` lines first (lines are slots 0..n_lines).
     pub fn new(node: &str, arity: usize, n_lines: usize) -> Self {
+        Self::with_lines(node, (0..arity).map(|i| i < n_lines).collect())
+    }
+
+    /// Defaults for a node with an arbitrary line mask (`lines[i]` = slot i is a line).
+    pub fn with_lines(node: &str, lines: Vec<bool>) -> Self {
         NodeParams {
             node: node.to_string(),
-            arity,
-            lines: (0..arity).map(|i| i < n_lines).collect(),
+            arity: lines.len(),
+            lines,
             node_class: "*".into(),
             user_box: None,
             budgets: Budgets::default(),
@@ -467,7 +496,10 @@ impl NodeParams {
             reference_masters: MasterCounts::default(),
             enable_freeze_rung: false,
             max_item_attempts: 12,
-            ibp_rows_per_seed: 30,
+            ibp_rows_per_seed: 0,
+            standard_values: StandardValues::default(),
+            preferred_terminals: Vec::new(),
+            target_range: RangeLabel::Unspecified,
         }
     }
 }
@@ -654,21 +686,39 @@ pub fn order_items(items: &mut [Item]) {
     });
 }
 
-/// Standard values of the default list (R13 A5 extended by R39): dotted lines at 2 and 3, numerators at -1 and -2.
-pub const STANDARD_LINE_VALUES: [i32; 2] = [2, 3];
-pub const STANDARD_NUMERATOR_VALUES: [i32; 2] = [-1, -2];
+/// Standard plane values (DATA, spec field `standard_values`; default learned from the evidence so far: R13 A5
+/// "line at 2, numerator at -1", extended by R39 to line 3 and numerator -2). Fixed values READ from a rule's
+/// exceptions take precedence over this list (children.rs).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StandardValues {
+    pub line: Vec<i32>,
+    pub numerator: Vec<i32>,
+}
 
-/// The standard children of an item, created WITH it in state `blocked: parent_pending` (2.4.4): one per free
-/// dotted line and value in [`STANDARD_LINE_VALUES`], one per free numerator and value in
-/// [`STANDARD_NUMERATOR_VALUES`]; each carries the item's gap points on its plane (possibly none).
+impl Default for StandardValues {
+    fn default() -> Self {
+        StandardValues {
+            line: vec![2, 3],
+            numerator: vec![-1, -2],
+        }
+    }
+}
+
+impl StandardValues {
+    pub fn for_slot(&self, is_line: bool) -> &[i32] {
+        if is_line { &self.line } else { &self.numerator }
+    }
+}
+
+/// The standard children of an item, created WITH it in state `blocked: parent_pending` (2.4.4): one per free slot
+/// and value of the node's [`StandardValues`]; each carries the item's gap points on its plane (possibly none).
 pub fn standard_children(item: &Item, params: &NodeParams) -> Vec<Item> {
     let mut out = Vec::new();
     if item.case.dim() == 0 {
         return out;
     }
     for s in item.case.free() {
-        let vals: &[i32] = if params.lines[s] { &STANDARD_LINE_VALUES } else { &STANDARD_NUMERATOR_VALUES };
-        for &v in vals {
+        for &v in params.standard_values.for_slot(params.lines[s]) {
             let Ok(c) = item.case.constrained(&[(s, v)], &[]) else { continue };
             if c.dim() >= item.case.dim() {
                 continue;
@@ -686,6 +736,9 @@ pub fn standard_children(item: &Item, params: &NodeParams) -> Vec<Item> {
                 ChildOrigin::Standard { slot: s, value: v },
                 item.box_id.clone(),
             ));
+            if let Some(last) = out.last_mut() {
+                last.range = item.range;
+            }
         }
     }
     out

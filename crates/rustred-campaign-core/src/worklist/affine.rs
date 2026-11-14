@@ -324,6 +324,33 @@ pub fn fit_loci(points: &[Vec<i32>], slots: &[usize]) -> Vec<(AffineEq, Vec<usiz
                 }
             }
         }
+        if best.is_none() {
+            // general affine line in two slots with integer (possibly non-unit) coefficients through >= 3 points
+            // (R32: e.g. n6 + 2 n11 - 1 = 0), from the first two points of every pair of slots
+            'pairs: for (a, &s) in slots.iter().enumerate() {
+                for &t in &slots[a + 1..] {
+                    for (x, &i) in left.iter().enumerate() {
+                        for &j in &left[x + 1..] {
+                            let (p, q) = (&points[i], &points[j]);
+                            let (dx, dy) = (q[s] as i64 - p[s] as i64, q[t] as i64 - p[t] as i64);
+                            if dx == 0 && dy == 0 {
+                                continue;
+                            }
+                            // dy * (n_s - p_s) - dx * (n_t - p_t) = 0
+                            let c = -(dy * p[s] as i64) + dx * p[t] as i64;
+                            if let Some(eq) = AffineEq::new(vec![(s, dy), (t, -dx)], c) {
+                                let held: Vec<usize> =
+                                    left.iter().copied().filter(|&k| eq.holds(&points[k])).collect();
+                                if held.len() >= 3 {
+                                    best = Some((eq, held));
+                                    break 'pairs;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         match best {
             Some((eq, held)) => {
                 left.retain(|i| !held.contains(i));

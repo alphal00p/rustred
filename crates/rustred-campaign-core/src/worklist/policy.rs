@@ -19,6 +19,8 @@ pub enum CentreSpec {
     Num,
     Pair,
     Combined,
+    /// Every off-floor NUMERATOR (free or fixed) one step towards its floor ("both numerators up", k1 w2 item 76).
+    CombinedNum,
     UnionLines,
     UnionPairs,
 }
@@ -147,11 +149,13 @@ pub fn builtin_wave(depth: u8) -> Wave {
             s(Num, Some(true)),
             s(Pair, Some(true)),
             s(Combined, Some(true)),
+            s(CombinedNum, Some(true)),
             s(Line, Some(false)),
             s(Fixed, Some(false)),
             s(Num, Some(false)),
             s(Pair, Some(false)),
             s(Combined, Some(false)),
+            s(CombinedNum, Some(false)),
             s(UnionLines, Some(true)),
             s(UnionLines, Some(false)),
             s(UnionPairs, Some(true)),

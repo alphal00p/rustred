@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::children::derive_children;
+use super::children::{derive_children, excepting_branch};
 use super::items::{EvidenceLevel, Item, ItemId, ItemKind, Key, NodeParams};
 use super::seed::{AttemptBudget, SeedSetting, attempt_budget, engine_seed_args, seed_space};
 use crate::domain::{CaseDomain, Verdict};
@@ -327,7 +327,11 @@ pub enum Disposition {
     /// Every gap point is served by the cover at the node's evidence level.
     Covered { cover: Cover },
     /// Part (or none) of the gap points served; the rest assigned to children (sub-cases, then points).
-    Split { cover: Cover, children: Vec<Item> },
+    /// `alternatives`: other standard planes holding left-over points; a driver releases one only for the points its
+    /// primary children leave unserved (after their whole subtree), so no point gets two rules.
+    /// `reserve`: accepted candidates kept out of the cover by the economy pruning; a driver applies them, in order,
+    /// to the points the children's subtrees leave unserved (`served` lists their credited points).
+    Split { cover: Cover, children: Vec<Item>, alternatives: Vec<Item>, reserve: Vec<CoverMember> },
     /// A point whose ladder failed: terminal PROPOSAL (L5; declared only at S9, 2.4.9).
     TerminalCandidates { keys: Vec<Key>, exhausted: LadderExhausted },
     /// A counter was exceeded or the input is unusable; never silent.
@@ -770,7 +774,64 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     if !req.is_empty() {
         return Next::NeedEvidence(req);
     }
+    // ECONOMY PRUNING (decision, see repair-library.md 4.2): a member whose own points all lie on exception branches
+    // READ FROM an earlier member's rule, where that branch also holds a point the full cover leaves, adds a case
+    // the branch child makes anyway: it goes to the RESERVE, applied by the driver only to points the children's
+    // subtrees leave unserved (so a child that fails costs no closure, and a child that succeeds saves a case)
+    let mut members = members;
+    let mut reserve_idx: Vec<usize> = Vec::new();
+    loop {
+        let full = make_cover(state, &acc, &members, greedy);
+        let served_full: BTreeSet<Key> = full.members.iter().flat_map(|m| m.served.iter().cloned()).collect();
+        let left_full: Vec<Key> = gp.iter().filter(|k| !served_full.contains(*k)).cloned().collect();
+        if left_full.is_empty() || members.len() < 2 {
+            break;
+        }
+        let mut dropped = None;
+        for (pos, m) in full.members.iter().enumerate().rev() {
+            if pos == 0 || m.served.is_empty() {
+                continue;
+            }
+            let earlier: Vec<&CandidateRule> = full.members[..pos]
+                .iter()
+                .filter_map(|e| acc.iter().find(|a| a.key == e.attempt_key && a.index == e.index).map(|a| &a.rule))
+                .collect();
+            let all_on_live_branch = m.served.iter().all(|p| {
+                earlier.iter().any(|r| match excepting_branch(r, p) {
+                    Some((name, _)) => left_full
+                        .iter()
+                        .any(|q| excepting_branch(r, q).is_some_and(|(n2, _)| n2 == name)),
+                    None => false,
+                })
+            });
+            if all_on_live_branch {
+                dropped = acc.iter().position(|a| a.key == m.attempt_key && a.index == m.index);
+                break;
+            }
+        }
+        match dropped {
+            Some(i) => {
+                members.retain(|&x| x != i);
+                reserve_idx.push(i);
+            }
+            None => break,
+        }
+    }
     let cover = make_cover(state, &acc, &members, greedy);
+    let reserve: Vec<CoverMember> = reserve_idx
+        .iter()
+        .map(|&i| {
+            let a = &acc[i];
+            CoverMember {
+                attempt_key: a.key.clone(),
+                index: a.index,
+                setting: a.setting.clone(),
+                digest: a.rule.digest.clone(),
+                rhs_terms: a.rule.rhs_terms,
+                served: a.credited.iter().map(|&p| gp[p].clone()).collect(),
+            }
+        })
+        .collect();
     let served: BTreeSet<Key> = cover.members.iter().flat_map(|m| m.served.iter().cloned()).collect();
     let leftover: Vec<Key> = gp.iter().filter(|k| !served.contains(*k)).cloned().collect();
     if leftover.is_empty() {
@@ -790,10 +851,32 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             exhausted,
         });
     }
-    let cover_rules: Vec<&Accepted> = members.iter().map(|&m| &acc[m]).collect();
-    let others: Vec<&Accepted> = (0..acc.len()).filter(|i| !members.contains(i)).map(|i| &acc[i]).collect();
-    let children = derive_children(item, &cover_rules, &others, &leftover, params);
-    Next::Done(Disposition::Split { cover, children })
+    let cover_rules: Vec<&CandidateRule> = members.iter().map(|&m| &acc[m].rule).collect();
+    // every other judged candidate informs the children, also one that credits no gap point (all of them on its
+    // exception branches: plan 2.4.4 "one L2 item per branch whose zero set meets an uncovered target point");
+    // candidates with a hidden pole are not trusted for their exception set
+    let mut informants: Vec<&CandidateRule> = Vec::new();
+    for (_, _, key) in &done_settings {
+        let Some(rec) = state.records.get(key) else { continue };
+        for (idx, c) in rec.candidates().iter().enumerate() {
+            let hidden = state
+                .verdicts
+                .get(&(key.clone(), idx))
+                .is_none_or(|v| v.iter().any(|x| matches!(x, PointVerdict::HiddenPole)));
+            if !hidden && !cover_rules.iter().any(|r| r.digest == c.digest) {
+                informants.push(c);
+            }
+        }
+    }
+    let others = informants;
+    let reserve_rules: Vec<&CandidateRule> = reserve_idx.iter().map(|&i| &acc[i].rule).collect();
+    let (children, alternatives) = derive_children(item, &cover_rules, &reserve_rules, &others, &leftover, params);
+    Next::Done(Disposition::Split {
+        cover,
+        children,
+        alternatives,
+        reserve,
+    })
 }
 
 /// The best one-case candidate whose credited keys all carry evidence at the required level; `Err(request)` when the
