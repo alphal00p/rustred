@@ -110,7 +110,7 @@ fn t266_fallback_faces_from_closure_gaps() {
         ..Default::default()
     };
     let rep = gap_partition(&l, &frame, &opts, None).unwrap();
-    println!("T266 normal form: {:?}", rep.nf.stats);
+    println!("T266 normal form: {:?}", rep.nf().stats);
     let mut unc = 0;
     for k in &keys {
         if rep.uncovered(k).unwrap() {
@@ -157,16 +157,16 @@ fn t266_exact_partition_timed_attempt() {
     let rep = gap_partition(&l, &frame, &opts, Some(&cb)).unwrap();
     println!(
         "T266 attempt: outcome {:?}; inputs {:?}; states {:?}; nodes {} memo hits {} memo clears {}; U {} F {} (partial if budget exceeded); faces {}; {} ms",
-        rep.outcome,
-        rep.nf.stats,
-        rep.states.iter().map(|s| s.len()).collect::<Vec<_>>(),
-        rep.stats.nodes,
-        rep.stats.memo_hits,
-        rep.stats.memo_clears,
+        rep.outcome(),
+        rep.nf().stats,
+        rep.states().iter().map(|s| s.len()).collect::<Vec<_>>(),
+        rep.stats().nodes,
+        rep.stats().memo_hits,
+        rep.stats().memo_clears,
         rep.n_u(),
         rep.n_f(),
-        rep.faces.len(),
-        rep.millis
+        rep.faces().len(),
+        rep.millis()
     );
 }
 

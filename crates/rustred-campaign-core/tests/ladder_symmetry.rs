@@ -153,10 +153,32 @@ fn symmetry_rows_first_only_when_certifiable_addendum3() {
     let w = seed_space(&face, &p2);
     assert_eq!(w[0], vec![SeedSetting::symmetry_target()]);
     assert!(w[1][0].symmetry_rows && !w[1].last().unwrap().symmetry_rows);
+    // EC-1 v2 sections 5 / 6 (int4): symmetry rows of a setting are rows of the CASE SEARCH = `--symmetry-symbolic`
+    // (`--symmetry-rows` is the bulk numeric solve only); depth 0 searches the target seed alone, numerically too
     assert_eq!(
         engine_seed_args(&SeedSetting::symmetry_target()),
-        vec!["--max-depth", "0", "--symmetry-rows"]
+        vec![
+            "--max-depth",
+            "0",
+            "--numeric-depth",
+            "0",
+            "--symmetry-symbolic"
+        ]
     );
+    for s in w.iter().flatten() {
+        let a = engine_seed_args(s);
+        assert!(!a.iter().any(|x| x == "--symmetry-rows"), "{a:?}");
+        assert_eq!(
+            a.iter().any(|x| x == "--symmetry-symbolic"),
+            s.symmetry_rows,
+            "{a:?}"
+        );
+        assert_eq!(
+            a.iter().any(|x| x == "--numeric-depth"),
+            s.depth == 0,
+            "{a:?}"
+        );
+    }
     // acceptance: a rule found with symmetry rows is accepted only when the required level is reachable for it
     let cmp = NodeComparator::legacy(6, None).unwrap();
     let run = |p: &NodeParams| {

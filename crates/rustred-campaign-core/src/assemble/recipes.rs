@@ -85,16 +85,16 @@ pub fn write(
             ..
         } = r.verdict
         else {
-            return Err(format!("recipe {} is not certified", r.recipe.digest));
+            return Err(format!("recipe {} is not certified", r.recipe.digest()));
         };
         // audit-accept-A M6: the verdict must be the certification of THIS recipe
-        if *recipe_digest != r.recipe.digest {
+        if *recipe_digest != r.recipe.digest() {
             return Err(format!(
                 "verdict of recipe {recipe_digest} shipped with recipe {}",
-                r.recipe.digest
+                r.recipe.digest()
             ));
         }
-        let arity = r.recipe.domain.arity;
+        let arity = r.recipe.domain().arity;
         let maxv = certified
             .iter()
             .flatten()
@@ -127,7 +127,7 @@ pub fn write(
         eco.recipes += 1;
         eco.recipe_certified_keys += certified.len() as u64;
         eco.recipe_cost_ms += cost_ms;
-        let line = json!({"schema": RECIPE_RECORD_SCHEMA, "recipe_digest": recipe_digest, "recipe": r.recipe.body,
+        let line = json!({"schema": RECIPE_RECORD_SCHEMA, "recipe_digest": recipe_digest, "recipe": r.recipe.body(),
             "position": r.position, "form": "recipe",
             "certified_keys": {"file": kf.file_name().map(|f| f.to_string_lossy().to_string()), "digest": certified_digest, "count": certified.len()},
             "relation_set": {"file": rf.file_name().map(|f| f.to_string_lossy().to_string()), "digest": relation_set_digest},
