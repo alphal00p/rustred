@@ -69,14 +69,10 @@ fn face_num(face: &str) -> u64 {
 }
 
 fn hand_format() -> HandFormat {
-    HandFormat {
-        key: 0,
-        in_box: 1,
-        label: 2,
-        rule: 3,
-        round: Some(4),
-        round_index: None,
-        terminal_label: "terminal".into(),
+    {
+        let mut f = HandFormat::positional(0, 1, 2, 3);
+        f.round = Some(import::spec::Col::Index(4));
+        f
     }
 }
 

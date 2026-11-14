@@ -13,7 +13,7 @@ use super::error::{ImportError, io_err};
 use super::evidence::Evidence;
 use super::lines::{key_text, parse_key_text};
 use super::load::ImportedSet;
-use super::spec::HandFormat;
+use super::spec::{Col, HandFormat};
 use crate::closure::sha256::Sha256;
 use crate::schema::canon::canonical_json;
 
@@ -21,7 +21,8 @@ use crate::schema::canon::canonical_json;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandRow {
     pub key: Vec<i32>,
-    pub in_box: bool,
+    /// None: the statement does not state it.
+    pub in_box: Option<bool>,
     pub label: String,
     pub rule: Option<String>,
     pub round: Option<i64>,
@@ -34,6 +35,8 @@ pub struct HandStatement {
     pub terminal_label: String,
     pub path: String,
     pub sha256: String,
+    /// The statement lists only some closure keys (`HandFormat::partial`).
+    pub partial: bool,
 }
 
 impl HandStatement {
@@ -81,9 +84,15 @@ pub fn read_hand_statement(
             msg: m,
         };
         let v: Value = serde_json::from_str(&l).map_err(|e| bad(e.to_string()))?;
-        let a = v.as_array().ok_or_else(|| bad("not an array".into()))?;
-        let col = |c: usize| a.get(c).ok_or_else(|| bad(format!("no column {c}")));
-        let key = match col(fmt.key)? {
+        let col = |c: &Col| -> Result<&Value, ImportError> {
+            match (c, &v) {
+                (Col::Index(i), Value::Array(a)) => a.get(*i),
+                (Col::Field(f), Value::Object(o)) => o.get(f),
+                _ => None,
+            }
+            .ok_or_else(|| bad(format!("no column {c:?}")))
+        };
+        let key = match col(&fmt.key)? {
             Value::String(s) => parse_key_text(s, arity),
             k @ Value::Array(_) => serde_json::from_value::<Vec<i32>>(k.clone())
                 .ok()
@@ -91,19 +100,29 @@ pub fn read_hand_statement(
             _ => None,
         }
         .ok_or_else(|| bad("key column".into()))?;
-        let in_box = col(fmt.in_box)?
-            .as_bool()
-            .ok_or_else(|| bad("in_box column".into()))?;
-        let label = col(fmt.label)?
+        let in_box = match &fmt.in_box {
+            None => None,
+            Some(c) => Some(
+                col(c)?
+                    .as_bool()
+                    .ok_or_else(|| bad("in_box column".into()))?,
+            ),
+        };
+        let label = col(&fmt.label)?
             .as_str()
             .ok_or_else(|| bad("label column".into()))?
             .to_string();
-        let rule = match col(fmt.rule)? {
+        let rule = match (&fmt.rule, &v) {
+            // an object line may omit the rule field (e.g. a terminal row)
+            (Col::Field(f), Value::Object(o)) if !o.contains_key(f) => &Value::Null,
+            (c, _) => col(c)?,
+        };
+        let rule = match rule {
             Value::Null => None,
             Value::String(s) => Some(s.clone()),
             o => Some(o.to_string()),
         };
-        let round = match fmt.round {
+        let round = match &fmt.round {
             None => None,
             Some(c) => {
                 let v = col(c)?;
@@ -127,6 +146,7 @@ pub fn read_hand_statement(
         terminal_label: fmt.terminal_label.clone(),
         path: path.display().to_string(),
         sha256: h.finish_hex(),
+        partial: fmt.partial,
     })
 }
 
@@ -540,7 +560,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         *matrix
             .entry(format!("{} -> {}", h.label, ours_class(set, o)))
             .or_default() += 1;
-        if o.in_start != h.in_box {
+        if h.in_box.is_some_and(|b| b != o.in_start) {
             diffs.push(d(
                 DiffKind::InBoxDiffers,
                 Some(format!("in_start={}", o.in_start)),
@@ -572,7 +592,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
             }
         }
     }
-    for r in &res.rows {
+    for r in res.rows.iter().filter(|_| !hand.partial) {
         if !hand_keys.contains(r.key.as_slice()) {
             diffs.push(Difference {
                 kind: DiffKind::OnlyOurs,
@@ -605,7 +625,9 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         .collect();
     to.sort();
     let to: Vec<String> = to.iter().map(|k| key_text(k)).collect();
-    let key_sets_equal = !counts.contains_key("only_hand") && !counts.contains_key("only_ours");
+    // a partial hand statement never establishes key-set equality
+    let key_sets_equal =
+        !hand.partial && !counts.contains_key("only_hand") && !counts.contains_key("only_ours");
     Comparison {
         hand_path: hand.path.clone(),
         hand_sha256: hand.sha256.clone(),

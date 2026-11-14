@@ -59,15 +59,7 @@ fn vm_hwm_kb() -> u64 {
 }
 
 fn hand_format() -> HandFormat {
-    HandFormat {
-        key: 0,
-        in_box: 3,
-        label: 1,
-        rule: 2,
-        round: None,
-        round_index: None,
-        terminal_label: "terminal".into(),
-    }
+    HandFormat::positional(0, 3, 1, 2)
 }
 
 /// SHA256SUMS of a directory: verify every listed file that exists; returns (listed, present, verified).

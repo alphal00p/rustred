@@ -95,18 +95,48 @@ pub struct Policies {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandFormat {
-    pub key: usize,
-    pub in_box: usize,
-    pub label: usize,
-    pub rule: usize,
+    pub key: Col,
+    /// Absent: the statement does not say (the in-box flag is then not compared).
     #[serde(default)]
-    pub round: Option<usize>,
+    pub in_box: Option<Col>,
+    pub label: Col,
+    pub rule: Col,
+    #[serde(default)]
+    pub round: Option<Col>,
     /// When the round column is an array: the element holding the round.
     #[serde(default)]
     pub round_index: Option<usize>,
     /// The label that marks a terminal row (default "terminal").
     #[serde(default = "default_terminal_label")]
     pub terminal_label: String,
+    /// The statement lists only SOME closure keys (e.g. the relation-served ones): keys it does not list are not
+    /// differences and the key sets are not compared.
+    #[serde(default)]
+    pub partial: bool,
+}
+
+/// A column of a hand statement: a position in an array line, or a field name in an object line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Col {
+    Index(usize),
+    Field(String),
+}
+
+impl HandFormat {
+    /// A positional (array-line) format with the default terminal label, no round, complete statement.
+    pub fn positional(key: usize, in_box: usize, label: usize, rule: usize) -> HandFormat {
+        HandFormat {
+            key: Col::Index(key),
+            in_box: Some(Col::Index(in_box)),
+            label: Col::Index(label),
+            rule: Col::Index(rule),
+            round: None,
+            round_index: None,
+            terminal_label: default_terminal_label(),
+            partial: false,
+        }
+    }
 }
 
 fn default_terminal_label() -> String {

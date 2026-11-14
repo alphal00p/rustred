@@ -777,14 +777,10 @@ fn negative_statement_differing_in_one_key() {
             ])
         })
         .collect();
-    let fmt = HandFormat {
-        key: 0,
-        in_box: 1,
-        label: 2,
-        rule: 3,
-        round: Some(4),
-        round_index: None,
-        terminal_label: "terminal".into(),
+    let fmt = {
+        let mut f = HandFormat::positional(0, 1, 2, 3);
+        f.round = Some(import::spec::Col::Index(4));
+        f
     };
     let hp = d.join("hand.jsonl");
     std::fs::write(
@@ -927,4 +923,40 @@ fn solve_requests_go_to_the_first_candidate_recipe_without_an_answer() {
         r.counts()
     );
     assert!(r.blocking().contains(&"recipe_binary_unpinned".to_string()));
+}
+
+#[test]
+fn partial_object_line_hand_statement_third_shape() {
+    // the T266 delivery shape (solves.jsonl): object lines, only SOME keys listed, no in-box flag, a "none" result for
+    // the terminals; read through field names, compared on the listed keys only
+    let d = scratch("partial");
+    let spec = base(&d);
+    let (set, _ev, r) = run(&spec, &d);
+    let fmt: HandFormat =
+        serde_json::from_value(json!({"key":"key","label":"result","rule":"recipe",
+        "terminal_label":"none","partial":true}))
+        .unwrap();
+    let hp = d.join("solves.jsonl");
+    std::fs::write(
+        &hp,
+        format!(
+            "{}\n{}\n",
+            json!({"item":"0","key":"I(2,1,0)","result":"served","recipe":"A#0","seconds":"1.0"}),
+            json!({"item":"1","key":"I(3,1,0)","result":"served","recipe":"other-recipe"})
+        ),
+    )
+    .unwrap();
+    let h = read_hand_statement(&hp, &fmt, 3).unwrap();
+    assert!(h.partial && h.rows.iter().all(|x| x.in_box.is_none()));
+    let c = compare(&set, &r, &h);
+    assert!(
+        !c.key_sets_equal,
+        "a partial statement never establishes key-set equality"
+    );
+    assert_eq!(
+        c.count(DiffKind::OnlyOurs),
+        0,
+        "unlisted keys are not differences"
+    );
+    assert_eq!((c.same_server, c.count(DiffKind::ServerDiffers)), (1, 1));
 }
