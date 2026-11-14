@@ -8,8 +8,10 @@
 //!
 //! Index directory (`rustred.campaign.table-index.v1`):
 //! - `domains.jsonl`: per non-blank table line an entry `{"k": kind, "l": line, "o": offset, "b": bytes, "s": sha256}`
-//!   (sha256 for rule lines), followed for header / chart / rule lines by the PAYLOAD: the original line, a rule line
-//!   with its `rhs` value replaced by `[]` (every other field byte-identical);
+//!   (sha256 for rule lines), followed for header / chart / rule / sym lines and the content kinds
+//!   ([`super::lines::CONTENT_KINDS`]: residual, terminal ledger, completeness and provenance markers; version 2) by the
+//!   PAYLOAD: the original line, a rule line with its `rhs` value replaced by `[]` (every other field byte-identical); a
+//!   `sym` record is entered as `rule` (its body = its image);
 //! - `bodies.jsonl`: per rule line `{"o": ordinal, "s": record_sha256, "rhs": ["I(..)", ..]}` (the rhs KEYS, never a
 //!   coefficient);
 //! - `index.json` (written LAST: its presence marks a complete index): schema, [`INDEX_VERSION`], canonical path,
@@ -33,12 +35,12 @@ use std::time::{Instant, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::error::{ImportError, io_err};
-use super::lines::{Fed, LineScanner, RawRecord, RawTable, line_body};
+use super::lines::{CONTENT_KINDS, Fed, LineScanner, RawRecord, RawTable, line_body};
 use crate::closure::sha256::Sha256;
 use crate::record::RhsMode;
 
 /// Version of the index format and of what it promises. Bump on ANY change of the files or of their meaning.
-pub const INDEX_VERSION: u32 = 1;
+pub const INDEX_VERSION: u32 = 2;
 /// Schema word of `index.json`.
 pub const INDEX_SCHEMA: &str = "rustred.campaign.table-index.v1";
 /// Blocks read for the sampled digest.
@@ -473,7 +475,13 @@ fn consume(
                 wr(&mut dw, &dp, body)?;
                 wr(&mut dw, &dp, b"\n")?;
             }
-            Fed::Other(kind) => wr(&mut dw, &dp, entry(&kind, None).as_bytes())?,
+            Fed::Other(kind) => {
+                wr(&mut dw, &dp, entry(&kind, None).as_bytes())?;
+                if CONTENT_KINDS.contains(&kind.as_str()) {
+                    wr(&mut dw, &dp, body)?;
+                    wr(&mut dw, &dp, b"\n")?;
+                }
+            }
             Fed::Rule(r) => {
                 rules += 1;
                 wr(&mut dw, &dp, entry("rule", Some(sha.clone())).as_bytes())?;
@@ -545,6 +553,16 @@ impl TableIndex {
                     };
                     if !ok {
                         return Err(bad(format!("line {}: payload is not a {}", e.l, e.k)));
+                    }
+                }
+                k if CONTENT_KINDS.contains(&k) => {
+                    pb.clear();
+                    if rd.read_until(b'\n', &mut pb).map_err(|x| io_err(&dp, x))? == 0 {
+                        return Err(bad("payload missing".into()));
+                    }
+                    match sc.feed(line_body(&pb), e.l, e.o, e.b, None, keep)? {
+                        Fed::Other(k2) if k2 == k => {}
+                        _ => return Err(bad(format!("line {}: payload is not a {k}", e.l))),
                     }
                 }
                 k => sc.count_kind(e.l, k)?,

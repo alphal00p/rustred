@@ -15,16 +15,20 @@ use serde_json::Value;
 use super::error::{ImportError, io_err};
 use super::index::{IndexOrigin, TableIndex, open_or_build};
 use super::lines::{
-    MAX_BOUND_EXCLUSIONS_PER_SLOT, RawRecord, RawTable, parse_key_text, read_sha256sums,
-    scan_table, verify_file,
+    MAX_BOUND_EXCLUSIONS_PER_SLOT, MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers,
+    parse_key_text, read_sha256sums, scan_table, verify_file,
 };
 use super::spec::{
-    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
+    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, TableTerminals,
+    resolve,
 };
 use super::symmetry::{
     DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
-    verify_relation_with,
+    load_verified_group_family, verify_relation_with, verify_sym_record,
 };
+use crate::domain::{PoleKind, PoleLocus};
+use crate::replay_base::family::Family;
+use crate::replay_base::symrows::VerifiedGroup;
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
     VERDICT_REGULAR,
@@ -62,6 +66,64 @@ pub struct RuleInfo {
     pub record_sha256: String,
     pub hand_name: Option<String>,
     pub witness: WitnessKind,
+    /// A `sym` record (one-term symmetry rule; interfaces/import.md 18.4): its verification. None for rule records.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sym: Option<SymInfo>,
+    /// The `symface` provenance of a slice record (18.5). None otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symface: Option<SymfaceRef>,
+}
+
+/// The verification of one `sym` record (interfaces/import.md 18.4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SymInfo {
+    /// Verified by the seven steps against our derived group: serves (basis `sym_record_verified`); else every key
+    /// of its case is blocked (`sym_record_unverified: <reason>`).
+    pub verified: bool,
+    /// The failed step (unverified only).
+    pub reason: Option<String>,
+    /// The element of our derived group with the same action (verified only).
+    pub element: Option<usize>,
+    /// The record's action (`(target slot, flip)` per slot; None = fixed at 0 on the case): the image of a key.
+    #[serde(skip)]
+    pub action: Vec<Option<(usize, bool)>>,
+}
+
+impl SymInfo {
+    /// The image `g a` of a key `a` of the case (slot `t` carries the power of the slot `i` with action `(t, _)`).
+    pub fn image_of(&self, key: &[i32]) -> Vec<i32> {
+        let mut out = vec![0; key.len()];
+        for (i, a) in self.action.iter().enumerate() {
+            if let Some((t, _)) = a
+                && *t < out.len()
+                && i < key.len()
+            {
+                out[*t] = key[i];
+            }
+        }
+        out
+    }
+}
+
+/// Where a TABLE-declared terminal comes from (interfaces/import.md 18.2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TerminalDecl {
+    /// `composite_terminal_ledger` | `residual`.
+    pub provenance: &'static str,
+    pub source: String,
+    pub path: String,
+    pub line: usize,
+}
+
+/// `sym` records of a source (interfaces/import.md 18.4).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct SymReport {
+    pub records: usize,
+    pub verified: usize,
+    /// (label, reason) of every unverified record.
+    pub unverified: Vec<(i64, String)>,
+    /// Why no verified group could be built (then every sym record of the source is unverified).
+    pub group_error: Option<String>,
 }
 
 /// A recipe source (its relation set is built by `check` from the certified solved relations).
@@ -133,6 +195,25 @@ pub struct SourceReport {
     /// serialized into the canonical statement (it holds timings); callers put it into their timing record.
     #[serde(skip_serializing)]
     pub indexes: Vec<IndexOrigin>,
+    /// lane import5 (18.3): counts of the marker kinds over the source's files (only when present).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub markers: BTreeMap<String, usize>,
+    /// Files that carry a composite-assembly record.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub assembly_files: Vec<String>,
+    /// Accepted marker overrides (`marker_rules.accept_fewer`), with the reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub marker_overrides: Vec<String>,
+    /// Terminals declared by the source's tables (ledger keys; residual keys under `ledger_and_residuals`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub table_terminals: usize,
+    /// `sym` records (18.4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sym: Option<SymReport>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Options of [`load_with`] (not part of the spec: they never change a result).
@@ -159,6 +240,9 @@ pub struct LoadReport {
     pub relation_sets: usize,
     pub terminals_preferred: usize,
     pub terminals_other: usize,
+    /// Of `terminals_other`: declared by tables (18.2).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub terminals_from_tables: usize,
 }
 
 /// The imported set: the in-force dispatch at evidence level `imported`.
@@ -194,6 +278,9 @@ pub struct ImportedSet {
     /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
     /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
     pub strict_domains: HashMap<(usize, usize), CaseDomain>,
+    /// lane import5 (18.2): terminals declared by a TABLE (ledger keys, residual keys under `ledger_and_residuals`), with
+    /// their provenance. A key declared by a `terminals` source is not listed (first declaration wins).
+    pub terminal_provenance: BTreeMap<Vec<i32>, TerminalDecl>,
 }
 
 impl std::fmt::Debug for ImportedSet {
@@ -222,6 +309,27 @@ impl ImportedSet {
     pub fn table_index(&self, name: &str) -> Option<usize> {
         self.disp.tables().iter().position(|t| t.name == name)
     }
+    /// The `symface` slice records grouped by face (lane import5, interfaces/import.md 18.5): (the member `face` as
+    /// canonical JSON, `element.index`) -> [(table, record)] in dispatch order. Nothing is interpreted.
+    pub fn symface_groups(&self) -> BTreeMap<(String, Option<i64>), Vec<(usize, usize)>> {
+        let mut m: BTreeMap<(String, Option<i64>), Vec<(usize, usize)>> = BTreeMap::new();
+        for (t, v) in self.rules.iter().enumerate() {
+            for (r, i) in v.iter().enumerate() {
+                if let Some(sf) = &i.symface {
+                    let face = crate::schema::canon::canonical_json(&sf.face, false)
+                        .unwrap_or_else(|_| sf.face.to_string());
+                    m.entry((face, sf.element)).or_default().push((t, r));
+                }
+            }
+        }
+        m
+    }
+}
+
+/// The verified group and presented family the `sym` records of a source are checked against.
+struct SymCtx {
+    family: Family,
+    group: VerifiedGroup,
 }
 
 /// Fill a hand-name template.
@@ -332,6 +440,7 @@ pub fn load_with(
     let mut recipes = vec![];
     let mut terminals_preferred = vec![];
     let mut terminals_other = vec![];
+    let mut terminal_provenance: BTreeMap<Vec<i32>, TerminalDecl> = BTreeMap::new();
     let mut credits: Option<CreditPolicy> = None;
     let mut reports = vec![];
     let mut classes = BTreeMap::new();
@@ -360,6 +469,8 @@ pub fn load_with(
                 let mut seen_removed = BTreeSet::new();
                 let mut seen_src_labels: BTreeSet<i64> = BTreeSet::new();
                 let mut first_table_name: Option<String> = None;
+                let mut sym_ctx: Option<SymCtx> = None;
+                let mut sym_err: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
                     let (idx, origin) =
@@ -384,6 +495,91 @@ pub fn load_with(
                         }
                     }
                     check_header(&src.id, &raw.header, &frame, &frame_desc, &fhead)?;
+                    // lane import5 (interfaces/import.md 18.2 / 18.3): the table's own statements about itself
+                    let policy = MarkerPolicy {
+                        accept_fewer_rules: src.marker_rules.as_ref().map(|m| m.accept_fewer.clone()),
+                    };
+                    let ms = check_markers(&src.id, &u.path, &raw, arity, &policy)?;
+                    rep.marker_overrides.extend(ms.overrides.iter().cloned());
+                    for k in [
+                        "assembly_provenance",
+                        "composite_assembly_complete",
+                        "assembly_end",
+                        "composite_terminal_ledger",
+                    ] {
+                        if let Some(n) = raw.kinds.get(k) {
+                            *rep.markers.entry(k.to_string()).or_default() += n;
+                        }
+                    }
+                    if ms.assembly {
+                        rep.assembly_files.push(u.path.display().to_string());
+                    }
+                    let tt = src.table_terminals.unwrap_or_default();
+                    let mut declared: Vec<(&'static str, usize, Vec<i32>)> = vec![];
+                    if tt != TableTerminals::None {
+                        declared.extend(
+                            ms.ledger_keys
+                                .iter()
+                                .map(|(l, k)| ("composite_terminal_ledger", *l, k.clone())),
+                        );
+                    }
+                    if tt == TableTerminals::LedgerAndResiduals {
+                        if ms.residual_keys.len() != raw.markers.residuals.len() {
+                            return Err(ImportError::Source {
+                                source: src.id.clone(),
+                                msg: format!(
+                                    "{}: table_terminals ledger_and_residuals: {} of {} residual keys are not integer keys of the arity",
+                                    u.path.display(),
+                                    raw.markers.residuals.len() - ms.residual_keys.len(),
+                                    raw.markers.residuals.len()
+                                ),
+                            });
+                        }
+                        declared.extend(
+                            ms.residual_keys
+                                .iter()
+                                .map(|(l, k)| ("residual", *l, k.clone())),
+                        );
+                    }
+                    for (prov, line, k) in declared {
+                        if terminals_preferred.contains(&k)
+                            || terminals_other.contains(&k)
+                            || terminal_provenance.contains_key(&k)
+                        {
+                            continue;
+                        }
+                        terminal_provenance.insert(
+                            k.clone(),
+                            TerminalDecl {
+                                provenance: prov,
+                                source: src.id.clone(),
+                                path: u.path.display().to_string(),
+                                line,
+                            },
+                        );
+                        terminals_other.push(k);
+                        rep.table_terminals += 1;
+                    }
+                    // `sym` records: the verified group of the source, once (interfaces/import.md 18.4)
+                    if raw.sym_lines > 0 && sym_ctx.is_none() && sym_err.is_none() {
+                        let gs = src.sym_group.clone().unwrap_or(GroupSpec {
+                            family: None,
+                            group: None,
+                            group_format: GroupFormat::Derive,
+                            max_candidates: None,
+                            max_terms: None,
+                        });
+                        match load_verified_group_family(
+                            &gs,
+                            base,
+                            frame.mask(),
+                            cmp.presentation().new_to_old(),
+                            fhead.raw.get("family_source").and_then(Value::as_str),
+                        ) {
+                            Ok((group, _, family)) => sym_ctx = Some(SymCtx { family, group }),
+                            Err(e) => sym_err = Some(e.to_string()),
+                        }
+                    }
                     rep.files.push((u.path.display().to_string(), sha.clone()));
                     rep.records_in_files += raw.records.len();
                     for (k, n) in &raw.kinds {
@@ -464,8 +660,13 @@ pub fn load_with(
                     };
                     if !order.is_empty() {
                         let witness = spec.policies.witness_check == super::spec::WitnessCheck::On;
+                        let sym = match (&sym_ctx, &sym_err) {
+                            (Some(c), _) => Ok(c),
+                            (None, Some(e)) => Err(e.as_str()),
+                            (None, None) => Err("no verified group"),
+                        };
                         let (t, tf, infos) = build_table(
-                            src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
+                            src, &class, &name, u, &raw, &order, &frame, witness, sym, &mut rep,
                         )?;
                         if !witness {
                             // the strict domains of the records with complete witness loci (diagnostic runs)
@@ -587,10 +788,19 @@ pub fn load_with(
                         });
                     }
                 }
-                if src.preferred.unwrap_or(false) {
-                    terminals_preferred.extend(keys);
-                } else {
-                    terminals_other.extend(keys);
+                // a key a table already declared stays declared once (with its table provenance); a preferred
+                // declaration moves it to the preferred list (lane import5)
+                for k in keys {
+                    if src.preferred.unwrap_or(false) {
+                        if let Some(pos) = terminals_other.iter().position(|x| *x == k)
+                            && terminal_provenance.remove(&k).is_some()
+                        {
+                            terminals_other.remove(pos);
+                        }
+                        terminals_preferred.push(k);
+                    } else if !terminal_provenance.contains_key(&k) {
+                        terminals_other.push(k);
+                    }
                 }
             }
             SourceKind::SymmetryCredit => {
@@ -746,6 +956,7 @@ pub fn load_with(
         relation_sets: supplied.len() + recipes.len(),
         terminals_preferred: terminals_preferred.len(),
         terminals_other: terminals_other.len(),
+        terminals_from_tables: terminal_provenance.len(),
     };
     Ok(ImportedSet {
         spec: spec.clone(),
@@ -769,6 +980,7 @@ pub fn load_with(
         classes,
         report,
         strict_domains,
+        terminal_provenance,
     })
 }
 
@@ -982,6 +1194,7 @@ fn build_table(
     seg: &[usize],
     frame: &NodeFrame,
     witness_check: bool,
+    sym: Result<&SymCtx, &str>,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
     let tf = TableFile {
@@ -1112,6 +1325,45 @@ fn build_table(
             WitnessStatus::NotCarried => WitnessKind::NotCarried,
         };
         *rep.witness.entry(format!("{witness:?}")).or_default() += 1;
+        // a `sym` record: verified by the seven steps against our derived group, else blocked at every key of its
+        // case by an always-vanishing pole locus (never serves, never falls through; interfaces/import.md 18.4)
+        let sym_info = r.sym.as_ref().map(|s| {
+            let v = match sym {
+                Ok(c) => verify_sym_record(s, &c.family, &c.group, frame.mask()),
+                Err(e) => Err(format!("no verified group: {e}")),
+            };
+            let srep = rep.sym.get_or_insert_with(SymReport::default);
+            srep.records += 1;
+            if let Err(e) = &sym {
+                srep.group_error = Some(e.to_string());
+            }
+            match v {
+                Ok(el) => {
+                    srep.verified += 1;
+                    SymInfo {
+                        verified: true,
+                        reason: None,
+                        element: Some(el),
+                        action: s.action.clone(),
+                    }
+                }
+                Err(why) => {
+                    srep.unverified.push((label, why.clone()));
+                    SymInfo {
+                        verified: false,
+                        reason: Some(why),
+                        element: None,
+                        action: s.action.clone(),
+                    }
+                }
+            }
+        });
+        if sym_info.as_ref().is_some_and(|s| !s.verified) {
+            t.domains[k].poles.push(PoleLocus {
+                kind: PoleKind::Witness,
+                coeffs: vec![],
+            });
+        }
         infos.push(RuleInfo {
             source: src.id.clone(),
             class: class.to_string(),
@@ -1128,6 +1380,8 @@ fn build_table(
                 .as_ref()
                 .map(|h| hand_name(h, &src.id, u.table_label.as_deref(), r, label)),
             witness,
+            sym: sym_info,
+            symface: r.symface.clone(),
         });
     }
     Ok((t, tf, infos))
@@ -1147,6 +1401,14 @@ fn load_supplied(
 ) -> Result<(RelationSet, BTreeMap<Vec<i32>, SuppliedInfo>), ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
     let raw = scan_table(&src.id, &path, true, &|_, _| true)?;
+    if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {
+        return Err(ImportError::Line {
+            source: src.id.clone(),
+            path: path.display().to_string(),
+            line: r.line_no,
+            msg: "a sym record in a supplied relation file (only point rule records)".into(),
+        });
+    }
     if let Some(e) = &src.sha256
         && !e
             .trim_start_matches("sha256:")

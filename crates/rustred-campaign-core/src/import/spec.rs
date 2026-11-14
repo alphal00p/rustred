@@ -254,7 +254,16 @@ impl SourceKind {
     /// Fields allowed besides the common ones (`id`, `kind`, `class`, `hand_name`).
     fn fields(self) -> &'static [&'static str] {
         match self {
-            SourceKind::EngineTable => &["path", "sha256", "records", "removed", "domain"],
+            SourceKind::EngineTable => &[
+                "path",
+                "sha256",
+                "records",
+                "removed",
+                "domain",
+                "table_terminals",
+                "marker_rules",
+                "sym_group",
+            ],
             SourceKind::TableSet => &[
                 "priority_file",
                 "variant",
@@ -265,6 +274,9 @@ impl SourceKind {
                 "label_scope",
                 "removed",
                 "domain",
+                "table_terminals",
+                "marker_rules",
+                "sym_group",
             ],
             SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
             SourceKind::SuppliedRelations => {
@@ -342,6 +354,39 @@ pub struct SourceSpec {
     /// key-set comparison with a checker's delivery before the solves exist). Refused with `verify` / `verification`.
     #[serde(default)]
     pub diagnostic: bool,
+    /// Table sources (lane import5, interfaces/import.md 18.2): which terminals the TABLE declares (default `ledger`).
+    /// Serialized only when given (spec digests of earlier specs unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table_terminals: Option<TableTerminals>,
+    /// Table sources (18.3): the completeness check's escape for minimised tables that kept the original marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_rules: Option<MarkerRules>,
+    /// Table sources (18.4): the verified group the `sym` records are checked against (default: derived from the
+    /// frame header's `family_source`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sym_group: Option<super::symmetry::GroupSpec>,
+}
+
+/// Which terminals a table declares (interfaces/import.md 18.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TableTerminals {
+    /// The keys of `composite_terminal_ledger` records (default).
+    #[default]
+    Ledger,
+    /// The ledger keys and every `residual` record's key (as `rr_node reduce` reads a table).
+    LedgerAndResiduals,
+    /// Nothing from the table (the spec's `terminals` sources only).
+    None,
+}
+
+/// `marker_rules` (interfaces/import.md 18.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkerRules {
+    /// The reason a marker's `rules` GREATER than the file's rule records is accepted (e.g. "minimised table: the
+    /// minimiser kept the original assembly's marker"); recorded in the load report.
+    pub accept_fewer: String,
 }
 
 impl SourceSpec {
