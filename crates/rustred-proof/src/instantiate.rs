@@ -155,7 +155,12 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
             nrec += 1;
             let keys: Vec<Vec<i64>> = keys.iter().cloned().collect();
             let f = facts_for_rule(line, &keys);
-            for (k, l) in keys.iter().zip(f) { answers.insert((table.clone(), *idx, k.clone()), l.clone()); lines_out.push(l); }
+            let rsha = record_sha256(line);
+            for (k, l) in keys.iter().zip(f) {
+                // echo the record digest right after the schema field
+                let l = l.replacen("\"rustred.proof-kernel.instantiate.v1\",", &format!("\"rustred.proof-kernel.instantiate.v1\",\"record_sha256\":\"{}\",", rsha), 1);
+                answers.insert((table.clone(), *idx, k.clone()), l.clone()); lines_out.push(l);
+            }
         }
     }
     // closure fact answers for (B) requests
@@ -178,8 +183,9 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
                     (String::from_utf8_lossy(rhs[t].get(b, "coef").unwrap().s(b)).to_string(), "{}".to_string())
                 }
             };
-            lines_out.push(format!("{{\"schema\":\"rustred.campaign.fact.v1\",\"table\":{},\"record\":{},\"label\":{},\"key\":{:?},\"kind\":{},{}\"value\":{},\"method\":\"exact\",\"evidence\":{}}}",
-                echo("table"), echo("record"), echo("label"), r.key, jstr(kind), term.map(|t| format!("\"term\":{},", t)).unwrap_or_default(), jstr(&value), evidence));
+            let rsha_v = fj.get(b, "record_sha256").map(|x| jstr(&String::from_utf8_lossy(x.s(b)))).unwrap_or("null".into());
+            lines_out.push(format!("{{\"schema\":\"rustred.campaign.fact.v1\",\"record_sha256\":{},\"rule\":{},\"table\":{},\"record\":{},\"label\":{},\"key\":{:?},\"kind\":{},{}\"value\":{},\"method\":\"exact\",\"evidence\":{}}}",
+                rsha_v, r.rule, echo("table"), echo("record"), echo("label"), r.key, jstr(kind), term.map(|t| format!("\"term\":{},", t)).unwrap_or_default(), jstr(&value), evidence));
         }
     }
     let part = format!("{}.part", out_path);

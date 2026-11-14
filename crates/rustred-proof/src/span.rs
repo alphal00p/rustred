@@ -470,6 +470,8 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     let chart = String::from_utf8(tj.get(&tline, "chart").unwrap().s(&tline).to_vec()).unwrap();
     let t_load = t0.elapsed().as_secs_f64();
     put!("rule", format!("{}", tj.get(&tline, "index").unwrap().int(&tline)));
+    let rec_sha = record_sha256(&tline);
+    put!("record_sha256", jstr(&rec_sha));
     // ---------------------------------------------------------------- symmetry rows (auto: iff the rule record says sym_rows > 0)
     if let Some(f) = &args.symmetry_group { read_lines_matching(f, |l| { if l.iter().any(|c| !c.is_ascii_whitespace()) { groups.push(parse_group(l)); } true }); }
     let rule_sym_rows = match tj.get(&tline, "sym_rows") { Some(J::Num(..)) => tj.get(&tline, "sym_rows").unwrap().int(&tline), _ => 0 };
@@ -616,7 +618,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             key_json.push(format!("{{\"key\":{{{}}},\"status\":{}}}", k.keystr, jstr(&format!("IRREGULAR_KEY (rhs denominator of term {} vanishes identically in d)", i))));
             continue;
         }
-        let r = span_at_key(&k.kv, &target, &rhs, &rnum[li], &rden[li], &seeds, &recenter, &rows, &row_ids, &zero_masks, args, &base, &k.keystr, &sym);
+        let r = span_at_key(&k.kv, &rec_sha, tj.get(&tline, "index").unwrap().int(&tline), &target, &rhs, &rnum[li], &rden[li], &seeds, &recenter, &rows, &row_ids, &zero_masks, args, &base, &k.keystr, &sym);
         match r.0.as_str() {
             "EXACT_IN_SPAN_AT_KEY" => n_proved += 1,
             s if s.contains("NOT_IN_SPAN") || s.starts_with("FAIL") => n_fail += 1,
@@ -626,7 +628,9 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     }
     put!("prime_range", jstr(PRIME_RANGE_NOTE));
     put!("statement", jstr("EXACT_IN_SPAN_AT_KEY: at that integer key, sum_i W_i(d) A_ic(d) den_c(d) = L(d) num_c(d) holds exactly in Z[d] on every column c of the instantiated seed rows and of the rule (A_i: ordinary IBP rows at seed+recenter, v_c = num_c/den_c the rule vector e_target - sum r_c e_c at the key, L != 0), hence the rule at the key is a Q(d)-combination of IBP rows at its seeds"));
-    put!("keys", format!("[{}]", key_json.join(",")));
+    // every key entry echoes the rule and the record digest (attributable without file position)
+    let echo = format!("\"rule\":{},\"record_sha256\":{},", tj.get(&tline, "index").unwrap().int(&tline), jstr(&rec_sha));
+    put!("keys", format!("[{}]", key_json.iter().map(|s| format!("{{{}{}", echo, &s[1..])).collect::<Vec<_>>().join(",")));
     let verdict = if args.keys.is_empty() { "NO_KEYS".to_string() } else if n_fail > 0 { "NOT_ALL_KEYS_IN_SPAN".to_string() } else if n_other == 0 { "EXACT_ALL_KEYS_IN_SPAN".to_string() } else { "EXACT_KEYS_IN_SPAN_PARTIAL".to_string() };
     put!("verdict", jstr(&verdict));
     put!("counts", format!("{{\"in_span\":{},\"not_in_span\":{},\"other\":{}}}", n_proved, n_fail, n_other));
@@ -715,7 +719,7 @@ fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
 }
 
 #[allow(clippy::too_many_arguments)]
-fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, args: &SpanArgs, base: &Sha256, keystr: &str, sym: &Sym) -> (String, String) {
+fn span_at_key(kv: &[i64; 20], rec_sha: &str, rule_idx: i64, target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, args: &SpanArgs, base: &Sha256, keystr: &str, sym: &Sym) -> (String, String) {
     let ti = Instant::now();
     let inst = instantiate(kv, target, rhs, rnum, rden, seeds, recenter, rows, row_ids, zero, args.drop_zero_sectors, sym);
     let t_inst = ti.elapsed().as_secs_f64();
@@ -879,7 +883,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
                 let ws: Vec<String> = s_rows.iter().zip(&wz).filter(|(_, w)| !w.is_empty()).map(|(&ri, w)| format!("[{},{},{}]", inst.row_label[ri].0, inst.row_label[ri].1, ps(w))).collect();
                 let kv = &kv[..target.len()];
                 let kv_s = kv.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_");
-                let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m (m < 0: symmetry row of group element -m-1), W coefficients ascending in d]\"}}", kv, ps(&lz), ws.join(","));
+                let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"rule\":{},\"record_sha256\":{},\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m (m < 0: symmetry row of group element -m-1), W coefficients ascending in d]\"}}", rule_idx, jstr(rec_sha), kv, ps(&lz), ws.join(","));
                 let _ = std::fs::create_dir_all(dir);
                 let _ = std::fs::write(format!("{}/cert_{}.json", dir, kv_s), body);
             }

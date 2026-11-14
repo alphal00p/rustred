@@ -227,6 +227,8 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
             draw.iter().map(|&v| jstr(&vname(v))).collect::<Vec<_>>().join(",")));
     }
     put!("seed_sha256_T_C", jstr(&seed_hex));
+    let rec_sha = record_sha256(&tline);
+    put!("record_sha256", jstr(&rec_sha));
     put!("record_bytes", format!("{{\"table\":{},\"cert\":{}}}", tline.len(), cline.len()));
 
     // ---------------------------------------------------------------- source rows: engine (preferred) vs cert
@@ -581,6 +583,8 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
         inst_json.push(format!("{{\"key\":{{{}}},\"Bd\":{},\"d_points\":{},\"skipped_pole_d\":[{}],\"points_with_nonzero_column\":{},\"first_nonzero_column\":{},\"status\":\"{}\",\"pass_seconds\":{:.3},\"seconds\":{:.3}}}",
             keystr, bd, pts.len(), skipped.join(","), hits, first, if proved { "EXACT_PROVED_AT_KEY" } else { "FAIL_AT_KEY" }, secs, tk.elapsed().as_secs_f64()));
     }
+    let echo = format!("\"rule\":{},\"record_sha256\":{},", args.rule, jstr(&rec_sha));
+    let inst_json: Vec<String> = inst_json.iter().map(|s| format!("{{{}{}", echo, &s[1..])).collect();
     if !args.keys.is_empty() {
         put!("per_instance", format!("{{\"Bd\":{},\"Bd_from\":\"{}\",\"d_values\":\"(2i+1)/{} for i=1,2,..., poles replaced\",\"statement\":\"at each PROVED key k (all indices integer), every column identity sum_j w_j a_jc + r_c - delta_c = 0 holds identically in d: B_d+1 exact evaluations of a polynomial of d-degree <= B_d (cleared by Q)\",\"keys\":[{}]}}", bd, bsel_name, args.dden, inst_json.join(",")));
         let iv = if inst_fail > 0 { "FAIL".to_string() } else if inst_other == 0 { "EXACT_ALL_KEYS_PROVED".to_string() } else { format!("EXACT_KEYS_PROVED_PARTIAL ({} proved, {} not proved: hidden/irregular/exception/not-in-case)", inst_proved, inst_other) };

@@ -102,6 +102,10 @@ impl Sha256 {
         o
     }
 }
+/// sha256 (hex) of a record line as stored (raw bytes, without the trailing newline): the digest every rr_proof
+/// answer echoes (`record_sha256`). Not the campaign's canonical BLAKE3 (child-job.md 3.2.3), which needs BLAKE3 and the
+/// canonicaliser; a consumer holding the raw line recomputes this one with any sha256.
+pub fn record_sha256(line: &[u8]) -> String { let mut h = Sha256::new(); h.update(line); hex(&h.finish()) }
 pub fn hex(b: &[u8]) -> String { b.iter().map(|x| format!("{:02x}", x)).collect() }
 
 /// word stream: block_i = SHA256(T || C || LE64(i)), i = 0,1,...; each block = 4 LE u64 words.
