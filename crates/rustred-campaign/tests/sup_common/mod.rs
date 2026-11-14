@@ -179,7 +179,7 @@ pub fn result(cdir: &Path) -> FinalResult {
 
 /// Pids (of our uid) whose environment carries a marker of campaign id `campaign` (any campaign key of it).
 pub fn marked(campaign: &str) -> Vec<u32> {
-    let needle = format!("RR_CAMPAIGN_JOB={campaign}@");
+    let needle = format!("RR_CAMPAIGN_JOB={campaign}.");
     let mut out = Vec::new();
     for e in std::fs::read_dir("/proc").unwrap().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
@@ -226,16 +226,31 @@ pub fn assert_no_marked_except(campaign: &str, decoys: &[u32]) {
     }
 }
 
-/// Clean-up only (Drop): SIGKILL processes that carry THIS test's unique campaign marker.
+/// Clean-up only (Drop): SIGKILL processes that carry a marker of THIS test's campaign (any marker id derived from
+/// its unique campaign name), through the process layer's verified kill (no signal path of the tests' own).
 pub fn kill_marked(campaign: &str) {
+    let needle = format!("RR_CAMPAIGN_JOB={campaign}.");
+    let mut ids = std::collections::BTreeSet::new();
     for p in marked(campaign) {
-        if !std::fs::read_link(format!("/proc/{p}/cwd"))
-            .is_ok_and(|c| c.starts_with(std::env::temp_dir()))
-        {
-            continue;
+        if let Ok(env) = std::fs::read(format!("/proc/{p}/environ")) {
+            for kv in env.split(|&b| b == 0) {
+                if let Some(v) = kv.strip_prefix(b"RR_CAMPAIGN_JOB=")
+                    && kv.starts_with(needle.as_bytes())
+                    && let Some((id, _)) =
+                        std::str::from_utf8(v).ok().and_then(|v| v.split_once(':'))
+                {
+                    ids.insert(id.to_string());
+                }
+            }
         }
-        // SAFETY: the pid carries a marker unique to this test run (campaign id includes the test's pid and counter).
-        unsafe { libc::kill(p as i32, libc::SIGKILL) };
+    }
+    let boot = rustred_campaign::resources::boot_id().unwrap_or_default();
+    for id in ids {
+        if let Ok(scan) = rustred_campaign::resources::scan_campaign(&id, 0, &Default::default()) {
+            for m in &scan.processes {
+                let _ = rustred_campaign::launch::kill_orphan(&id, &boot, m, libc::SIGKILL);
+            }
+        }
     }
 }
 

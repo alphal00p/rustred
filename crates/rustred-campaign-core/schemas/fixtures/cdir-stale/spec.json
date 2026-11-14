@@ -1,0 +1,316 @@
+{
+  "schema": "rustred.campaign.spec.v1",
+  "campaign": "fixture-stale",
+  "kind": "boxed",
+  "mode": "close",
+  "optimise_from": null,
+  "description": "T162, T178 full closure first, then their user-provided R* boxes",
+  "dirs": {
+    "campaign_dir": "/abs/campaigns/fixture-stale",
+    "large_root": "/common/build-cache/campaigns/fixture-stale"
+  },
+  "programs": {
+    "rr_node": {
+      "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/bin/frozen/20261114/rr_node",
+      "blake3": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "rr_proof": {
+      "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/bin/frozen/20261114/rr_proof",
+      "blake3": "5555555555555555555555555555555555555555555555555555555555555555",
+      "optional": false
+    }
+  },
+  "licence": {
+    "env": "SYMBOLICA_LICENSE",
+    "env_file": null
+  },
+  "recipe_version": "phase2-ladder-v1",
+  "phases": [
+    "boxed"
+  ],
+  "terminal_bound": 100,
+  "nodes": [
+    {
+      "id": "T162",
+      "class": "5L_integer",
+      "derived": {
+        "arity": 20,
+        "lines": 11
+      },
+      "family": {
+        "id": "T162.family",
+        "path": "/abs/families/T162.sym",
+        "blake3": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "order": {
+        "human": "sector support; then dots + rank; then rank",
+        "node_order": {
+          "coordinate_priority": null,
+          "name": "phys_swap_0_3_rot7",
+          "slot_permutation": [
+            3,
+            1,
+            2,
+            0,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "source_order": "Reverse"
+        },
+        "two_sided": []
+      },
+      "rows_file": null,
+      "tables": [
+        {
+          "id": "T162.bank",
+          "path": "/abs/T162.bank.table.jsonl",
+          "blake3": "2222222222222222222222222222222222222222222222222222222222222222",
+          "format": "table_dump.v1",
+          "priority": 0,
+          "trust": "pre_fix",
+          "provenance": {
+            "by": "Astra (hand closure)",
+            "evidence": "astra-bank-20261113",
+            "from": "handoff/t162-bank export",
+            "utc": "2026-11-13T22:45:00Z"
+          },
+          "filter": null
+        }
+      ],
+      "box": {
+        "id": "T162.box",
+        "blake3": "3333333333333333333333333333333333333333333333333333333333333333",
+        "path": null,
+        "predicate": {
+          "keys": null,
+          "layers": [
+            {
+              "dots": [
+                0,
+                0
+              ],
+              "rank_max": 3
+            },
+            {
+              "dots": [
+                1,
+                4
+              ],
+              "rank_max": 4
+            }
+          ],
+          "line_power_max": 5,
+          "union": true
+        }
+      },
+      "envelope": null,
+      "envelopes": [
+        {
+          "id": "T162.env",
+          "path": "/abs/T162.envelope.keys",
+          "blake3": "8888888888888888888888888888888888888888888888888888888888888888",
+          "label": "measured",
+          "from_tables": [
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ]
+        }
+      ],
+      "preferred_terminals": [
+        {
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "symmetry": {
+        "group": "from_table",
+        "use": "credits_with_descent_check"
+      },
+      "terminals": {
+        "declared": [],
+        "bound": null,
+        "fallback": {
+          "from_exhausted_items": true
+        }
+      },
+      "certification": "per-key",
+      "full_attempt": {
+        "cpu_hours": 50,
+        "fixer_rounds": 5
+      },
+      "route": "reproduced",
+      "import": null,
+      "reference": {
+        "comparison_only": true,
+        "file": null,
+        "knockout": null,
+        "masters": null,
+        "name": "Astra T162 hand closure",
+        "rules": null,
+        "terminals": 2
+      },
+      "children": []
+    }
+  ],
+  "scope": {
+    "descendants": "auto"
+  },
+  "ladders": {
+    "phase2": [
+      {
+        "rung": "L0",
+        "work": {
+          "cases": 1
+        },
+        "wall": {
+          "case_s": 300,
+          "job_s": 10800
+        },
+        "mem_bytes": 2147483648,
+        "args": []
+      },
+      {
+        "rung": "L1s",
+        "work": {
+          "cases": 1
+        },
+        "wall": {
+          "case_s": 300,
+          "job_s": 10800
+        },
+        "mem_bytes": 2147483648,
+        "depth3": {
+          "mem_bytes": 8589934592,
+          "wall": {
+            "case_s": 1800
+          }
+        },
+        "required": false
+      },
+      {
+        "rung": "L4",
+        "work": {
+          "cases": 1
+        },
+        "wall": {
+          "case_s": 1800,
+          "job_s": 10800
+        },
+        "mem_bytes": 5368709120,
+        "args": [
+          "--numeric-depth-max",
+          "3"
+        ]
+      },
+      {
+        "rung": "L5",
+        "work": {
+          "cases": 1
+        },
+        "wall": {
+          "case_s": 7200,
+          "job_s": 10800
+        },
+        "mem_bytes": 2147483648,
+        "laporta": true
+      }
+    ],
+    "phase1": null,
+    "max_item_attempts": 12,
+    "max_redraws": 8
+  },
+  "acceptance": {
+    "policy": "acc-level-v1",
+    "certify": "used_keys",
+    "generic_threshold": 2000,
+    "verify_prime_range": [
+      8070450532247928832,
+      8646911284551352320
+    ],
+    "random_d": true,
+    "canary_every": 500,
+    "lift_primes_unknown": "verify_range_only",
+    "not_certified_ceiling": {
+      "knockout": 0,
+      "other_share": 0.001
+    },
+    "replay_primes": [
+      "P61",
+      "P2"
+    ]
+  },
+  "resources": {
+    "max_cores": 70,
+    "max_jobs": 32,
+    "mem_total_bytes": 200000000000,
+    "host_floor_bytes": 50000000000,
+    "cpu_policy": {
+      "kind": "site",
+      "site_policy": {
+        "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/site-policy.json",
+        "blake3": "6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    },
+    "grace_seconds": 120,
+    "certification_share": 0.25,
+    "disk_floor_bytes": 20000000000,
+    "honour_ops_locks": true,
+    "memcap": "auto",
+    "node_priority": [
+      "T162"
+    ],
+    "parallel_nodes": 3,
+    "pause_on_ops_pause": false
+  },
+  "determinism": "recorded",
+  "output": {
+    "elide_witness_loci": false
+  },
+  "economy": {
+    "extra_budget_factor": 2.0
+  },
+  "seed_policy": null,
+  "progress": {
+    "cadence_seconds": 10,
+    "registry": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/campaigns/INDEX.json"
+  },
+  "outputs": {
+    "export": true
+  },
+  "seeds": {
+    "master": "0x5eed"
+  }
+}

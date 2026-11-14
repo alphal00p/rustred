@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-events.schema.json",
+  "title": "Progress file CDIR/progress/events.json (bounded recent-events list, rewritten)",
+  "description": "AS BUILT: rustred_campaign::progress::derive (\"file\": \"events\"). Plan 3.P.1 has an append-only events.jsonl (`rustred.campaign.event.v1`) instead (DISAGREEMENTS).",
+  "x-rr-names": ["rustred.campaign.progress.v1"],
+  "x-rr-select": {"file": "events"},
+  "x-rr-owner": "I-LEDGER (co-signer C-DASH)",
+  "x-rr-struct": "rustred_campaign_core::schema::progress::EventsProgress",
+  "x-rr-freeze": "M0",
+  "allOf": [{"$ref": "progress-common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["cap", "events"],
+  "properties": {
+    "file": {"const": "events"},
+    "cap": {"type": "integer", "minimum": 1},
+    "events": {"type": "array", "items": {
+      "type": "object", "required": ["seq", "utc", "kind", "text"],
+      "properties": {"seq": {"type": "integer", "minimum": 1}, "utc": {"type": "string"}, "kind": {"type": "string"}, "text": {"type": "string"}}
+    }}
+  }
+}

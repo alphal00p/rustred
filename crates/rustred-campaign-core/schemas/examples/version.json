@@ -1,0 +1,15 @@
+{
+  "program": "rr_fake_child",
+  "package_version": "0.1.0",
+  "git_commit": "unknown",
+  "contract": [
+    "rustred.child-job.v1"
+  ],
+  "features": [
+    "fake"
+  ],
+  "job_kinds": [
+    "fake"
+  ],
+  "arities": []
+}

@@ -147,6 +147,9 @@ pub struct Resources {
     /// No `job_started` event this long after spawn = unresponsive (contract 6.2: 60 s).
     #[serde(default = "d_start_timeout")]
     pub start_timeout_s: u64,
+    /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
+    #[serde(default)]
+    pub allow_no_pidfd: bool,
 }
 
 fn d_policy() -> String {

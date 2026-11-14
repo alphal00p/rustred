@@ -7,6 +7,7 @@
 //! together with the work source's routing events. Every crash point is recovered by [`Supervisor::recover`].
 
 pub mod failpoint;
+pub mod identity;
 pub mod orphans;
 pub mod result;
 pub mod spec;
@@ -32,7 +33,7 @@ use crate::state::{
     class_word,
 };
 use failpoint::Failpoints;
-use orphans::{MARKER_ENV, ScanRules, marker_value};
+use orphans::ScanRules;
 use rustred_campaign_contract::canon::{CanonicalDigest, canonical_line};
 use rustred_campaign_contract::classify::{self, KillReason as CKill, WaitStatus};
 use rustred_campaign_contract::events::{Event as ChildEvent, EventsTail, TailItem};
@@ -56,6 +57,7 @@ pub mod exit {
     pub const NOT_FOUND: i32 = 3;
     pub const VERIFY_DIFFERS: i32 = 4;
     pub const BINARY_CHANGED: i32 = 6;
+    pub const MOVED: i32 = 7;
     pub const PF_SPEC: i32 = 20;
     pub const PF_PROGRAM: i32 = 21;
     pub const PF_LICENCE: i32 = 22;
@@ -76,10 +78,14 @@ pub mod exit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunExit {
     Finished,
-    Stopped { code: i32 },
+    Stopped {
+        code: i32,
+    },
     DiskFloor,
     DiskFull,
     BinaryChanged(String),
+    /// The campaign directory was copied / moved / restored (its marker id differs from the ledger's).
+    Moved(String),
     Refused(String),
     Internal(String),
 }
@@ -92,6 +98,7 @@ impl RunExit {
             RunExit::DiskFloor => exit::DISK_FLOOR,
             RunExit::DiskFull => exit::DISK_FULL,
             RunExit::BinaryChanged(_) => exit::BINARY_CHANGED,
+            RunExit::Moved(_) => exit::MOVED,
             RunExit::Refused(_) => exit::REFUSED,
             RunExit::Internal(_) => exit::INTERNAL,
         }
@@ -107,6 +114,8 @@ pub struct RunOptions {
     pub plain: bool,
     pub fake_child: bool,
     pub accept_binary_change: bool,
+    /// Continue in a copied / moved campaign directory: re-keys FUTURE jobs only; recorded processes are never ours.
+    pub adopt_moved: bool,
     pub cores: Option<usize>,
     pub mem_total: Option<u64>,
     pub argv: Vec<String>,
@@ -208,6 +217,7 @@ pub struct Supervisor {
     programs: BTreeMap<String, (PathBuf, String)>,
     sampler: Arc<Sampler>,
     launcher: RealLauncher,
+    moved: bool,
     policy: Box<dyn CpuPolicy>,
     admission: AdmissionPolicy,
     signals: Signals,
@@ -246,13 +256,7 @@ pub fn file_digest(p: &Path) -> std::io::Result<(u64, String)> {
     crate::atomic::blake3_file(p)
 }
 
-/// The campaign key of the marker: `<id>@<12 hex>` from the spec digest and the creation time (unique per CDIR).
-pub fn campaign_key(st: &CampaignState) -> String {
-    let h = blake3::hash(format!("{}|{}", st.spec_blake3, st.created_utc).as_bytes()).to_hex();
-    format!("{}@{}", st.campaign_id, &h[..12])
-}
-
-fn map_kill(k: Option<&KillReason>) -> CKill {
+fn contract_kill_reason(k: Option<&KillReason>) -> CKill {
     match k {
         None => CKill::None,
         Some(
@@ -398,7 +402,43 @@ impl Supervisor {
             LedgerError::NoSpace { .. } => RunExit::DiskFull,
             e => RunExit::Refused(format!("ledger: {e}")),
         })?;
-        let key = campaign_key(ledger.state());
+        // The marker campaign id (C-1): per directory, recorded in the ledger; a copy has another id.
+        let key =
+            identity::campaign_marker_id(&cdir, &opts.spec.campaign).map_err(RunExit::Refused)?;
+        let mut moved = false;
+        match identity::recorded_id(ledger.state()) {
+            None => {
+                ledger
+                    .append(identity::id_event(&key))
+                    .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
+            }
+            Some(r) if r == key => {}
+            Some(r) => {
+                let msg = format!(
+                    "campaign directory {} was copied, moved or restored: its marker id is {key}, the ledger recorded {r}; \
+                     processes of the recorded attempts are NOT this directory's and are never signalled",
+                    cdir.display()
+                );
+                if !opts.adopt_moved {
+                    return Err(RunExit::Moved(format!(
+                        "{msg}. Refused: pass --adopt-moved-campaign to continue here (recorded live attempts become lost)"
+                    )));
+                }
+                log.line(
+                    "WARN",
+                    &format!("{msg}; continuing with --adopt-moved-campaign"),
+                );
+                ledger
+                    .append(identity::id_event(&key))
+                    .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
+                moved = true;
+            }
+        }
+        if !crate::launch::pidfd_supported() && !opts.spec.resources.allow_no_pidfd {
+            return Err(RunExit::Refused(
+                "this kernel offers no pidfd (verified signals impossible); refused unless resources.allow_no_pidfd".into(),
+            ));
+        }
         let sampler = Arc::new(
             Sampler::spawn(SamplerConfig {
                 interval: Duration::from_millis(opts.spec.resources.sampler_ms.max(100)),
@@ -406,7 +446,14 @@ impl Supervisor {
             })
             .map_err(|e| RunExit::Internal(format!("sampler: {e}")))?,
         );
-        let launcher = RealLauncher::new(Arc::clone(&sampler));
+        let launcher = RealLauncher::try_with_config(
+            Arc::clone(&sampler),
+            crate::launch::RealConfig {
+                campaign_id: key.clone(),
+                ..crate::launch::RealConfig::default()
+            },
+        )
+        .map_err(|e| RunExit::Refused(format!("marker id {key:?}: {e}")))?;
         let mut pause_files = opts.spec.resources.pause_files.clone();
         pause_files.push(cdir.join("control").join("PAUSED"));
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
@@ -422,9 +469,12 @@ impl Supervisor {
                     p.add_pause_file(f);
                 }
                 match p.reconcile_own_claims() {
-                    Ok(v) if !v.is_empty() => log.line(
+                    Ok(r) if !r.released.is_empty() || !r.held.is_empty() => log.line(
                         "INFO",
-                        &format!("CPU ledger: released {} stale own claim(s): {v:?}", v.len()),
+                        &format!(
+                            "CPU ledger: released stale own claims {:?}; own claims still held {:?}",
+                            r.released, r.held
+                        ),
                     ),
                     Ok(_) => {}
                     Err(e) => log.line("WARN", &format!("CPU ledger reconciliation: {e}")),
@@ -486,6 +536,7 @@ impl Supervisor {
             programs,
             sampler,
             launcher,
+            moved,
             policy,
             admission,
             signals,
@@ -563,10 +614,9 @@ impl Supervisor {
         ];
         roots.dedup();
         ScanRules {
-            campaign_key: self.ctx.campaign_key.clone(),
+            campaign_id: self.ctx.campaign_key.clone(),
             recorded_boot_id: Some(self.boot_id.clone()),
             min_start_ticks: 0,
-            leaders: BTreeMap::new(),
             roots,
         }
     }
@@ -606,25 +656,28 @@ impl Supervisor {
         // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
         // when no session of this boot launched anything, and then nothing is signalled).
         rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
-        for (_, _, pid, st, boot) in &unsettled {
-            if let (Some(p), Some(t), Some(b)) = (pid, st, boot)
-                && *b == self.boot_id
-            {
-                rules.leaders.insert(*p, *t);
-            }
-        }
-        let killed = if min_ticks.is_some() {
-            orphans::sweep(&rules, None, Duration::from_secs(30))
+        // A copied / moved directory (--adopt-moved-campaign): nothing recorded is ours; no scan at all.
+        let scan_allowed = min_ticks.is_some() && !self.moved;
+        let mut log_lines = Vec::new();
+        let killed = if scan_allowed {
+            orphans::sweep(&rules, None, Duration::from_secs(30), |round, found| {
+                log_lines.push(format!(
+                    "recovery: orphan scan round {round}: {found} marked process(es) of this campaign"
+                ))
+            })
         } else {
             Vec::new()
         };
+        for l in log_lines {
+            self.log.line("INFO", &l);
+        }
         for k in &killed {
             self.note(format!(
                 "orphan_killed {{\"marker\":\"{}\",\"pid\":{},\"start_ticks\":{}}}",
-                k.job_attempt, k.pid, k.start_ticks
+                k.attempt_id, k.pid, k.start_ticks
             ));
         }
-        let left = if min_ticks.is_some() {
+        let left = if scan_allowed {
             rules.scan(None)
         } else {
             Vec::new()
@@ -639,8 +692,34 @@ impl Supervisor {
             );
         }
         for (job, attempt, _, _, _) in unsettled {
+            if self.moved {
+                // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
+                let ev = vec![
+                    Event::Job {
+                        job: job.clone(),
+                        attempt,
+                        ev: JobEvent::Lose {
+                            reason: "campaign directory copied / moved: recorded process is not ours (not signalled)"
+                                .into(),
+                        },
+                    },
+                    Event::Job {
+                        job: job.clone(),
+                        attempt: attempt + 1,
+                        ev: JobEvent::Requeue {
+                            reason: "lost (moved campaign directory)".into(),
+                        },
+                    },
+                ];
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: recorded in the original directory; marked lost, not signalled"),
+                );
+                self.commit(ev);
+                continue;
+            }
             let marker = format!("{job}:a{attempt}");
-            let was_killed = killed.iter().any(|k| k.job_attempt == marker);
+            let was_killed = killed.iter().any(|k| k.attempt_id == marker);
             let Some(run_dir) = self.st().jobs.get(&job).and_then(|j| j.run_dir.clone()) else {
                 continue;
             };
@@ -988,10 +1067,8 @@ impl Supervisor {
         );
         let mut ls =
             adapters::prepare_run(&spec, &prog_path).map_err(|e| format!("run dir: {e}"))?;
-        ls.env.push((
-            MARKER_ENV.into(),
-            marker_value(&self.ctx.campaign_key, &req.job, attempt).into(),
-        ));
+        // The launcher sets the marker `<campaign id>:<label>`: the label is the attempt id.
+        ls.label = format!("{}:a{attempt}", req.job);
         if let Some(l) = &self.lock {
             ls.env.push((lock::TOKEN_ENV.into(), l.token().into()));
         }
@@ -1154,7 +1231,7 @@ impl Supervisor {
                     &ch.layout,
                     &ch.spec,
                     map_wait(report.exit),
-                    map_kill(report.kill_reason.as_ref()),
+                    contract_kill_reason(report.kill_reason.as_ref()),
                     false,
                     Some(&report),
                 );
@@ -1162,7 +1239,7 @@ impl Supervisor {
             // Leftovers carrying the attempt's marker (e.g. a helper that escaped the group).
             let rules = self.scan_rules_launched();
             let marker = format!("{}:a{}", ch.job, ch.attempt);
-            let killed = orphans::sweep(&rules, Some(&marker), Duration::from_secs(10));
+            let killed = orphans::sweep(&rules, Some(&marker), Duration::from_secs(10), |_, _| {});
             for k in killed {
                 self.note(format!(
                     "orphan_killed {{\"marker\":\"{marker}\",\"pid\":{},\"start_ticks\":{}}} (contract violation: process outlived its job)",
@@ -1331,22 +1408,29 @@ impl Supervisor {
         if reqs.is_empty() {
             return;
         }
-        let fresh = self.sampler_fresh();
+        // Times on one monotonic axis (origin = this supervisor's start): a measurement is used only with its age
+        // (admission charges the full cap for a stale or missing one; audit-proc-A M3).
+        let base = self.started_at;
+        let snap_at = self
+            .sampler
+            .latest()
+            .map(|s| s.started_at.saturating_duration_since(base));
         let running: Vec<RunningJob> = self
             .children
             .iter()
-            .map(|c| RunningJob {
-                id: u64::MAX - c.seq,
-                cap_bytes: c.cap,
-                expected_peak_bytes: c.peak.min(c.cap),
-                rss_bytes: if fresh {
-                    c.handle.usage().map_or(0, |u| u.rss_bytes)
-                } else {
-                    0
-                },
-                cores: c.cores,
-                started_seq: c.seq,
-                cpu_seconds: 0.0,
+            .map(|c| {
+                let usage = c.handle.usage();
+                RunningJob {
+                    id: u64::MAX - c.seq,
+                    cap_bytes: c.cap,
+                    expected_peak_bytes: c.peak.min(c.cap),
+                    rss_bytes: usage.as_ref().map_or(0, |u| u.rss_bytes),
+                    rss_measured_at: usage.and(snap_at),
+                    cores: c.cores,
+                    started_seq: c.seq,
+                    cpu_seconds: 0.0,
+                    stopping: c.stopping,
+                }
             })
             .collect();
         let cands: Vec<Candidate> = reqs
@@ -1360,8 +1444,11 @@ impl Supervisor {
                 bypassed: self.bypassed.get(&r.job).copied().unwrap_or(0),
             })
             .collect();
+        let now = base.elapsed();
         let host = HostView {
             mem_available_bytes: host_memory().map(|m| m.effective_available()).unwrap_or(0),
+            measured_at: now,
+            now,
         };
         let out = admission::decide_batch(&self.admission, host, &running, &cands);
         for b in &out.bypassed {

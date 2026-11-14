@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const USAGE: &str = "usage:
-  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--cores N] [--mem-total 30G]
+  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G]
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
   rr_campaign control CDIR pause|resume|stop|retry ITEM|skip ITEM
   rr_campaign verify CDIR
@@ -48,6 +48,7 @@ struct Flags {
     plain: bool,
     fake_child: bool,
     accept_binary_change: bool,
+    adopt_moved: bool,
     once: bool,
     cores: Option<usize>,
     mem_total: Option<u64>,
@@ -69,6 +70,7 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--plain" => f.plain = true,
             "--fake-child" => f.fake_child = true,
             "--accept-binary-change" => f.accept_binary_change = true,
+            "--adopt-moved-campaign" => f.adopt_moved = true,
             "--once" => f.once = true,
             "--cores" => f.cores = Some(val("--cores")?.parse().map_err(|_| "--cores: a number")?),
             "--mem-total" => {
@@ -130,6 +132,7 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         plain: f.plain || true,
         fake_child: f.fake_child,
         accept_binary_change: f.accept_binary_change,
+        adopt_moved: f.adopt_moved,
         cores: f.cores,
         mem_total: f.mem_total,
         argv: full,
@@ -137,6 +140,7 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
     });
     match &r {
         supervisor::RunExit::Refused(m)
+        | supervisor::RunExit::Moved(m)
         | supervisor::RunExit::BinaryChanged(m)
         | supervisor::RunExit::Internal(m) => {
             eprintln!("rr_campaign: {m}")
@@ -479,8 +483,7 @@ fn version_line(p: &Path) -> Result<String, String> {
         match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) if t0.elapsed() > Duration::from_secs(30) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                // No signal path in the CLI (gate re-audit M-1): the probe is left to finish on its own.
                 return Err("timed out".into());
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),

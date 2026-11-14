@@ -1,0 +1,102 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "node",
+ "fixture_origin": "hand",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-20T08:15:04.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 18402,
+  "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-20T08:15:03.250Z"
+ },
+ "node": "T074",
+ "phase": "certified",
+ "closure_kind": "full",
+ "certified": true,
+ "target": {
+  "target": "full"
+ },
+ "spec_box": null,
+ "attempt_ended": false,
+ "blockers": {
+  "full": null,
+  "box": null
+ },
+ "closure": {
+  "rounds": 2,
+  "defect_keys": 0,
+  "keyset": null,
+  "closure_keys": 20412,
+  "rules_used": 431,
+  "rules_total": 431,
+  "used_share": 1.0
+ },
+ "economy": {
+  "rules_before": 572,
+  "rules_after": 431,
+  "superseded": 141,
+  "unmeasured": 0,
+  "before": {
+   "bytes": 112000000,
+   "cases": 572,
+   "coefficient_degree": 12,
+   "monomials": 2100000,
+   "rhs_terms": 407342,
+   "rules": 572
+  },
+  "after": {
+   "bytes": 91000000,
+   "cases": 431,
+   "coefficient_degree": 12,
+   "monomials": 2000000,
+   "rhs_terms": 337993,
+   "rules": 431
+  }
+ },
+ "terminals": {
+  "declared": 0,
+  "bound": 100,
+  "candidates": 0
+ },
+ "items": {
+  "open": 0,
+  "by_phase": {
+   "open": 0,
+   "in_progress": 0,
+   "produced": 0,
+   "accepted": 142,
+   "rejected": 0,
+   "escalated": 36,
+   "terminal_candidate": 0,
+   "terminal": 0,
+   "stale": 0,
+   "retired": 5
+  },
+  "by_level": {
+   "L0": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 142,
+    "rejected": 0,
+    "escalated": 36,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 5
+   }
+  }
+ },
+ "accepted_by_evidence": {
+  "geometry_accepted": 0,
+  "identity_tested": 0,
+  "identity_proved": 142
+ },
+ "inputs": [
+  "T074.family",
+  "T074.table"
+ ],
+ "stale_reason": null,
+ "cpu_seconds": 0.0
+}

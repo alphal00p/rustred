@@ -1,5 +1,5 @@
 //! Failpoints for interrupt tests and rehearsals (plan 6.5 I1; interfaces/supervisor.md section 14):
-//! `RR_CAMPAIGN_FAILPOINT=<site>:<n>` SIGKILLs the supervisor itself at the n-th pass of `<site>` (1-based). The
+//! `RR_CAMPAIGN_FAILPOINT=<site>:<n>` aborts the supervisor itself (SIGABRT, no unwinding) at the n-th pass of `<site>` (1-based). The
 //! special site `ledger_enospc` makes the n-th ledger append and every later one fail with ENOSPC.
 
 use crate::ledger::{SegmentFile, SegmentOpener};
@@ -43,9 +43,8 @@ impl Failpoints {
         }
         let k = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
         if k == self.n {
-            eprintln!("failpoint {site}:{k}: SIGKILL self");
-            // SAFETY: signalling ourselves.
-            unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+            // abort(): no unwinding, no Drop, no flush (as a hard kill); the supervisor has no signal path of its own.
+            eprintln!("failpoint {site}:{k}: abort");
             std::process::abort();
         }
     }

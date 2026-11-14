@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use rustred_campaign::launch::{
     ChildHandle, ChildLauncher, ExitState, KillReason, LostReason, RealLauncher, ReattachChoice,
-    Reattached, SignalOutcome, peek_exit, signal_group_by_identity,
+    Reattached, peek_exit,
 };
 use rustred_campaign::resources::{Liveness, ProcessIdentity, affinity_of};
 use std::os::fd::AsRawFd;
@@ -72,8 +72,10 @@ fn child_ignoring_sigterm_is_killed_after_grace() {
     assert_session_gone(sid);
 }
 
+/// Since the procfix lane: an escapee that carries the attempt's campaign marker is provably ours; it is reported AND
+/// killed through the identity checklist (it was "reported, never chased" before the marker existed).
 #[test]
-fn escapee_is_reported_not_chased() {
+fn escapee_with_marker_is_reported_and_killed() {
     let _g = serial();
     let dir = TempDir::new("escape");
     let mut l = launcher();
@@ -91,22 +93,18 @@ fn escapee_is_reported_not_chased() {
     });
     h.terminate(Duration::from_secs(5), KillReason::Stop);
     let r = drive(&mut h);
-    assert!(r.session_verified_empty);
+    assert!(r.session_verified_empty, "{r:?}");
     assert_eq!(r.escaped.len(), 1, "{r:?}");
     let e = &r.escaped[0];
     assert_eq!(e.comm, "sleep");
+    // It got the SIGTERM of terminate() (or the leftover SIGKILL): it is gone, not alive.
+    assert!(!e.alive, "{r:?}");
     assert_session_gone(sid);
-    // The escapee is still alive (it was not chased); the test cleans it up by its verified identity.
     let id = ProcessIdentity {
         pid: e.pid,
         start_ticks: e.start_ticks,
         boot_id: rustred_campaign::resources::boot_id().unwrap(),
     };
-    assert_eq!(id.check().unwrap(), Liveness::Alive { zombie: false });
-    assert_eq!(
-        signal_group_by_identity(&id, libc::SIGKILL).unwrap(),
-        SignalOutcome::Delivered { groups: 1 }
-    );
     wait_until("escapee gone", Duration::from_secs(60), || {
         !matches!(id.check(), Ok(Liveness::Alive { zombie: false }))
     });
@@ -125,9 +123,16 @@ fn identity_check_refuses_a_recycled_pid() {
         start_ticks: real.start_ticks + 1,
         ..real.clone()
     };
+    let marker = rustred_campaign::resources::CampaignMarker::new(
+        rustred_campaign::launch::adhoc_campaign_id(),
+        "identity",
+    )
+    .unwrap();
     assert!(matches!(
-        signal_group_by_identity(&recycled, libc::SIGKILL).unwrap(),
-        SignalOutcome::NotOurs(Liveness::Recycled { .. })
+        rustred_campaign::launch::signal_verified_process(&recycled, &marker, libc::SIGKILL),
+        rustred_campaign::launch::Verdict::NotOurs(
+            rustred_campaign::launch::Refusal::StartMismatch { .. }
+        )
     ));
     // A second launcher (a restarted supervisor) refuses to adopt it too: the pid leads its own session.
     let mut other = launcher();
@@ -281,11 +286,27 @@ fn missing_passthrough_variable_fails_by_name_only() {
         .collect();
     for n in &names {
         assert!(
-            ["PATH", "HOME", "RR_GIVEN", "PWD", "SHLVL", "_", "OLDPWD"].contains(n),
+            [
+                "PATH",
+                "HOME",
+                "RR_GIVEN",
+                "PWD",
+                "SHLVL",
+                "_",
+                "OLDPWD",
+                "RR_CAMPAIGN_JOB"
+            ]
+            .contains(n),
             "unexpected variable {n} in {names:?}"
         );
     }
     assert!(names.contains(&"RR_GIVEN") && names.contains(&"HOME"));
+    // The campaign marker is always set: <campaign id>:<label>.
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("RR_CAMPAIGN_JOB=adhoc-") && l.ends_with(":env2")),
+        "{out}"
+    );
 }
 
 #[test]

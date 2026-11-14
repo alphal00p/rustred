@@ -1,0 +1,43 @@
+{
+  "campaigns": [
+    {
+      "dir": "cdir-empty",
+      "id": "fixture-empty",
+      "kind": "test",
+      "mode": "close",
+      "optimised_from": null,
+      "owner": "fixture",
+      "started_utc": "2026-11-14T06:00:00Z"
+    },
+    {
+      "dir": "cdir-mid",
+      "id": "fixture-mid",
+      "kind": "test",
+      "mode": "close",
+      "optimised_from": null,
+      "owner": "fixture",
+      "started_utc": "2026-11-14T06:00:00Z"
+    },
+    {
+      "dir": "cdir-finished",
+      "id": "fixture-finished",
+      "kind": "test",
+      "mode": "close",
+      "optimised_from": null,
+      "owner": "fixture",
+      "started_utc": "2026-11-14T06:00:00Z"
+    },
+    {
+      "dir": "cdir-stale",
+      "id": "fixture-stale",
+      "kind": "test",
+      "mode": "close",
+      "optimised_from": null,
+      "owner": "fixture",
+      "started_utc": "2026-11-14T06:00:00Z"
+    }
+  ],
+  "fixture_origin": "hand",
+  "schema": "rustred.campaign.registry.v1",
+  "written_utc": "2026-11-20T04:03:10Z"
+}

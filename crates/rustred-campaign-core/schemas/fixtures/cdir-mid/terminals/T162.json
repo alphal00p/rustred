@@ -1,0 +1,115 @@
+{
+  "campaign_id": "fixture-mid",
+  "compatible_with": "p5l-terminals.v1",
+  "fixture_origin": "hand",
+  "nodes": [
+    {
+      "bound": 100,
+      "box": null,
+      "box_id": "T162.box",
+      "certification": "pending",
+      "closure_kind": "boxed",
+      "graph": {
+        "E": 9,
+        "L": 5,
+        "S": 0,
+        "T": 6,
+        "edges_str": "<targets.tsv edge string>"
+      },
+      "id": "T162",
+      "keys_covered": 55702,
+      "keys_in_box": 55704,
+      "lane": "rr-campaign",
+      "provisional": true,
+      "reference": {
+        "comparison_only": true,
+        "name": "Astra T162 hand closure",
+        "terminals": 2
+      },
+      "source": "campaign p5l-boxed-example (ledger seq 17550)",
+      "table": {
+        "blake3": "7777777777777777777777777777777777777777777777777777777777777777",
+        "bytes": 123456789,
+        "path": "large:tables/T162.table.jsonl"
+      },
+      "terminals": [
+        {
+          "drawing": {
+            "dots": {},
+            "numerators": [],
+            "pinched_lines": [],
+            "present_lines": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "evaluation_status": "unknown integral",
+          "frame": "census",
+          "id": "T162:corner",
+          "item": "T162:I0001",
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "label": "corner I(1^9,0^11)",
+          "origin": "ladder_exhausted",
+          "presented_key": {
+            "frame": "phys_swap_0_3_rot7",
+            "key": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "reason": "terminal_after_ladder"
+        }
+      ]
+    }
+  ],
+  "schema": "rustred.campaign.terminals.v1",
+  "seq": 132,
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-20T08:15:04Z"
+}

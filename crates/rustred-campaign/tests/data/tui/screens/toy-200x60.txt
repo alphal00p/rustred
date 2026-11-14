@@ -1,0 +1,60 @@
+rr_campaign  toy-2loop-optimise  RUNNING  age 20m03s  hb 2s  seq 311  sessions 1  mode optimise  cert asked replay
+CPU 2/4   RAM 0.2 used, 0.5 res / 2.0G cap   host 8.0G (floor 1.0)   jobs 2
+NODES 2  FULL 1  BOXED 0  OPEN 1  certified 1  attention 0  (certified=1, running=1)
+ITEMS 30  open 5  run 2  acc 12  esc 4  rej 0  term 0  ret 9  stale 0
+RULES accepted 21  rejected 0  CERT 0.0% (0/12 proved)  upgrades 12  retired 9
+TERMINALS 3 (cand 0, bound 10/node, preferred used 2/3)  DEFECT 0 keys (0 of 1 nodes with defect)  ECONOMY rules 21->12  RHS 410->233
+cpu-h 0.5  ETA ~ 80s-3m wall (3m-6m CPU left; 5 items; 2 jobs)
+-[ Nodes (2) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
+node     coverage                 cert asked/got  phase           open by rung               term   pref used   defect  cert% rules bef>aft  used%         RHS bef>aft   CPU-h reference (info)
+kite     OPEN                     replay/-        running            5 L0 3 L1 2             1/10           -        -   0.0%           7>4      -              130>82     0.2 term 1 rules 7
+sunset   FULL PROV                replay/replay   certified          0 -                     2/10     2/3 nn1        0   0.0%          14>8  87.5%             280>151     0.3 term 3 rules 14
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ kite (selected; n/N) ]-----------------------------------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 21  rejected 0  upgrades 12  retired 9       coverage OPEN  target full  spec box -  phase running  certified no  attempt ~
+L0        3    1    -     10    -    4     -    -    30   40.0      rejected by reason: -                                 closure  rounds 0  defect not checked yet  closure keys -  rules used - / - (~
+L1        2    1    -      2    -    -     -    -     8   75.0      evidence: geometry 0  tested 12  proved 0             economy  rules 7 -> 4 (superseded 3)  RHS terms 130 -> 82
+                                                                    certified share 0.0% (accepted items at identity_pr~  terminals 1 / 10 (candidates 0)  items open 5  CPU 0.2 h
+                                                                    economy: rules 21 -> 12, RHS terms 410 -> 233         evidence geometry 0  tested 4  proved 0  (cert 0.0%)
+                                                                    closure defect keys: sunset 0                         blockers full: -   box: -
+                                                                    jobs 40 settled: complete 8, rule_found 30            certification asked replay  reached -
+                                                                                                                          preferred terminals (a wish, not a requirement): none given   other terminals~
+                                                                                                                          reference (information only) existing table set: terminals 1  rules 7  RHS te~
+                                                                                                                          items by state: open 3, in_progress 2, accepted 4, escalated 2, retired 3
+                                                                                                                          open by rung: L0 3  L1 2
+                                                                                                                          -[ Attention (0) ]------------------------------------------------ a: all ----
+                                                                                                                          (nothing needs a decision)
+-[ Running jobs 2 ]-------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
+running 2 (job list not in the progress files and not available from the ledger)
+-[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
+10:00:00 ok   item_accepted     kite F001: rule kite:R:5 accepted (identity_tested)
+09:59:10 ok   node              sunset: certified (full, provisional: hand-down ranges measured)
+09:58:00 .    rule_retired      sunset F002: rule sunset:R:3 superseded by sunset-item-00011 (replaced_by)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+n/N select node  Enter node detail  j jobs  e events  a attention(0)  ?help  q/Ctrl-C close viewer (campaign unaffected)

@@ -34,11 +34,11 @@ fn failpoints_and_full_disk_resume_to_the_reference() {
     let spec_p = write_spec(&t, "spec.json", &spec(&t, small(), serde_json::json!({})));
     let reference = reference(&t, &spec_p);
     for (i, (fp, want)) in [
-        ("after_launch_record:3", 137),
-        ("after_spawn:5", 137),
-        ("before_settle_commit:4", 137),
-        ("after_settle_commit:6", 137),
-        ("progress_write:3", 137),
+        ("after_launch_record:3", 134),
+        ("after_spawn:5", 134),
+        ("before_settle_commit:4", 134),
+        ("after_settle_commit:6", 134),
+        ("progress_write:3", 134),
         ("ledger_enospc:40", 75),
     ]
     .iter()
@@ -173,7 +173,7 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     // cwd inside the campaign directory; and a process carrying ANOTHER campaign key's marker (same campaign id).
     let d1 = decoy(&d, None);
     let other = format!(
-        "RR_CAMPAIGN_JOB={}@ffffffffffff:N0.i0000.L0-t0:a1",
+        "RR_CAMPAIGN_JOB={}.ffffffffffffffff:N0.i0000.L0-t0:a1",
         t.campaign
     );
     let (ok, ov) = other.split_once('=').unwrap();

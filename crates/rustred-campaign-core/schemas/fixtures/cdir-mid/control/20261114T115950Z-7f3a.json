@@ -1,0 +1,11 @@
+{
+  "args": {},
+  "by": "vhirschi (tty)",
+  "fixture_origin": "hand",
+  "id": "c-20261114T115950Z-7f3a",
+  "reason": "operator pause before the host maintenance",
+  "schema": "rustred.campaign.control.v1",
+  "target": null,
+  "utc": "2026-11-14T11:59:50Z",
+  "verb": "pause"
+}

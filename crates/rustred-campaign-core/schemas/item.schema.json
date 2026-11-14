@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "item.schema.json",
+  "title": "Work item document",
+  "description": "NO AS-BUILT WRITER: items exist as ledger records (item_created / item) and as state::ItemRec. This document = plan 3.3.3 re-expressed with the AS-BUILT vocabulary (phase words of state::ItemPhase, evidence levels, `weight` u64, `label`) plus the plan's descriptive fields. Plan's states queued / blocked / running / rule_found / covered / certified / split / attention / skipped / paused / superseded / failed are NOT used (DISAGREEMENTS).",
+  "x-rr-names": ["rustred.campaign.item.v1"],
+  "x-rr-owner": "I-LADDER (worklist.rs)",
+  "x-rr-struct": "rustred_campaign_core::schema::item::ItemDoc",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "id", "node", "kind", "rung", "parent", "label", "weight", "inputs", "node_inputs_digest", "phase", "level", "jobs", "why"],
+  "properties": {
+    "schema": {"const": "rustred.campaign.item.v1"},
+    "id": {"type": "string", "minLength": 1, "description": "content id (plan 3.3.0: 32 hex) or the ledger's item id"},
+    "short": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._-]+:I[0-9]{4,}$"},
+    "node": {"type": "string"},
+    "kind": {"enum": ["node_generate", "piece", "face", "locus", "point_set", "terminal_candidate", "certify", "closure", "export", "oracle", "optimise"]},
+    "face": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["sd", "sn"], "properties": {"sd": {"type": "array", "items": {"type": "integer", "minimum": 0}}, "sn": {"type": "array", "items": {"type": "integer", "minimum": 0}}}}]},
+    "locus": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["equations", "type"], "properties": {"equations": {"type": "array", "items": {"type": "string"}}, "type": {"enum": ["point", "ray", "plane", "diagonal", "sum_plane", "affine", "quadric", "pell"]}}}]},
+    "frozen": true,
+    "points": {"type": ["integer", "null"], "minimum": 0},
+    "rung": {"$ref": "common.schema.json#/$defs/rung"},
+    "parent": {"type": ["string", "null"]},
+    "origin": {"$ref": "common.schema.json#/$defs/reason_code"},
+    "label": {"type": "string"},
+    "weight": {"$ref": "common.schema.json#/$defs/u64"},
+    "inputs": {"type": "array", "items": {"type": "string"}},
+    "node_inputs_digest": {"$ref": "common.schema.json#/$defs/blake3"},
+    "phase": {"$ref": "common.schema.json#/$defs/item_phase"},
+    "level": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/evidence_level"}]},
+    "jobs": {"type": "array", "items": {"type": "string"}},
+    "why": {"$ref": "common.schema.json#/$defs/why"}
+  },
+  "allOf": [
+    {"if": {"properties": {"phase": {"enum": ["accepted", "retired"]}}}, "then": {"properties": {"level": {"type": "string"}}}, "else": {"properties": {"level": {"type": "null"}}}}
+  ]
+}
