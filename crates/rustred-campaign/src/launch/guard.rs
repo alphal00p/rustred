@@ -917,6 +917,29 @@ mod tests {
         ));
     }
 
+    /// Gate re-audit A m-1: for a pinned-session proof the pin is checked BEFORE the /proc reads it protects. A target
+    /// that does not exist, with a session that is not pinned: refused as SessionNotPinned by the pre-check (before the
+    /// fix the reads came first and answered Gone). Signal 0, nothing can be delivered either way.
+    #[test]
+    fn ra_m1_pinned_session_is_checked_before_the_reads() {
+        let leaders = Leaders::default();
+        let t = ProcessTarget {
+            pid: crate::resources::pid_max() - 1,
+            boot_id: boot_id().unwrap(),
+            start: StartRule::NotBefore(0),
+            require_session_leader: false,
+            proof: Proof::PinnedSession(4242),
+        };
+        assert_eq!(
+            signal_verified(&t, 0, Some(&leaders), Duration::from_millis(500)),
+            Verdict::NotOurs(Refusal::SessionNotPinned { sid: 4242 })
+        );
+        assert_eq!(
+            signal_verified(&t, 0, None, Duration::from_millis(500)),
+            Verdict::NotOurs(Refusal::SessionNotPinned { sid: 4242 })
+        );
+    }
+
     /// Audit A M5 seam: a /proc root whose `environ` is a FIFO without writer blocks a read forever; the verification
     /// must come back `Unverified` within its bound, and nothing is signalled. The pid is a child of this test (so the
     /// pidfd opens); its fake stat names it with the right start time.
