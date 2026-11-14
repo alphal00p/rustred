@@ -11,6 +11,7 @@ pub mod descent;
 pub mod facts;
 pub mod ladder_adapters;
 pub mod prover;
+pub mod recipe;
 pub mod record;
 pub mod rule;
 
@@ -320,6 +321,17 @@ pub fn composed_stop(
     after: Option<&Dispatcher>,
     key: &[i32],
 ) -> Result<Stop, AcceptError> {
+    composed_stop_domain(node, before, rule.domain.as_ref(), after, key)
+}
+
+/// [`composed_stop`] for a bare domain (recipe rules carry a domain and no record).
+pub fn composed_stop_domain(
+    node: &NodeView,
+    before: Option<&Dispatcher>,
+    domain: Option<&crate::domain::CaseDomain>,
+    after: Option<&Dispatcher>,
+    key: &[i32],
+) -> Result<Stop, AcceptError> {
     if node.terminals.contains(key) {
         return Ok(Stop::Terminal);
     }
@@ -329,7 +341,7 @@ pub fn composed_stop(
             return Ok(Stop::Before(d));
         }
     }
-    let Some(dom) = &rule.domain else {
+    let Some(dom) = domain else {
         return Ok(Stop::After(None));
     };
     let v = dom.applies(key);

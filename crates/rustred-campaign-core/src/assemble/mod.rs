@@ -8,6 +8,7 @@
 //! the source lines, streamed one at a time (records can be 100+ MB; the coefficient text is never re-serialised).
 
 pub mod domaincheck;
+pub mod recipes;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
