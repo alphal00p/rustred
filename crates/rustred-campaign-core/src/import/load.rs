@@ -524,11 +524,11 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         "more than one symmetry_credit source".into(),
                     ));
                 }
-                if let Some(fam) = &src.family {
+                if src.family.is_some() || src.group_format.is_some() {
                     // the VERIFIED group: derived from the family (presented into the tables' frame), supplied data
                     // checked against it (interfaces/import.md 13.1)
                     let gs = GroupSpec {
-                        family: fam.clone(),
+                        family: src.family.clone(),
                         group: src.group.clone(),
                         group_format: src.group_format.unwrap_or(if src.group.is_some() {
                             GroupFormat::Symgroup
@@ -543,6 +543,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         base,
                         frame.mask(),
                         cmp.presentation().new_to_old(),
+                        fhead.raw.get("family_source").and_then(Value::as_str),
                     )?;
                     rep.files.push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
                     if let Some(f) = &gr.group_file {
@@ -1099,8 +1100,13 @@ fn load_supplied(
     // `verify`: the verified group and the coefficient texts of every record (small files: read whole)
     let vgroup = match &src.verify {
         Some(gs) => {
-            let (vg, gr) =
-                load_verified_group(gs, base, frame.mask(), cmp.presentation().new_to_old())?;
+            let (vg, gr) = load_verified_group(
+                gs,
+                base,
+                frame.mask(),
+                cmp.presentation().new_to_old(),
+                fhead.raw.get("family_source").and_then(Value::as_str),
+            )?;
             rep.files
                 .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
             rep.group = Some(gr);
@@ -1474,11 +1480,14 @@ pub fn read_key_list(path: &Path, arity: usize) -> Result<Vec<Vec<i32>>, ImportE
                 .ok()
                 .filter(|k| k.len() == arity)
                 .ok_or_else(bad),
-            Value::Object(o) => o
-                .get("key")
-                .and_then(|k| serde_json::from_value::<Vec<i32>>(k.clone()).ok())
-                .filter(|k| k.len() == arity)
-                .ok_or_else(bad),
+            Value::Object(o) => match o.get("key") {
+                Some(Value::String(t)) => parse_key_text(t, arity).ok_or_else(bad),
+                Some(k) => serde_json::from_value::<Vec<i32>>(k.clone())
+                    .ok()
+                    .filter(|k| k.len() == arity)
+                    .ok_or_else(bad),
+                None => Err(bad()),
+            },
             _ => Err(bad()),
         }
     };
@@ -1515,6 +1524,31 @@ fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySe
             return ks
                 .recode(codec)
                 .map_err(|e| ImportError::Core(format!("{e:?}")));
+        }
+        StartFormat::Box => {
+            let txt = std::fs::read_to_string(&path).map_err(|e| io_err(&path, e))?;
+            let bx = crate::boxdef::BoxDef::from_json(&txt)
+                .map_err(|e| ImportError::Spec(format!("{}: box: {e:?}", path.display())))?;
+            if bx.arity() != arity {
+                return Err(ImportError::Spec(format!(
+                    "{}: box of arity {} for a frame of arity {arity}",
+                    path.display(),
+                    bx.arity()
+                )));
+            }
+            let mut b = KeySetBuilder::new(codec);
+            let mut err = None;
+            bx.for_each_key(|k| {
+                if err.is_none()
+                    && let Err(e) = b.push(k)
+                {
+                    err = Some(format!("box key {k:?}: {e:?}"));
+                }
+            });
+            if let Some(e) = err {
+                return Err(ImportError::Core(e));
+            }
+            return Ok(b.finish());
         }
         StartFormat::HandStatement => {
             let fmt = spec

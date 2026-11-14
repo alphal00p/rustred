@@ -125,9 +125,31 @@ pub struct SolveRefusal {
     pub reason: String,
 }
 
+/// Rows streamed to a file by [`check_streamed`] (the statement's `statement.jsonl`, closure order).
+#[derive(Clone, Debug, Serialize)]
+pub struct StreamedRows {
+    pub path: String,
+    pub sha256: String,
+    pub rows: u64,
+}
+
+/// Aggregates of a streamed check (what `counts` / `evidence_by_class` return when the rows are not all kept).
+#[derive(Clone, Debug, Default)]
+pub struct Aggregates {
+    pub counts: BTreeMap<String, u64>,
+    pub by_class: BTreeMap<String, BTreeMap<String, u64>>,
+}
+
 /// The result of a check.
 pub struct CheckResult {
+    /// Every closure row (sorted by key); after [`check_streamed`] only the EXCEPTIONAL rows (open, terminal, served
+    /// by a relation or a credit, below the required level, with a missing fact): the rest are in `streamed`.
     pub rows: Vec<KeyRow>,
+    /// [`check_streamed`]: the file holding every row, and the aggregates over all of them.
+    pub streamed: Option<StreamedRows>,
+    pub aggregates: Option<Aggregates>,
+    /// [`check_streamed`]: the closure's key set (packed; membership of keys whose row is not kept).
+    pub key_set: Option<crate::closure::KeySet>,
     pub summary: ClosureSummary,
     pub tier: Tier,
     pub spec_digest: String,
@@ -286,11 +308,63 @@ pub(crate) fn blocked_reason(set: &ImportedSet, w: WitnessKind, core_detail: &st
 /// Open reason of a key whose elided record has no per-key proof bound to (record_sha256, key).
 pub const REASON_NO_PER_KEY_PROOF: &str = "elided_witness_loci_no_per_key_proof";
 
-/// Run the check.
+/// Run the check (every row kept in memory).
 pub fn check(
     set: &ImportedSet,
     ev: &Evidence,
     opts: &CheckOptions,
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None)
+}
+
+/// A row sink of [`check_streamed`].
+type RowSink<'a> = dyn FnMut(&KeyRow) -> Result<(), ImportError> + 'a;
+
+/// Run the check with BOUNDED row memory (interfaces/import.md 12, scale): every row is written at once as its
+/// canonical statement line to `rows_path` (closure order: start keys first, then by BFS round), the counts and the
+/// evidence by class are aggregated on the fly, and only the exceptional rows are kept in `rows` (see
+/// [`CheckResult::rows`]). [`super::write_statement`] then records that file instead of writing the rows again.
+pub fn check_streamed(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+) -> Result<CheckResult, ImportError> {
+    use std::io::Write;
+    if let Some(d) = rows_path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
+    }
+    let f = std::fs::File::create(rows_path).map_err(|e| super::error::io_err(rows_path, e))?;
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
+    let mut h = crate::closure::sha256::Sha256::new();
+    let mut n = 0u64;
+    let mut sink = |row: &KeyRow| -> Result<(), ImportError> {
+        let t = crate::schema::canon::canonical_json(&super::statement::row_json(set, row), false)
+            .map_err(ImportError::Core)?;
+        w.write_all(t.as_bytes())
+            .and_then(|_| w.write_all(b"\n"))
+            .map_err(|e| super::error::io_err(rows_path, e))?;
+        h.update(t.as_bytes());
+        h.update(b"\n");
+        n += 1;
+        Ok(())
+    };
+    let mut res = check_inner(set, ev, opts, Some(&mut sink))?;
+    drop(sink);
+    w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
+    res.streamed = Some(StreamedRows {
+        path: rows_path.display().to_string(),
+        sha256: h.finish_hex(),
+        rows: n,
+    });
+    Ok(res)
+}
+
+fn check_inner(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    mut sink: Option<&mut RowSink<'_>>,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -387,7 +461,8 @@ pub fn check(
                 .map(move |(r, i)| ((i.path.clone(), i.label), (t, r)))
         })
         .collect();
-    let mut rows = Vec::with_capacity(c.len());
+    let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
+    let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
     for i in 0..c.len() {
         let key = c.key(i);
@@ -516,11 +591,27 @@ pub fn check(
             row.open_status = Some("undecided".into());
             row.open_reason = Some("symmetry credit pending on unknown facts".into());
         }
-        rows.push(row);
+        match sink.as_mut() {
+            None => rows.push(row),
+            Some(s) => {
+                count_row(&mut agg.counts, &row, required);
+                class_row(&mut agg.by_class, set, &row, required);
+                s(&row)?;
+                let plain = row.status == RowStatus::Served
+                    && matches!(row.server, Some(Server::Rule { .. }))
+                    && row.evidence.is_some_and(|e| e >= required)
+                    && !row.regularity_unknown
+                    && !row.coefficient_unknown;
+                if !plain {
+                    rows.push(row);
+                }
+            }
+        }
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     // key-set digest
-    let key_set_digest = c.keys().digest();
+    let ks = c.keys();
+    let key_set_digest = ks.digest();
     // solve requests
     let mut solve_requests = vec![];
     for o in open.values() {
@@ -629,8 +720,12 @@ pub fn check(
             }
         })
         .collect();
+    let streaming = sink.is_some();
     Ok(CheckResult {
         rows,
+        streamed: None,
+        aggregates: streaming.then_some(agg),
+        key_set: streaming.then_some(ks),
         summary,
         tier,
         spec_digest: set.report.spec_digest.clone(),
@@ -646,38 +741,20 @@ pub fn check(
 }
 
 impl CheckResult {
-    /// Counts by status / evidence / basis (for summaries and tests).
+    /// After [`check_streamed`]: whether `key` is in the closure but not among the kept (exceptional) rows, i.e.
+    /// served by a plain rule at the required level (its row is only in the streamed file). Always false otherwise.
+    pub fn rows_complete_for(&self, key: &[i32]) -> bool {
+        !(self.streamed.is_some() && self.key_set.as_ref().is_some_and(|k| k.contains(key)))
+    }
+
+    /// Counts by status / evidence / basis (for summaries and tests); over EVERY row also after [`check_streamed`].
     pub fn counts(&self) -> BTreeMap<String, u64> {
+        if let Some(a) = &self.aggregates {
+            return a.counts.clone();
+        }
         let mut m: BTreeMap<String, u64> = BTreeMap::new();
         for r in &self.rows {
-            let st = match r.status {
-                RowStatus::Served => "served",
-                RowStatus::Terminal => "terminal",
-                RowStatus::Open => "open",
-            };
-            *m.entry(format!("status:{st}")).or_default() += 1;
-            if let Some(e) = r.evidence
-                && r.status == RowStatus::Served
-            {
-                *m.entry(format!("evidence:{}", e.word())).or_default() += 1;
-            }
-            if let Some(b) = r.basis
-                && r.status == RowStatus::Served
-            {
-                *m.entry(format!("basis:{b}")).or_default() += 1;
-            }
-            if let Some(o) = &r.open_status {
-                *m.entry(format!("open:{o}")).or_default() += 1;
-            }
-            if r.regularity_unknown {
-                *m.entry("facts:regularity_unknown".into()).or_default() += 1;
-            }
-            if r.coefficient_unknown {
-                *m.entry("facts:coefficient_unknown".into()).or_default() += 1;
-            }
-            if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= self.required) {
-                *m.entry("certified".into()).or_default() += 1;
-            }
+            count_row(&mut m, r, self.required);
         }
         m
     }
@@ -687,36 +764,12 @@ impl CheckResult {
     /// keys. The class of a served key is its server's (a rule's source class, a relation set's class); of an open key
     /// its blocking rule's (else `none`); terminals count under `terminal`.
     pub fn evidence_by_class(&self, set: &ImportedSet) -> BTreeMap<String, BTreeMap<String, u64>> {
+        if let Some(a) = &self.aggregates {
+            return a.by_class.clone();
+        }
         let mut m: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
         for r in &self.rows {
-            let class = match (&r.server, r.open_rule) {
-                (Some(Server::Rule { table, record }), _)
-                | (Some(Server::Credit { table, record }), _) => {
-                    set.rules[*table][*record].class.clone()
-                }
-                (Some(Server::Relation { set: name, .. }), _) => set
-                    .classes
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| name.clone()),
-                (None, Some((t, k))) => set.rules[t][k].class.clone(),
-                (None, None) if r.status == RowStatus::Terminal => "terminal".into(),
-                (None, None) => "none".into(),
-            };
-            let e = m.entry(class).or_default();
-            let k = match r.status {
-                RowStatus::Served => format!(
-                    "served:{}:{}",
-                    r.evidence.map(|x| x.word()).unwrap_or("none"),
-                    r.basis.unwrap_or("-")
-                ),
-                RowStatus::Terminal => "terminal".into(),
-                RowStatus::Open => format!("open:{}", r.open_status.as_deref().unwrap_or("open")),
-            };
-            *e.entry(k).or_default() += 1;
-            if r.status == RowStatus::Served && r.evidence.is_some_and(|x| x >= self.required) {
-                *e.entry("at_required".into()).or_default() += 1;
-            }
+            class_row(&mut m, set, r, self.required);
         }
         m
     }
@@ -740,5 +793,71 @@ impl CheckResult {
             b.push("recipe_binary_unpinned".into());
         }
         b
+    }
+}
+
+fn count_row(m: &mut BTreeMap<String, u64>, r: &KeyRow, required: Level) {
+    let st = match r.status {
+        RowStatus::Served => "served",
+        RowStatus::Terminal => "terminal",
+        RowStatus::Open => "open",
+    };
+    *m.entry(format!("status:{st}")).or_default() += 1;
+    if let Some(e) = r.evidence
+        && r.status == RowStatus::Served
+    {
+        *m.entry(format!("evidence:{}", e.word())).or_default() += 1;
+    }
+    if let Some(b) = r.basis
+        && r.status == RowStatus::Served
+    {
+        *m.entry(format!("basis:{b}")).or_default() += 1;
+    }
+    if let Some(o) = &r.open_status {
+        *m.entry(format!("open:{o}")).or_default() += 1;
+    }
+    if r.regularity_unknown {
+        *m.entry("facts:regularity_unknown".into()).or_default() += 1;
+    }
+    if r.coefficient_unknown {
+        *m.entry("facts:coefficient_unknown".into()).or_default() += 1;
+    }
+    if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= required) {
+        *m.entry("certified".into()).or_default() += 1;
+    }
+}
+
+fn class_row(
+    m: &mut BTreeMap<String, BTreeMap<String, u64>>,
+    set: &ImportedSet,
+    r: &KeyRow,
+    required: Level,
+) {
+    let class = match (&r.server, r.open_rule) {
+        (Some(Server::Rule { table, record }), _) | (Some(Server::Credit { table, record }), _) => {
+            set.rules[*table][*record].class.clone()
+        }
+        (Some(Server::Relation { set: name, .. }), _) => set
+            .classes
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.clone()),
+        (None, Some((t, k))) => set.rules[t][k].class.clone(),
+        (None, None) if r.status == RowStatus::Terminal => "terminal".into(),
+        (None, None) => "none".into(),
+    };
+    let e = m.entry(class).or_default();
+    let k = match r.status {
+        RowStatus::Served => format!(
+            "served:{}:{}",
+            r.evidence.map(|x| x.word()).unwrap_or("none"),
+            r.basis.unwrap_or("-")
+        ),
+        RowStatus::Terminal => "terminal".into(),
+        RowStatus::Open => format!("open:{}", r.open_status.as_deref().unwrap_or("open")),
+    };
+    *e.entry(k).or_default() += 1;
+    if r.status == RowStatus::Served && r.evidence.is_some_and(|x| x >= required) {
+        *e.entry("at_required".into()).or_default() += 1;
     }
 }

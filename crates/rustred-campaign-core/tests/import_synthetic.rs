@@ -1198,3 +1198,68 @@ fn compact_fact_and_proof_verdict_lines() {
     );
     assert_eq!(row(&r, [2, 1, 0]).evidence, Some(Level::PerKey));
 }
+
+/// `check_streamed`: every row written at once to the statement file, only the exceptional rows kept; the counts, the
+/// evidence by class, the key-set digest and the statement's rows (as a set) equal the in-memory check's.
+#[test]
+fn streamed_check_equals_the_in_memory_check() {
+    let d = scratch("stream");
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[
+            rule(
+                0,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)", "I(n0,0,0)"],
+                Some(json!([])),
+                json!({"exceptions":[["n0-1"]]}),
+            ),
+            rule(1, [Some(1), Some(1), Some(0)], &["I(1,0,0)"], None, json!({})),
+        ],
+    );
+    let st = write_keys(&d, &[[5, 1, 0], [3, 1, 0]]);
+    let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
+    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let set = load(&s, &d).unwrap();
+    let ev = Evidence::from_spec(&set, &d).unwrap();
+    let mem = check(&set, &ev, &CheckOptions::default()).unwrap();
+    let rows_path = d.join("stream").join("rows.jsonl");
+    let st = import::check::check_streamed(&set, &ev, &CheckOptions::default(), &rows_path).unwrap();
+    assert_eq!(mem.rows.len(), 5, "I(5..1,1,0)");
+    assert_eq!(st.counts(), mem.counts());
+    assert_eq!(st.evidence_by_class(&set), mem.evidence_by_class(&set));
+    assert_eq!(st.key_set_digest, mem.key_set_digest);
+    assert_eq!(st.streamed.as_ref().unwrap().rows, 5);
+    // kept: only the exceptional row (I(1,1,0): witness-absent record without its fact -> open)
+    assert_eq!(st.rows.len(), 1);
+    assert_eq!(st.rows[0].key, vec![1, 1, 0]);
+    let mut a: Vec<String> = std::fs::read_to_string(&rows_path)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    a.sort();
+    let dir_m = d.join("stmt-mem");
+    let dir_s = d.join("stmt-stream");
+    write_statement(&set, &ev, &mem, &dir_m, None).unwrap();
+    write_statement(&set, &ev, &st, &dir_s, None).unwrap();
+    let mut b: Vec<String> = std::fs::read_to_string(dir_m.join("statement.jsonl"))
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    b.sort();
+    let mut c: Vec<String> = std::fs::read_to_string(dir_s.join("statement.jsonl"))
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    c.sort();
+    assert_eq!(a, b);
+    assert_eq!(c, b);
+    let sm: Value = serde_json::from_str(&std::fs::read_to_string(dir_s.join("summary.json")).unwrap()).unwrap();
+    assert_eq!(sm["keys"], 5);
+}

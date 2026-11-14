@@ -49,8 +49,10 @@ pub enum GroupFormat {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupSpec {
-    /// The family file (propagators in the FAMILY order; presented into the tables' frame by the import).
-    pub family: FileRef,
+    /// The family file (propagators in the FAMILY order; presented into the tables' frame by the import). Absent:
+    /// the frame table header's `family_source` text (already in the PRESENTED frame, as the engine writes it).
+    #[serde(default)]
+    pub family: Option<FileRef>,
     /// Supplied group data in the PRESENTED frame (checked against the derived group), if any.
     #[serde(default)]
     pub group: Option<FileRef>,
@@ -125,11 +127,32 @@ pub fn load_verified_group(
     base: &Path,
     chart: &[bool],
     new_to_old: &[usize],
+    header_family: Option<&str>,
 ) -> Result<(VerifiedGroup, GroupReport), ImportError> {
-    let fpath = resolve(base, &spec.family.path);
-    let fsha = verify_file(&fpath, spec.family.sha256.as_deref())?;
-    let src = std::fs::read_to_string(&fpath).map_err(|e| io_err(&fpath, e))?;
-    let identity = new_to_old.iter().enumerate().all(|(i, &o)| i == o);
+    let (fpath, fsha, src, presented_already) = match &spec.family {
+        Some(f) => {
+            let p = resolve(base, &f.path);
+            let d = verify_file(&p, f.sha256.as_deref())?;
+            let t = std::fs::read_to_string(&p).map_err(|e| io_err(&p, e))?;
+            (p, d, t, false)
+        }
+        None => {
+            let t = header_family.ok_or_else(|| {
+                ImportError::Spec(
+                    "no family file and the frame table header carries no family_source".into(),
+                )
+            })?;
+            let mut h = crate::closure::sha256::Sha256::new();
+            h.update(t.as_bytes());
+            (
+                std::path::PathBuf::from("<frame header family_source>"),
+                h.finish_hex(),
+                t.to_string(),
+                true,
+            )
+        }
+    };
+    let identity = presented_already || new_to_old.iter().enumerate().all(|(i, &o)| i == o);
     let text = if identity {
         src
     } else {
@@ -165,7 +188,7 @@ pub fn load_verified_group(
     let mut report = GroupReport {
         family: fpath.display().to_string(),
         family_sha256: fsha,
-        presented: !identity,
+        presented: !identity || presented_already,
         format: format!("{:?}", spec.group_format),
         ..Default::default()
     };

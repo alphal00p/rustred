@@ -157,6 +157,8 @@ pub enum StartFormat {
     KeysetV1,
     /// A hand statement: the keys flagged in-box (needs `hand_format`).
     HandStatement,
+    /// A box document (`rustred.campaign.box.v1`, interfaces/campaign-core-domain.md section 7): its keys.
+    Box,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -465,9 +467,10 @@ impl TableSetSpec {
                 }
                 SourceKind::Recipe => need(s.path.is_some(), "path")?,
                 SourceKind::SuppliedRelations => need(s.path.is_some(), "path")?,
-                SourceKind::SymmetryCredit => {
-                    need(s.group.is_some() || s.family.is_some(), "group or family")?
-                }
+                SourceKind::SymmetryCredit => need(
+                    s.group.is_some() || s.family.is_some() || s.group_format.is_some(),
+                    "group, family or group_format",
+                )?,
                 SourceKind::Terminals => need(
                     s.keys.is_some() != s.path.is_some(),
                     "exactly one of keys / path",
