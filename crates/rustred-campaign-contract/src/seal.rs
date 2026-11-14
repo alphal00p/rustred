@@ -817,3 +817,235 @@ pub fn file_blake3(path: &Path) -> io::Result<(u64, String)> {
 pub fn layout_path(root: &Path, rel: &str) -> PathBuf {
     root.join(rel)
 }
+
+/// Running digest of a stream written by someone else in arbitrary chunks (the engine's `BufWriter` flushes): the
+/// engine-side twin of [`RecordWriter`] (child-job.md 3.9 "the table writer feeds a running BLAKE3 at flush level",
+/// change C7). Bytes are fed exactly as they reach the file; complete lines are checked with the verifier's rules
+/// (canonical form, end record last, unique rule identities, elided witness loci, header `family_blake3`), so the
+/// figures at a line boundary are those [`verify_table`] / [`verify_prefix`] will recompute from the file.
+/// The first record that fails a rule makes the digest FAILED (sticky): the stream can then never be sealed or
+/// committed, which is the fail-closed answer (the bytes are still written by the caller).
+pub struct StreamDigest {
+    scan: Scan<'static>,
+    partial: Vec<u8>,
+    failed: Option<String>,
+    types: Vec<Option<String>>,
+    record_types: bool,
+}
+
+impl StreamDigest {
+    /// A digest for a stream whose end record types are `end_types` (e.g. [`TABLE_END_TYPES`], [`CERT_END_TYPES`]).
+    pub fn new(end_types: &'static [&'static str]) -> StreamDigest {
+        StreamDigest {
+            scan: Scan::new(end_types),
+            partial: Vec::new(),
+            failed: None,
+            types: Vec::new(),
+            record_types: false,
+        }
+    }
+
+    /// Also remember the `type` of every complete record until [`StreamDigest::take_types`] (the queue log: the
+    /// engine derives a case's result from the records of that case).
+    pub fn recording_types(mut self) -> StreamDigest {
+        self.record_types = true;
+        self
+    }
+
+    /// Feed bytes exactly as written to the file.
+    pub fn feed(&mut self, mut chunk: &[u8]) {
+        while let Some(at) = chunk.iter().position(|&b| b == b'\n') {
+            let (head, rest) = chunk.split_at(at + 1);
+            chunk = rest;
+            if self.partial.is_empty() {
+                self.line(head);
+            } else {
+                let mut l = std::mem::take(&mut self.partial);
+                l.extend_from_slice(head);
+                self.line(&l);
+            }
+        }
+        self.partial.extend_from_slice(chunk);
+    }
+
+    fn line(&mut self, line_nl: &[u8]) {
+        if self.failed.is_some() {
+            // keep the raw size right for diagnostics; no figure is reported once failed
+            self.scan.bytes += line_nl.len() as u64;
+            return;
+        }
+        match self.scan.push(line_nl) {
+            Ok(c) => {
+                if self.record_types {
+                    self.types.push(c.record_type);
+                }
+            }
+            Err(e) => {
+                self.scan.bytes += line_nl.len() as u64;
+                self.failed = Some(e.to_string());
+            }
+        }
+    }
+
+    /// Whether the bytes fed so far end at a line boundary.
+    pub fn at_boundary(&self) -> bool {
+        self.partial.is_empty()
+    }
+
+    /// Why the stream can no longer be committed or sealed (first failing record), if so.
+    pub fn failed(&self) -> Option<&str> {
+        self.failed.as_deref()
+    }
+
+    /// Bytes fed so far (including a pending partial line).
+    pub fn bytes_fed(&self) -> u64 {
+        self.scan.bytes + self.partial.len() as u64
+    }
+
+    /// The end record type seen, if any.
+    pub fn end(&self) -> Option<&str> {
+        self.scan.end.as_deref()
+    }
+
+    /// Rule records seen.
+    pub fn rules(&self) -> u64 {
+        self.scan.rules
+    }
+
+    /// Elided witness loci counted (same rule as the verifier).
+    pub fn elided_loci(&self) -> u64 {
+        self.scan.elided_loci
+    }
+
+    /// `family_blake3` of a header first record, if present.
+    pub fn family_blake3(&self) -> Option<&str> {
+        self.scan.family.as_deref()
+    }
+
+    /// The figures of the complete records fed so far, as a committed prefix for the layout path `path`: `None`
+    /// when a partial line is pending, the digest failed, or an end record was seen (a prefix never holds one).
+    pub fn committed(&self, path: &str) -> Option<CommittedFile> {
+        (self.at_boundary() && self.failed.is_none() && self.scan.end.is_none())
+            .then(|| self.scan.committed(path))
+    }
+
+    /// The seal: `None` unless the stream ends exactly after its end record and no record failed.
+    pub fn seal(&self) -> Option<TableSeal> {
+        if !self.at_boundary() || self.failed.is_some() {
+            return None;
+        }
+        let end = self.scan.end.as_deref().and_then(EndKind::from_type)?;
+        let c = self.scan.committed("");
+        Some(TableSeal {
+            bytes: c.bytes,
+            blake3: c.blake3,
+            records: c.records,
+            rules: c.rules,
+            end,
+            canonical_blake3: c.canonical_blake3,
+        })
+    }
+
+    /// The record types seen since the last call (only with [`StreamDigest::recording_types`]).
+    pub fn take_types(&mut self) -> Vec<Option<String>> {
+        std::mem::take(&mut self.types)
+    }
+
+    /// Feed a whole existing file (a verified resume prefix that the caller continues to append to).
+    pub fn feed_file(&mut self, path: &Path) -> io::Result<()> {
+        let mut f = File::open(path)?;
+        let mut buf = vec![0u8; 1 << 20];
+        loop {
+            let k = f.read(&mut buf)?;
+            if k == 0 {
+                return Ok(());
+            }
+            self.feed(&buf[..k]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod stream_digest_tests {
+    use super::*;
+
+    const LINES: [&str; 5] = [
+        r#"{"type":"header","family_file":"/a/F.sym","family_blake3":"0000000000000000000000000000000000000000000000000000000000000000","zero_seconds":0.5}"#,
+        r#"{"type":"rule","chart":"11","index":0,"target":"I(1)","rhs":[],"seconds_search":0.1,"witness_loci":["n1+1"]}"#,
+        r#"{"type":"rule","chart":"11","index":1,"target":"I(2)","rhs":[],"lift_seconds":2.0,"witness_loci":["elided","n2"]}"#,
+        r#"{"type":"residual","chart":"11","key":"I(3)"}"#,
+        r#"{"type":"end","charts":1,"rules":2,"seconds":1.25,"vmhwm_kb":10}"#,
+    ];
+
+    fn file_of(lines: &[&str]) -> Vec<u8> {
+        let mut b = Vec::new();
+        for l in lines {
+            b.extend_from_slice(l.as_bytes());
+            b.push(b'\n');
+        }
+        b
+    }
+
+    #[test]
+    fn chunked_feed_equals_the_file_seal_at_every_split() {
+        let bytes = file_of(&LINES);
+        let dir = std::env::temp_dir().join(format!("sd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.jsonl");
+        std::fs::write(&p, &bytes).unwrap();
+        let want = seal_file(&p).unwrap();
+        for step in [1usize, 2, 3, 7, 64, 4096] {
+            let mut d = StreamDigest::new(&TABLE_END_TYPES);
+            for c in bytes.chunks(step) {
+                d.feed(c);
+            }
+            assert_eq!(d.seal().as_ref(), Some(&want), "step {step}");
+            assert_eq!(d.elided_loci(), 1);
+            assert_eq!(d.rules(), 2);
+            assert!(d.committed("out/F.table.jsonl").is_none(), "end record seen");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn committed_prefix_matches_verify_prefix() {
+        let dir = std::env::temp_dir().join(format!("sdp-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("out")).unwrap();
+        let bytes = file_of(&LINES[..3]);
+        std::fs::write(dir.join("out/F.table.jsonl"), &bytes).unwrap();
+        let mut d = StreamDigest::new(&TABLE_END_TYPES);
+        d.feed(&bytes[..10]);
+        assert!(d.committed("out/F.table.jsonl").is_none(), "partial line");
+        d.feed(&bytes[10..]);
+        let c = d.committed("out/F.table.jsonl").unwrap();
+        assert_eq!(c.bytes, bytes.len() as u64);
+        assert_eq!(c.rules, 2);
+        verify_prefix(&dir, &c, &TABLE_END_TYPES).unwrap();
+        assert_eq!(d.family_blake3().map(str::len), Some(64));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_bad_or_duplicate_record_fails_closed() {
+        let mut d = StreamDigest::new(&TABLE_END_TYPES);
+        d.feed(file_of(&[LINES[0], LINES[1], LINES[1]]).as_slice());
+        assert!(d.failed().is_some());
+        assert!(d.committed("x").is_none());
+        let mut d = StreamDigest::new(&TABLE_END_TYPES);
+        d.feed(b"{\"type\":\"rule\",\"index\":0,\n");
+        assert!(d.failed().is_some());
+        let mut d = StreamDigest::new(&TABLE_END_TYPES);
+        d.feed(file_of(&[LINES[4], LINES[3]]).as_slice());
+        assert!(d.seal().is_none(), "interior end record");
+    }
+
+    #[test]
+    fn record_types_are_taken_in_order() {
+        let mut d = StreamDigest::new(&TABLE_END_TYPES).recording_types();
+        d.feed(b"{\"type\":\"covered\"}\n{\"x\":1}\n{\"type\":\"enq");
+        assert_eq!(d.take_types(), vec![Some("covered".to_string()), None]);
+        d.feed(b"ueue\"}\n");
+        assert_eq!(d.take_types(), vec![Some("enqueue".to_string())]);
+        assert!(d.take_types().is_empty());
+    }
+}
