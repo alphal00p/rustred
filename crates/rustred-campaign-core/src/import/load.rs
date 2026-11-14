@@ -586,7 +586,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     }
     for (path, ts) in &by_file {
         // ordinal -> (expected sha256, [(table, record position)])
-        let mut want: HashMap<usize, (&str, Vec<(usize, usize)>)> = HashMap::new();
+        type Places<'a> = (&'a str, Vec<(usize, usize)>);
+        let mut want: HashMap<usize, Places> = HashMap::new();
         for &t in ts {
             for (k, (o, sha)) in body_plan[t].2.iter().enumerate() {
                 want.entry(*o)
