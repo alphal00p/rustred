@@ -358,11 +358,17 @@ impl CloseLoopConfig {
             }
             if let Some(p) = &n.proof {
                 if p.max_keys_per_job == 0 || p.max_fact_keys_per_job == 0 || p.threads == 0 {
-                    return Err(format!("node {}: proof batch sizes and threads must be >= 1", n.node));
+                    return Err(format!(
+                        "node {}: proof batch sizes and threads must be >= 1",
+                        n.node
+                    ));
                 }
                 match p.rows.as_str() {
                     "engine" if p.family.is_none() => {
-                        return Err(format!("node {}: proof.rows engine needs proof.family", n.node));
+                        return Err(format!(
+                            "node {}: proof.rows engine needs proof.family",
+                            n.node
+                        ));
                     }
                     "cert" if p.cert.is_none() => {
                         return Err(format!("node {}: proof.rows cert needs proof.cert", n.node));

@@ -18,8 +18,8 @@ use rustred_campaign_core::closure::{Tier, Verdict};
 use rustred_campaign_core::import::load::RelEntry;
 use rustred_campaign_core::import::spec::FileRef as ImportFileRef;
 use rustred_campaign_core::import::{
-    CheckOptions, CheckResult, Evidence, HandFormat, ImportedSet, KeyRow, Level, RowStatus,
-    Server, TableSetSpec, WitnessKind, check, compare, load, read_hand_statement, write_statement,
+    CheckOptions, CheckResult, Evidence, HandFormat, ImportedSet, KeyRow, Level, RowStatus, Server,
+    TableSetSpec, WitnessKind, check, compare, load, read_hand_statement, write_statement,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -245,8 +245,7 @@ fn rel_name(set: &ImportedSet, e: &RelEntry) -> String {
 }
 
 fn verify_b3(p: &Path, b3: &str) -> Result<(), String> {
-    let (_, d) =
-        crate::atomic::blake3_file(p).map_err(|e| format!("file {}: {e}", p.display()))?;
+    let (_, d) = crate::atomic::blake3_file(p).map_err(|e| format!("file {}: {e}", p.display()))?;
     if d != b3 {
         return Err(format!(
             "file {} changed since it was recorded (blake3 {d}, ledger {b3}): refused",
@@ -541,7 +540,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 let keys: Vec<Vec<i32>> = r
                     .keys
                     .iter()
-                    .filter(|k| !inp.issued_proofs.contains(&(r.record_sha256.clone(), (*k).clone())))
+                    .filter(|k| {
+                        !inp.issued_proofs
+                            .contains(&(r.record_sha256.clone(), (*k).clone()))
+                    })
                     .cloned()
                     .collect();
                 for chunk in keys.chunks(pp.max_keys_per_job.max(1)) {
@@ -563,7 +565,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         if pp.relations {
             for r in &rels {
                 let id = (r.source.clone(), r.key.clone());
-                if proved.contains(&id) || inp.issued_proofs.contains(&(r.sha.clone(), r.key.clone()))
+                if proved.contains(&id)
+                    || inp.issued_proofs.contains(&(r.sha.clone(), r.key.clone()))
                 {
                     continue;
                 }
@@ -592,7 +595,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                         .map(|r| (t, r))
                 }) {
                     for k in &fr.keys {
-                        if !inp.issued_facts.contains(&(fr.record_sha256.clone(), k.clone())) {
+                        if !inp
+                            .issued_facts
+                            .contains(&(fr.record_sha256.clone(), k.clone()))
+                        {
                             missing_facts.entry((t, r)).or_default().insert(k.clone());
                         }
                     }
@@ -601,12 +607,15 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             let mut by_table: BTreeMap<String, Vec<RecordReq>> = BTreeMap::new();
             for ((t, r), ks) in &missing_facts {
                 let info = &set.rules[*t][*r];
-                by_table.entry(info.path.clone()).or_default().push(RecordReq {
-                    rule: info.index.unwrap_or(info.label),
-                    offset: info.offset,
-                    record_sha256: info.record_sha256.clone(),
-                    keys: ks.iter().cloned().collect(),
-                });
+                by_table
+                    .entry(info.path.clone())
+                    .or_default()
+                    .push(RecordReq {
+                        rule: info.index.unwrap_or(info.label),
+                        offset: info.offset,
+                        record_sha256: info.record_sha256.clone(),
+                        keys: ks.iter().cloned().collect(),
+                    });
             }
             let cap = pp.max_fact_keys_per_job.max(1);
             for (table, recs) in by_table {
@@ -773,7 +782,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &set,
             &ev,
             res,
-            Some(&res_k).filter(|_| tier_c_now),
+            tier_c_now.then_some(&res_k),
             FinalCtx {
                 verdict,
                 blocking: &blocking,

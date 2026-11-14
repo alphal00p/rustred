@@ -119,7 +119,8 @@ pub fn fact_requests_bytes(b: &ProofBatchFile) -> Vec<u8> {
     let mut s = String::new();
     for r in &b.records {
         s.push_str(
-            &json!({"table": b.table, "offset": r.offset, "rule": r.rule, "keys": r.keys}).to_string(),
+            &json!({"table": b.table, "offset": r.offset, "rule": r.rule, "keys": r.keys})
+                .to_string(),
         );
         s.push('\n');
     }
@@ -135,8 +136,8 @@ pub fn read_oracle(p: &Path) -> Result<ProofOracle, String> {
     let mut m = BTreeMap::new();
     for l in t.lines().filter(|l| !l.trim().is_empty()) {
         let v: Value = serde_json::from_str(l).map_err(|e| format!("proof oracle: {e}"))?;
-        let k: Vec<i32> =
-            serde_json::from_value(v["key"].clone()).map_err(|e| format!("proof oracle key: {e}"))?;
+        let k: Vec<i32> = serde_json::from_value(v["key"].clone())
+            .map_err(|e| format!("proof oracle key: {e}"))?;
         m.insert(k, v);
     }
     Ok(m)
@@ -193,7 +194,10 @@ fn key_text(k: &[i64]) -> String {
 /// AGAIN to the batch (record_sha256 + key + rule echo; every asked pair at most once): span -> compact proof verdict
 /// lines (import.md 13.2: record_sha256, key, verdict word, index echo, + status text); facts -> compact
 /// `rustred.campaign.fact-verdict.v1` lines (import.md 13.2: the term-key digests of the NON-ZERO terms only).
-pub fn evidence_lines(b: &ProofBatchFile, canonical_lines: &[String]) -> Result<Vec<String>, String> {
+pub fn evidence_lines(
+    b: &ProofBatchFile,
+    canonical_lines: &[String],
+) -> Result<Vec<String>, String> {
     let mut rule_of: BTreeMap<String, i64> = BTreeMap::new();
     for r in &b.records {
         rule_of.insert(r.record_sha256.clone(), r.rule);
@@ -281,7 +285,13 @@ pub fn chart_of(recipe: &Value, key: &[i32]) -> String {
 /// One relation of our own recipe solve as a POINT-RULE record (table_dump.v1 rule line, closeloop.md 13.1): fixed =
 /// the key, target, rhs [[key, coefficient text]] from the verified results record, seeds = the key + `seeds_used`,
 /// recenter 0, no exception, no witness locus (a point rule), `sym_rows` > 0 iff symmetry rows are in force.
-pub fn relation_record(index: usize, key: &[i32], rec: &Value, chart: &str, sym: bool) -> Result<String, String> {
+pub fn relation_record(
+    index: usize,
+    key: &[i32],
+    rec: &Value,
+    chart: &str,
+    sym: bool,
+) -> Result<String, String> {
     let rhs: Vec<Value> = rec["rhs"]
         .as_array()
         .ok_or("relation record without rhs")?
@@ -291,7 +301,8 @@ pub fn relation_record(index: usize, key: &[i32], rec: &Value, chart: &str, sym:
     let mut seeds = vec![];
     let mut seen = BTreeSet::new();
     for off in rec["seeds_used"].as_array().into_iter().flatten() {
-        let o: Vec<i64> = serde_json::from_value(off.clone()).map_err(|e| format!("seeds_used: {e}"))?;
+        let o: Vec<i64> =
+            serde_json::from_value(off.clone()).map_err(|e| format!("seeds_used: {e}"))?;
         if o.len() != key.len() {
             return Err(format!("seeds_used entry of length {}", o.len()));
         }

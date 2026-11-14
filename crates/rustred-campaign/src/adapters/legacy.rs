@@ -10,7 +10,9 @@
 //!
 //! Generic (L8): no node, arity or path is known here; the arity of a key is the length of the requested key.
 
-use super::proof::{ANSWER_SCHEMA as INSTANTIATE_SCHEMA, CHILD_OUT as INSTANTIATE_OUT, legacy_wait};
+use super::proof::{
+    ANSWER_SCHEMA as INSTANTIATE_SCHEMA, CHILD_OUT as INSTANTIATE_OUT, legacy_wait,
+};
 use rustred_campaign_contract::classify::WaitStatus;
 use rustred_campaign_contract::exit::ExitCode;
 use rustred_campaign_contract::layout::{RESULTS, RunLayout};
@@ -330,9 +332,11 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
             continue;
         }
         let v: Value = serde_json::from_str(l).map_err(|e| format!("request {}: {e}", i + 1))?;
-        let (Some(table), Some(offset), Some(rule)) =
-            (v["table"].as_str(), v["offset"].as_u64(), v["rule"].as_i64())
-        else {
+        let (Some(table), Some(offset), Some(rule)) = (
+            v["table"].as_str(),
+            v["offset"].as_u64(),
+            v["rule"].as_i64(),
+        ) else {
             return Err(format!("request {}: table / offset / rule", i + 1));
         };
         let sha = match shas.get(&(table.to_string(), offset)) {
@@ -433,7 +437,8 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
     };
     match mapped {
         WaitStatus::Exited(0) => {
-            let raw = std::fs::read(layout.out_dir().join(child_out(spec.kind))).unwrap_or_default();
+            let raw =
+                std::fs::read(layout.out_dir().join(child_out(spec.kind))).unwrap_or_default();
             let mut j = JobOutcome::for_spec(
                 spec,
                 spec_blake3,
@@ -528,10 +533,7 @@ mod tests {
         assert_eq!(parse_key_named(&key_text_named(&k)), Some(k));
         assert_eq!(parse_key_named("n0=1,n2=3"), None);
         assert_eq!(parse_key_named("n0=1,n0=3"), None);
-        assert_eq!(
-            answer_key(&json!({"n0":1,"n1":2}), 2),
-            Some(vec![1, 2])
-        );
+        assert_eq!(answer_key(&json!({"n0":1,"n1":2}), 2), Some(vec![1, 2]));
         assert_eq!(answer_key(&json!({"n0":1}), 2), None);
     }
 }

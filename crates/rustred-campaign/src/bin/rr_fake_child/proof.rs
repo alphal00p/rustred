@@ -41,7 +41,10 @@ fn named(t: &str) -> Option<Vec<i64>> {
     let mut v: Vec<(usize, i64)> = vec![];
     for p in t.trim().split(',') {
         let (n, x) = p.split_once('=')?;
-        v.push((n.trim().strip_prefix('n')?.parse().ok()?, x.trim().parse().ok()?));
+        v.push((
+            n.trim().strip_prefix('n')?.parse().ok()?,
+            x.trim().parse().ok()?,
+        ));
     }
     v.sort();
     v.iter()
@@ -98,8 +101,14 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
             .and_then(|i| std::fs::read(spec.input_path(i)).ok())
             .unwrap_or_else(|| die(&format!("input {role} missing")))
     };
-    let ops: Vec<FakeOp> = spec.fake.as_ref().map(|f| f.script.clone()).unwrap_or_default();
-    let mut answers = ops.iter().filter(|o| matches!(o, FakeOp::ProofAnswer { .. }));
+    let ops: Vec<FakeOp> = spec
+        .fake
+        .as_ref()
+        .map(|f| f.script.clone())
+        .unwrap_or_default();
+    let mut answers = ops
+        .iter()
+        .filter(|o| matches!(o, FakeOp::ProofAnswer { .. }));
     for op in &ops {
         match op {
             FakeOp::Prepare { ms } => nap(*ms),
@@ -124,8 +133,12 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
                 die(&format!("key {t:?}"));
             };
             n += 1;
-            let (mut status, mut esha, mut erule, mut ekey) =
-                ("EXACT_IN_SPAN_AT_KEY".to_string(), sha.to_string(), rule, k.clone());
+            let (mut status, mut esha, mut erule, mut ekey) = (
+                "EXACT_IN_SPAN_AT_KEY".to_string(),
+                sha.to_string(),
+                rule,
+                k.clone(),
+            );
             if let Some(FakeOp::ProofAnswer {
                 ms,
                 status: s,
@@ -152,8 +165,10 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
             if status.starts_with("EXACT_IN_SPAN_AT_KEY") {
                 ok += 1;
             }
-            entries.push(json!({"rule": erule, "record_sha256": esha, "key": key_object(&ekey),
-                                "status": status, "seconds": 0.001}));
+            entries.push(
+                json!({"rule": erule, "record_sha256": esha, "key": key_object(&ekey),
+                                "status": status, "seconds": 0.001}),
+            );
         }
         let verdict = if ok == n {
             "EXACT_ALL_KEYS_IN_SPAN"
@@ -174,9 +189,11 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
                 continue;
             }
             let v: Value = serde_json::from_str(l).unwrap_or(Value::Null);
-            let (Some(table), Some(off), Some(rule)) =
-                (v["table"].as_str(), v["offset"].as_u64(), v["rule"].as_i64())
-            else {
+            let (Some(table), Some(off), Some(rule)) = (
+                v["table"].as_str(),
+                v["offset"].as_u64(),
+                v["rule"].as_i64(),
+            ) else {
                 die("request: table / offset / rule");
             };
             let Some((sha, idx)) = sha_at(Path::new(table), off) else {
@@ -234,6 +251,9 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
     if let Err(e) = std::fs::write(&p, body) {
         die(&format!("{}: {e}", p.display()));
     }
-    println!("{}", json!({"fake": true, "written": name, "lines": out_lines.len()}));
+    println!(
+        "{}",
+        json!({"fake": true, "written": name, "lines": out_lines.len()})
+    );
     std::process::exit(0)
 }

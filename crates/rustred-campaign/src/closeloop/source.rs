@@ -379,7 +379,12 @@ impl CloseFromMaterialSource {
         Ok((pairs, keys, items.len() as u64, att))
     }
 
-    fn pbatch(&mut self, st: &CampaignState, i: usize, item: &str) -> Result<ProofBatchFile, String> {
+    fn pbatch(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        item: &str,
+    ) -> Result<ProofBatchFile, String> {
         if let Some(b) = self.nodes[i].pbatches.get(item) {
             return Ok(b.clone());
         }
@@ -1037,7 +1042,11 @@ impl CloseFromMaterialSource {
     ) -> Result<JobRequest, String> {
         let b = self.pbatch(st, i, item)?;
         let r = &self.nodes[i];
-        let pc = r.cfg.proof.as_ref().ok_or("proof item without a proof config")?;
+        let pc = r
+            .cfg
+            .proof
+            .as_ref()
+            .ok_or("proof item without a proof config")?;
         let dir = format!("{}/proofs", node_dir(&r.n));
         let file = |rel: String, role: &str| -> Result<InputRef, String> {
             let p = self.abs(&rel);
@@ -1078,7 +1087,10 @@ impl CloseFromMaterialSource {
         } else {
             (
                 JobKind::ProofInstantiate,
-                vec![file(format!("{dir}/{item}.requests.jsonl"), "requests")?, table],
+                vec![
+                    file(format!("{dir}/{item}.requests.jsonl"), "requests")?,
+                    table,
+                ],
             )
         };
         let fake = pc
@@ -1193,9 +1205,11 @@ impl CloseFromMaterialSource {
             // lane closeloop2: proof / fact items and their jobs
             let mut proof_by_phase: BTreeMap<String, u64> = BTreeMap::new();
             let (mut proof_running, mut proof_cpu_ms) = (0u64, 0u64);
-            for it in st.items.values().filter(|it| {
-                it.node == *node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS)
-            }) {
+            for it in st
+                .items
+                .values()
+                .filter(|it| it.node == *node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+            {
                 *proof_by_phase
                     .entry(format!("{}:{}", it.kind, it.phase.tag()))
                     .or_default() += 1;
@@ -1332,7 +1346,11 @@ impl CloseFromMaterialSource {
         let b = self.pbatch(st, i, &done.item)?;
         let c = &done.classification;
         let mut rt = Routing::default();
-        if !(c.row == 1 && c.sub.is_empty() && !done.canonical_lines.is_empty() && done.table.is_some()) {
+        if !(c.row == 1
+            && c.sub.is_empty()
+            && !done.canonical_lines.is_empty()
+            && done.table.is_some())
+        {
             let what = format!("{} {} keys stay below their level", b.pairs().len(), b.kind);
             self.fail_or_attention(st, i, done, "proof_job_failed", &what, &mut rt);
             return Ok(rt);
@@ -1373,7 +1391,12 @@ impl CloseFromMaterialSource {
             blake3: aref.blake3.clone(),
         });
         let keys = record(
-            format!("{}/{sub}/{}.{}.keys.json", node_dir(&n), done.item, done.job),
+            format!(
+                "{}/{sub}/{}.{}.keys.json",
+                node_dir(&n),
+                done.item,
+                done.job
+            ),
             json_bytes(&json!({"schema": "rustred.campaign.closeloop-keys.v1",
                                "pairs": b.pairs().into_iter().collect::<Vec<_>>()})),
         );
@@ -1540,7 +1563,14 @@ impl WorkSource for CloseFromMaterialSource {
                     it.node == node
                         && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
                 })
-                .map(|(k, it)| (k.clone(), it.kind.clone(), it.phase.clone(), it.jobs.clone()))
+                .map(|(k, it)| {
+                    (
+                        k.clone(),
+                        it.kind.clone(),
+                        it.phase.clone(),
+                        it.jobs.clone(),
+                    )
+                })
                 .collect();
             for (item, ikind, ph, jobs) in items {
                 let (k, j) = parse_solve_item(&self.nodes[i].n, &item)

@@ -117,10 +117,7 @@ fn a_proof_answer_for_another_record_or_key_is_refused() {
     let r = result_json(&cdir);
     assert_eq!(r["verdict"], "open", "{r:#}");
     let b = blockers(&r);
-    assert!(
-        b.iter().any(|x| x == "relation_proofs_unbound:2"),
-        "{b:?}"
-    );
+    assert!(b.iter().any(|x| x == "relation_proofs_unbound:2"), "{b:?}");
     assert!(b.iter().any(|x| x == "proof_items_in_attention:2"), "{b:?}");
     // the lying jobs were refused by the wrapper (row 22: nothing accepted), retried, then put in attention
     let st = state(&cdir);
@@ -145,7 +142,10 @@ fn a_proof_answer_for_another_record_or_key_is_refused() {
     // the two keys are served by our relations but below per-key; every other relation is proved
     let open = open_keys(&cdir);
     for k in [json!([3, 1, 0]), json!([2, 2, 0])] {
-        let o = open.iter().find(|v| v["key"] == k).expect("in the open list");
+        let o = open
+            .iter()
+            .find(|v| v["key"] == k)
+            .expect("in the open list");
         assert_eq!(o["status"], "served");
         assert_eq!(o["evidence"], "imported", "{o}");
         assert_eq!(o["basis"], "recipe_relation_unproved", "{o}");
@@ -191,8 +191,7 @@ fn a_relation_without_a_bound_proof_stays_below_per_key() {
     assert_eq!(open[0]["key"], json!([2, 1, 0]));
     assert_eq!(open[0]["basis"], "recipe_relation_unproved");
     assert_eq!(
-        r["check"]["relations"]["proof_verdicts"]["EXACT_NOT_IN_SPAN_AT_KEY"],
-        1,
+        r["check"]["relations"]["proof_verdicts"]["EXACT_NOT_IN_SPAN_AT_KEY"], 1,
         "{r:#}"
     );
     assert_eq!(verify(&cdir2), 0);
@@ -222,13 +221,15 @@ fn the_exact_tier_gets_its_facts_and_the_table_proof_from_proof_jobs() {
     assert_eq!(r["check"]["tier"], "C");
     let it = items(&cdir);
     assert!(
-        it.iter()
-            .any(|(_, k, l, ph)| k == "proof-facts" && l == "facts:import_fact_request" && ph == "accepted"),
+        it.iter().any(|(_, k, l, ph)| k == "proof-facts"
+            && l == "facts:import_fact_request"
+            && ph == "accepted"),
         "{it:?}"
     );
     assert!(
-        it.iter()
-            .any(|(_, k, l, ph)| k == "proof-span" && l == "span:import_proof_request" && ph == "accepted"),
+        it.iter().any(|(_, k, l, ph)| k == "proof-span"
+            && l == "span:import_proof_request"
+            && ph == "accepted"),
         "{it:?}"
     );
     assert_eq!(r["by_rule_class_level"]["base"]["per-key"], 1, "{r:#}");

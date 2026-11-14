@@ -118,8 +118,14 @@ mod tests {
         assert_eq!(parse_solve_item("N0", &it), Some((3, 12)));
         assert_eq!(parse_solve_item("N0", "N0.import"), None);
         assert_eq!(parse_solve_item("N", "N0.s1.2"), None);
-        assert_eq!(parse_proof_item("N0", &proof_item("N0", 2, 5, "span")), Some((2, 5)));
-        assert_eq!(parse_proof_item("N0", &proof_item("N0", 2, 5, "facts")), Some((2, 5)));
+        assert_eq!(
+            parse_proof_item("N0", &proof_item("N0", 2, 5, "span")),
+            Some((2, 5))
+        );
+        assert_eq!(
+            parse_proof_item("N0", &proof_item("N0", 2, 5, "facts")),
+            Some((2, 5))
+        );
         assert_eq!(parse_proof_item("N0", "N0.s2.5"), None);
     }
 }

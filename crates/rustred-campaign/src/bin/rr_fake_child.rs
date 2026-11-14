@@ -1266,7 +1266,9 @@ impl Main {
                         message: message.clone(),
                     };
                 }
-                FakeOp::Relation { .. } | FakeOp::RecipeQuirk { .. } | FakeOp::ProofAnswer { .. } => {
+                FakeOp::Relation { .. }
+                | FakeOp::RecipeQuirk { .. }
+                | FakeOp::ProofAnswer { .. } => {
                     return Finish::Fail {
                         code: ExitCode::Usage,
                         message: "op only for an emulated kind (solve-recipe, rr_proof)".into(),
