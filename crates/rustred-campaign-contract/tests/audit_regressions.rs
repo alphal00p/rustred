@@ -1060,29 +1060,36 @@ fn family_file_volatile_only_with_family_blake3_and_compared_with_the_spec() {
     assert_eq!(classify_run(&l, &s, &dg, 0).row, 22);
 }
 
+/// The repository's copy of the decision table: `crates/rustred-campaign-contract/DECISION_TABLE.md` = this header +
+/// `classify::decision_table_markdown()` (lane int5: the ONE document copy lives in the repository, next to the code;
+/// the shared interface file child-job.md 6.5 points to it and carries no copy, so a lane editing that file can no
+/// longer make this test fail). Regenerate with `RR_UPDATE_GOLDEN=1 cargo test -p rustred-campaign-contract --test
+/// audit_regressions decision_table` and review the diff.
+fn decision_table_document() -> String {
+    format!(
+        "# Decision table of the child-job contract (child-job.md 6.5)\n\n\
+         GENERATED from `rustred_campaign_contract::classify::ROWS` by `decision_table_markdown()`; do not edit by hand.\n\
+         Regenerate: `RR_UPDATE_GOLDEN=1 cargo test -p rustred-campaign-contract --test audit_regressions decision_table`.\n\
+         Rows are evaluated in the order of child-job.md 6.5 (first match wins); the order of the lines below is the\n\
+         order of `ROWS`.\n\n{}",
+        decision_table_markdown()
+    )
+}
+
 #[test]
 fn decision_table_rows_and_document_agree() {
-    // every row of ROWS is reachable by a label and the generated markdown is the one in child-job.md (when the
-    // document is reachable from this worktree's workspace; RUSTRED_CHILD_JOB_DOC overrides the path)
-    let md = decision_table_markdown();
-    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/decision_table.md");
+    // every row of ROWS is reachable by a label and the repository's DECISION_TABLE.md is the generated one (no file
+    // outside the repository is read: lane int5)
+    let doc = decision_table_document();
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("DECISION_TABLE.md");
     if std::env::var_os("RR_UPDATE_GOLDEN").is_some() {
-        std::fs::write(&golden, &md).unwrap();
+        std::fs::write(&path, &doc).unwrap();
     }
     assert_eq!(
-        std::fs::read_to_string(&golden).unwrap(),
-        md,
-        "golden decision_table.md"
+        std::fs::read_to_string(&path).unwrap_or_default(),
+        doc,
+        "crates/rustred-campaign-contract/DECISION_TABLE.md is not the generated table (RR_UPDATE_GOLDEN=1 regenerates)"
     );
-    let doc = std::env::var("RUSTRED_CHILD_JOB_DOC").unwrap_or_else(|_| {
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/interfaces/child-job.md".into()
-    });
-    if let Ok(text) = std::fs::read_to_string(&doc) {
-        assert!(
-            text.contains(&md),
-            "child-job.md 6.5 does not contain the generated decision table"
-        );
-    }
     let mut ids: Vec<String> = ROWS.iter().map(|r| format!("{}{}", r.row, r.sub)).collect();
     let n = ids.len();
     ids.sort();

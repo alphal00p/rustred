@@ -207,7 +207,7 @@ pub enum Action {
 }
 
 /// One row of the decision table (6.5): the single source of the classifier AND of the document's table
-/// ([`decision_table_markdown`], asserted equal to child-job.md by a test).
+/// ([`decision_table_markdown`], asserted equal to `crates/rustred-campaign-contract/DECISION_TABLE.md` by a test).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowSpec {
     pub row: u8,

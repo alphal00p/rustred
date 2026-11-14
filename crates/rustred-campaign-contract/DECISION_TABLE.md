@@ -1,3 +1,10 @@
+# Decision table of the child-job contract (child-job.md 6.5)
+
+GENERATED from `rustred_campaign_contract::classify::ROWS` by `decision_table_markdown()`; do not edit by hand.
+Regenerate: `RR_UPDATE_GOLDEN=1 cargo test -p rustred-campaign-contract --test audit_regressions decision_table`.
+Rows are evaluated in the order of child-job.md 6.5 (first match wins); the order of the lines below is the
+order of `ROWS`.
+
 | # | condition | kind | accept | ledger action |
 |---|---|---|---|---|
 | 1 | c=0, O, S | complete | canonical | item_done |
