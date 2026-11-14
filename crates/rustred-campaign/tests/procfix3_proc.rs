@@ -122,3 +122,80 @@ fn m1_marked_grandchild_behind_empty_environ_parent_is_killed_before_verified() 
 fn m1_marked_grandchild_behind_marker_free_parent_cwd_root_is_killed_before_verified() {
     run_variant("g1unset", &format!("env -u {MARKER_VAR}"), "cd /;");
 }
+
+/// gate-A m-5: the tripwire extended beyond the signal syscalls (those stay in proc_reaudit_regressions::ra_m5): every
+/// REAP form (waitid / wait4 / waitpid / `.wait()` / `try_wait` / `.status()` / `.output()`), SIGSTOP / SIGCONT,
+/// cgroup.freeze / cgroup.kill, `raise(`, PR_SET_PDEATHSIG, ANY `Command::new(` (also with a variable path), the `nix` /
+/// `rustix` crates, and SIGCHLD dispositions (SIG_IGN, SA_NOCLDWAIT) appear only in the files named here (with the
+/// reason). Scanning stops only at a `#[cfg(test)]` that introduces a `mod` block (not at any `#[cfg(test)]` line).
+#[test]
+fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let allowed: &[(&str, &[&str])] = &[
+        // guard: waitid(P_PIDFD) of exact zombies (sys), SIGCHLD checks; real: peek_exit (WNOWAIT), the systemd probe
+        // (own child, own session), try_wait under the registry lock; cli: the pre-flight version probe (separate
+        // process, no launcher); the fake child (test double): wait4 of its own helpers.
+        ("waitid", &["launch/guard.rs", "launch/real.rs"]),
+        ("wait4", &["bin/rr_fake_child.rs"]),
+        ("waitpid", &[]),
+        (".wait()", &[]),
+        ("try_wait", &["launch/real.rs", "cli/mod.rs"]),
+        (".status()", &["launch/real.rs"]),
+        (".output()", &[]),
+        // stop / continue: only through the guard, from the hunt, the sweep and the launcher's terminate.
+        ("SIGSTOP", &["launch/hunt.rs", "launch/sweep.rs"]),
+        ("SIGCONT", &["launch/real.rs"]),
+        ("cgroup.freeze", &["launch/cgroup.rs"]),
+        ("cgroup.kill", &["launch/cgroup.rs"]),
+        ("raise(", &[]),
+        ("PR_SET_PDEATHSIG", &["launch/real.rs", "bin/rr_fake_child.rs"]),
+        ("Command::new(", &["launch/real.rs", "cli/mod.rs"]),
+        ("rustix::", &[]),
+        ("SIG_IGN", &["launch/guard.rs", "bin/rr_fake_child.rs"]),
+        ("SA_NOCLDWAIT", &["launch/guard.rs"]),
+    ];
+    let mut files = Vec::new();
+    let mut stack = vec![src.clone()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                files.push(p);
+            }
+        }
+    }
+    let mut hits = Vec::new();
+    for f in &files {
+        let rel = f.strip_prefix(&src).unwrap().display().to_string();
+        let text = fs::read_to_string(f).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("#[cfg(test)]")
+                && lines[i + 1..]
+                    .iter()
+                    .find(|l| !l.trim().is_empty())
+                    .is_some_and(|l| l.trim_start().starts_with("mod "))
+            {
+                break;
+            }
+            let code = line.split("//").next().unwrap_or("");
+            for (pat, ok) in allowed {
+                if code.contains(pat) && !ok.contains(&rel.as_str()) {
+                    hits.push(format!("{rel}:{}: [{pat}] {}", i + 1, line.trim()));
+                }
+            }
+            // `nix::` as a path start (not `unix::`).
+            if code.match_indices("nix::").any(|(k, _)| {
+                k == 0 || !code[..k].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_')
+            }) {
+                hits.push(format!("{rel}:{}: [nix::] {}", i + 1, line.trim()));
+            }
+        }
+    }
+    assert!(hits.is_empty(), "forms outside their allowed files: {hits:#?}");
+    // Self-test: a planted snippet is caught.
+    let planted = "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+    assert!(allowed.iter().filter(|(p, _)| planted.contains(p)).count() >= 3);
+}

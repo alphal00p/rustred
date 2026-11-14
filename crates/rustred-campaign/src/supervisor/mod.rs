@@ -826,6 +826,17 @@ impl Supervisor {
                 self.ledger_dead = Some(RunExit::DiskFull);
                 false
             }
+            Err(e) if ledger_error_is_disk_full(&e) => {
+                // gate-B m3: EFBIG (file size limit) / EDQUOT are "the disk is full" for the operator: exit 75.
+                self.log.line(
+                    "ERROR",
+                    &format!(
+                        "disk full ({e}): no new job; running jobs get the grace; the ledger stays valid; free space (or raise the file-size limit) and run the same command"
+                    ),
+                );
+                self.ledger_dead = Some(RunExit::DiskFull);
+                false
+            }
             Err(e) => {
                 self.log.line("ERROR", &format!("ledger: {e}"));
                 self.ledger_dead = Some(RunExit::Internal(format!("ledger: {e}")));
@@ -2935,6 +2946,17 @@ impl Supervisor {
             other => format!("{other:?}"),
         };
         self.log.line("INFO", &msg);
+        // gate-A m-7: the last pinned-group SIGKILLs (live children of a fast exit, unproven ends) happen while this
+        // supervisor still holds the campaign lock and the id lock, never after.
+        self.children.clear();
+        self.pending.clear();
+        let n = self.launcher.abandon_quarantine();
+        if n > 0 {
+            self.log.line(
+                "WARN",
+                &format!("{n} unproven job end(s) abandoned at exit (pinned groups killed); the restart's sweep looks for their markers"),
+            );
+        }
         if let Some(l) = self.lock.take() {
             let _ = l.release();
         }
@@ -3366,5 +3388,22 @@ mod tests {
         names.sort_by_key(|n| (control_seq_of(n), n.clone()));
         assert!(names[0].contains(&format!("{a:012}")));
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+/// A ledger error that means "no more room" (gate-B m3): ENOSPC / EDQUOT / EFBIG in an I/O error, or a poisoned handle
+/// whose cause text names them (the ledger keeps only the text there: FOR LEDGERFIX2, carry the kind).
+fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
+    match e {
+        LedgerError::NoSpace { .. } => true,
+        LedgerError::Io { source, .. } => matches!(
+            source.raw_os_error(),
+            Some(libc::ENOSPC | libc::EDQUOT | libc::EFBIG)
+        ),
+        LedgerError::Poisoned { why } => {
+            let w = why.to_ascii_lowercase();
+            w.contains("file too large") || w.contains("no space left") || w.contains("quota exceeded")
+        }
+        _ => false,
     }
 }

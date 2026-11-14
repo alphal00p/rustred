@@ -499,6 +499,15 @@ impl RealLauncher {
             .collect()
     }
 
+    /// Drop every quarantined handle NOW (each Drop SIGKILLs its pinned leader group through the guard and hands the
+    /// zombie to the reaper): the supervisor calls it before it releases its campaign locks (gate-A m-7). Returns how
+    /// many were dropped.
+    pub fn abandon_quarantine(&mut self) -> usize {
+        let n = self.quarantine.len();
+        self.quarantine.clear();
+        n
+    }
+
     /// Blocking (bounded): drive the quarantine until it is empty or `timeout` passes (supervisor exit). What is left
     /// stays unproven: its handles are dropped with the launcher (the pinned groups get SIGKILL) and the restart's orphan
     /// scan looks for the markers.
