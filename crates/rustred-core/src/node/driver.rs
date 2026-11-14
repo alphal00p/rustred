@@ -1992,18 +1992,19 @@ fn note_forked(r: &Forked, what: super::childjob::TimeWhat, limit: u64, rule: Op
     }
 }
 
-/// child-job (audit-engjob M5): the timed native guard try of the content-fallback route: a timeout (content route
-/// taken), a helper that could not be forked (native in-process) or that died (content route) is a time decision.
+/// child-job (audit-engjob M5): the timed native guard try of the content-fallback route timed out (content route
+/// taken): a time decision. (A helper that could not be forked or was killed by a signal is recorded by
+/// `solver::exception`'s timed try itself; a native error is deterministic and not recorded.)
 fn note_guard_report(report: &crate::solver::GuardReport, limit: u64, rule: Option<usize>) {
-    use crate::solver::NativeGuardTry as T;
-    use super::childjob::TimeWhat as W;
-    let (what, taken) = match report.native_try {
-        T::TimedOut => (W::GuardRoute, "content route"),
-        T::Unavailable => (W::ForkUnavailable, "native route in-process"),
-        T::ChildFailed => (W::ForkUnavailable, "content route (helper failed)"),
-        T::NotTried | T::Finished => return,
-    };
-    super::childjob::time_decision(what, rule, limit as f64, report.try_seconds, taken);
+    if report.native_try == crate::solver::NativeGuardTry::TimedOut {
+        super::childjob::time_decision(
+            super::childjob::TimeWhat::GuardRoute,
+            rule,
+            limit as f64,
+            report.try_seconds,
+            "content route",
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

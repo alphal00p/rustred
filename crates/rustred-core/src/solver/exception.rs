@@ -260,7 +260,20 @@ mod child {
         // hang; it is then killed at the timeout like any slow child.
         let parent = crate::node::childjob::proc::pid();
         let pid = unsafe { libc::fork() };
+        let started = Instant::now();
+        // child-job (audit-engjob M5): the environment decides the route when no helper can be forked, or when the
+        // helper is killed by a signal (OOM kill); a native error (`work` false, exit 3) is deterministic, not recorded
+        let environment = |measured: f64, taken: &str| {
+            crate::node::childjob::time_decision(
+                crate::node::childjob::TimeWhat::ForkUnavailable,
+                None,
+                timeout.as_secs_f64(),
+                measured,
+                taken,
+            )
+        };
         if pid < 0 {
+            environment(0.0, "native route in-process (fork failed)");
             return NativeGuardTry::Unavailable;
         }
         if pid == 0 {
@@ -279,6 +292,13 @@ mod child {
                 return match helpers::reap_helper(pid, registered) {
                     Some(status) if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 => {
                         NativeGuardTry::Finished
+                    }
+                    Some(status) if libc::WIFSIGNALED(status) => {
+                        environment(
+                            started.elapsed().as_secs_f64(),
+                            "content route (helper killed by a signal)",
+                        );
+                        NativeGuardTry::ChildFailed
                     }
                     _ => NativeGuardTry::ChildFailed,
                 };
