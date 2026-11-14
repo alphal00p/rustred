@@ -815,6 +815,59 @@ fn check_layer_derivation(library: &PLibrary, layer: &PBasisLayer) -> Result<(),
     Ok(())
 }
 
+/// vk5l WP4: the optional sidecar of a package directory that declares nodes
+/// NOT CLOSED (plan VK5L §3.6, decision Q8; the package format record is WP6):
+/// `{"schema": "rustred.p-open-nodes.v1", "nodes": [{"class": "<owner class
+/// label of library.json>", "node": "T266", "status": "stuck: not closed"}]}`.
+/// A key reaching such a class is `PError::NodeNotClosed` naming the node.
+pub const OPEN_NODES_FILE: &str = "open-nodes.json";
+/// The schema (version constant) of [`OPEN_NODES_FILE`].
+pub const P_OPEN_NODES_SCHEMA: &str = "rustred.p-open-nodes.v1";
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenNodesFile {
+    schema: String,
+    nodes: Vec<OpenNodeRecord>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenNodeRecord {
+    class: String,
+    node: String,
+    status: String,
+}
+
+/// The records of [`OPEN_NODES_FILE`] as (class, node, status); an unknown
+/// schema or class label is refused.
+fn read_open_nodes(
+    bytes: &[u8],
+    classes: &BTreeMap<String, OwnerClassId>,
+) -> Result<Vec<(OwnerClassId, String, String)>, PError> {
+    let file: OpenNodesFile = serde_json::from_slice(bytes)
+        .map_err(|error| malformed(format!("{OPEN_NODES_FILE}: {error}")))?;
+    if file.schema != P_OPEN_NODES_SCHEMA {
+        return Err(PError::VersionMismatch {
+            name: "P_OPEN_NODES_SCHEMA".to_owned(),
+            found: file.schema,
+            expected: P_OPEN_NODES_SCHEMA.to_owned(),
+        });
+    }
+    file.nodes
+        .into_iter()
+        .map(|record| {
+            let class = *classes.get(&record.class).ok_or_else(|| {
+                malformed(format!(
+                    "{OPEN_NODES_FILE}: the node {} names {}, no class of the census",
+                    record.node, record.class
+                ))
+            })?;
+            Ok((class, record.node, record.status))
+        })
+        .collect()
+}
+
 /// Load a written p library, failing closed: see the module docs.
 pub fn load_p_library(
     source: PLibrarySource,
@@ -974,6 +1027,15 @@ pub fn load_p_library(
         // The verified load searches and authenticates every group itself.
         if !options.verify_descent {
             builder.set_saved_orbits(PSavedOrbits::decode(&files.read(ORBITS_FILE)?)?);
+        }
+    }
+    // vk5l WP4: nodes the package declares NOT CLOSED (optional sidecar
+    // `open-nodes.json`; not part of the identity: such a key never reduces).
+    if let PLibrarySource::Directory(directory) = &source
+        && directory.join(OPEN_NODES_FILE).is_file()
+    {
+        for (class, node, status) in read_open_nodes(&files.read(OPEN_NODES_FILE)?, &classes)? {
+            builder.declare_open_node(class, &node, &status)?;
         }
     }
     // p5l-library-6: a content revision recorded as the last part of the
