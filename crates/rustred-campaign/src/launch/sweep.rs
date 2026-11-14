@@ -22,7 +22,7 @@
 //! Nothing is ever selected by name or pattern. Runs on the calling thread (blocking, bounded by `budget` plus the reads
 //! of one round): call it off the control loop.
 
-use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
+use super::guard::{self, ProcessTarget, StartRule, Verdict};
 use crate::resources::{
     CampaignMarker, FactRead, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT, boot_id,
     children_of, our_uid, owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap,
@@ -126,24 +126,16 @@ impl Sweep<'_> {
         self.cancel.load(Ordering::SeqCst) || Instant::now() >= self.deadline
     }
 
-    fn proof(&self) -> Proof {
-        match &self.s.only_attempt {
-            Some(a) => match CampaignMarker::new(&self.s.campaign_id, a) {
-                Ok(m) => Proof::Marker(m),
-                Err(_) => Proof::Campaign(self.s.campaign_id.clone()),
-            },
-            None => Proof::Campaign(self.s.campaign_id.clone()),
-        }
-    }
-
+    /// The target through THE ONE OWNERSHIP RULE (`guard::marker_target`, shared with the hunt and the job signaller).
     fn target(&self, p: &MarkedProcess) -> ProcessTarget {
-        ProcessTarget {
-            pid: p.pid,
-            boot_id: self.boot.clone(),
-            start: StartRule::Exact(p.start_ticks),
-            require_session_leader: false,
-            proof: self.proof(),
-        }
+        guard::marker_target(
+            &self.s.campaign_id,
+            self.s.only_attempt.as_deref(),
+            p.pid,
+            StartRule::Exact(p.start_ticks),
+            &self.boot,
+        )
+        .expect("campaign id and attempt label validated at the start of the sweep")
     }
 
     /// Does this marked process match what we sweep?
@@ -399,8 +391,15 @@ impl Sweep<'_> {
     }
 }
 
-/// Run one sweep (blocking; call it off the control loop). Signals only through `guard` (see the module documentation).
+/// Run one sweep (blocking; call it off the control loop). Signals only through `guard` (see the module documentation);
+/// every delivery is logged with the context "campaign sweep" (gate3 M2).
 pub fn sweep(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
+    guard::with_context("campaign sweep", spec.only_attempt.as_deref(), || {
+        sweep_inner(spec, cancel)
+    })
+}
+
+fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
     let boot = match boot_id() {
         Ok(b) => b,
         Err(e) => {
@@ -413,6 +412,15 @@ pub fn sweep(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
     if let Err(e) = crate::resources::validate_campaign_id(&spec.campaign_id) {
         return SweepReport {
             reason: Some(e.to_string()),
+            ..Default::default()
+        };
+    }
+    // Never widened: an attempt label that is not a valid marker sweeps NOTHING (not the whole campaign).
+    if let Some(a) = &spec.only_attempt
+        && CampaignMarker::new(&spec.campaign_id, a).is_err()
+    {
+        return SweepReport {
+            reason: Some(format!("attempt label {a:?} is not a valid marker: nothing signalled")),
             ..Default::default()
         };
     }

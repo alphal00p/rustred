@@ -23,15 +23,19 @@ static OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug)]
 pub enum Bounded<T> {
     Done(T),
-    /// Not finished within the bound (or too many stuck helpers); the work may still complete in the background.
+    /// Not finished within the bound; the work may still complete in the background.
     TimedOut,
+    /// The helper thread could not be started (gate3 M3): a RESOURCE failure of this process (EAGAIN from the thread
+    /// limit, ENOMEM), or [`MAX_STUCK`] helpers already outstanding (reported as EAGAIN). Never a timeout: callers on
+    /// the launch path turn it into the supervisor's resource back-off (exit 71), not into a job attempt.
+    SpawnFailed(std::io::Error),
 }
 
 impl<T> Bounded<T> {
     pub fn done(self) -> Option<T> {
         match self {
             Bounded::Done(t) => Some(t),
-            Bounded::TimedOut => None,
+            Bounded::TimedOut | Bounded::SpawnFailed(_) => None,
         }
     }
 }
@@ -58,7 +62,7 @@ where
 {
     if OUTSTANDING.fetch_add(1, Ordering::SeqCst) >= MAX_STUCK {
         OUTSTANDING.fetch_sub(1, Ordering::SeqCst);
-        return Bounded::TimedOut;
+        return Bounded::SpawnFailed(std::io::Error::from_raw_os_error(libc::EAGAIN));
     }
     struct Slot<T> {
         abandoned: bool,
@@ -87,9 +91,14 @@ where
                 cv.notify_all();
             }
         });
-    if spawned.is_err() {
+    if let Err(e) = spawned {
         OUTSTANDING.fetch_sub(1, Ordering::SeqCst);
-        return Bounded::TimedOut;
+        // std reports a failed clone() with its errno (EAGAIN at the thread / process limit, ENOMEM); keep it typed.
+        let e = match e.raw_os_error() {
+            Some(_) => e,
+            None => std::io::Error::from_raw_os_error(libc::EAGAIN),
+        };
+        return Bounded::SpawnFailed(e);
     }
     // Hand-off under one mutex: either the caller takes the result, or it marks the slot abandoned and the helper then
     // runs on_abandon; a result can never be lost in between.
@@ -142,6 +151,7 @@ pub fn read_bounded(path: &Path, timeout: Duration) -> ReadOutcome {
             ReadOutcome::Gone
         }
         Bounded::Done(Err(e)) => ReadOutcome::Error(e),
+        Bounded::SpawnFailed(e) => ReadOutcome::Error(e),
         Bounded::TimedOut => ReadOutcome::TimedOut,
     }
 }

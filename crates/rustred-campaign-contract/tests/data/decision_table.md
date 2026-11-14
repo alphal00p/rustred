@@ -24,6 +24,7 @@
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |
+| 15b | c in {51, 70}, O whose error names a host resource errno (EAGAIN, EMFILE, ENFILE, ENOMEM, ENOSPC, EDQUOT) | lost | nothing | retry_after_resource_backoff |
 | 16 | c=51 | crashed | nothing | retry_once_then_attention |
 | 17 | c=70, O | crashed | nothing | retry_same_spec_once_then_attention |
 | 18 | s=9, K=memory (or cgroup oom_kill count increased) | killed_memory | nothing | next_memory_class_or_rung |

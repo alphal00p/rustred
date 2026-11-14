@@ -74,6 +74,7 @@
             "done",
             "control",
             "orphan_killed",
+            "signal_sent",
             "verify_checkpoint",
             "artefact_lost",
             "export",
@@ -398,6 +399,22 @@
             "properties": {
               "body": {
                 "$ref": "#/$defs/orphan_killed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "signal_sent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/signal_sent"
               }
             }
           }
@@ -1727,6 +1744,11 @@
                 "$ref": "common.schema.json#/$defs/blake3",
                 "description": "BLAKE3 of the attempt's job.json as written (the job.finished binding must name it)"
               },
+              "scope_unit": {
+                "type": "string",
+                "minLength": 1,
+                "description": "lane int5 (gate3 M5): deterministic systemd unit name of the job's scope; optional"
+              },
               "run_dir": {
                 "type": "string"
               },
@@ -3025,6 +3047,67 @@
         },
         "start_ticks": {
           "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "signal_sent": {
+      "type": "object",
+      "required": [
+        "job",
+        "pid",
+        "start_ticks",
+        "signal",
+        "target",
+        "marker",
+        "proof",
+        "by"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pid": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "start_ticks": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "target": {
+          "enum": [
+            "process",
+            "group",
+            "cgroup"
+          ]
+        },
+        "marker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "by": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

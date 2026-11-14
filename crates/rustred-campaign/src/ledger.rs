@@ -322,6 +322,12 @@ pub enum JobEvent {
         cpus: Vec<u32>,
         reserved_bytes: u64,
         spec_blake3: String,
+        /// Lane int5 (gate3 M5): the deterministic systemd unit name of the job's scope (`launch::scope_unit_name` of
+        /// the campaign id and the attempt label), when the supervisor asked for one. A restart stops only a scope
+        /// whose name is recorded here AND whose leader pid is recorded by `started` in this campaign's ledger.
+        /// Omitted when absent (older records re-serialise unchanged).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope_unit: Option<String>,
     },
     Started {
         pid: u32,
@@ -601,6 +607,20 @@ pub enum Event {
         pid: u32,
         start_ticks: u64,
     },
+    /// Lane int5 (gate3 M2): ONE record per signal the supervisor's process layer DELIVERED (through the guard, the
+    /// one signal path, or a cgroup kill): process / group / cgroup, the start time the identity checklist read, the
+    /// marker it read (campaign id and attempt label), the proof of belonging, and who signalled why (`by`).
+    /// Informational (no state change); written by the supervisor after the delivery (group commit per tick).
+    SignalSent {
+        job: Option<String>,
+        pid: u32,
+        start_ticks: Option<u64>,
+        signal: i32,
+        target: String,
+        marker: Option<String>,
+        proof: String,
+        by: String,
+    },
     VerifyCheckpoint {
         seq: u64,
         clean: bool,
@@ -650,6 +670,7 @@ impl Event {
             Event::Done { .. } => "done",
             Event::Control { .. } => "control",
             Event::OrphanKilled { .. } => "orphan_killed",
+            Event::SignalSent { .. } => "signal_sent",
             Event::VerifyCheckpoint { .. } => "verify_checkpoint",
             Event::ArtefactLost { .. } => "artefact_lost",
             Event::Export { .. } => "export",

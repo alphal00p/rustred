@@ -4,6 +4,7 @@
 //! and writes OUTCOME; then the contract crate classifies the attempt like any other (kind `proof-instantiate`).
 //! Answers are bound to their rule by `record_sha256` (SHA-256 of the raw rule line, e13ebcb1) AND the key.
 
+use std::io::Write;
 use super::conformance::Mismatch;
 use super::job::{
     AdapterError, Ended, InputFile, JobAdapter, JobPlan, Prepared, Program, classify_attempt,
@@ -309,14 +310,17 @@ impl ProofInstantiateAdapter {
                                 end: Some(EndKind::End),
                                 sealed: true,
                             }),
-                            Err(e) => eprintln!("proof wrapper: sealing failed: {e}"),
+                            Err(e) => {
+                                // gate3 m1: no panic on a closed stderr
+                                let _ = writeln!(std::io::stderr(), "proof wrapper: sealing failed: {e}");
+                            }
                         }
                         write(j);
                         (mapped, None)
                     }
                     // the child's answers do not check: an OUTCOME without a sealed file (row 22, nothing accepted)
                     Err((why, m)) => {
-                        eprintln!("proof wrapper: {why}");
+                        let _ = writeln!(std::io::stderr(), "proof wrapper: {why}");
                         write(j);
                         (mapped, m)
                     }

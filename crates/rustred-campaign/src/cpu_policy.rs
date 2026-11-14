@@ -156,7 +156,70 @@ fn cpu_word(cpus: &[usize]) -> (&'static str, String) {
     (if cpus.len() == 1 { "CPU" } else { "CPUs" }, list)
 }
 
-/// One line, ONE write(2) on an O_APPEND descriptor, at most [`MAX_LEDGER_LINE`] bytes; a short write is an error.
+/// The site's files as `SitePolicy` needs them (gate3 m3): `lock_dir` an existing directory, `ledger_file` an existing
+/// regular file (symlinks followed) that does not lie in `lock_dir`. Nothing is created.
+fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
+    match fs::metadata(&c.lock_dir) {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => {
+            return Err(PolicyError::Config(format!(
+                "lock_dir {} is not a directory",
+                c.lock_dir.display()
+            )));
+        }
+        Err(e) => {
+            return Err(PolicyError::Config(format!(
+                "lock_dir {}: {e} (the site's lock directory is never created by the campaign)",
+                c.lock_dir.display()
+            )));
+        }
+    }
+    match fs::metadata(&c.ledger_file) {
+        Ok(m) if m.file_type().is_file() => {}
+        Ok(m) => {
+            return Err(PolicyError::Config(format!(
+                "ledger_file {} is not a regular file ({:?})",
+                c.ledger_file.display(),
+                m.file_type()
+            )));
+        }
+        Err(e) => {
+            return Err(PolicyError::Config(format!(
+                "ledger_file {}: {e} (the site's CPU ledger is never created by the campaign)",
+                c.ledger_file.display()
+            )));
+        }
+    }
+    let ledger = fs::canonicalize(&c.ledger_file)
+        .map_err(io_err(format!("canonicalize {}", c.ledger_file.display())))?;
+    let locks = fs::canonicalize(&c.lock_dir)
+        .map_err(io_err(format!("canonicalize {}", c.lock_dir.display())))?;
+    if ledger.starts_with(&locks) {
+        return Err(PolicyError::Config(format!(
+            "ledger_file {} lies inside lock_dir {}",
+            c.ledger_file.display(),
+            c.lock_dir.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Open an EXISTING site file (gate3 m3): never created, O_NONBLOCK (a FIFO never blocks the caller), and only a
+/// regular file is accepted.
+fn open_existing_regular(path: &Path, opts: &mut OpenOptions) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = opts.custom_flags(libc::O_NONBLOCK).open(path)?;
+    if !f.metadata()?.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a regular file", path.display()),
+        ));
+    }
+    Ok(f)
+}
+
+/// One line, ONE write(2) on an O_APPEND descriptor, at most [`MAX_LEDGER_LINE`] bytes; a short write is an error. The
+/// ledger must exist and be a regular file (gate3 m3: never created, never a FIFO).
 pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
     let buf = format!("{line}\n");
     if buf.len() > MAX_LEDGER_LINE || line.contains('\n') {
@@ -168,7 +231,7 @@ pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
             ),
         ));
     }
-    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = open_existing_regular(path, OpenOptions::new().append(true))?;
     let n = f.write(buf.as_bytes())?;
     if n != buf.len() {
         return Err(io::Error::new(
@@ -300,12 +363,11 @@ impl CpuLease {
             }
             for (&cpu, path) in cpus.iter().zip(paths.iter()) {
                 // An existing lock file, never created, never truncated (shared host locks: SUBAGENT_RULES L13).
-                let busy = OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .truncate(false)
-                    .open(path)
-                    .is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+                let busy = open_existing_regular(
+                    path,
+                    OpenOptions::new().read(true).write(true).truncate(false),
+                )
+                .is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
                 if busy {
                     held.push(HeldAfterRelease {
                         cpu,
@@ -653,6 +715,15 @@ impl SiteConfig {
         if !self.lock_name.contains("{n}") {
             return Err(PolicyError::Config("lock_name must contain {n}".into()));
         }
+        // gate3 m3 (lane int5): a lock name is ONE plain file name inside lock_dir (no '/', no "." / "..": a name like
+        // "../escape.{n}" opened files outside the lock directory)
+        let probe = self.lock_name.replace("{n}", "0");
+        if probe.contains(['/', '\0']) || probe == "." || probe == ".." || probe.starts_with("..") {
+            return Err(PolicyError::Config(format!(
+                "lock_name {:?} must be a plain file name inside lock_dir",
+                self.lock_name
+            )));
+        }
         if self.max_cores == 0 {
             return Err(PolicyError::Config("max_cores is 0".into()));
         }
@@ -915,7 +986,7 @@ const TAIL_LIMIT: u64 = 64 << 20;
 /// The true last `n` lines of a file (read backwards in chunks; audit A m6, audit B m6). More than [`TAIL_LIMIT`] bytes
 /// for the window is an error (the caller fails closed).
 fn tail_lines(path: &Path, n: usize) -> io::Result<Vec<String>> {
-    let mut f = match File::open(path) {
+    let mut f = match open_existing_regular(path, OpenOptions::new().read(true)) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e),
@@ -999,8 +1070,10 @@ impl SitePolicy {
                 "no candidate CPU in this process's affinity mask".into(),
             ));
         }
-        fs::create_dir_all(&config.lock_dir)
-            .map_err(io_err(format!("create {}", config.lock_dir.display())))?;
+        // gate3 m3 (lane int5): the site's files are NEVER created by the campaign: the lock directory must exist (a
+        // directory), the ledger must be an existing REGULAR file outside it (a FIFO blocked the main thread, a
+        // directory made admission wait forever, a lock file as ledger received claims).
+        check_site_files(&config)?;
         let ledger = LedgerWriter {
             path: config.ledger_file.clone(),
             tag: config.tag.clone(),
@@ -1077,13 +1150,20 @@ impl SitePolicy {
                 continue;
             }
             let path = self.lock_path(c);
-            let f = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&path)
-                .map_err(io_err(format!("open {}", path.display())))?;
+            // gate3 m3: an existing lock file only (never created); a missing one cannot be held: left alone
+            let f = match open_existing_regular(
+                &path,
+                OpenOptions::new().read(true).write(true).truncate(false),
+            ) {
+                Ok(f) => f,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    return Err(PolicyError::Io {
+                        what: format!("open {}", path.display()),
+                        error: e,
+                    });
+                }
+            };
             match f.try_lock() {
                 Ok(()) => {
                     out.released.push(c);
@@ -1243,13 +1323,20 @@ impl CpuPolicy for SitePolicy {
                 let path = config
                     .lock_dir
                     .join(config.lock_name.replace("{n}", &c.to_string()));
-                let f = OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create(true)
-                    .truncate(false)
-                    .open(&path)
-                    .map_err(io_err(format!("open {}", path.display())))?;
+                // gate3 m3: an existing lock file only (never created): a CPU without one is not available
+                let f = match open_existing_regular(
+                    &path,
+                    OpenOptions::new().read(true).write(true).truncate(false),
+                ) {
+                    Ok(f) => f,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                    Err(e) => {
+                        return Err(PolicyError::Io {
+                            what: format!("open {}", path.display()),
+                            error: e,
+                        });
+                    }
+                };
                 match f.try_lock() {
                     Ok(()) => got.push((c, f)),
                     Err(std::fs::TryLockError::WouldBlock) => {}
@@ -1292,6 +1379,10 @@ impl CpuPolicy for SitePolicy {
                     "site files did not answer within {:?}",
                     self.io_timeout
                 )));
+            }
+            // gate3 M3: no helper thread (EAGAIN / ENOMEM): nothing was written; try again later
+            Bounded::SpawnFailed(e) => {
+                return Ok(Acquire::NotNow(format!("site-file helper thread: {e}")));
             }
             Bounded::Done(Err(e)) => return Err(e),
             Bounded::Done(Ok(Err(reason))) => return Ok(Acquire::NotNow(reason)),
@@ -1471,6 +1562,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("rr-site-sibling-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("locks")).unwrap();
+        // gate3 m3: the site's files exist beforehand (the campaign never creates them)
+        fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+        for n in 0..4 {
+            fs::write(root.join("locks").join(format!("cpu.{n}")), b"").unwrap();
+        }
         let mut c: SiteConfig = serde_json::from_str(SITE_EXAMPLE).unwrap();
         c.lock_dir = root.join("locks");
         c.ledger_file = root.join("CPU_LEDGER.md");

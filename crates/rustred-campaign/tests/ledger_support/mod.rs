@@ -264,6 +264,7 @@ pub fn item_until_produced(node: &str, k: usize, rung: u8, cpu_ms: u64) -> Vec<E
                 cpus: vec![(k % 32) as u32],
                 reserved_bytes: 2 << 30,
                 spec_blake3: digest(&job),
+                scope_unit: None,
             },
         },
         Event::Job {
@@ -473,6 +474,7 @@ pub fn scenario() -> Vec<Event> {
                 cpus: vec![7],
                 reserved_bytes: 1 << 30,
                 spec_blake3: digest(&j4),
+                scope_unit: None,
             },
         ),
         (
@@ -494,6 +496,7 @@ pub fn scenario() -> Vec<Event> {
                 cpus: vec![7],
                 reserved_bytes: 1 << 30,
                 spec_blake3: digest(&j4),
+                scope_unit: None,
             },
         ),
         (
@@ -573,6 +576,7 @@ pub fn scenario() -> Vec<Event> {
             cpus: vec![3],
             reserved_bytes: 1 << 29,
             spec_blake3: digest(&j6),
+            scope_unit: None,
         },
     });
     v.push(Event::Job {

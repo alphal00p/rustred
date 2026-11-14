@@ -169,15 +169,27 @@ pub fn signal(c: &Child, sig: i32) {
 pub const ATTENTION: i32 = 8;
 
 /// Act as the operator for every attempt of UNKNOWN execution (an `unconfirmed` launch whose run directory holds no
-/// valid OUTCOME; lane int5: the ledger state, not `launching`): `rr_campaign control CDIR resolve JOB`. Returns the
-/// jobs resolved.
+/// valid OUTCOME; lane int5: the ledger state, not `launching`) and every item in attention for repeated host-resource
+/// ends: `rr_campaign control CDIR resolve JOB`. Returns the jobs resolved.
 pub fn resolve_unknown(cdir: &Path) -> Vec<String> {
-    let jobs: Vec<String> = state(cdir)
+    let st = state(cdir);
+    let mut jobs: Vec<String> = st
         .jobs
         .iter()
         .filter(|(_, j)| j.state == rustred_campaign::state::AttemptState::Unconfirmed)
         .map(|(id, _)| id.clone())
         .collect();
+    // lane int5 (gate3 M4): items in attention for repeated host-resource ends (or an unknown execution whose attempt
+    // was settled meanwhile) are resolved through their last job as well
+    for it in st.items.values() {
+        if let rustred_campaign::state::ItemPhase::Attention(c) = &it.phase
+            && (c == "child_resource_failure" || c == "execution_unknown")
+            && let Some(j) = it.jobs.last()
+            && !jobs.contains(j)
+        {
+            jobs.push(j.clone());
+        }
+    }
     for j in &jobs {
         let o = Command::new(SUP)
             .args([

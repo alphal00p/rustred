@@ -174,7 +174,7 @@ fn poll_until_finished(h: &mut RealChild, t: Duration) -> Option<FinalReport> {
     None
 }
 
-fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
+fn site_cfg_raw(root: &Path, cpu: usize) -> SiteConfig {
     fs::create_dir_all(root.join("locks")).unwrap();
     SiteConfig {
         schema: SITE_SCHEMA.into(),
@@ -918,4 +918,25 @@ fn _marker(c: &str) -> CampaignMarker {
 fn scan_of_an_unused_id_is_empty() {
     let s = scan_campaign("rb-unused-id", 0, &BTreeSet::new()).unwrap();
     assert!(s.processes.is_empty());
+}
+
+/// gate3 m3 (lane int5): the campaign never creates the site's files: a test site has its ledger and one lock file per
+/// CPU (0..=1023 would be too many: the candidate CPUs and the excluded ones) before `SitePolicy::new`.
+fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
+    std::fs::create_dir_all(&cfg.lock_dir).unwrap();
+    if !cfg.ledger_file.exists() {
+        std::fs::write(&cfg.ledger_file, b"").unwrap();
+    }
+    for c in cpus {
+        let p = cfg.lock_dir.join(cfg.lock_name.replace("{n}", &c.to_string()));
+        if !p.exists() {
+            std::fs::write(&p, b"").unwrap();
+        }
+    }
+}
+
+fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
+    let c = site_cfg_raw(root, cpu);
+    make_site_files(&c, &[cpu]);
+    c
 }

@@ -142,6 +142,136 @@ pub struct ProcessTarget {
     pub proof: Proof,
 }
 
+// ------------------------------------------------------------------------------------------------ delivery log
+
+/// One signal this process DELIVERED through the guard (gate3 M2, lane int5: every signal sent becomes a ledger record;
+/// the supervisor drains [`take_deliveries`] into `signal_sent` records). Recorded only after a successful send.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Delivery {
+    /// The process (target "process"), the process group = the pinned leader's session (target "group"), or 0 for a
+    /// cgroup-wide kill (target "cgroup", path in `detail`).
+    pub pid: u32,
+    /// Start time (clock ticks after boot) read by the checklist; None for a group or cgroup kill.
+    pub start_ticks: Option<u64>,
+    pub signal: i32,
+    /// "process" | "group" | "cgroup".
+    pub target: &'static str,
+    /// The marker value read from the process's environ (campaign id and attempt label), when the proof was a marker.
+    pub marker: Option<String>,
+    /// The proof of belonging: "attempt marker", "campaign marker", "pinned session", "pinned group", "job cgroup",
+    /// "job scope".
+    pub proof: &'static str,
+    /// The caller's context ([`with_context`]): who signalled and why ("campaign sweep", "end-of-job hunt", ...).
+    pub by: String,
+    /// The attempt label of the caller's context (`<job>:a<k>`), when known.
+    pub label: Option<String>,
+    /// Extra detail (cgroup path).
+    pub detail: Option<String>,
+}
+
+/// Deliveries kept for the drain at most (a supervisor drains every tick; beyond this they are counted, not kept).
+pub const DELIVERY_LOG_MAX: usize = 1 << 16;
+
+static DELIVERIES: std::sync::Mutex<(Vec<Delivery>, u64)> = std::sync::Mutex::new((Vec::new(), 0));
+
+thread_local! {
+    static CONTEXT: std::cell::RefCell<Option<(String, Option<String>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with a signalling context (who signals, which attempt) that every delivery made by `f` on THIS thread carries.
+pub(crate) fn with_context<R>(by: &str, label: Option<&str>, f: impl FnOnce() -> R) -> R {
+    let prev = CONTEXT.with(|c| {
+        c.replace(Some((by.to_string(), label.map(str::to_string))))
+    });
+    let r = f();
+    CONTEXT.with(|c| *c.borrow_mut() = prev);
+    r
+}
+
+fn current_context() -> Option<(String, Option<String>)> {
+    CONTEXT.with(|c| c.borrow().clone())
+}
+
+pub(crate) fn log_delivery(
+    pid: u32,
+    start_ticks: Option<u64>,
+    signal: i32,
+    target: &'static str,
+    marker: Option<String>,
+    proof: &'static str,
+    detail: Option<String>,
+) {
+    let (by, label) = current_context().unwrap_or_else(|| ("unspecified".into(), None));
+    let d = Delivery {
+        pid,
+        start_ticks,
+        signal,
+        target,
+        marker,
+        proof,
+        by,
+        label,
+        detail,
+    };
+    let mut g = DELIVERIES.lock().unwrap_or_else(|p| p.into_inner());
+    if g.0.len() < DELIVERY_LOG_MAX {
+        g.0.push(d);
+    } else {
+        g.1 += 1;
+    }
+}
+
+/// Take every delivery logged since the last call, and how many could not be kept (beyond [`DELIVERY_LOG_MAX`]).
+pub fn take_deliveries() -> (Vec<Delivery>, u64) {
+    let mut g = DELIVERIES.lock().unwrap_or_else(|p| p.into_inner());
+    let v = std::mem::take(&mut g.0);
+    let dropped = std::mem::replace(&mut g.1, 0);
+    (v, dropped)
+}
+
+fn proof_word(p: &Proof) -> &'static str {
+    match p {
+        Proof::Marker(_) => "attempt marker",
+        Proof::Campaign(_) => "campaign marker",
+        Proof::PinnedSession(_) => "pinned session",
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ ownership
+
+/// THE ONE OWNERSHIP RULE for a process FOUND BY ITS MARKER (gate3 M1 / M2; lane int5): the campaign sweep, the
+/// end-of-job hunt and the job signaller all build their target with this function, and `judge` re-checks it at every
+/// send. A process is ours iff (a) its environ carries THIS campaign's marker (`campaign_id` = spec name + BLAKE3 of
+/// the directory's nonce, device and inode: a copied directory has another id) and, when `attempt` is given, exactly
+/// that attempt label; (b) its owner uid is ours; (c) it started at or after the bound (`start`: the attempt's launch,
+/// or the exact start ticks a scan read); (d) the boot is the recorded one; (e) it is a valid signal target
+/// (`ValidPid::for_signal`: never this process, its parent, or the leader of our own session / group). WHERE it is
+/// (cwd, session, open files) is NOT part of the rule: a process carrying this campaign's exact marker is ours wherever
+/// its cwd is (run-book assumption A3: no foreign process carries it). `None`: the campaign id / label is not a valid
+/// marker (nothing may be signalled).
+pub(crate) fn marker_target(
+    campaign_id: &str,
+    attempt: Option<&str>,
+    pid: u32,
+    start: StartRule,
+    boot_id: &str,
+) -> Option<ProcessTarget> {
+    let proof = match attempt {
+        Some(a) => Proof::Marker(CampaignMarker::new(campaign_id, a).ok()?),
+        None => {
+            crate::resources::validate_campaign_id(campaign_id).ok()?;
+            Proof::Campaign(campaign_id.to_string())
+        }
+    };
+    Some(ProcessTarget {
+        pid,
+        boot_id: boot_id.to_string(),
+        start,
+        require_session_leader: false,
+        proof,
+    })
+}
+
 // ------------------------------------------------------------------------------------------------ syscalls
 
 mod sys {
@@ -610,7 +740,22 @@ fn judge_and_send(
     };
     drop(guard);
     match r {
-        Ok(()) => Verdict::Delivered,
+        Ok(()) => {
+            let marker = match &facts.marker {
+                Some(Ok(Some(v))) => Some(v.clone()),
+                _ => None,
+            };
+            log_delivery(
+                t.pid,
+                Some(facts.start_ticks),
+                sig,
+                "process",
+                marker,
+                proof_word(&t.proof),
+                None,
+            );
+            Verdict::Delivered
+        }
         Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Verdict::Gone,
         Err(e) => Verdict::Unverified(format!("send: {e}")),
     }
@@ -643,7 +788,10 @@ pub(crate) fn signal_pinned_group(leaders: &Leaders, sid: u32, sig: i32) -> Verd
     let r = sys::killpg_pinned(pgid, sig);
     drop(guard);
     match r {
-        Ok(()) => Verdict::Delivered,
+        Ok(()) => {
+            log_delivery(sid, None, sig, "group", None, "pinned group", None);
+            Verdict::Delivered
+        }
         Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Verdict::Gone,
         Err(e) => Verdict::Unverified(format!("killpg: {e}")),
     }
@@ -702,11 +850,18 @@ pub(crate) fn signal_verified_batch(
         return Vec::new();
     }
     let n = targets.len();
+    let ctx = current_context();
     let work = move || {
-        targets
-            .iter()
-            .map(|t| signal_verified_inline(t, sig, leaders.as_deref()))
-            .collect::<Vec<_>>()
+        let run = || {
+            targets
+                .iter()
+                .map(|t| signal_verified_inline(t, sig, leaders.as_deref()))
+                .collect::<Vec<_>>()
+        };
+        match &ctx {
+            Some((by, label)) => with_context(by, label.as_deref(), run),
+            None => run(),
+        }
     };
     match run_bounded(timeout, work).done() {
         Some(v) => v,

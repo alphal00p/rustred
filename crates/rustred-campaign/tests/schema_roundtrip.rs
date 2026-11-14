@@ -279,6 +279,7 @@ fn launch(l: &mut Ledger, i: &str, j: &str, rung: u8, cpu: u32) {
                 cpus: vec![cpu],
                 reserved_bytes: 2 << 30,
                 spec_blake3: b3(j.as_bytes()),
+                scope_unit: None,
             },
         ),
         job(
@@ -1079,6 +1080,7 @@ fn ledger_record_examples_cover_every_kind() {
                 cpus: vec![3],
                 reserved_bytes: 1 << 30,
                 spec_blake3: h('3'),
+                scope_unit: None,
             },
         ),
         job(
@@ -1103,6 +1105,7 @@ fn ledger_record_examples_cover_every_kind() {
                 cpus: vec![3],
                 reserved_bytes: 1 << 30,
                 spec_blake3: h('3'),
+                scope_unit: None,
             },
         ),
         job(
@@ -1307,6 +1310,7 @@ fn ledger_record_examples_cover_every_kind() {
                 cpus: vec![3],
                 reserved_bytes: 1 << 30,
                 spec_blake3: h('4'),
+                scope_unit: None,
             },
         ),
         camp(CampaignEvent::Start, "supervisor session"),

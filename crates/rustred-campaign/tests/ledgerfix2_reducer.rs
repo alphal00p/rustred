@@ -77,6 +77,7 @@ fn launch(spec: &str) -> JobEvent {
         cpus: vec![1],
         reserved_bytes: 1,
         spec_blake3: digest(spec),
+        scope_unit: None,
     }
 }
 

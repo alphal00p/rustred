@@ -182,6 +182,10 @@ pub enum Action {
     ItemAttentionNoRetry,
     /// Row 15: pause all launches until free space; item queued again.
     PauseAllLaunches,
+    /// Row 15b (lane int5, gate3 M4): the child ran out of a HOST resource (processes / threads, file descriptors,
+    /// memory, disk space): never evidence about the work (never `no_rule`, never a next rung); the attempt is lost and
+    /// queued again after a launch back-off; after a bounded number of such ends in a row the item goes to attention.
+    RetryAfterResourceBackoff,
     /// Row 16: retry once (resume from R), then attention.
     RetryOnceThenAttention,
     /// Row 17: retry once with the same spec, then attention.
@@ -237,7 +241,7 @@ const fn rs(
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
 /// 28 / 29 / 22 and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 34] = {
+pub const ROWS: [RowSpec; 35] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -392,6 +396,14 @@ pub const ROWS: [RowSpec; 34] = {
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
         rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
+        rs(
+            15,
+            "b",
+            "c in {51, 70}, O whose error names a host resource errno (EAGAIN, EMFILE, ENFILE, ENOMEM, ENOSPC, EDQUOT)",
+            Lost,
+            Nothing,
+            RetryAfterResourceBackoff,
+        ),
         rs(16, "", "c=51", Crashed, Nothing, RetryOnceThenAttention),
         rs(
             17,
@@ -530,6 +542,30 @@ pub fn decision_table_markdown() -> String {
         ));
     }
     s
+}
+
+/// Host-resource errnos a child may name in its OUTCOME error (lane int5, gate3 M4): EAGAIN (process / thread limit),
+/// ENOMEM, ENFILE, EMFILE, ENOSPC, EDQUOT.
+pub const RESOURCE_ERRNOS: [i32; 6] = [11, 12, 23, 24, 28, 122];
+
+/// The host-resource errno named by a child's OUTCOME `error.message`, if any: the renderings of an OS error by the Rust
+/// standard library (`... (os error N)` from Display, `Os { code: N, ...` from Debug: e.g. "failed to spawn thread: Os
+/// { code: 11, kind: WouldBlock, ... }"). Generic (no engine-specific text); only the numbers in [`RESOURCE_ERRNOS`].
+pub fn resource_errno_of(o: &JobOutcome) -> Option<i32> {
+    let m = &o.error.as_ref()?.message;
+    let num_after = |pat: &str| -> Vec<i32> {
+        m.match_indices(pat)
+            .filter_map(|(i, _)| {
+                let rest = &m[i + pat.len()..];
+                let d: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                d.parse().ok()
+            })
+            .collect()
+    };
+    num_after("os error ")
+        .into_iter()
+        .chain(num_after("Os { code: "))
+        .find(|n| RESOURCE_ERRNOS.contains(n))
 }
 
 fn is_stop_signal(s: i32) -> bool {
@@ -773,6 +809,15 @@ fn decide(
             41 => return row(13, "", "input refused"),
             42 => return row(14, "", "contract refusal"),
             50 => return row(15, "", "no space"),
+            // lane int5 (gate3 M4): a child that failed for lack of a host resource is never evidence about the work
+            51 | 70 if o.and_then(resource_errno_of).is_some() => {
+                let n = o.and_then(resource_errno_of).unwrap_or(0);
+                return row(
+                    15,
+                    "b",
+                    format!("the child ran out of a host resource (errno {n})"),
+                );
+            }
             51 => return row(16, "", "output I/O error"),
             70 if o.is_some() => return row(17, "", "internal error"),
             _ => {}

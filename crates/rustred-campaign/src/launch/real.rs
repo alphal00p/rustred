@@ -235,12 +235,18 @@ fn systemd_env() -> Vec<(String, std::ffi::OsString)> {
     v
 }
 
-fn systemd_args(cap: u64) -> Vec<String> {
-    vec![
+fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
+    let mut v: Vec<String> = vec![
         "--user".into(),
         "--scope".into(),
         "--quiet".into(),
         "--collect".into(),
+    ];
+    // gate3 M5: a deterministic unit name (campaign id + label) instead of systemd-run's anonymous run-p<pid>-i<n>
+    if let Some(u) = unit {
+        v.push(format!("--unit={u}"));
+    }
+    v.extend([
         "-p".into(),
         format!("MemoryMax={cap}"),
         "-p".into(),
@@ -248,7 +254,8 @@ fn systemd_args(cap: u64) -> Vec<String> {
         "-p".into(),
         "OOMPolicy=kill".into(),
         "--".into(),
-    ]
+    ]);
+    v
 }
 
 /// Are we inside a non-initial user or pid namespace? Then the host's user manager would interpret the pids that
@@ -277,7 +284,7 @@ fn probe_systemd() -> Result<PathBuf, String> {
     let exe2 = exe.clone();
     let r = run_bounded(Duration::from_secs(15), move || {
         let mut c = Command::new(&exe2);
-        c.args(systemd_args(64 << 20))
+        c.args(systemd_args(64 << 20, None))
             .arg(&truth)
             .env_clear()
             .stdin(Stdio::null())
@@ -411,7 +418,9 @@ impl RealLauncher {
     /// SIGKILL every process group of an unreaped leader of this launcher's sampler, at once (fast exit). Returns the
     /// number of groups signalled. Grandchildren in other groups or sessions are left to the restart's orphan scan.
     pub fn kill_all_pinned(&self) -> usize {
-        guard::kill_all_pinned(self.sampler.leaders())
+        guard::with_context("fast exit", None, || {
+            guard::kill_all_pinned(self.sampler.leaders())
+        })
     }
 
     /// The host-wide id lock file held by this launcher (None only if even the ad-hoc lock failed).
@@ -784,7 +793,8 @@ impl ChildLauncher for RealLauncher {
         let mut cmd = match &mechanism_choice {
             Chosen::Scope(exe, cap) => {
                 let mut c = Command::new(exe);
-                c.args(systemd_args(*cap)).arg(&spec.program);
+                c.args(systemd_args(*cap, spec.scope_unit.as_deref()))
+                    .arg(&spec.program);
                 c
             }
             _ => Command::new(&spec.program),
@@ -901,19 +911,21 @@ impl ChildLauncher for RealLauncher {
         // Our unreaped child cannot be recycled, so reading its identity now is race-free (bounded: audit A M5).
         let identity = match run_bounded(Duration::from_secs(5), move || {
             ProcessIdentity::capture(pid)
-        })
-        .done()
-        {
-            Some(Ok(i)) => i,
+        }) {
+            crate::resources::Bounded::Done(Ok(i)) => i,
             other => {
-                let _ = signal_pinned_group(&leaders, pid, libc::SIGKILL);
+                let _ = guard::with_context("launch: identity unreadable", Some(&spec.label), || {
+                    signal_pinned_group(&leaders, pid, libc::SIGKILL)
+                });
                 leaders.lock().remove(&pid);
                 reap_in_background(child);
                 if let Some(cg) = cgroup {
                     cg.kill_all();
                 }
                 return Err(LaunchError::Identity(match other {
-                    Some(Err(e)) => e,
+                    crate::resources::Bounded::Done(Err(e)) => e,
+                    // gate3 M3: no helper thread = the supervisor's resource failure (EAGAIN / ENOMEM), typed as such
+                    crate::resources::Bounded::SpawnFailed(e) => e,
                     _ => io::Error::new(io::ErrorKind::TimedOut, "identity read timed out"),
                 }));
             }
@@ -933,6 +945,7 @@ impl ChildLauncher for RealLauncher {
             mechanism,
         );
         h.enumeration = self.setup.enumeration;
+        h.scope_unit = spec.scope_unit.clone();
         Ok(h)
     }
 
@@ -1055,6 +1068,8 @@ pub struct RealChild {
     scope_dir: Option<PathBuf>,
     /// The job's systemd scope, recorded from the pinned leader (procfix3 belt; see `ScopeRef`).
     scope: Option<ScopeRef>,
+    /// The deterministic unit name the scope was created with (gate3 M5), if any.
+    scope_unit: Option<String>,
     peak_rss: u64,
     cpu_ticks: u64,
     finished: Option<FinalReport>,
@@ -1116,6 +1131,7 @@ impl RealChild {
             over_cap_seq: None,
             scope_dir: None,
             scope: None,
+            scope_unit: None,
             peak_rss: 0,
             cpu_ticks: 0,
             finished: None,
@@ -1209,10 +1225,17 @@ impl RealChild {
             } else {
                 StartRule::NotBefore(launch)
             };
-            out.push((
-                self.target(p.pid, start, Proof::Marker(self.marker.clone())),
-                (p.pid, p.start_ticks),
-            ));
+            // THE ONE OWNERSHIP RULE (gate3 M2, lane int5): the same target as the campaign sweep and the hunt.
+            let Some(t) = guard::marker_target(
+                &self.marker.campaign_id,
+                Some(&self.marker.attempt_id),
+                p.pid,
+                start,
+                &self.identity.boot_id,
+            ) else {
+                continue;
+            };
+            out.push((t, (p.pid, p.start_ticks)));
         }
         out
     }
@@ -1220,6 +1243,14 @@ impl RealChild {
     /// Signal the whole job: the pinned leader group (fast path) and every other known process through the checklist.
     /// Returns (deliveries, identities delivered to).
     fn signal_job(&mut self, sig: i32, only_new: bool) -> usize {
+        // gate3 M2: every delivery is logged (the supervisor records it) with this job's label.
+        let label = self.label.clone();
+        guard::with_context("job signal", Some(&label), || {
+            self.signal_job_inner(sig, only_new)
+        })
+    }
+
+    fn signal_job_inner(&mut self, sig: i32, only_new: bool) -> usize {
         let mut n = 0;
         if self.pinned()
             && !only_new
@@ -1254,7 +1285,7 @@ impl RealChild {
     fn sigkill_all(&mut self) {
         self.signal_job(libc::SIGKILL, false);
         if let Some(cg) = &self.cgroup {
-            cg.kill_all();
+            guard::with_context("job signal", Some(&self.label), || cg.kill_all());
         }
         self.sigkill_at = Some(Instant::now());
         self.sampler.request_now();
@@ -1408,12 +1439,22 @@ impl RealChild {
                 let text = String::from_utf8_lossy(&b);
                 // The belt needs the strict form (this leader's own transient scope, our user manager, dev/inode).
                 if self.scope.is_none() {
-                    self.scope =
-                        ScopeRef::from_leader_cgroup(&text, self.sid, crate::resources::our_uid());
+                    self.scope = ScopeRef::from_leader_cgroup(
+                        &text,
+                        self.sid,
+                        crate::resources::our_uid(),
+                        self.scope_unit.as_deref(),
+                    );
                 }
+                // the scope's cgroup: systemd-run's anonymous run-p<pid>-i<n>.scope, or our named unit (gate3 M5)
+                let named = self
+                    .scope_unit
+                    .as_deref()
+                    .map(|u| format!("/{u}.scope"));
                 if let Some(rel) = text.lines().find_map(|l| l.strip_prefix("0::"))
                     && rel.trim_end().ends_with(".scope")
-                    && rel.contains("/run-")
+                    && (rel.contains("/run-")
+                        || named.as_deref().is_some_and(|n| rel.trim_end().ends_with(n)))
                 {
                     let dir = Path::new("/sys/fs/cgroup").join(rel.trim().trim_start_matches('/'));
                     self.mechanism = MemoryMechanism::SystemdScope {
@@ -1838,10 +1879,13 @@ impl Drop for RealChild {
                     .as_ref()
                     .is_some_and(|r| r.verification.is_verified());
                 if !finished_verified {
-                    let _ = signal_pinned_group(&self.leaders, self.sid, libc::SIGKILL);
-                    if let Some(cg) = &self.cgroup {
-                        cg.kill_all();
-                    }
+                    let (leaders, sid, cg) = (&self.leaders, self.sid, self.cgroup.as_ref());
+                    guard::with_context("job handle dropped unproven", Some(&self.label), || {
+                        let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
+                        if let Some(cg) = cg {
+                            cg.kill_all();
+                        }
+                    });
                 }
             }
             let mut reg = self.leaders.lock();

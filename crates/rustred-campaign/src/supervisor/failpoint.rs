@@ -74,6 +74,19 @@ impl Failpoints {
         }
     }
 
+    /// Is `site` the configured site (any pass)? A non-aborting failpoint for decisions (e.g. `final_sweep_unproven`:
+    /// the final sweep reports itself unproven). Always false in a release build.
+    #[cfg(debug_assertions)]
+    pub fn armed(&self, site: &str) -> bool {
+        self.site.as_deref() == Some(site)
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub fn armed(&self, _site: &str) -> bool {
+        false
+    }
+
     #[cfg(debug_assertions)]
     pub fn parse(v: &str) -> Failpoints {
         match v.rsplit_once(':') {

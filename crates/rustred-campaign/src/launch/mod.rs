@@ -26,14 +26,20 @@ mod idlock;
 mod real;
 pub mod sweep;
 
-pub use cgroup::{CgroupRoot, JobCgroup};
+pub use cgroup::{CgroupRoot, JobCgroup, kill_recorded_scope, scope_unit_name};
+
+/// Run `f` with a signalling context: every delivery `f` makes on this thread is logged with it (gate3 M2).
+pub fn guard_context<R>(by: &str, label: Option<&str>, f: impl FnOnce() -> R) -> R {
+    guard::with_context(by, label, f)
+}
 pub use fake::{
     FakeEvent, FakeEventKind, ManualTime, MonotonicTime, OnTerm, Script, ScriptedChild,
     ScriptedLauncher, TimeSource,
 };
 pub(crate) use guard::reap_adopted;
 pub use guard::{
-    PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
+    DELIVERY_LOG_MAX, Delivery, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
+    Verdict, take_deliveries,
     ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
     set_child_subreaper, sigchld_autoreaps, signal_verified_process,
 };
@@ -306,6 +312,10 @@ pub struct LaunchSpec {
     pub inherit_fds: Vec<RawFd>,
     /// PR_SET_PDEATHSIG(SIGKILL) with the parent check (default true).
     pub pdeathsig: bool,
+    /// Lane int5 (gate3 M5): the deterministic systemd unit name (`cgroup::scope_unit_name`) of the job's transient
+    /// scope, used with `systemd-run --unit=` when the systemd-scope mechanism is chosen (recorded by the supervisor in
+    /// the launch record, so that a restart after a crash can find exactly this scope). None: an anonymous scope.
+    pub scope_unit: Option<String>,
 }
 
 impl LaunchSpec {
@@ -328,6 +338,7 @@ impl LaunchSpec {
             cap_mechanism: CapRequest::Auto,
             inherit_fds: Vec::new(),
             pdeathsig: true,
+            scope_unit: None,
         }
     }
 
@@ -496,6 +507,7 @@ impl fmt::Debug for LaunchSpec {
                     })
                     .collect::<Vec<_>>(),
             )
+            .field("scope_unit", &self.scope_unit)
             .field("cpus", &self.cpus)
             .field("memory_cap_bytes", &self.memory_cap_bytes)
             .field("rlimit_as_bytes", &self.rlimit_as_bytes)

@@ -133,12 +133,21 @@ fn me() -> u32 {
 }
 
 /// Opt-in trace of the hunt's decisions to stderr (`RR_HUNT_TRACE=1`; diagnostics, no secrets: pids, states, ids).
+/// TEST BUILDS ONLY (gate3 m1, gate rule d: a debugging variable must not change a release build's behaviour): a release
+/// build never reads the variable. The write ignores errors (a broken pipe / hung-up terminal never panics a hunt
+/// thread, which would leave the job end unproven forever).
+#[cfg(debug_assertions)]
 fn trace(msg: impl FnOnce() -> String) {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
-        eprintln!("HUNT {}", msg());
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr(), "HUNT {}", msg());
     }
 }
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+fn trace(_msg: impl FnOnce() -> String) {}
 
 fn own_session() -> u32 {
     // SAFETY: getsid(0) reads the caller's session id.
@@ -168,7 +177,20 @@ struct Hunt<'a> {
 }
 
 impl Hunt<'_> {
+    /// A marker-found process through THE ONE OWNERSHIP RULE (`guard::marker_target`, shared with the campaign sweep
+    /// and the job signaller); a member of the pinned session through the session proof.
     fn target(&self, f: &ProcFacts, proof: Proof) -> ProcessTarget {
+        if let Proof::Marker(m) = &proof
+            && let Some(t) = guard::marker_target(
+                &m.campaign_id,
+                Some(&m.attempt_id),
+                f.stat.pid,
+                StartRule::Exact(f.stat.start_ticks),
+                &self.s.boot_id,
+            )
+        {
+            return t;
+        }
         ProcessTarget {
             pid: f.stat.pid,
             boot_id: self.s.boot_id.clone(),
@@ -246,6 +268,19 @@ impl Hunt<'_> {
             );
         }
         if facts.stat.session == self.own_session {
+            // gate3 M2 / m2 (lane int5): ONE ownership rule. A process in the supervisor's own session cannot descend
+            // from a job (every job leader setsid's) and is never walked through; but if it carries J's EXACT marker
+            // it is ours by the marker rule (as for the sweep and the job signaller): stopped and killed through the
+            // guard and recorded, instead of being skipped by the walk and spun on by the marker belt for the whole
+            // budget, then killed unrecorded by the final job signal (gate3 m2, M2).
+            if let MarkerFact::Value(v) = &facts.marker
+                && CampaignMarker::parse(v).is_some_and(|m| m == self.s.marker)
+            {
+                return (
+                    Class::Ours(Proof::Marker(self.s.marker.clone()), facts),
+                    Some(fd),
+                );
+            }
             self.not_ours.insert(key, false);
             return (not_ours(false, Some(facts)), None);
         }
@@ -851,6 +886,13 @@ impl Hunt<'_> {
 
 /// Run one hunt invocation (blocking; call on a helper thread).
 pub(crate) fn run(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
+    // gate3 M2: every delivery of the hunt is logged (and recorded by the supervisor) with this context.
+    guard::with_context("end-of-job hunt", Some(&spec.marker.attempt_id), || {
+        run_inner(spec, cancel)
+    })
+}
+
+fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
     let mut h = Hunt {
         s: spec,
         cancel,

@@ -632,7 +632,7 @@ fn a_m5_no_blocking_in_the_control_path() {
     assert_session_gone(sid);
 }
 
-fn site(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
+fn site_raw(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
     fs::create_dir_all(root.join("locks")).unwrap();
     SiteConfig {
         schema: SITE_SCHEMA.into(),
@@ -1501,4 +1501,25 @@ fn no_signal_syscall_outside_the_verified_wrapper() {
             .any(|(_, _, pat, line)| pat == "kill(-"
                 || (pat == "kill(0" && !line.contains("kill(0x")))
     );
+}
+
+/// gate3 m3 (lane int5): the campaign never creates the site's files: a test site has its ledger and one lock file per
+/// CPU (0..=1023 would be too many: the candidate CPUs and the excluded ones) before `SitePolicy::new`.
+fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
+    std::fs::create_dir_all(&cfg.lock_dir).unwrap();
+    if !cfg.ledger_file.exists() {
+        std::fs::write(&cfg.ledger_file, b"").unwrap();
+    }
+    for c in cpus {
+        let p = cfg.lock_dir.join(cfg.lock_name.replace("{n}", &c.to_string()));
+        if !p.exists() {
+            std::fs::write(&p, b"").unwrap();
+        }
+    }
+}
+
+fn site(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
+    let c = site_raw(root, cpus, tag);
+    make_site_files(&c, cpus);
+    c
 }

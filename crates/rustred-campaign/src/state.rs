@@ -2583,6 +2583,8 @@ impl CampaignState {
                 }
             }
             Event::Control { id, ev } => self.apply_control(rec, id, ev)?,
+            // lane int5 (gate3 M2): informational, no state
+            Event::SignalSent { .. } => {}
             Event::OrphanKilled { pid, job, .. } => {
                 self.orphans_killed += 1;
                 self.push_recent(

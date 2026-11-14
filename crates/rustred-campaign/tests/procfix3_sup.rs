@@ -308,8 +308,9 @@ fn live_state(d: &std::path::Path) -> rustred_campaign::state::CampaignState {
 /// gate-B M1: marked re-fork chains that start a NEW SESSION at every hop (and plain ones), orphaned by a supervisor
 /// CRASH (SIGKILL), are not in the restarted supervisor's process tree. The restart's freezing sweep (and the periodic
 /// and final sweeps) stop and kill every one through the guard; at FINISHED no process carries the campaign's marker.
-/// A marked process whose cwd is outside the campaign directories is REPORTED (ledger note `marked_survivor`) and not
-/// signalled (site rule 5); the test kills it itself (its own child, inside the namespace).
+/// Lane int5 (gate3 M1, directing session's ruling): a marked process whose cwd is OUTSIDE the campaign directories
+/// is ours by the marker rule too: killed through the guard and recorded (`orphan_killed`, `signal_sent`), no
+/// `marked_survivor` (the former cwd rule left it alive forever).
 #[test]
 fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
     let _g = serial();
@@ -391,23 +392,29 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
     );
     let codes = run_to_end(&spec_p, &d, &[]);
     assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
-    let left: Vec<u32> = marked(&t.campaign)
-        .into_iter()
-        .filter(|&p| p != outside.id())
-        .collect();
+    let left: Vec<u32> = marked(&t.campaign);
     assert!(
         left.is_empty(),
-        "marked chain members alive after FINISHED: {left:?}\n{}",
+        "marked processes alive after FINISHED: {left:?}\n{}",
         log_tail(&d)
     );
+    // the cwd-/ process: killed (SIGKILL through the guard) and recorded, never reported as a survivor
+    let st = outside.wait().unwrap();
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(st.signal(), Some(libc::SIGKILL), "{st:?}");
+    }
+    let opid = outside.id();
     assert!(
-        outside.try_wait().unwrap().is_none(),
-        "the cwd-outside process is never signalled"
+        count(&d, |e| matches!(e, Event::OrphanKilled { pid, .. } if *pid == opid)) >= 1,
+        "the cwd-/ kill is recorded"
     );
     assert!(
-        notes(&d, "marked_survivor")
-            .iter()
-            .any(|n| n.contains(&outside.id().to_string())),
+        count(&d, |e| matches!(e, Event::SignalSent { pid, signal, .. } if *pid == opid && *signal == libc::SIGKILL)) >= 1,
+        "its SIGKILL is a signal_sent record"
+    );
+    assert!(
+        notes(&d, "marked_survivor").is_empty(),
         "{:?}",
         notes(&d, "marked_survivor")
     );
@@ -418,7 +425,5 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
     for mut s in starters {
         let _ = s.wait();
     }
-    let _ = outside.kill();
-    let _ = outside.wait();
     assert_no_marked(&t.campaign);
 }
