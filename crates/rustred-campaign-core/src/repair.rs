@@ -21,6 +21,17 @@ use crate::worklist::supplied::CandidateSource;
 /// One engine call for ONE case under ONE seed setting (C-LIVE: the node driver in process, serialised).
 pub trait CaseSolver {
     fn solve(&mut self, req: &CaseRequest, budget: &AttemptBudget) -> SolveAnswer;
+    /// R48: solve ONE recipe at ONE integer key, deterministically (the trait face of the engine's `solve-recipe`
+    /// verb, interfaces/coord-recipe-solve.md). Default: unsupported (a typed failure, never a pass).
+    fn solve_recipe_at_key(
+        &mut self,
+        _recipe: &crate::worklist::recipe::Recipe,
+        _key: &[i32],
+    ) -> Result<crate::worklist::recipe::KeyRelation, crate::worklist::recipe::RecipeFailure> {
+        Err(crate::worklist::recipe::RecipeFailure::Unsupported {
+            why: "this solver has no recipe verb".into(),
+        })
+    }
 }
 
 /// What the solver is asked to do.

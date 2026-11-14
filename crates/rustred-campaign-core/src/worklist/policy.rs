@@ -127,6 +127,9 @@ pub struct SeedEvidence {
     pub gap_points: u64,
     pub landing_spread: Option<u64>,
     pub closure_size: Option<u64>,
+    /// Per-key solve cost of the setting as a RECIPE (R48 (e)), milliseconds per key; null when not measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_key_cost_ms: Option<u64>,
     /// "closed_one_case" | "member_of_cover" | "no_relation" | "rejected"
     pub outcome: String,
     pub provenance: Provenance,

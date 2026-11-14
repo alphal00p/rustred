@@ -1522,6 +1522,7 @@ pub fn disp_short(d: &Disposition) -> String {
         Disposition::TerminalCandidates { keys, .. } => format!("Terminal({})", keys.len()),
         Disposition::Attention { why, .. } => format!("Attention({why})"),
         Disposition::OptimiseKept { .. } => "OptimiseKept".into(),
+        Disposition::RecipeRule { .. } => "RecipeRule".into(),
     }
 }
 

@@ -195,6 +195,7 @@ fn summary(d: &Disposition) -> String {
         Disposition::TerminalCandidates { keys, .. } => format!("terminal {keys:?}"),
         Disposition::Attention { why, .. } => format!("attention {why}"),
         Disposition::OptimiseKept { why } => format!("kept {why}"),
+        Disposition::RecipeRule { rule, .. } => format!("recipe {}", rule.recipe_digest),
     }
 }
 

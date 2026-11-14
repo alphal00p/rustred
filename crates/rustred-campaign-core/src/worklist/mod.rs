@@ -17,6 +17,7 @@ pub mod items;
 pub mod ladder;
 pub mod orbits;
 pub mod policy;
+pub mod recipe;
 pub mod seed;
 pub mod supplied;
 

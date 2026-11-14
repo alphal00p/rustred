@@ -246,6 +246,17 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 why,
             ),
             Disposition::OptimiseKept { why } => ("optimise_kept".into(), "none".into(), None, why),
+            Disposition::RecipeRule { rule, uncertified } => (
+                "recipe_rule".into(),
+                "none".into(),
+                None,
+                format!(
+                    "recipe {} certified at {} key(s), {} not certified",
+                    rule.recipe_digest,
+                    rule.certified_count,
+                    uncertified.len()
+                ),
+            ),
         },
     };
     Explanation {

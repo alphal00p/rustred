@@ -769,6 +769,13 @@ pub enum Disposition {
     },
     /// Optimise item: no acceptable replacement; the old rules stay (U-13).
     OptimiseKept { why: String },
+    /// RECIPE outcome (R48): the item's face is closed by a recipe rule on its CERTIFIED key set (keys of the item not
+    /// certified stay for other forms / children). Produced by [`super::recipe::recipe_disposition`] after the
+    /// node's full attempt ended; never by the symbolic search itself.
+    RecipeRule {
+        rule: Box<super::recipe::RecipeRule>,
+        uncertified: Vec<Key>,
+    },
 }
 
 impl Disposition {
