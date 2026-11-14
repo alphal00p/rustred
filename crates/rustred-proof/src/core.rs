@@ -435,7 +435,8 @@ pub fn find(h: &[u8], n: &[u8]) -> bool {
 // reconstructed record may have its keys in any order (T211 rule 2894: `{"case":...,"type":"rule"}`).
 
 /// Record kinds of a rule table (`F.table.jsonl`, table_dump.v1 / rustred.node.v1).
-pub const TABLE_KINDS: &[&str] = &["header", "zero_sectors", "chart", "symmetry_group", "rule", "residual", "chart_end", "chart_error", "end", "assembly_provenance"];
+/// (`sym` / `sym_zero`: the sym-gen symmetry records, node/driver.rs; checked by rr_node replay.)
+pub const TABLE_KINDS: &[&str] = &["header", "zero_sectors", "chart", "symmetry_group", "rule", "sym", "sym_zero", "residual", "chart_end", "chart_error", "end", "assembly_provenance"];
 /// Record kinds of a certificate (`F.cert.jsonl`).
 pub const CERT_KINDS: &[&str] = &["cert_header", "source_row", "basis_row", "cert_rule", "cert_end"];
 

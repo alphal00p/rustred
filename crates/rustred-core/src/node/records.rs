@@ -13,6 +13,9 @@ pub const TABLE_KINDS: &[&str] = &[
     "chart",
     "symmetry_group",
     "rule",
+    // sym-gen symmetry records (driver.rs sym_record; checked by rr_node replay)
+    "sym",
+    "sym_zero",
     "residual",
     "chart_end",
     "chart_error",
@@ -209,6 +212,9 @@ mod tests {
             assert!(e.starts_with(want), "{bad}: {e}");
         }
         assert_eq!(record_kind(r#"{"type":"cert_rule","rule":3}"#, "c", 1, CERT_KINDS), Ok(Some("cert_rule")));
+        // sym-gen tables carry symmetry records; they are known kinds, not refused
+        assert_eq!(record_kind(r#"{"type":"sym","chart":"110","index":3}"#, "t", 4, TABLE_KINDS), Ok(Some("sym")));
+        assert_eq!(record_kind(r#"{"type":"sym_zero","chart":"110","index":4}"#, "t", 5, TABLE_KINDS), Ok(Some("sym_zero")));
     }
 
     /// The cover reader (registry::read_rule_shapes) finds a key-reordered rule record and refuses unknown kinds.
