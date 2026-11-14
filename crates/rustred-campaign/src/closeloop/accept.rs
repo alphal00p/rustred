@@ -63,6 +63,25 @@ pub struct AcceptCtx<'a> {
     pub results_path: String,
     pub results_blake3: String,
     pub run_dir: String,
+    /// lane closeloop3: the per-key caps of the solve jobs (`--max-trace-rows`, `--key-budget-s`), recorded on the
+    /// answer line of a key that hit one (closeloop.md 16.4).
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
+}
+
+/// lane closeloop3 (closeloop.md 16.4): the cap a key hit, recorded on its answer line: `wall` (TIME-decided: the
+/// per-key wall cap, a safety net) or `work` (the deterministic work cap); either way the key goes to the NEXT recipe
+/// step of its escalation (the import asks the next candidate recipe; never another relation rule of the same recipe).
+pub fn cap_record(verdict: &str, max_trace_rows: Option<u64>, key_budget_s: Option<u64>) -> Value {
+    match verdict {
+        "BUDGET_WALL" => json!({"kind": "wall", "time_decided": true, "key_budget_s": key_budget_s,
+                                "next": "next_recipe_step"}),
+        "BUDGET_WORK" => {
+            json!({"kind": "work", "time_decided": false, "max_trace_rows": max_trace_rows,
+                                "next": "next_recipe_step"})
+        }
+        _ => Value::Null,
+    }
 }
 
 /// The per-key decisions of one attempt.
@@ -79,6 +98,15 @@ pub struct Decided {
     pub determinism_id: Option<String>,
     /// Why the whole attempt was refused (every SOLVED record became a failure), if so.
     pub refused: Option<String>,
+    /// lane closeloop3 (closeloop.md 16.6): keys the engine typed ERROR / IRREGULAR (a failed sub-solve: resource
+    /// limit, irregular lift, internal error): per-key failures with their R48-3b record, NOT answers (an answer would
+    /// move the key to the next recipe as if no relation existed): retried in a later round, then attention.
+    pub retry: Vec<(Vec<i32>, String)>,
+}
+
+/// lane closeloop3: verdicts of a FAILED sub-solve (retried, then attention; never "no relation").
+pub fn is_retry_verdict(verdict: &str) -> bool {
+    matches!(verdict, "ERROR" | "IRREGULAR")
 }
 
 fn sha256_hex(b: &[u8]) -> String {
@@ -382,9 +410,16 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                     "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": u.ordinal},
                     "relation_rule": c.batch.relation_rule,
                     "failure": {"class": u.class.name(), "route": u.route, "message": u.failure["message"].clone()},
+                    "cap": cap_record(&u.verdict.name(), c.max_trace_rows, c.key_budget_s),
                     "failure_record": f});
-                out.lines.push(line(&v));
-                out.failed.push((k32, u.class.name().to_string()));
+                out.failed.push((k32.clone(), u.class.name().to_string()));
+                if is_retry_verdict(&u.verdict.name()) {
+                    let mut v = v;
+                    v["retry"] = json!({"route": "retry_then_attention", "contract_row": "15b"});
+                    out.retry.push((k32, line(&v)));
+                } else {
+                    out.lines.push(line(&v));
+                }
             }
         }
     }

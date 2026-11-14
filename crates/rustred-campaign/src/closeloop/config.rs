@@ -111,9 +111,13 @@ pub struct SolveCfg {
     pub max_keys_per_job: usize,
     #[serde(default = "d_one")]
     pub threads: u32,
+    /// lane closeloop3 (closeloop.md 16.4): the per-key DETERMINISTIC work cap (`--max-trace-rows`; data, no default):
+    /// a key over it ends `BUDGET_WORK` (work-decided) and goes to the NEXT recipe step of its escalation.
     #[serde(default)]
     pub max_trace_rows: Option<u64>,
-    #[serde(default)]
+    /// lane closeloop3 (closeloop.md 16.4): the per-key WALL cap (`--key-budget-s`), a safety net (default 1,800 s;
+    /// `null` = none): a key stopped by it ends `BUDGET_WALL`, recorded TIME-DECIDED, and goes to the next recipe step.
+    #[serde(default = "d_key_budget_s")]
     pub key_budget_s: Option<u64>,
     #[serde(default = "d_cap")]
     pub cap_bytes: u64,
@@ -142,6 +146,9 @@ fn d_relation_rule() -> String {
 
 fn d_keys_per_job() -> usize {
     16
+}
+fn d_key_budget_s() -> Option<u64> {
+    Some(1800)
 }
 fn d_one() -> u32 {
     1
@@ -199,6 +206,21 @@ pub struct NodeCfg {
     /// (then our relations stay below per-key and the exact tier cannot get its facts: reported, never assumed).
     #[serde(default)]
     pub proof: Option<ProofCfg>,
+    /// lane closeloop3 (closeloop.md 16.9): the id of the BOX CLAUSE this run's start set stands for (data; None =
+    /// `box`). An added clause of a node is run as an incremental extension: its own start set, the earlier runs'
+    /// facts / proofs as evidence (nothing done is redone), the earlier clauses' verdicts in `prior_clauses`.
+    #[serde(default)]
+    pub box_clause: Option<String>,
+    #[serde(default)]
+    pub prior_clauses: Vec<PriorClause>,
+}
+
+/// An earlier box clause of the node, decided by another run (its final result record).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorClause {
+    pub id: String,
+    pub result: PathBuf,
 }
 
 fn d_yes() -> bool {
@@ -248,6 +270,63 @@ pub struct ProofCfg {
     /// TESTS ONLY: the fake child answers from an oracle (`closeloop::proofs::ProofOracle`).
     #[serde(default)]
     pub fake: Option<FakeProof>,
+    /// lane closeloop3 (closeloop.md 16): EXACT coefficient facts of the records `proof.program` cannot instantiate
+    /// (elided witness loci), from the records' own coefficient text (`rr_coef_facts`, Symbolica). None = such
+    /// records get no fact job (their positive-numerator terms stay undecided, as before).
+    #[serde(default)]
+    pub exact_eval: Option<ExactEvalCfg>,
+}
+
+/// The `coefficient-facts` jobs of a node (DATA; lane closeloop3).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactEvalCfg {
+    /// Key of `spec.programs` (rr_coef_facts, a build of crate rustred-campaign-algebra).
+    pub program: String,
+    /// (record, key) pairs of one job (records of one table).
+    #[serde(default = "d_exact_keys")]
+    pub max_keys_per_job: usize,
+    #[serde(default = "d_cap")]
+    pub cap_bytes: u64,
+    #[serde(default = "d_peak")]
+    pub expected_peak_bytes: u64,
+    /// Wall cap of one job (a legacy child: the supervisor's silence timeout is the cap).
+    #[serde(default = "d_proof_wall")]
+    pub wall_s: u32,
+    /// TESTS ONLY: the fake child emulates the job (facts from the campaign core's exact evaluation; an optional
+    /// oracle of lies keyed by key, as `proof.fake`).
+    #[serde(default)]
+    pub fake: Option<FakeExact>,
+}
+
+/// TESTS ONLY: fake `coefficient-facts` answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FakeExact {
+    #[serde(default)]
+    pub oracle: Option<PathBuf>,
+    #[serde(default)]
+    pub ms: u64,
+    #[serde(default = "d_fake_program")]
+    pub program: String,
+}
+
+fn d_exact_keys() -> usize {
+    256
+}
+
+impl ExactEvalCfg {
+    /// The heartbeat value whose silence timeout (3 hb + 5 s) is the wall cap.
+    pub fn heartbeat_s(&self) -> u32 {
+        (self.wall_s.saturating_sub(5) / 3).max(1)
+    }
+    /// The program key the jobs run (the fake's in tests).
+    pub fn program_key(&self) -> &str {
+        self.fake
+            .as_ref()
+            .map(|f| f.program.as_str())
+            .unwrap_or(self.program.as_str())
+    }
 }
 
 /// TESTS ONLY: fake rr_proof answers.
@@ -357,7 +436,13 @@ impl CloseLoopConfig {
                 ));
             }
             if let Some(p) = &n.proof {
-                if p.max_keys_per_job == 0 || p.max_fact_keys_per_job == 0 || p.threads == 0 {
+                if p.max_keys_per_job == 0
+                    || p.max_fact_keys_per_job == 0
+                    || p.threads == 0
+                    || p.exact_eval
+                        .as_ref()
+                        .is_some_and(|x| x.max_keys_per_job == 0)
+                {
                     return Err(format!(
                         "node {}: proof batch sizes and threads must be >= 1",
                         n.node

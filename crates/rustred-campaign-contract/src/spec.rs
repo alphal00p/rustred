@@ -36,6 +36,10 @@ pub enum JobKind {
     /// `rr_proof --mode instance-span` (coord-ec2-instantiate.md 1, 4) at MANY keys of ONE rule record, run as a LEGACY
     /// child like `proof-instantiate`; the supervisor-side wrapper seals its answers (lane closeloop2; closeloop.md 13.1).
     ProofInstanceSpan,
+    /// `rr_coef_facts facts` (lane closeloop3; interfaces/closeloop.md 16): EXACT coefficient facts of rule records from
+    /// their own coefficient text (Symbolica), for the records `rr_proof instantiate` refuses (elided witness loci). A
+    /// LEGACY child like `proof-instantiate` (same request form (A)); the supervisor-side wrapper seals its answers.
+    CoefficientFacts,
 }
 
 /// Compliance level (1.1).
@@ -51,7 +55,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 14] = [
+    pub const ALL: [JobKind; 15] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -66,14 +70,16 @@ impl JobKind {
         JobKind::SolveRecipe,
         JobKind::ProofInstantiate,
         JobKind::ProofInstanceSpan,
+        JobKind::CoefficientFacts,
     ];
 
     pub const fn level(self) -> Level {
         match self {
             JobKind::Generate | JobKind::Witness | JobKind::Fake => Level::L2,
-            JobKind::TableDump | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan => {
-                Level::Legacy
-            }
+            JobKind::TableDump
+            | JobKind::ProofInstantiate
+            | JobKind::ProofInstanceSpan
+            | JobKind::CoefficientFacts => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -95,6 +101,7 @@ impl JobKind {
             | JobKind::ProofInstanceSpan => "rr_proof",
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
+            JobKind::CoefficientFacts => "rr_coef_facts",
         }
     }
 
@@ -124,7 +131,8 @@ impl JobKind {
             | JobKind::ProofStream
             | JobKind::SolveRecipe
             | JobKind::ProofInstantiate
-            | JobKind::ProofInstanceSpan => Some(&RESULT_OUTPUTS),
+            | JobKind::ProofInstanceSpan
+            | JobKind::CoefficientFacts => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -142,7 +150,9 @@ impl JobKind {
             JobKind::Fake => &[],
             JobKind::SolveRecipe => &SOLVE_RECIPE_ARGS,
             // the wrapper builds the legacy argv itself (`instantiate --requests in/requests.jsonl --out ...`)
-            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan => &[],
+            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan | JobKind::CoefficientFacts => {
+                &[]
+            }
         }
     }
 
@@ -159,6 +169,11 @@ impl JobKind {
                 required: &["requests", "table"],
                 optional: &[],
             }),
+            // lane closeloop3: the same request form (A) and one table per job
+            JobKind::CoefficientFacts => Some(InputRoles {
+                required: &["requests", "table"],
+                optional: &[],
+            }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
             JobKind::ProofInstanceSpan => Some(InputRoles {
                 required: &["request", "table", "keys"],
@@ -172,13 +187,20 @@ impl JobKind {
     pub const fn fake_emulated(self) -> bool {
         matches!(
             self,
-            JobKind::SolveRecipe | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            JobKind::SolveRecipe
+                | JobKind::ProofInstantiate
+                | JobKind::ProofInstanceSpan
+                | JobKind::CoefficientFacts
         )
     }
 
-    /// The rr_proof kinds run as LEGACY children whose output the supervisor-side wrapper seals (closeloop.md 13.1).
+    /// The kinds run as LEGACY children whose output the supervisor-side wrapper seals (closeloop.md 13.1, 16): the
+    /// rr_proof kinds and `coefficient-facts`.
     pub const fn legacy_wrapped(self) -> bool {
-        matches!(self, JobKind::ProofInstantiate | JobKind::ProofInstanceSpan)
+        matches!(
+            self,
+            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan | JobKind::CoefficientFacts
+        )
     }
 
     /// Checker kinds (exit 11 / 12 possible).
@@ -1042,7 +1064,10 @@ impl JobSpec {
     pub fn check_kind_constraints(&self) -> Result<(), SpecError> {
         if !matches!(
             self.kind,
-            JobKind::SolveRecipe | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            JobKind::SolveRecipe
+                | JobKind::ProofInstantiate
+                | JobKind::ProofInstanceSpan
+                | JobKind::CoefficientFacts
         ) {
             return Ok(());
         }
