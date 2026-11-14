@@ -677,3 +677,19 @@ pub fn layers(f: &FaceGroup, lines: &[bool]) -> Vec<Value> {
         })
         .collect()
 }
+
+/// The family text a generate job of the node must read, DERIVED FROM THE TABLE SET ITSELF (the frame table's header),
+/// never from a separately supplied file: the engine reads the family in its ORIGINAL presentation and applies the node
+/// order's `slot_permutation` itself, so `original_family_source` when the header has it, else `family_source` (the
+/// two coincide without a permutation). Returns (text, the header field used).
+pub fn job_family_from_header(header: &Value) -> Result<(String, &'static str), String> {
+    if let Some(t) = header["original_family_source"].as_str() {
+        return Ok((t.to_string(), "original_family_source"));
+    }
+    let perm = &header["node_order"]["slot_permutation"];
+    match header["family_source"].as_str() {
+        Some(t) if perm.is_null() => Ok((t.to_string(), "family_source")),
+        Some(_) => Err("frame header has a slot permutation but no original_family_source".into()),
+        None => Err("frame header carries no family source".into()),
+    }
+}

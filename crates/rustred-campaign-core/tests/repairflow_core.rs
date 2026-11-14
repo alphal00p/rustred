@@ -589,3 +589,34 @@ fn measure_unserved_arrivals() {
                 "layers": rustred_campaign_core::repairflow::faces::layers(f, &lines)})).collect::<Vec<_>>()})
     );
 }
+
+#[test]
+fn job_family_is_derived_from_the_frame_header() {
+    use rustred_campaign_core::repairflow::faces::job_family_from_header;
+    let h = json!({"family_source": "P", "original_family_source": "O", "node_order": {"slot_permutation": [1, 0]}});
+    assert_eq!(
+        job_family_from_header(&h).unwrap(),
+        ("O".to_string(), "original_family_source")
+    );
+    let h = json!({"family_source": "P", "node_order": {"slot_permutation": null}});
+    assert_eq!(
+        job_family_from_header(&h).unwrap(),
+        ("P".to_string(), "family_source")
+    );
+    assert!(
+        job_family_from_header(
+            &json!({"family_source": "P", "node_order": {"slot_permutation": [1, 0]}})
+        )
+        .is_err()
+    );
+    assert!(job_family_from_header(&json!({})).is_err());
+    // real headers (read-only material; ignored when absent): RF_HEADERS = paths of table files, ':'-separated
+    if let Ok(paths) = std::env::var("RF_HEADERS") {
+        for p in paths.split(':') {
+            let l = std::fs::read_to_string(p).unwrap();
+            let h: serde_json::Value = serde_json::from_str(l.lines().next().unwrap()).unwrap();
+            let (t, f) = job_family_from_header(&h).unwrap();
+            println!("{p}: {f}, {} bytes", t.len());
+        }
+    }
+}

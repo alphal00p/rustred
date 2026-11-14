@@ -199,6 +199,9 @@ struct P1 {
     num_prio: Vec<usize>,
     /// The check record (JSON bytes recorded as input).
     record: Vec<u8>,
+    /// The generate jobs' family text, derived from the frame header (None: the header carries none; the closeloop's
+    /// solve family is used and the pre-flight job decides).
+    family: Option<(String, &'static str)>,
 }
 
 struct RfNode {
@@ -357,10 +360,26 @@ impl<S: WorkSource> RepairFlowSource<S> {
             crate::atomic::write_atomic(&cases_abs, line.as_bytes())
                 .map_err(|e| format!("{}: {e}", cases_abs.display()))?;
         }
-        let fam = &r.cfg.solve.family;
-        let fam_b3 = crate::atomic::blake3_file(fam)
-            .map_err(|e| format!("{}: {e}", fam.display()))?
-            .1;
+        // the family input DERIVED FROM THE TABLE SET (frame header), written once (content-addressed by its digest)
+        let (fam, fam_b3) = match &p1.family {
+            Some((text, _)) => {
+                let b3 = blake3_hex(text.as_bytes());
+                let p = self.abs(&format!("{}/family.{}.sym", rf_dir(&r.n), &b3[..16]));
+                if std::fs::read(&p).ok().as_deref() != Some(text.as_bytes()) {
+                    crate::atomic::write_atomic(&p, text.as_bytes())
+                        .map_err(|e| format!("{}: {e}", p.display()))?;
+                }
+                (p, b3)
+            }
+            None => {
+                let f = r.cfg.solve.family.clone();
+                let b3 = crate::atomic::blake3_file(&f)
+                    .map_err(|e| format!("{}: {e}", f.display()))?
+                    .1;
+                (f, b3)
+            }
+        };
+        let fam = &fam;
         let args = rf::s_args(
             &face.face(),
             &r.policy,
@@ -1425,7 +1444,9 @@ fn p1_pass(
         "route0": {"source": route0, "credit_served_keys_by_signature": route0_keys},
         "frame_header_sha256": sha256_hex(header_line.as_bytes()),
     });
+    let family = rf::faces::job_family_from_header(&header).ok();
     Ok(P1 {
+        family,
         faces,
         shadow,
         outside,
@@ -1482,7 +1503,25 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             {
                 continue;
             }
-            for (item, ph, jobs) in self.s_items(st, i) {
+            // PRE-FLIGHT: one job first; a frame mismatch is ONE error for the node (attention), never N refusals
+            let items = self.s_items(st, i);
+            let n = self.nodes[i].n.clone();
+            let answered = items.iter().any(|(it, _, jobs)| {
+                jobs.iter()
+                    .any(|j| st.inputs.contains_key(&input_answer(it, j)))
+            });
+            let frame_err = items.iter().any(
+                |(_, ph, _)| matches!(ph, ItemPhase::Attention(c) if c == "repair_frame_mismatch"),
+            );
+            if frame_err {
+                continue;
+            }
+            let first = items.iter().map(|(it, _, _)| it.clone()).min();
+            let _ = &n;
+            for (item, ph, jobs) in items {
+                if !answered && Some(&item) != first.as_ref() {
+                    continue;
+                }
                 let job = match ph {
                     ItemPhase::Open => Some(format!("{item}-t{}", jobs.len())),
                     ItemPhase::InProgress => {
@@ -1595,7 +1634,21 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             ROLE_ANSWER,
             rec,
         );
-        if infra && !has {
+        if matches!(answer, FaceAnswer::FrameMismatch { .. }) {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Attention {
+                    code: "repair_frame_mismatch".into(),
+                    text: format!(
+                        "repairflow: the generated table is not in the node's frame ({}): no further symbolic job for this node until the input is fixed",
+                        match &answer {
+                            FaceAnswer::FrameMismatch { why, .. } => why.as_str(),
+                            _ => "",
+                        }
+                    ),
+                },
+            });
+        } else if infra && !has {
             rt.events.push(Event::Item {
                 item: done.item.clone(),
                 ev: ItemEvent::Attention {
