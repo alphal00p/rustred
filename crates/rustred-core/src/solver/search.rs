@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::InternalOrdering;
-use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
+use symbolica::domains::finite_field::{FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::prelude::{Field, Integer, Ring};
 
 use crate::algebra::CoefficientPolynomial;
@@ -60,6 +60,14 @@ pub struct SectorConfig<const N: usize> {
     /// row and witness are used. Off = the old
     /// RHS-denominator-only guards (A/B and legacy reproduction only).
     pub witness_guards: bool,
+    /// sym-7master (2026-11-13, default `None` = unchanged): slot actions `[Some((target, flip)) | None; arity]` of
+    /// authenticated chart automorphisms. In the search of a coordinate case (symbolic, or a fully fixed point in its
+    /// per-point search), every element that fixes each free slot of the case pointwise (target = slot, no flip) adds at each seed whose nonzero numeric slots all
+    /// have images (and whose numeric sector lines are >= 1) the exact row `I(y) - s I(g y)`; it holds identically
+    /// in the free indices because `g y` keeps every symbolic power in place. Sources carry
+    /// [`super::SYMMETRY_ROW`]; such rows go through the modular first-hit path only (never a direct hit), so every
+    /// rule keeps a raw pivot and exported seeds for the sampled replay. Affine cases get no rows.
+    pub case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>>,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -77,8 +85,69 @@ impl<const N: usize> Default for SectorConfig<N> {
             rule_selection: RuleSelectionPolicy::default(),
             seed_schedule: super::SeedSchedule::default(),
             witness_guards: true,
+            case_symmetry: None,
         }
     }
+}
+
+/// sym-7master: the elements of `actions` that fix every free slot of `case` pointwise (no flip): every element for
+/// a fully fixed (numerical) case, none for an affine case.
+pub(crate) fn case_stabiliser<const N: usize>(
+    actions: &[Vec<Option<(usize, bool)>>],
+    case: &Case<N>,
+) -> Vec<usize> {
+    if case.affine().is_some() {
+        return Vec::new();
+    }
+    let fixed = case.fixed();
+    (0..actions.len())
+        .filter(|&k| {
+            (0..N).all(|i| {
+                fixed[i].is_some() || actions[k].get(i).copied().flatten() == Some((i, false))
+            })
+        })
+        .collect()
+}
+
+/// sym-7master: the exact image `(g y, negative)` of a seed key under a case-stabilising action, or `None` when a
+/// nonzero numeric slot has no image, a numeric sector line is below 1, or the image collides with a symbolic slot.
+pub(crate) fn stabiliser_image<const N: usize>(
+    action: &[Option<(usize, bool)>],
+    y: &Integral<N>,
+    sector: &[bool; N],
+) -> Option<(Integral<N>, bool)> {
+    let p = y.powers();
+    if (0..N).any(|i| sector[i] && !p[i].is_symbolic() && p[i].value() < 1) {
+        return None;
+    }
+    let mut out = [super::Power::new(false, 0).ok()?; N];
+    let mut taken = [false; N];
+    let mut negative = false;
+    for i in 0..N {
+        if p[i].is_symbolic() {
+            // the stabiliser fixes this slot: the symbolic power stays
+            if taken[i] {
+                return None;
+            }
+            out[i] = p[i];
+            taken[i] = true;
+        }
+    }
+    for i in 0..N {
+        if p[i].is_symbolic() || p[i].value() == 0 {
+            continue;
+        }
+        let (t, flip) = action.get(i).copied().flatten()?;
+        if t >= N || taken[t] {
+            return None;
+        }
+        out[t] = p[i];
+        taken[t] = true;
+        if flip && p[i].value() % 2 != 0 {
+            negative = !negative;
+        }
+    }
+    Some((Integral::new(out), negative))
 }
 
 /// Search controls, not a statement of coverage when the search is exhausted.
@@ -551,19 +620,79 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
-        // Astra's shifted-shell stream (CaseSeedSchedule) under the opt-in in-shell SeedSchedule (SymbolicFirst).
-        let mut seeds = super::ScheduledSeeds::over(
-            CaseSeedStream::new(
+        // seed-centre (default None = unchanged): shells around target + offset, optional face-floor filter. The
+        // target (`initial`), comparator and pivot test below are unchanged.
+        let recipe = super::seed::seed_recipe_override();
+        let (centre, stream) = match &recipe {
+            None => (
                 initial,
-                *self.order.sector(),
-                self.seed_frozen(),
-                self.order.two_sided_axes(),
-                seed_schedule,
-            )?
-            .with_search_max_depth(options.max_depth),
-            initial,
-            crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
-        );
+                super::seed::CentredSeeds::Single(
+                    CaseSeedStream::new(
+                        initial,
+                        *self.order.sector(),
+                        self.seed_frozen(),
+                        self.order.two_sided_axes(),
+                        seed_schedule,
+                    )?
+                    .with_search_max_depth(options.max_depth),
+                ),
+            ),
+            Some(r) => {
+                let mut streams = Vec::new();
+                let mut first = None;
+                for offset in r.offsets() {
+                    let (centre, centre_shift) = super::SeedRecipe::centre_of(
+                        offset,
+                        &initial,
+                        &self.seed_frozen(),
+                        &self.order.two_sided_axes(),
+                    )
+                    .map_err(|e| SolverError::InvalidInput(format!("seed centre: {e:?}")))?;
+                    first.get_or_insert(centre);
+                    streams.push(
+                        CaseSeedStream::new_centred(
+                            centre,
+                            centre_shift,
+                            *self.order.sector(),
+                            self.seed_frozen(),
+                            self.order.two_sided_axes(),
+                            seed_schedule,
+                        )?
+                        .with_search_max_depth(options.max_depth)
+                        .with_face_floor(r, initial, self.order.sector()),
+                    );
+                }
+                (
+                    first.unwrap_or(initial),
+                    super::seed::CentredSeeds::Multi(super::seed::MultiCentreStream::new(streams)),
+                )
+            }
+        };
+        // Astra's shifted-shell stream (CaseSeedSchedule) under the opt-in in-shell SeedSchedule (SymbolicFirst).
+        // engine-line recipe solve (default off): an explicit seed list replaces the stream (no depth limit)
+        let mut seeds = match super::seed::explicit_seeds() {
+            None => SeedFeed::Engine(super::ScheduledSeeds::over(
+                stream,
+                centre,
+                crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
+            )),
+            Some(list) => SeedFeed::Explicit(
+                list.iter()
+                    .map(|values| {
+                        let values: [i16; N] = values.as_slice().try_into().map_err(|_| {
+                            SolverError::InvalidInput("explicit seed of another arity".into())
+                        })?;
+                        Ok(Seed {
+                            integral: Integral::numeric(values).map_err(|e| {
+                                SolverError::InvalidInput(format!("explicit seed: {e:?}"))
+                            })?,
+                            shifts: [0; N],
+                        })
+                    })
+                    .collect::<Result<Vec<_>, SolverError>>()?
+                    .into_iter(),
+            ),
+        };
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
         // rectangular zero-sector census cannot make that inference: pruning
@@ -578,6 +707,18 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             &self.config.zero_sectors
         };
         let mut observed_depth = None;
+        // sym-7master: case-stabilising symmetry actions (empty unless configured and the case is symbolic)
+        let stabiliser: Vec<usize> = self
+            .config
+            .case_symmetry
+            .as_deref()
+            .map_or_else(Vec::new, |actions| case_stabiliser(actions, &case));
+        let mut unit: Option<crate::algebra::Coefficient> = None;
+        let mut sym_pairs: std::collections::BTreeSet<(Integral<N>, Integral<N>, bool)> =
+            std::collections::BTreeSet::new();
+        // t266-tight: optional seed layer cap (default off)
+        let layer_cap = super::SeedLayerCap::installed();
+        let frozen = self.seed_frozen();
         while let Some(seed) = seeds.next() {
             let depth = seeds.depth();
             if options.max_depth.is_some_and(|limit| depth > limit) {
@@ -588,6 +729,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .into());
             }
             let seed = seed?;
+            if let Some(cap) = &layer_cap
+                && !cap.admits(&initial, &seed.integral, self.order.sector(), &frozen)
+            {
+                continue;
+            }
             work.seed_first_depth.get_or_insert(depth);
             work.seed_last_depth = Some(depth);
             stats.seeds += 1;
@@ -601,34 +747,92 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     discovery: probe.as_ref().map(|p: &Probe<N>| p.discovery.stats()),
                 });
             }
-            for position in 0..self.basis.len() {
+            // sym-7master: exact images of this seed under the case stabiliser (rows after its IBP rows)
+            let images: Vec<(Integral<N>, bool)> = match self.config.case_symmetry.as_deref() {
+                Some(actions) if !stabiliser.is_empty() => stabiliser
+                    .iter()
+                    .filter_map(|&k| {
+                        stabiliser_image(&actions[k], &seed.integral, self.order.sector())
+                    })
+                    .filter(|(image, negative)| *image != seed.integral || *negative)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let nb = self.basis.len();
+            for position in 0..nb + images.len() {
                 if limits.is_some_and(|limit| stats.rows >= limit.max_rows) {
                     return Err(TrialSearchError::Limit(RuleTrialBudget::SourceRows));
                 }
-                let ordinal = source_order.map_or(position, |order| order[position]);
-                let source = &self.basis[ordinal];
-                if account_trace {
+                let (row, ordinal) = if position < nb {
+                    let ordinal = source_order.map_or(position, |order| order[position]);
+                    let source = &self.basis[ordinal];
+                    if account_trace {
+                        stats.rows += 1;
+                    }
+                    let row = instantiate(
+                        source,
+                        &seed,
+                        &self.system.indices,
+                        self.system.fixed(),
+                        &self.order,
+                        discovery_zero_sectors,
+                        case.affine(),
+                    )?;
+                    crate::node::childjob::tick_row();
+                    if !account_trace {
+                        stats.rows += 1;
+                    }
+                    if !stabiliser.is_empty() && unit.is_none() {
+                        unit = row.first().map(|t| {
+                            let one: crate::algebra::Coefficient =
+                                t.coefficient.numerator.one().into();
+                            one
+                        });
+                    }
+                    (row, ordinal)
+                } else {
+                    let (image, negative) = images[position - nb];
+                    let Some(one) = unit.as_ref() else { continue };
+                    let a = seed.integral;
+                    let key = if a <= image {
+                        (a, image, negative)
+                    } else {
+                        (image, a, negative)
+                    };
+                    if !sym_pairs.insert(key) {
+                        continue;
+                    }
+                    let row: ExactRow<N> = if image == a {
+                        vec![Term {
+                            integral: a,
+                            coefficient: one + one,
+                        }]
+                    } else {
+                        let other = if negative { one.clone() } else { -one.clone() };
+                        let mut r = vec![
+                            Term {
+                                integral: a,
+                                coefficient: one.clone(),
+                            },
+                            Term {
+                                integral: image,
+                                coefficient: other,
+                            },
+                        ];
+                        if self.order.compare(&r[0].integral, &r[1].integral) != Ordering::Less {
+                            r.swap(0, 1);
+                        }
+                        r
+                    };
                     stats.rows += 1;
-                }
-                let row = instantiate(
-                    source,
-                    &seed,
-                    &self.system.indices,
-                    self.system.fixed(),
-                    &self.order,
-                    discovery_zero_sectors,
-                    case.affine(),
-                )?;
-                crate::node::childjob::tick_row();
-                if !account_trace {
-                    stats.rows += 1;
-                }
+                    (row, super::SYMMETRY_ROW)
+                };
                 let Some(leading) = row.first() else { continue };
                 let source = SeedSource {
                     basis_row: ordinal,
                     seed,
                 };
-                if case.matches(&leading.integral) {
+                if ordinal != super::SYMMETRY_ROW && case.matches(&leading.integral) {
                     stats.direct_hit = true;
                     stats.exact_trace_rows = 1;
                     work.exact_trace_terms = row.len();
@@ -656,6 +860,15 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     } else {
                         Vec::new()
                     };
+                    if super::discovery::weight_capture_on() {
+                        let one: crate::algebra::Coefficient =
+                            leading.coefficient.numerator.one().into();
+                        store_proof(ProofCapture {
+                            rows: vec![row.clone()],
+                            exact: row.clone(),
+                            weights: Some(vec![(0, one)]),
+                        });
+                    }
                     let (target, rhs) = canonicalize(row, &self.system.indices)?;
                     stats.discovery = probe.as_ref().map(|p: &Probe<N>| p.discovery.stats());
                     return Ok(RuleCandidate {
@@ -667,13 +880,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         hidden_poles,
                     });
                 }
+                // (an explicit recipe seed list keeps rows above the target: the elimination removes them)
                 if case.is_numerical()
+                    && !seeds.is_explicit()
                     && self.order.compare(&initial, &leading.integral) == Ordering::Less
                 {
                     continue;
                 }
                 let active_probe = probe.get_or_insert_with(|| {
-                    Probe::new(self.order.clone(), self.system.variable_count, options)
+                    let mut p = Probe::new(self.order.clone(), self.system.variable_count, options);
+                    p.place_on_region(&case, &self.system.indices, options.sample_seed);
+                    p
                 });
                 let modular_row = active_probe.evaluate(&row)?;
                 crate::node::childjob::tick_probe_eval();
@@ -813,6 +1030,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             terms: exact.len(),
                             direct_hit: false,
                         });
+                        if super::discovery::weight_capture_on() {
+                            store_proof(ProofCapture {
+                                rows: selected.clone(),
+                                exact: exact.clone(),
+                                weights: super::discovery::take_captured_weights(),
+                            });
+                        }
                         let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                         stats.exact_materialization = exact_start.elapsed();
                         stats.discovery = Some(discovery);
@@ -833,6 +1057,65 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             rows: stats.rows,
         }
         .into())
+    }
+}
+
+/// engine-line recipe solve: what the last successful search on this thread lifted (with [`with_proof_capture`]):
+/// the exact trace rows (aligned with [`RuleCandidate::sources`]), the exact winning row before canonicalisation and
+/// the exact source weights (input row index into `rows`, weight), all in the ORIGINAL coefficient map; the caller
+/// proves `sum_j w_j rows[j] == exact` by exact arithmetic.
+pub struct ProofCapture<const N: usize> {
+    pub rows: Vec<ExactRow<N>>,
+    pub exact: ExactRow<N>,
+    pub weights: Option<Vec<(usize, crate::algebra::Coefficient)>>,
+}
+
+thread_local! {
+    static PROOF_CAPTURE: std::cell::RefCell<Option<Box<dyn std::any::Any>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn store_proof<const N: usize>(capture: ProofCapture<N>) {
+    PROOF_CAPTURE.with(|c| *c.borrow_mut() = Some(Box::new(capture)));
+}
+
+/// Run `f` with the lift's exact weights captured; returns `f`'s result and the capture of the last successful
+/// search inside it (None when nothing was lifted). Default off everywhere else.
+pub fn with_proof_capture<const N: usize, R>(
+    f: impl FnOnce() -> R,
+) -> (R, Option<ProofCapture<N>>) {
+    PROOF_CAPTURE.with(|c| *c.borrow_mut() = None);
+    let r = super::discovery::with_weight_capture(f);
+    let cap = PROOF_CAPTURE
+        .with(|c| c.borrow_mut().take())
+        .and_then(|b| b.downcast::<ProofCapture<N>>().ok())
+        .map(|b| *b);
+    (r, cap)
+}
+
+/// The seeds of one case search: the engine's shell stream, or (engine-line recipe solve) an explicit list.
+enum SeedFeed<const N: usize> {
+    Engine(super::ScheduledSeeds<N, super::seed::CentredSeeds<N>>),
+    Explicit(std::vec::IntoIter<Seed<N>>),
+}
+
+impl<const N: usize> SeedFeed<N> {
+    fn next(&mut self) -> Option<Result<Seed<N>, super::PowerError>> {
+        match self {
+            Self::Engine(s) => s.next(),
+            Self::Explicit(i) => i.next().map(Ok),
+        }
+    }
+
+    fn depth(&self) -> u32 {
+        match self {
+            Self::Engine(s) => s.depth(),
+            Self::Explicit(_) => 0,
+        }
+    }
+
+    fn is_explicit(&self) -> bool {
+        matches!(self, Self::Explicit(_))
     }
 }
 
@@ -898,6 +1181,34 @@ impl<const N: usize> Probe<N> {
         }
     }
 
+    /// Region-restricted run (t266-regions): move the discovery point onto the run's region intersected with
+    /// `case` (fixed slots, affine equations); unchanged when no region is installed or no Zp point is found.
+    pub(super) fn place_on_region(&mut self, case: &Case<N>, indices: &[usize; N], seed: u64) {
+        let Some(mut system) = super::region_probe::region() else {
+            return;
+        };
+        let Some(template) = system.first().cloned() else {
+            return;
+        };
+        let vars = template.variables();
+        for (axis, value) in case.fixed().iter().enumerate() {
+            if let Some(value) = value {
+                if let Ok(x) = template.variable(&vars[indices[axis]]) {
+                    system.push(&x - &template.constant(Integer::from(*value)));
+                }
+            }
+        }
+        if let Some(affine) = case.affine() {
+            system.extend(affine.equations().iter().cloned());
+        }
+        if let Some(point) =
+            super::region_probe::region_point(&system, &self.point, &self.field, seed)
+        {
+            self.point = point;
+            super::region_probe::record_point(self.field.get_prime(), &self.point, &self.field);
+        }
+    }
+
     pub(super) fn evaluate(
         &self,
         row: &ExactRow<N>,
@@ -928,6 +1239,9 @@ impl<const N: usize> Probe<N> {
 
 #[cfg(test)]
 mod affine_tests;
+
+#[cfg(test)]
+mod symmetry_tests;
 
 #[cfg(test)]
 mod observation_tests;

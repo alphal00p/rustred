@@ -346,3 +346,85 @@ fn layout_paths() {
     assert_eq!(l.at("out/F.table.jsonl"), l.table());
     assert_eq!(RunLayout::out_rel("F.cert.jsonl"), "out/F.cert.jsonl");
 }
+
+/// (lane engbase) every engine-line seed option of coord-ec1-seed-centre.md v2 section 6 passes the generate
+/// allow-list in its two-token form; malformed values and the file-reading `--region` do not.
+#[test]
+fn engine_line_seed_options_are_allowed() {
+    let base = sample_spec("/abs/run");
+    let worked: [&[&str]; 8] = [
+        &["--max-depth", "2"],
+        &[
+            "--max-depth",
+            "2",
+            "--seed-centre-offset",
+            "0:-1",
+            "--seed-face-floor",
+            "1",
+        ],
+        &[
+            "--max-depth",
+            "3",
+            "--seed-centre-offset",
+            "6:-1,11:1",
+            "--seed-face-floor",
+            "1",
+        ],
+        &[
+            "--max-depth",
+            "2",
+            "--seed-centre-offset",
+            "0:-1;2:-1;7:-1",
+            "--seed-face-floor",
+            "1",
+        ],
+        &[
+            "--seed-layer-cap",
+            "0,0,1",
+            "--max-depth",
+            "3",
+            "--numeric-depth",
+            "3",
+        ],
+        &[
+            "--seed-layer-cap",
+            "0,1",
+            "--max-depth",
+            "3",
+            "--numeric-depth",
+            "4",
+        ],
+        &[
+            "--max-depth",
+            "2",
+            "--symmetry-symbolic",
+            "--seed-schedule",
+            "symfirst",
+        ],
+        &[
+            "--symmetry-rows",
+            "--open-on-refusal",
+            "--slim-rules",
+            "--no-screen",
+        ],
+    ];
+    for extra in worked {
+        let mut s = base.clone();
+        s.args = vec!["--order".into(), "phys".into()];
+        s.args.extend(extra.iter().map(|x| x.to_string()));
+        s.validate()
+            .unwrap_or_else(|e| panic!("{extra:?} refused: {e:?}"));
+    }
+    for (bad, want_40) in [
+        (&["--seed-layer-cap", "0/0"][..], true),
+        (&["--seed-layer-cap=0,0,1"][..], true),
+        (&["--max-depth", "two"][..], true),
+        (&["--region", "region.json"][..], true),
+    ] {
+        let mut s = base.clone();
+        s.args = vec!["--order".into(), "phys".into()];
+        s.args.extend(bad.iter().map(|x| x.to_string()));
+        let e = err(&s);
+        assert_eq!(e.exit_code() == ExitCode::Usage, want_40, "{bad:?}: {e:?}");
+    }
+}
