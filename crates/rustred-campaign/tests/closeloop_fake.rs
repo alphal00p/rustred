@@ -430,7 +430,11 @@ fn lying_children_are_refused_and_never_close_the_node() {
         },
     );
     std::fs::write(&files.hand, "").unwrap();
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
+    // procfix5 (gate4 m3): the node ends open with items in attention: finished, not all closed = exit 10
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&FINISHED_OPEN)
+    );
     assert_eq!(accepts(&cdir), 0, "nothing accepted from a lying child");
     let st = state(&cdir);
     assert_eq!(st.nodes["toy"].state.phase, NodePhase::Open);
@@ -458,7 +462,9 @@ fn lying_children_are_refused_and_never_close_the_node() {
         },
     );
     std::fs::write(&files2.hand, "").unwrap();
-    assert_eq!(run_to_end(&sp2, &cdir2, &["--plain"]).last(), Some(&0));
+    // procfix5 (gate4 m3): the exit code follows the items at the end (default outcome: 0 closed, 10 not)
+    let c2 = run_to_end(&sp2, &cdir2, &["--plain"]);
+    assert_eq!(c2.last(), Some(&finish_code_by_items(&cdir2)), "{c2:?}");
     assert_eq!(accepts(&cdir2), 0);
     let ans = answers_lines(&cdir2);
     assert!(
@@ -477,7 +483,8 @@ fn lying_children_are_refused_and_never_close_the_node() {
         },
     );
     std::fs::write(&files3.hand, "").unwrap();
-    assert_eq!(run_to_end(&sp3, &cdir3, &["--plain"]).last(), Some(&0));
+    let c3 = run_to_end(&sp3, &cdir3, &["--plain"]);
+    assert_eq!(c3.last(), Some(&finish_code_by_items(&cdir3)), "{c3:?}");
     let ans = answers_lines(&cdir3);
     let x = ans
         .iter()

@@ -95,8 +95,11 @@ impl std::error::Error for AtomicError {
 
 /// True for ENOSPC (28) and EDQUOT (122): both mean "free space first, then resume".
 pub fn is_no_space(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ENOSPC) | Some(libc::EDQUOT))
-        || e.kind() == io::ErrorKind::StorageFull
+    // EFBIG (procfix5, gate4 m2): `ulimit -f` reached; the supervisor ignores SIGXFSZ, so the write reports it.
+    matches!(
+        e.raw_os_error(),
+        Some(libc::ENOSPC) | Some(libc::EDQUOT) | Some(libc::EFBIG)
+    ) || e.kind() == io::ErrorKind::StorageFull
 }
 
 /// Replace the target or refuse to clobber it.
