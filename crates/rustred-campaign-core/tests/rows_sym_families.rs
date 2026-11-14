@@ -135,7 +135,7 @@ fn rows_sym_m2_one_term_rules_with_and_without() {
         };
         let g = SymGroup::from_cfix_json(&sym, &fam).unwrap();
         let chart = g.chart.clone();
-        let vg = Arc::new(verify_group(&fam, g, &name).unwrap());
+        let vg = Arc::new(verify_group(&fam, g, name).unwrap());
         let (mut pass, mut fail_without, mut n) = (0, 0, 0);
         for (k, e) in vg.group().elements.iter().enumerate() {
             // a dotted corner whose dot moves: target = corner + e_i, image = corner + e_{g(i)}

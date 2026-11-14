@@ -163,6 +163,10 @@ pub trait CheckAlgebra: Sync {
     fn neg(&self, p: u64, a: u64) -> u64;
     /// `None` iff `a = 0 mod p`
     fn inv(&self, p: u64, a: u64) -> Option<u64>;
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "the backend reduces an integer into its field"
+    )]
     fn from_i128(&self, p: u64, x: i128) -> u64;
 
     // ---- exact rationals (i128 normal form; overflow = Err) ----

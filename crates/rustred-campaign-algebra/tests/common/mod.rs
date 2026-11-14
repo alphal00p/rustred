@@ -6,6 +6,7 @@
 #[path = "../../../rustred-campaign-core/tests/k3_common/mod.rs"]
 pub mod k3_common;
 
+#[allow(unused_imports)]
 pub use k3_common::{HO, Oracle, gunzip, oracle, sha256_hex};
 use rustred_campaign_core::ibp_rows::RowsRule;
 use serde_json::Value;

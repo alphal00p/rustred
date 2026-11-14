@@ -247,7 +247,12 @@ pub fn view<'a>(node: &'a Node, target: NodeTarget, required: RequiredEvidence) 
 pub fn replay_prover(node: &Node) -> ReplayProver {
     ReplayProver::new(
         Family::parse(&node.family_text).unwrap(),
-        RowsOptions::default(),
+        // rows3 (re-audit A NEW-M1): the `replay` level requires a family binding: the node table's header
+        // (family_source compared with the family text)
+        RowsOptions {
+            table: rustred_campaign_core::ibp_rows::TableBinding::from_header(&node.header.raw),
+            ..RowsOptions::default()
+        },
     )
 }
 

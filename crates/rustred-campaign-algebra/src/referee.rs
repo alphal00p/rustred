@@ -36,7 +36,7 @@ pub struct Referee;
 fn big_mod(x: Integer, p: u64) -> u64 {
     let pp = Integer::from(p);
     let mut r = x % &pp;
-    if r < Integer::from(0) {
+    if r < 0 {
         r += &pp;
     }
     u64::try_from(r).expect("residue")
@@ -117,7 +117,7 @@ impl CheckAlgebra for Referee {
         big_mod(-Integer::from(a), p)
     }
     fn inv(&self, p: u64, a: u64) -> Option<u64> {
-        if a % p == 0 {
+        if a.is_multiple_of(p) {
             return None;
         }
         // Fermat: a^(p-2) by square and multiply in arbitrary precision
@@ -229,9 +229,9 @@ impl CheckAlgebra for Referee {
     fn literal_same_up_to_constant(&self, a: &str, b: &str, n: usize) -> bool {
         Independent.literal_same_up_to_constant(a, b, n)
     }
-    fn eliminate<'r>(
+    fn eliminate(
         &self,
-        rows: &'r [Vec<(usize, u64)>],
+        rows: &[Vec<(usize, u64)>],
         ncols: usize,
         p: u64,
         _max_entries: usize,

@@ -67,6 +67,10 @@ const OVF: &str = "exact rational overflow";
 /// Checked exact rational arithmetic on [`Q`] (normal form: lowest terms, positive denominator). Visible ONLY inside
 /// `independent_algebra`: the domain logic reaches it through `CheckAlgebra::q_*`.
 pub(in crate::independent_algebra) trait QArith: Sized {
+    #[allow(
+        clippy::new_ret_no_self,
+        reason = "checked constructor returning QResult"
+    )]
     fn new(n: i128, d: i128) -> QResult;
     fn add(self, o: Q) -> QResult;
     fn sub(self, o: Q) -> QResult;

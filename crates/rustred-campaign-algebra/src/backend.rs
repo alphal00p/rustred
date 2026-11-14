@@ -106,7 +106,7 @@ fn from_rational(r: &Rational) -> QResult {
 fn int_mod(f: &Zp64, i: &Integer) -> FiniteFieldElement<u64> {
     let p = Integer::from(f.get_prime());
     let mut r = i % &p;
-    if r < Integer::from(0) {
+    if r < 0 {
         r += &p;
     }
     f.to_element(u64::try_from(r).expect("residue fits u64"))
@@ -129,6 +129,9 @@ fn variables(arity: usize, with_d: bool) -> Result<(Arc<Vec<PolyVariable>>, Vec<
     }
     Ok((Arc::new(vars), syms))
 }
+
+/// Miller-Rabin rounds requested from numerica (ignored below 2^64: deterministic there).
+const MR_ROUNDS: usize = 32;
 
 type ZPolyS = MultivariatePolynomial<symbolica::domains::integer::IntegerRing, u16>;
 
@@ -393,7 +396,8 @@ impl CheckAlgebra for SymbolicaAlgebra {
         if n == u64::MAX {
             return false;
         }
-        Integer::from(n).is_prime(20)
+        // the Miller-Rabin round count is ignored for 64-bit inputs (deterministic witness set)
+        Integer::from(n).is_prime(MR_ROUNDS)
     }
     fn add(&self, p: u64, a: u64, b: u64) -> u64 {
         with_field(p, |f| {
@@ -452,7 +456,7 @@ impl CheckAlgebra for SymbolicaAlgebra {
             Some((a, b)) => {
                 let a: Integer = a.trim().parse().map_err(|_| bad())?;
                 let b: Integer = b.trim().parse().map_err(|_| bad())?;
-                if b == Integer::from(0) {
+                if b == 0 {
                     return Err("division by zero".into());
                 }
                 Rational::new(a, b)
@@ -695,7 +699,7 @@ impl CheckAlgebra for SymbolicaAlgebra {
             return Err("point length".into());
         }
         let vals: Vec<Integer> = point.iter().map(|&x| Integer::from(x as i64)).collect();
-        Ok(lit.replace_all(&vals) == Integer::from(0))
+        Ok(lit.replace_all(&vals) == 0)
     }
     fn literal_same_up_to_constant(&self, a: &str, b: &str, n: usize) -> bool {
         match (
