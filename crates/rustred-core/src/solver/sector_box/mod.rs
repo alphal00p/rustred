@@ -64,11 +64,18 @@
 //!   [`BoxLaportaSession::probe_explicit`] gives the `(target, master)`
 //!   values at an explicit point and prime (oracle comparisons).
 //!
-//! The finite-field and exact lanes follow in the next steps.
+//! - the univariate finite-field lane ([`BoxLaportaSession::materialize_ff`]):
+//!   every requested `(target, master)` coefficient reconstructed over Q in
+//!   the one parameter left free, by [`crate::algebra::reconstruct`], and
+//!   verified at a fresh prime.
+//!
+//! The exact lane and the certificates follow in the next step.
 
 mod driver;
+mod ff;
 mod modular;
 mod order;
+mod output;
 mod probe;
 mod router;
 mod router_census;
@@ -89,7 +96,9 @@ use std::time::Duration;
 pub use driver::{
     BoxLaportaSession, ExplicitSample, ExplicitTable, census_targets, down_closure_representatives,
 };
+pub use ff::{FaultInjection, FfOptions, FfReport};
 pub use order::{ColumnOrder, SlotPriority};
+pub use output::{BoxProvenance, BoxSolution};
 pub use probe::LaneFailure;
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;
