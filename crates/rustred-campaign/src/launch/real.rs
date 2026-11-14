@@ -204,6 +204,17 @@ impl RealLauncher {
         Self::with_config(sampler, RealConfig::default())
     }
 
+    /// As [`Self::with_config`], but an invalid `campaign_id` is a hard ERROR instead of a silent ad-hoc id (gate
+    /// re-audit C-1 (a): the campaign id is the only proof of ownership; a swapped id would make a restarted supervisor
+    /// recognise nothing). The supervisor uses this. Additive (lane I-SUP, 2026-11-14).
+    pub fn try_with_config(
+        sampler: Arc<Sampler>,
+        config: RealConfig,
+    ) -> Result<Self, crate::resources::InvalidMarker> {
+        crate::resources::validate_campaign_id(&config.campaign_id)?;
+        Ok(Self::with_config(sampler, config))
+    }
+
     /// Process-wide effects (documented): SIGCHLD reset to SIG_DFL if inherited as ignored (audit A M4); child
     /// subreaper if configured; the sampler's campaign is set to `config.campaign_id`.
     pub fn with_config(sampler: Arc<Sampler>, config: RealConfig) -> Self {

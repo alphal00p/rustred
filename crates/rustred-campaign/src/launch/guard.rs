@@ -53,7 +53,6 @@ use serde::Serialize;
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Bound of the /proc reads of one verification.
@@ -218,20 +217,49 @@ mod sys {
     }
 }
 
-/// Does the kernel support pidfd_open / pidfd_send_signal? (Linux >= 5.3; checked once on this process.)
-pub fn pidfd_supported() -> bool {
-    static S: OnceLock<bool> = OnceLock::new();
-    *S.get_or_init(|| {
-        // SAFETY: pidfd_open on our own pid; an fd is closed right away.
-        let r = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };
-        if r >= 0 {
-            // SAFETY: closing the probe descriptor we just got.
-            unsafe { libc::close(r as i32) };
-            true
-        } else {
-            false
+/// Result of one pidfd probe (gate re-audit m-2, lane I-SUP 2026-11-14).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PidfdProbe {
+    Supported,
+    /// The kernel has no pidfd_open (ENOSYS) or forbids it (EPERM): permanent, cached.
+    Unsupported,
+    /// A transient failure (EMFILE, ENFILE, ENOMEM, ...): NOT cached; the caller must not fall back to `kill`.
+    Transient(String),
+}
+
+static PIDFD_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0); // 0 unknown, 1 yes, 2 no
+
+/// Probe pidfd support (cached once the answer is permanent).
+pub fn pidfd_probe() -> PidfdProbe {
+    use std::sync::atomic::Ordering;
+    match PIDFD_STATE.load(Ordering::SeqCst) {
+        1 => return PidfdProbe::Supported,
+        2 => return PidfdProbe::Unsupported,
+        _ => {}
+    }
+    // SAFETY: pidfd_open on our own pid; an fd is closed right away.
+    let r = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };
+    if r >= 0 {
+        // SAFETY: closing the probe descriptor we just got.
+        unsafe { libc::close(r as i32) };
+        PIDFD_STATE.store(1, Ordering::SeqCst);
+        return PidfdProbe::Supported;
+    }
+    let e = io::Error::last_os_error();
+    match e.raw_os_error() {
+        Some(libc::ENOSYS) | Some(libc::EPERM) => {
+            PIDFD_STATE.store(2, Ordering::SeqCst);
+            PidfdProbe::Unsupported
         }
-    })
+        _ => PidfdProbe::Transient(e.to_string()),
+    }
+}
+
+/// Does the kernel support pidfd_open / pidfd_send_signal? (Linux >= 5.3.) A transient probe failure answers false
+/// for THIS call only (never cached): callers that would otherwise fall back to plain `kill` must use
+/// [`pidfd_probe`] and refuse on `Transient`.
+pub fn pidfd_supported() -> bool {
+    pidfd_probe() == PidfdProbe::Supported
 }
 
 // ------------------------------------------------------------------------------------------------ verification
@@ -419,14 +447,17 @@ pub(crate) fn signal_verified_at(
         Err(e) => return Verdict::Unverified(format!("boot id unreadable: {e}")),
     }
     // 3.
-    let pidfd = if pidfd_supported() {
-        match sys::pidfd_open(pid) {
+    let pidfd = match pidfd_probe() {
+        PidfdProbe::Supported => match sys::pidfd_open(pid) {
             Ok(fd) => Some(fd),
             Err(e) if e.raw_os_error() == Some(libc::ESRCH) => return Verdict::Gone,
             Err(e) => return Verdict::Unverified(format!("pidfd_open: {e}")),
+        },
+        PidfdProbe::Unsupported => None,
+        // EMFILE / ENFILE / ENOMEM now: refuse this attempt (retry later), never the weaker kill path.
+        PidfdProbe::Transient(e) => {
+            return Verdict::Unverified(format!("pidfd probe failed transiently: {e}"));
         }
-    } else {
-        None
     };
     // 4-7 on a helper thread, bounded.
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));

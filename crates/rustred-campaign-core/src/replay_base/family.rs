@@ -23,6 +23,123 @@ pub struct Family {
     c: Vec<Vec<i64>>,
     ops: Vec<OpTable>,
     zero_cache: Mutex<HashMap<Vec<bool>, bool>>,
+    /// campaign copy, ADDED (audit C2): sha256 of the family text bytes, the `name(..)` and the result of the
+    /// header-free part of the engine's `family_check` plus the whitelist of [`family_text_check`].
+    pub source_digest: String,
+    /// sha256 of the text with all whitespace removed (the engine compares `family_source` up to whitespace)
+    pub squashed_digest: String,
+    pub name: Option<String>,
+    pub check: Result<(), Unknown>,
+    /// campaign copy, ADDED: the loop momentum names in `loops(..)` order (symmetry-group data refers to them)
+    pub loop_names: Vec<String>,
+}
+
+/// campaign copy, ADDED (audit C2): the engine replay's `family_check` (replay/mod.rs:1979-2014 at b9f06de7) without
+/// the table-header part (that is [`family_header_check`]), plus a whitelist: the module models exactly
+/// `name, loops, externals(q), dimension(d), prop(D<k>,(mom)^2,flag), gram(q,q,1), power_shift`; anything else is
+/// refused (never silently ignored).
+pub fn family_text_check(text: &str, n: usize) -> Result<(), Unknown> {
+    let c: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if !c.contains("externals(q)") || !c.contains("gram(q,q,1)") {
+        return Err("only massless one-scale q^2=1 families supported".into());
+    }
+    if c.matches("gram(").count() != 1 || c.matches("externals(").count() != 1 {
+        return Err("exactly one gram(q,q,1) and one externals(q) are supported".into());
+    }
+    if !c.contains("dimension(d)") || c.matches("dimension(").count() != 1 {
+        return Err("dimension must be d".into());
+    }
+    if c.matches("prop(").count() != n {
+        return Err("unsupported propagator grammar/mass".into());
+    }
+    let inner = c
+        .strip_prefix("I(")
+        .and_then(|x| x.strip_suffix(')'))
+        .ok_or("family text is not I(...)")?;
+    // top-level calls
+    let (mut depth, mut start) = (0i32, 0usize);
+    let b = inner.as_bytes();
+    let mut calls: Vec<&str> = Vec::new();
+    for (k, &ch) in b.iter().enumerate() {
+        match ch {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 => {
+                calls.push(&inner[start..k]);
+                start = k + 1;
+            }
+            _ => {}
+        }
+        if depth < 0 {
+            return Err("unbalanced parentheses".into());
+        }
+    }
+    calls.push(&inner[start..]);
+    for call in calls {
+        let head = call.split('(').next().unwrap_or("");
+        if ![
+            "name",
+            "loops",
+            "externals",
+            "dimension",
+            "prop",
+            "gram",
+            "power_shift",
+        ]
+        .contains(&head)
+            || !call.ends_with(')')
+        {
+            return Err(format!(
+                "family element not modelled by the replay: {call:.60}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// campaign copy, ADDED (audit C2): the table-header part of the engine's `family_check` (replay/mod.rs:1979-2014 at
+/// b9f06de7): `family_source` equal up to whitespace, `denominators` / `loops` equal, `parameters == ["d"]`, no
+/// `source_conditions`. Fields absent from `header` are not checked here (the caller records what was bound).
+pub fn family_header_check(header: &serde_json::Value, f: &Family) -> Result<(), Unknown> {
+    let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    if let Some(embedded) = header.get("family_source").and_then(|x| x.as_str())
+        && super::sha256::sha256_hex(squash(embedded).as_bytes()) != f.squashed_digest
+    {
+        return Err("family differs from table physical-slot source".into());
+    }
+    if let Some(name) = header.get("family").and_then(|x| x.as_str())
+        && f.name.as_deref() != Some(name)
+    {
+        return Err(format!(
+            "table family {name:?} differs from the family's name {:?}",
+            f.name
+        ));
+    }
+    if let Some(x) = header.get("denominators")
+        && x.as_u64() != Some(f.n as u64)
+    {
+        return Err("family dimension metadata mismatch".into());
+    }
+    if let Some(x) = header.get("loops")
+        && x.as_u64() != Some(f.loops as u64)
+    {
+        return Err("family dimension metadata mismatch".into());
+    }
+    if let Some(x) = header.get("parameters")
+        && *x != serde_json::json!(["d"])
+    {
+        return Err("unsupported extra coefficient parameters".into());
+    }
+    if header
+        .get("source_conditions")
+        .and_then(|x| x.as_array())
+        .is_some_and(|a| !a.is_empty())
+    {
+        return Err(
+            "nonempty source conditions require an explicit independent implementation".into(),
+        );
+    }
+    Ok(())
 }
 
 fn lin(mom: &str) -> Result<BTreeMap<String, i64>, Unknown> {
@@ -283,7 +400,14 @@ impl Family {
             }
         }
         let eps_axes = (0..n).filter(|&i| kshift[i] != 0).collect();
+        let check = family_text_check(src, n);
+        let name = call_args(&compact, "name");
         Ok(Self {
+            source_digest: super::sha256::sha256_hex(src.as_bytes()),
+            squashed_digest: super::sha256::sha256_hex(compact.as_bytes()),
+            name,
+            check,
+            loop_names: loops.clone(),
             n,
             loops: lcount,
             kshift,

@@ -30,9 +30,9 @@ pub use fake::{
 };
 pub(crate) use guard::reap_exact;
 pub use guard::{
-    ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict, ensure_sigchld_default,
-    is_child_subreaper, kill_orphan, pidfd_supported, set_child_subreaper, sigchld_autoreaps,
-    signal_verified_process,
+    PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
+    ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
+    set_child_subreaper, sigchld_autoreaps, signal_verified_process,
 };
 pub use real::{
     CapPreference, LauncherSetup, RealChild, RealConfig, RealLauncher, adhoc_campaign_id,
