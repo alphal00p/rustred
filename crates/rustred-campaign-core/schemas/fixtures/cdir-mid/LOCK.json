@@ -1,0 +1,15 @@
+{
+  "schema": "rustred.campaign.lock.v1",
+  "pid": 4242,
+  "start_ticks": 123456789,
+  "boot_id": "6b1f0c55-0000-4000-8000-000000000000",
+  "host": "itphlies",
+  "argv": [
+    "rr_campaign",
+    "run",
+    "--spec",
+    "spec.json"
+  ],
+  "started_utc": "2026-11-14T09:00:00.000Z",
+  "token": "0123456789abcdef0123456789abcdef"
+}

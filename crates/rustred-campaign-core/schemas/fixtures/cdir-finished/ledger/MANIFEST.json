@@ -1,0 +1,1 @@
+{"schema":"rustred.campaign.ledger-manifest.v1","campaign_id":"fixture-finished","sealed":[],"active":{"index":1,"file":"segment-000001.jsonl","first_seq":1,"prev":"0000000000000000000000000000000000000000000000000000000000000000"},"snapshot":null}

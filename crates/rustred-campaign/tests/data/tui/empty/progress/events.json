@@ -1,0 +1,4 @@
+{"schema": "rustred.campaign.progress.v1", "file": "events", "fixture_origin": "hand", "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-20T04:03:12.000Z", "source_of_truth": "ledger",
+ "ledger": {"seq": 4, "head": "0101010100000000000000000000000000000000000000000000000000000000", "last_utc": "2026-11-20T04:03:11.000Z"},
+ "cap": 64, "events": [{"seq": 4, "utc": "2026-11-20T04:03:11.000Z", "kind": "campaign", "text": "campaign starting (session 1)"}]}
