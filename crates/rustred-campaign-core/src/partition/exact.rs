@@ -143,6 +143,21 @@ pub fn gcd(a: i128, b: i128) -> XResult<i128> {
     i128::try_from(gcd_u(a, b)).map_err(|_| ExactError::Overflow)
 }
 
+/// gcd of a list in `u128` (no clamp; 0 for an empty or all-zero list).
+pub fn gcd_u_all(v: impl IntoIterator<Item = i128>) -> u128 {
+    let mut g: u128 = 0;
+    for a in v {
+        let (mut x, mut y) = (g, a.unsigned_abs());
+        while y != 0 {
+            let Some(t) = x.checked_rem(y) else { break };
+            x = y;
+            y = t;
+        }
+        g = x;
+    }
+    g
+}
+
 /// gcd of a list (>= 0; 0 for an empty or all-zero list), checked as [`gcd`].
 pub fn gcd_all(v: impl IntoIterator<Item = i128>) -> XResult<i128> {
     let mut g: u128 = 0;
@@ -1069,33 +1084,46 @@ impl MPoly {
     pub fn content(&self) -> XResult<i128> {
         gcd_all(self.terms.values().copied())
     }
-    /// Primitive part with a positive coefficient on the largest exponent vector.
-    pub fn primitive(&self) -> XResult<MPoly> {
-        let g = self.content()?;
-        if g == 0 {
+    /// The coefficients divided by the content (the content may be 2^127, which does not fit i128: then every
+    /// coefficient is 0 or `i128::MIN` and the quotient is 0 or -1), times -1 if `flip`. Exact.
+    fn divided_by_content(&self, flip: bool) -> XResult<MPoly> {
+        let gu = gcd_u_all(self.terms.values().copied());
+        if gu == 0 {
             return Ok(self.clone());
         }
-        let s = match self.terms.values().next_back() {
-            Some(&lead) if lead < 0 => neg(g)?,
-            _ => g,
-        };
         let mut r = MPoly::zero(self.nvars);
         for (e, &c) in &self.terms {
-            r.terms.insert(e.clone(), quot(c, s)?);
+            let q = match i128::try_from(gu) {
+                Ok(g) => quot(c, g)?,
+                // gu = 2^127: c is 0 or i128::MIN (the only multiples of 2^127 in i128)
+                Err(_) => {
+                    if c == 0 {
+                        0
+                    } else {
+                        -1
+                    }
+                }
+            };
+            r.terms.insert(e.clone(), if flip { neg(q)? } else { q });
         }
         Ok(r)
     }
-    /// Divided by its POSITIVE content (the sign is kept: the normal form of a GE literal).
+    /// Primitive part with a positive coefficient on the largest exponent vector (exact for every content, 2^127
+    /// included). When that sign flip is not representable (a quotient coefficient `i128::MIN`) the primitive part
+    /// keeps its sign: the zero set is the same, and the negated literal cannot exist in `i128`, so the canonical
+    /// form stays unique among representable literals.
+    pub fn primitive(&self) -> XResult<MPoly> {
+        let flip = matches!(self.terms.values().next_back(), Some(&lead) if lead < 0);
+        match self.divided_by_content(flip) {
+            Ok(r) => Ok(r),
+            Err(_) if flip => self.divided_by_content(false),
+            Err(e) => Err(e),
+        }
+    }
+    /// Divided by its POSITIVE content (the sign is kept: the normal form of a GE literal; exact for every
+    /// content).
     pub fn positive_primitive(&self) -> XResult<MPoly> {
-        let g = self.content()?;
-        if g == 0 {
-            return Ok(self.clone());
-        }
-        let mut r = MPoly::zero(self.nvars);
-        for (e, &c) in &self.terms {
-            r.terms.insert(e.clone(), quot(c, g)?);
-        }
-        Ok(r)
+        self.divided_by_content(false)
     }
     /// Coefficients in variable `v`: `P = sum_k C_k x_v^k`.
     pub fn coeffs_in(&self, v: usize) -> Vec<MPoly> {
@@ -1445,6 +1473,26 @@ mod tests {
         assert_eq!(ceil_neg_div(5, i128::MIN), Ok(1));
         assert_eq!(floor_neg_div(5, i128::MIN), Ok(0));
         assert_eq!(sign_breaks(&[i128::MIN, 1]), Err(ExactError::Overflow));
+    }
+
+    #[test]
+    fn primitive_with_content_two_to_the_127() {
+        // -2^127 n0 - 2^127: content 2^127, primitive n0 + 1 (canonical sign), positive primitive -n0 - 1
+        let mut p = MPoly::zero(1);
+        p.terms.insert(vec![1], i128::MIN);
+        p.terms.insert(vec![0], i128::MIN);
+        assert_eq!(p.content(), Err(ExactError::Overflow));
+        let q = p.primitive().unwrap();
+        assert_eq!(q.terms.get(&vec![1]), Some(&1));
+        assert_eq!(q.terms.get(&vec![0]), Some(&1));
+        let r = p.positive_primitive().unwrap();
+        assert_eq!(r.terms.get(&vec![1]), Some(&-1));
+        assert_eq!(r.terms.get(&vec![0]), Some(&-1));
+        // (2^127 - 1) - 2^127 x^2: content 1, leading coefficient i128::MIN cannot be flipped: kept as it is
+        let mut p = MPoly::zero(1);
+        p.terms.insert(vec![2], i128::MIN);
+        p.terms.insert(vec![0], i128::MAX);
+        assert_eq!(p.primitive().unwrap(), p);
     }
 
     #[test]

@@ -2065,27 +2065,40 @@ fn locate_slow_adversarial_seeds() {
 /// FINDING (major, robustness): `region::bounds0` computes `div_floor(-c.c, a)` with an UNCHECKED negation; for a
 /// constant c = i128::MIN the negation wraps (release) and `i128::MIN / -1` panics. Reached through the public
 /// `Region::point` / `find_point` / `exhaustive_point` (used by `is_empty`, `contained_in`, `shadowed`, the loci).
-/// FIXED (partfix2, RA2-M1): no panic; -t + i128::MIN >= 0 has the bound t <= i128::MIN (exact).
+/// FIXED (partfix2, RA2-M1): no panic. -t + i128::MIN >= 0 has the bound t <= i128::MIN (computed exactly); fixing
+/// t = i128::MIN in the constraint needs (-1) * i128::MIN = 2^127, which does not fit: the search answers the typed
+/// `Overflow` (undecided), never a point that violates the constraint and never "empty".
 #[test]
 fn defect_find_point_panics_on_i128_min_constant() {
+    use rustred_campaign_core::loci::region::find_point;
     let cons = vec![aff(&[-1], i128::MIN)];
-    let r = rustred_campaign_core::loci::region::find_point(&cons, 1, 4, &[0]).unwrap();
-    assert_eq!(r, Some(vec![i128::MIN]));
+    match find_point(&cons, 1, 4, &[0]) {
+        Ok(Some(t)) => assert!(cons.iter().all(|a| a.eval(&t).is_ok_and(|v| v >= 0))),
+        Ok(None) => {
+            panic!("not a proof, but the search must not miss the only feasible side silently")
+        }
+        Err(e) => assert_eq!(e, ExactError::Overflow),
+    }
     let mut b = 10u64;
-    assert_eq!(
+    assert_ne!(
         exhaustive_point(&cons, 1, &mut b),
-        Ok(None),
-        "unbounded below: undecided"
+        Ok(Some(None)),
+        "never 'empty'"
     );
-    let cons2 = vec![aff(&[-1], i128::MIN), aff(&[1], i128::MAX)];
+    // the same half-line with a representable point: found
+    let cons2 = vec![aff(&[-1], i128::MIN + 1), aff(&[1], i128::MAX)];
     let mut b = 10u64;
     assert_eq!(
         exhaustive_point(&cons2, 1, &mut b),
-        Ok(Some(Some(vec![i128::MIN])))
+        Ok(Some(Some(vec![i128::MIN + 1])))
     );
-    // a constraint whose bound does not fit i128 is an error, never a panic
+    assert_eq!(
+        find_point(&cons2, 1, 4, &[0]),
+        Ok(Some(vec![i128::MIN + 1]))
+    );
+    // a constraint whose bound does not fit i128 is an error, never a panic, never "empty"
     let cons3 = vec![aff(&[1], i128::MIN)];
-    assert!(rustred_campaign_core::loci::region::find_point(&cons3, 1, 4, &[0]).is_err());
+    assert!(find_point(&cons3, 1, 4, &[0]).is_err());
 }
 
 /// FINDING (major, robustness): in dispatch mode the COMPLEMENT of a blocker's selection bound
@@ -2890,4 +2903,56 @@ fn diff_extreme_coefficients_against_brute_force() {
     }
     eprintln!("{t:#?}");
     assert!(t.cases >= n_sets * 9 / 10, "cases {}", t.cases);
+}
+
+/// Locator (ignored): one extreme-coefficient seed (env AUDIT_RSEED = the RNG seed printed by the harness) and a key
+/// (env AUDIT_KEY = "1,1,-5"): normal-form notes, rules and per-record verdicts at the key.
+#[test]
+#[ignore]
+fn locate_extreme_seed() {
+    let s: u64 = std::env::var("AUDIT_RSEED")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0);
+    let key: Vec<i32> = std::env::var("AUDIT_KEY")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|x| x.trim().parse().ok())
+        .collect();
+    let mut g = Rng(s);
+    let n = 2 + g.below(3) as usize;
+    let e = 1 + g.below(n as u64) as usize;
+    let nr = 1 + g.below(6) as usize;
+    let mut ds: Vec<CaseDomain> = vec![];
+    for _ in 0..nr {
+        let d = if g.chance(2, 3) {
+            gen_domain_extreme(&mut g, n, e)
+        } else {
+            gen_domain(&mut g, n, e, true, true)
+        };
+        if d.validate().is_ok() {
+            ds.push(d);
+        }
+    }
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
+    eprintln!("notes {:?}", rep.nf.notes);
+    eprintln!("sources {:?}", rep.nf.sources);
+    for (i, r) in rep.nf.rules.iter().enumerate() {
+        let show = |ls: &[u32]| {
+            ls.iter()
+                .map(|&l| rep.nf.lits[l as usize].text.clone())
+                .collect::<Vec<_>>()
+        };
+        eprintln!(
+            "rule {i}: eq {:?} ge {:?} bad {:?} covers {:?}",
+            show(&r.eq),
+            show(&r.ge),
+            r.bad.iter().map(|b| show(b)).collect::<Vec<_>>(),
+            rep.nf.rule_covers(i, &key)
+        );
+    }
+    for (i, d) in ds.iter().enumerate() {
+        eprintln!("record {i}: applies {:?}", d.applies(&key));
+    }
 }

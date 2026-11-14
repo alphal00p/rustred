@@ -755,8 +755,33 @@ pub fn gap_partition(
         }
         let sub = rep.nf.blocked_subproblem(e, &pos)?;
         let nvar = sub.stats.blocked_variants;
+        let inexact: Vec<String> = sub
+            .notes
+            .iter()
+            .filter_map(|n| match &n.note {
+                nf::NfNote::Weakened(w) => Some(format!("blocked region of source {e}: {w}")),
+                _ => None,
+            })
+            .collect();
         let mut b = partition_nf(sub, opts, None, &meter)?;
         b.coverage = opts.coverage;
+        if !inexact.is_empty() {
+            // the sub-partition describes a SUPERSET of the blocked region: never a complete description
+            b.outcome = match std::mem::replace(&mut b.outcome, Outcome::Complete) {
+                Outcome::Complete => Outcome::Incomplete { reasons: inexact },
+                Outcome::Incomplete { mut reasons } => {
+                    reasons.extend(inexact);
+                    Outcome::Incomplete { reasons }
+                }
+                Outcome::Partial {
+                    explored,
+                    mut reasons,
+                } => {
+                    reasons.extend(inexact);
+                    Outcome::Partial { explored, reasons }
+                }
+            };
+        }
         if b.classes.is_empty() && b.outcome.is_complete() {
             rep.blocked_empty = rep.blocked_empty.saturating_add(1);
             continue;
@@ -953,17 +978,18 @@ impl PartitionReport {
         if !self.nf.covered(key)? {
             return Ok(true);
         }
-        if self.blocked.is_empty() {
+        if self.blocked.is_empty() && self.blocked_skipped.is_empty() {
             return Ok(false);
         }
         let first = self.first_applying_pos(key)?;
-        for (_, b) in &self.blocked {
-            // blocked region of b: selected(e) minus applies(s <= e); compacted rules = complement of selected(e)
-            if first > b.blocked_pos && !b.nf.covered(key)? {
+        for (e, b) in &self.blocked {
+            // blocked region of b: selected(e) minus applies(s <= e), read from the selected set itself (exact, even
+            // when the sub-partition's complement had to be over-approximated)
+            if first > b.blocked_pos && self.selected_at(*e, key)? {
                 return Ok(true);
             }
         }
-        // skipped sub-partitions (budget): the same membership, read from the selected set itself
+        // skipped sub-partitions (budget): the same membership
         for &(e, pe) in &self.blocked_skipped {
             if first > pe && self.selected_at(e, key)? {
                 return Ok(true);

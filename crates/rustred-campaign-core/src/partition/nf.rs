@@ -176,7 +176,7 @@ impl NfRules {
             ge: vec![],
             bad: vec![],
         };
-        let v = subtract(&mut b, &universal, &sel)?;
+        let (v, inexact) = subtract(&mut b, &universal, &sel)?;
         let mut stats = self.stats.clone();
         stats.blocked_variants = v.len();
         for r in v {
@@ -203,7 +203,17 @@ impl NfRules {
             quick,
             elided: vec![],
             blockers: vec![],
-            notes: vec![],
+            notes: if inexact {
+                vec![SourceNote {
+                    source: e,
+                    note: NfNote::Weakened(
+                        "the complement of a selection bound is not representable in i128: the blocked region is over-approximated"
+                            .into(),
+                    ),
+                }]
+            } else {
+                vec![]
+            },
             selected: BTreeMap::new(),
         })
     }
@@ -281,19 +291,37 @@ impl Builder {
         Ok(Norm::Lit(id))
     }
 
-    /// AND-list of zero-set literals -> Some(branch) (possibly empty = always true), None = never true.
-    fn branch(&mut self, members: &[MPoly]) -> Result<Option<Vec<u32>>, PartitionError> {
+    /// [`Builder::intern`] with an exact-arithmetic failure (a content of 2^127, ...) returned as `Ok(Err(reason))`:
+    /// the caller excludes / weakens the domain (re-audit RA2-C1: an extreme literal never aborts the partition).
+    fn try_intern(
+        &mut self,
+        p: &MPoly,
+        is_ge: bool,
+    ) -> Result<Result<Norm, String>, PartitionError> {
+        match self.intern(p, is_ge) {
+            Ok(n) => Ok(Ok(n)),
+            Err(PartitionError::Exact(e)) => Ok(Err(format!("{e}"))),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// AND-list of zero-set literals -> Some(branch) (possibly empty = always true), None = never true. A member
+    /// that cannot be represented is DROPPED ("may vanish anywhere": the branch's zero set only grows); the bool
+    /// says that happened.
+    fn branch(&mut self, members: &[MPoly]) -> Result<(Option<Vec<u32>>, bool), PartitionError> {
         let mut b = vec![];
+        let mut weak = false;
         for m in members {
-            match self.intern(m, false)? {
-                Norm::Zero => {}
-                Norm::NonZeroConst => return Ok(None),
-                Norm::Lit(i) => b.push(i),
+            match self.try_intern(m, false)? {
+                Ok(Norm::Zero) => {}
+                Ok(Norm::NonZeroConst) => return Ok((None, weak)),
+                Ok(Norm::Lit(i)) => b.push(i),
+                Err(_) => weak = true,
             }
         }
         b.sort_unstable();
         b.dedup();
-        Ok(Some(b))
+        Ok((Some(b), weak))
     }
 }
 
@@ -574,9 +602,9 @@ pub fn build(
                     continue 'dom;
                 }
             };
-            match b.intern(&q, false)? {
-                Norm::Zero => {}
-                Norm::NonZeroConst => {
+            match b.try_intern(&q, false)? {
+                Ok(Norm::Zero) => {}
+                Ok(Norm::NonZeroConst) => {
                     stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
                     note(
                         &mut notes,
@@ -584,7 +612,13 @@ pub fn build(
                     );
                     continue 'dom;
                 }
-                Norm::Lit(l) => sel.eq.push(l),
+                Ok(Norm::Lit(l)) => sel.eq.push(l),
+                Err(why) => {
+                    stats.excluded_unrepresentable =
+                        stats.excluded_unrepresentable.saturating_add(1);
+                    note(&mut notes, NfNote::Excluded(format!("equation {e}: {why}")));
+                    continue 'dom;
+                }
             }
         }
         for g in &d.bounds {
@@ -597,9 +631,9 @@ pub fn build(
                     continue 'dom;
                 }
             };
-            match b.intern(&q, true)? {
-                Norm::Zero => {}
-                Norm::NonZeroConst => {
+            match b.try_intern(&q, true)? {
+                Ok(Norm::Zero) => {}
+                Ok(Norm::NonZeroConst) => {
                     stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
                     note(
                         &mut notes,
@@ -607,7 +641,13 @@ pub fn build(
                     );
                     continue 'dom;
                 }
-                Norm::Lit(l) => sel.ge.push(l),
+                Ok(Norm::Lit(l)) => sel.ge.push(l),
+                Err(why) => {
+                    stats.excluded_unrepresentable =
+                        stats.excluded_unrepresentable.saturating_add(1);
+                    note(&mut notes, NfNote::Excluded(format!("bound {g}: {why}")));
+                    continue 'dom;
+                }
             }
         }
         let mut branches: Vec<Vec<MPoly>> = vec![];
@@ -629,7 +669,14 @@ pub fn build(
             }
         }
         for br in branches {
-            match b.branch(&br)? {
+            let (got, weak) = b.branch(&br)?;
+            if weak {
+                weakened.push(
+                    "an exception member treated as vanishing everywhere (not representable)"
+                        .into(),
+                );
+            }
+            match got {
                 None => {}
                 Some(v) if v.is_empty() => {
                     if weakened.is_empty() {
@@ -674,10 +721,17 @@ pub fn build(
             ge_blockers.push(("rule-point range bound".into(), q));
         }
         for (what, q) in ge_blockers {
-            match b.intern(&q, true)? {
-                Norm::Zero => {}
-                Norm::NonZeroConst => never_applies = Some(format!("{what} is never met")),
-                Norm::Lit(l) => blk_ge.push(l),
+            match b.try_intern(&q, true)? {
+                Ok(Norm::Zero) => {}
+                Ok(Norm::NonZeroConst) => never_applies = Some(format!("{what} is never met")),
+                Ok(Norm::Lit(l)) => blk_ge.push(l),
+                Err(why) => {
+                    // a blocker that cannot be represented may block anywhere (conservative for coverage)
+                    weakened.push(format!(
+                        "{what} not representable ({why}): treated as violated everywhere"
+                    ));
+                    never_applies = Some(format!("unrepresentable {what}"));
+                }
             }
         }
         for pl in &d.poles {
@@ -694,10 +748,12 @@ pub fn build(
                             Err(_) => weak = true,
                         }
                     }
-                    let x = (
-                        pole_branches(&cs, arity, &mut stats.pole_linear_factors)?,
-                        weak,
-                    );
+                    let x = match pole_branches(&cs, arity, &mut stats.pole_linear_factors) {
+                        Ok(pb) => (pb, weak),
+                        // not representable: the pole may vanish anywhere (an always-vanishing branch: blocks)
+                        Err(PartitionError::Exact(_)) => (vec![vec![]], true),
+                        Err(e) => return Err(e),
+                    };
                     pole_cache.insert(key, x.clone());
                     x
                 }
@@ -707,7 +763,11 @@ pub fn build(
             }
             stats.pole_branches = stats.pole_branches.saturating_add(pb.len());
             for br in pb {
-                match b.branch(&br)? {
+                let (got, weak) = b.branch(&br)?;
+                if weak {
+                    weakened.push("a pole coefficient treated as vanishing everywhere".into());
+                }
+                match got {
                     None => {}
                     Some(v) if v.is_empty() => {
                         never_applies = Some("a pole locus vanishes everywhere".into());
@@ -806,8 +866,14 @@ pub fn build(
 
 /// `v \ h` as a union of normal-form rules: v with `l != 0` for each equation l of h (a BAD branch [l]), with
 /// `g <= -1` for each bound g of h, and with every member of each exception branch of h as equations. Disjoint
-/// fixed slots: v unchanged.
-fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, PartitionError> {
+/// fixed slots: v unchanged. The bool is true when a complement `-g - 1 >= 0` could not be represented (a
+/// coefficient `i128::MIN`): that variant is left out, so the union is a SUBSET of `v \ h` (the caller then
+/// over-approximates what it subtracts from; never silently).
+fn subtract(
+    b: &mut Builder,
+    v: &NfRule,
+    h: &NfRule,
+) -> Result<(Vec<NfRule>, bool), PartitionError> {
     let fv: Vec<(usize, i64)> =
         v.eq.iter()
             .filter_map(|&l| unit_fixed(&b.lits[l as usize]))
@@ -816,10 +882,11 @@ fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, Part
         if let Some((s, x)) = unit_fixed(&b.lits[l as usize])
             && fv.iter().any(|&(t, y)| t == s && y != x)
         {
-            return Ok(vec![v.clone()]);
+            return Ok((vec![v.clone()], false));
         }
     }
     let mut out = vec![];
+    let mut inexact = false;
     for &l in &h.eq {
         if v.eq.contains(&l) {
             continue; // l = 0 on all of v: this variant is empty
@@ -835,17 +902,21 @@ fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, Part
             .poly
             .scale(-1)
             .and_then(|p| p.sub(&MPoly::constant(p.nvars, 1)));
-        let neg = neg.map_err(PartitionError::Exact)?;
-        match b.intern(&neg, true)? {
-            Norm::Zero => out.push(v.clone()),
-            Norm::NonZeroConst => {}
-            Norm::Lit(n) => {
+        let Ok(neg) = neg else {
+            inexact = true;
+            continue;
+        };
+        match b.try_intern(&neg, true)? {
+            Ok(Norm::Zero) => out.push(v.clone()),
+            Ok(Norm::NonZeroConst) => {}
+            Ok(Norm::Lit(n)) => {
                 let mut w = v.clone();
                 w.ge.push(n);
                 w.ge.sort_unstable();
                 w.ge.dedup();
                 out.push(w);
             }
+            Err(_) => inexact = true,
         }
     }
     for br in &h.bad {
@@ -855,7 +926,7 @@ fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, Part
         w.eq.dedup();
         out.push(w);
     }
-    Ok(out)
+    Ok((out, inexact))
 }
 
 /// `n_s - v` (or `v - n_s`) -> (s, v); `None` when v does not fit `i64` (re-audit RA2-m3: never an `as` cast; the
