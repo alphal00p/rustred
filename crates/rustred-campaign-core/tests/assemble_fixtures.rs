@@ -11,13 +11,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use accept_common::*;
+use rustred_campaign_core::accept::facts::ExactRecordFacts;
+use rustred_campaign_core::accept::prover::{EvidenceProver, FilePerKeyProver};
 use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::accept::{
-    AcceptVerdict, Exclusion, ExclusionTarget, FailureKind, NodeTarget, Position, PriorityClass,
-    RequiredEvidence,
+    AcceptInput, AcceptPolicy, Accepted, Candidate, FailureKind, NodeTarget, Position,
+    PriorityClass, RequiredEvidence, RuleSource, accept_candidate,
 };
 use rustred_campaign_core::assemble::domaincheck::{compare, core_view, key_file};
-use rustred_campaign_core::assemble::{AcceptedRule, AssemblyInput, InputTable, assemble};
+use rustred_campaign_core::assemble::{
+    AssemblyInput, FullRetirements, InputTable, assemble, verify_assembled,
+};
 use rustred_campaign_core::closure::{
     ClosureConfig, HandDowns, KeyCodec, KeySet, NoFacts, RuleBodies, TerminalSets, Tier, closure,
 };
@@ -53,37 +57,15 @@ fn engine_out(table: &Path, keys: &[Key], dir: &Path) -> Option<String> {
     Some(std::fs::read_to_string(out).unwrap())
 }
 
-fn accepted_rules(node: &str, ko: &str, run: &KoRun) -> Vec<AcceptedRule> {
+/// The acceptance tokens of a KO run (assembly takes nothing else).
+fn accepted_rules(run: &KoRun) -> Vec<Accepted> {
     run.accepted
         .iter()
-        .map(|(i, off, r, v)| {
-            let AcceptVerdict::Accepted {
-                position,
-                effective,
-                ..
-            } = v
-            else {
-                unreachable!()
-            };
-            let _ = i;
-            AcceptedRule {
-                source_id: format!("{node}/{ko}/witness"),
-                source_path: witness_path(node, ko),
-                byte_offset: *off,
-                line_sha256: r.line_sha256.clone(),
-                position: position.clone(),
-                exclusions: effective.exclusions.clone(),
-            }
-        })
+        .map(|(_, _, _, v)| v.accepted().expect("accepted").clone())
         .collect()
 }
 
-fn input_of(
-    node: &Node,
-    run: &KoRun,
-    accepted: Vec<AcceptedRule>,
-    target: NodeTarget,
-) -> AssemblyInput {
+fn input_of(node: &Node, run: &KoRun, accepted: Vec<Accepted>, target: NodeTarget) -> AssemblyInput {
     AssemblyInput {
         node: node.name.clone(),
         target,
@@ -91,15 +73,18 @@ fn input_of(
             id: "ko".into(),
             path: run.ko_path.clone(),
             priority: 0,
+            sha256: None,
         }],
         accepted,
         terminals: node.terminals.clone(),
         credits: vec![],
         retirements: vec![],
         removals: vec![],
+        full_retirements: FullRetirements::Refuse,
         keep_skipped: false,
         used: None,
         renumber_index: true,
+        recipes: 0,
     }
 }
 
@@ -177,12 +162,18 @@ fn assemble_node(name: &str) {
         let inp = input_of(
             &node,
             &run,
-            accepted_rules(name, &ko, &run),
+            accepted_rules(&run),
             NodeTarget::Boxed {
                 box_id: "fixture-box".into(),
             },
         );
         let out = assemble(&inp, &dir).unwrap();
+        // the shipped file is the manifest's records in order, byte for byte (index renumbering undone)
+        assert_eq!(
+            verify_assembled(&out.table, &out.manifest).unwrap() as u64,
+            out.report.records
+        );
+        assert_eq!(out.report.order_checked, out.report.campaign_records);
         // determinism: assembling again gives the same bytes
         let out2 = assemble(&inp, &scratch(&format!("{name}-{ko}-asm2"))).unwrap();
         assert_eq!(out.table_sha256, out2.table_sha256);
@@ -209,11 +200,17 @@ fn assemble_node(name: &str) {
             open_b, 0,
             "{name} {ko}: shipping only used rules keeps the box closed"
         );
+        // tokens judged for the BOXED node are not assemblable into the FULL node (binding: target)
         let mut full_used = boxed_used;
         full_used.target = NodeTarget::Full;
+        if out.report.campaign_records > 0 {
+            assert!(assemble(&full_used, &scratch(&format!("{name}-{ko}-asm-full"))).is_err());
+        }
+        // R33: FULL keeps everything (the used report is attached, nothing dropped): input tables alone
+        full_used.accepted.clear();
         let of = assemble(&full_used, &scratch(&format!("{name}-{ko}-asm-full"))).unwrap();
         assert!(of.report.dropped_unused.is_empty());
-        assert_eq!(of.report.records, out.report.records);
+        assert_eq!(of.report.records, out.report.input_records);
         println!(
             "{name} {ko}: assembled {} records ({} input + {} campaign), sha {}, order {}; closure open {open}, terminals {terms}; dispatch_equal {}; boxed used-only {} records (dropped {})",
             out.report.records,
@@ -251,7 +248,67 @@ fn l4a_assembled_closes_and_matches_engine() {
     assemble_node("L4a");
 }
 
-/// Exclusions: safe by a hoisted point record (engine agrees at the key), safe by a terminal, UNSAFE otherwise.
+/// The chain on the BOXED fixture node with the per-key prover fed SYNTHETIC statuses (plumbing only; every answer
+/// echoes the rule digest): `fail` maps served keys to a status word, every other served key is in span.
+fn judge_per_key(
+    node: &Node,
+    before: &rustred_campaign_core::accept::InForce,
+    line: &[u8],
+    src: RuleSource,
+    position: Position,
+    gaps: &[Key],
+    working: &[Key],
+    fail: &[(Key, &str)],
+) -> rustred_campaign_core::accept::AcceptVerdict {
+    let rule = RuleText::parse(line, &node.frame).unwrap();
+    let mut prover = FilePerKeyProver::new(vec![node.frame.arity()], None);
+    let mut facts = ExactRecordFacts::new();
+    let input = AcceptInput {
+        node: view(
+            node,
+            NodeTarget::Boxed {
+                box_id: "fixture-box".into(),
+            },
+            RequiredEvidence::PerKey,
+        ),
+        before: Some(before),
+        after: None,
+        candidate: Candidate {
+            rule: &rule,
+            source: src,
+            position,
+        },
+        gap_points: gaps,
+        working,
+        policy: AcceptPolicy::default(),
+    };
+    let rustred_campaign_core::accept::AcceptVerdict::NeedsExternal { requests, .. } =
+        accept_candidate(&input, &mut facts, &mut prover).unwrap()
+    else {
+        panic!("expected a request first")
+    };
+    let req: serde_json::Value = serde_json::from_str(requests[0].text.trim()).unwrap();
+    let keys: Vec<Key> = serde_json::from_value(req["keys"].clone()).unwrap();
+    let ks: Vec<serde_json::Value> = keys
+        .iter()
+        .map(|k| {
+            let st = fail
+                .iter()
+                .find(|(f, _)| f == k)
+                .map(|(_, s)| s.to_string())
+                .unwrap_or_else(|| "EXACT_IN_SPAN_AT_KEY".into());
+            serde_json::json!({"key": k, "status": st})
+        })
+        .collect();
+    let ans = serde_json::json!({"schema": "rustred.proof-kernel.span.v1", "rule": rule.index(),
+        "rule_sha256": rule.line_sha256, "keys": ks});
+    prover.load_answer(&rule, &ans.to_string()).unwrap();
+    let _ = prover.level();
+    accept_candidate(&input, &mut facts, &mut prover).unwrap()
+}
+
+/// Exclusions (from the CHAIN, never caller data): safe by a hoisted point record that the chain accepted against the
+/// face rule with its exclusion honoured (engine agrees at the key), safe by a terminal, UNSAFE otherwise.
 #[test]
 fn exclusions_hoist_terminal_and_unsafe() {
     if !available("TOY2kite") {
@@ -259,20 +316,35 @@ fn exclusions_hoist_terminal_and_unsafe() {
     }
     let node = load_node("TOY2kite");
     let ko = "K2-single";
-    let mut prover = replay_prover(&node);
-    let run = run_ko(&node, ko, &mut prover, RequiredEvidence::Replay);
-    let mut acc = accepted_rules("TOY2kite", ko, &run);
-    assert_eq!(acc.len(), 1);
-    let r0: &RuleText = &run.accepted[0].2;
-    // two served keys of the accepted face rule
-    let served: Vec<Key> = run
-        .gaps
+    let ko_path = ko_table(&node, ko);
+    let gaps = gap_keys(&node, ko);
+    let (off, line) = witness_lines("TOY2kite", ko)[0].clone();
+    let r0 = RuleText::parse(&line, &node.frame).unwrap();
+    let served: Vec<Key> = gaps
         .iter()
         .filter(|g| r0.domain.as_ref().unwrap().applies(g).applies())
         .cloned()
         .collect();
-    let (k_hoist, k_unsafe) = (served[0].clone(), served[1].clone());
-    // a POINT record at k_hoist (assembly plumbing only: a copy of the face rule with every slot fixed)
+    let (k_hoist, k_unsafe, k_term) = (served[0].clone(), served[1].clone(), served[2].clone());
+    let before = in_force(&node, Some(&ko_path), &[]);
+    let face = judge_per_key(
+        &node,
+        &before,
+        &line,
+        source("TOY2kite", ko, off, 0),
+        position(&r0, ko, 0),
+        &gaps,
+        &node.box_keys,
+        &[
+            (k_hoist.clone(), "EXACT_NOT_IN_SPAN_AT_KEY (synthetic)"),
+            (k_unsafe.clone(), "IRREGULAR_KEY (synthetic)"),
+            (k_term.clone(), "HIDDEN_KEY (synthetic)"),
+        ],
+    );
+    let face_acc = face.accepted().unwrap_or_else(|| panic!("{face:?}")).clone();
+    assert_eq!(face_acc.exclusions().len(), 3);
+    // a POINT record at k_hoist (a copy of the face rule with every slot fixed), judged by the chain against the KO
+    // table and the face rule WITH its exclusions honoured: it wins k_hoist
     let dir = scratch("exclusions");
     let mut v: serde_json::Value = serde_json::from_slice(&r0.line).unwrap();
     v["fixed"] = serde_json::json!(k_hoist);
@@ -289,69 +361,63 @@ fn exclusions_hoist_terminal_and_unsafe() {
     let point_line = serde_json::to_vec(&v).unwrap();
     let pf: PathBuf = dir.join("point.jsonl");
     std::fs::write(&pf, [point_line.as_slice(), b"\n"].concat()).unwrap();
-    acc.push(AcceptedRule {
-        source_id: "point".into(),
-        source_path: pf.clone(),
-        byte_offset: 0,
-        line_sha256: rustred_campaign_core::accept::rule::sha256_tag(&point_line),
-        position: Position {
-            class: PriorityClass::Point,
-            input_priority: 0,
-            round: 1,
-            item: "pt".into(),
-            index: 0,
-        },
-        exclusions: vec![],
-    });
-    acc[0].exclusions = vec![
-        Exclusion {
-            target: ExclusionTarget::Key(k_hoist.clone()),
-            reason: FailureKind::NonMembership,
-            disproof: "test".into(),
-        },
-        Exclusion {
-            target: ExclusionTarget::Key(k_unsafe.clone()),
-            reason: FailureKind::Irregular,
-            disproof: "test".into(),
-        },
-        Exclusion {
-            target: ExclusionTarget::Locus {
-                equations: vec!["n0-n1".into()],
-            },
-            reason: FailureKind::Hidden,
-            disproof: "test".into(),
-        },
-    ];
+    let before_p = in_force(&node, Some(&ko_path), &[(&face, &r0)]);
+    let point_src = RuleSource {
+        table_id: "point".into(),
+        table_path: pf.display().to_string(),
+        table_digest: rustred_campaign_core::accept::rule::sha256_tag(&std::fs::read(&pf).unwrap()),
+        ordinal: 0,
+        byte_offset: Some(0),
+        producer: None,
+        table_guard_version: None,
+    };
+    let point_pos = Position {
+        class: PriorityClass::Point,
+        input_priority: 0,
+        round: 1,
+        item: "pt".into(),
+        index: 0,
+    };
+    let point = judge_per_key(
+        &node,
+        &before_p,
+        &point_line,
+        point_src,
+        point_pos,
+        std::slice::from_ref(&k_hoist),
+        &node.box_keys,
+        &[],
+    );
+    let point_acc = point.accepted().unwrap_or_else(|| panic!("{point:?}")).clone();
+    assert_eq!(point_acc.served().1, 1);
+    // without the exclusion honoured, the face rule would have won k_hoist and the point rule served nothing
     let mut inp = input_of(
         &node,
-        &run,
-        acc,
+        &KoRun {
+            ko_path: ko_path.clone(),
+            accepted: vec![],
+            rejected: vec![],
+            working: vec![],
+            gaps: vec![],
+        },
+        vec![face_acc, point_acc],
         NodeTarget::Boxed {
             box_id: "fixture-box".into(),
         },
     );
-    inp.terminals.push(served[2].clone());
-    inp.accepted[0].exclusions.push(Exclusion {
-        target: ExclusionTarget::Key(served[2].clone()),
-        reason: FailureKind::Hidden,
-        disproof: "test".into(),
-    });
+    inp.terminals.push(k_term.clone());
     let out = assemble(&inp, &dir).unwrap();
     println!("exclusions: {:?}", out.report);
     assert_eq!(out.report.hoisted.len(), 1);
     assert_eq!(out.report.exclusions_safe, 2, "hoisted point + terminal");
-    assert_eq!(
-        out.report.blocking.len(),
-        2,
-        "the key without a point rule and the locus"
-    );
+    assert_eq!(out.report.blocking.len(), 1, "the key without a point rule");
     assert!(!out.report.export_ready);
     // the hoisted point record now wins at k_hoist in the core AND in the engine
     let cv = core_view(&out.table).unwrap();
     let hoisted_n = out.report.hoisted[0].0 as usize;
     let d = cv.disp.first_match(&k_hoist).unwrap();
     assert_eq!(d.winner().unwrap().record, hoisted_n);
-    let keys = vec![k_hoist.clone(), k_unsafe.clone(), served[2].clone()];
+    let keys = vec![k_hoist.clone(), k_unsafe.clone(), k_term.clone()];
     if let Some(o) = engine_out(&out.table, &keys, &dir) {
         let eq = compare(&cv, &keys, &o).unwrap();
         println!("exclusions dispatch_equal: {eq:?}");
@@ -359,11 +425,17 @@ fn exclusions_hoist_terminal_and_unsafe() {
         assert_eq!(eq.terminal, 1);
     }
     let extras = std::fs::read_to_string(&out.extras).unwrap();
-    assert_eq!(extras.lines().count(), 4);
+    assert_eq!(extras.lines().count(), 3);
     assert!(extras.contains("hoisted_point_rule"));
+    assert_eq!(
+        verify_assembled(&out.table, &out.manifest).unwrap() as u64,
+        out.report.records
+    );
+    let _ = FailureKind::Hidden;
 }
 
-/// R33: a retirement on a FULL node needs a FULL retirement with a containment proof; on a BOXED node it applies.
+/// R33: on a FULL node every retirement is refused while the partition proofs are not certified (and needs a bound
+/// proof after); a FULL removal is refused; on a BOXED node a retirement applies.
 #[test]
 fn retirement_rules() {
     if !available("TOY2kite") {
@@ -373,8 +445,8 @@ fn retirement_rules() {
     let ko = "K2-single";
     let mut prover = replay_prover(&node);
     let run = run_ko(&node, ko, &mut prover, RequiredEvidence::Replay);
-    let acc = accepted_rules("TOY2kite", ko, &run);
-    let victim = acc[0].line_sha256.clone();
+    let acc = accepted_rules(&run);
+    let victim = acc[0].rule_sha256().to_string();
     let m = |terms: u64| RuleMeasure {
         cases: 1,
         rhs_terms: terms,
@@ -404,12 +476,43 @@ fn retirement_rules() {
         )
         .is_err()
     );
-    let mut inp = input_of(&node, &run, acc.clone(), NodeTarget::Full);
-    inp.retirements = vec![boxed.clone()];
+    // FULL: an input rule retired with a BOXED retirement / any retirement while proofs are not certified: refused
+    let first_input = {
+        let text = std::fs::read(&run.ko_path).unwrap();
+        let l = text
+            .split(|&b| b == b'\n')
+            .find(|l| l.starts_with(br#"{"type":"rule""#))
+            .unwrap()
+            .to_vec();
+        rustred_campaign_core::accept::rule::sha256_tag(&l)
+    };
+    let in_ret = Retirement::new(
+        &node.name,
+        CoverageState::Boxed,
+        &[(first_input.clone(), m(10))],
+        ("by", &m(2)),
+        SupersedeReason::CheaperSameOrLargerDomain,
+        None,
+    )
+    .unwrap();
+    let mut inp = input_of(&node, &run, vec![], NodeTarget::Full);
+    inp.retirements = vec![in_ret];
     assert!(
         assemble(&inp, &scratch("retire-full")).is_err(),
-        "a BOXED retirement on a FULL node is refused"
+        "a retirement on a FULL node is refused"
     );
+    inp.full_retirements = FullRetirements::BoundProof;
+    assert!(
+        assemble(&inp, &scratch("retire-full")).is_err(),
+        "a FULL node needs a FULL retirement with a bound proof"
+    );
+    let mut inp = input_of(&node, &run, vec![], NodeTarget::Full);
+    inp.removals = vec![rustred_campaign_core::assemble::Removal {
+        rule_sha256: first_input,
+        reason: "test".into(),
+        disproof: "free text".into(),
+    }];
+    assert!(assemble(&inp, &scratch("remove-full")).is_err(), "FULL removal refused");
     let mut inp = input_of(
         &node,
         &run,

@@ -12,16 +12,15 @@ use rustred_campaign_core::accept::facts::ExactRecordFacts;
 use rustred_campaign_core::accept::prover::{EvidenceProver, FilePerKeyProver};
 use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::accept::{
-    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, Check, FailureKind, NodeTarget,
-    RequiredEvidence, accept_candidate,
+    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, Check, FailureKind, InForce, NodeTarget,
+    RequiredEvidence, Scope, accept_candidate,
 };
-use rustred_campaign_core::cover::Dispatcher;
 use rustred_campaign_core::key::Key;
 use serde_json::Value;
 
 struct Ctx {
     node: Node,
-    ko: Dispatcher,
+    ko: InForce,
     gaps: Vec<Key>,
     witness: Vec<u8>,
     off: u64,
@@ -34,8 +33,7 @@ fn ctx(name: &str, ko: &str, w: usize) -> Option<Ctx> {
     }
     let node = load_node(name);
     let p = ko_table(&node, ko);
-    let (_, t) = load_table(&p, "ko");
-    let ko_d = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let ko_d = in_force(&node, Some(&p), &[]);
     let gaps = gap_keys(&node, ko);
     let (off, witness) = witness_lines(name, ko)[w].clone();
     Some(Ctx {
@@ -57,7 +55,7 @@ fn edit(line: &[u8], f: impl FnOnce(&mut Value)) -> Vec<u8> {
 fn judge_with(
     c: &Ctx,
     line: &[u8],
-    before: Option<&Dispatcher>,
+    before: Option<&InForce>,
     gaps: &[Key],
     required: RequiredEvidence,
     prover: &mut dyn EvidenceProver,
@@ -385,6 +383,9 @@ fn file_backed_per_key_prover_round_trip() {
         return;
     };
     let mut p = FilePerKeyProver::new(vec![5], None);
+    // the real rr_proof answer of 2026-11-14 echoes the index, record bytes and sizes but not rule_sha256 yet: the
+    // transition binding (recorded in the artefact) is used for it; the synthetic answers below echo the digest
+    p.binding = rustred_campaign_core::accept::facts::AnswerBinding::Structural;
     let run = |p: &mut FilePerKeyProver| {
         judge_with(
             &c,
@@ -450,19 +451,17 @@ fn file_backed_per_key_prover_round_trip() {
         };
         ks.push(serde_json::json!({"key": k, "status": st}));
     }
-    let ans = serde_json::json!({"schema": "rustred.proof-kernel.span.v1", "mode": "instance-span", "rule": 0, "keys": ks});
+    let ans = serde_json::json!({"schema": "rustred.proof-kernel.span.v1", "mode": "instance-span", "rule": 0,
+        "rule_sha256": rule.line_sha256, "keys": ks});
     p.load_answer(&rule, &ans.to_string()).unwrap();
     let v = run(&mut p);
-    let AcceptVerdict::Accepted {
-        effective, record, ..
-    } = &v
-    else {
+    let AcceptVerdict::Accepted(a) = &v else {
         panic!("{v:?}")
     };
-    assert_eq!(effective.exclusions.len(), 1);
-    assert_eq!(effective.exclusions[0].reason, FailureKind::NonMembership);
-    assert_eq!(record.value["evidence"]["ledger_word"], "identity_proved");
-    assert_eq!(record.value["served"]["count"], 19);
+    assert_eq!(a.exclusions().len(), 1);
+    assert_eq!(a.exclusions()[0].reason, FailureKind::NonMembership);
+    assert_eq!(a.record().value()["evidence"]["ledger_word"], "identity_proved");
+    assert_eq!(a.record().value()["served"]["count"], 19);
     // 4. a refusal line: Unsupported for every key -> Undecided
     p.load_answer(&rule, r#"{"verdict":"UNSUPPORTED","error":"affine case"}"#)
         .unwrap();
@@ -495,10 +494,9 @@ fn not_descending_is_excludable_only_by_policy() {
     );
     println!("excludable descent: {v:?}");
     // whatever happens, it is never Accepted with a non-descending key inside its effective domain
-    if let AcceptVerdict::Accepted { effective, .. } = &v {
+    if let AcceptVerdict::Accepted(a) = &v {
         assert!(
-            effective
-                .exclusions
+            a.exclusions()
                 .iter()
                 .all(|e| e.reason == FailureKind::NotDescending
                     || e.reason == FailureKind::NonMembership)
@@ -522,9 +520,30 @@ fn full_node_scope_is_key_range_with_reasons() {
         AcceptPolicy::default(),
         NodeTarget::Full,
     );
-    let AcceptVerdict::Accepted { record, .. } = &v else {
+    let AcceptVerdict::Accepted(a) = &v else {
         panic!("{v:?}")
     };
-    println!("FULL scope: {}", record.value["scope"]);
-    println!("symbolic: {}", record.value["symbolic"]);
+    println!("FULL scope: {}", a.record().value()["scope"]);
+    println!("symbolic: {}", a.record().value()["symbolic"]);
+    // audit-accept-A m6: the scope is asserted, not only printed: the witness (exception n2 = 1, locus -1+n2,
+    // coefficients over (-1+n2), all rhs terms hand-downs or lower) is FULL-domain certified by its replay record
+    assert_eq!(a.scope(), &Scope::FullDomain, "{}", a.record().value()["scope"]);
+    // the same rule on a BOXED node: key range only, nothing missing
+    let mut p = replay_prover(&c.node);
+    let v = judge_with(
+        &c,
+        &c.witness,
+        Some(&c.ko),
+        &c.gaps,
+        RequiredEvidence::Replay,
+        &mut p,
+        AcceptPolicy::default(),
+        NodeTarget::Boxed {
+            box_id: "fixture-box".into(),
+        },
+    );
+    assert!(matches!(
+        v.accepted().unwrap().scope(),
+        Scope::KeyRange { missing, .. } if missing.is_empty()
+    ));
 }

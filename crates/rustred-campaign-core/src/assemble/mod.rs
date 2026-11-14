@@ -1405,8 +1405,9 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
     let rows: Vec<Value> = lines
         .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
         .collect::<Result<_, _>>()?;
-    let mut f = File::open(table).map_err(|e| e.to_string())?;
-    let mut rd = BufReader::with_capacity(1 << 20, f.try_clone().map_err(|e| e.to_string())?);
+    // two INDEPENDENT descriptors (a dup shares the offset): a streaming reader and one for the record copies
+    let mut fr = File::open(table).map_err(|e| e.to_string())?;
+    let mut rd = BufReader::with_capacity(1 << 20, File::open(table).map_err(|e| e.to_string())?);
     let mut buf = Vec::new();
     let mut off = 0u64;
     let mut n = 0usize;
@@ -1420,6 +1421,9 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
         let start = off;
         off += len;
         let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
         let kind = line_kind(line)?.ok_or("a line without a type")?;
         match kind.as_str() {
             "header" => {
@@ -1435,7 +1439,6 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
                 let row = rows.get(n).ok_or("more rule records than the manifest lists")?;
                 let bytes = line.len() as u64;
                 let src_index = row["index"].as_i64();
-                let mut fr = f.try_clone().map_err(|e| e.to_string())?;
                 fr.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
                 // undo the renumbering on the head and hash the source bytes
                 let mut out_hash = Sha256::new();
@@ -1467,7 +1470,6 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
             _ => {}
         }
     }
-    let _ = &mut f;
     if !header_seen {
         return Err("no header".into());
     }

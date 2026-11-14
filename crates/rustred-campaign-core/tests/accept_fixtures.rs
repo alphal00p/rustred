@@ -125,16 +125,14 @@ fn check_node(name: &str) {
                 .iter()
                 .enumerate()
                 .flat_map(|(i, (_, _, _, v))| {
-                    let AcceptVerdict::Accepted { effective, .. } = v else {
-                        unreachable!()
-                    };
+                    let a = v.accepted().expect("accepted");
                     closure_exclusions_from_accept(
                         ClosureRule {
                             table: "campaign",
                             record: i,
                             label: i as i64,
                         },
-                        &effective.exclusions,
+                        a.exclusions(),
                     )
                     .expect("acceptance exclusions are per key")
                 })
@@ -154,8 +152,7 @@ fn check_node(name: &str) {
             run.accepted
                 .iter()
                 .map(|(_, _, _, v)| match v {
-                    AcceptVerdict::Accepted { record, .. } =>
-                        record.value["served"]["count"].as_u64().unwrap(),
+                    AcceptVerdict::Accepted(a) => a.record().value()["served"]["count"].as_u64().unwrap(),
                     _ => 0,
                 })
                 .sum::<u64>(),
@@ -186,20 +183,16 @@ fn check_node(name: &str) {
         );
         // every accepted record names its rule and its evidence at the required level
         for (_, _, r, v) in &run.accepted {
-            let AcceptVerdict::Accepted {
-                record, effective, ..
-            } = v
-            else {
-                unreachable!()
-            };
-            assert_eq!(record.value["rule"]["line_sha256"], r.line_sha256);
-            assert_eq!(record.value["evidence"]["ledger_word"], "identity_tested");
+            let a = v.accepted().expect("accepted");
+            assert_eq!(a.record().value()["rule"]["line_sha256"], r.line_sha256);
+            assert_eq!(a.record().value()["evidence"]["ledger_word"], "identity_tested");
+            assert_eq!(a.artefact().rule_sha256, r.line_sha256);
             assert!(
-                effective.exclusions.is_empty(),
+                a.exclusions().is_empty(),
                 "{name} {ko}: unexpected exclusions {:?}",
-                effective.exclusions
+                a.exclusions()
             );
-            assert!(record.id.starts_with("sha256:"));
+            assert!(a.record().id().starts_with("sha256:"));
         }
     }
 }
