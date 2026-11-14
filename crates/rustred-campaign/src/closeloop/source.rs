@@ -1804,6 +1804,11 @@ impl WorkSource for CloseFromMaterialSource {
         let mut rt = Routing::default();
         let mut finalized: BTreeMap<usize, String> = BTreeMap::new();
         for i in 0..self.nodes.len() {
+            // lane repairflow (repairflow.md 6): hold the node until the repair flow wrote its extension, then the composed spec
+            let r = &mut self.nodes[i];
+            if super::repair::sync_inner(st, &r.n, &mut r.spec_text, &mut r.spec_rel, &mut r.set)? {
+                continue;
+            }
             let fin = self.nodes[i]
                 .running
                 .as_ref()

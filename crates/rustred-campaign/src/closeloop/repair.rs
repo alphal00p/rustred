@@ -1,0 +1,1167 @@
+//! The REPAIR FLOW phase of the closing loop (interfaces/repairflow.md section 1): cheap symbolic first, else recipe
+//! export, per uncovered face of a node's closure.
+//!
+//! `RepairFlowSource` is a DECORATOR around any closing-loop work source (the closeloop wrapped by termmin). For a node
+//! with the flow enabled (campaign input of role `repairflow`, schema `rustred.campaign.repairflow.v1`):
+//! - bootstrap registers the node's effective POLICY (input `repairflow:<n>:policy`); from then on the closing loop
+//!   HOLDS the node (hook [`sync_inner`] in the closeloop's poll) until the EXTENSION exists;
+//! - P1 (own pass thread): the node's effective import spec is loaded and checked; the uncovered open keys are grouped
+//!   into faces; the shadowing test runs per face; the check record is input `repairflow:<n>:check`; one item of kind
+//!   `repair-symbolic` per searched face;
+//! - P2 / P3: one generate job per face (cheap budget, pre-screen with the size caps, children returned not searched);
+//!   a settled attempt -> answer file (`repairflow:<item>:answer:<job>`) with the candidate rule lines (raw lines bound
+//!   to the verified canonical table), their measures and the open keys they serve; item `Produce` / `Escalate`;
+//! - P4 (barrier: every S item settled): the core decision (`rustred_campaign_core::repairflow::decide`), recorded as
+//!   `repairflow:<n>:decisions` (recomputed on resume and compared), the kept rules re-homed into one table in the
+//!   node's frame, the face recipes, the COMPOSED import spec (the closeloop's spec + the extension sources before the
+//!   default recipe) = input `repairflow:<n>:extension`; items `Accept` (geometry: the closing loop certifies the keys)
+//!   or `Reject` (class);
+//! - P5 (after the closing loop's final result): the report and the export directory.
+//! Generic (L8): nothing here knows a node, an arity or a count.
+
+use super::config::{CONFIG_ROLE, CloseLoopConfig, NodeCfg};
+use super::ids::{input_final, input_import_spec, node_dir, safe};
+use crate::ledger::{AcceptSource, Event, ItemEvent};
+use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodePhase, Rung};
+use crate::supervisor::spec::CampaignSpec;
+use crate::supervisor::worksource::{
+    AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
+};
+use rustred_campaign_contract::fake::{FakeOp, FakeRule, FakeScript, OnSigterm, RssPlan};
+use rustred_campaign_contract::spec::{Budgets as JobBudgets, InputRef, JobKind, WallBudgets, WorkBudgets};
+use rustred_campaign_contract::stop::{CaseResult, StopCode};
+use rustred_campaign_core::import::check::{CheckOptions, RowStatus};
+use rustred_campaign_core::import::{Evidence, ImportedSet, TableSetSpec};
+use rustred_campaign_core::key::NodeFrame;
+use rustred_campaign_core::repairflow::{
+    self as rf, CandidateAnswer, FaceAnswer, FaceGroup, NodeDecisions, PolicyFile, RepairPolicy,
+    ShadowClass,
+};
+use rustred_campaign_core::worklist::items::Face;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+/// Campaign input role of the policy file.
+pub const ROLE: &str = "repairflow";
+pub const ROLE_POLICY: &str = "repairflow_policy";
+pub const ROLE_CHECK: &str = "repairflow_check";
+pub const ROLE_ANSWER: &str = "repairflow_answer";
+pub const ROLE_DECISIONS: &str = "repairflow_decisions";
+pub const ROLE_EXTENSION: &str = "repairflow_extension";
+pub const ROLE_RESULT: &str = "repairflow_result";
+pub const KIND_SYMBOLIC: &str = "repair-symbolic";
+pub const CHECK_SCHEMA: &str = "rustred.campaign.repairflow-check.v1";
+pub const ANSWER_SCHEMA: &str = "rustred.campaign.repairflow-answer.v1";
+pub const REPORT_SCHEMA: &str = "rustred.campaign.repairflow-report.v1";
+
+pub fn input_policy(n: &str) -> String {
+    format!("repairflow:{n}:policy")
+}
+pub fn input_check(n: &str) -> String {
+    format!("repairflow:{n}:check")
+}
+pub fn input_decisions(n: &str) -> String {
+    format!("repairflow:{n}:decisions")
+}
+pub fn input_extension(n: &str) -> String {
+    format!("repairflow:{n}:extension")
+}
+pub fn input_report(n: &str) -> String {
+    format!("repairflow:{n}:report")
+}
+pub fn input_answer(item: &str, job: &str) -> String {
+    format!("repairflow:{item}:answer:{job}")
+}
+pub fn s_item(n: &str, f: usize) -> String {
+    format!("{n}.rf.s{f:05}")
+}
+fn rf_dir(n: &str) -> String {
+    format!("{}/repairflow", node_dir(n))
+}
+
+fn blake3_hex(b: &[u8]) -> String {
+    blake3::hash(b).to_hex().to_string()
+}
+
+fn json_bytes(v: &Value) -> Vec<u8> {
+    let mut b = serde_json::to_vec_pretty(v).expect("json");
+    b.push(b'\n');
+    b
+}
+
+fn sha256_hex(b: &[u8]) -> String {
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(b);
+    h.finish_hex()
+}
+
+/// Read a registered input, verified by its recorded BLAKE3.
+fn read_input(st: &CampaignState, id: &str) -> Result<Vec<u8>, String> {
+    let r = st
+        .inputs
+        .get(id)
+        .ok_or_else(|| format!("input {id} not registered"))?;
+    let b = std::fs::read(&r.path).map_err(|e| format!("input {id} ({}): {e}", r.path))?;
+    if blake3_hex(&b) != r.blake3 {
+        return Err(format!(
+            "input {id} ({}) changed since it was recorded: refused",
+            r.path
+        ));
+    }
+    Ok(b)
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// hooks for the closing loop and termmin (interfaces/repairflow.md section 6)
+
+/// HOOK of the closeloop's poll: `Ok(true)` = HOLD the node (the flow is enabled and its extension is not written yet:
+/// no pass this tick); `Ok(false)` = go on, with the COMPOSED spec in force once the extension exists (the cached set
+/// is dropped when the spec changes). A changed extension file is a refusal.
+pub fn sync_inner(
+    st: &CampaignState,
+    n: &str,
+    spec_text: &mut String,
+    spec_rel: &mut String,
+    set: &mut Option<Arc<ImportedSet>>,
+) -> Result<bool, String> {
+    if !st.inputs.contains_key(&input_policy(n)) {
+        return Ok(false);
+    }
+    let Some(r) = st.inputs.get(&input_extension(n)) else {
+        return Ok(true);
+    };
+    let rel = format!("{}/import-spec.composed.json", rf_dir(n));
+    if *spec_rel == rel {
+        return Ok(false);
+    }
+    let b = read_input(st, &input_extension(n))?;
+    let text = String::from_utf8(b).map_err(|e| format!("composed spec: {e}"))?;
+    let _ = r;
+    *spec_text = text;
+    *spec_rel = rel;
+    *set = None;
+    Ok(false)
+}
+
+/// HOOK of termmin's phase E load: the node's effective import spec text (the composed one when the flow wrote it).
+pub fn effective_spec_text(st: &CampaignState, n: &str) -> Result<String, String> {
+    let id = if st.inputs.contains_key(&input_extension(n)) {
+        input_extension(n)
+    } else {
+        input_import_spec(n)
+    };
+    String::from_utf8(read_input(st, &id)?).map_err(|e| format!("effective import spec: {e}"))
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// the decorator
+
+/// Test-only fake answers of the generate jobs (`fake` section of the policy file): face label -> behaviour.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakeGen {
+    #[serde(default = "d_fake_program")]
+    program: String,
+    #[serde(default)]
+    ms: u64,
+    /// face label -> {"rule": {record}} | {"stop": "budget_wall" | "open_obligations" | ...}
+    faces: BTreeMap<String, Value>,
+}
+
+fn d_fake_program() -> String {
+    "rr_fake_child".into()
+}
+
+/// The P1 result of a node.
+struct P1 {
+    faces: Vec<FaceGroup>,
+    shadow: Vec<ShadowClass>,
+    outside: Vec<Vec<i32>>,
+    frame: NodeFrame,
+    frame_header: Value,
+    frame_header_line: String,
+    line_prio: Vec<usize>,
+    num_prio: Vec<usize>,
+    /// The check record (JSON bytes recorded as input).
+    record: Vec<u8>,
+}
+
+struct RfNode {
+    cfg: NodeCfg,
+    n: String,
+    policy: RepairPolicy,
+    pass: Option<JoinHandle<Result<P1, String>>>,
+    p1: Option<Arc<P1>>,
+    fake: Option<FakeGen>,
+}
+
+pub struct RepairFlowSource<S: WorkSource> {
+    inner: S,
+    cdir: PathBuf,
+    nodes: Vec<RfNode>,
+    programs: BTreeMap<String, PathBuf>,
+}
+
+/// Wrap the closing loop's source (transparent when the campaign has no input of role `repairflow`).
+pub fn wrap<S: WorkSource>(
+    inner: S,
+    spec: &CampaignSpec,
+    cdir: &Path,
+) -> Result<RepairFlowSource<S>, String> {
+    let mut nodes = vec![];
+    let pin: Vec<_> = spec.inputs.iter().filter(|i| i.role == ROLE).collect();
+    if pin.len() > 1 {
+        return Err(format!("repairflow: at most one input of role {ROLE}"));
+    }
+    if let Some(p) = pin.first() {
+        let text = std::fs::read_to_string(&p.path)
+            .map_err(|e| format!("repairflow policy {}: {e}", p.path.display()))?;
+        let raw: Value = serde_json::from_str(&text).map_err(|e| format!("repairflow policy: {e}"))?;
+        let fake: Option<FakeGen> = match raw.get("fake") {
+            Some(f) => Some(serde_json::from_value(f.clone()).map_err(|e| format!("repairflow fake: {e}"))?),
+            None => None,
+        };
+        let mut pv = raw.clone();
+        if let Some(o) = pv.as_object_mut() {
+            o.remove("fake");
+        }
+        let file = PolicyFile::parse(&pv.to_string())?;
+        let cin = spec
+            .inputs
+            .iter()
+            .find(|i| i.role == CONFIG_ROLE)
+            .ok_or("repairflow: no closeloop config input")?;
+        let cfg = CloseLoopConfig::read(&cin.path)?;
+        for nc in &cfg.nodes {
+            let policy = file.effective(Some(&nc.node))?;
+            if !policy.enabled {
+                continue;
+            }
+            nodes.push(RfNode {
+                cfg: nc.clone(),
+                n: safe(&nc.node),
+                policy,
+                pass: None,
+                p1: None,
+                fake: fake.clone(),
+            });
+        }
+    }
+    Ok(RepairFlowSource {
+        inner,
+        cdir: cdir.to_path_buf(),
+        nodes,
+        programs: spec
+            .programs
+            .iter()
+            .map(|(k, p)| (k.clone(), p.path.clone()))
+            .collect(),
+    })
+}
+
+fn record(path: String, bytes: Vec<u8>) -> AcceptedRecord {
+    AcceptedRecord { path, bytes }
+}
+
+impl<S: WorkSource> RepairFlowSource<S> {
+    fn abs(&self, rel: &str) -> PathBuf {
+        self.cdir.join(rel)
+    }
+
+    fn reg(&self, rt: &mut Routing, id: String, role: &str, rec: AcceptedRecord) {
+        let f = rec.file_ref();
+        rt.events.push(Event::InputRegistered {
+            input: id,
+            role: role.into(),
+            path: self.abs(&rec.path).display().to_string(),
+            bytes: f.bytes,
+            blake3: f.blake3,
+        });
+        rt.accepts.push(rec);
+    }
+
+    fn node_of_item(&self, st: &CampaignState, item: &str) -> Option<usize> {
+        let it = st.items.get(item)?;
+        if it.kind != KIND_SYMBOLIC {
+            return None;
+        }
+        self.nodes.iter().position(|r| r.cfg.node == it.node)
+    }
+
+    fn s_items(&self, st: &CampaignState, i: usize) -> Vec<(String, ItemPhase, Vec<String>)> {
+        let node = &self.nodes[i].cfg.node;
+        st.items
+            .iter()
+            .filter(|(_, it)| it.node == *node && it.kind == KIND_SYMBOLIC)
+            .map(|(k, it)| (k.clone(), it.phase.clone(), it.jobs.clone()))
+            .collect()
+    }
+
+    /// Start the P1 pass of node `i` (thread).
+    fn start_p1(&mut self, st: &CampaignState, i: usize) -> Result<(), String> {
+        let r = &self.nodes[i];
+        let text = String::from_utf8(read_input(st, &input_import_spec(&r.n))?)
+            .map_err(|e| format!("import spec: {e}"))?;
+        let base = r.cfg.base();
+        let policy = r.policy.clone();
+        let node = r.cfg.node.clone();
+        let threads = r.cfg.check_threads.max(1);
+        let rows = self.abs(&format!("{}/check.rows.jsonl", rf_dir(&r.n)));
+        let h = std::thread::Builder::new()
+            .name(format!("repairflow-p1-{}", r.n))
+            .spawn(move || p1_pass(&node, &text, &base, &policy, threads, &rows))
+            .map_err(|e| format!("p1 thread: {e}"))?;
+        self.nodes[i].pass = Some(h);
+        Ok(())
+    }
+
+    fn job_request(&self, i: usize, item: &str, job: String, face: &FaceGroup, prio: i64) -> Result<JobRequest, String> {
+        let r = &self.nodes[i];
+        let p1 = r.p1.as_ref().ok_or("p1 not loaded")?;
+        let sp = &r.policy.symbolic;
+        let cases_rel = format!("{}/cases/{item}.jsonl", rf_dir(&r.n));
+        let cases_abs = self.abs(&cases_rel);
+        let line = rf::case_line(&face.face(), p1.frame.mask()).to_string() + "\n";
+        if std::fs::read(&cases_abs).ok().as_deref() != Some(line.as_bytes()) {
+            if let Some(d) = cases_abs.parent() {
+                std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+            }
+            crate::atomic::write_atomic(&cases_abs, line.as_bytes())
+                .map_err(|e| format!("{}: {e}", cases_abs.display()))?;
+        }
+        let fam = &r.cfg.solve.family;
+        let fam_b3 = crate::atomic::blake3_file(fam)
+            .map_err(|e| format!("{}: {e}", fam.display()))?
+            .1;
+        let args = rf::s_args(
+            &face.face(),
+            &r.policy,
+            &r.cfg.solve.order_arg(),
+            &p1.line_prio,
+            &p1.num_prio,
+        );
+        let (program, fake) = match &r.fake {
+            Some(f) => (f.program.clone(), Some(fake_gen_script(f, &face.label))),
+            None => (r.cfg.solve.program.clone(), None),
+        };
+        if !self.programs.contains_key(&program) {
+            return Err(format!("program {program} not in the spec"));
+        }
+        Ok(JobRequest {
+            job,
+            item: item.into(),
+            rung: Rung(0),
+            kind: JobKind::Generate,
+            priority: prio,
+            cap_bytes: sp.cap_bytes,
+            expected_peak_bytes: sp.expected_peak_bytes,
+            cores: sp.threads.max(1) as usize,
+            heartbeat_s: sp.heartbeat_s,
+            stop_grace_s: sp.stop_grace_s,
+            program,
+            args,
+            inputs: vec![
+                InputRef {
+                    role: "family".into(),
+                    path: fam.display().to_string(),
+                    blake3: fam_b3,
+                    upto: None,
+                },
+                InputRef {
+                    role: "cases".into(),
+                    path: cases_abs.display().to_string(),
+                    blake3: blake3_hex(line.as_bytes()),
+                    upto: None,
+                },
+            ],
+            depends_on: vec![input_check(&r.n), input_policy(&r.n)],
+            budgets: JobBudgets {
+                work: WorkBudgets {
+                    cases: Some(1),
+                    ..WorkBudgets::default()
+                },
+                wall: WallBudgets {
+                    case_s: Some(sp.wall_case_s),
+                    job_s: None,
+                },
+                mem_soft_bytes: None,
+            },
+            sample_seed: 0,
+            fake,
+        })
+    }
+
+    /// The face of an S item (its label in the ledger).
+    fn face_of(&self, st: &CampaignState, i: usize, item: &str) -> Option<FaceGroup> {
+        let label = &st.items.get(item)?.label;
+        self.nodes[i]
+            .p1
+            .as_ref()?
+            .faces
+            .iter()
+            .find(|f| &f.label == label)
+            .cloned()
+    }
+
+    /// P4: every S item settled -> decide, write the extension.
+    fn barrier(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<(), String> {
+        let n = self.nodes[i].n.clone();
+        let node = self.nodes[i].cfg.node.clone();
+        let p1 = self.nodes[i].p1.clone().ok_or("p1 not loaded")?;
+        let items = self.s_items(st, i);
+        if items.iter().any(|(_, ph, _)| matches!(ph, ItemPhase::Open | ItemPhase::InProgress)) {
+            return Ok(());
+        }
+        // answers by face label (the last answer input of each item)
+        let mut answers: BTreeMap<String, FaceAnswer> = BTreeMap::new();
+        let mut produced: Vec<(String, String)> = vec![]; // (item, face label)
+        for (item, ph, jobs) in &items {
+            let label = st.items.get(item).map(|x| x.label.clone()).unwrap_or_default();
+            for job in jobs.iter().rev() {
+                let id = input_answer(item, job);
+                if st.inputs.contains_key(&id) {
+                    let v: Value = serde_json::from_slice(&read_input(st, &id)?)
+                        .map_err(|e| format!("answer {id}: {e}"))?;
+                    let a: FaceAnswer = serde_json::from_value(v["answer"].clone())
+                        .map_err(|e| format!("answer {id}: {e}"))?;
+                    answers.insert(label.clone(), a);
+                    break;
+                }
+            }
+            if *ph == ItemPhase::Produced {
+                produced.push((item.clone(), label));
+            }
+        }
+        let d = rf::decide(&node, &p1.faces, &p1.shadow, &answers, &p1.outside, &self.nodes[i].policy);
+        let dbytes = json_bytes(&serde_json::to_value(&d).map_err(|e| e.to_string())?);
+        if let Some(r) = st.inputs.get(&input_decisions(&n)) {
+            if r.blake3 != blake3_hex(&dbytes) {
+                return Err(format!(
+                    "node {node}: the recomputed repair decisions differ from the recorded ones: refused (U-1)"
+                ));
+            }
+        }
+        let dir = rf_dir(&n);
+        // the re-homed symbolic table (frame header + kept lines, index renumbered, `type` first)
+        let mut kept_lines: Vec<String> = vec![];
+        for f in &d.faces {
+            if let Some(sha) = &f.kept
+                && let Some(FaceAnswer::Candidates { candidates, .. }) = answers.get(&f.face)
+                && let Some(c) = candidates.iter().find(|c| &c.record_sha256 == sha)
+            {
+                kept_lines.push(rehome_line(&c.line, kept_lines.len())?);
+            }
+        }
+        let mut table_rel = None;
+        if !kept_lines.is_empty() {
+            let mut t = p1.frame_header_line.clone();
+            t.push('\n');
+            for l in &kept_lines {
+                t.push_str(l);
+                t.push('\n');
+            }
+            let rel = format!("{dir}/symbolic.table.jsonl");
+            rt.accepts.push(record(rel.clone(), t.into_bytes()));
+            table_rel = Some(rel);
+        }
+        // face recipes
+        let ctx_order = self.nodes[i].cfg.solve.order_arg();
+        let pd = self.nodes[i].policy.digest();
+        let rctx = rf::RecipeContext {
+            node: &node,
+            node_order: &ctx_order,
+            policy_digest: &pd,
+        };
+        let mut files: BTreeMap<(String, String), String> = BTreeMap::new();
+        let mut recipe_errors: Vec<Value> = vec![];
+        for f in &d.faces {
+            let face = Face::new(f.sd.clone(), f.sn.clone());
+            for s in &f.recipe_steps {
+                match rf::face_recipe(&face, s, p1.frame.mask(), &p1.line_prio, &p1.num_prio, &rctx) {
+                    Ok(r) => {
+                        let rel = format!("{dir}/recipes/{}.{s}.json", rf::face_tag(&face));
+                        let mut b = serde_json::to_vec(&r).map_err(|e| e.to_string())?;
+                        b.push(b'\n');
+                        rt.accepts.push(record(rel.clone(), b));
+                        files.insert((f.face.clone(), s.clone()), self.abs(&rel).display().to_string());
+                    }
+                    Err(e) => recipe_errors.push(json!({"face": f.face, "step": s, "error": e})),
+                }
+            }
+        }
+        let ext = rf::extension_sources(
+            &d,
+            table_rel.as_ref().map(|r| self.abs(r).display().to_string()).as_deref(),
+            &files,
+        );
+        // the composed spec: the closeloop's effective spec + the extension BEFORE the default recipe
+        let base_text = String::from_utf8(read_input(st, &input_import_spec(&n))?)
+            .map_err(|e| format!("import spec: {e}"))?;
+        let mut v: Value = serde_json::from_str(&base_text).map_err(|e| e.to_string())?;
+        let srcs = v
+            .get_mut("sources")
+            .and_then(Value::as_array_mut)
+            .ok_or("import spec: no sources")?;
+        let at = srcs
+            .iter()
+            .position(|s| s["id"] == "default-recipe")
+            .unwrap_or(srcs.len());
+        for (k, s) in ext.into_iter().enumerate() {
+            srcs.insert(at + k, s);
+        }
+        v["repairflow"] = json!({"policy_digest": pd, "decisions": blake3_hex(&dbytes)});
+        let composed = serde_json::to_string_pretty(&v).expect("json") + "\n";
+        if st.inputs.get(&input_decisions(&n)).is_none() {
+            let rec = record(format!("{dir}/decisions.json"), dbytes.clone());
+            self.reg(rt, input_decisions(&n), ROLE_DECISIONS, rec);
+        }
+        if !recipe_errors.is_empty() {
+            rt.accepts.push(record(
+                format!("{dir}/recipe-errors.json"),
+                json_bytes(&json!(recipe_errors)),
+            ));
+        }
+        // items: produced -> Accept (kept) / Reject (class)
+        for (item, label) in produced {
+            let fd = d.faces.iter().find(|f| f.face == label);
+            let job = st.items.get(&item).and_then(|x| x.jobs.last().cloned()).unwrap_or_default();
+            let ans_ref = st.inputs.get(&input_answer(&item, &job));
+            match (fd, ans_ref) {
+                (Some(f), Some(a)) if f.kept.is_some() => {
+                    let attempt = st.jobs.get(&job).map(|j| j.attempt).unwrap_or(1);
+                    rt.events.push(Event::Item {
+                        item: item.clone(),
+                        ev: ItemEvent::Accept {
+                            rule: format!("{item}:{}", &f.kept.clone().unwrap_or_default()[..16]),
+                            level: EvidenceLevel::GeometryAccepted,
+                            record: crate::ledger::FileRef {
+                                path: a.path.clone(),
+                                bytes: a.bytes,
+                                blake3: a.blake3.clone(),
+                            },
+                            source: AcceptSource::Job {
+                                job: job.clone(),
+                                attempt,
+                                table_blake3: a.blake3.clone(),
+                            },
+                            elided: false,
+                            evidence: None,
+                            round: Some(0),
+                        },
+                    });
+                }
+                (Some(f), _) => rt.events.push(Event::Item {
+                    item: item.clone(),
+                    ev: ItemEvent::Reject {
+                        reason: format!("repairflow: {}", class_text(&f.symbolic.class)),
+                        disproof: None,
+                    },
+                }),
+                (None, _) => rt.events.push(Event::Item {
+                    item: item.clone(),
+                    ev: ItemEvent::Reject {
+                        reason: "repairflow: face not in the decisions".into(),
+                        disproof: None,
+                    },
+                }),
+            }
+        }
+        let rec = record(format!("{dir}/import-spec.composed.json"), composed.into_bytes());
+        self.reg(rt, input_extension(&n), ROLE_EXTENSION, rec);
+        Ok(())
+    }
+
+    /// P5: the report after the closing loop's final result.
+    fn report(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<(), String> {
+        let n = self.nodes[i].n.clone();
+        let dir = rf_dir(&n);
+        let d: NodeDecisions = serde_json::from_slice(&read_input(st, &input_decisions(&n))?)
+            .map_err(|e| format!("decisions: {e}"))?;
+        let fin: Value = serde_json::from_slice(&read_input(st, &input_final(&n))?).unwrap_or(Value::Null);
+        // the final statement rows: per key status + server source
+        let stmt = self.abs(&format!("{}/final/statement/statement.jsonl", node_dir(&n)));
+        let mut by_server: BTreeMap<String, u64> = BTreeMap::new();
+        let mut by_class: BTreeMap<String, u64> = BTreeMap::new();
+        let mut open_keys: Vec<Value> = vec![];
+        if let Ok(t) = std::fs::read_to_string(&stmt) {
+            for l in t.lines().filter(|l| !l.trim().is_empty()) {
+                let Ok(r) = serde_json::from_str::<Value>(l) else { continue };
+                let status = r["status"].as_str().unwrap_or("");
+                let src = r["source"].as_str().or(r["server"]["source"].as_str()).unwrap_or("").to_string();
+                let class = r["class"].as_str().unwrap_or("").to_string();
+                if status == "open" {
+                    open_keys.push(r["key"].clone());
+                }
+                if status == "served" {
+                    *by_class.entry(class).or_default() += 1;
+                    if src.starts_with("rf:") || src == "default-recipe" {
+                        *by_server.entry(src).or_default() += 1;
+                    }
+                }
+            }
+        }
+        // terminal proposals: open keys with their face and the steps of that face
+        let mut proposals = vec![];
+        if self.nodes[i].policy.proposals.enabled {
+            for k in &open_keys {
+                let key: Vec<i32> = serde_json::from_value(k.clone()).unwrap_or_default();
+                let lines: Vec<bool> = self.nodes[i]
+                    .p1
+                    .as_ref()
+                    .map(|p| p.frame.mask().to_vec())
+                    .unwrap_or_default();
+                let face = Face::of_key(&key, &lines).map(|f| f.label());
+                let steps = face
+                    .as_ref()
+                    .and_then(|fl| d.faces.iter().find(|f| &f.face == fl))
+                    .map(|f| f.recipe_steps.clone())
+                    .unwrap_or_default();
+                proposals.push(json!({"key": key, "face": face, "tried_steps": steps,
+                    "default_recipe": true, "status": "terminal_proposal (not accepted)"}));
+            }
+        }
+        // export: the symbolic table, the recipe files actually used, recipes.jsonl, SHA256SUMS
+        let mut sums = String::new();
+        let mut recipes = vec![];
+        let mut exported_recipe_bytes = 0u64;
+        let mut exported_table_bytes = 0u64;
+        let exp = format!("{dir}/export");
+        let tabp = self.abs(&format!("{dir}/symbolic.table.jsonl"));
+        if let Ok(b) = std::fs::read(&tabp) {
+            exported_table_bytes = b.len() as u64;
+            sums.push_str(&format!("{}  symbolic.table.jsonl\n", sha256_hex(&b)));
+            rt.accepts.push(record(format!("{exp}/symbolic.table.jsonl"), b));
+        }
+        for f in &d.faces {
+            let face = Face::new(f.sd.clone(), f.sn.clone());
+            for s in &f.recipe_steps {
+                let id = format!("rf:{}:{s}", rf::face_tag(&face));
+                let used = by_server.get(&id).copied().unwrap_or(0);
+                let fname = format!("{}.{s}.json", rf::face_tag(&face));
+                let p = self.abs(&format!("{dir}/recipes/{fname}"));
+                if used == 0 {
+                    continue;
+                }
+                if let Ok(b) = std::fs::read(&p) {
+                    exported_recipe_bytes += b.len() as u64;
+                    sums.push_str(&format!("{}  recipes/{fname}\n", sha256_hex(&b)));
+                    recipes.push(json!({"source": id, "face": f.face, "step": s, "file": format!("recipes/{fname}"),
+                        "sha256": sha256_hex(&b), "certified_keys_served": used}));
+                    rt.accepts.push(record(format!("{exp}/recipes/{fname}"), b));
+                }
+            }
+        }
+        let rj: String = recipes.iter().map(|r| format!("{r}\n")).collect();
+        sums.push_str(&format!("{}  recipes.jsonl\n", sha256_hex(rj.as_bytes())));
+        rt.accepts.push(record(format!("{exp}/recipes.jsonl"), rj.into_bytes()));
+        rt.accepts.push(record(format!("{exp}/SHA256SUMS"), sums.into_bytes()));
+        let sym_keys = by_class.get("repair-symbolic").copied().unwrap_or(0);
+        let face_keys = by_class.get("recipe-face").copied().unwrap_or(0);
+        let def_keys = by_server.get("default-recipe").copied().unwrap_or(0);
+        let rep = json!({
+            "schema": REPORT_SCHEMA, "node": self.nodes[i].cfg.node,
+            "policy": self.nodes[i].policy, "policy_digest": d.policy_digest,
+            "faces": d.faces, "by_class_symbolic": d.by_class,
+            "kept_rules": d.kept_rules, "kept_bytes": d.kept_bytes,
+            "keys": {"by_rule_class": by_class, "symbolic": sym_keys, "face_recipe": face_keys,
+                     "default_recipe": def_keys, "open": open_keys.len(),
+                     "terminal_proposals": proposals.len()},
+            "recipes_used": recipes, "terminal_proposals": proposals,
+            "exported_bytes": {"symbolic_table": exported_table_bytes, "recipes": exported_recipe_bytes},
+            "closeloop_final": {"verdict": fin["verdict"], "keys": fin["keys"], "economy": fin["economy"]},
+            "outside_chart_open": d.outside_chart.len(),
+        });
+        let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
+        self.reg(rt, input_report(&n), ROLE_RESULT, rec);
+        Ok(())
+    }
+}
+
+/// `{"type":"rule","index":K, <the other fields sorted>}`: rr_proof reads a record at an offset only when its line
+/// starts with `{"type":"rule"`; the index is the ordinal in the re-homed table (labels unique per file).
+fn rehome_line(line: &str, index: usize) -> Result<String, String> {
+    let v: Value = serde_json::from_str(line).map_err(|e| format!("kept record: {e}"))?;
+    let o = v.as_object().ok_or("kept record: not an object")?;
+    let mut s = format!("{{\"type\":\"rule\",\"index\":{index}");
+    let mut keys: Vec<&String> = o.keys().filter(|k| *k != "type" && *k != "index").collect();
+    keys.sort();
+    for k in keys {
+        s.push(',');
+        s.push_str(&serde_json::to_string(k).expect("json"));
+        s.push(':');
+        s.push_str(&serde_json::to_string(&o[k]).expect("json"));
+    }
+    s.push('}');
+    Ok(s)
+}
+
+fn class_text(c: &rf::Class) -> String {
+    serde_json::to_string(c).unwrap_or_else(|_| "?".into())
+}
+
+/// The fake child's script for a face (tests): a rule record, or a stop.
+fn fake_gen_script(f: &FakeGen, face: &str) -> FakeScript {
+    let mut ops = vec![FakeOp::Prepare { ms: 5 }];
+    match f.faces.get(face) {
+        Some(b) if b.get("rule").is_some() => {
+            ops.push(FakeOp::Case {
+                ordinal: 0,
+                ms: f.ms,
+                work: BTreeMap::new(),
+                result: CaseResult::Rule,
+                rule: Some(FakeRule {
+                    record: b["rule"].clone(),
+                    loci: None,
+                }),
+                children: vec![],
+            });
+            ops.push(FakeOp::End {
+                stop: None,
+                verdict: None,
+            });
+        }
+        Some(b) => {
+            let stop: StopCode = serde_json::from_value(b["stop"].clone()).unwrap_or(StopCode::OpenObligations);
+            ops.push(FakeOp::Case {
+                ordinal: 0,
+                ms: f.ms,
+                work: BTreeMap::new(),
+                result: if stop == StopCode::BudgetWall {
+                    CaseResult::Budget
+                } else {
+                    CaseResult::Refused
+                },
+                rule: None,
+                children: vec![],
+            });
+            ops.push(FakeOp::End {
+                stop: Some(stop),
+                verdict: None,
+            });
+        }
+        None => ops.push(FakeOp::End {
+            stop: Some(StopCode::OpenObligations),
+            verdict: None,
+        }),
+    }
+    FakeScript {
+        script: ops,
+        on_sigterm: OnSigterm::Graceful,
+        slow_ms: 0,
+        start_delay_ms: 0,
+        rss: RssPlan::default(),
+        helpers: vec![],
+        faults: vec![],
+        time_scale: 1.0,
+        volatile_jitter: false,
+    }
+}
+
+/// P1: load + check the node's effective spec; faces of the uncovered open keys; shadowing test; the check record.
+fn p1_pass(
+    node: &str,
+    text: &str,
+    base: &Path,
+    policy: &RepairPolicy,
+    threads: usize,
+    rows: &Path,
+) -> Result<P1, String> {
+    let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
+    let set = rustred_campaign_core::import::load(&spec, base).map_err(|e| format!("import load: {e}"))?;
+    let ev = Evidence::from_spec(&set, base).map_err(|e| format!("evidence: {e}"))?;
+    let res = rustred_campaign_core::import::check::check_streamed(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads,
+            tier: None,
+            max_rounds: None,
+        },
+        rows,
+    )
+    .map_err(|e| format!("import check: {e}"))?;
+    let mut uncovered: Vec<Vec<i32>> = vec![];
+    let mut other_open: BTreeMap<String, u64> = BTreeMap::new();
+    for r in &res.rows {
+        if r.status != RowStatus::Open {
+            continue;
+        }
+        let s = r.open_status.clone().unwrap_or_else(|| "open".into());
+        if s == "uncovered" {
+            uncovered.push(r.key.clone());
+        } else {
+            *other_open.entry(s).or_default() += 1;
+        }
+    }
+    let lines = set.frame.mask().to_vec();
+    let (faces, outside) = rf::group_open_keys(&uncovered, &lines, &policy.symbolic.face_order);
+    // frame header (raw first line of the frame_from source) and the node order's coordinate priority
+    let fsrc = spec
+        .sources
+        .iter()
+        .find(|s| s.id == spec.frame_from)
+        .ok_or("frame_from source missing")?;
+    let fpath = fsrc.path.clone().ok_or("frame_from source without a path")?;
+    let fpath = if Path::new(&fpath).is_absolute() {
+        PathBuf::from(&fpath)
+    } else {
+        base.join(&fpath)
+    };
+    let header_line = {
+        use std::io::BufRead;
+        let f = std::fs::File::open(&fpath).map_err(|e| format!("{}: {e}", fpath.display()))?;
+        let mut l = String::new();
+        std::io::BufReader::new(f)
+            .read_line(&mut l)
+            .map_err(|e| e.to_string())?;
+        l.trim_end_matches('\n').to_string()
+    };
+    let header: Value = serde_json::from_str(&header_line).map_err(|e| format!("frame header: {e}"))?;
+    let cp: Option<Vec<usize>> = header["node_order"]["coordinate_priority"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect());
+    let (mut lp, mut np) =
+        rustred_campaign_core::termmin::priorities(&lines, cp.as_deref());
+    if let Some(l) = &policy.recipes.line_priority {
+        lp = l.clone();
+    }
+    if let Some(nn) = &policy.recipes.numerator_priority {
+        np = nn.clone();
+    }
+    // shadowing test per face (against the in-force tables, dispatch order)
+    let src = rustred_campaign_core::partition::DispatcherSource::new(&set.disp);
+    let budget = rustred_campaign_core::loci::contain::ProofBudget::default();
+    let shadow: Vec<ShadowClass> = faces
+        .iter()
+        .map(|f| {
+            if policy.shadow_test {
+                rf::shadow_face(&f.face(), &src, &set.frame, &budget)
+            } else {
+                ShadowClass::Skipped
+            }
+        })
+        .collect();
+    let rec = json!({
+        "schema": CHECK_SCHEMA, "node": node, "policy_digest": policy.digest(),
+        "spec_digest": res.spec_digest, "closure_keys": res.summary.keys_total, "closure_open": res.summary.open_total,
+        "open_uncovered": uncovered.len(), "open_other": other_open,
+        "faces": faces.iter().zip(&shadow).map(|(f, s)| json!({"face": f.label, "sd": f.sd, "sn": f.sn,
+            "open_keys": f.open_keys, "shadow": s})).collect::<Vec<_>>(),
+        "outside_chart": outside, "line_priority": lp, "numerator_priority": np,
+        "frame_header_sha256": sha256_hex(header_line.as_bytes()),
+    });
+    Ok(P1 {
+        faces,
+        shadow,
+        outside,
+        frame: set.frame.clone(),
+        frame_header: header,
+        frame_header_line: header_line,
+        line_prio: lp,
+        num_prio: np,
+        record: json_bytes(&rec),
+    })
+}
+
+impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
+    fn bootstrap(&mut self, st: &CampaignState, ctx: &SourceContext) -> Result<Vec<Event>, String> {
+        let mut ev = self.inner.bootstrap(st, ctx)?;
+        for r in &self.nodes {
+            let id = input_policy(&r.n);
+            let b = json_bytes(&json!({"schema": rf::POLICY_SCHEMA, "node": r.cfg.node,
+                "policy_digest": r.policy.digest(), "policy": r.policy}));
+            match st.inputs.get(&id) {
+                Some(x) if x.blake3 != blake3_hex(&b) => {
+                    return Err(format!(
+                        "node {}: the repair policy changed since the campaign started: refused; start a new campaign directory",
+                        r.cfg.node
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    let rel = format!("{}/policy.json", rf_dir(&r.n));
+                    let p = self.abs(&rel);
+                    if let Some(d) = p.parent() {
+                        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+                    }
+                    crate::atomic::write_atomic(&p, &b).map_err(|e| format!("{}: {e}", p.display()))?;
+                    ev.push(Event::InputRegistered {
+                        input: id,
+                        role: ROLE_POLICY.into(),
+                        path: p.display().to_string(),
+                        bytes: b.len() as u64,
+                        blake3: blake3_hex(&b),
+                    });
+                }
+            }
+        }
+        Ok(ev)
+    }
+
+    fn ready(&mut self, st: &CampaignState, ctx: &SourceContext, limit: usize) -> Vec<JobRequest> {
+        let mut out = vec![];
+        for i in 0..self.nodes.len() {
+            if self.nodes[i].p1.is_none() || st.inputs.contains_key(&input_extension(&self.nodes[i].n)) {
+                continue;
+            }
+            for (item, ph, jobs) in self.s_items(st, i) {
+                let job = match ph {
+                    ItemPhase::Open => Some(format!("{item}-t{}", jobs.len())),
+                    ItemPhase::InProgress => match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
+                        Some(AttemptState::Queued) => jobs.last().cloned(),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let Some(job) = job else { continue };
+                let Some(face) = self.face_of(st, i, &item) else { continue };
+                let prio = 1_000_000_000 - st.items.get(&item).map(|x| x.weight as i64).unwrap_or(0).min(1);
+                match self.job_request(i, &item, job, &face, prio) {
+                    Ok(r) => out.push(r),
+                    Err(e) => eprintln!("repairflow: no job for {item}: {e}"),
+                }
+            }
+        }
+        out.extend(self.inner.ready(st, ctx, limit));
+        out.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.job.cmp(&b.job)));
+        out.truncate(limit);
+        out
+    }
+
+    fn route(&mut self, st: &CampaignState, ctx: &SourceContext, done: &Settled) -> Result<Routing, String> {
+        let Some(i) = self.node_of_item(st, &done.item) else {
+            return self.inner.route(st, ctx, done);
+        };
+        let mut rt = Routing::default();
+        let face = self
+            .face_of(st, i, &done.item)
+            .ok_or_else(|| format!("repairflow: {}: face unknown (P1 not loaded)", done.item))?;
+        let p1 = self.nodes[i].p1.clone().ok_or("p1 not loaded")?;
+        let c = &done.classification;
+        let why = format!("row {} {} {:?} {:?}: {}", c.row, c.sub, c.kind, c.action, c.why);
+        let answer = match (&done.table, done.canonical_lines.is_empty()) {
+            (Some(t), false) => {
+                let run_dir = st.jobs.get(&done.job).and_then(|j| j.run_dir.clone()).unwrap_or_default();
+                match candidates_of(&run_dir, t, &done.canonical_lines, &p1, &face) {
+                    Ok(Ok(cands)) => FaceAnswer::Candidates { job: done.job.clone(), candidates: cands },
+                    Ok(Err((kind, w))) if kind == "frame" => FaceAnswer::FrameMismatch { job: done.job.clone(), why: w },
+                    Ok(Err((_, w))) => FaceAnswer::DomainError { job: done.job.clone(), why: w },
+                    Err(e) => FaceAnswer::NoCandidate { job: done.job.clone(), why: format!("{why}; {e}") },
+                }
+            }
+            _ => FaceAnswer::NoCandidate { job: done.job.clone(), why },
+        };
+        let has = matches!(&answer, FaceAnswer::Candidates { candidates, .. } if !candidates.is_empty());
+        let rec = record(
+            format!("{}/answers/{}.{}.answer.json", rf_dir(&self.nodes[i].n), done.item, done.job),
+            json_bytes(&json!({"schema": ANSWER_SCHEMA, "item": done.item, "face": face.label,
+                "job": done.job, "attempt": done.attempt, "answer": answer})),
+        );
+        self.reg(&mut rt, input_answer(&done.item, &done.job), ROLE_ANSWER, rec);
+        if has && let Some(t) = &done.table {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Produce {
+                    job: done.job.clone(),
+                    attempt: done.attempt,
+                    table: t.clone(),
+                },
+            });
+        } else {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Escalate {
+                    to: Rung(1),
+                    reason: "repairflow: no symbolic candidate (face goes to recipes)".into(),
+                },
+            });
+        }
+        Ok(rt)
+    }
+
+    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String> {
+        if self.node_of_item(st, target).is_some() {
+            return match verb {
+                "retry" | "skip" => Ok(vec![]),
+                v => Err(format!("verb {v} not supported by the repair flow")),
+            };
+        }
+        self.inner.control(st, verb, target)
+    }
+
+    fn poll(&mut self, st: &CampaignState, ctx: &SourceContext) -> Result<Routing, String> {
+        let mut rt = self.inner.poll(st, ctx)?;
+        for i in 0..self.nodes.len() {
+            let n = self.nodes[i].n.clone();
+            let node = self.nodes[i].cfg.node.clone();
+            let Some(nr) = st.nodes.get(&node) else { continue };
+            if nr.state.phase == NodePhase::Registered {
+                continue;
+            }
+            if st.inputs.contains_key(&input_extension(&n)) {
+                if st.inputs.contains_key(&input_final(&n)) && !st.inputs.contains_key(&input_report(&n)) {
+                    // P5 (the faces of the decisions; P1 not needed beyond the frame mask)
+                    if self.nodes[i].p1.is_none() && self.nodes[i].pass.is_none() {
+                        self.start_p1(st, i)?;
+                    }
+                    if let Some(h) = &self.nodes[i].pass
+                        && h.is_finished()
+                    {
+                        let h = self.nodes[i].pass.take().expect("pass");
+                        let p = h.join().map_err(|_| "p1 thread panicked".to_string())??;
+                        self.nodes[i].p1 = Some(Arc::new(p));
+                    }
+                    if self.nodes[i].p1.is_some() {
+                        self.report(st, i, &mut rt)?;
+                    }
+                }
+                continue;
+            }
+            // P1
+            if self.nodes[i].p1.is_none() {
+                if self.nodes[i].pass.is_none() {
+                    if !st.inputs.contains_key(&input_import_spec(&n)) {
+                        continue;
+                    }
+                    self.start_p1(st, i)?;
+                }
+                let fin = self.nodes[i].pass.as_ref().is_some_and(|h| h.is_finished());
+                if !fin {
+                    continue;
+                }
+                let h = self.nodes[i].pass.take().expect("pass");
+                let p = h.join().map_err(|_| "p1 thread panicked".to_string())??;
+                match st.inputs.get(&input_check(&n)) {
+                    Some(x) if x.blake3 != blake3_hex(&p.record) => {
+                        return Err(format!(
+                            "node {node}: the recomputed repair check differs from the recorded one: refused (U-1)"
+                        ));
+                    }
+                    Some(_) => {}
+                    None => {
+                        let rec = record(format!("{}/check.json", rf_dir(&n)), p.record.clone());
+                        self.reg(&mut rt, input_check(&n), ROLE_CHECK, rec);
+                        let plan = rf::s_plan(&p.faces, &p.shadow, &self.nodes[i].policy);
+                        for (k, (f, pl)) in p.faces.iter().zip(&plan).enumerate() {
+                            if pl.is_some() {
+                                continue;
+                            }
+                            let item = s_item(&n, k);
+                            if !st.items.contains_key(&item) {
+                                rt.events.push(Event::ItemCreated {
+                                    item,
+                                    node: node.clone(),
+                                    kind: KIND_SYMBOLIC.into(),
+                                    rung: Rung(0),
+                                    parent: None,
+                                    inputs: vec![input_check(&n)],
+                                    label: f.label.clone(),
+                                    weight: f.open_keys.len() as u64,
+                                });
+                            }
+                        }
+                    }
+                }
+                self.nodes[i].p1 = Some(Arc::new(p));
+                // the barrier is evaluated on the next tick (the new items / check are not in `st` yet)
+                continue;
+            }
+            if st.inputs.contains_key(&input_check(&n)) {
+                self.barrier(st, i, &mut rt)?;
+            }
+        }
+        Ok(rt)
+    }
+
+    fn confirm_coverage(&mut self, st: &CampaignState, ctx: &SourceContext, done: &Settled) -> Result<Option<Vec<Event>>, String> {
+        if self.node_of_item(st, &done.item).is_some() {
+            return Ok(None);
+        }
+        self.inner.confirm_coverage(st, ctx, done)
+    }
+
+    fn finished(&self, st: &CampaignState) -> bool {
+        self.inner.finished(st)
+            && self.nodes.iter().all(|r| {
+                !st.inputs.contains_key(&input_final(&r.n)) || st.inputs.contains_key(&input_report(&r.n))
+            })
+    }
+
+    fn describe(&self) -> String {
+        if self.nodes.is_empty() {
+            self.inner.describe()
+        } else {
+            format!(
+                "{}; repair flow on {} node(s)",
+                self.inner.describe(),
+                self.nodes.len()
+            )
+        }
+    }
+}
+
+type CandResult = Result<Vec<CandidateAnswer>, (String, String)>;
+
+/// The candidate rule lines of a settled generate attempt: the RAW lines of the sealed table (re-read at the run
+/// directory, BLAKE3 equal to the verified figures), each bound to a verified canonical line; the frame check of the
+/// header (identity fields equal to the node's frame header; the fake child's own header is accepted as such and
+/// marked); the measures and the face's open keys each candidate serves.
+fn candidates_of(
+    run_dir: &str,
+    t: &crate::ledger::FileRef,
+    canonical: &[String],
+    p1: &P1,
+    face: &FaceGroup,
+) -> Result<CandResult, String> {
+    let path = Path::new(run_dir).join("out").join("F.table.jsonl");
+    let b = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if blake3_hex(&b) != t.blake3 {
+        return Err(format!("{}: differs from the verified table", path.display()));
+    }
+    let canon: BTreeSet<&str> = canonical.iter().map(String::as_str).collect();
+    let text = String::from_utf8(b).map_err(|e| e.to_string())?;
+    let mut out = vec![];
+    for (no, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let c = rustred_campaign_contract::canon::canonical_line(line.as_bytes())
+            .map_err(|e| format!("line {}: {e:?}", no + 1))?;
+        let cs = String::from_utf8(c).map_err(|e| e.to_string())?;
+        if !canon.contains(cs.trim_end_matches('\n')) && !canon.contains(cs.as_str()) {
+            return Err(format!("line {}: not a verified canonical line", no + 1));
+        }
+        let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
+        match v["type"].as_str() {
+            Some("header") => {
+                let fake = v["schema"].as_str() == Some("rustred.fake.table.v1");
+                if !fake {
+                    let a = rustred_campaign_core::assemble::header_identity(&v);
+                    let f = rustred_campaign_core::assemble::header_identity(&p1.frame_header);
+                    if a != f {
+                        let k = a.keys().chain(f.keys()).find(|k| a.get(*k) != f.get(*k)).cloned();
+                        return Ok(Err(("frame".into(), format!("header identity differs at {k:?}"))));
+                    }
+                }
+            }
+            Some("rule") => {
+                let m = rf::measures_of(line)?;
+                let served = match rf::served_keys(line, &p1.frame, &face.open_keys) {
+                    Ok(s) => s,
+                    Err(e) => return Ok(Err(("domain".into(), e))),
+                };
+                out.push(CandidateAnswer {
+                    record_sha256: sha256_hex(line.as_bytes()),
+                    line: line.to_string(),
+                    measures: m,
+                    served,
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(Ok(out))
+}
