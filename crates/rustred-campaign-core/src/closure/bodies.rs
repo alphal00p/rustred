@@ -115,6 +115,10 @@ pub struct BodyLoadStats {
     pub entries: usize,
 }
 
+/// Largest arity of the closure's slot masks (u64 line / numerator / dropped-line masks, 6-bit slot entries): above it
+/// the closure refuses with a typed error (re-audit F4), never a silent wrap.
+pub const MAX_ARITY: usize = 64;
+
 const KIND_ADD: u16 = 0;
 const KIND_SET: u16 = 1;
 const KIND_COPY: u16 = 2;
@@ -189,7 +193,7 @@ impl Sectors {
             zero_sectors: None,
         }
     }
-    /// Classify `term`; `const_mask` = slots set by a constant in the pattern (see [`RuleBodies`]).
+    /// Classify `term`; `const_mask` = slots whose value is a constant of the rule (see [`RuleBodies::instantiate`]).
     #[inline]
     pub fn classify_masked(&self, term: &[i32], const_mask: u64) -> TermClass {
         let mut pos = 0u64;
@@ -351,8 +355,8 @@ impl RuleBodies {
         rhs: &[S],
     ) -> Result<(), BodyError> {
         let n = self.arity;
-        if n > 64 {
-            return Err(BodyError::Range("arity above 64".into()));
+        if n > MAX_ARITY {
+            return Err(BodyError::Range(format!("arity {n} above {MAX_ARITY}")));
         }
         let first = self
             .rule_first
@@ -586,11 +590,13 @@ impl RuleBodies {
         &self.ent[self.pat_start[p] as usize..self.pat_start[p + 1] as usize]
     }
 
-    /// Apply pattern entries to the rule point; returns the mask of slots set by a constant.
+    /// Apply pattern entries to the rule point; returns the mask of slots whose value is a CONSTANT of the rule: set by
+    /// a constant, or derived (copied, possibly with an offset) from a rule-point parameter in `const_params` (a fixed
+    /// slot of the case; re-audit N2). Every other slot comes from a symbolic parameter.
     #[inline]
-    fn apply(entries: &[u16], pt: &[i32], out: &mut [i32]) -> u64 {
+    fn apply(entries: &[u16], pt: &[i32], out: &mut [i32], const_params: u64) -> u64 {
         out.copy_from_slice(pt);
-        let mut cm = 0u64;
+        let mut cm = const_params;
         for &e in entries {
             let (s, k, v) = entry_parts(e);
             match k {
@@ -599,10 +605,45 @@ impl RuleBodies {
                     out[s] = v as i32;
                     cm |= 1 << s;
                 }
-                _ => out[s] = pt[v as usize],
+                _ => {
+                    out[s] = pt[v as usize];
+                    if const_params >> v as usize & 1 == 1 {
+                        cm |= 1 << s;
+                    } else {
+                        cm &= !(1 << s);
+                    }
+                }
             }
         }
         cm
+    }
+
+    /// Rule-point parameters that are constants of the rule (re-audit N2): canonical target -> the case's fixed slots;
+    /// target pattern -> the parameters no target slot sets (they take the fixed value or 0).
+    fn const_params(dom: &CaseDomain) -> u64 {
+        match &dom.target {
+            TargetMap::Canonical => dom
+                .fixed
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.is_some())
+                .fold(0u64, |m, (s, _)| m | 1 << s),
+            TargetMap::Pattern(t) => {
+                let mut m = if dom.arity >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << dom.arity) - 1
+                };
+                for s in t {
+                    if let TargetSlot::Param { param, .. } = *s
+                        && param < 64
+                    {
+                        m &= !(1u64 << param);
+                    }
+                }
+                m
+            }
+        }
     }
 
     /// Instantiate the body of `rule` at `key` (point map of its domain): appends `n_terms * arity` values to
@@ -630,6 +671,7 @@ impl RuleBodies {
         let f = self.rule_first[rule.table][rule.record] as usize;
         let c = self.rule_count[rule.table][rule.record] as usize;
         let n = self.arity;
+        let cp = Self::const_params(dom);
         let base = out.len();
         out.resize(base + c * n, 0);
         for j in 0..c {
@@ -637,6 +679,7 @@ impl RuleBodies {
                 self.pattern(f + j),
                 &pt,
                 &mut out[base + j * n..base + (j + 1) * n],
+                cp,
             );
             cmask.push(m);
         }

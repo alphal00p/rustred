@@ -116,9 +116,9 @@ fn check_against_brute(seed: u64, n: usize, e: usize, rules: usize, w: i32) {
         ..Default::default()
     };
     let rep = gap_partition(&l, &frame, &opts, None).unwrap();
-    let faces: BTreeSet<(Vec<usize>, Vec<usize>)> = rep.faces.iter().map(|f| f.key()).collect();
+    let faces: BTreeSet<(Vec<usize>, Vec<usize>)> = rep.faces().iter().map(|f| f.key()).collect();
     let generic: BTreeSet<(Vec<usize>, Vec<usize>)> = rep
-        .faces
+        .faces()
         .iter()
         .filter(|f| f.kind == FaceKind::Generic)
         .map(|f| f.key())
@@ -137,7 +137,7 @@ fn check_against_brute(seed: u64, n: usize, e: usize, rules: usize, w: i32) {
                 ClassHit::Covered,
                 "uncovered key in a covered class {k:?} (seed {seed})"
             );
-            let f = face_of(&rep.nf.lines, &k);
+            let f = face_of(&rep.nf().lines, &k);
             assert!(
                 faces.contains(&f),
                 "face of uncovered {k:?} not listed (seed {seed})"
@@ -148,10 +148,10 @@ fn check_against_brute(seed: u64, n: usize, e: usize, rules: usize, w: i32) {
         }
     }
     // every listed face has an uncovered point somewhere (generic faces: the witness search), never a covered witness
-    for f in &rep.faces {
+    for f in rep.faces() {
         if let Some(w) = &f.witness {
             assert!(rep.uncovered(w).unwrap());
-            assert_eq!(face_of(&rep.nf.lines, w), f.key());
+            assert_eq!(face_of(&rep.nf().lines, w), f.key());
         }
     }
 }
@@ -195,12 +195,14 @@ fn memoised_equals_reference_mode_capped() {
                 None,
             )
             .unwrap();
-            let ca: BTreeSet<_> = a.classes.iter().cloned().collect();
-            let cb: BTreeSet<_> = b.classes.iter().cloned().collect();
+            let ca: BTreeSet<_> = a.classes().iter().cloned().collect();
+            let cb: BTreeSet<_> = b.classes().iter().cloned().collect();
             assert_eq!(
-                ca, cb,
+                ca,
+                cb,
                 "seed {seed} arity {n}: memo {} nodes vs reference {} nodes",
-                a.stats.nodes, b.stats.nodes
+                a.stats().nodes,
+                b.stats().nodes
             );
             // and the uncapped memoised run restricted to <= cap off-floor slots has the same classes
             let full = gap_partition(
@@ -217,7 +219,7 @@ fn memoised_equals_reference_mode_capped() {
                 c.states.iter().filter(|s| s.is_none_or(|v| v != 0)).count()
             };
             let cf: BTreeSet<_> = full
-                .classes
+                .classes()
                 .iter()
                 .filter(|c| off(c) <= cap && c.states.iter().all(|s| s.is_some()))
                 .cloned()
@@ -246,12 +248,12 @@ fn exact_and_reference_literal_tests_same_uncovered_set() {
         let a = gap_partition(&l, &frame, &mk(LiteralTests::Exact), None).unwrap();
         let b = gap_partition(&l, &frame, &mk(LiteralTests::ReferenceCompatible), None).unwrap();
         let ua: BTreeSet<_> = a
-            .classes
+            .classes()
             .iter()
             .filter(|c| c.label == Label::Uncovered)
             .collect();
         let ub: BTreeSet<_> = b
-            .classes
+            .classes()
             .iter()
             .filter(|c| c.label == Label::Uncovered)
             .collect();
@@ -396,7 +398,7 @@ fn locus_with_non_unit_affine_equation_is_resolved_exactly() {
         None,
     )
     .unwrap();
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     assert!(!res.loci.is_empty());
     for loc in &res.loci {
         assert_eq!(loc.equations, vec!["n0+2*n3-1".to_string()]);
@@ -413,7 +415,7 @@ fn locus_with_non_unit_affine_equation_is_resolved_exactly() {
     );
     // n0 = 1, n3 = 0 solves the equation for every value of the other slots: faces without slot 0 and slot 3 are
     // generic gaps, every other face is locus-only
-    for x in &rep.faces {
+    for x in rep.faces() {
         if !x.sd.contains(&0) && !x.sn.contains(&3) {
             assert_eq!(x.kind, FaceKind::Generic);
         } else {
@@ -442,7 +444,7 @@ fn nonlinear_locus_is_unresolved_with_window() {
         None,
     )
     .unwrap();
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     assert!(res.n_unresolved() > 0, "Pell conic must stay UNRESOLVED");
     let pts: Vec<&Key> = res
         .loci
@@ -508,7 +510,7 @@ fn levels_are_complete_per_level_and_resumable() {
     assert_eq!(b.len(), 8);
     for lv in &b {
         let want: BTreeSet<_> = full
-            .faces
+            .faces()
             .iter()
             .filter(|f| f.sd.len() + f.sn.len() <= lv.level)
             .map(|f| f.key())

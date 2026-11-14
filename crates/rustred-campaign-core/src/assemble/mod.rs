@@ -31,11 +31,15 @@ use crate::accept::{
     node_identity,
 };
 use crate::closure::sha256::Sha256;
+use crate::cover::{Dispatcher, Table};
 use crate::domain::{CaseDomain, DomainOptions, Stage};
 use crate::economy::{CoverageState, RetireError, Retirement};
 use crate::key::{Key, NodeFrame};
 use crate::order::NodeComparator;
-use crate::record::{ReadOptions, RecordReader, RhsMode, RuleRecord, TableHeader, TableLine};
+use crate::partition::{DispatchOrderStatement, DispatcherSource, parse_dispatch_proof_method};
+use crate::record::{
+    ReadOptions, RecordReader, RhsMode, RuleRecord, TableFile, TableHeader, TableLine,
+};
 
 pub const ASSEMBLY_SCHEMA: &str = "rustred.campaign.assembly.v1";
 pub const MANIFEST_SCHEMA: &str = "rustred.campaign.assembly-manifest.v1";
@@ -76,9 +80,10 @@ pub struct InputTable {
 
 /// What assembly does with a FULL-node retirement (audit-accept-A M2, B M3; the partition proofs are under repair,
 /// audit-part-A): `Refuse` (default) refuses every FULL retirement; `BoundProof` (to be set ONLY once the partition
-/// fix is merged and announced) accepts one whose containment proof binds THIS assembly's table sets
-/// ([`table_set_digest`] of the records before and after the retirement), whose node is this node and whose `by` rule
-/// stays in the assembled set.
+/// fix is merged and announced) accepts one whose containment proof binds THIS assembly's table sets in force before
+/// and after the retirement ([`tables_in_force`], digested by the one definition
+/// [`crate::economy::table_set_digest`] and checked with [`Retirement::check_tables`]), states the same dispatch order,
+/// whose node is this node and whose `by` rule stays in the assembled set.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum FullRetirements {
     #[default]
@@ -753,16 +758,6 @@ fn is_point(rec: &RuleRecord) -> bool {
     !rec.fixed.is_empty() && rec.fixed.iter().all(Option::is_some)
 }
 
-/// Digest of a table SET in dispatch order (the identity a FULL-node containment proof binds, [`FullRetirements`]):
-/// `sha256:` of the canonical JSON list of the records' line digests.
-pub fn table_set_digest<'a>(line_digests: impl IntoIterator<Item = &'a str>) -> String {
-    let v: Vec<&str> = line_digests.into_iter().collect();
-    let text = serde_json::to_string(&v).unwrap_or_default();
-    let mut h = Sha256::new();
-    h.update(text.as_bytes());
-    sha_tag(h)
-}
-
 /// The assembled header line: the FIRST input header's bytes VERBATIM with the `assembly` provenance object appended
 /// before its closing brace (audit-accept-A n2), so the line still starts with `{"type":"header"` (the assembled file
 /// is itself a valid input, audit-accept-B N5). A header that already carries `assembly` (re-assembly) is re-written
@@ -787,11 +782,21 @@ fn header_line(line: &[u8], value: &Value, assembly: &Value) -> Result<Vec<u8>, 
     Ok(format!("{{\"type\":\"header\",{}", &rest[1..]).into_bytes())
 }
 
-/// Assemble into `out_dir` (files `<node>.assembled.table.jsonl`, `<node>.assembly.manifest.jsonl`,
-/// `<node>.assembly.extras.jsonl`, `<node>.dispatch-order.json`).
-pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput, AssembleError> {
+/// What [`collect`] gathers before retirements: the scanned inputs, the identity checks done, every record (inputs
+/// and accepted campaign rules) located and sorted by dispatch position.
+struct Collected {
+    report: AssemblyReport,
+    scans: Vec<Scanned>,
+    header: Value,
+    frame: NodeFrame,
+    entries: Vec<Entry>,
+    order_tables: Vec<OrderTable>,
+}
+
+/// The first phase of [`assemble`] (shared with [`tables_in_force`]): inputs by spec priority, header identity,
+/// campaign tokens bound to this node / target / frame + comparator, duplicates refused, records in dispatch order.
+fn collect(input: &AssemblyInput) -> Result<Collected, AssembleError> {
     let mut report = AssemblyReport::default();
-    let full = input.target == NodeTarget::Full;
     // ---- inputs (sorted by spec priority, then id); every input needs a header and an end record
     let mut inputs = input.inputs.clone();
     inputs.sort_by(|a, b| (a.priority, &a.id).cmp(&(b.priority, &b.id)));
@@ -941,6 +946,92 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         }
     }
     entries.sort_by(|a, b| a.position.cmp(&b.position));
+    Ok(Collected {
+        report,
+        scans,
+        header,
+        frame,
+        entries,
+        order_tables,
+    })
+}
+
+/// The DISPATCHED records of `records` (in the given order) as the core dispatcher loads them: one table built by
+/// [`Table::from_table_file`] from the assembled header and chart lines (domains, witness status and its block exactly
+/// as for any `table_dump.v1` file; records whose `dispatch` is not Partition are skipped by the loader). Labels are
+/// the positions in `records` (input indices may repeat across sources; labels enter no digest).
+fn dispatch_set<'a>(
+    records: impl Iterator<Item = &'a RuleRecord>,
+    header: &Value,
+    charts: &[Value],
+) -> Result<Dispatcher, AssembleError> {
+    let th = TableHeader::from_value(header.clone()).map_err(AssembleError::Other)?;
+    let mut tf = TableFile {
+        header: Some(th),
+        ..Default::default()
+    };
+    for c in charts {
+        let chart = c
+            .get("chart")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AssembleError::Other("chart line without chart".into()))?
+            .to_string();
+        let guards = match c.get("guards") {
+            None | Some(Value::Null) => vec![],
+            Some(g) => serde_json::from_value::<Vec<String>>(g.clone())
+                .map_err(|e| AssembleError::Other(format!("chart guards: {e}")))?,
+        };
+        tf.charts.push((chart, guards));
+    }
+    for (n, r) in records.enumerate() {
+        let mut r = r.clone();
+        r.i = None;
+        r.index = Some(n as i64);
+        tf.rules.push(r);
+    }
+    let table =
+        Table::from_table_file("tables_in_force", "assembly", &tf, DomainOptions::default())
+            .map_err(|e| AssembleError::Retire(format!("tables in force: {e}")))?;
+    Dispatcher::new(vec![table], vec![0])
+        .map_err(|e| AssembleError::Retire(format!("tables in force: {e:?}")))
+}
+
+/// The table set this assembly has IN FORCE before the next FULL-node retirement (int4): the dispatched records of
+/// the inputs and accepted campaign rules in dispatch order, with the retirements already in `input.retirements`
+/// applied in order, minus the records `minus` (line `sha256:` digests). A FULL-node retirement appended to
+/// `input.retirements` is accepted (with [`FullRetirements::BoundProof`]) only if its containment proof was made by
+/// [`crate::economy::prove_coverage_preserved`] with `old` = `tables_in_force(input, &[])` and `new` =
+/// `tables_in_force(input, retired)` (as [`DispatcherSource`]s), order statement `SameOrder`: assembly recomputes both
+/// sets and checks the proof with [`Retirement::check_tables`]. The caller proves on exactly what assembly checks.
+pub fn tables_in_force(
+    input: &AssemblyInput,
+    minus: &[String],
+) -> Result<Dispatcher, AssembleError> {
+    let c = collect(input)?;
+    let mut entries = c.entries;
+    for r in &input.retirements {
+        entries.retain(|e| !r.retired().contains(&e.line_sha256));
+    }
+    entries.retain(|e| !minus.contains(&e.line_sha256));
+    dispatch_set(
+        entries.iter().map(|e| &e.record),
+        &c.header,
+        &c.scans[0].charts,
+    )
+}
+
+/// Assemble into `out_dir` (files `<node>.assembled.table.jsonl`, `<node>.assembly.manifest.jsonl`,
+/// `<node>.assembly.extras.jsonl`, `<node>.dispatch-order.json`).
+pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput, AssembleError> {
+    let full = input.target == NodeTarget::Full;
+    let Collected {
+        mut report,
+        scans,
+        header,
+        frame,
+        mut entries,
+        order_tables,
+    } = collect(input)?;
     // ---- retirements and removals (identity = line sha256)
     if full && !input.removals.is_empty() {
         return Err(AssembleError::Retire(
@@ -971,17 +1062,14 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                     r.node()
                 )));
             }
-            let before = table_set_digest(entries.iter().map(|e| e.line_sha256.as_str()));
-            let after = table_set_digest(
-                entries
-                    .iter()
-                    .filter(|e| !r.retired().contains(&e.line_sha256))
-                    .map(|e| e.line_sha256.as_str()),
-            );
-            if proof.old_tables_digest() != before || proof.new_tables_digest() != after {
-                return Err(AssembleError::Retire(
-                    "the containment proof is not about this assembly's table sets (old / new digests)".into(),
-                ));
+            // records are removed IN PLACE: the proof must state the same dispatch order
+            if parse_dispatch_proof_method(proof.method())
+                != Some(DispatchOrderStatement::SameOrder)
+            {
+                return Err(AssembleError::Retire(format!(
+                    "the containment proof states {:?}; a retirement removes records in place (order=same)",
+                    proof.method()
+                )));
             }
             if r.retired().iter().any(|x| x == r.by())
                 || !entries.iter().any(|e| e.line_sha256 == r.by())
@@ -1000,8 +1088,32 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             }
             report.retired.push(id.clone());
         }
+        // bind the proof to THIS assembly's tables in force before and after the retirement (int4; ladderfix2
+        // `Retirement::check_tables`): both sets rebuilt here from the records assembly ships, digested by the ONE
+        // definition `economy::table_set_digest`. A BOXED retirement is checked when it carries a proof.
+        if full || r.tables().is_some() {
+            let before =
+                dispatch_set(entries.iter().map(|e| &e.record), &header, &scans[0].charts)?;
+            let after = dispatch_set(
+                entries
+                    .iter()
+                    .filter(|e| !r.retired().contains(&e.line_sha256))
+                    .map(|e| &e.record),
+                &header,
+                &scans[0].charts,
+            )?;
+            r.check_tables(&DispatcherSource::new(&before), &DispatcherSource::new(&after))
+                .map_err(|e| {
+                    AssembleError::Retire(format!(
+                        "{e:?}: the containment proof is not about this assembly's table sets in force before / \
+                         after the retirement (economy::table_set_digest)"
+                    ))
+                })?;
+        }
         entries.retain(|e| !r.retired().contains(&e.line_sha256));
     }
+    // (a FULL node's later exclusion hoists move only POINT records that APPLY at the key they are hoisted for, whose
+    // selected set is that one key: coverage after them contains the proven coverage.)
     for r in &input.removals {
         if !entries.iter().any(|e| e.line_sha256 == r.rule_sha256) {
             return Err(AssembleError::Retire(format!(

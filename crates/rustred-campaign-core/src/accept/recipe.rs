@@ -12,67 +12,91 @@ use super::rule::sha256_tag;
 use super::{AcceptError, NodeView, Stop, composed_stop_domain};
 use crate::closure::bodies::{Sectors, TermClass};
 use crate::cover::Dispatcher;
-use crate::domain::{CaseDomain, DomainOptions};
+use crate::domain::CaseDomain;
 use crate::key::Key;
-use crate::record::{ReadOptions, RecordReader, RhsMode, TableLine};
 
-pub const RECIPE_SCHEMA: &str = "rustred.campaign.recipe.v1";
+/// Schema of the ACCEPTANCE record of a recipe (the body: the engine file verbatim + node order + determinism
+/// contract). Version 2 (int4): the body carries no domain or solve fields of its own any more.
+pub const RECIPE_SCHEMA: &str = "rustred.campaign.recipe.v2";
 pub const SOLVE_REQUEST_SCHEMA: &str = "rustred.campaign.recipe-solve-request.v1";
 pub const SOLVE_ANSWER_SCHEMA: &str = "rustred.campaign.recipe-solve.v1";
 
-/// A recipe rule: canonical body, digest and domain.
+/// The engine's recipe file `rustred.recipe.v1`: THE one recipe definition of the crate (`worklist::recipe`).
+pub use crate::worklist::recipe::Recipe as RecipeFile;
+
+/// The ACCEPTANCE view of a recipe rule (integration lane int4: ONE recipe type in the crate). It CARRIES the engine's
+/// recipe file [`RecipeFile`] (`rustred.recipe.v1`, the one definition, written by the ladder) and adds only what a
+/// certification is judged under: the node order digest and the determinism contract id. FIELDS ARE PRIVATE and the
+/// only constructor is [`Recipe::from_file`]: the domain IS the file's own
+/// [`case_domain`](crate::worklist::recipe::Recipe::case_domain) (the dispatcher's semantics: chart, fixed, equations,
+/// exceptions, bounds) and the body embeds the file verbatim; there is no domain or solve field of its own (the former
+/// free-form constructor took a separate domain JSON next to the file: a parallel definition, removed).
 #[derive(Clone, Debug)]
 pub struct Recipe {
+    file: RecipeFile,
     /// The coordinator's versioned DETERMINISM CONTRACT id (seed order, pivot rule, primes, elimination
     /// convention); with the engine binary digest part of the certification's identity.
-    pub contract: String,
-    pub body: Value,
-    pub canonical: String,
-    pub digest: String,
-    pub domain: CaseDomain,
+    contract: String,
+    body: Value,
+    canonical: String,
+    digest: String,
+    domain: CaseDomain,
 }
 
 impl Recipe {
-    /// `domain` = rule-like fields (`chart`, `fixed`, `equations`, `exceptions`, `target`); `order_digest` = the node
-    /// comparator's identity; `solve` = the solve recipe (seed setting fields, elimination convention, symmetry rows).
-    pub fn new(
-        domain: &Value,
+    /// The acceptance view of the engine recipe `file` for the node `frame` (the file's chart must be the frame's
+    /// mask), judged under the node comparator `order_digest` and the determinism contract `contract`. `body` = the
+    /// canonical JSON of {schema [`RECIPE_SCHEMA`], order, recipe: the file verbatim, determinism_contract, version};
+    /// `digest` = `sha256:` of that text.
+    pub fn from_file(
+        file: &RecipeFile,
         order_digest: &str,
-        solve: &Value,
         contract: &str,
         frame: &crate::key::NodeFrame,
     ) -> Result<Recipe, String> {
-        let pick = |k: &str| domain.get(k).cloned().unwrap_or(Value::Null);
-        let dom = json!({"chart": pick("chart"), "fixed": pick("fixed"), "equations": pick("equations"),
-            "exceptions": pick("exceptions"), "target": pick("target")});
-        let body = json!({"schema": RECIPE_SCHEMA, "domain": dom, "order": order_digest, "recipe": solve,
-            "determinism_contract": contract, "version": 1});
-        let canonical = crate::schema::canon::canonical_json(&body, false)?;
-        let mut line = dom.clone();
-        line["type"] = json!("rule");
-        line["rhs"] = json!([]);
-        if line["equations"].is_null() {
-            line["equations"] = json!([]);
+        file.validate()?;
+        if file.arity != frame.arity() || file.chart != frame.mask_string() {
+            return Err(format!(
+                "recipe chart {} (arity {}) is not the node chart {}",
+                file.chart,
+                file.arity,
+                frame.mask_string()
+            ));
         }
-        let text = serde_json::to_vec(&line).map_err(|e| e.to_string())?;
-        let rec =
-            match RecordReader::new(text.as_slice(), ReadOptions { rhs: RhsMode::Skip }).next() {
-                Some(Ok(TableLine::Rule(r))) => *r,
-                other => {
-                    return Err(format!(
-                        "recipe domain is not a rule-like record: {other:?}"
-                    ));
-                }
-            };
-        let domain = CaseDomain::from_rule_record(&rec, frame, DomainOptions::default())
-            .map_err(|e| e.to_string())?;
+        let domain = file.case_domain()?;
+        let body = json!({"schema": RECIPE_SCHEMA, "order": order_digest,
+            "recipe": serde_json::to_value(file).map_err(|e| e.to_string())?,
+            "determinism_contract": contract, "version": 2});
+        let canonical = crate::schema::canon::canonical_json(&body, false)?;
         Ok(Recipe {
+            file: file.clone(),
             contract: contract.to_string(),
             digest: sha256_tag(canonical.as_bytes()),
             body,
             canonical,
             domain,
         })
+    }
+    /// The engine recipe file this rule is (the one recipe definition).
+    pub fn file(&self) -> &RecipeFile {
+        &self.file
+    }
+    pub fn contract(&self) -> &str {
+        &self.contract
+    }
+    pub fn body(&self) -> &Value {
+        &self.body
+    }
+    pub fn canonical(&self) -> &str {
+        &self.canonical
+    }
+    /// `sha256:` of the canonical body (the acceptance identity; the engine's own digest of the file is per answer).
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    /// The file's case domain ([`RecipeFile::case_domain`]).
+    pub fn domain(&self) -> &CaseDomain {
+        &self.domain
     }
 }
 
