@@ -1018,7 +1018,15 @@ struct CellCtx<'a, A: CheckAlgebra> {
     rule: &'a RowsRule,
     opts: &'a RowsOptions,
     sym: Option<&'a VerifiedGroup>,
+    /// re-audit B m-2: the first-draw coefficient values of every integer key cell, evaluated in ONE pass of each
+    /// coefficient text over all (key, prime) contexts: (point, prime index) -> (d, values or first pole, degrees)
+    pre: PreValues,
 }
+
+type PreValues = HashMap<(u64, u64), (u64, Result<Vec<u64>, usize>, DegStats)>;
+
+/// Largest batch (contexts x coefficients) of the one-pass key evaluation; beyond it, cells evaluate per key.
+const PRE_MAX_VALUES: usize = 30_000_000;
 
 struct System {
     rows: Vec<BTreeMap<ColKey, u64>>,
@@ -1621,17 +1629,29 @@ fn integer_cell<A: CheckAlgebra>(
             });
         }
         let d = draw_d(alg, &mut s, p);
-        let mut vals = base.clone();
-        vals.push(d);
-        let ev = eval_coeffs(
-            alg,
-            rule,
-            &[Ctx { p, vals }],
-            &format!("{cell} redraw {redraws}"),
-        )
-        .map_err(Unsupported::Syntax)?;
-        deg = ev.deg;
-        match ev.values.into_iter().next().unwrap() {
+        let cached = match cx.pre.get(&(stream[1], stream[2])) {
+            Some((d0, v, dg)) if redraws == 0 && stream[3] == PURPOSE_D && *d0 == d => {
+                Some((v.clone(), *dg))
+            }
+            _ => None,
+        };
+        let (value, dg) = match cached {
+            Some(x) => x,
+            None => {
+                let mut vals = base.clone();
+                vals.push(d);
+                let ev = eval_coeffs(
+                    alg,
+                    rule,
+                    &[Ctx { p, vals }],
+                    &format!("{cell} redraw {redraws}"),
+                )
+                .map_err(Unsupported::Syntax)?;
+                (ev.values.into_iter().next().unwrap(), ev.deg)
+            }
+        };
+        deg = dg;
+        match value {
             Ok(v) => break (d, v),
             Err(k) => {
                 // identically zero in d at this key? (deg_d + 1 further values)
@@ -2136,12 +2156,41 @@ fn identity_test_derived<A: CheckAlgebra>(
         v.verdict = Verdict::MemoryGuard { entries: est };
         return v;
     }
+    // re-audit B m-2: one pass of every coefficient over the first-draw contexts of all applicable integer keys (the
+    // same d draws the cells make; a cell whose draw differs or whose denominator vanishes evaluates itself)
+    let mut pre = PreValues::new();
+    if rule.syntax_error.is_none() {
+        let mut ids: Vec<(u64, u64)> = Vec::new();
+        let mut ctxs: Vec<Ctx> = Vec::new();
+        for (pi, spec) in points.iter().enumerate() {
+            let PointSpec::Key(k) = spec else { continue };
+            let Ok(Ok(pt)) = rule_point(alg, rule, k) else {
+                continue;
+            };
+            for (qi, &p) in primes.iter().enumerate() {
+                let stream = [rule_id, pi as u64, qi as u64, PURPOSE_D];
+                let mut s = SplitMix64::derive(opts.seed, &stream);
+                let mut vals: Vec<u64> = pt.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
+                vals.push(draw_d(alg, &mut s, p));
+                ids.push((pi as u64, qi as u64));
+                ctxs.push(Ctx { p, vals });
+            }
+        }
+        if ctxs.len() > 1 && ctxs.len().saturating_mul(rule.rhs.len().max(1)) <= PRE_MAX_VALUES {
+            if let Ok(ev) = eval_coeffs(alg, rule, &ctxs, "key batch") {
+                for ((id, c), v) in ids.into_iter().zip(&ctxs).zip(ev.values) {
+                    pre.insert(id, (c.vals[rule.arity], v, ev.deg));
+                }
+            }
+        }
+    }
     let cx = CellCtx {
         alg,
         family,
         rule,
         opts,
         sym,
+        pre,
     };
     let mut cost = Cost {
         coefficient_bytes: rule.coefficient_bytes(),

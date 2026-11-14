@@ -552,3 +552,60 @@ fn cost_bp002_both() {
     );
     assert_eq!(t, Triage::AgreePass);
 }
+
+/// Keys per second of integer-key replay cells on the largest frozen F6 rules (f000: rank 1,410; fp008: rank 4,041),
+/// both backends, with the one-pass key batch (re-audit B m-2). Ignored: a measurement.
+#[test]
+#[ignore]
+fn cost_keys_per_second() {
+    if !licensed_or_skip("cost_keys_per_second") {
+        return;
+    }
+    let Some(o) = oracle() else { return };
+    let text = t162_text();
+    let s = SymbolicaAlgebra::new().unwrap();
+    for id in ["f000", "fp008", "fs023"] {
+        let case = o
+            .jsonl("span/F6_span_cases.jsonl")
+            .into_iter()
+            .find(|c| c["id"] == id)
+            .unwrap();
+        let Some(line) = f6_line(&o, &case) else {
+            return;
+        };
+        let rule = rule0(&line, 20);
+        let keys = census_keys(&case, 50);
+        if keys.is_empty() {
+            continue;
+        }
+        let pts: Vec<PointSpec> = (0..4).flat_map(|_| keys.clone()).collect();
+        let fi = Family::parse(&text).unwrap();
+        let t0 = Instant::now();
+        let vi = rustred_campaign_core::ibp_rows::identity_test(
+            &fi,
+            &rule,
+            &pts,
+            &RowsOptions::default(),
+        );
+        let ti = t0.elapsed().as_secs_f64();
+        let fs = Family::parse_with(&s, &text).unwrap();
+        let t1 = Instant::now();
+        let vs = rustred_campaign_core::ibp_rows::identity_test_with(
+            &s,
+            &fs,
+            &rule,
+            &pts,
+            &RowsOptions::default(),
+        );
+        let ts = t1.elapsed().as_secs_f64();
+        println!(
+            "{id}: {} key points ({} coefficient bytes): independent {:.2} keys/s ({:?}), symbolica {:.2} keys/s ({:?})",
+            pts.len(),
+            rule.coefficient_bytes(),
+            pts.len() as f64 / ti,
+            vi.verdict.kind(),
+            pts.len() as f64 / ts,
+            vs.verdict.kind()
+        );
+    }
+}
