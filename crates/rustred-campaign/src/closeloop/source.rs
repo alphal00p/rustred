@@ -1367,7 +1367,9 @@ impl CloseFromMaterialSource {
                 _ if finalized.contains_key(&i) => "final",
                 (_, true, Some(NodePhase::Closed | NodePhase::Certified)) => "closed",
                 (_, true, _) => "final",
-                (Some(p), _, _) if p.round <= 1 => "import",
+                // lane t266run: the pass the loop is REALLY in (round 0 = the set load; round 1 = the first check, which
+                // also commits the import item)
+                (Some(p), _, _) if p.round == 0 => "loading",
                 (Some(_), _, _) => "checking",
                 _ if pending > 0 => "solving",
                 _ => "waiting",
@@ -1402,6 +1404,10 @@ impl CloseFromMaterialSource {
                 "jobs": {"running": running}, "cpu_s": cpu_ms as f64 / 1000.0,
                 "per_key_cpu_s": per_key_s, "eta_s": eta_s,
                 "pass_running_s": r.pass_started.filter(|_| r.running.is_some()).map(|t| t.elapsed().as_secs()),
+                // lane t266run: which pass runs and since when (status readers see the real phase of the loop)
+                "pass": r.running.as_ref().map(|p| json!({"round": p.round,
+                    "kind": if p.round == 0 { "load" } else { "check" },
+                    "running_s": r.pass_started.map(|t| t.elapsed().as_secs())})),
                 "last_check": {"defect": lc["defect"], "blocking": lc["blocking"], "closed": lc["closed"]},
                 "evidence_by_class": lc["evidence_by_class"], "relation_rule": r.cfg.solve.relation_rule,
                 "target": lc["target"], "tier": lc["tier"], "exact_tier": lc["exact_tier"],
