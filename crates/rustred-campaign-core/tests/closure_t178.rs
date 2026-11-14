@@ -78,7 +78,7 @@ fn t178_closure_reference_numbers_and_frozen_tree() {
     let mut mism = 0usize;
     for (k, piece, case_i, in_box) in &rows {
         let i = cl.index_of(k).unwrap_or_else(|| panic!("closure misses {k:?}"));
-        assert_eq!(i < cl.n_start(), *in_box, "in_box of {k:?}");
+        assert_eq!(cl.in_start(i), *in_box, "in_box of {k:?}");
         match cl.winner(i) {
             None => {
                 if *piece != -1 {

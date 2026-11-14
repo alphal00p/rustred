@@ -9,12 +9,15 @@ use std::io::{self, BufRead, Write};
 
 use super::sha256::Sha256;
 
+/// Maximum number of u64 words per packed key (e.g. 32 slots at 16 bits, 80 slots at 6 bits).
+pub const MAX_WORDS: usize = 8;
+
 pub const KEYSET_SCHEMA: &str = "rustred.campaign.keyset.v1";
 
 /// Errors of key sets and key-set files.
 #[derive(Debug)]
 pub enum KeySetError {
-    /// Codec parameters out of range (bits 4..=16, at most 4 words).
+    /// Codec parameters out of range (bits 4..=16, at most MAX_WORDS words).
     Codec(String),
     /// A key of the wrong length.
     Arity { expected: usize, got: usize },
@@ -53,7 +56,7 @@ pub struct KeyCodec {
 }
 
 impl KeyCodec {
-    /// `bits` in 4..=16; the key must fit into at most 4 words.
+    /// `bits` in 4..=16; the key must fit into at most [`MAX_WORDS`] words (else a typed `Codec` error).
     pub fn new(arity: usize, bits: u32) -> Result<KeyCodec, KeySetError> {
         if !(4..=16).contains(&bits) {
             return Err(KeySetError::Codec(format!("bits {bits} not in 4..=16")));
@@ -63,9 +66,9 @@ impl KeyCodec {
         }
         let per_word = 64 / bits as usize;
         let words = arity.div_ceil(per_word);
-        if words > 4 {
+        if words > MAX_WORDS {
             return Err(KeySetError::Codec(format!(
-                "arity {arity} at {bits} bits needs {words} words (max 4)"
+                "arity {arity} at {bits} bits needs {words} words (max {MAX_WORDS})"
             )));
         }
         Ok(KeyCodec { arity, bits, per_word, words })
@@ -146,7 +149,11 @@ pub(crate) fn sort_dedup(w: usize, data: &mut Vec<u64>) {
         2 => go::<2>(data),
         3 => go::<3>(data),
         4 => go::<4>(data),
-        _ => unreachable!("codec words <= 4"),
+        5 => go::<5>(data),
+        6 => go::<6>(data),
+        7 => go::<7>(data),
+        8 => go::<8>(data),
+        _ => unreachable!("codec words <= MAX_WORDS"),
     }
 }
 
@@ -199,7 +206,7 @@ impl KeySet {
     ) -> Result<KeySet, KeySetError> {
         let w = codec.words;
         let mut data = vec![];
-        let mut code = [0u64; 4];
+        let mut code = [0u64; MAX_WORDS];
         for k in keys {
             if k.len() != codec.arity {
                 return Err(KeySetError::Arity { expected: codec.arity, got: k.len() });
@@ -226,6 +233,9 @@ impl KeySet {
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
+    pub(crate) fn raw_codes(&self) -> &[u64] {
+        &self.data
+    }
     pub(crate) fn code(&self, i: usize) -> &[u64] {
         let w = self.codec.words;
         &self.data[i * w..(i + 1) * w]
@@ -250,7 +260,7 @@ impl KeySet {
         Err(lo)
     }
     pub fn contains(&self, key: &[i32]) -> bool {
-        let mut code = [0u64; 4];
+        let mut code = [0u64; MAX_WORDS];
         self.codec.encode(key, &mut code) && self.position(&code[..self.codec.words]).is_ok()
     }
     /// `"sha256:<hex>"` over the canonical stream (module documentation of [`KEYSET_SCHEMA`] files).
@@ -373,12 +383,12 @@ impl KeySet {
 pub struct KeySetBuilder {
     codec: KeyCodec,
     data: Vec<u64>,
-    code: [u64; 4],
+    code: [u64; MAX_WORDS],
 }
 
 impl KeySetBuilder {
     pub fn new(codec: KeyCodec) -> Self {
-        KeySetBuilder { codec, data: vec![], code: [0; 4] }
+        KeySetBuilder { codec, data: vec![], code: [0; MAX_WORDS] }
     }
     /// Add one key (error if it does not fit the codec).
     pub fn push(&mut self, key: &[i32]) -> Result<(), KeySetError> {
@@ -461,7 +471,7 @@ impl KeyTable {
         }
     }
     pub fn get_key(&self, key: &[i32]) -> Option<u32> {
-        let mut c = [0u64; 4];
+        let mut c = [0u64; MAX_WORDS];
         if !self.codec.encode(key, &mut c) {
             return None;
         }
@@ -522,7 +532,7 @@ mod tests {
         let a = [1, 2, 3, 0, -1, -32, 31, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let mut b = a;
         b[11] = 2;
-        let (mut ca, mut cb) = ([0u64; 4], [0u64; 4]);
+        let (mut ca, mut cb) = ([0u64; MAX_WORDS], [0u64; MAX_WORDS]);
         assert!(c.encode(&a, &mut ca) && c.encode(&b, &mut cb));
         assert!(ca[..2] < cb[..2]);
         assert_eq!(c.decode_vec(&ca[..2]), a.to_vec());
@@ -552,7 +562,7 @@ mod tests {
     fn table_insert_get() {
         let c = KeyCodec::new(3, 8).unwrap();
         let mut t = KeyTable::new(c, 2);
-        let mut code = [0u64; 4];
+        let mut code = [0u64; MAX_WORDS];
         for i in 0..1000 {
             c.encode(&[i % 100, i / 100, 0], &mut code);
             let (ix, _) = t.insert(&code[..1]);

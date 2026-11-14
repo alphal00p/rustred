@@ -182,6 +182,12 @@ pub struct FileFacts {
     label: String,
     pub n_facts: usize,
     pub n_provisional_read_as_unknown: usize,
+    /// Lines of other schemas (rr_proof's instantiate records).
+    pub n_other_lines: usize,
+    /// Refusal records of the producer (`ERROR`, `UNSUPPORTED: ...`): the affected facts stay Unknown.
+    pub refusals: Vec<String>,
+    /// Unknown answers with the producer's evidence text (typed Unknown(reason)).
+    pub unknown_reasons: Vec<String>,
 }
 
 const REG_TERM: u32 = u32::MAX;
@@ -199,11 +205,21 @@ impl FileFacts {
             if line.trim().is_empty() {
                 continue;
             }
-            let f: FactLine =
+            let raw: serde_json::Value =
                 serde_json::from_str(&line).map_err(|e| FactError::Line { line: ln, msg: e.to_string() })?;
-            if f.schema != FACT_SCHEMA {
-                return Err(FactError::Line { line: ln, msg: format!("schema {}", f.schema) });
+            if raw["schema"] != FACT_SCHEMA {
+                // rr_proof instantiate writes its per-(rule, key) lines (`rustred.proof-kernel.instantiate.v1`) into
+                // the same file, and refusal records {"verdict": "ERROR"|"UNSUPPORTED"|.., "error": ..}: kept as
+                // refusals; the facts they would have given stay Unknown (never zero).
+                if let Some(v) = raw["verdict"].as_str() {
+                    ff.refusals.push(format!("{v}: {}", raw["error"].as_str().unwrap_or("")));
+                } else {
+                    ff.n_other_lines += 1;
+                }
+                continue;
             }
+            let f: FactLine =
+                serde_json::from_value(raw).map_err(|e| FactError::Line { line: ln, msg: e.to_string() })?;
             let exact = f.method.starts_with("exact");
             let (term, val) = match f.kind {
                 FactKind::Coefficient => {
@@ -211,7 +227,10 @@ impl FileFacts {
                     let v = match f.value.as_str() {
                         "zero" => CoefFact::Zero,
                         "nonzero" => CoefFact::NonZero,
-                        "unknown" => CoefFact::Unknown,
+                        "unknown" => {
+                            ff.unknown_reasons.push(f.evidence.as_ref().map(|e| e.to_string()).unwrap_or_default());
+                            CoefFact::Unknown
+                        }
                         o => return Err(FactError::Line { line: ln, msg: format!("value {o}") }),
                     };
                     (t as u32, Val::C(v))

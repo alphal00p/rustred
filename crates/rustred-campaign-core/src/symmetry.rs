@@ -181,7 +181,7 @@ pub(crate) fn serve_with(
 }
 
 /// The adopted symmetry-credit condition at one key (standalone; the closure uses the same function through its
-/// dispatch index). `sectors` gives the line mask (and zero sectors). Returns the credit, or every element's refusal.
+/// dispatch index). Fact identities use the table's `provenance.source` (the EC-2 table path). `sectors` gives the line mask (and zero sectors). Returns the credit, or every element's refusal.
 #[allow(clippy::too_many_arguments)]
 pub fn serve_by_image(
     key: &[i32],
@@ -200,7 +200,7 @@ pub fn serve_by_image(
     let names = (0..fast.n_entries() as u32)
         .map(|p| {
             let r = fast.rule(p);
-            RuleName { table: disp.tables()[r.table].name.clone(), record: r.record, label: r.label }
+            RuleName { table: disp.tables()[r.table].provenance.source.clone(), record: r.record, label: r.label }
         })
         .collect();
     let ctx = StandaloneCtx {
@@ -234,7 +234,7 @@ impl<'a> CreditChecker<'a> {
         let names = (0..fast.n_entries() as u32)
             .map(|p| {
                 let r = fast.rule(p);
-                RuleName { table: disp.tables()[r.table].name.clone(), record: r.record, label: r.label }
+                RuleName { table: disp.tables()[r.table].provenance.source.clone(), record: r.record, label: r.label }
             })
             .collect();
         CreditChecker { ctx: StandaloneCtx { fast, disp, bodies, cmp, sectors, facts, names, require_regularity } }

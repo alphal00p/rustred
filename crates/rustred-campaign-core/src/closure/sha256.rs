@@ -82,6 +82,8 @@ impl Sha256 {
                 let b = self.buf;
                 Self::block(&mut self.h, &b);
                 self.nbuf = 0;
+            } else {
+                return;
             }
         }
         let (chunks, rest) = data.as_chunks::<64>();

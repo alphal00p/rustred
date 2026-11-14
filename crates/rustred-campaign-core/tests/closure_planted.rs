@@ -250,3 +250,153 @@ fn symmetry_credit_adopted_condition() {
     // (1,1) and (2,1) reached; (2,1) is uncovered here (only (3,1) has a rule) -> credit tried via swap: (1,2) uncovered
     assert_eq!(s.descent_violations, 0);
 }
+
+// ------------------------------------------------------------------------------------------------ genericity (L8)
+
+/// A toy node of another arity (7 slots: lines 0,1,2; numerators 3..6) at 8 bits per slot: the closure, the
+/// recheck with an extra (envelope) key set, declared terminals and the measured/proved labels.
+#[test]
+fn toy_arity7_recheck_terminals_provisional() {
+    use rustred_campaign_core::closure::{InputLabel, InputProvenance, TerminalKind, TerminalSets, closure_recheck};
+    let n = 7;
+    let chart: Vec<bool> = (0..n).map(|s| s < 3).collect();
+    let mut t = Table::new("toy", n);
+    // r0: line 0 >= 2 -> lower line 0;  r1: line 1 >= 2 (line 0 = 1) -> lower line 1 and raise numerator 3 by -1
+    let mut d0 = CaseDomain::free(n, Some(chart.clone()));
+    d0.equations = vec![];
+    let mut d1 = d0.clone();
+    d1.fixed[0] = Some(1);
+    t.push(1, d1).unwrap();
+    t.push(0, d0).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let mut b = RuleBodies::new(&disp);
+    b.set(&disp, 0, 0, &["I(n0,n1-1,n2,n3,n4,n5,n6)", "I(n0,n1-1,n2,n3+1,n4,n5,n6)"]).unwrap();
+    b.set(&disp, 0, 1, &["I(n0-1,n1,n2,n3,n4,n5,n6)"]).unwrap();
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let codec = KeyCodec::new(n, 8).unwrap();
+    let ks = |v: &[[i32; 7]]| KeySet::from_keys(codec, v.iter().map(|k| k.as_slice())).unwrap();
+    let cfg = ClosureConfig {
+        tier: Tier::K,
+        threads: 3,
+        bits: 8,
+        hand_downs: HandDowns::Keys,
+        inputs: vec![InputLabel { name: "box".into(), digest: "x".into(), provenance: InputProvenance::Proved }],
+        ..Default::default()
+    };
+    let start = ks(&[[3, 2, 1, 0, 0, 0, 0]]);
+    let c = closure(&disp, &b, &cmp, &start, &cfg, &NoFacts).unwrap();
+    let s = c.summary();
+    // (3,2,1) -> (2,2,1) -> (1,2,1) -> (1,1,1) -> hand-down (1,0,1); numerator-raising term flagged
+    assert_eq!((s.keys_total, s.edges, s.open_total), (4, 3, 0));
+    assert_eq!(s.requires_coefficient_zero, 2); // r1 fires at (1,2,1) and (1,1,1)
+    assert!(!s.provisional);
+    assert_eq!(s.verdict, Verdict::SupersetClean);
+    // recheck with a MEASURED envelope key set: only new keys are processed; equals the from-scratch closure
+    let env = ks(&[[4, 3, 1, 0, 0, 0, 0], [2, 2, 1, 0, 0, 0, 0]]);
+    let cfg2 = ClosureConfig {
+        inputs: vec![InputLabel { name: "envelope".into(), digest: env.digest(), provenance: InputProvenance::Measured }],
+        ..cfg.clone()
+    };
+    let r = closure_recheck(&c, &disp, &b, &cmp, &env, &cfg2, &NoFacts).unwrap();
+    let both = start.union(&env);
+    let cfg_both = ClosureConfig { inputs: [cfg.inputs.clone(), cfg2.inputs.clone()].concat(), ..cfg.clone() };
+    let f = closure(&disp, &b, &cmp, &both, &cfg_both, &NoFacts).unwrap();
+    let (rs, fs) = (r.summary(), f.summary());
+    assert_eq!(r.keys(), f.keys());
+    assert_eq!((rs.keys_total, rs.keys_in_start, rs.edges, rs.open_total), (fs.keys_total, fs.keys_in_start, fs.edges, fs.open_total));
+    assert_eq!(rs.used_rules, fs.used_rules);
+    assert!(rs.provisional);
+    assert_eq!(rs.start_set_digest, fs.start_set_digest);
+    // declared terminals take precedence over dispatch: (1,2,1) preferred, (2,2,1) other
+    let cfg3 = ClosureConfig {
+        terminals: Some(TerminalSets {
+            preferred: Some(ks(&[[1, 2, 1, 0, 0, 0, 0]])),
+            other: Some(ks(&[[2, 2, 1, 0, 0, 0, 0]])),
+        }),
+        ..cfg.clone()
+    };
+    let c3 = closure(&disp, &b, &cmp, &start, &cfg3, &NoFacts).unwrap();
+    let s3 = c3.summary();
+    assert_eq!((s3.keys_total, s3.terminals_preferred, s3.terminals_other, s3.open_total), (2, 0, 1, 0));
+    let tr = c3.terminal_records();
+    assert_eq!(tr[0].kind, TerminalKind::Other);
+    assert_eq!(tr[0].would_dispatch.as_ref().unwrap().label, 0, "inside rule r0's domain, not applied");
+    // a codec too narrow is a typed error, never a wrap
+    assert!(KeyCodec::new(40, 16).is_err());
+    let narrow = KeyCodec::new(n, 4).unwrap();
+    assert!(KeySet::from_keys(narrow, [[9, 1, 1, 0, 0, 0, 0].as_slice()]).is_err());
+}
+
+/// Arity 27 (a six-loop propagator family size) packs at the default 6 bits; a closure runs unchanged.
+#[test]
+fn toy_arity27_runs() {
+    let n = 27;
+    let chart: Vec<bool> = (0..n).map(|s| s < 15).collect();
+    let mut t = Table::new("six", n);
+    t.push(0, CaseDomain::free(n, Some(chart))).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let mut b = RuleBodies::new(&disp);
+    let pat = format!("I({})", (0..n).map(|s| if s == 14 { "n14-1".to_string() } else { format!("n{s}") }).collect::<Vec<_>>().join(","));
+    b.set(&disp, 0, 0, &[pat]).unwrap();
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let mut k: Vec<i32> = (0..n).map(|s| if s < 15 { 1 } else { 0 }).collect();
+    k[14] = 6;
+    let st = KeySet::from_keys(KeyCodec::new(n, 6).unwrap(), [k.as_slice()]).unwrap();
+    let c = closure(&disp, &b, &cmp, &st, &ClosureConfig::default(), &NoFacts).unwrap();
+    let s = c.summary();
+    assert_eq!((s.keys_total, s.edges, s.open_total, s.cycles), (6, 5, 0, Some(0)));
+    assert_eq!(s.longest_chain.unwrap().edges, 5);
+}
+
+/// R44: image dispatch ranges over the rules in force and is re-evaluated after every change: a key becomes
+/// creditable only after a second table is added (incremental closure), and its credit is invalidated when a new
+/// higher-priority rule replaces the winner at the image with one whose term lands above the key.
+#[test]
+fn credits_follow_table_changes() {
+    use rustred_campaign_core::closure::{closure_incremental, credit_diff};
+    let tab = |name: &str, rules: &[([Option<i32>; 4], &[&str])]| {
+        let mut t = Table::new(name, 4);
+        for (i, (f, _)) in rules.iter().enumerate() {
+            t.push(i as i64, dom(*f)).unwrap();
+        }
+        t
+    };
+    let ra: &[([Option<i32>; 4], &[&str])] = &[([Some(5), Some(5), Some(0), Some(0)], &["I(1,1,0,0)"])];
+    let rb: &[([Option<i32>; 4], &[&str])] = &[([Some(3), Some(1), Some(0), Some(0)], &["I(1,1,0,0)", "I(2,1,0,0)"])];
+    let rc: &[([Option<i32>; 4], &[&str])] = &[([Some(3), Some(1), Some(0), Some(0)], &["I(1,4,0,0)"])];
+    let build = |specs: &[(&str, &[([Option<i32>; 4], &[&str])])], prio: Vec<usize>| {
+        let d = Dispatcher::new(specs.iter().map(|(n, r)| tab(n, r)).collect(), prio).unwrap();
+        let mut b = RuleBodies::new(&d);
+        for (t, (_, r)) in specs.iter().enumerate() {
+            for (i, (_, body)) in r.iter().enumerate() {
+                b.set(&d, t, i, body).unwrap();
+            }
+        }
+        (d, b)
+    };
+    let pol = CreditPolicy {
+        group: vec![GroupElement { lines: vec![1, 0], numerators: None }],
+        tier: Tier::K,
+        frame: CreditFrame::Direct,
+    };
+    let cfgc = ClosureConfig { credits: Some(pol), ..cfg(Tier::K) };
+    let st = start(&[[1, 3, 0, 0]]);
+    let (d1, b1) = build(&[("A", ra)], vec![0]);
+    let c1 = closure(&d1, &b1, &cmp(), &st, &cfgc, &NoFacts).unwrap();
+    assert_eq!((c1.summary().credited, c1.summary().open_total), (0, 1));
+    let (d2, b2) = build(&[("A", ra), ("B", rb)], vec![0, 1]);
+    let c2 = closure_incremental(&c1.dispatch_cache(), &d2, &b2, &cmp(), &st, &cfgc, &NoFacts).unwrap();
+    assert_eq!(c2.summary(), closure(&d2, &b2, &cmp(), &st, &cfgc, &NoFacts).unwrap().summary());
+    assert_eq!(c2.summary().credited, 1);
+    let (inval, created) = credit_diff(&c1, &c2);
+    assert!(inval.is_empty());
+    assert_eq!(created.len(), 1);
+    assert_eq!((created[0].image.clone(), created[0].rule.table.clone()), (vec![3, 1, 0, 0], "B".to_string()));
+    let (d3, b3) = build(&[("A", ra), ("B", rb), ("C", rc)], vec![2, 0, 1]);
+    let c3 = closure_incremental(&c2.dispatch_cache(), &d3, &b3, &cmp(), &st, &cfgc, &NoFacts).unwrap();
+    assert_eq!(c3.summary(), closure(&d3, &b3, &cmp(), &st, &cfgc, &NoFacts).unwrap().summary());
+    let (inval, created) = credit_diff(&c2, &c3);
+    assert_eq!(inval.len(), 1);
+    assert_eq!(inval[0].reason, "refused");
+    assert!(created.is_empty());
+}
