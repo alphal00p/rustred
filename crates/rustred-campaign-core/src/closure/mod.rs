@@ -139,6 +139,24 @@ pub struct ClosureConfig {
     /// `0..arity`). When given it must equal the comparator's presentation (typed `Config` error otherwise; audit
     /// loop-A m7); recorded in the identity component `frame` (`unchecked` when absent: the caller's responsibility).
     pub table_presentation: Option<Vec<usize>>,
+    /// The per-key lift (closure.md section 16; coordinator / user ruling 2026-11-14): `Proof` lets a record whose
+    /// witness loci are ELIDED or ABSENT (core `Blocked(Elided | WitnessNotCarried)`) serve a key iff the fact source
+    /// holds an exact per-key proof bound to exactly (rule content, key) ([`FactSource::per_key_proof`]), in BOTH
+    /// tiers; such keys are recorded per key (`Closure::is_per_key_lifted`, summary `per_key_lifted`). The dispatcher
+    /// stays strict (no witness check is turned off: never `diagnostic`). Without the proof the key stays open
+    /// (`blocked`); Tier K follows the record's body all the same (superset of every Tier C run, re-audit F1b).
+    /// `Off` (default): unchanged behaviour (identity unchanged).
+    pub per_key_lift: PerKeyLift,
+}
+
+/// The per-key lift of records with elided / absent witness loci (closure.md section 16).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PerKeyLift {
+    #[default]
+    Off,
+    /// Served iff an exact per-key proof is bound to (rule content, key).
+    Proof,
 }
 
 /// Policy for records without witness loci (coordinator ruling 2026-11-14).
@@ -310,6 +328,7 @@ impl Default for ClosureConfig {
             witness_absent: WitnessAbsent::default(),
             spill: None,
             table_presentation: None,
+            per_key_lift: PerKeyLift::Off,
         }
     }
 }
@@ -576,6 +595,13 @@ pub struct ClosureSummary {
     pub requires_regularity_fact: u64,
     /// The effective witness-absent policy of this run (`block` in Tier K).
     pub witness_absent: WitnessAbsent,
+    /// Keys served through an elided / witness-absent record by an exact per-key proof (`PerKeyLift::Proof`), per
+    /// table (evidence level `per-key` at exactly those keys; closure.md section 16). Absent when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_key_lifted: BTreeMap<String, u64>,
+    /// `PerKeyLift::Proof`: keys blocked by an ELIDED record without its per-key proof (open). Absent when 0.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub requires_per_key_proof: u64,
     /// Keys served by relation sets, and the number of sets used.
     pub recipe_served: u64,
     pub recipe_served_in_start: u64,
@@ -841,6 +867,7 @@ pub struct Closure {
     recipe_of: BTreeMap<u32, (u32, u32)>,
     rset_names: Vec<(String, String)>,
     lifted: BTreeSet<u32>,
+    per_key_lifted: BTreeSet<u32>,
     witness_absent_keys: BTreeSet<u32>,
     witness_policy: WitnessAbsent,
     pub seconds: f64,
@@ -1559,6 +1586,8 @@ enum KeyRes {
     Terminal(TermInfo),
     /// Served through a witness-absent record lifted by its exact per-key fact.
     Lifted(u32),
+    /// Served through an elided / witness-absent record by an exact per-key proof (`PerKeyLift::Proof`).
+    PerKey(u32),
     /// Blocked by a witness-absent record: open, with a lift request (Tier K: its body is followed).
     WitnessAbsent(OpenInfo),
     Recipe(u32, u32),
@@ -1571,7 +1600,7 @@ impl KeyRes {
     fn served(&self) -> Option<Served<'_>> {
         match self {
             KeyRes::Terminal(_) => None,
-            KeyRes::Lifted(p) | KeyRes::Pos(p, _) => Some(Served::Rule(*p)),
+            KeyRes::Lifted(p) | KeyRes::PerKey(p) | KeyRes::Pos(p, _) => Some(Served::Rule(*p)),
             KeyRes::WitnessAbsent(o) | KeyRes::Open(o) => o.followed(),
             KeyRes::Recipe(si, ri) => Some(Served::Recipe(*si, *ri)),
             KeyRes::Credit(c) => Some(Served::Credit(c)),
@@ -1711,6 +1740,10 @@ fn cache_view<'c>(
 }
 
 /// The effective witness-absent policy (Tier K: always `block`).
+fn is_zero_u64(x: &u64) -> bool {
+    *x == 0
+}
+
 fn witness_policy(cfg: &ClosureConfig) -> WitnessAbsent {
     if cfg.tier == Tier::K {
         WitnessAbsent::Block
@@ -2078,6 +2111,9 @@ fn run(
             "witness_absent".into(),
             format!("{:?}", witness_policy(cfg)),
         );
+        if cfg.per_key_lift != PerKeyLift::Off {
+            c.insert("per_key_lift".into(), format!("{:?}", cfg.per_key_lift));
+        }
         // what the dispatcher's credits rest on (witness check on / off, attestations checked / unchecked, chart)
         c.insert("dispatcher_summary".into(), format!("{:?}", disp.summary()));
         c.insert("max_rounds".into(), format!("{:?}", cfg.max_rounds));
@@ -2162,6 +2198,7 @@ fn run(
     let mut terminals: BTreeMap<u32, TermInfo>;
     let mut recipe_of: BTreeMap<u32, (u32, u32)>;
     let mut lifted: BTreeSet<u32>;
+    let mut per_key_lifted: BTreeSet<u32>;
     let mut witness_absent_keys: BTreeSet<u32>;
     let mut acc = ExpandOut::new(codec);
     let mut start_mask: Vec<bool>;
@@ -2184,6 +2221,7 @@ fn run(
             terminals = BTreeMap::new();
             recipe_of = BTreeMap::new();
             lifted = BTreeSet::new();
+            per_key_lifted = BTreeSet::new();
             witness_absent_keys = BTreeSet::new();
             start_mask = vec![];
         }
@@ -2196,6 +2234,7 @@ fn run(
             terminals = p.terminals.clone();
             recipe_of = p.recipe_of.clone();
             lifted = p.lifted.clone();
+            per_key_lifted = p.per_key_lifted.clone();
             witness_absent_keys = p.witness_absent_keys.clone();
             exits
                 .seed(&p.hand_down_keys, &p.exit_files)
@@ -2428,6 +2467,10 @@ fn run(
                             res[i] = p;
                             lifted.insert(i as u32);
                         }
+                        KeyRes::PerKey(p) => {
+                            res[i] = p;
+                            per_key_lifted.insert(i as u32);
+                        }
                         KeyRes::WitnessAbsent(o) => {
                             let p = o.rule.expect("blocking record");
                             res[i] = OPEN;
@@ -2582,6 +2625,7 @@ fn run(
         incremental: cache.map(|_| inc_use),
         recipe_of,
         lifted,
+        per_key_lifted,
         witness_absent_keys,
         witness_policy: witness_policy(cfg),
         rset_names: ctx
@@ -2752,6 +2796,33 @@ fn dispose(
                 detail: String::new(),
                 candidates: ctx.recipe_candidates(key),
                 follow: None,
+                follow_credit: None,
+            })
+        }
+        Dispatch::Blocked { at, reason }
+            if ctx.cfg.per_key_lift == PerKeyLift::Proof
+                && (reason == crate::domain::Verdict::WitnessNotCarried
+                    || reason == crate::domain::Verdict::Elided)
+                && ctx.bodies.has(at.table, at.record)
+                && ctx
+                    .facts
+                    .per_key_proof(&ctx.rid(ctx.fast.position(at)), key) =>
+        {
+            KeyRes::PerKey(ctx.fast.position(at))
+        }
+        Dispatch::Blocked { at, reason }
+            if reason == crate::domain::Verdict::Elided
+                && ctx.cfg.per_key_lift == PerKeyLift::Proof =>
+        {
+            // open without its per-key proof; Tier K follows the body (a Tier C run with the proof serves it)
+            let p = ctx.fast.position(at);
+            let follow = (!tier_c && ctx.bodies.has(at.table, at.record)).then_some(p);
+            KeyRes::Open(OpenInfo {
+                status: OpenStatus::Blocked,
+                rule: Some(p),
+                detail: format!("{reason:?}: requires the per-key proof"),
+                candidates: vec![],
+                follow,
                 follow_credit: None,
             })
         }
@@ -3042,6 +3113,15 @@ impl Closure {
     }
     pub fn is_credited(&self, i: usize) -> bool {
         self.res[i] == CREDITED
+    }
+    /// Whether key `i` is served by an elided / witness-absent record through its exact per-key proof
+    /// (`PerKeyLift::Proof`; evidence level `per-key` at this key).
+    pub fn is_per_key_lifted(&self, i: usize) -> bool {
+        self.per_key_lifted.contains(&(i as u32))
+    }
+    /// Whether key `i` is served by a witness-absent record lifted by its per-key regularity fact (Tier C).
+    pub fn is_witness_lifted(&self, i: usize) -> bool {
+        self.lifted.contains(&(i as u32))
     }
     /// The open keys (the defect), in reach order.
     pub fn open_keys(&self) -> Vec<OpenKey> {
@@ -3699,6 +3779,23 @@ impl Closure {
             },
             requires_regularity_fact: self.witness_absent_keys.len() as u64,
             witness_absent: self.witness_policy,
+            per_key_lifted: {
+                let mut m: BTreeMap<String, u64> = BTreeMap::new();
+                for &i in &self.per_key_lifted {
+                    let p = self.res[i as usize];
+                    *m.entry(self.table_names[self.entry_table[p as usize] as usize].clone())
+                        .or_default() += 1;
+                }
+                m
+            },
+            requires_per_key_proof: self
+                .open
+                .values()
+                .filter(|o| {
+                    o.status == OpenStatus::Blocked
+                        && o.detail.ends_with("requires the per-key proof")
+                })
+                .count() as u64,
             recipe_served: self.recipe_of.len() as u64,
             recipe_served_in_start: self
                 .recipe_of

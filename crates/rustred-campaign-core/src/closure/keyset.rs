@@ -282,6 +282,15 @@ impl KeySet {
         let mut code = [0u64; MAX_WORDS];
         self.codec.encode(key, &mut code) && self.position(&code[..self.codec.words]).is_ok()
     }
+    /// The position of `key` in the set's (lexicographic) order, if present (lane import2: per-key marks of a
+    /// streamed pass in bitsets indexed by this position).
+    pub fn index_of(&self, key: &[i32]) -> Option<usize> {
+        let mut code = [0u64; MAX_WORDS];
+        if !self.codec.encode(key, &mut code) {
+            return None;
+        }
+        self.position(&code[..self.codec.words]).ok()
+    }
     /// `"sha256:<hex>"` over the canonical stream (module documentation of [`KEYSET_SCHEMA`] files).
     pub fn digest(&self) -> String {
         let mut d = DigestStream::new(self.codec.arity);

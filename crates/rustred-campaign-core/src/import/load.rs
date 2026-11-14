@@ -17,7 +17,11 @@ use super::lines::{
     RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, scan_table_each, verify_file,
 };
 use super::spec::{
-    DomainMode, ElidedPolicy, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
+    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
+};
+use super::symmetry::{
+    DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
+    verify_relation_with,
 };
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
@@ -39,8 +43,6 @@ pub enum WitnessKind {
     Complete,
     NotCarried,
     Elided,
-    /// Elided, loaded with the witness check off under `elided: lift_with_per_key_proof`.
-    ElidedLifted,
 }
 
 /// Provenance of one dispatched record.
@@ -71,6 +73,9 @@ pub struct RecipeSource {
     pub recipe_id: Option<String>,
     pub domain: CaseDomain,
     pub slot: DispatchSlot,
+    /// Per-key assignment (recipe v1.2 `domain.keys` and / or the spec's side file): the ONLY keys this recipe may
+    /// serve and be asked for; `None` = its whole domain.
+    pub assigned: Option<std::collections::HashSet<Vec<i32>>>,
 }
 
 /// A supplied point relation (provenance for statements).
@@ -84,6 +89,8 @@ pub struct SuppliedInfo {
     pub record_sha256: String,
     pub hand_name: Option<String>,
     pub verification_sha256: Option<String>,
+    /// `verify`: the re-derivation from the verified group at the key (None: not asked).
+    pub check: Option<RelationCheck>,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -112,6 +119,11 @@ pub struct SourceReport {
     pub line_kinds: BTreeMap<String, usize>,
     /// Files without an `end` record (an unterminated run table: imported as it is, reported).
     pub files_without_end: Vec<String>,
+    /// The verified symmetry group of a `symmetry_credit` / `supplied_relations.verify` source.
+    pub group: Option<GroupReport>,
+    /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
+    pub relations_verified: usize,
+    pub relations_not_verified: Vec<(Vec<i32>, String)>,
 }
 
 /// The load report.
@@ -250,7 +262,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         source: fsrc.id.clone(),
         msg: "no table file".into(),
     })?;
-    let fhead = scan_table(&fsrc.id, &first.path, false, &|_, _| false)?.header;
+    // the frame: the header line only (the file itself is verified when its source is loaded)
+    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
     let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
@@ -312,7 +325,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                 let mut seen_removed = BTreeSet::new();
                 let mut seen_src_labels: BTreeSet<i64> = BTreeSet::new();
                 let mut first_table_name: Option<String> = None;
-                for (ui, u) in units.iter().enumerate() {
+                for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
                     let raw = scan_table(&src.id, &u.path, false, &|_, _| true)?;
                     let sha = format!("sha256:{}", raw.file_sha256);
@@ -399,71 +412,38 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                             true
                         }
                     });
-                    // segments: split around elided records when they are lifted
-                    let lift = spec.policies.elided == ElidedPolicy::LiftWithPerKeyProof;
-                    let mut segments: Vec<(Vec<usize>, bool)> = vec![];
-                    let mut cur: Vec<usize> = vec![];
-                    for &i in &order {
-                        let el = raw.records[i]
-                            .rec
-                            .witness_loci
-                            .as_ref()
-                            .is_some_and(|w| w.iter().any(|s| s.trim() == "elided"));
-                        if lift && el {
-                            if !cur.is_empty() {
-                                segments.push((std::mem::take(&mut cur), false));
-                            }
-                            segments.push((vec![i], true));
-                        } else {
-                            cur.push(i);
-                        }
-                    }
-                    if !cur.is_empty() || segments.is_empty() {
-                        segments.push((cur, false));
-                    }
-                    let base_name = match &u.table_label {
+                    // one strict table per file (witness check ON for every record; elided / witness-absent records
+                    // serve only through the closure's per-key lift, closure.md section 16)
+                    let name = match &u.table_label {
                         Some(t) => format!("{}/{}", src.id, t),
                         None => src.id.clone(),
                     };
-                    let nseg = segments.len();
-                    for (si, (seg, lifted)) in segments.into_iter().enumerate() {
-                        let name = if nseg == 1 {
-                            base_name.clone()
-                        } else if lifted {
-                            let l = raw.records[seg[0]].rec.index.unwrap_or(-1);
-                            format!("{base_name}~lift{l}")
-                        } else {
-                            format!("{base_name}~{si}")
-                        };
-                        if seg.is_empty() {
-                            continue;
-                        }
+                    if !order.is_empty() {
+                        let witness = spec.policies.witness_check == super::spec::WitnessCheck::On;
                         let (t, tf, infos) = build_table(
-                            src, &class, &name, u, &raw, &seg, lifted, &frame, &mut rep,
+                            src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
                         )?;
-                        if t.is_empty() {
-                            continue;
+                        if !t.is_empty() {
+                            if first_table_name.is_none() {
+                                first_table_name = Some(name.clone());
+                            }
+                            fact_tables.insert(name.clone(), u.path.display().to_string());
+                            table_digests.insert(name.clone(), sha.clone());
+                            rep.tables.push(name.clone());
+                            rep.records_dispatched += t.len();
+                            body_plan.push((
+                                u.path.clone(),
+                                src.id.clone(),
+                                infos
+                                    .iter()
+                                    .map(|i| (i.ordinal, i.record_sha256.clone()))
+                                    .collect(),
+                            ));
+                            drop(tf);
+                            tables.push(t);
+                            rules.push(infos);
                         }
-                        if first_table_name.is_none() {
-                            first_table_name = Some(name.clone());
-                        }
-                        fact_tables.insert(name.clone(), u.path.display().to_string());
-                        table_digests.insert(name.clone(), sha.clone());
-                        rep.tables.push(name.clone());
-                        rep.records_dispatched += t.len();
-                        body_plan.push((
-                            u.path.clone(),
-                            src.id.clone(),
-                            infos
-                                .iter()
-                                .map(|i| (i.ordinal, i.record_sha256.clone()))
-                                .collect(),
-                        ));
-                        drop(tf);
-                        tables.push(t);
-                        rules.push(infos);
                     }
-                    let _ = ui;
                 }
                 if let Some(sel) = &src.records
                     && units.len() > 1
@@ -550,15 +530,51 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         "more than one symmetry_credit source".into(),
                     ));
                 }
-                let g = src
-                    .group
-                    .as_ref()
-                    .ok_or_else(|| ImportError::Spec("group".into()))?;
-                let path = resolve(base, &g.path);
-                let d = verify_file(&path, g.sha256.as_deref())?;
-                rep.files
-                    .push((path.display().to_string(), format!("sha256:{d}")));
-                credits = Some(read_credit_group(&path, frame.mask())?);
+                if src.family.is_some() || src.group_format.is_some() {
+                    // the VERIFIED group: derived from the family (presented into the tables' frame), supplied data
+                    // checked against it (interfaces/import.md 13.1)
+                    let gs = GroupSpec {
+                        family: src.family.clone(),
+                        group: src.group.clone(),
+                        group_format: src.group_format.unwrap_or(if src.group.is_some() {
+                            GroupFormat::Symgroup
+                        } else {
+                            GroupFormat::Derive
+                        }),
+                        max_candidates: src.max_candidates,
+                        max_terms: None,
+                    };
+                    let (vg, gr) = load_verified_group(
+                        &gs,
+                        base,
+                        frame.mask(),
+                        cmp.presentation().new_to_old(),
+                        fhead.raw.get("family_source").and_then(Value::as_str),
+                    )?;
+                    rep.files
+                        .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                    if let Some(f) = &gr.group_file {
+                        rep.files.push(f.clone());
+                    }
+                    let pol = CreditPolicy::from_verified(&vg, frame.mask()).map_err(|m| {
+                        ImportError::Source {
+                            source: src.id.clone(),
+                            msg: format!("verified group -> credit policy: {m}"),
+                        }
+                    })?;
+                    rep.group = Some(gr);
+                    credits = Some(pol);
+                } else {
+                    let g = src
+                        .group
+                        .as_ref()
+                        .ok_or_else(|| ImportError::Spec("group".into()))?;
+                    let path = resolve(base, &g.path);
+                    let d = verify_file(&path, g.sha256.as_deref())?;
+                    rep.files
+                        .push((path.display().to_string(), format!("sha256:{d}")));
+                    credits = Some(read_credit_group(&path, frame.mask())?);
+                }
             }
         }
         reports.push(rep);
@@ -898,8 +914,8 @@ fn build_table(
     u: &FileUnit,
     raw: &RawTable,
     seg: &[usize],
-    lifted: bool,
     frame: &NodeFrame,
+    witness_check: bool,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
     let tf = TableFile {
@@ -909,7 +925,7 @@ fn build_table(
         others: vec![],
     };
     let opts = DomainOptions {
-        witness: !lifted,
+        witness: witness_check,
         ..Default::default()
     };
     let mut t =
@@ -1010,11 +1026,10 @@ fn build_table(
                 msg: format!("domain with bounds: {e}"),
             })?;
         }
-        let witness = match (t.meta[k].witness, lifted) {
-            (_, true) => WitnessKind::ElidedLifted,
-            (WitnessStatus::Complete, _) => WitnessKind::Complete,
-            (WitnessStatus::Elided, _) => WitnessKind::Elided,
-            (WitnessStatus::NotCarried, _) => WitnessKind::NotCarried,
+        let witness = match t.meta[k].witness {
+            WitnessStatus::Complete => WitnessKind::Complete,
+            WitnessStatus::Elided => WitnessKind::Elided,
+            WitnessStatus::NotCarried => WitnessKind::NotCarried,
         };
         *rep.witness.entry(format!("{witness:?}")).or_default() += 1;
         infos.push(RuleInfo {
@@ -1090,6 +1105,28 @@ fn load_supplied(
         None => None,
     };
     let n = frame.arity();
+    // `verify`: the verified group and the coefficient texts of every record (small files: read whole)
+    let vgroup = match &src.verify {
+        Some(gs) => {
+            let (vg, gr) = load_verified_group(
+                gs,
+                base,
+                frame.mask(),
+                cmp.presentation().new_to_old(),
+                fhead.raw.get("family_source").and_then(Value::as_str),
+            )?;
+            rep.files
+                .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+            rep.group = Some(gr);
+            Some((vg, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS)))
+        }
+        None => None,
+    };
+    let coefs: SuppliedCoefficients = if vgroup.is_some() {
+        supplied_coefficients(&src.id, &path, n)?
+    } else {
+        HashMap::new()
+    };
     let mut b = RelationStoreBuilder::new(codec);
     let mut info = BTreeMap::new();
     rep.records_in_files = raw.records.len();
@@ -1155,8 +1192,32 @@ fn load_supplied(
         if descends {
             bits |= VERDICT_DESCENDS;
         }
-        if ver.is_some() {
-            bits |= VERDICT_EXACT;
+        // re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
+        let check = vgroup.as_ref().map(|(vg, max_terms)| {
+            let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
+            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
+                RelationCheck::Unknown("the coefficient list differs from the rhs keys".into())
+            } else {
+                verify_relation_with(
+                    &crate::independent_algebra::Independent,
+                    vg,
+                    &key,
+                    &rhs_c,
+                    &[],
+                    *max_terms,
+                )
+            }
+        });
+        match &check {
+            Some(c) if c.verified() => {
+                bits |= VERDICT_EXACT;
+                rep.relations_verified += 1;
+            }
+            Some(c) => rep
+                .relations_not_verified
+                .push((key.clone(), format!("{c:?}"))),
+            None if ver.is_some() => bits |= VERDICT_EXACT,
+            None => {}
         }
         b.push(&key, &rhs, digest, bits)
             .map_err(|e| lerr(format!("{e:?}")))?;
@@ -1175,6 +1236,7 @@ fn load_supplied(
                     .as_ref()
                     .map(|h| hand_name(h, &src.id, None, r, label.unwrap_or(r.ordinal as i64))),
                 verification_sha256: ver.clone(),
+                check,
             },
         );
     }
@@ -1195,6 +1257,56 @@ fn load_supplied(
         },
         info,
     ))
+}
+
+/// The coefficient texts of every rule record of a supplied file (ordinal -> [(rhs key, coefficient text)]), from
+/// the raw `rhs` arrays `[[key, coefficient], ..]` (small files only: the file is read whole).
+/// Ordinal -> [(rhs key, coefficient text)] of a supplied file.
+type SuppliedCoefficients = HashMap<usize, Vec<(Vec<i32>, String)>>;
+
+fn supplied_coefficients(
+    source: &str,
+    path: &Path,
+    n: usize,
+) -> Result<SuppliedCoefficients, ImportError> {
+    let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
+    let mut out = HashMap::new();
+    let mut ordinal = 0usize;
+    for (i, l) in txt.lines().enumerate() {
+        if l.trim().is_empty() {
+            continue;
+        }
+        let v: Value = serde_json::from_str(l).map_err(|e| ImportError::Line {
+            source: source.into(),
+            path: path.display().to_string(),
+            line: i + 1,
+            msg: e.to_string(),
+        })?;
+        if v.get("type").and_then(Value::as_str) != Some("rule") {
+            continue;
+        }
+        let mut terms = vec![];
+        for t in v.get("rhs").and_then(Value::as_array).into_iter().flatten() {
+            let (k, c) = (
+                t.get(0).and_then(Value::as_str),
+                t.get(1).and_then(Value::as_str),
+            );
+            match (k.and_then(|k| parse_key_text(k, n)), c) {
+                (Some(k), Some(c)) => terms.push((k, c.to_string())),
+                _ => {
+                    return Err(ImportError::Line {
+                        source: source.into(),
+                        path: path.display().to_string(),
+                        line: i + 1,
+                        msg: "rhs entry is not [key text, coefficient text]".into(),
+                    });
+                }
+            }
+        }
+        out.insert(ordinal, terms);
+        ordinal += 1;
+    }
+    Ok(out)
 }
 
 fn load_recipe(
@@ -1289,6 +1401,91 @@ fn load_recipe(
             }
         }
     }
+    // v1.2 per-key assignment `domain.keys` (an explicit certified key set)
+    let mut assigned: Option<std::collections::HashSet<Vec<i32>>> = match dom.get("keys") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(a)) => Some(
+            a.iter()
+                .map(|k| {
+                    serde_json::from_value::<Vec<i32>>(k.clone())
+                        .ok()
+                        .filter(|k| k.len() == n)
+                        .ok_or_else(|| bad(format!("domain.keys entry {k}")))
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        Some(o) => return Err(bad(format!("domain.keys {o}"))),
+    };
+    for k in dom
+        .as_object()
+        .map(|o| o.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default()
+    {
+        if !["fixed", "equations", "exceptions", "bounds", "keys"].contains(&k.as_str()) {
+            return Err(bad(format!(
+                "unknown recipe domain field {k:?} (refused, never ignored)"
+            )));
+        }
+    }
+    let recipe_id = v.get("id").and_then(Value::as_str).map(str::to_string);
+    if let Some(side) = &src.assignment {
+        let p = resolve(base, &side.path);
+        verify_file(&p, side.sha256.as_deref())?;
+        let txt = std::fs::read_to_string(&p).map_err(|e| io_err(&p, e))?;
+        let mut mine: std::collections::HashSet<Vec<i32>> = std::collections::HashSet::new();
+        let mut named = false;
+        for (i, l) in txt.lines().enumerate() {
+            if l.trim().is_empty() {
+                continue;
+            }
+            let e: Value = serde_json::from_str(l).map_err(|er| ImportError::Line {
+                source: src.id.clone(),
+                path: p.display().to_string(),
+                line: i + 1,
+                msg: er.to_string(),
+            })?;
+            let rid = e.get("recipe").and_then(Value::as_str);
+            if rid.is_none() || rid != recipe_id.as_deref() {
+                continue;
+            }
+            named = true;
+            let mut keys: Vec<&Value> = e
+                .get("keys")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().collect())
+                .unwrap_or_default();
+            if let Some(k) = e.get("key") {
+                keys.push(k);
+            }
+            for k in keys {
+                let key = match k {
+                    Value::String(t) => parse_key_text(t, n),
+                    _ => serde_json::from_value::<Vec<i32>>(k.clone())
+                        .ok()
+                        .filter(|k| k.len() == n),
+                }
+                .ok_or_else(|| ImportError::Line {
+                    source: src.id.clone(),
+                    path: p.display().to_string(),
+                    line: i + 1,
+                    msg: format!("assignment key {k}"),
+                })?;
+                mine.insert(key);
+            }
+        }
+        if !named {
+            return Err(bad(format!(
+                "the assignment file {} names no key for recipe id {:?}",
+                p.display(),
+                recipe_id
+            )));
+        }
+        // both given: the intersection (a key must be assigned by both)
+        assigned = Some(match assigned {
+            Some(a) => a.intersection(&mine).cloned().collect(),
+            None => mine,
+        });
+    }
     let domain = CaseDomain {
         arity: n,
         chart: Some(frame.mask().to_vec()),
@@ -1310,9 +1507,10 @@ fn load_recipe(
         path: path.display().to_string(),
         recipe_sha256: d,
         engine_digest: src.engine_digest.clone(),
-        recipe_id: v.get("id").and_then(Value::as_str).map(str::to_string),
+        recipe_id,
         domain,
         slot: DispatchSlot::Last,
+        assigned,
     })
 }
 
@@ -1382,11 +1580,14 @@ pub fn read_key_list(path: &Path, arity: usize) -> Result<Vec<Vec<i32>>, ImportE
                 .ok()
                 .filter(|k| k.len() == arity)
                 .ok_or_else(bad),
-            Value::Object(o) => o
-                .get("key")
-                .and_then(|k| serde_json::from_value::<Vec<i32>>(k.clone()).ok())
-                .filter(|k| k.len() == arity)
-                .ok_or_else(bad),
+            Value::Object(o) => match o.get("key") {
+                Some(Value::String(t)) => parse_key_text(t, arity).ok_or_else(bad),
+                Some(k) => serde_json::from_value::<Vec<i32>>(k.clone())
+                    .ok()
+                    .filter(|k| k.len() == arity)
+                    .ok_or_else(bad),
+                None => Err(bad()),
+            },
             _ => Err(bad()),
         }
     };
@@ -1423,6 +1624,31 @@ fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySe
             return ks
                 .recode(codec)
                 .map_err(|e| ImportError::Core(format!("{e:?}")));
+        }
+        StartFormat::Box => {
+            let txt = std::fs::read_to_string(&path).map_err(|e| io_err(&path, e))?;
+            let bx = crate::boxdef::BoxDef::from_json(&txt)
+                .map_err(|e| ImportError::Spec(format!("{}: box: {e:?}", path.display())))?;
+            if bx.arity() != arity {
+                return Err(ImportError::Spec(format!(
+                    "{}: box of arity {} for a frame of arity {arity}",
+                    path.display(),
+                    bx.arity()
+                )));
+            }
+            let mut b = KeySetBuilder::new(codec);
+            let mut err = None;
+            bx.for_each_key(|k| {
+                if err.is_none()
+                    && let Err(e) = b.push(k)
+                {
+                    err = Some(format!("box key {k:?}: {e:?}"));
+                }
+            });
+            if let Some(e) = err {
+                return Err(ImportError::Core(e));
+            }
+            return Ok(b.finish());
         }
         StartFormat::HandStatement => {
             let fmt = spec

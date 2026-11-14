@@ -15,8 +15,12 @@
 //!
 //! rows3 (DEV-17 REVISED): this file is DOMAIN LOGIC. Every algebraic step goes through the trait
 //! [`CheckAlgebra`] (`*_with(alg, ..)` entry points, static dispatch); the plain entry points ([`identity_test`],
-//! [`replay_evidence`], [`identity_test_batch`]) run the certificate backend `crate::independent_algebra::Independent`.
-//! Only that backend grants the `replay` level (`ReplayRecord.algebra`); a Symbolica-backed run is diagnostic.
+//! [`replay_evidence`], [`identity_test_batch`], and their `*_traced` forms) run the certificate backend
+//! `crate::independent_algebra::Independent` through the crate-private binding `replay_base::certificate::CertAlg`.
+//! rows4 (re-audit RA3-M1 / RA3-m1): ONLY those concrete entry points can grant the `replay` level, and only on a
+//! family (and symmetry group) of certificate ORIGIN (`AlgebraOrigin`, sealed); every generic `*_with` run is
+//! diagnostic whatever its backend calls itself. The nonce of a certifying run is DERIVED from the rule digest and a
+//! campaign beacon ([`Beacon`], [`derive_nonce`]): never self-declared by the caller.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, Write};
@@ -25,8 +29,10 @@ use std::time::Instant;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::independent_algebra::Independent;
-use crate::replay_base::algebra::{CheckAlgebra, Ctx, Eliminator, MEMORY_GUARD, Q, Stage};
+use crate::replay_base::algebra::{
+    CheckAlgebra, Ctx, Eliminator, MEMORY_GUARD, Q, Recorder, Stage,
+};
+use crate::replay_base::certificate::CertAlg;
 use crate::replay_base::family::{Family, family_header_check};
 use crate::replay_base::primes::{self, SplitMix64};
 use crate::replay_base::record::{self, Pat};
@@ -444,8 +450,12 @@ pub struct RowsOptions {
     pub sym_use: SymUse,
     /// bound on the terms of one expanded (multi-term) symmetry row
     pub sym_max_terms: usize,
-    /// nonce bound into the stream seed (`replay_evidence` draws one from the OS when `None`; `identity_test` uses 0)
+    /// a CALLER nonce bound into the stream seed (a diagnostic re-run: the `replay` level is never granted with it;
+    /// `identity_test` uses 0 when `None`)
     pub nonce: Option<u64>,
+    /// the campaign's nonce BEACON (rows4): the certificate nonce is `derive_nonce(rule, beacon)`; without a beacon a
+    /// `replay` record is `Unbound`
+    pub beacon: Option<Beacon>,
     /// the rule's table header (family binding, guard version); `None` = no header known (recorded as such)
     pub table: Option<TableBinding>,
     pub seed: u64,
@@ -469,6 +479,7 @@ impl Default for RowsOptions {
             sym_use: SymUse::Declared,
             sym_max_terms: 200_000,
             nonce: None,
+            beacon: None,
             table: None,
             seed: 20_261_113,
             rule_id: None,
@@ -662,6 +673,9 @@ pub struct Cost {
 #[derive(Clone, Debug, Serialize)]
 pub struct RowsVerdict {
     pub version: &'static str,
+    /// rows4: made by a concrete certificate entry point on a certificate-origin family (and group); `false` for
+    /// every generic `*_with` run (diagnostic, whatever the backend)
+    pub certificate: bool,
     /// sha256 of the family text used and its name (audit C2 / M4)
     pub family_digest: String,
     pub family_name: Option<String>,
@@ -941,7 +955,27 @@ fn generic_values<A: CheckAlgebra>(
 
 // ------------------------------------------------------------------ applicability ------------------------------------
 
+/// The applicability of a key and its rule point, observed at [`Stage::Points`] (rows4: applicability is traced, so a
+/// defect in a case-literal evaluation shows where it happens).
 fn rule_point<A: CheckAlgebra>(
+    alg: &A,
+    rule: &RowsRule,
+    key: &[i64],
+) -> Result<Result<Vec<i64>, NotApplicableReason>, Unsupported> {
+    let r = rule_point_raw(alg, rule, key);
+    alg.observe(Stage::Points, &|| format!("applicability {key:?}"), &|| {
+        match &r {
+            Ok(Ok(pt)) => format!("rule point {pt:?}"),
+            Ok(Err(why)) => format!("not applicable {why:?}"),
+            // the refusal text is backend-specific; the class is the quantity
+            Err(Unsupported::Syntax(_)) => "refused: a case literal is unreadable".into(),
+            Err(u) => format!("refused {u:?}"),
+        }
+    });
+    r
+}
+
+fn rule_point_raw<A: CheckAlgebra>(
     alg: &A,
     rule: &RowsRule,
     key: &[i64],
@@ -1750,6 +1784,11 @@ fn generic_cell<A: CheckAlgebra>(
             });
         }
         let x = generic_values(alg, rule, solved, p, &mut s).map_err(Unsupported::Record)?;
+        alg.observe(
+            Stage::Points,
+            &|| format!("{cell} redraw {redraws} generic values"),
+            &|| format!("{x:?}"),
+        );
         let d = draw_d(alg, &mut s, p);
         let mut vals = x.clone();
         vals.push(d);
@@ -1874,6 +1913,7 @@ fn unsupported_verdict(
 ) -> RowsVerdict {
     RowsVerdict {
         version: ROWS_VERSION,
+        certificate: false,
         family_digest: family.source_digest().to_string(),
         family_name: family.name().map(str::to_string),
         family_bound_to_table: false,
@@ -1922,15 +1962,76 @@ pub fn stream_seed(
     u64::from_str_radix(&h[..16], 16).unwrap_or(master)
 }
 
-/// Where the nonce of a `replay` record came from (re-audit A NEW-m1 / NEW-m3).
+/// Where the nonce of a `replay` record came from (re-audit A NEW-m1 / NEW-m3; rows4 re-audit RA3-m2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum NonceSource {
-    /// drawn from /dev/urandom at run time (the only source the `replay` level accepts)
+    /// rows4: `derive_nonce(rule, beacon)` with the campaign beacon recorded in the record (the ONLY source the
+    /// `replay` level accepts: a verifier recomputes it, so it cannot be relabelled)
+    Derived,
+    /// drawn from /dev/urandom at run time because no beacon was given: not re-derivable by a verifier, so the level is
+    /// not granted (`Unbound`, "no campaign nonce beacon")
     Os,
     /// /dev/urandom was unreadable: clock nanoseconds xor pid (predictable; the level is not granted)
     ClockFallback,
     /// given by the caller (`RowsOptions.nonce`): a re-run of a recorded nonce; diagnostic, the level is not granted
     Caller,
+}
+
+/// The campaign's nonce BEACON (rows4, re-audit RA3-m2): a SECRET-FREE value that the campaign fixes AFTER the rules
+/// it certifies were produced and records independently (e.g. the sha256 of its ledger head at the start of the
+/// acceptance step, or of the run record of the acceptance pass), passed to every certifying run and recorded in its
+/// certificate. The certificate nonce is [`derive_nonce`]`(rule, beacon)`. THREAT MODEL: the primes, d values and
+/// generic points of a rule derive from (rule digest, family, served keys, nonce); with a derived nonce (1) a rule
+/// author who fixed the rule text before the beacon existed cannot predict them, so cannot tailor a coefficient
+/// error to them; (2) the certifier cannot choose them: the nonce is a function of the rule and the recorded beacon,
+/// `verify_record` recomputes it (a relabelled caller nonce is refused), and a non-default master seed is an override.
+/// REMAINS: (a) whoever controls the beacon AFTER seeing a rule can grind beacons (each try costs a full replay and
+/// succeeds with probability <= the record's Schwartz-Zippel bound, ~1e-30 for the rules measured); the campaign
+/// must take the beacon from a value it records itself and its ledger must check that the record's beacon is that
+/// value (`verify_record` checks the derivation, not the provenance of the beacon); (b) a beacon known to a rule author
+/// before the rule is fixed gives no protection against tailoring (keep it unpublished to rule producers until their
+/// rules are fixed); (c) the probability bound itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Beacon(String);
+
+impl Beacon {
+    /// A beacon of at least 32 hex digits (128 bits), stored lower-case.
+    pub fn from_hex(s: &str) -> Result<Beacon, String> {
+        let t = s.trim().to_ascii_lowercase();
+        if t.len() < 32 || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!(
+                "nonce beacon must be >= 32 hex digits (128 bits), got {} characters",
+                t.len()
+            ));
+        }
+        Ok(Beacon(t))
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The CERTIFICATE nonce of a rule (rows4): the first 8 bytes of sha256(domain tag, rule digest, beacon).
+pub fn derive_nonce(rule: &RowsRule, beacon: &Beacon) -> u64 {
+    let h = crate::replay_base::sha256::sha256_hex(
+        format!(
+            "rustred.campaign.replay.nonce.v1\x00{}\x00{}",
+            rule_digest(rule),
+            beacon.as_str()
+        )
+        .as_bytes(),
+    );
+    u64::from_str_radix(&h[..16], 16).unwrap_or(0)
+}
+
+/// The nonce of a `replay` run: the caller's (diagnostic), else derived from the beacon (certificate), else an OS draw
+/// (not re-derivable: the record is `Unbound`).
+fn draw_nonce(rule: &RowsRule, opts: &RowsOptions) -> (u64, NonceSource) {
+    match (opts.nonce, &opts.beacon) {
+        (Some(x), _) => (x, NonceSource::Caller),
+        (None, Some(b)) => (derive_nonce(rule, b), NonceSource::Derived),
+        (None, None) => os_nonce(),
+    }
 }
 
 /// A run-time nonce from the OS (recorded in the evidence record), and its source.
@@ -1978,21 +2079,43 @@ fn rows_bytes_estimate(family: &Family, seeds: usize) -> usize {
         .saturating_mul(family.n() * 8 + 64)
 }
 
-/// THE A2 test of one rule at the given points (each at both primes), on the certificate backend. See the module doc
-/// and interfaces/ibp-rows.md.
+/// THE A2 test of one rule at the given points (each at both primes), on the certificate backend (a family of
+/// certificate origin is required: `Family::parse`). See the module doc and interfaces/ibp-rows.md.
 pub fn identity_test(
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
     opts: &RowsOptions,
 ) -> RowsVerdict {
-    identity_test_with(&Independent, family, rule, points, opts)
+    identity_test_impl(&CertAlg::new(None), true, family, rule, points, opts)
 }
 
-/// [`identity_test`] on the algebra backend `alg` (the family must have been parsed with the same backend:
-/// `Family::parse_with`).
+/// [`identity_test`] with its [`Stage`] quantities recorded into `rec` (the `Both` mode's certificate run).
+pub fn identity_test_traced(
+    family: &Family,
+    rule: &RowsRule,
+    points: &[PointSpec],
+    opts: &RowsOptions,
+    rec: &Recorder,
+) -> RowsVerdict {
+    identity_test_impl(&CertAlg::new(Some(rec)), true, family, rule, points, opts)
+}
+
+/// [`identity_test`] on the algebra backend `alg`: a DIAGNOSTIC run (`RowsVerdict.certificate == false`) whatever
+/// `alg` is; the family should have been parsed with the same backend (`Family::parse_with`).
 pub fn identity_test_with<A: CheckAlgebra>(
     alg: &A,
+    family: &Family,
+    rule: &RowsRule,
+    points: &[PointSpec],
+    opts: &RowsOptions,
+) -> RowsVerdict {
+    identity_test_impl(alg, false, family, rule, points, opts)
+}
+
+fn identity_test_impl<A: CheckAlgebra>(
+    alg: &A,
+    cert: bool,
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
@@ -2009,7 +2132,7 @@ pub fn identity_test_with<A: CheckAlgebra>(
         ),
         ..opts.clone()
     };
-    let mut v = identity_test_derived(alg, family, rule, points, &derived_opts);
+    let mut v = identity_test_derived(alg, cert, family, rule, points, &derived_opts);
     v.master_seed = opts.seed;
     v.nonce = nonce;
     alg.observe(Stage::Verdict, &|| "verdict".into(), &|| {
@@ -2020,6 +2143,7 @@ pub fn identity_test_with<A: CheckAlgebra>(
 
 fn identity_test_derived<A: CheckAlgebra>(
     alg: &A,
+    cert: bool,
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
@@ -2053,6 +2177,14 @@ fn identity_test_derived<A: CheckAlgebra>(
             "family has {} slots, rule {}",
             family.n(),
             rule.arity
+        ));
+        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
+    }
+    // rows4 (re-audit RA3-M1): a certificate run accepts only a family built by the certificate backend from its text
+    if cert && !family.origin().is_certificate() {
+        let u = Unsupported::Family(format!(
+            "family model of diagnostic origin (backend {}): a certificate run needs Family::parse of the spec text",
+            family.origin().backend()
         ));
         return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
@@ -2110,6 +2242,11 @@ fn identity_test_derived<A: CheckAlgebra>(
                     ))
                 } else if g.family_digest() != family.source_digest() {
                     Some("group verified on another family".to_string())
+                } else if cert && !g.origin().is_certificate() {
+                    Some(format!(
+                        "group of diagnostic origin (backend {}): a certificate run needs verify_group on a certificate family",
+                        g.origin().backend()
+                    ))
                 } else {
                     None
                 };
@@ -2201,6 +2338,17 @@ fn identity_test_derived<A: CheckAlgebra>(
     let solved_res: Option<Result<Result<Solved, NotApplicableReason>, Unsupported>> = points
         .contains(&PointSpec::Generic)
         .then(|| solve_equations(alg, rule));
+    if let Some(r) = &solved_res {
+        alg.observe(
+            Stage::Points,
+            &|| "solved case equations".into(),
+            &|| match r {
+                Ok(Ok(sol)) => format!("{sol:?}"),
+                Ok(Err(why)) => format!("not applicable {why:?}"),
+                Err(_) => "refused: a case equation is not affine or unreadable".into(),
+            },
+        );
+    }
     let mut unsupported: Option<Unsupported> = None;
     let run = |pi: usize,
                seeds: &[Pat],
@@ -2391,6 +2539,7 @@ fn identity_test_derived<A: CheckAlgebra>(
     });
     RowsVerdict {
         symmetry,
+        certificate: cert,
         version: ROWS_VERSION,
         family_digest: family.source_digest().to_string(),
         family_name: family.name().map(str::to_string),
@@ -2587,8 +2736,11 @@ pub struct GuardStatus {
 pub struct ReplayRecord {
     pub schema: &'static str,
     pub tool_version: &'static str,
-    /// the algebra backend of this run: only `"independent"` (the certificate of record) can carry the level
+    /// the algebra backend of this run (`CheckAlgebra::name`, a label)
     pub algebra: &'static str,
+    /// rows4: made by a concrete certificate entry point on a certificate-origin family / group: the only records that
+    /// can carry the level (a generic `*_with` run is `false` whatever `algebra` says)
+    pub certificate: bool,
     /// sha256 of the family text and its name; whether a table header bound it (audit C2 / M4)
     pub family_digest: String,
     pub family_name: Option<String>,
@@ -2604,8 +2756,10 @@ pub struct ReplayRecord {
     pub master_seed: u64,
     /// the run-time nonce bound into the stream seed (re-run with `RowsOptions.nonce = Some(nonce)`)
     pub nonce: u64,
-    /// where the nonce came from: only `Os` can carry the level
+    /// where the nonce came from: only `Derived` can carry the level
     pub nonce_source: NonceSource,
+    /// the campaign beacon the nonce was derived from (rows4; `None` without a beacon)
+    pub nonce_beacon: Option<String>,
     /// the rule's lift primes excluded from the verify primes (needed to re-derive the primes)
     pub lift_primes: Vec<u64>,
     /// caller choices that make this run diagnostic (caller nonce / primes, controls off, no generic points): any
@@ -2808,31 +2962,26 @@ fn locus_has_no_integer_point<A: CheckAlgebra>(
             None => coefs.push(a),
         }
     }
-    // scale to integers
-    let mut l: i128 = c.d;
-    let gcd = |a: i128, b: i128| alg.gcd_i128(a, b).max(1);
-    for q in &coefs {
-        let g = gcd(l, q.d);
-        l = match (l / g).checked_mul(q.d) {
-            Some(x) => x,
-            None => return false,
-        };
-    }
-    let ci = match c.n.checked_mul(l / c.d) {
-        Some(x) => x,
-        None => return false,
-    };
-    let mut g: i128 = 0;
-    for q in &coefs {
-        match q.n.checked_mul(l / q.d) {
-            Some(x) => g = gcd(g, x),
-            None => return false,
+    // rows4 (re-audit RA3-m5): the arithmetic of the proof goes through the algebra backend. Scale every coefficient
+    // and the constant to integers (by the lcm of the denominators), then ask whether the gcd of the coefficients
+    // divides the constant.
+    let proof = || -> Result<bool, String> {
+        let mut l = Q::ONE;
+        for q in coefs.iter().chain([&c]) {
+            let g = alg.gcd_i128(l.n, q.d).max(1);
+            l = alg.q_mul(alg.q_div(l, Q::int(g))?, Q::int(q.d))?;
         }
-    }
-    if g == 0 {
-        return ci != 0; // constant nonzero locus: never zero
-    }
-    ci % g != 0
+        let ci = alg.q_mul(c, l)?;
+        let mut g: i128 = 0;
+        for q in &coefs {
+            g = alg.gcd_i128(g, alg.q_mul(*q, l)?.n);
+        }
+        if g == 0 {
+            return Ok(!ci.is_zero()); // constant nonzero locus: never zero
+        }
+        Ok(alg.int_div_exact(ci.n, g).is_none())
+    };
+    proof().unwrap_or(false)
 }
 
 /// An applicable integer key on the locus `poly = 0` in the window (deterministic), and the number of candidates seen.
@@ -2926,11 +3075,46 @@ pub fn replay_evidence(
     policy: &ReplayPolicy,
     opts: &RowsOptions,
 ) -> ReplayRecord {
-    replay_evidence_with(&Independent, family, rule, served_keys, policy, opts)
+    let drawn = draw_nonce(rule, opts);
+    replay_evidence_impl(
+        &CertAlg::new(None),
+        true,
+        family,
+        rule,
+        served_keys,
+        policy,
+        opts,
+        drawn,
+    )
 }
 
-/// [`replay_evidence`] on the algebra backend `alg`. Only the certificate backend (`alg.name() == "independent"`)
-/// can grant the level; any other backend yields `ReplayLevel::Diagnostic` holding the level it would have had.
+/// [`replay_evidence`] with its [`Stage`] quantities recorded into `rec` (the `Both` mode's certificate run; the
+/// record and its level are those of [`replay_evidence`]).
+pub fn replay_evidence_traced(
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+    rec: &Recorder,
+) -> ReplayRecord {
+    let drawn = draw_nonce(rule, opts);
+    replay_evidence_impl(
+        &CertAlg::new(Some(rec)),
+        true,
+        family,
+        rule,
+        served_keys,
+        policy,
+        opts,
+        drawn,
+    )
+}
+
+/// [`replay_evidence`] on the algebra backend `alg`: ALWAYS a diagnostic record (`ReplayLevel::Diagnostic` holding
+/// the level the same checks gave), whatever `alg` is or calls itself (rows4, re-audit RA3-m1). The nonce follows the
+/// same rule as the certificate run (caller nonce, else derived from the beacon, else an OS draw), so a diagnostic run
+/// with the same options and beacon uses the same random streams as the certificate run.
 pub fn replay_evidence_with<A: CheckAlgebra>(
     alg: &A,
     family: &Family,
@@ -2939,18 +3123,16 @@ pub fn replay_evidence_with<A: CheckAlgebra>(
     policy: &ReplayPolicy,
     opts: &RowsOptions,
 ) -> ReplayRecord {
-    let drawn = match opts.nonce {
-        Some(x) => (x, NonceSource::Caller),
-        None => os_nonce(),
-    };
-    replay_evidence_drawn(alg, family, rule, served_keys, policy, opts, drawn)
+    let drawn = draw_nonce(rule, opts);
+    replay_evidence_impl(alg, false, family, rule, served_keys, policy, opts, drawn)
 }
 
-/// [`replay_evidence_with`] with the nonce already drawn (`drawn` = (nonce, its source); `opts.nonce` is ignored):
-/// the triage draws ONE nonce from the OS and runs both backends on it, so their random streams are identical and
-/// the certificate run keeps `NonceSource::Os`.
-pub fn replay_evidence_drawn<A: CheckAlgebra>(
+/// The body of every `replay` entry point; `cert` is `true` only from the concrete certificate entry points of this
+/// module (crate-private: the level cannot be requested by a caller-supplied backend).
+#[allow(clippy::too_many_arguments)]
+fn replay_evidence_impl<A: CheckAlgebra>(
     alg: &A,
+    cert: bool,
     family: &Family,
     rule: &RowsRule,
     served_keys: &[Vec<i64>],
@@ -2963,8 +3145,20 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
     // re-audit A NEW-m1 / B: caller-chosen draws or weakened checks are MARKED and block the level (the per-key
     // certificate is explicit, but a caller who picks the primes can tailor a coefficient to them)
     let mut overrides: Vec<String> = Vec::new();
-    if nonce_source != NonceSource::Os {
-        overrides.push(format!("nonce: {nonce_source:?}"));
+    match nonce_source {
+        NonceSource::Caller | NonceSource::ClockFallback => {
+            overrides.push(format!("nonce: {nonce_source:?}"))
+        }
+        NonceSource::Derived
+            if opts.beacon.as_ref().map(|b| derive_nonce(rule, b)) != Some(nonce) =>
+        {
+            overrides.push("nonce: labelled Derived but not derive_nonce(rule, beacon)".into())
+        }
+        NonceSource::Derived | NonceSource::Os => {}
+    }
+    // rows4: with a derived nonce the master seed is the remaining free draw parameter: a non-default one is an override
+    if master_seed != RowsOptions::default().seed {
+        overrides.push("master seed: chosen by the caller".into());
     }
     if opts.primes.is_some() {
         overrides.push("primes: chosen by the caller".into());
@@ -3134,7 +3328,7 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
         nonce: Some(nonce),
         ..opts.clone()
     };
-    let identity = identity_test_with(alg, family, rule, &points, &id_opts);
+    let identity = identity_test_impl(alg, cert, family, rule, &points, &id_opts);
     for (li, pi) in tested {
         let name = loci[li].locus.clone();
         if let LocusStatus::Tested { status, .. } = &mut loci[li].status {
@@ -3223,16 +3417,25 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
             _ => {}
         }
     }
-    // re-audit A NEW-M1: the family identity must be bound (header family_source or spec digest compared)
-    let unbound = (!identity.family_bound_to_table).then(|| {
-        match &opts.table {
+    // re-audit A NEW-M1: the family identity must be bound (header family_source or spec digest compared); rows4: the
+    // nonce must be derived from a campaign beacon (an OS draw cannot be re-derived by a verifier)
+    let mut unbound_why: Vec<String> = Vec::new();
+    if !identity.family_bound_to_table {
+        unbound_why.push(match &opts.table {
             None => "Unbound: no table header and no spec family digest given (RowsOptions.table)".to_string(),
             Some(_) => format!(
                 "Unbound: the binding compared {:?} but not the family text (header family_source or spec digest)",
                 identity.family_binding
             ),
-        }
-    });
+        });
+    }
+    if nonce_source == NonceSource::Os {
+        unbound_why.push(
+            "Unbound: no campaign nonce beacon (RowsOptions.beacon): an OS nonce cannot be re-derived by a verifier"
+                .to_string(),
+        );
+    }
+    let unbound = (!unbound_why.is_empty()).then(|| unbound_why.join("; "));
     let level = if !reasons.is_empty() {
         reasons.extend(unbound);
         ReplayLevel::NotEstablished { reasons }
@@ -3256,8 +3459,8 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
             level_if_default: Box::new(level),
         }
     };
-    // DEV-17 REVISED: only the certificate backend grants the level; another backend's record is diagnostic
-    let level = if alg.name() == CERTIFICATE_BACKEND {
+    // DEV-17 REVISED / rows4: only a concrete certificate entry point grants the level (never a name)
+    let level = if cert {
         level
     } else {
         ReplayLevel::Diagnostic {
@@ -3268,7 +3471,12 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
     ReplayRecord {
         schema: REPLAY_SCHEMA,
         tool_version: ROWS_VERSION,
-        algebra: alg.name(),
+        algebra: if cert {
+            CERTIFICATE_BACKEND
+        } else {
+            alg.name()
+        },
+        certificate: cert && identity.certificate,
         family_digest: family.source_digest().to_string(),
         family_name: family.name().map(str::to_string),
         family_bound_to_table: identity.family_bound_to_table,
@@ -3280,6 +3488,7 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
         master_seed,
         nonce,
         nonce_source,
+        nonce_beacon: opts.beacon.as_ref().map(|b| b.as_str().to_string()),
         lift_primes: opts.lift_primes.clone(),
         overrides,
         primes,
@@ -3320,14 +3529,27 @@ pub fn verify_record(
                 .into(),
         );
     }
+    // rows4 (re-audit RA3-M1): the family is RE-PARSED from its text by the certificate backend; a family object whose
+    // operator table differs from that parse (e.g. built by another backend) is refused
+    let fam = Family::parse(family.source()).map_err(|e| format!("family text: {e}"))?;
+    if fam.table_digest() != family.table_digest() {
+        return Err(
+            "record does not verify: the family object is not the certificate parse of its text (operator table differs)"
+                .into(),
+        );
+    }
     let opts = RowsOptions {
         table: record
             .family_bound_to_table
-            .then(|| TableBinding::from_family_digest(family.squashed_digest())),
+            .then(|| TableBinding::from_family_digest(fam.squashed_digest())),
         lift_primes: record.lift_primes.clone(),
+        beacon: match &record.nonce_beacon {
+            Some(b) => Some(Beacon::from_hex(b).map_err(|e| format!("record beacon: {e}"))?),
+            None => None,
+        },
         ..RowsOptions::default()
     };
-    verify_replay_record(family, rule, served_keys, &record.policy, &opts, record)
+    verify_replay_record(&fam, rule, served_keys, &record.policy, &opts, record)
 }
 
 /// THIRD-PARTY VERIFICATION of a [`ReplayRecord`] (re-audit B: the module offered no record verifier): on the
@@ -3352,14 +3574,29 @@ pub fn verify_replay_record(
     };
     eq(
         "algebra is the certificate backend",
-        record.algebra == CERTIFICATE_BACKEND,
+        record.algebra == CERTIFICATE_BACKEND && record.certificate,
     );
     eq("schema", record.schema == REPLAY_SCHEMA);
     eq(
-        "an Established record has no override and an OS nonce",
+        "an Established record has no override and a nonce derived from a recorded beacon",
         record.level != ReplayLevel::Established
-            || (record.overrides.is_empty() && record.nonce_source == NonceSource::Os),
+            || (record.overrides.is_empty()
+                && record.nonce_source == NonceSource::Derived
+                && record.nonce_beacon.is_some()),
     );
+    // rows4 (re-audit RA3-m2): a Derived nonce is recomputed from the rule and the recorded beacon (a relabelled caller
+    // nonce is refused); the beacon of the options must be the recorded one
+    let beacon_text = opts.beacon.as_ref().map(|b| b.as_str().to_string());
+    eq(
+        "beacon of the options equals the recorded beacon",
+        beacon_text == record.nonce_beacon,
+    );
+    if record.nonce_source == NonceSource::Derived {
+        eq(
+            "nonce = derive_nonce(rule, recorded beacon)",
+            opts.beacon.as_ref().map(|b| derive_nonce(rule, b)) == Some(record.nonce),
+        );
+    }
     eq(
         "family digest",
         record.family_digest == family.source_digest(),
@@ -3395,8 +3632,9 @@ pub fn verify_replay_record(
             .then_some(record.identity.rule_id),
         ..opts.clone()
     };
-    let again = replay_evidence_drawn(
-        &Independent,
+    let again = replay_evidence_impl(
+        &CertAlg::new(None),
+        true,
         family,
         rule,
         served_keys,
@@ -3455,12 +3693,24 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
     opts: &RowsOptions,
     out: W,
 ) -> Result<BatchSummary, RowsError> {
-    identity_test_batch_with(&Independent, family, input, plan, opts, out)
+    batch_impl(&CertAlg::new(None), true, family, input, plan, opts, out)
 }
 
 /// [`identity_test_batch`] on the algebra backend `alg`.
 pub fn identity_test_batch_with<A: CheckAlgebra, R: BufRead, W: Write>(
     alg: &A,
+    family: &Family,
+    input: R,
+    plan: &dyn Fn(&RowsRule, &LineContext) -> Vec<PointSpec>,
+    opts: &RowsOptions,
+    out: W,
+) -> Result<BatchSummary, RowsError> {
+    batch_impl(alg, false, family, input, plan, opts, out)
+}
+
+fn batch_impl<A: CheckAlgebra, R: BufRead, W: Write>(
+    alg: &A,
+    cert: bool,
     family: &Family,
     mut input: R,
     plan: &dyn Fn(&RowsRule, &LineContext) -> Vec<PointSpec>,
@@ -3535,13 +3785,14 @@ pub fn identity_test_batch_with<A: CheckAlgebra, R: BufRead, W: Write>(
             Ok((rules, ctx)) => {
                 for (k, r) in rules.iter().enumerate() {
                     let pts = plan(r, &ctx);
-                    let v = identity_test_with(alg, family, r, &pts, lopts);
+                    let v = identity_test_impl(alg, cert, family, r, &pts, lopts);
                     emit(&v, ctx.run.as_deref(), k)?;
                 }
             }
             Err(e) => {
                 let v = RowsVerdict {
                     version: ROWS_VERSION,
+                    certificate: false,
                     family_digest: family.source_digest().to_string(),
                     family_name: family.name().map(str::to_string),
                     family_bound_to_table: false,

@@ -86,6 +86,49 @@ pub fn scan_table(
     Ok(t)
 }
 
+/// The header of a table file, read from its first non-blank line only (a file whose first line is not a header is
+/// refused). Used for the frame: never a whole-file scan (tables can be tens of GB).
+pub fn read_header(source: &str, path: &Path) -> Result<TableHeader, ImportError> {
+    let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut rd = BufReader::with_capacity(1 << 16, f);
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line_no = 0usize;
+    loop {
+        buf.clear();
+        let n = rd
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| io_err(path, e))?;
+        if n == 0 {
+            break;
+        }
+        line_no += 1;
+        if buf.iter().all(|c| c.is_ascii_whitespace()) {
+            continue;
+        }
+        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        let lerr = |msg: String| ImportError::Line {
+            source: source.to_string(),
+            path: path.display().to_string(),
+            line: line_no,
+            msg,
+        };
+        let parsed = RecordReader::new(Cursor::new(body), ReadOptions { rhs: RhsMode::Skip })
+            .next()
+            .ok_or_else(|| lerr("empty line".into()))?
+            .map_err(|e| lerr(e.to_string()))?;
+        return match parsed {
+            TableLine::Header(h) => Ok(*h),
+            _ => Err(lerr("the first line is not a header".into())),
+        };
+    }
+    Err(ImportError::Line {
+        source: source.to_string(),
+        path: path.display().to_string(),
+        line: 0,
+        msg: "file without header".into(),
+    })
+}
+
 /// [`scan_table`] that hands every kept record to `visit` as soon as it is read (bounded memory: one record at a
 /// time); the returned table has no records.
 pub fn scan_table_each(
@@ -453,6 +496,39 @@ pub fn parse_key_text(t: &str, arity: usize) -> Option<Vec<i32>> {
 pub fn key_text(k: &[i32]) -> String {
     let v: Vec<String> = k.iter().map(|x| x.to_string()).collect();
     format!("I({})", v.join(","))
+}
+
+/// `n0=a,n1=b,..` text (rr_proof's key form) -> key; slots not named are `i32::MIN` (the caller completes them from
+/// the record's fixed slots or refuses). `None` on a malformed text, a slot >= arity or a slot named twice.
+pub fn parse_named_key_text(t: &str, arity: usize) -> Option<Vec<i32>> {
+    let mut k = vec![i32::MIN; arity];
+    for part in t.split(',') {
+        let (name, v) = part.trim().split_once('=')?;
+        let i: usize = name.trim().strip_prefix('n')?.parse().ok()?;
+        if i >= arity || k[i] != i32::MIN {
+            return None;
+        }
+        k[i] = v.trim().parse().ok()?;
+    }
+    Some(k)
+}
+
+/// The TERM-KEY DIGEST of a key (interfaces/import.md 5.5): the first 8 bytes (16 lowercase hex characters) of the
+/// sha256 of its `I(a,b,..)` text (no spaces). Fact verdict lines list the digests of the NON-ZERO terms only; a term
+/// whose digest is not listed has a coefficient identically zero in d at the key and is NOT an edge. A collision can
+/// only make a zero term look non-zero (followed: conservative), never the converse.
+pub fn term_key_digest(k: &[i32]) -> u64 {
+    let mut h = Sha256::new();
+    h.update(key_text(k).as_bytes());
+    let hex = h.finish_hex();
+    u64::from_str_radix(&hex[..16], 16).unwrap_or(0)
+}
+
+/// Parse a 16-hex term-key digest.
+pub fn parse_term_key_digest(s: &str) -> Option<u64> {
+    (s.len() == 16)
+        .then(|| u64::from_str_radix(s, 16).ok())
+        .flatten()
 }
 
 #[cfg(test)]

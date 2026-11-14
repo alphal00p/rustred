@@ -15,8 +15,7 @@ use rustred_campaign_algebra::{
     replay_evidence_triage, triage_identity,
 };
 use rustred_campaign_core::ibp_rows::{
-    NonceSource, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
-    os_nonce,
+    Beacon, NonceSource, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
 };
 use rustred_campaign_core::independent_algebra::Independent;
 use rustred_campaign_core::replay_base::algebra::Stage;
@@ -381,7 +380,7 @@ fn planted_defects_are_localised() {
 }
 
 /// The `replay` level in the three modes: Independent grants it (algebra "independent"); Symbolica is Diagnostic;
-/// Both with agreement keeps it (one OS nonce, NonceSource::Os); Both with a planted defect BLOCKS it and raises a
+/// Both with agreement keeps it (one beacon-derived nonce, NonceSource::Derived, rows4); Both with a planted defect BLOCKS it and raises a
 /// typed finding.
 #[test]
 fn replay_level_in_the_three_modes() {
@@ -390,8 +389,10 @@ fn replay_level_in_the_three_modes() {
     }
     let (text, rule) = small_rule();
     let fam = Family::parse(&text).unwrap();
+    // rows4: the certificate nonce is derived from a campaign beacon (a test value here)
     let opts = RowsOptions {
         table: Some(TableBinding::from_family_digest(fam.squashed_digest())),
+        beacon: Some(Beacon::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
         ..RowsOptions::default()
     };
     let served: Vec<Vec<i64>> = served_keys(&rule, 40)
@@ -453,11 +454,10 @@ fn replay_level_in_the_three_modes() {
         rb.triage.as_ref().map(|t| &t.triage)
     );
     assert_eq!(rec.level, ReplayLevel::Established);
-    assert_eq!(rec.nonce_source, NonceSource::Os);
+    assert_eq!(rec.nonce_source, NonceSource::Derived);
     assert_eq!(rb.triage.unwrap().triage, Triage::AgreePass);
     assert!(rb.finding.is_none());
     // a planted Symbolica defect: Differ, the level is blocked, a typed finding is raised
-    let drawn = os_nonce();
     let rp = replay_evidence_triage(
         &recording(Independent),
         // the pole scan evaluates every coefficient once per served key first: land in the identity cells
@@ -472,7 +472,6 @@ fn replay_level_in_the_three_modes() {
         &served,
         &pol,
         &opts,
-        drawn,
     )
     .unwrap();
     let rec = rp.independent.unwrap();
