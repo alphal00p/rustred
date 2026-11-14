@@ -3,6 +3,7 @@
 //! read-only handoff copy, sha256-checked against the case's `line_sha256`), and small result printers.
 #![allow(dead_code)]
 
+pub mod face;
 #[path = "../k3_common/mod.rs"]
 pub mod k3_common;
 pub mod sym_t162;
