@@ -4,7 +4,7 @@
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
-//!                        [--coef-form expanded|factored] [--partial-box] [--no-verify]
+//!                        [--coef-form expanded|factored] [--partial-box] [--mixed-box] [--no-verify]
 //! rustred p-import-table --check <dir>/<label>.json [--force]
 //! ```
 //!
@@ -40,6 +40,9 @@
 //! inside it, every box key covered, every chart RHS key in the box and
 //! covered) and records it in the payload and in the import record (`boxed`).
 //! `--partial-box` accepts a box that is not closed (a pilot table).
+//! `--mixed-box` accepts parametric rules (symbolic, face, bank) beside the
+//! point rules of a boxed table, in any order (first match), as the header
+//! flag `parametric_after_points` does.
 //!
 //! `--no-verify` (t162-export) writes the payload and the import record
 //! without the load-time check (`"verify": null`), so import and check can
@@ -97,6 +100,7 @@ struct Arguments {
     order_map: Option<PathBuf>,
     factored: bool,
     partial_box: bool,
+    mixed_box: bool,
     no_verify: bool,
 }
 
@@ -106,6 +110,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
     let (mut census_family, mut order_map) = (None, None);
     let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
+    let mut mixed_box = false;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -123,6 +128,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--coef-form" => "--coef-form",
             "--partial-box" => "--partial-box",
             "--no-verify" => "--no-verify",
+            "--mixed-box" => "--mixed-box",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -175,6 +181,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             }
             "--partial-box" => partial_box = true,
             "--no-verify" => no_verify = true,
+            "--mixed-box" => mixed_box = true,
             _ => force = true,
         }
     }
@@ -191,6 +198,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         order_map,
         factored,
         partial_box,
+        mixed_box,
         no_verify,
     })
 }
@@ -261,6 +269,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         },
         partial_box: arguments.partial_box,
+        mixed_box: arguments.mixed_box,
     };
     let mut imported = import_table_from(
         std::io::BufReader::with_capacity(1 << 20, table),

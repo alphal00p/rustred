@@ -1382,15 +1382,25 @@ pub struct BoxedNodeRecord {
     pub rhs_without_rule: u64,
     /// Rules generated with symmetry rows in their source (`sym_rows > 0`).
     pub sym_row_rules: u64,
-    /// Parametric (non-point) rules after the point rules (header
-    /// `parametric_after_points`): first match = the point rule of a key if
-    /// it has one, else the first parametric rule that applies, else
-    /// [`PError::OutsideBox`] outside the box. The box keys without point rule
+    /// Parametric (non-point: symbolic, face, bank) rules beside the point
+    /// rules (header `parametric_after_points` or the import option
+    /// `mixed_box`), in ANY order: first match over the chart's rules in table
+    /// order (a parametric rule before a point rule wins at the keys it
+    /// admits), else [`PError::OutsideBox`] outside the box. The box keys without point rule
     /// or terminal (`uncovered_box_keys`) are left to them; the load-time
     /// check steps every box key ([`super::custom::verify_custom_payload`]).
     #[serde(default)]
     pub parametric_rules: u64,
     pub symmetry_groups: Vec<SymmetryGroupProvenance>,
+    /// t162-export, mixed box only: point rules whose target an earlier point
+    /// rule already has (unreachable under first match; the earlier one
+    /// applies). Not written when zero (payload bytes unchanged).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shadowed_point_rules: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl BoxedNodeRecord {
@@ -1488,6 +1498,7 @@ struct BoxChecker {
     sym_row_rules: u64,
     symmetry_groups: Vec<SymmetryGroupProvenance>,
     parametric_rules: u64,
+    shadowed_point_rules: u64,
 }
 
 fn box_fail(detail: String) -> PError {
@@ -1495,9 +1506,15 @@ fn box_fail(detail: String) -> PError {
 }
 
 impl BoxChecker {
-    fn new(value: &Value, family: &TableFamily, charts: &[String]) -> Result<Self, PError> {
-        let spec: BoxedHeader = serde_json::from_value(value.clone())
+    fn new(
+        value: &Value,
+        family: &TableFamily,
+        charts: &[String],
+        mixed: bool,
+    ) -> Result<Self, PError> {
+        let mut spec: BoxedHeader = serde_json::from_value(value.clone())
             .map_err(|error| box_fail(format!("header field boxed_node: {error}")))?;
+        spec.parametric_after_points |= mixed;
         if spec.schema != BOXED_NODE_SCHEMA {
             return Err(box_fail(format!("schema {:?}", spec.schema)));
         }
@@ -1533,6 +1550,7 @@ impl BoxChecker {
             sym_row_rules: 0,
             symmetry_groups: Vec::new(),
             parametric_rules: 0,
+            shadowed_point_rules: 0,
         })
     }
 
@@ -1564,12 +1582,6 @@ impl BoxChecker {
                     self.parametric_rules += 1;
                     return Ok(());
                 }
-                if self.parametric_rules > 0 {
-                    return Err(box_fail(format!(
-                        "the point rule {} ({target_text}) follows a parametric rule: point rules come first",
-                        record["index"]
-                    )));
-                }
                 let target = numeric_key(target_text, arity)?;
                 if !point || fixed.as_ref() != Some(&target) {
                     return Err(box_fail(format!(
@@ -1582,9 +1594,15 @@ impl BoxChecker {
                         "rule target {target_text} outside the box"
                     )));
                 }
-                if !self.targets.insert(target) {
+                if self.targets.contains(&target) {
+                    // Mixed box: first match, the earlier point rule applies.
+                    if self.spec.parametric_after_points {
+                        self.shadowed_point_rules += 1;
+                        return Ok(());
+                    }
                     return Err(box_fail(format!("two rules for {target_text}")));
                 }
+                self.targets.insert(target);
                 if record["sym_rows"].as_u64().is_some_and(|rows| rows > 0) {
                     self.sym_row_rules += 1;
                 }
@@ -1645,6 +1663,7 @@ impl BoxChecker {
             sym_row_rules,
             symmetry_groups,
             parametric_rules,
+            shadowed_point_rules,
             ..
         } = self;
         let definition = spec.definition;
@@ -1711,6 +1730,7 @@ impl BoxChecker {
             sym_row_rules,
             symmetry_groups,
             parametric_rules,
+            shadowed_point_rules,
         })
     }
 }
@@ -1736,6 +1756,10 @@ pub struct TableImportOptions {
     /// without a rule): a pilot or partial table. Off: such a table is
     /// refused. Ignored for a table without `boxed_node`.
     pub partial_box: bool,
+    /// boxed-node (t162-export): accept parametric (non-point) rules in a
+    /// boxed table, in any order beside its point rules (first match), as the
+    /// header flag `parametric_after_points` does. Off: only the flag does.
+    pub mixed_box: bool,
 }
 
 /// One table (`table_dump.v1` JSONL text) as the Custom payload of `graph`,
@@ -1989,7 +2013,7 @@ pub fn import_table_from<R: std::io::BufRead>(
     // terminals, closure) while its records are read, in presentation slots.
     let charts = charts_of(header)?;
     let mut box_checker = match boxed_header {
-        Some(value) => Some(BoxChecker::new(value, &family, &charts)?),
+        Some(value) => Some(BoxChecker::new(value, &family, &charts, options.mixed_box)?),
         None => None,
     };
 
@@ -2556,6 +2580,7 @@ mod tests {
             census_family: None,
             order_map: None,
             partial_box,
+            mixed_box: false,
         }
     }
 
@@ -2783,12 +2808,11 @@ mod tests {
         records.iter().map(|r| format!("{r}\n")).collect()
     }
 
-    /// t162-export, mixed box: point rules first, then parametric rules (an
-    /// existing bank). First match: the point rule of a key, else the first
-    /// parametric rule that applies (also outside the box), else OutsideBox.
-    /// The box keys left to the parametric rules are stepped at load; a
-    /// parametric rule leaving the box, or a point rule after a parametric
-    /// one, is refused.
+    /// t162-export, mixed box: point rules and parametric rules (an existing
+    /// bank) in any order. First match over the table order: the point rule of
+    /// a key, else the first parametric rule that applies (also outside the
+    /// box), else OutsideBox. The box keys left to the parametric rules are
+    /// stepped at load; a parametric rule leaving the box is refused there.
     #[test]
     fn a_boxed_node_may_carry_point_rules_and_parametric_rules() {
         let text = mixed_kite_table("I(n0-1,1,1,1,1)", false);
@@ -2840,23 +2864,95 @@ mod tests {
             )
             .is_err()
         );
-        // Point rules come first.
-        let refused = import_table(
+        // Any order: the parametric rule first gives the same reductions (it
+        // admits no key of a point rule here).
+        let first = import_table(
             &mixed_kite_table("I(n0-1,1,1,1,1)", true),
             &kite_graph(),
             &kite_options(false),
-        );
-        assert!(
-            matches!(&refused, Err(PError::Unsupported(text)) if text.contains("point rules come first")),
-            "{refused:?}"
-        );
-        // Without the header flag a parametric rule is refused, as before.
+        )
+        .unwrap();
+        assert_eq!(first.boxed.as_ref().unwrap().parametric_rules, 1);
+        for key in [[2, 1, 1, 1, 1], [3, 1, 1, 1, 1], [1, 2, 1, 1, 1]] {
+            let again = super::super::custom::replay_custom_payload(
+                &first.presentation,
+                &first.payload,
+                &first.meta,
+                &[permuted(&key, &first.slot_map)],
+            )
+            .unwrap();
+            let before = replay(key).unwrap();
+            assert_eq!(
+                (again[0].steps, &again[0].residuals, &again[0].boundary),
+                (before[0].steps, &before[0].residuals, &before[0].boundary)
+            );
+        }
+        // Without the header flag a parametric rule is refused, as before,
+        // unless the import option mixed_box accepts it.
         let flagless = text.replace(
             "\"parametric_after_points\":true",
             "\"parametric_after_points\":false",
         );
         assert_ne!(flagless, text);
         assert!(import_table(&flagless, &kite_graph(), &kite_options(false)).is_err());
+        let mixed = TableImportOptions {
+            mixed_box: true,
+            ..kite_options(false)
+        };
+        assert_eq!(
+            import_table(&flagless, &kite_graph(), &mixed)
+                .unwrap()
+                .boxed
+                .unwrap()
+                .parametric_rules,
+            1
+        );
+        // A second point rule for a key (here after the parametric rule) is
+        // shadowed in a mixed box: counted, the earlier rule applies.
+        let mut records: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let rules: Vec<usize> = (0..records.len())
+            .filter(|&i| records[i]["type"] == "rule")
+            .collect();
+        let mut duplicate = records[rules[0]].clone();
+        duplicate["index"] = serde_json::json!(rules.len());
+        duplicate["rhs"] = serde_json::json!([[duplicate["rhs"][0][0].clone(), "7"]]);
+        records.insert(rules[rules.len() - 1] + 1, duplicate.clone());
+        let shadowed_text: String = records.iter().map(|r| format!("{r}\n")).collect();
+        let shadowed = import_table(&shadowed_text, &kite_graph(), &kite_options(false)).unwrap();
+        assert_eq!(shadowed.boxed.as_ref().unwrap().shadowed_point_rules, 1);
+        let key: Vec<i64> = parse_key(duplicate["target"].as_str().unwrap(), 5)
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
+        let key: [i64; 5] = key.try_into().unwrap();
+        let again = super::super::custom::replay_custom_payload(
+            &shadowed.presentation,
+            &shadowed.payload,
+            &shadowed.meta,
+            &[permuted(&key, &shadowed.slot_map)],
+        )
+        .unwrap();
+        let before = replay(key).unwrap();
+        assert_eq!(
+            (&again[0].residuals, &again[0].boundary),
+            (&before[0].residuals, &before[0].boundary)
+        );
+        // In a box of point rules only it stays refused.
+        let point_only = kite_table(true, None, &[]);
+        let mut records: Vec<serde_json::Value> = point_only
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let last_rule = records.iter().rposition(|r| r["type"] == "rule").unwrap();
+        let mut duplicate = records[last_rule].clone();
+        duplicate["index"] = serde_json::json!(5);
+        records.insert(last_rule + 1, duplicate);
+        let point_only: String = records.iter().map(|r| format!("{r}\n")).collect();
+        assert!(import_table(&point_only, &kite_graph(), &kite_options(false)).is_err());
     }
 
     /// The streaming import (t162-export): a reader with a tiny buffer, blank

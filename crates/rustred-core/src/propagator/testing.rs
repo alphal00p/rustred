@@ -440,6 +440,7 @@ pub fn boxed_kite_library() -> Result<Arc<PLibrary>, PError> {
             census_family: None,
             order_map: None,
             partial_box: false,
+            mixed_box: false,
         },
     )?;
     let route = line_matching_map(&p2l, &imported.presentation).ok_or_else(|| {

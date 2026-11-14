@@ -126,6 +126,7 @@ fn a_real_t162_boxed_sample_reduces_to_its_terminals_and_subsector_keys() {
         census_family: None,
         order_map: None,
         partial_box: true,
+        mixed_box: false,
     };
     let imported = import_table(&text, &graph, &options).unwrap();
     let boxed = imported.boxed.clone().expect("a boxed import");

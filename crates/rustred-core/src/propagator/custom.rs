@@ -455,7 +455,7 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
     let section = |tag| {
         envelope
             .section(tag)
-            .map(|bytes| Arc::<[u8]>::from(bytes))
+            .map(Arc::<[u8]>::from)
             .ok_or_else(|| payload_error("expected a generated candidate binary program"))
     };
     let table = LazyDecodedCoefficientTable::new(
@@ -810,10 +810,10 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
         let mut unprepared =
             (self.unprepared.lock()).map_err(|_| invalid("payload loader lock poisoned"))?;
         unprepared.retain(|chart| crate::storage_array(chart, false) != Some(sector));
-        if unprepared.is_empty() {
-            if let Ok(mut decoded) = self.decoded.lock() {
-                decoded.take();
-            }
+        if unprepared.is_empty()
+            && let Ok(mut decoded) = self.decoded.lock()
+        {
+            decoded.take();
         }
         Ok(programs)
     }
