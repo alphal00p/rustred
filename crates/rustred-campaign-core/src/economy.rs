@@ -245,7 +245,14 @@ impl Retirement {
         if old.is_empty() {
             return Err(RetireError::Empty);
         }
-        if state == CoverageState::Full && proof.is_none() {
+        // R33 / audit-part-A M3 (c): on a FULL node the coverage-preservation proof must come from a DISPATCH-mode
+        // partition with a stated dispatch order (a union-coverage partition does not see records that are
+        // selected but blocked); anything else, including an unknown method, is refused.
+        if state == CoverageState::Full
+            && !proof
+                .as_ref()
+                .is_some_and(|p| crate::partition::parse_dispatch_proof_method(&p.method).is_some())
+        {
             return Err(RetireError::FullNodeNeedsProof);
         }
         if !supersedes(
