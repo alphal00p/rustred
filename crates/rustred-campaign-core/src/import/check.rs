@@ -98,6 +98,9 @@ pub struct KeyRow {
     pub open_status: Option<String>,
     pub open_reason: Option<String>,
     pub open_rule: Option<(usize, usize)>,
+    /// Credited keys (server `Credit`, or a `Relation` with basis [`BASIS_CREDIT_VIA_RELATION`]): the image I(key) is
+    /// credited to. Its level is never below this row's (a credit never raises a level; lane import4).
+    pub image: Option<Vec<i32>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -390,6 +393,43 @@ pub fn check_streamed(
     Ok(res)
 }
 
+/// The evidence level and basis of `key` served by the relation set `name` (`recipe`: one of our recipes), exactly as a
+/// relation-served row is scored; also the IMAGE level of a credit through that set (audit-credits M1). `None` = a
+/// keys-only diagnostic relation (no evidence).
+pub(crate) fn relation_level(
+    set: &ImportedSet,
+    ev: &Evidence,
+    name: &str,
+    recipe: bool,
+    key: &[i32],
+) -> (Option<Level>, &'static str) {
+    let sinfo = set.supplied_info.get(name).and_then(|m| m.get(key));
+    if sinfo.is_some_and(|i| i.diagnostic) {
+        return (None, BASIS_KEYS_ONLY_DIAGNOSTIC);
+    }
+    if recipe {
+        // lane closeloop2 (closeloop.md 13.6): our own relations need their bound per-key proof when asked to
+        let proved = ev
+            .recipe_proofs
+            .as_ref()
+            .is_none_or(|s| s.contains(&(name.to_string(), key.to_vec())));
+        return if proved {
+            (Some(Level::PerKey), "recipe_certified")
+        } else {
+            (Some(Level::Imported), "recipe_relation_unproved")
+        };
+    }
+    if sinfo
+        .and_then(|i| i.check.as_ref())
+        .is_some_and(|c| c.verified())
+    {
+        // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
+        (Some(Level::PerKey), BASIS_SYMMETRY_RELATION)
+    } else {
+        (Some(Level::Imported), "supplied")
+    }
+}
+
 fn check_inner(
     set: &ImportedSet,
     ev: &Evidence,
@@ -498,6 +538,12 @@ fn check_inner(
         .map(|cr| (cr.key, cr.image))
         .collect();
     let verified_credits = set.credits.as_ref().is_some_and(|p| p.is_verified());
+    // the credit's own level: the identity I(key) = I(image) is exact at the key only for a verified group
+    let credit_level = if verified_credits {
+        Level::PerKey
+    } else {
+        Level::Imported
+    };
     let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
     let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
@@ -516,6 +562,7 @@ fn check_inner(
             open_status: None,
             open_reason: None,
             open_rule: None,
+            image: None,
         };
         let rule_of = |n: &crate::closure::RuleName| -> Option<(usize, usize)> {
             tindex.get(n.table.as_str()).map(|&t| (t, n.record))
@@ -563,59 +610,29 @@ fn check_inner(
             let name: String = w.map(|w| w.table).unwrap_or_default();
             let recipe = recipe_names.contains(&name);
             row.status = RowStatus::Served;
-            let sinfo = set.supplied_info.get(&name).and_then(|m| m.get(&row.key));
-            let verified_relation = sinfo
-                .and_then(|i| i.check.as_ref())
-                .is_some_and(|c| c.verified());
-            let diagnostic = sinfo.is_some_and(|i| i.diagnostic);
             row.server = Some(Server::Relation {
                 set: name.clone(),
                 recipe,
             });
-            if diagnostic {
-                row.evidence = None;
-                row.basis = Some(BASIS_KEYS_ONLY_DIAGNOSTIC);
-            } else if recipe {
-                // lane closeloop2 (closeloop.md 13.6): our own relations need their bound per-key proof when asked to
-                let proved = ev
-                    .recipe_proofs
-                    .as_ref()
-                    .is_none_or(|s| s.contains(&(name.clone(), row.key.clone())));
-                if proved {
-                    row.evidence = Some(Level::PerKey);
-                    row.basis = Some("recipe_certified");
-                } else {
-                    row.evidence = Some(Level::Imported);
-                    row.basis = Some("recipe_relation_unproved");
-                }
-            } else if verified_relation {
-                // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
-                row.evidence = Some(Level::PerKey);
-                row.basis = Some(BASIS_SYMMETRY_RELATION);
-            } else {
-                row.evidence = Some(Level::Imported);
-                row.basis = Some("supplied");
-            }
+            let (level, basis) = relation_level(set, ev, &name, recipe, &row.key);
+            row.evidence = level;
+            row.basis = Some(basis);
         } else if let Some(w) = c
             .winner(i)
             .filter(|w| c.is_credited(i) && !tindex.contains_key(w.table.as_str()))
         {
-            // a credit whose image is served by a relation set (closure.md 15.6)
+            // a credit whose image is served by a relation set (closure.md 15.6). Its level is the LOWER of the
+            // credit's own level and the level at which the relation serves the IMAGE (a credit never raises a level;
+            // audit-credits M1): the image is scored exactly as a key the relation serves directly.
             let name = w.table.clone();
             let recipe = recipe_names.contains(&name);
-            let diagnostic = credit_images
+            let image_level = credit_images
                 .get(&row.key)
-                .and_then(|im| set.supplied_info.get(&name).and_then(|m| m.get(im)))
-                .is_some_and(|x| x.diagnostic);
+                .and_then(|im| relation_level(set, ev, &name, recipe, im).0);
             row.status = RowStatus::Served;
             row.server = Some(Server::Relation { set: name, recipe });
-            row.evidence = if diagnostic {
-                None
-            } else if verified_credits {
-                Some(Level::PerKey)
-            } else {
-                Some(Level::Imported)
-            };
+            row.evidence = image_level.map(|l| l.min(credit_level));
+            row.image = credit_images.get(&row.key).cloned();
             row.basis = Some(BASIS_CREDIT_VIA_RELATION);
         } else if let Some(w) = c.winner(i) {
             let Some((t, r)) = rule_of(&w) else {
@@ -633,18 +650,21 @@ fn check_inner(
                 let image_proof = credit_images
                     .get(&row.key)
                     .is_some_and(|im| ev.proof(set, t, r, im).is_some_and(|p| p.per_key));
-                if verified_credits {
-                    // exact identity I(key) = I(image) (verified group) + the image's own evidence
-                    row.evidence = Some(if image_proof {
-                        Level::PerKey
-                    } else {
-                        Level::Imported
-                    });
-                    row.basis = Some(BASIS_SYMMETRY_CREDIT_VERIFIED);
+                // the image's level exactly as the direct-rule branch scores a key served by (t, r): per-key iff an
+                // exact per-key proof is bound at the image (which is also what lifts an image, closure.md 17)
+                let image_level = if image_proof {
+                    Level::PerKey
                 } else {
-                    row.evidence = Some(Level::Imported);
-                    row.basis = Some("symmetry_credit");
-                }
+                    Level::Imported
+                };
+                // exact identity I(key) = I(image) (verified group) + the image's own evidence: the lower of the two
+                row.evidence = Some(image_level.min(credit_level));
+                row.image = credit_images.get(&row.key).cloned();
+                row.basis = Some(if verified_credits {
+                    BASIS_SYMMETRY_CREDIT_VERIFIED
+                } else {
+                    "symmetry_credit"
+                });
             } else {
                 row.server = Some(Server::Rule {
                     table: t,

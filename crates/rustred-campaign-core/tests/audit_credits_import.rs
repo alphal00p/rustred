@@ -3,8 +3,8 @@
 //! a two-loop sunset family (arity 5, lines D1 D2 D3, numerators D4 D5; nothing five-loop specific) with the VERIFIED
 //! group derived from the family file.
 //!
-//! `ok_*` tests pin behaviour that holds. Tests marked `#[ignore = "AUDIT-CREDITS ..."]` assert the SPECIFIED behaviour
-//! and FAIL on ac/import3 c56203c9: they are the reproductions of findings (run with `--include-ignored`).
+//! `ok_*` tests pin behaviour that holds. The reproduction of finding M1 (failed on ac/import3 c56203c9) passes since
+//! lane import4 and is no longer ignored.
 
 use rustred_campaign_core::import;
 
@@ -300,13 +300,12 @@ fn ok_credit_level_equals_the_image_level_for_table_images() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// FINDING (level escalation, new code of import3 in import/check.rs, branch `symmetry_credit_via_relation`): a verified
-/// credit whose image is served by a SUPPLIED relation that is NOT re-derived (it carries only a `verification`
-/// record, so its own key is served at level `imported`, basis `supplied`) is reported at level `per-key`, i.e. ABOVE
-/// the level of its image. Specified (closure.md 17 / import.md 15: "its evidence level is the image's"): the credit's
-/// level must not exceed the image's (`imported` here).
+/// FINDING M1 (level escalation, new code of import3 in import/check.rs, branch `symmetry_credit_via_relation`), FIXED
+/// by lane import4: a verified credit whose image is served by a SUPPLIED relation that is NOT re-derived (it carries
+/// only a `verification` record, so its own key is served at level `imported`, basis `supplied`) was reported at level
+/// `per-key`, ABOVE the level of its image. Binding rule: a credited key's level is the LOWER of the credit's own level
+/// and the level at which its image is served (`imported` here); a credit never raises a level.
 #[test]
-#[ignore = "AUDIT-CREDITS finding: credit via an unverified supplied relation reported per-key above its imported image"]
 fn credit_via_unverified_supplied_relation_is_not_above_its_image() {
     let d = scratch("viarel");
     let fam = d.join("S.sym");
@@ -359,6 +358,10 @@ fn credit_via_unverified_supplied_relation_is_not_above_its_image() {
         x.evidence,
         Some(Level::Imported),
         "the credit is reported above its image's level"
+    );
+    assert!(
+        imgs.iter().any(|im| x.image.as_deref() == Some(&im[..])),
+        "{x:?}"
     );
     let _ = std::fs::remove_dir_all(&d);
 }
