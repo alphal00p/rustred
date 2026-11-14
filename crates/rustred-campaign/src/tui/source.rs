@@ -1,6 +1,7 @@
 //! Where the dashboard's data comes from: the progress files of a campaign directory ([`DirSource`]) or values held in
 //! memory ([`MemorySource`]). Sources never panic and never write; a file that cannot be read is reported, and the
-//! last good copy of it is kept.
+//! last good copy of it is kept. Sources hand out RAW text (as read); the ONE sanitiser runs in `model` (audit C1).
+//! A source is `Send + Sync`: the live dashboard reads it on a background thread (audit M1).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,6 +51,9 @@ pub struct RawSnapshot {
     pub campaign_mtime_s: Option<f64>,
     /// Problems kept from earlier reads ("events.json unreadable since ...": last good copy in use).
     pub notes: Vec<String>,
+    /// Optional progress files by key (`supervisor`, `jobs`, `attention`, `terminals`; names in
+    /// `model::optional_files`): read when present, `Absent` otherwise.
+    pub extra: BTreeMap<String, FileRead>,
 }
 
 impl RawSnapshot {
@@ -61,6 +65,7 @@ impl RawSnapshot {
             events: FileRead::Absent,
             campaign_mtime_s: None,
             notes: Vec::new(),
+            extra: BTreeMap::new(),
         }
     }
 }
@@ -97,8 +102,8 @@ pub struct JobRow {
     pub run_dir: Option<String>,
 }
 
-/// The dashboard's data source.
-pub trait ProgressSource {
+/// The dashboard's data source (read on the dashboard's background reader thread).
+pub trait ProgressSource: Send + Sync {
     /// Reads the progress files. Never panics.
     fn read(&self) -> RawSnapshot;
     /// Items of one node for the drill-down (`None`: not available from this source).
@@ -109,7 +114,8 @@ pub trait ProgressSource {
     fn item_detail(&self, _item: &str) -> Result<Value, String> {
         Err("item detail is not available from this source".into())
     }
-    /// Running attempts when the progress files do not list them (`None`: unknown).
+    /// Running attempts when the progress files do not list them (`None`: unknown). Shown labelled "from ledger
+    /// (partial)"; never asked for when the progress files carry a job list.
     fn running_jobs(&self) -> Option<Vec<JobRow>> {
         None
     }
@@ -180,6 +186,11 @@ impl ProgressSource for MemorySource {
         snap.campaign = doc(self.files.get("campaign.json"));
         snap.events = doc(self.files.get("events.json"));
         snap.campaign_mtime_s = self.mtime_s;
+        for (key, rel) in crate::tui::model::optional_files(snap.campaign.value()) {
+            if !snap.extra.get(&key).is_some_and(|r| *r != FileRead::Absent) {
+                snap.extra.insert(key, doc(self.files.get(&rel)));
+            }
+        }
         for (k, v) in &self.files {
             if let Some(id) = k
                 .strip_prefix("nodes/")
@@ -218,46 +229,90 @@ struct LedgerCache {
 /// Reads `CDIR/progress/` (read-only; works on a directory without write permission).
 pub struct DirSource {
     cdir: PathBuf,
+    /// Shown instead of the path (tests: a fixed label, so that screens do not depend on the checkout path).
+    display: Option<String>,
     /// Drill-down by reducing the ledger only while the ledger segments are at most this large.
     pub ledger_cap_bytes: u64,
+    /// The running-job FALLBACK (no job list in the progress files) reduces the ledger only while it is at most this
+    /// large, ...
+    pub job_fallback_cap_bytes: u64,
+    /// ... and is switched off for the session after one reduction took longer than this.
+    pub job_fallback_max: Duration,
     /// Minimum interval between two ledger reductions.
     pub ledger_min_interval: Duration,
+    /// Node files read at most (a note says when more exist).
+    pub max_node_files: usize,
     last_good: Mutex<BTreeMap<String, (Value, String)>>,
     ledger: Mutex<Option<LedgerCache>>,
+    job_fallback_off: Mutex<Option<String>>,
 }
 
 impl DirSource {
     pub fn new(cdir: impl Into<PathBuf>) -> Self {
         DirSource {
             cdir: cdir.into(),
+            display: None,
             ledger_cap_bytes: 256 << 20,
+            job_fallback_cap_bytes: 64 << 20,
+            job_fallback_max: Duration::from_secs(5),
             ledger_min_interval: Duration::from_secs(10),
+            max_node_files: 20_000,
             last_good: Mutex::new(BTreeMap::new()),
             ledger: Mutex::new(None),
+            job_fallback_off: Mutex::new(None),
         }
+    }
+
+    /// Shows `label` instead of the directory path (golden screens, or a caller that prefers a short name).
+    pub fn with_display(mut self, label: impl Into<String>) -> Self {
+        self.display = Some(label.into());
+        self
     }
 
     pub fn cdir(&self) -> &Path {
         &self.cdir
     }
 
+    /// Why the running-job fallback is off (None: available).
+    pub fn job_fallback_off(&self) -> Option<String> {
+        self.job_fallback_off
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Opens without blocking (a FIFO swapped in cannot hang the reader: audit m10), checks the OPENED file is a
+    /// regular file (fstat after open), reads at most [`MAX_FILE_BYTES`].
     fn read_raw(path: &Path) -> FileRead {
-        match std::fs::metadata(path) {
+        use std::io::Read;
+        use std::os::unix::fs::OpenOptionsExt;
+        let f = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(path)
+        {
+            Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FileRead::Absent,
-            Err(e) => return FileRead::Invalid(format!("cannot stat: {e}")),
+            Err(e) => return FileRead::Invalid(format!("cannot open: {e}")),
+        };
+        match f.metadata() {
             Ok(m) if !m.is_file() => return FileRead::Invalid("not a regular file".into()),
+            Ok(m) if m.len() > MAX_FILE_BYTES => {
+                return FileRead::Invalid(format!(
+                    "too large ({} bytes > {MAX_FILE_BYTES})",
+                    m.len()
+                ));
+            }
             Ok(_) => {}
+            Err(e) => return FileRead::Invalid(format!("cannot stat: {e}")),
         }
-        match crate::atomic::read_capped(path, MAX_FILE_BYTES) {
-            Ok(b) => classify(&b),
-            Err(e) => match &e {
-                crate::atomic::AtomicError::Io { source, .. }
-                    if source.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    FileRead::Absent
-                }
-                _ => FileRead::Invalid(format!("cannot read: {e}")),
-            },
+        let mut b = Vec::new();
+        match f.take(MAX_FILE_BYTES + 1).read_to_end(&mut b) {
+            Ok(_) if b.len() as u64 > MAX_FILE_BYTES => {
+                FileRead::Invalid(format!("too large (> {MAX_FILE_BYTES} bytes)"))
+            }
+            Ok(_) => classify(&b),
+            Err(e) => FileRead::Invalid(format!("cannot read: {e}")),
         }
     }
 
@@ -439,11 +494,25 @@ pub fn running_of(state: &crate::state::CampaignState) -> Vec<JobRow> {
 
 impl ProgressSource for DirSource {
     fn read(&self) -> RawSnapshot {
-        let mut snap = RawSnapshot::empty(&self.cdir.display().to_string());
+        let origin = self
+            .display
+            .clone()
+            .unwrap_or_else(|| self.cdir.display().to_string());
+        let mut snap = RawSnapshot::empty(&origin);
         let mut notes = Vec::new();
         snap.campaign = self.read_file("campaign.json", &mut notes);
         snap.campaign_mtime_s = mtime_s(&self.cdir.join(PROGRESS_DIR).join("campaign.json"));
         snap.events = self.read_file("events.json", &mut notes);
+        for (key, rel) in crate::tui::model::optional_files(snap.campaign.value()) {
+            if rel.contains("..")
+                || rel.starts_with('/')
+                || snap.extra.get(&key).is_some_and(|r| *r != FileRead::Absent)
+            {
+                continue;
+            }
+            let r = self.read_file(&rel, &mut notes);
+            snap.extra.insert(key, r);
+        }
         // node files: named by campaign.json, else listed
         let mut names: BTreeMap<String, String> = BTreeMap::new();
         if let Some(m) = snap
@@ -452,7 +521,14 @@ impl ProgressSource for DirSource {
             .and_then(|v| v.pointer("/files/nodes"))
             .and_then(Value::as_object)
         {
-            for (id, rel) in m.iter().take(4096) {
+            if m.len() > self.max_node_files {
+                notes.push(format!(
+                    "{} node files listed; only the first {} are read",
+                    m.len(),
+                    self.max_node_files
+                ));
+            }
+            for (id, rel) in m.iter().take(self.max_node_files) {
                 if let Some(rel) = rel.as_str()
                     && !rel.contains("..")
                     && !rel.starts_with('/')
@@ -464,12 +540,19 @@ impl ProgressSource for DirSource {
         if names.is_empty()
             && let Ok(rd) = std::fs::read_dir(self.cdir.join(PROGRESS_DIR).join("nodes"))
         {
-            for e in rd.flatten().take(4096) {
+            for e in rd.flatten() {
                 let n = e.file_name().to_string_lossy().into_owned();
                 if !n.starts_with('.')
                     && let Some(id) = n.strip_suffix(".json")
                     && !id.ends_with(".items")
                 {
+                    if names.len() >= self.max_node_files {
+                        notes.push(format!(
+                            "more than {} node files; the rest are not read",
+                            self.max_node_files
+                        ));
+                        break;
+                    }
                     names.insert(id.to_string(), format!("nodes/{n}"));
                 }
             }
@@ -491,8 +574,40 @@ impl ProgressSource for DirSource {
             .ok_or_else(|| format!("no item {item} in the ledger"))
     }
 
+    /// The ledger FALLBACK for running jobs (no job list in the progress files): bounded in size
+    /// (`job_fallback_cap_bytes`) and time (switched off after one reduction slower than `job_fallback_max`).
     fn running_jobs(&self) -> Option<Vec<JobRow>> {
-        self.with_state(running_of).ok()
+        if self.job_fallback_off().is_some() {
+            return None;
+        }
+        match self.ledger_bytes() {
+            None => return None,
+            Some(b) if b > self.job_fallback_cap_bytes => {
+                *self
+                    .job_fallback_off
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(format!(
+                    "ledger {} above the {} bound of the job-list fallback",
+                    crate::tui::format::bytes(Some(b)),
+                    crate::tui::format::bytes(Some(self.job_fallback_cap_bytes))
+                ));
+                return None;
+            }
+            Some(_) => {}
+        }
+        let t0 = Instant::now();
+        let r = self.with_state(running_of).ok();
+        if t0.elapsed() > self.job_fallback_max {
+            *self
+                .job_fallback_off
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(format!(
+                "one ledger reduction took {:.1} s (bound {:.0} s)",
+                t0.elapsed().as_secs_f64(),
+                self.job_fallback_max.as_secs_f64()
+            ));
+        }
+        r
     }
 }
 

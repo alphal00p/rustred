@@ -9,12 +9,33 @@ use rustred_campaign_contract::outcome::{JobOutcome, PerCase};
 use rustred_campaign_contract::spec::JobKind;
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 
+/// Evidence as `assess` would build it; with `sealed` the verifier's figures are taken from the outcome (rules,
+/// elided loci), as a verified table that agrees with OUTCOME would give.
 fn ev(wait: WaitStatus, o: Option<JobOutcome>, sealed: bool) -> Evidence {
+    let verified = match (&o, sealed) {
+        (Some(j), true) => Some(VerifiedOutputs {
+            rules: j.counters.rules_committed,
+            elided_loci: j
+                .outputs
+                .table
+                .as_ref()
+                .map_or(0, |t| t.witness_loci_elided),
+            streams: vec![],
+        }),
+        (None, true) => Some(VerifiedOutputs {
+            rules: 0,
+            elided_loci: 0,
+            streams: vec![],
+        }),
+        _ => None,
+    };
     Evidence {
         kind: JobKind::Generate,
         wait,
         outcome: o.map_or(OutcomeState::Absent, |o| OutcomeState::Valid(Box::new(o))),
-        sealed,
+        verified,
+        unsealed_why: None,
+        resume_ref: None,
         resume_valid: true,
         kill: KillReason::None,
         oom_kill_observed: false,
@@ -176,12 +197,27 @@ fn row_05_open_regions_obligations_rule_found() {
     for s in [StopCode::OpenRegions, StopCode::OpenObligations] {
         let c = x(ev(
             WaitStatus::Exited(10),
-            Some(o(ExitCode::Incomplete, Some(s))),
+            Some(with_rules(o(ExitCode::Incomplete, Some(s)), 1)),
             true,
         ));
         assert_eq!(
             (c.row, c.kind, c.action),
             (5, OutcomeKind::RuleFound, Action::QueueOpenList)
+        );
+        // audit A m1: no verified rule -> row 27 (no_rule, accept nothing, open list -> items)
+        let c = x(ev(
+            WaitStatus::Exited(10),
+            Some(o(ExitCode::Incomplete, Some(s))),
+            true,
+        ));
+        assert_eq!(
+            (c.row, c.kind, c.accept, c.action),
+            (
+                27,
+                OutcomeKind::NoRule,
+                Accept::Nothing,
+                Action::QueueOpenList
+            )
         );
     }
 }
@@ -229,11 +265,17 @@ fn row_07_checker_verdicts() {
         j.exit_code = ExitCode::Undecided;
         j.status = rustred_campaign_contract::JobStatus::Undecided;
     }
-    let c = x(e);
+    let c = x(e.clone());
     assert_eq!(
-        (c.row, c.kind, c.action),
-        (7, OutcomeKind::Undecided, Action::OtherToolOrAttention)
+        (c.row, c.sub.as_str(), c.kind, c.action),
+        (7, "b", OutcomeKind::Undecided, Action::OtherToolOrAttention)
     );
+    // audit A m1: a verdict code from a producing kind is a contract violation
+    e.kind = JobKind::Generate;
+    if let OutcomeState::Valid(j) = &mut e.outcome {
+        j.kind = JobKind::Generate;
+    }
+    assert_eq!(x(e).row, 22);
 }
 
 #[test]
@@ -501,9 +543,19 @@ fn row_22_elided_loci_when_forbidden() {
     j.outputs.table.as_mut().unwrap().witness_loci_elided = 2;
     let c = x(ev(WaitStatus::Exited(0), Some(j.clone()), true));
     assert_eq!(c.row, 22);
+    // audit A M2: with elision allowed the table may seal, but the class is sealed_with_elided (row 25), never used
     let mut e = ev(WaitStatus::Exited(0), Some(j), true);
     e.elision_forbidden = false;
-    assert_eq!(x(e).row, 1);
+    let c = x(e);
+    assert_eq!(
+        (c.row, c.kind, c.accept, c.action),
+        (
+            25,
+            OutcomeKind::Crashed,
+            Accept::Nothing,
+            Action::RerunWithoutElision
+        )
+    );
 }
 
 #[test]
@@ -558,16 +610,20 @@ fn restart_6_6_unknown_wait() {
     assert_eq!(c.row, 9);
     let c = x(ev(WaitStatus::Unknown, None, false));
     assert_eq!(
-        (c.row, c.action, c.resume_from_r),
-        (21, Action::ResumeOnceThenAttention, true)
+        (c.row, c.sub.as_str(), c.action, c.resume_from_r),
+        (21, "b", Action::ResumeOnceThenAttention, true)
     );
     let mut e = ev(WaitStatus::Unknown, None, false);
     e.resume_valid = false;
     let c = x(e);
     assert_eq!(
-        (c.row, c.action, c.resume_from_r),
-        (21, Action::RestartFromScratch, false)
+        (c.row, c.sub.as_str(), c.action, c.resume_from_r),
+        (21, "c", Action::RestartFromScratch, false)
     );
+    // audit A m4: W unknown with an invalid / unreadable OUTCOME is a contract violation, not "lost"
+    let mut e = ev(WaitStatus::Unknown, None, false);
+    e.outcome = OutcomeState::Invalid("x".into());
+    assert_eq!(x(e).row, 22);
 }
 
 #[test]
@@ -583,13 +639,16 @@ fn time_decided_flag_is_carried() {
 }
 
 #[test]
-fn checker_kinds_need_no_table() {
-    // S is vacuously true for kinds without a table (package contract)
+fn checker_kinds_need_their_sealed_results() {
+    // audit A M4: S is never vacuously true; a checker's results file must be sealed and verified
     let s = sample_spec("/r");
     let mut j = job_outcome(&s, ExitCode::Complete, None, false);
     j.kind = JobKind::Descent;
     j.outputs.table = None;
-    let mut e = ev(WaitStatus::Exited(0), Some(j), false);
+    let mut e = ev(WaitStatus::Exited(0), Some(j.clone()), false);
+    e.kind = JobKind::Descent;
+    assert_eq!(x(e).row, 22);
+    let mut e = ev(WaitStatus::Exited(0), Some(j), true);
     e.kind = JobKind::Descent;
     assert_eq!(x(e).row, 1);
 }

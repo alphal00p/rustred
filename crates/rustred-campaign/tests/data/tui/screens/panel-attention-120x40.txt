@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  up 10m03s  hb 2s  seq 102  sessions 1  mode close  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
 -[ Attention (2) ]----------------------------------------------------------------------------------------- q: back ----
 ! T162-item-00009 needs_bigmem [decision] the L2 run needs more memory than the policy allows
     rr_campaign retry T162-item-00009 --reason TEXT

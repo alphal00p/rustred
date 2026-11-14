@@ -1,29 +1,35 @@
-rr_campaign  test-campaign  RUNNING  up 10m03s  hb 2s  seq 102  sessions 1  mode close  dir memory
-CPU 21/48   RAM 1.1 used, 3.0 res / 30.0G cap   host 268.0G (floor 50.0)   jobs 1   disk 900.0G
-NODES 1  FULL 0  BOXED 0  OPEN 1  certified 0  attention 2  faces 6/10  (closure_check=1)
-ITEMS 13  open 4  run 1  acc 5  esc 1  rej 0  term 2  ret 1  stale 0
-RULES accepted 5  rejected 1  CERT 40.0% (2/5 proved)  upgrades 1  retired 1
-TERMINALS 3 (cand 0, bound 100/node, preferred used 1/3)  DEFECT 37 keys (1 of 1 nodes with defect)  ECONOMY rules 6->5  RHS 2,860->2,130
-cpu-h 0.0/200  ETA ~ 1s-3s wall (3s-9s CPU left; 3 items; 3 jobs)
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
+NODES 1  FULL 0  BOXED 0  OPEN 1  items done ##############...... 69% (9 of 13)  faces 6/10  last event 9m38s ago
+ETA ~ 1s-3s  done ~ 23:10 UTC  cpu-h 0.0/200 used  (<0.1 CPU-h left; 3 items queued or running, 3 jobs)  escalations not counted
+NEXT  T162-item-00009: the L2 run needs more memory than the policy allows -> rr_campaign retry T162-item-00009 --reason TEXT  (+1 more: a)
+CPU 21/48 in use   jobs 1 running   RAM 1.1/30.0 GiB (3.0 reserved)   host free 268.0 GiB (floor 50.0)   disk free 900.0G
+CERTIFIED at the level asked: 0 of 1 nodes; rules: 2 per-key, 3 pending
+ITEMS 13  open 4  run 1  acc 5  esc 1  rej 0  term 2  stale 0
+RULES accepted 5  rejected 1  DEFECT 37 keys (1/1 checked nodes)  TERMINALS 3 (cand 0, bound 100/node, pref 1/3)  ECONOMY rules 6->5, RHS 2,860->2,130
 -[ Nodes (1) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
-node     coverage            cert asked/got  phase         faces ok/all   open by rung               term   pref used   defect  cert%   rules  used%       RHS   CPU-h reference (info)
-T162     OPEN                replay/-        closure_check         6/10      4 L0 4                 2/100     1/3 nn2       37  40.0%       5  83.3%     2,130     0.0 term 7
--[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ T162 (selected; n/N) ]-----------------------------------------------------
-rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 5  rejected 1  upgrades 1  retired 1         coverage OPEN  target full  spec box T162.box  phase closure_check  certified~
-L0        4    1    -      5    -    1     -    1     6    2.0      rejected by reason: rule_covers_none 1                closure  rounds 1  defect 37  closure keys 154,783  rules used 5 / 6 (83.3%)
-L1        0    -    -      -    -    -     -    1     -      -      evidence: geometry 1  tested 2  proved 2              economy  rules 6 -> 5 (superseded 1)  RHS terms 2,860 -> 2,130
-                                                                    certified share 40.0% (accepted items at identity_p~  terminals 2 / 100 (candidates 0)  items open 4  CPU 0.0 h
-                                                                    economy: rules 6 -> 5, RHS terms 2,860 -> 2,130       evidence geometry 1  tested 2  proved 2  (cert 40.0%)
-                                                                    closure defect keys: T162 37                          blockers full: -   box: -
-                                                                    jobs 7 settled: complete 1, no_rule 1, rule_found 4   certification asked replay  reached -
-                                                                                                                          preferred terminals (a wish, not a requirement): used 1 of 3, not needed 2   ~
-                                                                                                                          reference (information only) old ledger: terminals 7  rules -  RHS terms -
-                                                                                                                          items by state: open 2, in_progress 1, accepted 5, escalated 1, terminal 2, r~
-                                                                                                                          open by rung: L0 4
-                                                                                                                          -[ Attention (2) ]------------------------------------------------ a: all ----
-                                                                                                                          ! T162-item-00009 needs_bigmem [decision] the L2 run needs more memory than t~
+node coverage cert asked/got phase         faces open open by rung  term    pref defect rules  used%   RHS proved% CPU-h reference (info)
+T162 OPEN     replay/-       closure_check  6/10    4 L0:4         2/100 1/3 nn2     37     5  83.3% 2,130   40.0%   0.0 term 7
+-[ Work list by ladder level ]-----------  -[ Rules and certificates ]-----------------------------------  -[ T162 (selected; n/N) ]--------------------------------------------------------------------
+rung open run acc esc term ret jobs med s  accepted 5  rejected 1  upgrades 1  retired 1                   node T162
+L0      4   1   5   1    1   1    6   2.0  rejected: rule_covers_none 1                                    coverage OPEN  target full  spec box T162.box  phase closure_check  attempt ended no
+L1      -   -   -   -    1   -    -     -  evidence: geometry 1  tested 2  proved 2                        certification asked replay  reached -  (not yet at the level asked)
+                                           per-key proved 2 of 5 accepted (40.0%)                          closure  rounds 1  defect 37  closure keys 154,783  rules used 5 of 6 (83.3%)
+                                           economy: rules 6->5  RHS 2,860->2,130                           economy  rules 6 -> 5 (superseded 1)  RHS terms 2,860 -> 2,130
+                                           closure defect 37 keys (largest T162 37)                        terminals 2 of bound 100 (candidates 0)  items open 4  CPU 0.0 h
+                                           jobs 7 settled: rule_found 4, complete 1, no_rule 1             evidence geometry 1  tested 2  proved 2  (per-key proved 40.0%)
+                                                                                                           blockers full: -   box: -
+                                                                                                           preferred terminals (a wish, not a requirement): used 1 of 3, not needed 2   other terminals~
+                                                                                                           reference (information only) old ledger: terminals 7  rules -  RHS terms -
+                                                                                                           items by state: open 2, in_progress 1, accepted 5, escalated 1, terminal 2, retired 1, atten~
+                                                                                                           open by rung: L0:4
+                                                                                                           -[ Attention (2) ]--------------------------------------------------------------- a: all ----
+                                                                                                           ! T162-item-00009 needs_bigmem [decision] the L2 run needs more memory than the policy allows
+                                                                                                               rr_campaign retry T162-item-00009 --reason TEXT
+                                                                                                               rr_campaign skip T162-item-00009 --reason TEXT
+                                                                                                               rr_campaign why T162-item-00009
+                                                                                                           ! c-0002 control_pending [warning] control Retry of Item { item: "T162-item-00009" } by oper~
 -[ Running jobs 1 ]-------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
-running 1 (job list not in the progress files and not available from the ledger)
+running 1 (no job list in the progress files; ledger fallback not available)
 -[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
 23:00:23 .    control           operator (tty) requests Retry of Item { item: "T162-item-00009" } (BIGMEM authorised)
 23:00:23 .    control           control c-0003 applied: launches resumed
@@ -50,11 +56,5 @@ running 1 (job list not in the progress files and not available from the ledger)
 23:00:11 .    job_finished      T162 F003 L0: job T162-job (rule_found, accept canonical)
 23:00:10 ok   item_accepted     T162 F002: rule T162:R:campaign:2 accepted (identity_proved)
 23:00:09 .    job_finished      T162 F002 L0: job T162-job (rule_found, accept canonical)
-23:00:07 ok   item_accepted     T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)
-23:00:06 .    job_finished      T162 F001 L0: job T162-job (rule_found, accept canonical)
-23:00:05 ok   item_accepted     T162 F000: rule T162:R:campaign:0 accepted (identity_proved)
-23:00:04 .    job_finished      T162 F000 L0: job T162-job (rule_found, accept canonical)
-23:00:02 .    provenance        tables_imported earlier-campaign by campaign c-20261101 (1 files, level claimed identity_tested)
-23:00:02 .    provenance        evidence_imported astra-bank-20261113 by hand closure (reference) (2 files, level claimed identity_tested)
-23:00:02 .    node              T162: running (open)
+
 n/N select node  Enter node detail  j jobs  e events  a attention(2)  ?help  q/Ctrl-C close viewer (campaign unaffected)

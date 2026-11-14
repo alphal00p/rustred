@@ -1,5 +1,5 @@
 {
-  "description": "Shared vectors of the canonical JSON rules. `document_rule` = plan 3.3.0 (validate.py canonical_json and rustred_campaign_core::schema::canon); `record_rule` = the contract crate's canon::canonical_line (child-job 3.2.3: tokens verbatim, keys sorted by their escaped bytes). `agree: false` rows are the DISAGREEMENT D21. Checked by schemas/test_validate.py (document rule) and rustred-campaign-contract tests/schema_roundtrip.rs (record rule).",
+  "description": "Shared vectors of the ONE canonical JSON rule of the campaign (plan 3.3.0; coordinator addendum 2, 2026-11-14): `document_rule` = validate.py canonical_json and rustred_campaign_core::schema::canon; `record_rule` = the contract crate's canon::canonical_line (child-job 3.2.3 v2: the same rule, floats allowed, plus removal of volatile top-level keys, of which these vectors have none). Since contract lane `contractfix` the two agree on every vector (`agree: true`). Checked by schemas/test_validate.py (document rule) and rustred-campaign-contract tests/schema_roundtrip.rs (record rule == document rule).",
   "vectors": [
     {
       "name": "sorted_nested",
@@ -30,24 +30,24 @@
       "input": "{\"k\":\"\\u00e9\"}",
       "floats": false,
       "document_rule": "{\"k\":\"é\"}",
-      "record_rule": "{\"k\":\"\\u00e9\"}",
-      "agree": false
+      "record_rule": "{\"k\":\"é\"}",
+      "agree": true
     },
     {
       "name": "escaped_slash",
       "input": "{\"k\":\"a\\/b\"}",
       "floats": false,
       "document_rule": "{\"k\":\"a/b\"}",
-      "record_rule": "{\"k\":\"a\\/b\"}",
-      "agree": false
+      "record_rule": "{\"k\":\"a/b\"}",
+      "agree": true
     },
     {
       "name": "key_order_escaped_key",
       "input": "{\"\\u00e9\":1,\"z\":2}",
       "floats": false,
       "document_rule": "{\"z\":2,\"é\":1}",
-      "record_rule": "{\"\\u00e9\":1,\"z\":2}",
-      "agree": false
+      "record_rule": "{\"z\":2,\"é\":1}",
+      "agree": true
     },
     {
       "name": "control_char",
@@ -70,16 +70,16 @@
       "input": "{\"x\":-0}",
       "floats": false,
       "document_rule": "{\"x\":0}",
-      "record_rule": "{\"x\":-0}",
-      "agree": false
+      "record_rule": "{\"x\":0}",
+      "agree": true
     },
     {
       "name": "float_spelling",
       "input": "{\"x\":1e2,\"y\":1.0}",
       "floats": true,
       "document_rule": "{\"x\":100.0,\"y\":1.0}",
-      "record_rule": "{\"x\":1e2,\"y\":1.0}",
-      "agree": false
+      "record_rule": "{\"x\":100.0,\"y\":1.0}",
+      "agree": true
     },
     {
       "name": "nested_sort_bytewise",

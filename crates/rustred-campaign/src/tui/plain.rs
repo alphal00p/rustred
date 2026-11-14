@@ -1,11 +1,15 @@
 //! Plain mode (no terminal, `--plain`, `TERM=dumb`, after SIGHUP): single-line summaries and event lines, no escape
-//! codes, suitable for a log file.
+//! codes, suitable for a log file. Every line passes the sanitiser ([`Clean`], audit C1).
 
 use std::io::Write;
 
 use super::app::App;
-use super::format::{count, cpu_hours, gib, percent, rough};
+use super::clean::Clean;
+use super::format::{count, cpu_hours, gib, rough};
 use super::model::{Banner, EventRow, ViewModel};
+
+/// Longest plain line kept.
+const MAX_LINE: usize = 4096;
 
 fn state_word(vm: &ViewModel, app: &App) -> String {
     if app.stop_count >= 2 {
@@ -21,21 +25,27 @@ fn state_word(vm: &ViewModel, app: &App) -> String {
 pub fn status_line(vm: &ViewModel, app: &App) -> String {
     let utc = vm
         .now_utc
+        .as_str()
         .get(..19)
         .map(|s| format!("{s}Z"))
-        .unwrap_or_else(|| vm.now_utc.clone());
+        .unwrap_or_else(|| vm.now_utc.to_string());
     let r = &vm.resources;
-    let eta = match (vm.eta.remaining_items, vm.eta.wall_s) {
-        (Some(0), _) => "eta done".to_string(),
-        (_, Some((lo, hi))) => format!("eta ~{}-{}", rough(lo), rough(hi)),
-        _ => "eta ?".to_string(),
+    let eta = if vm.live_values_old() {
+        "eta ?".to_string()
+    } else {
+        match (vm.eta.remaining_items, vm.eta.wall_s) {
+            _ if vm.items_total == Some(0) => "eta ?".to_string(),
+            (Some(0), _) => "eta done".to_string(),
+            (_, Some((lo, hi))) => format!("eta ~{}-{}", rough(lo), rough(hi)),
+            _ => "eta ?".to_string(),
+        }
     };
     let defect = vm
         .defect_keys
         .map(|d| d.to_string())
         .unwrap_or_else(|| "-".into());
     let mut s = format!(
-        "{utc} {} seq {} cpu {}/{} ram {}/{}G host {}G nodes {} (full {} boxed {} open {}) items-open {} rules {}/{} cert {} defect {} term {} cpu-h {} {eta}",
+        "{utc} {} seq {} cpu {}/{} ram {}/{}GiB host {}GiB nodes {} (full {} boxed {} open {}) items-open {} rules {}/{} certified {}/{} defect {} term {} cpu-h {} {eta}",
         state_word(vm, app),
         count(vm.seq),
         count(r.cpus_in_use),
@@ -50,7 +60,8 @@ pub fn status_line(vm: &ViewModel, app: &App) -> String {
         count(vm.items_open),
         count(vm.rules.accepted),
         count(vm.rules.rejected),
-        percent(vm.certified_share),
+        vm.cert.nodes_at_level,
+        vm.cert.nodes,
         defect,
         count(vm.terminals_declared),
         cpu_hours(vm.cost_cpu_s),
@@ -60,6 +71,11 @@ pub fn status_line(vm: &ViewModel, app: &App) -> String {
             " hb-age {}",
             super::format::dur(vm.heartbeat_age_s)
         ));
+    } else if let Some(a) = vm.data_age_s.filter(|a| *a > 10.0) {
+        s.push_str(&format!(" data-age {}", super::format::dur(Some(a))));
+    }
+    if !vm.suspect.is_empty() {
+        s.push_str(" inconsistent-numbers");
     }
     if !vm.attention.is_empty() {
         s.push_str(&format!(" attention {}", vm.attention.len()));
@@ -67,13 +83,12 @@ pub fn status_line(vm: &ViewModel, app: &App) -> String {
     if let Some(p) = vm.problems.first() {
         s.push_str(&format!(" problem: {p}"));
     }
-    s.chars().filter(|c| !c.is_control()).collect()
+    Clean::bounded(&s, MAX_LINE).into_string()
 }
 
 /// One event line.
 pub fn event_line(e: &EventRow) -> String {
-    let s = format!("{} event {} {}", e.utc, e.kind, e.text);
-    s.chars().filter(|c| !c.is_control()).collect()
+    Clean::bounded(&format!("{} event {} {}", e.utc, e.kind, e.text), MAX_LINE).into_string()
 }
 
 /// Emits plain lines: new events (by seq) and a status line on a state change or every interval.

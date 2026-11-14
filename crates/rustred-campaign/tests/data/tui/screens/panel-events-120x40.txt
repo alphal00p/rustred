@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  up 10m03s  hb 2s  seq 102  sessions 1  mode close  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
 -[ Recent events (34) ]------------------------------------------------------------------------------------ q: back ----
 23:00:23 .    control           operator (tty) requests Retry of Item { item: "T162-item-00009" } (BIGMEM authorised)
 23:00:23 .    control           control c-0003 applied: launches resumed

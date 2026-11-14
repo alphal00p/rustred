@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  up 10m03s  hb 2s  seq 102  sessions 1  mode close  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
 -[ Item T162-item-00004 (why) ]---------------------------------------------------------------------------- q: back ----
 why escalated to L1
 node T162  label F004  kind locus  rung L0  phase escalated L1

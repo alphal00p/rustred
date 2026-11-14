@@ -2,7 +2,7 @@
   "schema": "rustred.campaign.progress.v1", "file": "node", "fixture_origin": "hand",
   "campaign_id": "p5l-boxed-final", "written_utc": "2026-11-20T08:15:04.000Z", "source_of_truth": "ledger",
   "ledger": {"seq": 18402, "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000", "last_utc": "2026-11-20T08:15:03.250Z"},
-  "node": "T266", "phase": "running", "closure_kind": "open", "certified": false,
+  "node": "T266", "phase": "running", "closure_kind": "open", "certified": false, "certification": {"asked": "replay", "reached": null},
   "target": {"target": "full"}, "spec_box": "T266.rstar", "attempt_ended": false,
   "blockers": {"full": null, "box": null},
   "closure": {"rounds": 1, "defect_keys": 37, "keyset": null, "closure_keys": 13951428, "rules_used": 12658, "rules_total": 33660, "used_share": 0.376},
