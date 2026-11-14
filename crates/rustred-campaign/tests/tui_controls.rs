@@ -48,18 +48,28 @@ fn ctrl_c_once_drains_with_countdown_twice_forces_third_exits() {
     let (o, clock) = opts_at(fixture_now(&c));
     let src = DirSource::new(&dir);
     let vm = tui::view_model(&src, &o);
-    let fake = FakeControls { requests: Cell::new(0), hosts: true };
-    let mut app = App::new(true, fake.grace_seconds());
-    let now = |clock: &rustred_campaign::clock::ManualClock| {
-        clock.now_utc().0 as f64 / 1000.0
+    let fake = FakeControls {
+        requests: Cell::new(0),
+        hosts: true,
     };
+    let mut app = App::new(true, fake.grace_seconds());
+    let now = |clock: &rustred_campaign::clock::ManualClock| clock.now_utc().0 as f64 / 1000.0;
     // q at top level does NOT stop the run
-    assert_eq!(app.on_key(key(KeyCode::Char('q')), &vm, &src, &fake, now(&clock)), Action::Redraw);
+    assert_eq!(
+        app.on_key(key(KeyCode::Char('q')), &vm, &src, &fake, now(&clock)),
+        Action::Redraw
+    );
     assert_eq!(fake.requests.get(), 0);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
-    assert!(t.contains("q does not stop the run: Ctrl-C stops it safely"), "{t}");
+    assert!(
+        t.contains("q does not stop the run: Ctrl-C stops it safely"),
+        "{t}"
+    );
     // first Ctrl-C: one stop request, drain banner with the grace countdown
-    assert_eq!(app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)), Action::Redraw);
+    assert_eq!(
+        app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)),
+        Action::Redraw
+    );
     assert_eq!(fake.requests.get(), 1);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
     assert!(t.contains(" STOPPING 2:00  draining: 21 job(s) running, grace 120 s; nothing half-accepted. Press Ctrl-C again to force."), "{t}");
@@ -71,14 +81,20 @@ fn ctrl_c_once_drains_with_countdown_twice_forces_third_exits() {
     assert!(t80.contains("STOPPING 1:47"), "{t80}");
     check_golden("stop-drain-120x40", &t);
     // second Ctrl-C: force
-    assert_eq!(app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)), Action::Redraw);
+    assert_eq!(
+        app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)),
+        Action::Redraw
+    );
     assert_eq!(fake.requests.get(), 2);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
     assert!(t.contains(" FORCED STOP: 21 running job(s) are being killed and recorded as interrupted; still safe"), "{t}");
     assert!(t.contains("STOPPING (forced)"));
     check_golden("stop-forced-120x40", &t);
     // third: leave at once
-    assert_eq!(app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)), Action::Quit(ExitReason::ForcedExit));
+    assert_eq!(
+        app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)),
+        Action::Quit(ExitReason::ForcedExit)
+    );
     assert_eq!(fake.requests.get(), 3);
 }
 
@@ -111,10 +127,20 @@ fn watcher_ctrl_c_and_q_close_the_viewer_only() {
     let vm = tui::view_model(&src, &o);
     let w = WatchControls::new();
     let mut app = App::new(false, 120);
-    assert_eq!(app.on_key(ctrl_c(), &vm, &src, &w, 0.0), Action::Quit(ExitReason::ViewerQuit));
-    assert_eq!(w.handle.count(), 0, "the campaign's counter is never touched by a viewer");
+    assert_eq!(
+        app.on_key(ctrl_c(), &vm, &src, &w, 0.0),
+        Action::Quit(ExitReason::ViewerQuit)
+    );
+    assert_eq!(
+        w.handle.count(),
+        0,
+        "the campaign's counter is never touched by a viewer"
+    );
     let mut app = App::new(false, 120);
-    assert_eq!(app.on_key(key(KeyCode::Char('q')), &vm, &src, &w, 0.0), Action::Quit(ExitReason::ViewerQuit));
+    assert_eq!(
+        app.on_key(key(KeyCode::Char('q')), &vm, &src, &w, 0.0),
+        Action::Quit(ExitReason::ViewerQuit)
+    );
     let t = tui::render_text(&vm, &App::new(false, 120), &o, 120, 40);
     assert!(t.contains("q/Ctrl-C close viewer (campaign unaffected)"));
 }
@@ -142,7 +168,12 @@ fn navigation_panels_and_drill_down() {
             updated_seq: 62,
         }],
     );
-    for (k, p) in [('j', Panel::Jobs), ('e', Panel::Events), ('a', Panel::Attention), ('?', Panel::Help)] {
+    for (k, p) in [
+        ('j', Panel::Jobs),
+        ('e', Panel::Events),
+        ('a', Panel::Attention),
+        ('?', Panel::Help),
+    ] {
         app.on_key(key(KeyCode::Char(k)), &vm, &src, &w, 0.0);
         assert_eq!(app.panel, p);
         let t = tui::render_text(&vm, &app, &o, 120, 40);
@@ -154,25 +185,38 @@ fn navigation_panels_and_drill_down() {
     app.on_key(key(KeyCode::Enter), &vm, &src, &w, 0.0);
     assert_eq!(app.panel, Panel::Node);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
-    assert!(t.contains("F004 n9=-1") && t.contains("escalated to L1"), "{t}");
+    assert!(
+        t.contains("F004 n9=-1") && t.contains("escalated to L1"),
+        "{t}"
+    );
     check_golden("panel-node-120x40", &t);
     app.on_key(key(KeyCode::Char('w')), &vm, &src, &w, 0.0);
     assert_eq!(app.panel, Panel::Item);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
-    assert!(t.contains("why escalated to L1") && t.contains("large:jobs/j4.a2"), "{t}");
+    assert!(
+        t.contains("why escalated to L1") && t.contains("large:jobs/j4.a2"),
+        "{t}"
+    );
     check_golden("panel-item-120x40", &t);
     app.on_key(key(KeyCode::Char('q')), &vm, &src, &w, 0.0);
     app.on_key(key(KeyCode::Char('q')), &vm, &src, &w, 0.0);
     assert_eq!(app.panel, Panel::Summary);
     // control keys are explained, not bound
-    let now = {
-        o.clock.now_utc().0 as f64 / 1000.0
-    };
+    let now = { o.clock.now_utc().0 as f64 / 1000.0 };
     app.on_key(key(KeyCode::Char('p')), &vm, &src, &w, now);
     let t = tui::render_text(&vm, &app, &o, 120, 40);
-    assert!(t.contains("type `rr_campaign pause` in another pane"), "{t}");
+    assert!(
+        t.contains("type `rr_campaign pause` in another pane"),
+        "{t}"
+    );
     // Tab cycles the 80-column table
-    for title in ["Nodes", "Running jobs", "Recent events", "Attention", "Work list by ladder level"] {
+    for title in [
+        "Nodes",
+        "Running jobs",
+        "Recent events",
+        "Attention",
+        "Work list by ladder level",
+    ] {
         app.on_key(key(KeyCode::Tab), &vm, &src, &w, 0.0);
         let t = tui::render_text(&vm, &app, &o, 80, 24);
         assert!(t.contains(&format!("-[ {title} ]")), "{title}: {t}");

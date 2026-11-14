@@ -119,7 +119,15 @@ pub fn view_model_json(source: &dyn ProgressSource, opts: &DashboardOptions) -> 
 }
 
 /// Renders one frame into a buffer (tests: colours of cells).
-pub fn render_to_buffer(vm: &ViewModel, app: &App, color: bool, utf8: bool, now_s: f64, width: u16, height: u16) -> Buffer {
+pub fn render_to_buffer(
+    vm: &ViewModel,
+    app: &App,
+    color: bool,
+    utf8: bool,
+    now_s: f64,
+    width: u16,
+    height: u16,
+) -> Buffer {
     let backend = TestBackend::new(width.max(1), height.max(1));
     let mut term = Terminal::new(backend).expect("test backend");
     let ctx = render::Ctx {
@@ -128,7 +136,8 @@ pub fn render_to_buffer(vm: &ViewModel, app: &App, color: bool, utf8: bool, now_
         app,
         now_s,
     };
-    term.draw(|f| render::draw(f, vm, &ctx)).expect("test backend draws");
+    term.draw(|f| render::draw(f, vm, &ctx))
+        .expect("test backend draws");
     term.backend().buffer().clone()
 }
 
@@ -150,7 +159,13 @@ pub fn buffer_text(b: &Buffer) -> String {
 }
 
 /// Renders the view-model with a given interactive state as plain text.
-pub fn render_text(vm: &ViewModel, app: &App, opts: &DashboardOptions, width: u16, height: u16) -> String {
+pub fn render_text(
+    vm: &ViewModel,
+    app: &App,
+    opts: &DashboardOptions,
+    width: u16,
+    height: u16,
+) -> String {
     buffer_text(&render_to_buffer(
         vm,
         app,
@@ -163,20 +178,33 @@ pub fn render_text(vm: &ViewModel, app: &App, opts: &DashboardOptions, width: u1
 }
 
 /// One full text rendering of the SUMMARY screen (no escape codes): `--once`, the final summary, tests.
-pub fn render_once(source: &dyn ProgressSource, opts: &DashboardOptions, width: u16, height: u16) -> String {
+pub fn render_once(
+    source: &dyn ProgressSource,
+    opts: &DashboardOptions,
+    width: u16,
+    height: u16,
+) -> String {
     let vm = view_model(source, opts);
     render_text(&vm, &App::new(false, 120), opts, width, height)
 }
 
 fn utf8_from_env() -> bool {
     let v = |k: &str| std::env::var(k).ok();
-    theme::utf8_locale(v("LC_ALL").as_deref(), v("LC_CTYPE").as_deref(), v("LANG").as_deref())
+    theme::utf8_locale(
+        v("LC_ALL").as_deref(),
+        v("LC_CTYPE").as_deref(),
+        v("LANG").as_deref(),
+    )
 }
 
 /// The live dashboard: TUI when stdout is a terminal (and not `--plain` / `TERM=dumb`), plain lines otherwise.
 /// Returns when the viewer quits (watcher) or the supervisor reports it is done (`Controls::campaign_done`).
 /// The terminal is restored on every path; the last view is then printed to the normal screen.
-pub fn run_dashboard(source: &dyn ProgressSource, controls: &dyn Controls, opts: &DashboardOptions) -> ExitReason {
+pub fn run_dashboard(
+    source: &dyn ProgressSource,
+    controls: &dyn Controls,
+    opts: &DashboardOptions,
+) -> ExitReason {
     if !terminal::wants_tui(opts, controls) {
         return terminal::run_plain(source, controls, opts, &mut io::stdout());
     }
@@ -203,7 +231,10 @@ pub fn run_dashboard(source: &dyn ProgressSource, controls: &dyn Controls, opts:
             reason
         }
         Err(e) => {
-            let _ = writeln!(io::stderr(), "dashboard: terminal unavailable ({e}); plain mode");
+            let _ = writeln!(
+                io::stderr(),
+                "dashboard: terminal unavailable ({e}); plain mode"
+            );
             terminal::run_plain(source, controls, opts, &mut io::stdout())
         }
     }

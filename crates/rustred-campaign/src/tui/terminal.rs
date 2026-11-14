@@ -181,7 +181,9 @@ pub fn run_tui(
         }
         match event::poll(Duration::from_millis(250)) {
             Ok(true) => match event::read() {
-                Ok(Event::Key(k)) if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
+                Ok(Event::Key(k))
+                    if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+                {
                     match app.on_key(k, &vm, source, controls, now_s(opts)) {
                         Action::Quit(r) => break r,
                         Action::Redraw => dirty = true,

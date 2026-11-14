@@ -114,6 +114,9 @@ mod tests {
         assert!(utf8_locale(None, None, Some("en_US.UTF-8")));
         assert!(!utf8_locale(Some("C"), None, Some("en_US.UTF-8")));
         assert_eq!(Theme { color: false }.style(Role::Fail), Style::default());
-        assert_eq!(Theme { color: true }.style(Role::Boxed).fg, Some(Color::Blue));
+        assert_eq!(
+            Theme { color: true }.style(Role::Boxed).fg,
+            Some(Color::Blue)
+        );
     }
 }

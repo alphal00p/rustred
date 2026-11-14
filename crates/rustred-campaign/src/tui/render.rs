@@ -214,7 +214,11 @@ fn table(
             if k > 0 {
                 v.push(Span::raw(" "));
             }
-            v.push(span(cell_text(cols[i].title, &cols[i]), Role::Label, c.theme));
+            v.push(span(
+                cell_text(cols[i].title, &cols[i]),
+                Role::Label,
+                c.theme,
+            ));
             v
         })
         .collect();
@@ -356,7 +360,10 @@ pub fn eta_text(vm: &ViewModel) -> String {
 }
 
 fn kv(label: &str, value: String, vr: Role, t: Theme) -> Vec<Span<'static>> {
-    vec![span(format!("{label} "), Role::Label, t), span(value, vr, t)]
+    vec![
+        span(format!("{label} "), Role::Label, t),
+        span(value, vr, t),
+    ]
 }
 
 /// Header line 1: identity, state, ages.
@@ -450,10 +457,7 @@ fn resources_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
             format!(
                 "{}{}",
                 count(vm.jobs.running),
-                vm.jobs
-                    .cap
-                    .map(|c| format!("/{c}"))
-                    .unwrap_or_default()
+                vm.jobs.cap.map(|c| format!("/{c}")).unwrap_or_default()
             ),
             Role::Running,
             t,
@@ -636,7 +640,11 @@ fn eta_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
     let n: usize = used.iter().map(|s| s.content.chars().count()).sum();
     let mut spans = used;
     spans.push(Span::raw("  "));
-    spans.push(span(fit(&eta_text(vm), w.saturating_sub(n + 2)), Role::Estimate, t));
+    spans.push(span(
+        fit(&eta_text(vm), w.saturating_sub(n + 2)),
+        Role::Estimate,
+        t,
+    ));
     Line::from(spans)
 }
 
@@ -718,9 +726,9 @@ fn footer(vm: &ViewModel, w: usize, class: WidthClass, c: &Ctx) -> Line<'static>
         (Panel::Summary, _) => format!(
             "n/N select node  Enter node detail  j jobs  e events  a attention({att})  ?help  {stop}"
         ),
-        (Panel::Node, _) => format!(
-            "n/N item  Enter/w why  1-9 filter by state (0 all)  PgUp/PgDn  q back  {stop}"
-        ),
+        (Panel::Node, _) => {
+            format!("n/N item  Enter/w why  1-9 filter by state (0 all)  PgUp/PgDn  q back  {stop}")
+        }
         _ => format!("arrows/PgUp/PgDn scroll  q back  {stop}"),
     };
     Line::from(span(fit(&s, w), Role::Queued, c.theme))
@@ -730,7 +738,13 @@ fn footer(vm: &ViewModel, w: usize, class: WidthClass, c: &Ctx) -> Line<'static>
 // tables
 // ------------------------------------------------------------------------------------------------------------
 
-fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx) -> Vec<Line<'static>> {
+fn nodes_table(
+    vm: &ViewModel,
+    w: usize,
+    rows: usize,
+    class: WidthClass,
+    c: &Ctx,
+) -> Vec<Line<'static>> {
     let compact = class == WidthClass::Compact;
     let has_faces = vm.nodes.iter().any(|n| n.faces_total.is_some());
     let cols = [
@@ -738,7 +752,18 @@ fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx
         col("coverage", 19, Align::L, 0),
         col("cert", 4, Align::L, 8),
         col("phase", 13, Align::L, 3),
-        col("faces ok/all", 12, Align::R, if !has_faces { 99 } else if compact { 9 } else { 5 }),
+        col(
+            "faces ok/all",
+            12,
+            Align::R,
+            if !has_faces {
+                99
+            } else if compact {
+                9
+            } else {
+                5
+            },
+        ),
         col("open", 6, Align::R, 0),
         col("by rung", 18, Align::L, if compact { 9 } else { 5 }),
         col("term", 7, Align::R, 1),
@@ -752,12 +777,24 @@ fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx
     let total = vm.nodes.len();
     let sel = c.app.selected_node.min(total.saturating_sub(1));
     let n = rows.saturating_sub(1).max(1);
-    let (lo, hi) = window(total, if total > n { n.saturating_sub(1).max(1) } else { n }, sel);
+    let (lo, hi) = window(
+        total,
+        if total > n {
+            n.saturating_sub(1).max(1)
+        } else {
+            n
+        },
+        sel,
+    );
     let data: Vec<Cells> = vm.nodes[lo..hi]
         .iter()
         .map(|nd| {
             let rr = cov_role(nd);
-            let row_role = if nd.coverage == Coverage::Boxed { Role::Boxed } else { Role::Normal };
+            let row_role = if nd.coverage == Coverage::Boxed {
+                Role::Boxed
+            } else {
+                Role::Normal
+            };
             let by_rung = nd
                 .open_by_rung
                 .iter()
@@ -770,10 +807,35 @@ fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx
                 _ => "-".into(),
             };
             vec![
-                (format!("{}{}", if nd.stale_reason.is_some() { "!" } else { "" }, nd.id), row_role),
+                (
+                    format!(
+                        "{}{}",
+                        if nd.stale_reason.is_some() { "!" } else { "" },
+                        nd.id
+                    ),
+                    row_role,
+                ),
                 (cov_text(nd), rr),
-                (if nd.certified { "yes".into() } else { "-".into() }, if nd.certified { Role::Ok } else { row_role }),
-                (if nd.problem.is_some() { "unreadable".into() } else { nd.phase.clone() }, if nd.problem.is_some() { Role::Fail } else { row_role }),
+                (
+                    if nd.certified {
+                        "yes".into()
+                    } else {
+                        "-".into()
+                    },
+                    if nd.certified { Role::Ok } else { row_role },
+                ),
+                (
+                    if nd.problem.is_some() {
+                        "unreadable".into()
+                    } else {
+                        nd.phase.clone()
+                    },
+                    if nd.problem.is_some() {
+                        Role::Fail
+                    } else {
+                        row_role
+                    },
+                ),
                 (
                     match (nd.faces_closed, nd.faces_total) {
                         (Some(a), Some(b)) => format!("{a}/{b}"),
@@ -782,7 +844,14 @@ fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx
                     row_role,
                 ),
                 (cell(nd.items_open), row_role),
-                (if by_rung.is_empty() { "-".into() } else { by_rung }, row_role),
+                (
+                    if by_rung.is_empty() {
+                        "-".into()
+                    } else {
+                        by_rung
+                    },
+                    row_role,
+                ),
                 (term, Role::Terminal),
                 (
                     match nd.defect_keys {
@@ -806,13 +875,21 @@ fn nodes_table(vm: &ViewModel, w: usize, rows: usize, class: WidthClass, c: &Ctx
     let mut out = table(&cols, &data, w, Some(sel - lo), c);
     if hi - lo < total {
         out.push(Line::from(span(
-            format!("... {} more (n/N to scroll; {} of {total})", total - (hi - lo), sel + 1),
+            format!(
+                "... {} more (n/N to scroll; {} of {total})",
+                total - (hi - lo),
+                sel + 1
+            ),
             Role::Queued,
             c.theme,
         )));
     }
     if total == 0 {
-        out.push(Line::from(span("(no node files yet)", Role::Queued, c.theme)));
+        out.push(Line::from(span(
+            "(no node files yet)",
+            Role::Queued,
+            c.theme,
+        )));
     }
     out
 }
@@ -904,7 +981,11 @@ fn rules_panel(vm: &ViewModel, w: usize, c: &Ctx) -> Vec<Line<'static>> {
         fit(
             &format!(
                 "rejected by reason: {}",
-                if reasons.is_empty() { "-".into() } else { reasons.join(", ") }
+                if reasons.is_empty() {
+                    "-".into()
+                } else {
+                    reasons.join(", ")
+                }
             ),
             w,
         ),
@@ -959,11 +1040,19 @@ fn rules_panel(vm: &ViewModel, w: usize, c: &Ctx) -> Vec<Line<'static>> {
         fit(
             &format!(
                 "closure defect keys: {}",
-                if defects.is_empty() { "not checked yet".into() } else { defects.join(", ") }
+                if defects.is_empty() {
+                    "not checked yet".into()
+                } else {
+                    defects.join(", ")
+                }
             ),
             w,
         ),
-        if vm.defect_keys.unwrap_or(0) > 0 { Role::Fail } else { Role::Normal },
+        if vm.defect_keys.unwrap_or(0) > 0 {
+            Role::Fail
+        } else {
+            Role::Normal
+        },
         t,
     )));
     let classes: Vec<String> = vm
@@ -977,7 +1066,11 @@ fn rules_panel(vm: &ViewModel, w: usize, c: &Ctx) -> Vec<Line<'static>> {
             &format!(
                 "jobs {} settled: {}",
                 count(vm.jobs.total),
-                if classes.is_empty() { "-".into() } else { classes.join(", ") }
+                if classes.is_empty() {
+                    "-".into()
+                } else {
+                    classes.join(", ")
+                }
             ),
             w,
         ),
@@ -991,7 +1084,14 @@ fn jobs_rows(vm: &ViewModel) -> Option<&Vec<JobRow>> {
     vm.jobs.list.as_ref()
 }
 
-fn jobs_table(vm: &ViewModel, w: usize, rows: usize, wide: bool, scroll: usize, c: &Ctx) -> Vec<Line<'static>> {
+fn jobs_table(
+    vm: &ViewModel,
+    w: usize,
+    rows: usize,
+    wide: bool,
+    scroll: usize,
+    c: &Ctx,
+) -> Vec<Line<'static>> {
     let cols = [
         col("job", 18, Align::L, 0),
         col("node", 8, Align::L, 0),
@@ -1021,13 +1121,23 @@ fn jobs_table(vm: &ViewModel, w: usize, rows: usize, wide: bool, scroll: usize, 
     let total = list.len();
     let n = rows.saturating_sub(1).max(1);
     let lo = scroll.min(total.saturating_sub(1));
-    let hi = (lo + if total - lo > n { n.saturating_sub(1).max(1) } else { n }).min(total);
+    let hi = (lo
+        + if total - lo > n {
+            n.saturating_sub(1).max(1)
+        } else {
+            n
+        })
+    .min(total);
     let data: Vec<Cells> = list[lo..hi]
         .iter()
         .map(|j| {
             let rss = match (j.rss_bytes, j.cap_bytes) {
                 (None, None) => "-".into(),
-                (a, b) => format!("{} / {}", if a.is_some() { gib(a) } else { "-".into() }, if b.is_some() { gib(b) } else { "-".into() }),
+                (a, b) => format!(
+                    "{} / {}",
+                    if a.is_some() { gib(a) } else { "-".into() },
+                    if b.is_some() { gib(b) } else { "-".into() }
+                ),
             };
             let el = match (j.elapsed_s, j.budget_s) {
                 (None, None) => "-".into(),
@@ -1041,10 +1151,21 @@ fn jobs_table(vm: &ViewModel, w: usize, rows: usize, wide: bool, scroll: usize, 
                 (cell(j.cpus), Role::Normal),
                 (rss, cap_role(j.rss_bytes, j.cap_bytes)),
                 (el, Role::Normal),
-                (j.heartbeat_age_s.map(|a| dur(Some(a))).unwrap_or_else(|| "-".into()), Role::Normal),
+                (
+                    j.heartbeat_age_s
+                        .map(|a| dur(Some(a)))
+                        .unwrap_or_else(|| "-".into()),
+                    Role::Normal,
+                ),
                 (j.phase.clone().unwrap_or_else(|| "-".into()), Role::Queued),
-                (j.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into()), Role::Queued),
-                (j.run_dir.clone().unwrap_or_else(|| "-".into()), Role::Queued),
+                (
+                    j.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into()),
+                    Role::Queued,
+                ),
+                (
+                    j.run_dir.clone().unwrap_or_else(|| "-".into()),
+                    Role::Queued,
+                ),
             ]
         })
         .collect();
@@ -1061,7 +1182,13 @@ fn jobs_table(vm: &ViewModel, w: usize, rows: usize, wide: bool, scroll: usize, 
     out
 }
 
-fn event_lines(events: &[EventRow], w: usize, n: usize, skip: usize, c: &Ctx) -> Vec<Line<'static>> {
+fn event_lines(
+    events: &[EventRow],
+    w: usize,
+    n: usize,
+    skip: usize,
+    c: &Ctx,
+) -> Vec<Line<'static>> {
     let t = c.theme;
     let mut out: Vec<Line<'static>> = events
         .iter()
@@ -1075,7 +1202,11 @@ fn event_lines(events: &[EventRow], w: usize, n: usize, skip: usize, c: &Ctx) ->
                 span(" ", Role::Normal, t),
                 span(format!("{:<4}", e.tag.word()), tag_role(e.tag), t),
                 span(" ", Role::Normal, t),
-                span(fit(&rest, w.saturating_sub(head.chars().count())), Role::Normal, t),
+                span(
+                    fit(&rest, w.saturating_sub(head.chars().count())),
+                    Role::Normal,
+                    t,
+                ),
             ])
         })
         .collect();
@@ -1085,7 +1216,13 @@ fn event_lines(events: &[EventRow], w: usize, n: usize, skip: usize, c: &Ctx) ->
     out
 }
 
-fn attention_lines(rows: &[AttentionRow], w: usize, n: usize, with_options: bool, c: &Ctx) -> Vec<Line<'static>> {
+fn attention_lines(
+    rows: &[AttentionRow],
+    w: usize,
+    n: usize,
+    with_options: bool,
+    c: &Ctx,
+) -> Vec<Line<'static>> {
     let t = c.theme;
     let mut out = Vec::new();
     for a in rows {
@@ -1119,12 +1256,20 @@ fn attention_lines(rows: &[AttentionRow], w: usize, n: usize, with_options: bool
                 if out.len() >= n {
                     break;
                 }
-                out.push(Line::from(span(fit(&format!("    {o}"), w), Role::Normal, t)));
+                out.push(Line::from(span(
+                    fit(&format!("    {o}"), w),
+                    Role::Normal,
+                    t,
+                )));
             }
         }
     }
     if rows.is_empty() {
-        out.push(Line::from(span("(nothing needs a decision)", Role::Queued, t)));
+        out.push(Line::from(span(
+            "(nothing needs a decision)",
+            Role::Queued,
+            t,
+        )));
     }
     out
 }
@@ -1158,13 +1303,19 @@ fn node_detail_lines(nd: &NodeRow, w: usize, c: &Ctx) -> Vec<Line<'static>> {
             format!(
                 "closure  rounds {}  defect {}  closure keys {}  rules used {} / {} ({})",
                 cell(nd.closure_rounds),
-                nd.defect_keys.map(thousands).unwrap_or_else(|| "not checked yet".into()),
+                nd.defect_keys
+                    .map(thousands)
+                    .unwrap_or_else(|| "not checked yet".into()),
                 cell(nd.closure_keys),
                 cell(nd.rules_used),
                 cell(nd.rules_total),
                 percent(nd.used_share)
             ),
-            if nd.defect_keys.unwrap_or(0) > 0 { Role::Fail } else { Role::Normal },
+            if nd.defect_keys.unwrap_or(0) > 0 {
+                Role::Fail
+            } else {
+                Role::Normal
+            },
         ),
         l(
             format!(
@@ -1204,7 +1355,11 @@ fn node_detail_lines(nd: &NodeRow, w: usize, c: &Ctx) -> Vec<Line<'static>> {
                 nd.blockers_full.clone().unwrap_or_else(|| "-".into()),
                 nd.blockers_box.clone().unwrap_or_else(|| "-".into())
             ),
-            if nd.blockers_full.is_some() || nd.blockers_box.is_some() { Role::Warn } else { Role::Normal },
+            if nd.blockers_full.is_some() || nd.blockers_box.is_some() {
+                Role::Warn
+            } else {
+                Role::Normal
+            },
         ),
     ];
     let phases: Vec<String> = PHASES
@@ -1216,15 +1371,27 @@ fn node_detail_lines(nd: &NodeRow, w: usize, c: &Ctx) -> Vec<Line<'static>> {
     v.push(l(
         format!(
             "items by state: {}",
-            if phases.is_empty() { "-".into() } else { phases.join(", ") }
+            if phases.is_empty() {
+                "-".into()
+            } else {
+                phases.join(", ")
+            }
         ),
         Role::Normal,
     ));
-    let by: Vec<String> = nd.open_by_rung.iter().map(|(r, k)| format!("{r} {k}")).collect();
+    let by: Vec<String> = nd
+        .open_by_rung
+        .iter()
+        .map(|(r, k)| format!("{r} {k}"))
+        .collect();
     v.push(l(
         format!(
             "open by rung: {}",
-            if by.is_empty() { "-".into() } else { by.join("  ") }
+            if by.is_empty() {
+                "-".into()
+            } else {
+                by.join("  ")
+            }
         ),
         Role::Normal,
     ));
@@ -1247,7 +1414,11 @@ fn tiny(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
     let chars: Vec<char> = line.chars().collect();
     for chunk in chars.chunks(w.max(1)) {
-        out.push(Line::from(span(chunk.iter().collect::<String>(), banner_role(vm.banner), c.theme)));
+        out.push(Line::from(span(
+            chunk.iter().collect::<String>(),
+            banner_role(vm.banner),
+            c.theme,
+        )));
     }
     out.extend(banners(vm, w, c));
     out.push(Line::from(span(
@@ -1290,7 +1461,11 @@ fn compact(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static>> {
     let spare = avail - body.len();
     v.extend(body);
     v.push(rule("Recent events", "e: all", w, c));
-    let ev = if tab == CompactTable::Events { 0 } else { ev_rows + spare };
+    let ev = if tab == CompactTable::Events {
+        0
+    } else {
+        ev_rows + spare
+    };
     if ev == 0 {
         v.extend(std::iter::repeat_n(Line::default(), ev_rows + spare));
     } else {
@@ -1304,7 +1479,13 @@ fn compact(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static>> {
     v
 }
 
-fn default_body(vm: &ViewModel, w: usize, nodes_rows: usize, c: &Ctx, class: WidthClass) -> Vec<Line<'static>> {
+fn default_body(
+    vm: &ViewModel,
+    w: usize,
+    nodes_rows: usize,
+    c: &Ctx,
+    class: WidthClass,
+) -> Vec<Line<'static>> {
     let mut v = vec![rule(
         &format!("Nodes ({})", vm.nodes.len()),
         "Enter: node detail",
@@ -1326,7 +1507,13 @@ fn default_body(vm: &ViewModel, w: usize, nodes_rows: usize, c: &Ctx, class: Wid
     v
 }
 
-fn default_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx, class: WidthClass) -> Vec<Line<'static>> {
+fn default_screen(
+    vm: &ViewModel,
+    w: usize,
+    h: usize,
+    c: &Ctx,
+    class: WidthClass,
+) -> Vec<Line<'static>> {
     let mut v = header_block(vm, w, c);
     let ladder_h = 1 + 1 + vm.ladder.len().max(1).max(7);
     // rows: nodes table gets up to 1/3 of the rest, jobs 1/4, events the remainder
@@ -1338,12 +1525,20 @@ fn default_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx, class: WidthClass
         let rw = w.saturating_sub(lw + 2);
         let left = default_body(vm, lw, nodes_rows, c, WidthClass::Default);
         let mut right = Vec::new();
-        if let Some(nd) = vm.nodes.get(c.app.selected_node.min(vm.nodes.len().saturating_sub(1))) {
+        if let Some(nd) = vm
+            .nodes
+            .get(c.app.selected_node.min(vm.nodes.len().saturating_sub(1)))
+        {
             right.push(rule(&format!("{} (selected; n/N)", nd.id), "", rw, c));
             right.extend(node_detail_lines(nd, rw, c));
         }
         let room = left.len().saturating_sub(right.len() + 1).max(3);
-        right.push(rule(&format!("Attention ({})", vm.attention.len()), "a: all", rw, c));
+        right.push(rule(
+            &format!("Attention ({})", vm.attention.len()),
+            "a: all",
+            rw,
+            c,
+        ));
         right.extend(attention_lines(&vm.attention, rw, room, true, c));
         let n = left.len();
         let mut j = hjoin(left, lw, right, 2);
@@ -1353,9 +1548,25 @@ fn default_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx, class: WidthClass
         default_body(vm, w, nodes_rows, c, class)
     };
     v.extend(main);
-    let running = vm.jobs.running.map(|r| r.to_string()).unwrap_or_else(|| "?".into());
-    v.push(rule(&format!("Running jobs {running}"), "j: all jobs", w, c));
-    v.extend(jobs_table(vm, w, jobs_rows, class == WidthClass::Wide, 0, c));
+    let running = vm
+        .jobs
+        .running
+        .map(|r| r.to_string())
+        .unwrap_or_else(|| "?".into());
+    v.push(rule(
+        &format!("Running jobs {running}"),
+        "j: all jobs",
+        w,
+        c,
+    ));
+    v.extend(jobs_table(
+        vm,
+        w,
+        jobs_rows,
+        class == WidthClass::Wide,
+        0,
+        c,
+    ));
     let ev_rows = h.saturating_sub(v.len() + 2).max(1);
     v.push(rule("Recent events", "e: all events", w, c));
     v.extend(event_lines(&vm.events, w, ev_rows, 0, c));
@@ -1374,7 +1585,12 @@ fn panel_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static
     let room = |v: &Vec<Line<'static>>| h.saturating_sub(v.len() + 2).max(1);
     match c.app.panel {
         Panel::Node => {
-            let id = c.app.node_items.as_ref().map(|(id, _)| id.clone()).unwrap_or_default();
+            let id = c
+                .app
+                .node_items
+                .as_ref()
+                .map(|(id, _)| id.clone())
+                .unwrap_or_default();
             v.push(rule(&format!("Node {id}"), "q: back", w, c));
             if let Some(nd) = vm.nodes.iter().find(|n| n.id == id) {
                 v.extend(node_detail_lines(nd, w, c));
@@ -1392,7 +1608,9 @@ fn panel_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static
                 c,
             ));
             match &c.app.node_items {
-                Some((_, Err(e))) => v.push(Line::from(span(fit(&format!("! {e}"), w), Role::Warn, t))),
+                Some((_, Err(e))) => {
+                    v.push(Line::from(span(fit(&format!("! {e}"), w), Role::Warn, t)))
+                }
                 _ => {
                     let cols = [
                         col("item", 18, Align::L, 0),
@@ -1451,18 +1669,33 @@ fn panel_screen(vm: &ViewModel, w: usize, h: usize, c: &Ctx) -> Vec<Line<'static
             }
         }
         Panel::Jobs => {
-            v.push(rule(&format!("Running jobs {}", count(vm.jobs.running)), "q: back", w, c));
+            v.push(rule(
+                &format!("Running jobs {}", count(vm.jobs.running)),
+                "q: back",
+                w,
+                c,
+            ));
             let n = room(&v);
             v.extend(jobs_table(vm, w, n, w >= 160, c.app.scroll, c));
         }
         Panel::Events => {
-            v.push(rule(&format!("Recent events ({})", vm.events.len()), "q: back", w, c));
+            v.push(rule(
+                &format!("Recent events ({})", vm.events.len()),
+                "q: back",
+                w,
+                c,
+            ));
             let n = room(&v);
             let skip = c.app.scroll.min(vm.events.len().saturating_sub(1));
             v.extend(event_lines(&vm.events, w, n, skip, c));
         }
         Panel::Attention => {
-            v.push(rule(&format!("Attention ({})", vm.attention.len()), "q: back", w, c));
+            v.push(rule(
+                &format!("Attention ({})", vm.attention.len()),
+                "q: back",
+                w,
+                c,
+            ));
             let n = room(&v);
             v.extend(attention_lines(&vm.attention, w, n, true, c));
         }
@@ -1528,11 +1761,30 @@ fn item_lines(d: &serde_json::Value, w: usize, c: &Ctx) -> Vec<Line<'static>> {
             Role::Normal,
             t,
         )),
-        Line::from(span(fit(&format!("accepted {}", g("/record/accepted")), w), Role::Ok, t)),
-        Line::from(span(fit(&format!("retired {}", g("/record/retired")), w), Role::Queued, t)),
-        Line::from(span(fit(&format!("economy {}", g("/record/economy")), w), Role::Normal, t)),
         Line::from(span(
-            fit(&format!("stale from {}  input {}", g("/record/stale_from"), g("/record/stale_input")), w),
+            fit(&format!("accepted {}", g("/record/accepted")), w),
+            Role::Ok,
+            t,
+        )),
+        Line::from(span(
+            fit(&format!("retired {}", g("/record/retired")), w),
+            Role::Queued,
+            t,
+        )),
+        Line::from(span(
+            fit(&format!("economy {}", g("/record/economy")), w),
+            Role::Normal,
+            t,
+        )),
+        Line::from(span(
+            fit(
+                &format!(
+                    "stale from {}  input {}",
+                    g("/record/stale_from"),
+                    g("/record/stale_input")
+                ),
+                w,
+            ),
             Role::Warn,
             t,
         )),
@@ -1565,7 +1817,11 @@ fn item_lines(d: &serde_json::Value, w: usize, c: &Ctx) -> Vec<Line<'static>> {
             )));
         }
     }
-    v.push(Line::from(span(fit(&format!("children {}", g("/children")), w), Role::Normal, t)));
+    v.push(Line::from(span(
+        fit(&format!("children {}", g("/children")), w),
+        Role::Normal,
+        t,
+    )));
     v
 }
 

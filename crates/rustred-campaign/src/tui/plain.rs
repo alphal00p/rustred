@@ -19,7 +19,11 @@ fn state_word(vm: &ViewModel, app: &App) -> String {
 
 /// One status line, UTC-prefixed (plan 3.U.2 plain mode).
 pub fn status_line(vm: &ViewModel, app: &App) -> String {
-    let utc = vm.now_utc.get(..19).map(|s| format!("{s}Z")).unwrap_or_else(|| vm.now_utc.clone());
+    let utc = vm
+        .now_utc
+        .get(..19)
+        .map(|s| format!("{s}Z"))
+        .unwrap_or_else(|| vm.now_utc.clone());
     let r = &vm.resources;
     let eta = match (vm.eta.remaining_items, vm.eta.wall_s) {
         (Some(0), _) => "eta done".to_string(),

@@ -27,9 +27,18 @@ pub fn read_json(p: &Path) -> Value {
 pub fn ledger_golden_source() -> MemorySource {
     let d = data().join("ledger");
     let mut m = BTreeMap::new();
-    m.insert("campaign.json".to_string(), read_json(&d.join("progress-campaign.json")));
-    m.insert("nodes/T162.json".to_string(), read_json(&d.join("progress-node-T162.json")));
-    m.insert("events.json".to_string(), read_json(&d.join("progress-events.json")));
+    m.insert(
+        "campaign.json".to_string(),
+        read_json(&d.join("progress-campaign.json")),
+    );
+    m.insert(
+        "nodes/T162.json".to_string(),
+        read_json(&d.join("progress-node-T162.json")),
+    );
+    m.insert(
+        "events.json".to_string(),
+        read_json(&d.join("progress-events.json")),
+    );
     let mut s = MemorySource::new(m);
     s.details.insert(
         "T162-item-00004".into(),
@@ -116,7 +125,10 @@ pub fn check_golden(name: &str, text: &str) {
         return;
     }
     let want = std::fs::read_to_string(&p).unwrap_or_else(|e| {
-        panic!("golden {} missing ({e}); run with RR_TUI_UPDATE_GOLDENS=1", p.display())
+        panic!(
+            "golden {} missing ({e}); run with RR_TUI_UPDATE_GOLDENS=1",
+            p.display()
+        )
     });
     if want != text {
         let diff: Vec<String> = want

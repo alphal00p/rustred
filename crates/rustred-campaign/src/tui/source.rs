@@ -505,9 +505,18 @@ mod tests {
         assert_eq!(schema_major("rustred.campaign.progress.v1"), Some(1));
         assert_eq!(schema_major("rustred.campaign.summary.v2"), Some(2));
         assert_eq!(schema_major("other.v1"), None);
-        assert!(matches!(classify(b"{\"schema\":\"rustred.campaign.progress.v1\"}"), FileRead::Ok(_)));
-        assert!(matches!(classify(b"{\"schema\":\"rustred.campaign.progress.v2\"}"), FileRead::UnknownSchema(_)));
-        assert!(matches!(classify(b"{\"schema\":\"rustred.campaign.prog"), FileRead::Invalid(_)));
+        assert!(matches!(
+            classify(b"{\"schema\":\"rustred.campaign.progress.v1\"}"),
+            FileRead::Ok(_)
+        ));
+        assert!(matches!(
+            classify(b"{\"schema\":\"rustred.campaign.progress.v2\"}"),
+            FileRead::UnknownSchema(_)
+        ));
+        assert!(matches!(
+            classify(b"{\"schema\":\"rustred.campaign.prog"),
+            FileRead::Invalid(_)
+        ));
         assert!(matches!(classify(b"[1,2]"), FileRead::Invalid(_)));
         assert!(matches!(classify(b"{}"), FileRead::Invalid(_)));
     }

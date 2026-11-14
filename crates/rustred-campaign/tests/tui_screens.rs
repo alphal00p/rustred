@@ -25,7 +25,10 @@ fn golden_screens_of_every_fixture_at_three_widths() {
     let gc = golden.files["campaign.json"].clone();
     for (w, h) in SIZES {
         let o = opts_for(&gc);
-        check_golden(&format!("ledger-golden-{w}x{h}"), &tui::render_once(&golden, &o, w, h));
+        check_golden(
+            &format!("ledger-golden-{w}x{h}"),
+            &tui::render_once(&golden, &o, w, h),
+        );
     }
     for name in ["empty", "midrun", "finished", "stale"] {
         let dir = fixture_dir(name);
@@ -33,7 +36,10 @@ fn golden_screens_of_every_fixture_at_three_widths() {
         let src = DirSource::new(&dir);
         for (w, h) in SIZES {
             let o = opts_for(&c);
-            check_golden(&format!("{name}-{w}x{h}"), &tui::render_once(&src, &o, w, h));
+            check_golden(
+                &format!("{name}-{w}x{h}"),
+                &tui::render_once(&src, &o, w, h),
+            );
         }
     }
 }
@@ -91,13 +97,20 @@ fn boxed_rows_are_blue_full_green_stale_yellow_and_colour_off_has_no_colour() {
         for xx in a.x..a.right() {
             let cell = &buf[(xx, yy)];
             assert_eq!(cell.bg, Color::Reset, "no background colour at {xx},{yy}");
-            assert!(!matches!(cell.fg, Color::Rgb(..) | Color::Indexed(_)), "named colours only");
+            assert!(
+                !matches!(cell.fg, Color::Rgb(..) | Color::Indexed(_)),
+                "named colours only"
+            );
         }
     }
     let plain = tui::render_to_buffer(&vm, &app, false, false, now, 120, 40);
     for yy in a.y..a.bottom() {
         for xx in a.x..a.right() {
-            assert_eq!(plain[(xx, yy)].fg, Color::Reset, "colour off: no foreground colour");
+            assert_eq!(
+                plain[(xx, yy)].fg,
+                Color::Reset,
+                "colour off: no foreground colour"
+            );
         }
     }
     // STALE banner yellow
@@ -105,7 +118,15 @@ fn boxed_rows_are_blue_full_green_stale_yellow_and_colour_off_has_no_colour() {
     let sc = read_json(&sdir.join("progress/campaign.json"));
     let (svm, so) = vm_of(&DirSource::new(&sdir), &sc);
     assert_eq!(svm.banner, Banner::Stale);
-    let sbuf = tui::render_to_buffer(&svm, &app, true, false, so.clock.now_utc().0 as f64 / 1000.0, 120, 40);
+    let sbuf = tui::render_to_buffer(
+        &svm,
+        &app,
+        true,
+        false,
+        so.clock.now_utc().0 as f64 / 1000.0,
+        120,
+        40,
+    );
     let (x, y) = find(&sbuf, " STALE: no heartbeat for 10m06s").expect("stale banner");
     assert_eq!(sbuf[(x + 1, y)].fg, Color::Yellow);
 }
@@ -120,8 +141,23 @@ fn resize_sequence_never_panics_and_degrades() {
     app.stop_count = 1;
     app.stop_first_s = Some(now - 13.0);
     for (w, h) in [
-        (1, 1), (2, 1), (10, 3), (79, 23), (80, 23), (79, 24), (80, 24), (100, 30), (119, 40), (120, 40),
-        (150, 50), (199, 60), (200, 60), (300, 100), (80, 5), (200, 10), (40, 80),
+        (1, 1),
+        (2, 1),
+        (10, 3),
+        (79, 23),
+        (80, 23),
+        (79, 24),
+        (80, 24),
+        (100, 30),
+        (119, 40),
+        (120, 40),
+        (150, 50),
+        (199, 60),
+        (200, 60),
+        (300, 100),
+        (80, 5),
+        (200, 10),
+        (40, 80),
     ] {
         let t = tui::buffer_text(&tui::render_to_buffer(&vm, &app, true, true, now, w, h));
         assert!(t.lines().count() <= h as usize);
@@ -134,7 +170,10 @@ fn resize_sequence_never_panics_and_degrades() {
         }
     }
     let t = tui::buffer_text(&tui::render_to_buffer(&vm, &app, false, false, now, 79, 23));
-    assert!(t.starts_with("2026-11-20T08:15:06Z STOPPING seq 18,402 cpu 21/32"), "{t}");
+    assert!(
+        t.starts_with("2026-11-20T08:15:06Z STOPPING seq 18,402 cpu 21/32"),
+        "{t}"
+    );
 }
 
 #[test]
@@ -194,16 +233,32 @@ fn summary_numbers_equal_campaign_json_website_equals_terminal() {
 fn absent_garbage_half_written_and_unknown_major_files() {
     let d = scratch("garbage");
     // absent directory
-    let t = tui::render_once(&DirSource::new(d.join("nope")), &opts_at(Default::default()).0, 120, 40);
-    assert!(t.contains("NO DATA") && t.contains("campaign.json absent"), "{t}");
+    let t = tui::render_once(
+        &DirSource::new(d.join("nope")),
+        &opts_at(Default::default()).0,
+        120,
+        40,
+    );
+    assert!(
+        t.contains("NO DATA") && t.contains("campaign.json absent"),
+        "{t}"
+    );
     // half-written / garbage campaign.json
     std::fs::create_dir_all(d.join("progress/nodes")).unwrap();
-    std::fs::write(d.join("progress/campaign.json"), b"{\"schema\":\"rustred.campaign.progress.v1\",\"campa").unwrap();
+    std::fs::write(
+        d.join("progress/campaign.json"),
+        b"{\"schema\":\"rustred.campaign.progress.v1\",\"campa",
+    )
+    .unwrap();
     let src = DirSource::new(&d);
     let t = tui::render_once(&src, &opts_at(Default::default()).0, 120, 40);
     assert!(t.contains("UNREADABLE") && t.contains("not JSON"), "{t}");
     // unknown major
-    std::fs::write(d.join("progress/campaign.json"), b"{\"schema\":\"rustred.campaign.progress.v2\"}").unwrap();
+    std::fs::write(
+        d.join("progress/campaign.json"),
+        b"{\"schema\":\"rustred.campaign.progress.v2\"}",
+    )
+    .unwrap();
     let t = tui::render_once(&src, &opts_at(Default::default()).0, 120, 40);
     assert!(t.contains("schema v2 not understood"), "{t}");
     // a good file, then a torn one: the last good copy is kept and the problem shown
@@ -215,7 +270,10 @@ fn absent_garbage_half_written_and_unknown_major_files() {
     assert!(t1.contains("RUNNING"));
     std::fs::write(d.join("progress/campaign.json"), &good[..good.len() / 2]).unwrap();
     let t2 = tui::render_once(&src, &o, 120, 40);
-    assert!(t2.contains("RUNNING") && t2.contains("campaign.json unreadable"), "{t2}");
+    assert!(
+        t2.contains("RUNNING") && t2.contains("campaign.json unreadable"),
+        "{t2}"
+    );
     // garbage node and events files, binary junk, wrong types
     std::fs::write(d.join("progress/nodes/T162.json"), [0xff, 0x00, 0x1b, b'[']).unwrap();
     std::fs::write(d.join("progress/events.json"), b"{\"schema\":\"rustred.campaign.progress.v1\",\"events\":[{\"seq\":-1,\"utc\":5,\"kind\":{},\"text\":\"\\u001b[31mred\"}]}").unwrap();
@@ -223,7 +281,13 @@ fn absent_garbage_half_written_and_unknown_major_files() {
     assert!(!t3.contains('\u{1b}'));
     assert!(t3.contains("unreadable"), "{t3}");
     let vm = tui::view_model(&src, &o);
-    assert!(vm.problems.iter().any(|p| p.starts_with("node T162: not JSON")), "{:?}", vm.problems);
+    assert!(
+        vm.problems
+            .iter()
+            .any(|p| p.starts_with("node T162: not JSON")),
+        "{:?}",
+        vm.problems
+    );
     assert!(vm.events.iter().all(|e| !e.text.contains('\u{1b}')));
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -235,7 +299,13 @@ fn read_only_campaign_directory_works() {
     let set_ro = |p: &std::path::Path, ro: bool| {
         use std::os::unix::fs::PermissionsExt;
         for e in walk(p) {
-            let mode = if e.is_dir() { if ro { 0o555 } else { 0o755 } } else if ro { 0o444 } else { 0o644 };
+            let mode = if e.is_dir() {
+                if ro { 0o555 } else { 0o755 }
+            } else if ro {
+                0o444
+            } else {
+                0o644
+            };
             std::fs::set_permissions(&e, std::fs::Permissions::from_mode(mode)).unwrap();
         }
     };
@@ -247,7 +317,10 @@ fn read_only_campaign_directory_works() {
     let t = tui::render_once(&src, &o, 120, 40);
     let _ = tui::view_model_json(&src, &o);
     let _ = src.node_items("T162");
-    assert!(t.contains("RUNNING") && t.contains("[BOXED T162.rstar]"), "{t}");
+    assert!(
+        t.contains("RUNNING") && t.contains("[BOXED T162.rstar]"),
+        "{t}"
+    );
     assert_eq!(before, listing(&d), "nothing written");
     set_ro(&d, false);
     let _ = std::fs::remove_dir_all(&d);
@@ -266,7 +339,12 @@ fn walk(p: &std::path::Path) -> Vec<std::path::PathBuf> {
 fn listing(p: &std::path::Path) -> Vec<(String, u64)> {
     let mut v: Vec<(String, u64)> = walk(p)
         .into_iter()
-        .map(|e| (e.display().to_string(), std::fs::metadata(&e).map(|m| m.len()).unwrap_or(0)))
+        .map(|e| {
+            (
+                e.display().to_string(),
+                std::fs::metadata(&e).map(|m| m.len()).unwrap_or(0),
+            )
+        })
         .collect();
     v.sort();
     v
@@ -278,7 +356,14 @@ fn thirty_thousand_items_render_windowed_and_fast() {
     let dir = fixture_dir("midrun");
     let c = read_json(&dir.join("progress/campaign.json"));
     let mut m = std::collections::BTreeMap::new();
-    for rel in ["campaign.json", "events.json", "nodes/T074.json", "nodes/T162.json", "nodes/T178.json", "nodes/T266.json"] {
+    for rel in [
+        "campaign.json",
+        "events.json",
+        "nodes/T074.json",
+        "nodes/T162.json",
+        "nodes/T178.json",
+        "nodes/T266.json",
+    ] {
         m.insert(rel.to_string(), read_json(&dir.join("progress").join(rel)));
     }
     let mut src = MemorySource::new(m);
@@ -314,7 +399,10 @@ fn thirty_thousand_items_render_windowed_and_fast() {
     }
     let per = t0.elapsed() / 20;
     assert!(text.contains("T178-item-29999"), "{text}");
-    assert!(text.contains("Items (30000 of 30000; state: all)"), "{text}");
+    assert!(
+        text.contains("Items (30000 of 30000; state: all)"),
+        "{text}"
+    );
     assert!(per < Duration::from_millis(250), "frame took {per:?}");
     app.on_key(key(KeyCode::Char('1')), &vm, &src, &controls, now); // filter open
     let t = tui::buffer_text(&tui::render_to_buffer(&vm, &app, true, false, now, 200, 60));

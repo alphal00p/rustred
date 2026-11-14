@@ -316,8 +316,11 @@ pub struct ViewModel {
 
 fn u(v: &Value, p: &str) -> Option<u64> {
     let x = v.pointer(p)?;
-    x.as_u64()
-        .or_else(|| x.as_f64().filter(|f| f.is_finite() && *f >= 0.0).map(|f| f as u64))
+    x.as_u64().or_else(|| {
+        x.as_f64()
+            .filter(|f| f.is_finite() && *f >= 0.0)
+            .map(|f| f as u64)
+    })
 }
 
 fn f(v: &Value, p: &str) -> Option<f64> {
@@ -386,7 +389,11 @@ fn event_tag(kind: &str, text: &str) -> EventTag {
         "item_rejected" | "item_failed" | "control_refused" => EventTag::Fail,
         "terminal_declared" => EventTag::Term,
         "job_finished" => {
-            if t.contains("(failed") || t.contains("crash") || t.contains("killed") || t.contains("lost") {
+            if t.contains("(failed")
+                || t.contains("crash")
+                || t.contains("killed")
+                || t.contains("lost")
+            {
                 EventTag::Fail
             } else {
                 EventTag::Info
@@ -481,7 +488,10 @@ fn node_row(id: &str, r: &FileRead) -> NodeRow {
         None => "?".into(),
     };
     row.spec_box = s(v, "/spec_box");
-    row.attempt_ended = v.get("attempt_ended").and_then(Value::as_bool).unwrap_or(false);
+    row.attempt_ended = v
+        .get("attempt_ended")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     row.faces_total = u(v, "/faces_summary/total").or_else(|| u(v, "/faces/total"));
     row.faces_closed = u(v, "/faces_summary/closed").or_else(|| u(v, "/faces/closed"));
     row.items_open = u(v, "/items/open");
@@ -520,7 +530,11 @@ fn node_row(id: &str, r: &FileRead) -> NodeRow {
     row.rhs_before = u(v, "/economy/before/rhs_terms");
     row.superseded = u(v, "/economy/superseded");
     let ev = v.get("accepted_by_evidence");
-    let lv = |k: &str| ev.and_then(|e| e.get(k)).and_then(Value::as_u64).unwrap_or(0);
+    let lv = |k: &str| {
+        ev.and_then(|e| e.get(k))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
     row.accepted_by_evidence = [
         lv("geometry_accepted"),
         lv("identity_tested"),
@@ -566,7 +580,9 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         live_jobs: u(res_v, "/live_jobs"),
         rss_bytes: u(res_v, "/measured_rss_bytes").or_else(|| u(res_v, "/campaign_rss_bytes")),
         reserved_bytes: u(res_v, "/reserved_bytes"),
-        mem_cap_bytes: nonzero(u(res_v, "/mem_cap_bytes").or_else(|| u(res_v, "/campaign_mem_cap_bytes"))),
+        mem_cap_bytes: nonzero(
+            u(res_v, "/mem_cap_bytes").or_else(|| u(res_v, "/campaign_mem_cap_bytes")),
+        ),
         host_available_bytes: nonzero(u(res_v, "/host_mem_available_bytes")),
         host_floor_bytes: nonzero(u(res_v, "/host_floor_bytes")),
         disk_free_bytes: nonzero(u(res_v, "/disk_free_bytes")),
@@ -612,16 +628,17 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
             _ => Banner::Unknown,
         }
     });
-    let (elapsed_s, elapsed_label) = match s(c, "/supervisor/started_utc").as_deref().and_then(iso_s) {
-        Some(t) => (Some((o.now_s - t).max(0.0)), "up"),
-        None => (
-            s(c, "/campaign/created_utc")
-                .as_deref()
-                .and_then(iso_s)
-                .map(|t| (o.now_s - t).max(0.0)),
-            "age",
-        ),
-    };
+    let (elapsed_s, elapsed_label) =
+        match s(c, "/supervisor/started_utc").as_deref().and_then(iso_s) {
+            Some(t) => (Some((o.now_s - t).max(0.0)), "up"),
+            None => (
+                s(c, "/campaign/created_utc")
+                    .as_deref()
+                    .and_then(iso_s)
+                    .map(|t| (o.now_s - t).max(0.0)),
+                "age",
+            ),
+        };
     // ladder
     let mut ladder: Vec<LadderRow> = Vec::new();
     if let Some(m) = c.pointer("/items/by_level").and_then(Value::as_object) {
@@ -674,13 +691,19 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         rejected_by_reason: counts_map(c.pointer("/rules/rejected_by_reason")),
         upgrades: u(c, "/rules/upgrades"),
         retired: u(c, "/economy/retired"),
-        by_evidence: [lv("geometry_accepted"), lv("identity_tested"), lv("identity_proved")],
+        by_evidence: [
+            lv("geometry_accepted"),
+            lv("identity_tested"),
+            lv("identity_proved"),
+        ],
         rules_before: u(c, "/economy/rules_before"),
         rules_after: u(c, "/economy/rules_after"),
         rhs_before: u(c, "/economy/before/rhs_terms"),
         rhs_after: u(c, "/economy/after/rhs_terms"),
     };
-    let pair = |p: &str| -> Option<(f64, f64)> { Some((f(c, &format!("{p}/low"))?, f(c, &format!("{p}/high"))?)) };
+    let pair = |p: &str| -> Option<(f64, f64)> {
+        Some((f(c, &format!("{p}/low"))?, f(c, &format!("{p}/high"))?))
+    };
     let eta = EtaView {
         remaining_items: u(c, "/eta/remaining_items"),
         wall_s: pair("/eta/wall_seconds"),
@@ -689,7 +712,13 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         pooled_levels: c
             .pointer("/eta/pooled_levels")
             .and_then(Value::as_array)
-            .map(|a| a.iter().take(16).filter_map(Value::as_str).map(clean).collect())
+            .map(|a| {
+                a.iter()
+                    .take(16)
+                    .filter_map(Value::as_str)
+                    .map(clean)
+                    .collect()
+            })
             .unwrap_or_default(),
         reason: s(c, "/eta/reason"),
         estimator: s(c, "/eta/estimator"),
@@ -714,35 +743,46 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
     };
     // jobs
     let by_state = counts_map(c.pointer("/jobs/by_state"));
-    let list_from_file: Option<Vec<JobRow>> = c.pointer("/jobs/list").and_then(Value::as_array).map(|a| {
-        a.iter()
-            .take(1024)
-            .map(|j| JobRow {
-                job: s(j, "/job").unwrap_or_default(),
-                node: s(j, "/node").unwrap_or_default(),
-                item: s(j, "/item").unwrap_or_default(),
-                rung: s(j, "/rung").unwrap_or_default(),
-                cpus: u(j, "/cpus").or_else(|| u(j, "/cpu").map(|_| 1)),
-                rss_bytes: u(j, "/rss_bytes"),
-                cap_bytes: u(j, "/budget_mem_bytes").or_else(|| u(j, "/cap_bytes")),
-                elapsed_s: f(j, "/seconds"),
-                budget_s: f(j, "/budget_seconds"),
-                heartbeat_age_s: s(j, "/heartbeat_utc").as_deref().and_then(iso_s).map(|t| (o.now_s - t).max(0.0)),
-                phase: s(j, "/progress/phase").or_else(|| s(j, "/phase")),
-                pid: u(j, "/pgid").or_else(|| u(j, "/pid")),
-                run_dir: s(j, "/run_dir"),
-            })
-            .collect()
-    });
+    let list_from_file: Option<Vec<JobRow>> =
+        c.pointer("/jobs/list").and_then(Value::as_array).map(|a| {
+            a.iter()
+                .take(1024)
+                .map(|j| JobRow {
+                    job: s(j, "/job").unwrap_or_default(),
+                    node: s(j, "/node").unwrap_or_default(),
+                    item: s(j, "/item").unwrap_or_default(),
+                    rung: s(j, "/rung").unwrap_or_default(),
+                    cpus: u(j, "/cpus").or_else(|| u(j, "/cpu").map(|_| 1)),
+                    rss_bytes: u(j, "/rss_bytes"),
+                    cap_bytes: u(j, "/budget_mem_bytes").or_else(|| u(j, "/cap_bytes")),
+                    elapsed_s: f(j, "/seconds"),
+                    budget_s: f(j, "/budget_seconds"),
+                    heartbeat_age_s: s(j, "/heartbeat_utc")
+                        .as_deref()
+                        .and_then(iso_s)
+                        .map(|t| (o.now_s - t).max(0.0)),
+                    phase: s(j, "/progress/phase").or_else(|| s(j, "/phase")),
+                    pid: u(j, "/pgid").or_else(|| u(j, "/pid")),
+                    run_dir: s(j, "/run_dir"),
+                })
+                .collect()
+        });
     let jobs = JobsView {
         total: u(c, "/jobs/total"),
-        running: by_state.get("running").copied().or_else(|| u(c, "/jobs/running")),
+        running: by_state
+            .get("running")
+            .copied()
+            .or_else(|| u(c, "/jobs/running")),
         launching: by_state.get("launching").copied(),
         queued: by_state.get("queued").copied(),
         settled_by_class: counts_map(c.pointer("/jobs/settled_by_class")),
         by_state,
         cap: u(c, "/jobs/cap"),
-        list_origin: if list_from_file.is_some() { "progress" } else { "" },
+        list_origin: if list_from_file.is_some() {
+            "progress"
+        } else {
+            ""
+        },
         list: list_from_file,
     };
     // events, newest first
@@ -772,7 +812,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
             }
         })
         .collect();
-    events.sort_by(|a, b| b.seq.cmp(&a.seq));
+    events.sort_by_key(|e| std::cmp::Reverse(e.seq));
     let mut vm = ViewModel {
         origin: clean(&raw.origin),
         banner,
@@ -848,7 +888,13 @@ fn attention(c: &Value, raw: &RawSnapshot, vm: &ViewModel) -> Vec<AttentionRow> 
                 options: x
                     .get("options")
                     .and_then(Value::as_array)
-                    .map(|o| o.iter().take(8).filter_map(Value::as_str).map(clean).collect())
+                    .map(|o| {
+                        o.iter()
+                            .take(8)
+                            .filter_map(Value::as_str)
+                            .map(clean)
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 derived: false,
             });
@@ -863,7 +909,9 @@ fn attention(c: &Value, raw: &RawSnapshot, vm: &ViewModel) -> Vec<AttentionRow> 
                 severity: Severity::Warning,
                 text: format!(
                     "node is STALE: {}",
-                    n.stale_reason.clone().unwrap_or_else(|| "an input changed".into())
+                    n.stale_reason
+                        .clone()
+                        .unwrap_or_else(|| "an input changed".into())
                 ),
                 options: vec![format!("rr_campaign why {}", n.id)],
                 derived: true,
@@ -923,8 +971,10 @@ fn attention(c: &Value, raw: &RawSnapshot, vm: &ViewModel) -> Vec<AttentionRow> 
             derived: true,
         });
     }
-    if let (Some(a), Some(fl)) = (vm.resources.host_available_bytes, vm.resources.host_floor_bytes)
-        && a < fl
+    if let (Some(a), Some(fl)) = (
+        vm.resources.host_available_bytes,
+        vm.resources.host_floor_bytes,
+    ) && a < fl
     {
         out.push(AttentionRow {
             id: "host".into(),
@@ -965,9 +1015,18 @@ mod tests {
             serde_json::json!({"schema":"rustred.campaign.progress.v1"}),
         ] {
             raw.campaign = FileRead::Ok(v);
-            raw.nodes.insert("N".into(), FileRead::Ok(serde_json::json!({"closure_kind":5,"items":{"by_level":[]}})));
+            raw.nodes.insert(
+                "N".into(),
+                FileRead::Ok(serde_json::json!({"closure_kind":5,"items":{"by_level":[]}})),
+            );
             raw.events = FileRead::Ok(serde_json::json!({"events":[{"seq":"x"},7]}));
-            let vm = build(&raw, BuildOptions { now_s: 0.0, stale_after_s: 60.0 });
+            let vm = build(
+                &raw,
+                BuildOptions {
+                    now_s: 0.0,
+                    stale_after_s: 60.0,
+                },
+            );
             assert_eq!(vm.nodes.len(), 1);
         }
     }

@@ -24,7 +24,9 @@ fn demo() -> Option<PathBuf> {
         c.push(d.join("examples/dashboard_demo"));
     }
     let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| ws.join("target"));
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| ws.join("target"));
     c.push(target.join("debug/examples/dashboard_demo"));
     let best = c
         .into_iter()
@@ -55,9 +57,10 @@ fn winsize(cols: u16, rows: u16) -> libc::winsize {
 impl Pty {
     fn open(cols: u16, rows: u16) -> Pty {
         let (mut m, mut s) = (0, 0);
-        let mut ws = winsize(cols, rows);
+        let ws = winsize(cols, rows);
         // SAFETY: valid out-pointers for the two descriptors and a valid winsize; name and termios may be null.
-        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &mut ws) };
+        let r =
+            unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) };
         assert_eq!(r, 0, "openpty: {}", std::io::Error::last_os_error());
         let out = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -65,7 +68,11 @@ impl Pty {
         let reader = std::thread::spawn(move || {
             let mut buf = [0u8; 65536];
             while !s2.load(Ordering::SeqCst) {
-                let mut pfd = libc::pollfd { fd: m, events: libc::POLLIN, revents: 0 };
+                let mut pfd = libc::pollfd {
+                    fd: m,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
                 // SAFETY: one valid pollfd.
                 let n = unsafe { libc::poll(&mut pfd, 1, 50) };
                 if n <= 0 {
@@ -80,7 +87,13 @@ impl Pty {
                 o2.lock().unwrap().extend_from_slice(&buf[..k as usize]);
             }
         });
-        Pty { master: m, slave: s, out, stop, reader: Some(reader) }
+        Pty {
+            master: m,
+            slave: s,
+            out,
+            stop,
+            reader: Some(reader),
+        }
     }
 
     fn spawn(&self, args: &[&str]) -> Child {
@@ -133,7 +146,10 @@ impl Pty {
                 }
             }
             if t0.elapsed() > Duration::from_secs(secs) {
-                panic!("timeout waiting for {needle:?}; output:\n{}", printable(&self.text()));
+                panic!(
+                    "timeout waiting for {needle:?}; output:\n{}",
+                    printable(&self.text())
+                );
             }
             std::thread::sleep(Duration::from_millis(30));
         }
@@ -198,10 +214,17 @@ fn assert_restored(p: &Pty, text: &str) {
     assert!(lf & libc::ICANON != 0, "canonical mode restored");
     assert!(lf & libc::ECHO != 0, "echo restored");
     assert!(lf & libc::ISIG != 0, "signals restored (raw mode off)");
-    let enter = text.find("\u{1b}[?1049h").expect("alternate screen entered");
+    let enter = text
+        .find("\u{1b}[?1049h")
+        .expect("alternate screen entered");
     let leave = text.rfind("\u{1b}[?1049l").expect("alternate screen left");
     assert!(leave > enter);
-    assert!(text[leave..].contains("\u{1b}[?25h") || text[..leave].ends_with("\u{1b}[?25h") || text.contains("\u{1b}[?25h"), "cursor shown");
+    assert!(
+        text[leave..].contains("\u{1b}[?25h")
+            || text[..leave].ends_with("\u{1b}[?25h")
+            || text.contains("\u{1b}[?25h"),
+        "cursor shown"
+    );
 }
 
 #[test]
@@ -231,7 +254,11 @@ fn supervisor_dashboard_in_a_pty_resize_ctrl_c_twice_restores_terminal() {
     assert_restored(&p, &text);
     // the final view is printed to the normal screen after leaving the alternate screen
     let leave = text.rfind("\u{1b}[?1049l").unwrap();
-    assert!(text[leave..].contains("rr_campaign  p5l-boxed-final"), "{}", printable(&text[leave..]));
+    assert!(
+        text[leave..].contains("rr_campaign  p5l-boxed-final"),
+        "{}",
+        printable(&text[leave..])
+    );
 }
 
 #[test]
@@ -280,8 +307,14 @@ fn plain_mode_when_stdout_is_not_a_terminal() {
     let out = child.wait_with_output().unwrap();
     let so = String::from_utf8_lossy(&out.stdout);
     let se = String::from_utf8_lossy(&out.stderr);
-    assert!(!so.contains('\u{1b}'), "no escape codes in plain mode: {so}");
+    assert!(
+        !so.contains('\u{1b}'),
+        "no escape codes in plain mode: {so}"
+    );
     assert!(so.contains("event item_accepted T178 F087"), "{so}");
-    assert!(so.contains(" RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0G"), "{so}");
+    assert!(
+        so.contains(" RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0G"),
+        "{so}"
+    );
     assert!(se.contains("exit reason: ViewerQuit"), "{se}");
 }

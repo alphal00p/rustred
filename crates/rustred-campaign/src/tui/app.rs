@@ -199,7 +199,10 @@ impl App {
                 self.item_detail = Some((id, d));
                 self.push(Panel::Item);
             }
-            None => self.say("w / Enter: no item selected (open a node with Enter first)", now_s),
+            None => self.say(
+                "w / Enter: no item selected (open a node with Enter first)",
+                now_s,
+            ),
         }
     }
 

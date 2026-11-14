@@ -155,12 +155,16 @@ fn main() {
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&tui::view_model_json(source.as_ref(), &opts)).unwrap_or_default()
+            serde_json::to_string_pretty(&tui::view_model_json(source.as_ref(), &opts))
+                .unwrap_or_default()
         );
         return;
     }
     if once {
-        print!("{}", tui::render_once(source.as_ref(), &opts, width, height));
+        print!(
+            "{}",
+            tui::render_once(source.as_ref(), &opts, width, height)
+        );
         return;
     }
     let reason = if sup {

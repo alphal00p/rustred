@@ -65,7 +65,10 @@ pub fn screen_numbers(screen: &str) -> BTreeMap<String, String> {
         out.insert("cpus_allowed".into(), b.into());
     }
     if let Some(h) = out.get("cpu_hours").cloned() {
-        out.insert("cpu_hours".into(), h.split('/').next().unwrap_or("").to_string());
+        out.insert(
+            "cpu_hours".into(),
+            h.split('/').next().unwrap_or("").to_string(),
+        );
     }
     out
 }
@@ -91,16 +94,27 @@ pub fn campaign_json_numbers(c: &Value) -> BTreeMap<String, String> {
     put("nodes_open", count(uv(c, "/nodes/by_closure/open")));
     put("nodes_certified", count(uv(c, "/nodes/certified")));
     put("items_total", count(uv(c, "/items/total")));
-    let open: Option<u64> = c.pointer("/items/by_phase").and_then(Value::as_object).map(|o| {
-        o.iter()
-            .filter(|(k, _)| !matches!(k.as_str(), "accepted" | "escalated" | "terminal" | "retired"))
-            .filter_map(|(_, v)| v.as_u64())
-            .sum()
-    });
+    let open: Option<u64> = c
+        .pointer("/items/by_phase")
+        .and_then(Value::as_object)
+        .map(|o| {
+            o.iter()
+                .filter(|(k, _)| {
+                    !matches!(
+                        k.as_str(),
+                        "accepted" | "escalated" | "terminal" | "retired"
+                    )
+                })
+                .filter_map(|(_, v)| v.as_u64())
+                .sum()
+        });
     put("items_open", count(open));
     put("rules_accepted", count(uv(c, "/rules/accepted")));
     put("rules_rejected", count(uv(c, "/rules/rejected")));
-    put("cert_share", percent(c.pointer("/certified/share").and_then(Value::as_f64)));
+    put(
+        "cert_share",
+        percent(c.pointer("/certified/share").and_then(Value::as_f64)),
+    );
     put("terminals_declared", count(uv(c, "/terminals/declared")));
     put(
         "defect_keys",
