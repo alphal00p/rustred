@@ -219,8 +219,9 @@ fn want_count(reqs: &[SolveRequest]) -> usize {
     k.len()
 }
 
-/// The same request against the contract binary's `job` subcommand (kind solve-recipe unknown to its contract
-/// crate): refused (usage, row 12) — the second half of the gap.
+/// The same request against the contract binary's `job` subcommand. INVERTED by lane closeloop2 (directing session,
+/// 2026-11-14): since engbase2's one job entry (BUILD 3, c279b022) kind solve-recipe IS a contract kind of `rr_node
+/// job`: the attempt is row 1 with the key's relation accepted (formerly refused, row 12 / 14: the gap is closed).
 #[test]
 #[ignore = "real child: RR_NODE_CONTRACT + T178 data, LIGHT_PIDNS=1"]
 fn real_solve_recipe_through_the_contract_job_subcommand() {
@@ -245,11 +246,10 @@ fn real_solve_recipe_through_the_contract_job_subcommand() {
             .unwrap_or_default()
             .trim()
     );
-    assert!(out.relations.is_empty());
-    assert!(
-        matches!(c.row, 12 | 14),
-        "refused by the binary's contract crate"
-    );
+    assert_eq!(c.row, 1, "a contract job of kind solve-recipe: {}", c.why);
+    assert!(out.refusal.is_none(), "{:?}", out.refusal);
+    assert_eq!(out.relations.len(), 1, "the requested key's relation is accepted");
+    assert_eq!(out.relations[0].key, reqs[0].key);
 }
 
 /// One rr_proof `instantiate` batch (legacy child, sealed by the wrapper, answers bound by record_sha256 + key) on the
