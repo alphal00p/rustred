@@ -1021,3 +1021,116 @@ impl PartitionReport {
         })
     }
 }
+
+/// One completed level of [`gap_partition_levels`].
+#[derive(Clone, Debug)]
+pub struct LevelResult {
+    /// Every class with at most `level` off-floor slots is classified: the face list is COMPLETE for faces with at
+    /// most `level` off-floor slots (generic faces exact; loci as resolved).
+    pub level: usize,
+    pub faces: Vec<FaceKey>,
+    pub generic: Vec<FaceKey>,
+    pub nodes: u64,
+    pub millis: u64,
+}
+
+/// SCALING (R30 (2), (4)): the partition per face-lattice level. Level L runs the exact recursion capped at L
+/// off-floor slots, so its result is complete for every face with at most L off-floor slots. Levels are run in
+/// ascending order until `max_level`, the arity or the wall budget; each finished level is appended to the
+/// `checkpoint` file (JSON lines) and a resumed call skips the levels already there. Faces of the last finished level
+/// are proved complete up to that level; beyond it the caller falls back to [`faces_from_uncovered_keys`].
+pub fn gap_partition_levels(
+    src: &dyn DomainSource,
+    frame: &NodeFrame,
+    opts: &PartitionOptions,
+    max_level: usize,
+    checkpoint: Option<&std::path::Path>,
+    progress: Option<&dyn Fn(&Progress)>,
+) -> Result<Vec<LevelResult>, PartitionError> {
+    let t0 = Instant::now();
+    let mut done: Vec<LevelResult> = vec![];
+    if let Some(cp) = checkpoint
+        && let Ok(text) = std::fs::read_to_string(cp)
+    {
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let v: Json =
+                serde_json::from_str(line).map_err(|e| PartitionError::Io(format!("{e}")))?;
+            let fk = |x: &Json| -> Vec<FaceKey> {
+                x.as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|f| {
+                                let g = |k: usize| {
+                                    f[k].as_array()
+                                        .map(|a| {
+                                            a.iter()
+                                                .filter_map(|y| y.as_u64())
+                                                .map(|y| y as usize)
+                                                .collect()
+                                        })
+                                        .unwrap_or_default()
+                                };
+                                (g(0), g(1))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            done.push(LevelResult {
+                level: v["level"].as_u64().unwrap_or(0) as usize,
+                faces: fk(&v["faces"]),
+                generic: fk(&v["generic"]),
+                nodes: v["nodes"].as_u64().unwrap_or(0),
+                millis: v["millis"].as_u64().unwrap_or(0),
+            });
+        }
+    }
+    let start = done.last().map_or(0, |l| l.level + 1);
+    for level in start..=max_level.min(frame.arity()) {
+        let mut o = opts.clone();
+        o.max_off_floor = Some(level);
+        if let Some(w) = opts.budget.wall {
+            let left = w.checked_sub(t0.elapsed()).unwrap_or_default();
+            if left.is_zero() {
+                break;
+            }
+            o.budget.wall = Some(left);
+        }
+        let rep = gap_partition(src, frame, &o, progress)?;
+        if rep.outcome == Outcome::BudgetExceeded {
+            break;
+        }
+        let off = |f: &GapFace| f.sd.len() + f.sn.len();
+        let lr = LevelResult {
+            level,
+            faces: rep
+                .faces
+                .iter()
+                .filter(|f| off(f) <= level)
+                .map(|f| f.key())
+                .collect(),
+            generic: rep
+                .faces
+                .iter()
+                .filter(|f| off(f) <= level && f.kind == FaceKind::Generic)
+                .map(|f| f.key())
+                .collect(),
+            nodes: rep.stats.nodes,
+            millis: rep.millis,
+        };
+        if let Some(cp) = checkpoint {
+            use std::io::Write;
+            let line = json!({"level": lr.level, "faces": lr.faces, "generic": lr.generic, "nodes": lr.nodes, "millis": lr.millis});
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(cp)
+                .map_err(|e| PartitionError::Io(format!("{e}")))?;
+            writeln!(f, "{line}").map_err(|e| PartitionError::Io(format!("{e}")))?;
+            f.sync_all()
+                .map_err(|e| PartitionError::Io(format!("{e}")))?;
+        }
+        done.push(lr);
+    }
+    Ok(done)
+}

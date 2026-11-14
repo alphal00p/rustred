@@ -508,3 +508,34 @@ fn no_floating_point_in_partition_and_loci() {
         }
     }
 }
+
+#[test]
+fn levels_are_complete_per_level_and_resumable() {
+    use rustred_campaign_core::partition::gap_partition_levels;
+    let l = random_table(4242, 7, 3, 20);
+    let frame = NodeFrame::without_header_lines_first(7, 3);
+    let opts = PartitionOptions {
+        elided: ElidedPolicy::Ordinary,
+        ..Default::default()
+    };
+    let full = gap_partition(&l, &frame, &opts, None).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("partition_levels_{}", std::process::id()));
+    let _ = std::fs::remove_file(&dir);
+    let a = gap_partition_levels(&l, &frame, &opts, 3, Some(&dir), None).unwrap();
+    assert_eq!(a.len(), 4);
+    // resume: levels 0..3 are read back, 4..7 computed
+    let b = gap_partition_levels(&l, &frame, &opts, 7, Some(&dir), None).unwrap();
+    assert_eq!(b.len(), 8);
+    for lv in &b {
+        let want: BTreeSet<_> = full
+            .faces
+            .iter()
+            .filter(|f| f.sd.len() + f.sn.len() <= lv.level)
+            .map(|f| f.key())
+            .collect();
+        let got: BTreeSet<_> = lv.faces.iter().cloned().collect();
+        assert_eq!(got, want, "level {}", lv.level);
+    }
+    let _ = std::fs::remove_file(&dir);
+}
