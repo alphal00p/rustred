@@ -11,9 +11,10 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use ledger_support::*;
 use rustred_campaign::atomic::{self, AtomicError, Mode, Staging, StagingWrite};
 use rustred_campaign::ledger::{
-    self, Event, Ledger, LedgerConfig, LedgerError, SegmentFile, SegmentOpener,
+    self, Event, FileOps, LedgerConfig, LedgerError, OpenOptions, SegmentFile,
 };
 use rustred_campaign::state::EvidenceLevel;
+use std::os::unix::fs::FileExt;
 
 /// A writer that accepts `budget` bytes, then fails like a full disk (ENOSPC) or a quota (EDQUOT).
 struct Quota {
@@ -167,6 +168,7 @@ fn quota_like_failure_keeps_old_file_and_removes_temp() {
 /// Segment files that fail once a shared byte budget is spent (partial writes included).
 struct QuotaSegment {
     f: fs::File,
+    len: u64,
     budget: Arc<AtomicI64>,
 }
 
@@ -176,11 +178,13 @@ impl SegmentFile for QuotaSegment {
         if (bytes.len() as i64) > left {
             // write what fits (a torn record), then fail like the kernel would
             let n = left.max(0) as usize;
-            self.f.write_all(&bytes[..n])?;
+            self.f.write_all_at(&bytes[..n], self.len)?;
+            self.len += n as u64;
             self.budget.store(0, Ordering::SeqCst);
             return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }
-        self.f.write_all(bytes)?;
+        self.f.write_all_at(bytes, self.len)?;
+        self.len += bytes.len() as u64;
         self.budget.fetch_sub(bytes.len() as i64, Ordering::SeqCst);
         Ok(())
     }
@@ -188,18 +192,30 @@ impl SegmentFile for QuotaSegment {
         self.f.sync_data()
     }
     fn truncate(&mut self, len: u64) -> io::Result<()> {
-        self.f.set_len(len)
+        self.f.set_len(len)?;
+        self.len = len;
+        Ok(())
+    }
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.f.write_all_at(bytes, offset)?;
+        self.len = self.len.max(offset + bytes.len() as u64);
+        Ok(())
     }
 }
 
 struct QuotaOpener(Arc<AtomicI64>);
-impl SegmentOpener for QuotaOpener {
-    fn open(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
+impl FileOps for QuotaOpener {
+    fn open_segment(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
+        let f = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        let len = f.metadata()?.len();
         Ok(Box::new(QuotaSegment {
-            f: fs::OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path)?,
+            f,
+            len,
             budget: self.0.clone(),
         }))
     }
@@ -211,14 +227,11 @@ fn ledger_append_on_full_disk_is_typed_and_leaves_a_valid_ledger() {
     let _c = Cleanup(d.clone());
     let clk = clock();
     let budget = Arc::new(AtomicI64::new(i64::MAX));
-    let mut l = Ledger::create_with(
+    let mut l = new_ledger_with(
         &d,
         as_dyn(&clk),
         LedgerConfig::default(),
         Arc::new(QuotaOpener(budget.clone())),
-        "c",
-        &digest("spec"),
-        100,
     )
     .unwrap();
     l.append_all(setup_events("T162")).unwrap();
@@ -239,16 +252,17 @@ fn ledger_append_on_full_disk_is_typed_and_leaves_a_valid_ledger() {
     );
     assert!(matches!(
         l.append(Event::Note { text: "x".into() }),
-        Err(LedgerError::Poisoned)
+        Err(LedgerError::Poisoned { .. })
     ));
     drop(l);
     // space is freed: reopen, no recovery needed, same head
     budget.store(i64::MAX, Ordering::SeqCst);
-    let (mut l2, rep) = Ledger::open_with(
+    let (mut l2, rep) = open_ledger_with(
         &d,
         as_dyn(&clk),
         LedgerConfig::default(),
         Arc::new(QuotaOpener(budget.clone())),
+        OpenOptions::default(),
     )
     .unwrap();
     assert_eq!(rep.recovery, None);
@@ -264,7 +278,7 @@ fn ledger_append_on_full_disk_is_typed_and_leaves_a_valid_ledger() {
         .unwrap()
         .write_all(b"{\"schema\":\"rustred.camp")
         .unwrap();
-    let (_l3, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (_l3, rep) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert!(rep.recovery.is_some());
 }
 
@@ -278,14 +292,11 @@ fn rotation_on_full_disk_keeps_the_previous_manifest() {
         rotate_bytes: u64::MAX,
         ..LedgerConfig::default()
     };
-    let mut l = Ledger::create_with(
+    let mut l = new_ledger_with(
         &d,
         as_dyn(&clk),
         cfg.clone(),
         Arc::new(QuotaOpener(budget.clone())),
-        "c",
-        &digest("spec"),
-        100,
     )
     .unwrap();
     l.append_all(scenario()).unwrap();
@@ -298,7 +309,14 @@ fn rotation_on_full_disk_keeps_the_previous_manifest() {
     assert!(matches!(r, Err(LedgerError::NoSpace { .. })), "{r:?}");
     drop(l);
     budget.store(i64::MAX, Ordering::SeqCst);
-    let (l2, _) = Ledger::open_with(&d, as_dyn(&clk), cfg, Arc::new(QuotaOpener(budget))).unwrap();
+    let (l2, _) = open_ledger_with(
+        &d,
+        as_dyn(&clk),
+        cfg,
+        Arc::new(QuotaOpener(budget)),
+        OpenOptions::default(),
+    )
+    .unwrap();
     assert_eq!(l2.state().digest(), digest_before);
     assert_eq!(l2.manifest().sealed.len(), m_before.sealed.len() + 1);
     assert!(ledger::verify_chain(&d).unwrap().snapshot_matches == Some(true));

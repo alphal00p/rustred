@@ -144,8 +144,16 @@ impl CaseSpec {
     }
 
     /// Free dimension: free slots minus the rank of the (canonical, hence independent) equations.
+    /// Equations count only when they involve a free slot (an equation over slots outside the face constrains no
+    /// free slot; audit B m1).
     pub fn dim(&self) -> u32 {
-        (self.free().len().saturating_sub(self.equations.len())) as u32
+        let free: BTreeSet<usize> = self.free().into_iter().collect();
+        let rank = self
+            .equations
+            .iter()
+            .filter(|e| e.slots().iter().any(|s| free.contains(s)))
+            .count();
+        (free.len().saturating_sub(rank)) as u32
     }
 
     pub fn is_point(&self) -> bool {
@@ -161,7 +169,13 @@ impl CaseSpec {
         let face: BTreeSet<usize> = self.face.slots().into_iter().collect();
         for (i, &v) in key.iter().enumerate() {
             if let Some(&f) = self.fixed.get(&i) {
-                if v != f {
+                // a case contains CHART keys only (also at fixed slots: a free face slot fixed by an equation stays in
+                // the orthant), and a slot outside the face stays at its floor (audit B m1)
+                if v != f
+                    || (lines[i] && v < 1)
+                    || (!lines[i] && v > 0)
+                    || (!face.contains(&i) && v != floor_of(lines[i]))
+                {
                     return false;
                 }
             } else if face.contains(&i) {
@@ -331,6 +345,11 @@ pub struct Item {
     /// MEASURED or PROVED target range (P-2), inherited by children.
     #[serde(default)]
     pub range: RangeLabel,
+    /// Reserve candidates of the parent handed to this child (economy pruning, repair-library.md 4.2); judged at
+    /// this item's gap points in wave 0. Not serialised: a driver that persists items loses only economy, never
+    /// safety (the child then searches on its own).
+    #[serde(skip)]
+    pub inherited: Vec<super::ladder::InheritedCandidate>,
 }
 
 impl Item {
@@ -364,6 +383,7 @@ impl Item {
             proof: None,
             replaces: Vec::new(),
             range: RangeLabel::Unspecified,
+            inherited: Vec::new(),
         }
     }
 
@@ -451,11 +471,25 @@ pub struct Budgets {
     pub point_mem_mb: u64,
     pub oversized_seconds: u64,
     pub oversized_mem_mb: u64,
-    /// Extra CPU allowed after the first acceptable one-case answer, as a factor of its CPU (R31 (b)).
+    /// Superseded (kept for schema compatibility, not read): every wave is run to the end and the choice is a
+    /// function of the wave's results (audit B M3); the economy search budget is the wave.
     pub economy_extra_factor: f64,
-    /// Re-runs of a time-decided outcome (default 0: move on, marked time_decided).
+    /// Superseded (kept for schema compatibility, not read): every budget stop is a NON-VERDICT outcome and follows
+    /// `nonverdict_retries` (C3 of audit ladder-A).
     pub time_retries: u32,
     pub infra_retries: u32,
+    /// Retries of a setting after a NON-VERDICT outcome (crash, memory kill, refusal, budget stop), each in the
+    /// larger (oversized) resource class; beyond it the setting is settled WITHOUT a verdict (C3).
+    #[serde(default = "default_nonverdict_retries")]
+    pub nonverdict_retries: u32,
+    /// Sanity bound on operator interrupts of one attempt (U-5: never a retry cap; beyond it the item goes to
+    /// ATTENTION for a human, never to a give-up or a terminal).
+    #[serde(default = "default_max_operator_interrupts")]
+    pub max_operator_interrupts: u32,
+    /// GLOBAL step bound of one item: recorded driver answers (`ItemState::steps`) after which `next_steps` returns
+    /// ATTENTION `StepBound` (C2; holds for arbitrary trait answers).
+    #[serde(default = "default_max_item_steps")]
+    pub max_item_steps: u64,
     /// Seed count at which an attempt gets its base budget; above it the budget scales linearly (R34 (d)). `None`
     /// (default) = the estimated seed count of ONE centre at depth 3 for the node's own arity (on the five-loop
     /// reference this is the helper's single-dot depth-3 shell), so nothing depends on a particular loop order.
@@ -477,9 +511,22 @@ impl Default for Budgets {
             economy_extra_factor: 2.0,
             time_retries: 0,
             infra_retries: 10,
+            nonverdict_retries: default_nonverdict_retries(),
+            max_operator_interrupts: default_max_operator_interrupts(),
+            max_item_steps: default_max_item_steps(),
             scale_reference_seeds: None,
         }
     }
+}
+
+fn default_nonverdict_retries() -> u32 {
+    1
+}
+fn default_max_operator_interrupts() -> u32 {
+    1000
+}
+fn default_max_item_steps() -> u64 {
+    100_000
 }
 
 /// Acceptance / evidence levels A0-A4 (plan section 1, D-6).
@@ -510,6 +557,7 @@ pub struct NodeParams {
     /// Optional reference only (U-9).
     pub reference_masters: MasterCounts,
     pub enable_freeze_rung: bool,
+    /// Reserved for the L3 freeze rung (not implemented; disabled by default in the plan): not read.
     pub max_item_attempts: u32,
     /// IBP rows per seed of the family (spec / family data; 0 = unknown, no work counter).
     pub ibp_rows_per_seed: u32,
@@ -518,6 +566,55 @@ pub struct NodeParams {
     pub preferred: PreferredTerminals,
     /// Whether the key sets this node closes against are a MEASURED or a PROVED range (P-2); carried into items.
     pub target_range: RangeLabel,
+    /// Budget of the full-closure attempt before the box fallback (U-6, spec).
+    #[serde(default)]
+    pub full_attempt: FullAttemptBudget,
+    /// What the available provers can establish (CALLER-SUPPLIED capability data; addendum 3 of R46).
+    #[serde(default)]
+    pub capabilities: ProverCapabilities,
+    /// The node's symmetry group (input data, `orbits::SymmetryGroup::from_symmetry_json`); `None` = trivial.
+    #[serde(default)]
+    pub symmetry: Option<super::orbits::SymmetryGroup>,
+    /// What "small" means (R46 (5)): weights of the economy score (spec; default seed-policy.md section 5).
+    #[serde(default)]
+    pub economy: crate::economy::EconomyWeights,
+}
+
+/// The highest identity-evidence level the caller's provers can establish for a rule, for rules generated WITHOUT
+/// and WITH symmetry rows (for this node's arity). A rule whose class cannot reach the node's `min_evidence` is never
+/// accepted ("found, awaiting a certificate route"); the seed space orders the symmetry-rows settings first only when
+/// they can (addendum 3 of R46).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProverCapabilities {
+    pub plain: Option<EvidenceLevel>,
+    pub symmetry_rows: Option<EvidenceLevel>,
+}
+
+impl Default for ProverCapabilities {
+    /// Today's state (2026-11-14): rules without symmetry rows up to the exact per-key proof; rules with symmetry rows
+    /// have NO certificate route yet (neither replay nor per-key).
+    fn default() -> Self {
+        ProverCapabilities {
+            plain: Some(EvidenceLevel::A4),
+            symmetry_rows: None,
+        }
+    }
+}
+
+impl ProverCapabilities {
+    /// Can a rule of this class (with / without symmetry rows) reach `level`? Levels <= A1 (geometry) are computed
+    /// by the library itself.
+    pub fn can(&self, symmetry_rows: bool, level: EvidenceLevel) -> bool {
+        if level <= EvidenceLevel::A1 {
+            return true;
+        }
+        let l = if symmetry_rows {
+            self.symmetry_rows
+        } else {
+            self.plain
+        };
+        l.is_some_and(|l| l >= level)
+    }
 }
 
 /// One entry of the spec's preferred-terminal list (P-4): one key, or a whole sector (the set of lines at index >= 1;
@@ -539,15 +636,40 @@ pub struct PreferredTerminals {
     /// Count preferred terminals against `terminals_max` (default false: reported separately).
     #[serde(default)]
     pub count_against_bound: bool,
+    /// At most this many preferred terminals per node are honoured (`None` = the node's `terminals_max`); the
+    /// surplus is reported "preference not applied" (it stays an ordinary gap point), never a failure (M3).
+    #[serde(default)]
+    pub max_preferred: Option<usize>,
+}
+
+/// Result of [`PreferredTerminals::strip`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StripReport {
+    /// Preferred keys removed from the gap points (allowed terminals).
+    pub kept_preferred: Vec<Key>,
+    /// Preferred keys beyond the bound: preference NOT applied, kept as gap points.
+    pub not_applied: Vec<Key>,
 }
 
 impl PreferredTerminals {
-    /// Whether a key is preferred (exact key, or its line support equals a sector entry).
+    /// A sector entry applies only to a PROPER subsector of the node (a set of line slots that omits at least one
+    /// line of the node): a sector equal to the node's own top sector would make every key preferred (audit A M3)
+    /// and is ignored with a warning.
+    fn proper_sector(ls: &[usize], lines: &[bool]) -> bool {
+        let n_lines = lines.iter().filter(|&&l| l).count();
+        let mut l: Vec<usize> = ls.to_vec();
+        l.sort_unstable();
+        l.dedup();
+        l.iter().all(|&i| i < lines.len() && lines[i]) && l.len() < n_lines
+    }
+
+    /// Whether a key is preferred (exact key, or its line support equals a PROPER-subsector entry). This is the
+    /// preference itself, before the per-node bound (see [`Self::strip`], [`Self::honoured`]).
     pub fn matches(&self, key: &[i32], lines: &[bool]) -> bool {
         self.entries.iter().any(|e| match e {
             PreferredEntry::Key(k) => k.as_slice() == key,
             PreferredEntry::Sector { lines: ls } => {
-                key.len() == lines.len() && {
+                key.len() == lines.len() && Self::proper_sector(ls, lines) && {
                     let support: Vec<usize> = (0..key.len())
                         .filter(|&i| lines[i] && key[i] >= 1)
                         .collect();
@@ -558,6 +680,25 @@ impl PreferredTerminals {
                 }
             }
         })
+    }
+
+    /// The bound on honoured preferred terminals of a node with terminal bound `terminals_max`.
+    pub fn bound(&self, terminals_max: usize) -> usize {
+        self.max_preferred.unwrap_or(terminals_max)
+    }
+
+    /// The preferred keys among `keys` that are HONOURED: the first `bound` matching keys in key order; the rest
+    /// are "preference not applied".
+    pub fn honoured(&self, keys: &[Key], lines: &[bool], terminals_max: usize) -> BTreeSet<Key> {
+        let mut m: Vec<Key> = keys
+            .iter()
+            .filter(|k| self.matches(k, lines))
+            .cloned()
+            .collect();
+        m.sort();
+        m.dedup();
+        m.truncate(self.bound(terminals_max));
+        m.into_iter().collect()
     }
 
     /// Entries that cannot apply to this node (wrong arity, a positive numerator, a line slot that is not a line):
@@ -583,6 +724,10 @@ impl PreferredTerminals {
                         w.push(format!(
                             "preferred sector {ls:?}: names a slot that is not a line of this node"
                         ));
+                    } else if !Self::proper_sector(ls, lines) {
+                        w.push(format!(
+                            "preferred sector {ls:?}: the node's own top sector, not a proper subsector: ignored"
+                        ));
                     }
                 }
             }
@@ -590,24 +735,32 @@ impl PreferredTerminals {
         w
     }
 
-    /// Remove preferred keys from the gap points of items (they are allowed terminals: no ladder effort); returns
-    /// the removed keys (reported as `kept_preferred`).
-    pub fn strip(&self, items: &mut [Item], lines: &[bool]) -> Vec<Key> {
-        let mut out = Vec::new();
+    /// Remove HONOURED preferred keys from the gap points of items (allowed terminals: no ladder effort): at most
+    /// `bound(terminals_max)` keys in key order over all items; the surplus stays as gap points and is reported
+    /// `not_applied` (M3: never a failure).
+    pub fn strip(&self, items: &mut [Item], lines: &[bool], terminals_max: usize) -> StripReport {
+        let mut out = StripReport::default();
         if self.entries.is_empty() {
             return out;
         }
+        let all: Vec<Key> = items.iter().flat_map(|i| i.gap_points.clone()).collect();
+        let honoured = self.honoured(&all, lines, terminals_max);
         for it in items.iter_mut() {
-            let (keep, pref): (Vec<Key>, Vec<Key>) = it
-                .gap_points
-                .drain(..)
-                .partition(|k| !self.matches(k, lines));
+            let (keep, pref): (Vec<Key>, Vec<Key>) =
+                it.gap_points.drain(..).partition(|k| !honoured.contains(k));
             it.gap_points = keep;
             it.weight = it.gap_points.len() as u64;
-            out.extend(pref);
+            out.kept_preferred.extend(pref);
         }
-        out.sort();
-        out.dedup();
+        out.kept_preferred.sort();
+        out.kept_preferred.dedup();
+        let mut na: Vec<Key> = all
+            .into_iter()
+            .filter(|k| self.matches(k, lines) && !honoured.contains(k))
+            .collect();
+        na.sort();
+        na.dedup();
+        out.not_applied = na;
         out
     }
 }
@@ -647,6 +800,10 @@ impl NodeParams {
             standard_values: StandardValues::default(),
             preferred: PreferredTerminals::default(),
             target_range: RangeLabel::Unspecified,
+            full_attempt: FullAttemptBudget::default(),
+            capabilities: ProverCapabilities::default(),
+            symmetry: None,
+            economy: crate::economy::EconomyWeights::default(),
         }
     }
 }
@@ -661,6 +818,8 @@ pub enum WorklistError {
     /// A key is not a top-sector chart key of the node (wrong arity, a removed line or a positive numerator).
     NotTopChart(Key),
     Case(String),
+    /// R35 / U-6: the node's full-closure attempt has not ended (or reached full closure).
+    FullAttemptNotEnded(String),
 }
 
 impl fmt::Display for WorklistError {
@@ -675,6 +834,9 @@ impl fmt::Display for WorklistError {
             }
             WorklistError::NotTopChart(k) => write!(f, "not a top-sector chart key: {k:?}"),
             WorklistError::Case(s) => write!(f, "case: {s}"),
+            WorklistError::FullAttemptNotEnded(s) => {
+                write!(f, "box fallback refused: full attempt not ended (R35): {s}")
+            }
         }
     }
 }
@@ -709,7 +871,10 @@ pub struct PartitionReport {
 }
 
 /// Items of a node built from a partition report: one GENERIC FACE item per generic face (whole face, all powers and
-/// ranks: R35), one LOCUS item per locus; out-of-box faces are returned separately (fail-closed, not queued).
+/// ranks: R35), one LOCUS item per locus of positive dimension; out-of-box faces are returned separately (fail-closed,
+/// not queued). A POINT locus (dimension 0) never becomes a root point item: its points are gap points of the face
+/// item, so the FACE CASE is tried at them first and they reach a point item (the face case with the point's fixed
+/// values) only as children of that face attempt (audit A M8; plan 2.4.4 L5 "L4 fails and a face case failed").
 pub fn items_from_partition(
     report: &PartitionReport,
     params: &NodeParams,
@@ -723,25 +888,16 @@ pub fn items_from_partition(
         }
         let case = CaseSpec::face_case(f.face.clone());
         let dim = case.dim();
-        if f.generic || !f.points.is_empty() {
-            let mut it = Item::new(
-                &params.node,
-                ItemKind::GenericFace,
-                case.clone(),
-                f.points.clone(),
-                None,
-                0,
-                dim,
-                ChildOrigin::Root(RootSource::Partition),
-                None,
-            );
-            it.proof = Some(f.proof.clone());
-            items.push(it);
-        }
+        let mut face_points = f.points.clone();
+        let mut loci_items = Vec::new();
         for l in &f.loci {
             let lc = case
                 .constrained(&[], &l.equations)
                 .map_err(|e| WorklistError::Case(e.to_string()))?;
+            if lc.is_point() && dim > 0 {
+                face_points.extend(l.points.iter().cloned());
+                continue;
+            }
             let kind = if lc.is_point() {
                 ItemKind::Point
             } else {
@@ -759,10 +915,28 @@ pub fn items_from_partition(
                 None,
             );
             it.proof = Some(l.proof.clone());
+            loci_items.push(it);
+        }
+        if f.generic || !face_points.is_empty() {
+            let mut it = Item::new(
+                &params.node,
+                ItemKind::GenericFace,
+                case.clone(),
+                face_points,
+                None,
+                0,
+                dim,
+                ChildOrigin::Root(RootSource::Partition),
+                None,
+            );
+            it.proof = Some(f.proof.clone());
             items.push(it);
         }
+        items.extend(loci_items);
     }
-    params.preferred.strip(&mut items, &params.lines);
+    params
+        .preferred
+        .strip(&mut items, &params.lines, params.terminals_max);
     order_items(&mut items);
     Ok((items, out_of_box))
 }
@@ -804,20 +978,106 @@ pub fn items_from_closure_keys(
             it
         })
         .collect();
-    params.preferred.strip(&mut items, &params.lines);
+    params
+        .preferred
+        .strip(&mut items, &params.lines, params.terminals_max);
     order_items(&mut items);
     Ok(items)
 }
 
-/// A box-restricted item (the BOXED fallback of 2.4.15): only for a node whose spec carries a user box.
+/// The spec's budget of the FULL-closure attempt of a node before the box fallback (U-6; default 50 CPU-hours or
+/// 5 fixer rounds, whichever comes first).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FullAttemptBudget {
+    pub cpu_hours: f64,
+    pub fixer_rounds: u32,
+}
+
+impl Default for FullAttemptBudget {
+    fn default() -> Self {
+        FullAttemptBudget {
+            cpu_hours: 50.0,
+            fixer_rounds: 5,
+        }
+    }
+}
+
+/// What the caller (the supervisor's ledger) reports about the node's full-closure attempt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FullAttemptEvidence {
+    pub node: String,
+    /// CPU spent on the node's full-closure attempt (milliseconds, summed from the solver reports).
+    pub cpu_ms: u64,
+    pub fixer_rounds: u32,
+    /// Full closure was NOT reached (open faces / loci / keys at the end of the attempt, at least one).
+    pub open: Vec<String>,
+}
+
+/// The explicit state "the full attempt of this node ended without full closure" (R35 / U-6): built ONLY by
+/// [`FullAttemptEnded::from_evidence`], which checks the spec's budget against the evidence. A box-restricted item
+/// can only be created from it (and only if the spec has a user box).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FullAttemptEnded {
+    node: String,
+    evidence: FullAttemptEvidence,
+    budget: FullAttemptBudget,
+}
+
+impl FullAttemptEnded {
+    pub fn from_evidence(
+        params: &NodeParams,
+        evidence: FullAttemptEvidence,
+    ) -> Result<Self, WorklistError> {
+        if evidence.node != params.node {
+            return Err(WorklistError::FullAttemptNotEnded(format!(
+                "evidence for node {} (params {})",
+                evidence.node, params.node
+            )));
+        }
+        if evidence.open.is_empty() {
+            return Err(WorklistError::FullAttemptNotEnded(
+                "full closure reached: nothing open, no box".into(),
+            ));
+        }
+        let b = &params.full_attempt;
+        let cpu_budget_ms = b.cpu_hours * 3_600_000.0;
+        if (evidence.cpu_ms as f64) < cpu_budget_ms && evidence.fixer_rounds < b.fixer_rounds {
+            return Err(WorklistError::FullAttemptNotEnded(format!(
+                "budget not used up: {} ms of {} CPU-h, {} of {} fixer rounds",
+                evidence.cpu_ms, b.cpu_hours, evidence.fixer_rounds, b.fixer_rounds
+            )));
+        }
+        Ok(FullAttemptEnded {
+            node: params.node.clone(),
+            budget: b.clone(),
+            evidence,
+        })
+    }
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+    pub fn evidence(&self) -> &FullAttemptEvidence {
+        &self.evidence
+    }
+}
+
+/// A box-restricted item (the BOXED fallback of 2.4.15): only for a node whose spec carries a user box, and only
+/// after its full attempt ended ([`FullAttemptEnded`], R35 / U-6).
 pub fn box_restricted_item(
     case: CaseSpec,
     gap_points: Vec<Key>,
     params: &NodeParams,
+    ended: &FullAttemptEnded,
 ) -> Result<Item, WorklistError> {
     let b = params.user_box.as_ref().ok_or(WorklistError::NoUserBox)?;
     if b.given_by != "user" {
         return Err(WorklistError::BoxNotUserGiven(b.given_by.clone()));
+    }
+    if ended.node != params.node {
+        return Err(WorklistError::FullAttemptNotEnded(format!(
+            "token of node {}",
+            ended.node
+        )));
     }
     let dim = case.dim();
     Ok(Item::new(

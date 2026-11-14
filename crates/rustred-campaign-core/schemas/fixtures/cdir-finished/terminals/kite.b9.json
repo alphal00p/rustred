@@ -56,7 +56,7 @@
     }
   ],
   "schema": "rustred.campaign.terminals.v1",
-  "seq": 93,
+  "seq": 97,
   "source_of_truth": "ledger",
   "written_utc": "2026-11-20T08:15:04Z"
 }

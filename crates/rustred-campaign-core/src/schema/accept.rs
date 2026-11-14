@@ -43,7 +43,12 @@ pub struct RuleRef {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Producer {
-    pub bin_blake3: String,
+    /// BLAKE3 of the producing binary; `None` for historical material whose producer was never recorded (then
+    /// `provenance` is required, and the line can never by itself yield a level above A0 / imported).
+    pub bin_blake3: Option<String>,
+    /// Provenance class: `recorded`, `unknown: historical import`, `unknown: not recorded by the producer`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
     #[serde(default)]
     pub backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

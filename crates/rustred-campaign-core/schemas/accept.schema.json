@@ -26,8 +26,12 @@
         "case_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
         "producer": {
           "type": "object", "required": ["bin_blake3", "lift_primes"],
+          "description": "bin_blake3 null = the producing binary is unknown (historical import): then `provenance` is required (not `recorded`) and the line can never by itself yield a level above A0 (validate.py semantic check; the ledger's evidence_imported with producer_blake3 null is provenance only)",
+          "allOf": [{"if": {"properties": {"bin_blake3": {"type": "null"}}, "required": ["bin_blake3"]},
+                     "then": {"required": ["provenance"], "properties": {"provenance": {"not": {"const": "recorded"}}}}}],
           "properties": {
-            "bin_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+            "bin_blake3": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]},
+            "provenance": {"enum": ["recorded", "unknown: historical import", "unknown: not recorded by the producer"]},
             "backend": {"type": ["string", "null"]},
             "guard_version": {"type": "integer", "minimum": 1},
             "lift_primes": {"anyOf": [{"const": "unknown"}, {"type": "array", "items": {"type": "integer", "minimum": 2}}]},

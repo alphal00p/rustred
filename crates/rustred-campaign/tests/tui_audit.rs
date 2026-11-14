@@ -323,19 +323,17 @@ fn m1_ledger_job_fallback_is_labelled_partial_and_skipped_when_files_list_jobs()
     let mut src = mem("midrun");
     let (o, _) = opts_at(fixture_now(&src.files["campaign.json"]));
     src.jobs = Some(vec![]);
-    // campaign.json lists jobs: the fallback is not used
-    let vm = tui::view_model(&src, &o);
-    assert_eq!(vm.jobs.list_origin, model::JobsOrigin::Progress);
-    // a jobs file (the progress owner's running-jobs file) also replaces it
-    let c = src.files.get_mut("campaign.json").unwrap();
-    let list = c["jobs"].as_object_mut().unwrap().remove("list").unwrap();
-    src.files.insert(
-        "jobs.json".into(),
-        json!({"schema": "rustred.campaign.jobs.v1", "jobs": list}),
-    );
+    // jobs.json lists the running jobs: the fallback is not used
     let vm = tui::view_model(&src, &o);
     assert_eq!(vm.jobs.list_origin, model::JobsOrigin::Progress);
     assert_eq!(vm.jobs.list.as_ref().unwrap().len(), 3);
+    // a jobs.json with an empty list is a list (never replaced by the fallback)
+    let saved = src.files["jobs.json"].clone();
+    src.files.get_mut("jobs.json").unwrap()["list"] = json!([]);
+    let vm = tui::view_model(&src, &o);
+    assert_eq!(vm.jobs.list_origin, model::JobsOrigin::Progress);
+    assert_eq!(vm.jobs.list.as_ref().unwrap().len(), 0);
+    src.files.insert("jobs.json".into(), saved);
     src.files.remove("jobs.json");
     let vm = tui::view_model(&src, &o);
     assert_eq!(vm.jobs.list_origin, model::JobsOrigin::LedgerPartial);
@@ -455,7 +453,9 @@ fn m3_certification_at_the_level_each_node_asks() {
 
 #[test]
 fn m4_stale_values_are_dimmed_and_aged_and_the_banner_says_since_when() {
-    let src = mem("stale");
+    let mut src = mem("stale");
+    // without heartbeat.json (an older writer) staleness is inferred from file times, and labelled so
+    src.files.remove("heartbeat.json");
     let (o, _) = opts_at(fixture_now(&src.files["campaign.json"]));
     let vm = tui::view_model(&src, &o);
     assert_eq!(vm.banner, model::Banner::Stale);
@@ -495,8 +495,9 @@ fn m4_supervisor_heartbeat_field_is_read_when_present() {
     let (o, _) = opts_at(now);
     let fresh = UtcMillis(now.0 - 3000).to_iso();
     src.files.insert(
-        "supervisor.json".into(),
-        json!({"schema": "rustred.campaign.supervisor.v1", "heartbeat_utc": fresh}),
+        "heartbeat.json".into(),
+        json!({"schema": "rustred.campaign.progress.v1", "file": "heartbeat",
+               "supervisor": {"heartbeat_utc": fresh, "stopping": false}}),
     );
     let vm = tui::view_model(&src, &o);
     assert_eq!(vm.heartbeat_source, model::HeartbeatSource::Field);
@@ -506,7 +507,7 @@ fn m4_supervisor_heartbeat_field_is_read_when_present() {
         "heartbeat 3 s old: alive"
     );
     let old = UtcMillis(now.0 - 600_000).to_iso();
-    src.files.get_mut("supervisor.json").unwrap()["heartbeat_utc"] = json!(old);
+    src.files.get_mut("heartbeat.json").unwrap()["supervisor"]["heartbeat_utc"] = json!(old);
     let vm = tui::view_model(&src, &o);
     assert_eq!(vm.banner, model::Banner::Stale);
     let t = tui::render_text(&vm, &App::new(false, 120), &o, 200, 60);

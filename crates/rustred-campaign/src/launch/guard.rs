@@ -198,6 +198,21 @@ mod sys {
         }
     }
 
+    /// Has the process of `fd` exited (its thread group is dead)? `poll(POLLIN, 0)` on the pidfd. None: poll failed.
+    pub(super) fn pidfd_exited(fd: BorrowedFd<'_>) -> Option<bool> {
+        let mut p = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd, timeout 0 (no blocking).
+        let r = unsafe { libc::poll(&mut p, 1, 0) };
+        if r < 0 {
+            return None;
+        }
+        Some(p.revents & (libc::POLLIN | libc::POLLHUP) != 0)
+    }
+
     /// Reap exactly the process of `fd` (waitid(P_PIDFD, WEXITED | WNOHANG)); true if reaped.
     pub(super) fn reap_pidfd(fd: &OwnedFd) -> bool {
         const P_PIDFD: libc::idtype_t = 3;
@@ -389,6 +404,7 @@ fn judge(
             }
         }
         Proof::Marker(_) | Proof::Campaign(_) => {
+            // Defence in depth: a stopped / frozen candidate with a marker is judged like any other.
             let found = match &f.marker {
                 Some(Ok(Some(v))) => v,
                 Some(Ok(None)) => return Err(Verdict::NotOurs(Refusal::NoMarker)),
@@ -425,6 +441,49 @@ pub(crate) fn signal_verified(
     signal_verified_at(Path::new("/proc"), t, sig, leaders, timeout)
 }
 
+/// Steps 1, 2 and (gate re-audit A m-1) the pinned-session PRE-check: for `Proof::PinnedSession(sid)` the session must
+/// be pinned BEFORE the /proc reads it protects (the lock is not held across the reads; it is taken again, and the pin
+/// re-checked, from the judgement through the send).
+fn precheck(t: &ProcessTarget, sig: i32, leaders: Option<&Leaders>) -> Result<ValidPid, Verdict> {
+    if !valid_signal(sig) {
+        return Err(Verdict::Unverified(format!(
+            "signal number {sig} out of range"
+        )));
+    }
+    // 1.
+    let pid = ValidPid::for_signal(i64::from(t.pid))
+        .map_err(|e| Verdict::NotOurs(Refusal::InvalidPid(e)))?;
+    // 2.
+    match boot_id() {
+        Ok(b) if b == t.boot_id => {}
+        Ok(_) => return Err(Verdict::NotOurs(Refusal::OtherBoot)),
+        Err(e) => return Err(Verdict::Unverified(format!("boot id unreadable: {e}"))),
+    }
+    if let Proof::PinnedSession(sid) = t.proof {
+        let pinned_now = leaders.is_some_and(|l| l.lock().contains(&sid) && leader_unreaped(sid));
+        if !pinned_now {
+            return Err(Verdict::NotOurs(Refusal::SessionNotPinned { sid }));
+        }
+    }
+    Ok(pid)
+}
+
+/// Step 3: a pidfd on `pid`. ESRCH = Gone; any other failure = Unverified, never a fallback (gate re-audit m-2/m-3).
+fn open_pidfd_checked(pid: ValidPid) -> Result<Option<OwnedFd>, Verdict> {
+    match pidfd_probe() {
+        PidfdProbe::Supported => match sys::pidfd_open(pid) {
+            Ok(fd) => Ok(Some(fd)),
+            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Err(Verdict::Gone),
+            Err(e) => Err(Verdict::Unverified(format!("pidfd_open: {e}"))),
+        },
+        PidfdProbe::Unsupported => Ok(None),
+        // EMFILE / ENFILE / ENOMEM now: refuse this attempt (retry later), never the weaker kill path.
+        PidfdProbe::Transient(e) => Err(Verdict::Unverified(format!(
+            "pidfd probe failed transiently: {e}"
+        ))),
+    }
+}
+
 pub(crate) fn signal_verified_at(
     root: &Path,
     t: &ProcessTarget,
@@ -432,32 +491,14 @@ pub(crate) fn signal_verified_at(
     leaders: Option<&Leaders>,
     timeout: Duration,
 ) -> Verdict {
-    if !valid_signal(sig) {
-        return Verdict::Unverified(format!("signal number {sig} out of range"));
-    }
-    // 1.
-    let pid = match ValidPid::for_signal(i64::from(t.pid)) {
+    let pid = match precheck(t, sig, leaders) {
         Ok(p) => p,
-        Err(e) => return Verdict::NotOurs(Refusal::InvalidPid(e)),
+        Err(v) => return v,
     };
-    // 2.
-    match boot_id() {
-        Ok(b) if b == t.boot_id => {}
-        Ok(_) => return Verdict::NotOurs(Refusal::OtherBoot),
-        Err(e) => return Verdict::Unverified(format!("boot id unreadable: {e}")),
-    }
     // 3.
-    let pidfd = match pidfd_probe() {
-        PidfdProbe::Supported => match sys::pidfd_open(pid) {
-            Ok(fd) => Some(fd),
-            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => return Verdict::Gone,
-            Err(e) => return Verdict::Unverified(format!("pidfd_open: {e}")),
-        },
-        PidfdProbe::Unsupported => None,
-        // EMFILE / ENFILE / ENOMEM now: refuse this attempt (retry later), never the weaker kill path.
-        PidfdProbe::Transient(e) => {
-            return Verdict::Unverified(format!("pidfd probe failed transiently: {e}"));
-        }
+    let pidfd = match open_pidfd_checked(pid) {
+        Ok(fd) => fd,
+        Err(v) => return v,
     };
     // 4-7 on a helper thread, bounded.
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
@@ -469,6 +510,77 @@ pub(crate) fn signal_verified_at(
             None => return Verdict::Unverified(format!("/proc reads of pid {p} timed out")),
         }
     };
+    judge_and_send(t, read, pidfd.as_ref(), pid, sig, leaders)
+}
+
+/// The whole checklist INLINE on the calling thread (no helper thread): for callers that already run off the control
+/// loop (the end-of-job hunt, the batch signaller). The pidfd is opened BEFORE the reads, exactly as in
+/// [`signal_verified_at`].
+pub(crate) fn signal_verified_inline(
+    t: &ProcessTarget,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Verdict {
+    let pid = match precheck(t, sig, leaders) {
+        Ok(p) => p,
+        Err(v) => return v,
+    };
+    let pidfd = match open_pidfd_checked(pid) {
+        Ok(fd) => fd,
+        Err(v) => return v,
+    };
+    let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
+    let read = read_facts(Path::new("/proc"), t.pid, want_marker);
+    judge_and_send(t, read, pidfd.as_ref(), pid, sig, leaders)
+}
+
+/// The checklist on a pidfd the CALLER opened earlier (with [`open_pidfd`]) and still holds: the hunt opens a pidfd on
+/// each candidate before classifying it, so the process judged here is the one that pidfd pins (a recycled number
+/// makes the send fail with ESRCH).
+pub(crate) fn signal_with_pidfd(
+    fd: &OwnedFd,
+    t: &ProcessTarget,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Verdict {
+    let pid = match precheck(t, sig, leaders) {
+        Ok(p) => p,
+        Err(v) => return v,
+    };
+    let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
+    let read = read_facts(Path::new("/proc"), t.pid, want_marker);
+    judge_and_send(t, read, Some(fd), pid, sig, leaders)
+}
+
+/// Open a pidfd on `pid` for a caller that classifies the process before deciding to signal it (the hunt). Refuses
+/// targets that are never signalled (`ValidPid::for_signal`); ESRCH = Gone; no pidfd support = Unverified (the hunt has
+/// no weaker path).
+pub(crate) fn open_pidfd(pid: u32) -> Result<OwnedFd, Verdict> {
+    let p = ValidPid::for_signal(i64::from(pid))
+        .map_err(|e| Verdict::NotOurs(Refusal::InvalidPid(e)))?;
+    match open_pidfd_checked(p)? {
+        Some(fd) => Ok(fd),
+        None => Err(Verdict::Unverified(
+            "this kernel has no pidfds: the end-of-job proof needs them".into(),
+        )),
+    }
+}
+
+/// Has the process of a pidfd exited? (`Some(true)`: its thread group is dead, it is no survivor; reads made while it
+/// was not yet exited described it.) None: the poll failed (inconclusive).
+pub(crate) fn pidfd_exited(fd: &OwnedFd) -> Option<bool> {
+    sys::pidfd_exited(fd_borrow(fd))
+}
+
+/// Steps 7 (judgement, under the registry lock for a pinned-session proof) and 8 (the send).
+fn judge_and_send(
+    t: &ProcessTarget,
+    read: Read,
+    pidfd: Option<&OwnedFd>,
+    pid: ValidPid,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Verdict {
     let facts = match read {
         Read::Gone => return Verdict::Gone,
         Read::Failed(e) => return Verdict::Unverified(e),
@@ -485,7 +597,7 @@ pub(crate) fn signal_verified_at(
         return v;
     }
     // 8.
-    let r = match &pidfd {
+    let r = match pidfd {
         Some(fd) => sys::pidfd_send_signal(fd_borrow(fd), sig),
         None => {
             // No pidfd: re-read the start time right before kill (residual race of microseconds, documented).
@@ -546,9 +658,12 @@ pub(crate) fn kill_all_pinned(leaders: &Leaders) -> usize {
         .count()
 }
 
-/// Reap exactly (pid, start) if it is a zombie child of ours: pidfd, start-time check, waitid(P_PIDFD). The caller holds
-/// the leader registry lock and has checked the pid is not a leader.
-pub(crate) fn reap_exact(pid: u32, start_ticks: u64) -> bool {
+/// Reap exactly (pid, start) if it is a ZOMBIE CHILD of ours outside our own session: pidfd first (it pins the process),
+/// then a stat read under that pidfd (start time, dead, parent = us, session != `own_session`), then
+/// waitid(P_PIDFD, WEXITED | WNOHANG). Never a catch-all wait. The caller (the adopted-children reaper) holds the leader
+/// registry lock and has checked that `pid` is not a registered leader: a registered leader is never reaped here
+/// (the invariant behind the pinned group signal).
+pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool {
     let Ok(p) = ValidPid::for_signal(i64::from(pid)) else {
         return false;
     };
@@ -558,9 +673,44 @@ pub(crate) fn reap_exact(pid: u32, start_ticks: u64) -> bool {
     let Ok(fd) = sys::pidfd_open(p) else {
         return false;
     };
+    // SAFETY: getpid cannot fail.
+    let me = unsafe { libc::getpid() } as u32;
     match crate::resources::read_stat(pid) {
-        Ok(Some(st)) if st.start_ticks == start_ticks && st.is_dead() => sys::reap_pidfd(&fd),
+        Ok(Some(st))
+            if st.start_ticks == start_ticks
+                && st.is_dead()
+                && st.ppid == me
+                && st.session != own_session =>
+        {
+            sys::reap_pidfd(&fd)
+        }
         _ => false,
+    }
+}
+
+/// Signal several processes through the checklist on ONE helper thread, waiting at most `timeout` for the whole batch
+/// (gate re-audit A m-3: N stalled /proc reads no longer block the control loop N x 2 s). Targets not finished within the
+/// bound are still handled (each verified at its own send time) in the background; their verdicts are reported as
+/// `Unverified("batch bound")`.
+pub(crate) fn signal_verified_batch(
+    targets: Vec<ProcessTarget>,
+    sig: i32,
+    leaders: Option<std::sync::Arc<Leaders>>,
+    timeout: Duration,
+) -> Vec<Verdict> {
+    if targets.is_empty() {
+        return Vec::new();
+    }
+    let n = targets.len();
+    let work = move || {
+        targets
+            .iter()
+            .map(|t| signal_verified_inline(t, sig, leaders.as_deref()))
+            .collect::<Vec<_>>()
+    };
+    match run_bounded(timeout, work).done() {
+        Some(v) => v,
+        None => vec![Verdict::Unverified("batch bound reached".into()); n],
     }
 }
 
@@ -765,6 +915,29 @@ mod tests {
             judge(&l, &facts(5, 9, 7, Some("c1:a1")), 7, &no),
             Err(Verdict::NotOurs(Refusal::NotSessionLeader { .. }))
         ));
+    }
+
+    /// Gate re-audit A m-1: for a pinned-session proof the pin is checked BEFORE the /proc reads it protects. A target
+    /// that does not exist, with a session that is not pinned: refused as SessionNotPinned by the pre-check (before the
+    /// fix the reads came first and answered Gone). Signal 0, nothing can be delivered either way.
+    #[test]
+    fn ra_m1_pinned_session_is_checked_before_the_reads() {
+        let leaders = Leaders::default();
+        let t = ProcessTarget {
+            pid: crate::resources::pid_max() - 1,
+            boot_id: boot_id().unwrap(),
+            start: StartRule::NotBefore(0),
+            require_session_leader: false,
+            proof: Proof::PinnedSession(4242),
+        };
+        assert_eq!(
+            signal_verified(&t, 0, Some(&leaders), Duration::from_millis(500)),
+            Verdict::NotOurs(Refusal::SessionNotPinned { sid: 4242 })
+        );
+        assert_eq!(
+            signal_verified(&t, 0, None, Duration::from_millis(500)),
+            Verdict::NotOurs(Refusal::SessionNotPinned { sid: 4242 })
+        );
     }
 
     /// Audit A M5 seam: a /proc root whose `environ` is a FIFO without writer blocks a read forever; the verification

@@ -114,7 +114,7 @@ pub trait ProgressSource: Send + Sync {
     fn item_detail(&self, _item: &str) -> Result<Value, String> {
         Err("item detail is not available from this source".into())
     }
-    /// Running attempts when the progress files do not list them (`None`: unknown). Shown labelled "from ledger
+    /// Running attempts when `progress/jobs.json` is ABSENT (`None`: unknown). Shown labelled "from ledger
     /// (partial)"; never asked for when the progress files carry a job list.
     fn running_jobs(&self) -> Option<Vec<JobRow>> {
         None
@@ -393,20 +393,13 @@ impl DirSource {
                         crate::tui::format::bytes(Some(b))
                     )),
                 },
-                Some(_) => match crate::ledger::read_records(&self.cdir) {
-                    Ok(recs) => match crate::state::reduce(recs.iter()) {
-                        Ok(st) => LedgerCache {
-                            seq: want_seq,
-                            at: Instant::now(),
-                            state: Some(st),
-                            error: None,
-                        },
-                        Err(e) => LedgerCache {
-                            seq: want_seq,
-                            at: Instant::now(),
-                            state: None,
-                            error: Some(format!("ledger does not reduce: {e}")),
-                        },
+                // The READ-ONLY open (no lock, never repairs; snapshot + active segment, every line checked).
+                Some(_) => match crate::ledger::open_read_only(&self.cdir) {
+                    Ok(view) => LedgerCache {
+                        seq: want_seq,
+                        at: Instant::now(),
+                        state: Some(view.state),
+                        error: None,
                     },
                     Err(e) => LedgerCache {
                         seq: want_seq,

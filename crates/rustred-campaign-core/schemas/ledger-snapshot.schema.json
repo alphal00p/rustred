@@ -3,30 +3,115 @@
   "$id": "ledger-snapshot.schema.json",
   "title": "Ledger snapshot (CDIR/ledger/snapshot-<seq>.json): the reduced state after record `seq`",
   "description": "AS BUILT: rustred_campaign::ledger::Snapshot { state: state::CampaignState }. The state is an internal serialisation of the reducer (checked against the manifest digest and by `verify`); only its envelope and top-level members are fixed here.",
-  "x-rr-names": ["rustred.campaign.snapshot.v1"],
+  "x-rr-names": [
+    "rustred.campaign.snapshot.v1"
+  ],
   "x-rr-owner": "I-LEDGER",
   "x-rr-struct": "rustred_campaign::ledger::Snapshot",
   "x-rr-freeze": "M0",
   "type": "object",
-  "required": ["schema", "seq", "head", "state"],
+  "required": [
+    "schema",
+    "seq",
+    "head",
+    "state"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": {"const": "rustred.campaign.snapshot.v1"},
-    "seq": {"type": "integer", "minimum": 1},
-    "head": {"$ref": "common.schema.json#/$defs/blake3"},
+    "schema": {
+      "const": "rustred.campaign.snapshot.v1"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "head": {
+      "$ref": "common.schema.json#/$defs/blake3"
+    },
     "state": {
       "type": "object",
-      "required": ["campaign_id", "spec_blake3", "created_utc", "terminal_bound", "phase", "last_seq", "last_utc", "inputs", "evidence", "nodes", "items", "jobs", "pending_ops", "done_ops", "rules", "terminals_total", "costs_ms", "cpu_ms_total", "recent"],
+      "required": [
+        "campaign_id",
+        "spec_blake3",
+        "created_utc",
+        "terminal_bound",
+        "phase",
+        "last_seq",
+        "last_utc",
+        "inputs",
+        "provenance",
+        "nodes",
+        "items",
+        "jobs",
+        "pending_ops",
+        "done_ops",
+        "rules",
+        "terminals_total",
+        "costs_ms",
+        "cpu_ms_total",
+        "recent",
+        "mode",
+        "controls"
+      ],
       "properties": {
-        "campaign_id": {"type": "string"},
-        "spec_blake3": {"type": "string"},
-        "phase": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/campaign_phase"}]},
-        "last_seq": {"$ref": "common.schema.json#/$defs/u64"},
-        "inputs": {"type": "object"}, "evidence": {"type": "object"}, "nodes": {"type": "object"},
-        "items": {"type": "object"}, "jobs": {"type": "object"}, "pending_ops": {"type": "object"},
-        "done_ops": {"type": "array", "items": {"type": "string"}},
-        "costs_ms": {"type": "object", "additionalProperties": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/u64"}}},
-        "recent": {"type": "array"}
+        "campaign_id": {
+          "type": "string"
+        },
+        "spec_blake3": {
+          "type": "string"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/campaign_phase"
+            }
+          ]
+        },
+        "last_seq": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "nodes": {
+          "type": "object"
+        },
+        "items": {
+          "type": "object"
+        },
+        "jobs": {
+          "type": "object"
+        },
+        "pending_ops": {
+          "type": "object"
+        },
+        "done_ops": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "costs_ms": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          }
+        },
+        "recent": {
+          "type": "array"
+        },
+        "provenance": {
+          "type": "object"
+        },
+        "controls": {
+          "type": "object"
+        }
       }
     }
   }

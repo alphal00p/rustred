@@ -1,0 +1,38 @@
+{
+  "campaign_id": "test-campaign",
+  "count": 2,
+  "file": "attention",
+  "items": [
+    {
+      "code": "needs_bigmem",
+      "id": "T162-item-00009",
+      "label": "F009",
+      "node": "T162",
+      "options": [
+        "rr_campaign retry T162-item-00009 --reason TEXT",
+        "rr_campaign skip T162-item-00009 --reason TEXT",
+        "rr_campaign why T162-item-00009"
+      ],
+      "rung": "L0",
+      "severity": "decision",
+      "since_seq": 89,
+      "text": "the L2 run needs more memory than the policy allows"
+    },
+    {
+      "code": "control_pending",
+      "id": "c-0002",
+      "options": [],
+      "severity": "warning",
+      "since_seq": 94,
+      "text": "control Retry of Item { item: \"T162-item-00009\" } by operator (tty) not applied yet (BIGMEM authorised)"
+    }
+  ],
+  "ledger": {
+    "head": "d59131f73374aad6f2bb9e65c008f6bec70d79d95b55b0ba0c404ec57c6ccc0e",
+    "last_utc": "2026-11-13T23:00:25.250Z",
+    "seq": 102
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

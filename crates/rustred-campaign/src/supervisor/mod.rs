@@ -23,19 +23,22 @@ use crate::launch::{
     ChildHandle, ChildLauncher, ChildProgress, ExitState, FinalReport, KillReason, LaunchError,
     RealChild, RealLauncher,
 };
-use crate::ledger::{Event, FileRef, JobEvent, Ledger, LedgerConfig, LedgerError};
+use crate::ledger::{
+    CampaignMode, ControlEvent, ControlTarget, ControlVerb, Event, FileOps, FileRef, Genesis,
+    JobEvent, Ledger, LedgerConfig, LedgerError, OpenOptions, OutcomeBinding, RealOps,
+};
 use crate::lock::{self, CampaignLock, LockOutcome};
-use crate::progress::{ProgressWriter, Resources as ProgressResources};
+use crate::progress::{LiveJob, ProgressWriter, Resources as ProgressResources, SupervisorInfo};
 use crate::resources::{Sampler, SamplerConfig, host_memory};
 use crate::signals::{StopHandle, StopLevel, StopSignals};
 use crate::state::{
-    AttemptState, AttemptTarget, CampaignPhase, CampaignState, FinishClass, class_target,
-    class_word,
+    AttemptState, AttemptTarget, CampaignPhase, CampaignState, ContractAccept, FinishClass,
+    class_target, class_word, contract_accepts,
 };
 use failpoint::Failpoints;
 use orphans::ScanRules;
 use rustred_campaign_contract::canon::{CanonicalDigest, canonical_line};
-use rustred_campaign_contract::classify::{self, KillReason as CKill, WaitStatus};
+use rustred_campaign_contract::classify::{self, KillReason as CKill, OutcomeState, WaitStatus};
 use rustred_campaign_contract::events::{Event as ChildEvent, EventsTail, TailItem};
 use rustred_campaign_contract::layout::{RunLayout, attempt_dir};
 use rustred_campaign_contract::resume::ResumeRef;
@@ -73,6 +76,10 @@ pub mod exit {
     pub const CONTROL_STOP: i32 = 140;
     pub const SIGTERM: i32 = 143;
 }
+
+/// The longest interval between two progress writes of a live supervisor (heartbeat.json; the requirement is at
+/// least every 10 s).
+pub const HEARTBEAT_EVERY: Duration = Duration::from_secs(5);
 
 /// How a `run` ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,11 +128,17 @@ pub struct RunOptions {
     pub argv: Vec<String>,
     /// Tick of the control loop.
     pub tick: Duration,
+    /// Operator override of a corrupt active ledger segment (`--accept-truncation-to SEQ`, ledger interface 8).
+    pub accept_truncation_to: Option<u64>,
+    /// Set while a dashboard owns the terminal: log lines go to `CDIR/log/supervisor.log` only (not stderr).
+    pub quiet_stderr: Option<Arc<AtomicBool>>,
 }
 
 /// Plain log: `<utc> <LEVEL> <text>` on stderr and in CDIR/log/supervisor.log.
 pub struct Log {
     file: Option<std::fs::File>,
+    /// When set (a dashboard owns the terminal), lines go to the file only.
+    quiet: Option<Arc<AtomicBool>>,
 }
 
 impl Log {
@@ -137,11 +150,22 @@ impl Log {
             .append(true)
             .open(dir.join("supervisor.log"))
             .ok();
-        Log { file }
+        Log { file, quiet: None }
+    }
+    /// Log lines go to the file only while `flag` is set.
+    pub fn with_quiet(mut self, flag: Option<Arc<AtomicBool>>) -> Log {
+        self.quiet = flag;
+        self
     }
     pub fn line(&mut self, level: &str, text: &str) {
         let l = format!("{} {level} {text}\n", crate::cpu_policy::utc_now());
-        let _ = std::io::stderr().write_all(l.as_bytes());
+        if !self
+            .quiet
+            .as_ref()
+            .is_some_and(|q| q.load(Ordering::SeqCst))
+        {
+            let _ = std::io::stderr().write_all(l.as_bytes());
+        }
         if let Some(f) = &mut self.file
             && f.write_all(l.as_bytes()).is_err()
         {
@@ -197,6 +221,12 @@ struct Child {
     hb_timeout: Duration,
     seq: u64,
     stopping: bool,
+    /// The child's latest progress phase word (from its `phase` / `heartbeat` events).
+    phase: Option<String>,
+    /// UTC of the child's latest event (its heartbeat for the progress files).
+    last_event_utc: Option<String>,
+    /// Wall budget of the job (`budgets.wall.job_s`), seconds.
+    budget_s: Option<u64>,
 }
 
 /// What blocks launching now (for logs and the next progress write).
@@ -237,6 +267,9 @@ pub struct Supervisor {
     last_wait_log: String,
     boot_id: String,
     started_at: Instant,
+    started_utc: String,
+    /// When the first stop request arrived (grace countdown in the heartbeat file).
+    drain_started: Option<Instant>,
 }
 
 fn statvfs_avail(p: &Path) -> Option<u64> {
@@ -281,12 +314,31 @@ fn map_wait(e: Option<ExitState>) -> WaitStatus {
     }
 }
 
+/// What a host (the CLI's dashboard) gets once the supervisor holds the lock and its signal handlers: the stop
+/// handle (a Ctrl-C key in raw mode calls `request_stop()` on it: first = drain, second = force, like the signals)
+/// and the drain grace.
+#[derive(Clone, Debug)]
+pub struct Started {
+    pub handle: StopHandle,
+    pub grace_s: u64,
+}
+
 /// Start or resume a campaign (the SAME command).
 pub fn run(opts: RunOptions) -> RunExit {
-    let mut log = Log::open(&opts.cdir);
+    run_with(opts, &mut |_| {})
+}
+
+/// [`run`] with a hook called once the supervisor has started (before recovery and scheduling). The hook must not
+/// block: the control loop runs on this thread; a dashboard runs on its own thread and only reads progress files.
+pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunExit {
+    let mut log = Log::open(&opts.cdir).with_quiet(opts.quiet_stderr.clone());
     match Supervisor::start(opts, &mut log) {
         Ok(mut s) => {
             s.log = log;
+            on_started(&Started {
+                handle: s.signals.handle.clone(),
+                grace_s: s.opts.spec.resources.grace_seconds,
+            });
             let r = s.main_loop();
             s.finish_run(&r);
             r
@@ -319,47 +371,60 @@ impl Supervisor {
         let fp = Failpoints::from_env();
         let cfg = LedgerConfig::default();
         let manifest = crate::ledger::ledger_dir(&cdir).join(crate::ledger::MANIFEST_FILE);
+        let ops: Arc<dyn FileOps> = fp.ledger_ops().unwrap_or_else(|| Arc::new(RealOps));
+        // Every write handle is opened with the HELD campaign lock (ledger interface 4, audit-ledger-A M6).
         let mut ledger = if manifest.exists() {
-            let (l, rep) = match fp.ledger_opener() {
-                Some(o) => Ledger::open_with(&cdir, Arc::clone(&clock), cfg, o),
-                None => Ledger::open(&cdir, Arc::clone(&clock), cfg),
-            }
+            let (l, rep) = Ledger::open_with(
+                &cdir,
+                &lock,
+                Arc::clone(&clock),
+                cfg,
+                ops,
+                OpenOptions {
+                    accept_truncation_to: opts.accept_truncation_to,
+                },
+            )
             .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
             if let Some(r) = rep.recovery {
                 log.line(
                     "WARN",
                     &format!(
-                        "ledger torn tail repaired: {} bytes after seq {}",
-                        r.truncated_bytes, r.last_good_seq
+                        "ledger {} repaired: {} bytes after seq {} saved as {}",
+                        if r.forced {
+                            "tail (operator override)"
+                        } else {
+                            "torn tail"
+                        },
+                        r.truncated_bytes,
+                        r.last_good_seq,
+                        r.saved_as.as_deref().unwrap_or("-")
                     ),
                 );
             }
             l
         } else {
-            let r = match fp.ledger_opener() {
-                Some(o) => Ledger::create_with(
-                    &cdir,
-                    Arc::clone(&clock),
-                    cfg,
-                    o,
-                    &opts.spec.campaign,
-                    &opts.spec_blake3,
-                    100,
-                ),
-                None => Ledger::create(
-                    &cdir,
-                    Arc::clone(&clock),
-                    cfg,
-                    &opts.spec.campaign,
-                    &opts.spec_blake3,
-                    100,
-                ),
+            let mode = match opts.spec.mode.as_str() {
+                "optimise" => CampaignMode::Optimise,
+                _ => CampaignMode::Close,
             };
-            r.map_err(|e| match e {
-                LedgerError::NoSpace { .. } => RunExit::DiskFull,
-                e => RunExit::Refused(format!("ledger: {e}")),
-            })?
+            let genesis = Genesis {
+                mode,
+                ..Genesis::new(
+                    &opts.spec.campaign,
+                    &opts.spec_blake3,
+                    opts.spec.terminal_bound,
+                )
+            };
+            Ledger::create_with(&cdir, &lock, Arc::clone(&clock), cfg, ops, genesis).map_err(
+                |e| match e {
+                    LedgerError::NoSpace { .. } => RunExit::DiskFull,
+                    e => RunExit::Refused(format!("ledger: {e}")),
+                },
+            )?
         };
+        for w in ledger.warnings() {
+            log.line("WARN", &format!("ledger: {w}"));
+        }
         let st = ledger.state();
         if st.spec_blake3 != opts.spec_blake3 || st.campaign_id != opts.spec.campaign {
             return Err(RunExit::Refused(format!(
@@ -435,7 +500,10 @@ impl Supervisor {
                 moved = true;
             }
         }
-        if !crate::launch::pidfd_supported() && !opts.spec.resources.allow_no_pidfd {
+        // A transient probe failure (EMFILE ...) is not "unsupported" (gate re-audit m-2/m-3): only a permanent answer refuses.
+        if crate::launch::pidfd_probe() == crate::launch::PidfdProbe::Unsupported
+            && !opts.spec.resources.allow_no_pidfd
+        {
             return Err(RunExit::Refused(
                 "this kernel offers no pidfd (verified signals impossible); refused unless resources.allow_no_pidfd".into(),
             ));
@@ -526,6 +594,7 @@ impl Supervisor {
             campaign_key: key,
         };
         let boot_id = crate::resources::boot_id().unwrap_or_default();
+        let started_utc = clock.now_utc().to_iso();
         Ok(Supervisor {
             cdir,
             work_root,
@@ -545,7 +614,10 @@ impl Supervisor {
             progress: ProgressWriter::new(),
             last_progress: None,
             fp,
-            log: Log { file: None },
+            log: Log {
+                file: None,
+                quiet: None,
+            },
             bypassed: BTreeMap::new(),
             launch_seq: 0,
             ledger_dead: None,
@@ -556,6 +628,8 @@ impl Supervisor {
             last_wait_log: String::new(),
             boot_id,
             started_at: Instant::now(),
+            started_utc,
+            drain_started: None,
             opts,
         })
     }
@@ -593,9 +667,39 @@ impl Supervisor {
         }
     }
 
+    /// Like [`Self::commit`], but a record the reducer REFUSES (state unchanged, nothing written) is returned as
+    /// `Err(why)` instead of stopping the supervisor: for operator controls, whose legality is the ledger's.
+    fn commit_or_refused(&mut self, events: Vec<Event>) -> Result<bool, String> {
+        if self.ledger_dead.is_some() {
+            return Ok(false);
+        }
+        match self.ledger.append_all(events.clone()) {
+            Ok(_) => Ok(true),
+            Err(LedgerError::Refused(e)) => Err(e.to_string()),
+            Err(_) => Ok(self.commit(events)),
+        }
+    }
+
     fn note(&mut self, text: String) {
         self.log.line("INFO", &text);
         self.commit(vec![Event::Note { text }]);
+    }
+
+    /// An `orphan_killed` record (ledger kind; `marker` = the attempt label `<job>:a<n>`, its job recorded).
+    fn orphan_killed(&mut self, marker: &str, pid: u32, start_ticks: u64, by: &str) {
+        let job = marker
+            .rsplit_once(":a")
+            .map(|(j, _)| j.to_string())
+            .filter(|j| self.st().jobs.contains_key(j));
+        self.log.line(
+            "WARN",
+            &format!("orphan killed: pid {pid} (start {start_ticks}) of {marker} by {by}"),
+        );
+        self.commit(vec![Event::OrphanKilled {
+            job,
+            pid,
+            start_ticks,
+        }]);
     }
 
     fn rel_path(&self, p: &Path) -> String {
@@ -665,10 +769,7 @@ impl Supervisor {
             self.log.line("INFO", &l);
         }
         for k in &killed {
-            self.note(format!(
-                "orphan_killed {{\"marker\":\"{}\",\"pid\":{},\"start_ticks\":{}}}",
-                k.attempt_id, k.pid, k.start_ticks
-            ));
+            self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "recovery scan");
         }
         let left = if scan_allowed {
             rules.scan(None)
@@ -717,7 +818,12 @@ impl Supervisor {
                 continue;
             };
             let layout = RunLayout::new(&run_dir);
-            match read_spec(&layout) {
+            let launched = self
+                .st()
+                .jobs
+                .get(&job)
+                .and_then(|j| j.attempt_spec.clone());
+            match read_spec(&layout, launched.as_deref()) {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
                     self.settle(
@@ -738,7 +844,8 @@ impl Supervisor {
                             job: job.clone(),
                             attempt,
                             ev: JobEvent::Lose {
-                                reason: "run directory without job.json at recovery".into(),
+                                reason: "run directory without a job.json matching its launch record at recovery"
+                                    .into(),
                             },
                         },
                         Event::Job {
@@ -832,25 +939,17 @@ impl Supervisor {
         killed_at_recovery: bool,
         report: Option<&FinalReport>,
     ) {
+        // The supervisor's own kill reason K is an input of the decision table: a child stopped for time, silence or
+        // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
         let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
-        let mut c = classify::classify(&ev);
-        // A child the SUPERVISOR stopped for time / silence / memory may still write a valid "interrupted" OUTCOME on
-        // its way out (row 11 precedes rows 18-19): the supervisor's own kill reason decides then, otherwise such a job
-        // would be requeued at the same rung forever. Only a campaign stop (K = stop) means "interrupted".
-        if c.kind == FinishClass::Interrupted {
-            match kill {
-                CKill::Time | CKill::Unresponsive => {
-                    c.kind = FinishClass::KilledTime;
-                    c.time_decided = true;
-                    c.why = format!("{} (supervisor kill: {kill:?})", c.why);
-                }
-                CKill::Memory => {
-                    c.kind = FinishClass::KilledMemory;
-                    c.why = format!("{} (supervisor kill: memory cap)", c.why);
-                }
-                _ => {}
-            }
-        }
+        let c = classify::classify(&ev);
+        // The OUTCOME binding the ledger checks before any record may come from this attempt: (job, attempt, the
+        // digest of the job.json this attempt was launched with), present when the contract found OUTCOME valid.
+        let binding = matches!(ev.outcome, OutcomeState::Valid(_)).then(|| OutcomeBinding {
+            job: job.to_string(),
+            attempt,
+            spec_blake3: spec_digest.to_string(),
+        });
         let target = class_target(c.kind);
         let Some(jr) = self.st().jobs.get(job).cloned() else {
             return;
@@ -883,9 +982,11 @@ impl Supervisor {
                     job,
                     attempt,
                     c.kind,
+                    ContractAccept::Nothing,
                     &ev,
                     None,
                     outcome_ref,
+                    binding.clone(),
                     cpu_ms,
                     wall_ms,
                     peak,
@@ -913,7 +1014,11 @@ impl Supervisor {
         let mut table = None;
         let mut lines = Vec::new();
         let mut canon = None;
-        if target == AttemptTarget::SucceededSealed && spec.kind.produces_table() {
+        // A sealed table is read for every attempt whose row may accept records (sealed successes, and the committed
+        // rules of a sealed partial table: spill row 8, no_rule row 4).
+        let wants_table =
+            target == AttemptTarget::SucceededSealed || c.accept != ContractAccept::Nothing;
+        if wants_table && spec.kind.produces_table() {
             let p = layout.table();
             table = file_ref(&p, self.rel_path(&p));
             if let Ok(text) = std::fs::read(&p) {
@@ -934,9 +1039,7 @@ impl Supervisor {
                 );
             }
         }
-        let sealed_ok = target != AttemptTarget::SucceededSealed
-            || !spec.kind.produces_table()
-            || table.is_some();
+        let sealed_ok = !wants_table || !spec.kind.produces_table() || table.is_some();
         let settled = Settled {
             job: job.into(),
             attempt,
@@ -981,17 +1084,28 @@ impl Supervisor {
         } else {
             FinishClass::Crashed
         };
+        // The contract row's accept column (the ledger refuses a value the row of `class` does not allow).
+        let accept = if contract_accepts(class).contains(&c.accept) {
+            c.accept
+        } else {
+            ContractAccept::Nothing
+        };
+        let sealed = if class_target(class) == AttemptTarget::SucceededSealed
+            || accept != ContractAccept::Nothing
+        {
+            table
+        } else {
+            None
+        };
         events.push(finished_event(
             job,
             attempt,
             class,
+            accept,
             &ev,
-            if class_target(class) == AttemptTarget::SucceededSealed {
-                table
-            } else {
-                None
-            },
+            sealed,
             outcome_ref,
+            binding,
             cpu_ms,
             wall_ms,
             peak,
@@ -1039,7 +1153,11 @@ impl Supervisor {
                 .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
         }
         let resume = if attempt > 1 {
-            resume_from(&attempt_dir(&self.work_root.clone(), &req.job, attempt - 1))
+            let prev_spec = existing.as_ref().and_then(|j| j.prev_attempt_spec.clone());
+            resume_from(
+                &attempt_dir(&self.work_root.clone(), &req.job, attempt - 1),
+                prev_spec.as_deref(),
+            )
         } else {
             None
         };
@@ -1074,6 +1192,15 @@ impl Supervisor {
         ls.memory_cap_bytes = Some(req.cap_bytes);
         let mut events = Vec::new();
         if existing.is_none() {
+            // Input identity (ledger 5.5): beyond its binary and the item's / node's inputs (the reducer adds those),
+            // the job depends on what its request names (tables, seed policy, ...) and, conservatively, on every
+            // campaign-level input of the spec: a new digest of any of them makes the job stale.
+            let mut inputs: Vec<String> = req.depends_on.clone();
+            for i in &self.opts.spec.inputs {
+                if !inputs.contains(&i.id) {
+                    inputs.push(i.id.clone());
+                }
+            }
             events.push(Event::JobQueued {
                 job: req.job.clone(),
                 item: req.item.clone(),
@@ -1087,6 +1214,7 @@ impl Supervisor {
                     .cloned()
                     .unwrap_or_else(|| format!("bin:{}", req.program)),
                 reserved_bytes: req.cap_bytes,
+                inputs,
             });
             events.push(Event::Item {
                 item: req.item.clone(),
@@ -1102,6 +1230,9 @@ impl Supervisor {
                 run_dir: run_dir.to_string_lossy().into_owned(),
                 cpus: lease.cpus().iter().map(|&c| c as u32).collect(),
                 reserved_bytes: req.cap_bytes,
+                // The digest of job.json as written: the ONE record of it (no side file); OUTCOME / RESUME and the
+                // `job.finished` binding are checked against it.
+                spec_blake3: spec_digest.clone(),
             },
         });
         if !self.commit(events) {
@@ -1117,10 +1248,12 @@ impl Supervisor {
                     attempt,
                     ev: JobEvent::Finished {
                         class: FinishClass::SetupError,
+                        accept: ContractAccept::Nothing,
                         exit_code: None,
                         signal: None,
                         sealed_output: None,
                         outcome: None,
+                        binding: None,
                         cpu_ms: 0,
                         wall_ms: 0,
                         peak_rss_bytes: 0,
@@ -1151,6 +1284,7 @@ impl Supervisor {
         }]);
         self.launch_seq += 1;
         let hb = self.opts.spec.heartbeat_timeout(spec.heartbeat_s);
+        let budget_s = spec.budgets.wall.job_s;
         self.children.push(Child {
             job: req.job.clone(),
             attempt,
@@ -1170,6 +1304,9 @@ impl Supervisor {
             hb_timeout: hb,
             seq: self.launch_seq,
             stopping: false,
+            phase: None,
+            last_event_utc: None,
+            budget_s,
         });
         Ok(())
     }
@@ -1187,13 +1324,21 @@ impl Supervisor {
         let mut finished = Vec::new();
         let stopping_grace = Duration::from_secs(self.opts.spec.resources.grace_seconds + 5);
         let start_timeout = Duration::from_secs(self.opts.spec.resources.start_timeout_s);
+        let now_iso = self.clock.now_utc().to_iso();
         for (idx, ch) in self.children.iter_mut().enumerate() {
             if let Ok(items) = ch.tail.poll(&ch.layout.events()) {
                 for it in items {
                     if let TailItem::Event(e) = it {
                         ch.last_event = Instant::now();
-                        if matches!(e.event, ChildEvent::JobStarted { .. }) {
-                            ch.started_seen = true;
+                        ch.last_event_utc = Some(now_iso.clone());
+                        match &e.event {
+                            ChildEvent::JobStarted { .. } => ch.started_seen = true,
+                            ChildEvent::Phase { phase } | ChildEvent::Heartbeat { phase, .. } => {
+                                ch.phase = serde_json::to_value(phase)
+                                    .ok()
+                                    .and_then(|v| v.as_str().map(str::to_string));
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -1236,34 +1381,78 @@ impl Supervisor {
             // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             let marker = format!("{}:a{}", ch.job, ch.attempt);
             for l in &report.leftovers_killed {
-                self.note(format!(
-                    "orphan_killed {{\"marker\":\"{marker}\",\"pid\":{},\"start_ticks\":{},\"comm\":{:?},\"by\":\"launcher\"}} (contract violation: process outlived its job)",
-                    l.pid, l.start_ticks, l.comm
-                ));
+                self.orphan_killed(
+                    &marker,
+                    l.pid,
+                    l.start_ticks,
+                    &format!(
+                        "launcher ({}): contract violation, process outlived its job",
+                        l.comm
+                    ),
+                );
             }
             // Anything still carrying the attempt's marker (e.g. a helper that escaped the group before any scan).
             let rules = self.scan_rules_launched();
             let killed = orphans::sweep(&rules, Some(&marker), Duration::from_secs(10), |_, _| {});
             for k in killed {
-                self.note(format!(
-                    "orphan_killed {{\"marker\":\"{marker}\",\"pid\":{},\"start_ticks\":{}}} (contract violation: process outlived its job)",
-                    k.pid, k.start_ticks
-                ));
-            }
-            if !report.session_verified_empty {
-                self.log.line(
-                    "WARN",
-                    &format!(
-                        "{}: session not verified empty ({} escaped)",
-                        ch.job,
-                        report.escaped.len()
-                    ),
+                self.orphan_killed(
+                    &marker,
+                    k.pid,
+                    k.start_ticks,
+                    "marker sweep: contract violation, process outlived its job",
                 );
             }
-            if let Some(l) = ch.lease {
-                let _ = l.release();
+            if let crate::launch::Verification::Unverified { leftovers, reason } =
+                &report.verification
+            {
+                // Process layer (procfix2, RB-C1 d): an unproven end is a ledger record; the job and its CPU lease stay
+                // in the launcher's quarantine (below) until a later hunt proves it gone.
+                self.note(format!(
+                    "unverified_end {{\"marker\":\"{marker}\",\"left\":{},\"reason\":{:?}}} (lease kept, hunting continues)",
+                    leftovers.len(),
+                    reason
+                ));
+            }
+            for u in &report.unattributed_children {
+                self.note(format!(
+                    "unattributed_child {{\"pid\":{},\"start_ticks\":{},\"session\":{},\"comm\":{:?}}} (re-parented to the supervisor, no marker: not signalled)",
+                    u.pid, u.start_ticks, u.session, u.comm
+                ));
+            }
+            if let Some(crate::launch::RetireEvent::Cleared {
+                lease_note: Some(n),
+                ..
+            }) = self.launcher.retire(ch.handle, ch.lease)
+            {
+                self.note(format!("lease {marker}: {n}"));
             }
             let _ = &ch.item;
+        }
+    }
+
+    /// The launcher's quarantine (procfix2): ledger notes for jobs proven gone later (their leases are released then).
+    fn tick_quarantine(&mut self) {
+        for ev in self.launcher.tick() {
+            match ev {
+                crate::launch::RetireEvent::Cleared {
+                    label,
+                    lease_note,
+                    after,
+                    ..
+                } => self.note(format!(
+                    "unverified_end_cleared {{\"marker\":\"{label}\",\"after_s\":{}}}{}",
+                    after.as_secs(),
+                    lease_note.map(|n| format!(" ({n})")).unwrap_or_default()
+                )),
+                crate::launch::RetireEvent::StillUnverified {
+                    label,
+                    reason,
+                    left,
+                } => self.log.line(
+                    "WARN",
+                    &format!("{label}: end still unproven ({left} left): {reason}"),
+                ),
+            }
         }
     }
 
@@ -1273,6 +1462,10 @@ impl Supervisor {
         r
     }
 
+    /// Operator control requests (`CDIR/control/*.json`, written by `rr_campaign control`): each becomes a ledger
+    /// `control {requested}` record followed by `applied {effect}` or `refused {why}` (ledger 5.7). The ledger decides
+    /// legality (a retry / skip the item machine does not allow is refused). A request the ledger cannot even
+    /// represent (unparsable file, unknown verb, unknown target) is recorded as a `note` starting `control_refused`.
     fn apply_controls(&mut self) {
         let dir = self.cdir.join("control");
         let Ok(rd) = std::fs::read_dir(&dir) else {
@@ -1291,58 +1484,132 @@ impl Supervisor {
             let req: Option<ControlRequest> = std::fs::read(&p)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
-            let text = match req {
-                None => format!(
-                    "control_refused {{\"file\":{:?},\"reason\":\"unparsable\"}}",
-                    name
-                ),
-                Some(r) => {
-                    let res: Result<(), String> = match r.verb.as_str() {
-                        "pause" => {
-                            std::fs::write(dir.join("PAUSED"), &r.id).map_err(|e| e.to_string())
+            match req.as_ref().map(|r| (r, self.control_record(r))) {
+                None => self.note(format!(
+                    "control_refused {{\"file\":{name:?},\"reason\":\"unparsable\"}}"
+                )),
+                Some((r, Err(why))) => self.note(format!(
+                    "control_refused {{\"id\":{:?},\"verb\":{:?},\"target\":{:?},\"reason\":{why:?}}}",
+                    r.id, r.verb, r.target
+                )),
+                Some((r, Ok((verb, target)))) => self.apply_control(r, verb, target),
+            }
+            if self.ledger_dead.is_some() {
+                return;
+            }
+            let _ = std::fs::rename(&p, done.join(&name));
+        }
+    }
+
+    /// The ledger form of a request, or why it has none.
+    fn control_record(&self, r: &ControlRequest) -> Result<(ControlVerb, ControlTarget), String> {
+        if r.id.is_empty() || r.id.len() > 128 {
+            return Err("bad id".into());
+        }
+        let verb = match r.verb.as_str() {
+            "pause" => ControlVerb::Pause,
+            "resume" => ControlVerb::Resume,
+            "stop" => ControlVerb::Stop,
+            "retry" => ControlVerb::Retry,
+            "skip" => ControlVerb::Skip,
+            v => return Err(format!("unknown verb {v}")),
+        };
+        let st = self.st();
+        let target = match (verb, r.target.as_deref()) {
+            (ControlVerb::Pause | ControlVerb::Resume | ControlVerb::Stop, None) => {
+                ControlTarget::Campaign
+            }
+            (ControlVerb::Pause | ControlVerb::Resume, Some(t)) if st.nodes.contains_key(t) => {
+                ControlTarget::Node { node: t.into() }
+            }
+            (_, Some(t)) if verb != ControlVerb::Stop && st.items.contains_key(t) => {
+                ControlTarget::Item { item: t.into() }
+            }
+            (ControlVerb::Retry | ControlVerb::Skip, None) => {
+                return Err(format!("{} needs an item", r.verb));
+            }
+            (_, Some(t)) => return Err(format!("unknown target {t}")),
+        };
+        if let Some(c) = st.controls.get(&r.id)
+            && c.status != "requested"
+        {
+            return Err(format!("control id {} already {}", r.id, c.status));
+        }
+        Ok((verb, target))
+    }
+
+    fn apply_control(&mut self, r: &ControlRequest, verb: ControlVerb, target: ControlTarget) {
+        let id = r.id.clone();
+        let requested = Event::Control {
+            id: id.clone(),
+            ev: ControlEvent::Requested {
+                verb,
+                target: target.clone(),
+                by: if r.by.is_empty() {
+                    "operator".into()
+                } else {
+                    r.by.clone()
+                },
+                reason: r.reason.clone().unwrap_or_default(),
+            },
+        };
+        match self.commit_or_refused(vec![requested]) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(why) => {
+                self.note(format!(
+                    "control_refused {{\"id\":{id:?},\"verb\":{:?},\"reason\":{why:?}}}",
+                    r.verb
+                ));
+                return;
+            }
+        }
+        let what = match &target {
+            ControlTarget::Campaign => "campaign".to_string(),
+            ControlTarget::Node { node } => format!("node {node}"),
+            ControlTarget::Item { item } => format!("item {item}"),
+        };
+        let effect = match verb {
+            ControlVerb::Pause => format!("{what} paused: no new launch (running jobs continue)"),
+            ControlVerb::Resume => format!("{what} resumed"),
+            ControlVerb::Stop => "stop requested: draining".to_string(),
+            ControlVerb::Retry => format!("{what} reopened by the operator (not a failure)"),
+            ControlVerb::Skip => format!("{what} skipped by the operator"),
+        };
+        let applied = Event::Control {
+            id: id.clone(),
+            ev: ControlEvent::Applied {
+                effect: effect.clone(),
+            },
+        };
+        match self.commit_or_refused(vec![applied]) {
+            Ok(true) => {
+                self.log.line("INFO", &format!("control {id}: {effect}"));
+                if verb == ControlVerb::Stop && self.signals.handle.level() == StopLevel::Running {
+                    self.control_stop = true;
+                    self.signals.handle.request_stop();
+                }
+                if matches!(verb, ControlVerb::Retry | ControlVerb::Skip)
+                    && let ControlTarget::Item { item } = &target
+                {
+                    // The work source's follow-up (none for the synthetic source).
+                    match self.source.control(self.ledger.state(), &r.verb, item) {
+                        Ok(ev) => {
+                            self.commit(ev);
                         }
-                        "resume" => match std::fs::remove_file(dir.join("PAUSED")) {
-                            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                                Err(e.to_string())
-                            }
-                            _ => Ok(()),
-                        },
-                        "stop" => {
-                            if self.signals.handle.level() == StopLevel::Running {
-                                self.control_stop = true;
-                                self.signals.handle.request_stop();
-                            }
-                            Ok(())
-                        }
-                        "retry" | "skip" => {
-                            let target = r.target.clone().unwrap_or_default();
-                            match self.source.control(self.ledger.state(), &r.verb, &target) {
-                                Ok(ev) => {
-                                    if self.commit(ev) {
-                                        Ok(())
-                                    } else {
-                                        Err("ledger refused".into())
-                                    }
-                                }
-                                Err(e) => Err(e),
-                            }
-                        }
-                        v => Err(format!("unknown verb {v}")),
-                    };
-                    match res {
-                        Ok(()) => format!(
-                            "control_applied {{\"id\":{:?},\"verb\":{:?},\"target\":{:?},\"by\":{:?}}}",
-                            r.id, r.verb, r.target, r.by
-                        ),
-                        Err(e) => format!(
-                            "control_refused {{\"id\":{:?},\"verb\":{:?},\"reason\":{:?}}}",
-                            r.id, r.verb, e
-                        ),
+                        Err(e) => self.log.line("WARN", &format!("control {id}: {e}")),
                     }
                 }
-            };
-            self.note(text);
-            let _ = std::fs::rename(&p, done.join(&name));
+            }
+            Ok(false) => {}
+            Err(why) => {
+                self.log
+                    .line("INFO", &format!("control {id} refused: {why}"));
+                self.commit(vec![Event::Control {
+                    id,
+                    ev: ControlEvent::Refused { why },
+                }]);
+            }
         }
     }
 
@@ -1383,6 +1650,11 @@ impl Supervisor {
         if self.ledger_dead.is_some() {
             b.reasons.push("ledger unavailable".into());
         }
+        if self.st().paused {
+            b.reasons.push(
+                "campaign paused by an operator control (rr_campaign control CDIR resume)".into(),
+            );
+        }
         let joined = b.reasons.join("; ");
         if joined != self.last_block_log {
             if !joined.is_empty() {
@@ -1403,11 +1675,18 @@ impl Supervisor {
         }
         let limit = (max_jobs - self.children.len()) * 4 + 8;
         let running_ids: Vec<String> = self.children.iter().map(|c| c.job.clone()).collect();
+        let st = self.ledger.state();
+        // Paused nodes / items (operator controls) get no launch (the ledger would refuse it).
+        let paused = |item: &str| {
+            st.items
+                .get(item)
+                .is_some_and(|it| it.paused || st.nodes.get(&it.node).is_some_and(|n| n.paused))
+        };
         let reqs: Vec<JobRequest> = self
             .source
-            .ready(self.ledger.state(), &self.ctx, limit)
+            .ready(st, &self.ctx, limit)
             .into_iter()
-            .filter(|r| !running_ids.contains(&r.job))
+            .filter(|r| !running_ids.contains(&r.job) && !paused(&r.item))
             .collect();
         if reqs.is_empty() {
             return;
@@ -1506,36 +1785,25 @@ impl Supervisor {
         }
     }
 
+    /// Writes the progress files: on every ledger change (at most every `progress.cadence_seconds`), at the cadence
+    /// while jobs run (live samples), and at least every [`HEARTBEAT_EVERY`] even when nothing changed, so that
+    /// `heartbeat.json` of an idle live supervisor never looks stale (ledger interface 9: at least every 10 s).
     fn write_progress(&mut self, force: bool) {
         let seq = self.ledger.seq();
+        let cadence = Duration::from_secs(self.opts.spec.progress.cadence_seconds);
         let due = match self.last_progress {
             None => true,
             Some((t, s)) => {
+                let e = t.elapsed();
                 force
-                    || (s != seq
-                        && t.elapsed()
-                            >= Duration::from_secs(self.opts.spec.progress.cadence_seconds))
+                    || e >= HEARTBEAT_EVERY
+                    || (e >= cadence && (s != seq || !self.children.is_empty()))
             }
         };
         if !due {
             return;
         }
-        let mem = host_memory().ok();
-        let res = ProgressResources {
-            cpus_in_use: self.policy.in_use() as u32,
-            cpus_allowed: self.policy.budget() as u32,
-            live_jobs: self.children.len() as u32,
-            reserved_bytes: self.children.iter().map(|c| c.cap).sum(),
-            measured_rss_bytes: self
-                .children
-                .iter()
-                .map(|c| c.handle.usage().map_or(0, |u| u.rss_bytes))
-                .sum(),
-            mem_cap_bytes: self.admission.campaign_mem_cap_bytes.unwrap_or(0),
-            host_mem_available_bytes: mem.map_or(0, |m| m.effective_available()),
-            host_floor_bytes: self.admission.floor_bytes,
-            sampled_utc: Some(self.clock.now_utc().to_iso()),
-        };
+        let res = self.resources();
         self.fp.hit("progress_write");
         match self.progress.write(
             &self.cdir,
@@ -1546,6 +1814,78 @@ impl Supervisor {
         ) {
             Ok(_) => self.last_progress = Some((Instant::now(), seq)),
             Err(e) => self.log.line("WARN", &format!("progress files: {e}")),
+        }
+    }
+
+    /// The resource inputs of the progress files (ledger interface 9): measured values or `None` (never a 0 that
+    /// means "not measured"); no sample ever goes into the ledger.
+    fn resources(&self) -> ProgressResources {
+        let mem = host_memory().ok();
+        let now = self.clock.now_utc();
+        let sampled = self.sampler.latest().is_some();
+        let jobs: Vec<LiveJob> = self
+            .children
+            .iter()
+            .map(|c| {
+                let usage = c.handle.usage();
+                let id = c.handle.identity();
+                LiveJob {
+                    job: c.job.clone(),
+                    attempt: c.attempt,
+                    cpu_set: c
+                        .lease
+                        .as_ref()
+                        .map(|l| l.cpus().iter().map(|&x| x as u32).collect())
+                        .unwrap_or_default(),
+                    rss_bytes: usage.map(|u| u.rss_bytes),
+                    budget_mem_bytes: Some(c.cap),
+                    seconds: Some(c.launched_at.elapsed().as_secs()),
+                    budget_seconds: c.budget_s,
+                    heartbeat_utc: c.last_event_utc.clone(),
+                    pid: Some(id.pid),
+                    // The launcher makes every child the leader of its own process group.
+                    pgid: Some(id.pid),
+                    phase: c.phase.clone(),
+                }
+            })
+            .collect();
+        let rss: Option<u64> = if self.children.is_empty() {
+            sampled.then_some(0)
+        } else {
+            jobs.iter()
+                .map(|j| j.rss_bytes)
+                .try_fold(0u64, |a, x| x.map(|x| a + x))
+        };
+        let grace = self.opts.spec.resources.grace_seconds;
+        let stopping = self.signals.handle.level() > StopLevel::Running;
+        ProgressResources {
+            cpus_in_use: Some(self.policy.in_use() as u32),
+            cpus_allowed: Some(self.policy.budget() as u32),
+            live_jobs: Some(self.children.len() as u32),
+            reserved_bytes: Some(self.children.iter().map(|c| c.cap).sum()),
+            measured_rss_bytes: rss,
+            mem_cap_bytes: self.admission.campaign_mem_cap_bytes,
+            host_mem_available_bytes: mem.map(|m| m.effective_available()),
+            host_floor_bytes: Some(self.admission.floor_bytes),
+            disk_free_bytes: statvfs_avail(&self.cdir),
+            large_free_bytes: statvfs_avail(&self.work_root),
+            budget_cpu_hours: None,
+            sampled_utc: Some(now.to_iso()),
+            supervisor: Some(SupervisorInfo {
+                heartbeat_utc: Some(now.to_iso()),
+                started_utc: Some(self.started_utc.clone()),
+                pid: Some(std::process::id()),
+                host: Some(
+                    self.lock
+                        .as_ref()
+                        .map_or_else(String::new, |l| l.owner.identity.host.clone()),
+                ),
+                grace_left_s: self
+                    .drain_started
+                    .map(|t| grace.saturating_sub(t.elapsed().as_secs())),
+                stopping,
+            }),
+            jobs,
         }
     }
 
@@ -1597,6 +1937,7 @@ impl Supervisor {
             let now_level = self.signals.handle.level();
             if now_level > level {
                 if level == StopLevel::Running {
+                    self.drain_started = Some(Instant::now());
                     self.log.line(
                         "INFO",
                         &format!(
@@ -1642,8 +1983,9 @@ impl Supervisor {
                 self.apply_controls();
                 self.check_disk();
             }
-            // 3. children
+            // 3. children (and the launcher's quarantine of unproven job ends)
             self.poll_children();
+            self.tick_quarantine();
             // ledger dead: no launches; children get the grace, then are killed (their attempts stay unsettled).
             if let Some(e) = self.ledger_dead.clone() {
                 let d = *dead_deadline.get_or_insert_with(|| {
@@ -1657,6 +1999,7 @@ impl Supervisor {
                 if self.children.is_empty() || Instant::now() > d {
                     return e;
                 }
+                self.write_progress(false);
                 std::thread::sleep(self.opts.tick);
                 continue;
             }
@@ -1700,6 +2043,21 @@ impl Supervisor {
     }
 
     fn finish_run(&mut self, r: &RunExit) {
+        for ev in self.launcher.shutdown(Duration::from_secs(10)) {
+            if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
+                self.log
+                    .line("INFO", &format!("{label}: end proven at shutdown"));
+            }
+        }
+        for (label, since, reason) in self.launcher.quarantined() {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "{label}: end still unproven after {}s at exit ({reason}); the restart's orphan scan looks for its marker",
+                    since.as_secs()
+                ),
+            );
+        }
         let _ = self.ledger.sync();
         let msg = match r {
             RunExit::Finished => format!(
@@ -1729,24 +2087,33 @@ pub struct ControlRequest {
     pub verb: String,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";
 
-/// The attempt's spec and the supervisor's OWN record of its digest (`RUN/sup/spec.blake3`, written before the launch
-/// record): the classification binds OUTCOME / RESUME to that digest, never to a re-read of job.json.
-fn read_spec(layout: &RunLayout) -> Option<(JobSpec, String)> {
+/// The attempt's spec and the digest its LAUNCH RECORD names (`job.launch.spec_blake3`, fsynced before the spawn):
+/// the classification binds OUTCOME / RESUME to that digest, never to a re-read of job.json; a job.json whose bytes
+/// no longer have that digest is refused (None).
+fn read_spec(layout: &RunLayout, launched: Option<&str>) -> Option<(JobSpec, String)> {
+    let d = launched?.to_string();
+    if !rustred_campaign_contract::is_blake3_hex(&d) {
+        return None;
+    }
     let b = std::fs::read(layout.job_spec()).ok()?;
+    if rustred_campaign_contract::spec::spec_blake3(&b) != d {
+        return None;
+    }
     let spec = JobSpec::from_json(&b).ok()?;
-    let d = std::fs::read_to_string(layout.sup_dir().join(adapters::SPEC_DIGEST_FILE)).ok()?;
-    let d = d.trim().to_string();
-    rustred_campaign_contract::is_blake3_hex(&d).then_some((spec, d))
+    Some((spec, d))
 }
 
-/// RESUME of a previous attempt directory, when valid (child-job 3.4.4 item 3).
-fn resume_from(prev: &Path) -> Option<ResumeRef> {
+/// RESUME of a previous attempt directory, when valid (child-job 3.4.4 item 3); `launched` = that attempt's
+/// launch-record digest.
+fn resume_from(prev: &Path, launched: Option<&str>) -> Option<ResumeRef> {
     let layout = RunLayout::new(prev);
-    let (spec, digest) = read_spec(&layout)?;
+    let (spec, digest) = read_spec(&layout, launched)?;
     // The LAST RESUME record of that attempt (contract audit C1), never sizes taken from OUTCOME.
     classify::resume_state(&layout, &spec, &digest)
         .ok()
@@ -1767,9 +2134,11 @@ fn finished_event(
     job: &str,
     attempt: u32,
     class: FinishClass,
+    accept: ContractAccept,
     ev: &classify::Evidence,
     sealed: Option<FileRef>,
     outcome: Option<FileRef>,
+    binding: Option<OutcomeBinding>,
     cpu_ms: u64,
     wall_ms: u64,
     peak: u64,
@@ -1785,10 +2154,12 @@ fn finished_event(
         attempt,
         ev: JobEvent::Finished {
             class,
+            accept,
             exit_code: code,
             signal,
             sealed_output: sealed,
             outcome,
+            binding,
             cpu_ms,
             wall_ms,
             peak_rss_bytes: peak,

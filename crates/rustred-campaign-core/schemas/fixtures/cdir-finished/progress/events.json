@@ -6,190 +6,214 @@
       "kind": "campaign",
       "seq": 12,
       "text": "campaign starting (rr_campaign run)",
-      "utc": "2026-11-14T06:00:02.750Z"
+      "utc": "2026-11-14T06:00:03.000Z"
     },
     {
       "kind": "campaign",
       "seq": 13,
       "text": "campaign running (preflight ok)",
-      "utc": "2026-11-14T06:00:03.000Z"
+      "utc": "2026-11-14T06:00:03.250Z"
     },
     {
       "kind": "node",
       "seq": 14,
       "text": "tri-a: running (open)",
-      "utc": "2026-11-14T06:00:03.250Z"
+      "utc": "2026-11-14T06:00:03.500Z"
     },
     {
       "kind": "job_finished",
       "seq": 20,
-      "text": "tri-a F000 L0: job tri-a-J0 (rule_found)",
-      "utc": "2026-11-14T06:00:04.750Z"
+      "text": "tri-a F000 L0: job tri-a-J0 (rule_found, accept canonical)",
+      "utc": "2026-11-14T06:00:05.000Z"
     },
     {
       "kind": "item_accepted",
       "seq": 24,
       "text": "tri-a F000: rule tri-a:R:campaign:0 accepted (identity_proved)",
-      "utc": "2026-11-14T06:00:05.750Z"
+      "utc": "2026-11-14T06:00:06.000Z"
     },
     {
       "kind": "job_finished",
       "seq": 31,
-      "text": "tri-a F001 L0: job tri-a-J0 (rule_found)",
-      "utc": "2026-11-14T06:00:07.500Z"
+      "text": "tri-a F001 L0: job tri-a-J0 (rule_found, accept canonical)",
+      "utc": "2026-11-14T06:00:07.750Z"
     },
     {
       "kind": "item_accepted",
       "seq": 35,
       "text": "tri-a F001: rule tri-a:R:campaign:1 accepted (identity_proved)",
-      "utc": "2026-11-14T06:00:08.500Z"
+      "utc": "2026-11-14T06:00:08.750Z"
     },
     {
       "kind": "node",
       "seq": 37,
-      "text": "tri-a: closure round 1, defect 0 of 150000 keys",
-      "utc": "2026-11-14T06:00:09.000Z"
-    },
-    {
-      "kind": "node",
-      "seq": 38,
-      "text": "tri-a: closed (full)",
+      "text": "tri-a: table set assembled (round 1)",
       "utc": "2026-11-14T06:00:09.250Z"
     },
     {
       "kind": "node",
-      "seq": 39,
-      "text": "tri-a: certified (full)",
+      "seq": 38,
+      "text": "tri-a: closure round 1, defect 0 of 150000 keys (Proved envelope)",
       "utc": "2026-11-14T06:00:09.500Z"
     },
     {
       "kind": "node",
-      "seq": 40,
-      "text": "kite.b9: running (open)",
+      "seq": 39,
+      "text": "tri-a: closed (full)",
       "utc": "2026-11-14T06:00:09.750Z"
     },
     {
+      "kind": "node",
+      "seq": 40,
+      "text": "tri-a: certified (full)",
+      "utc": "2026-11-14T06:00:10.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 41,
+      "text": "kite.b9: running (open)",
+      "utc": "2026-11-14T06:00:10.250Z"
+    },
+    {
       "kind": "job_finished",
-      "seq": 46,
-      "text": "kite.b9 F000 L0: job kite.b9- (rule_found)",
-      "utc": "2026-11-14T06:00:11.250Z"
+      "seq": 47,
+      "text": "kite.b9 F000 L0: job kite.b9- (rule_found, accept canonical)",
+      "utc": "2026-11-14T06:00:11.750Z"
     },
     {
       "kind": "item_accepted",
-      "seq": 50,
+      "seq": 51,
       "text": "kite.b9 F000: rule kite.b9:R:campaign:0 accepted (identity_proved)",
-      "utc": "2026-11-14T06:00:12.250Z"
+      "utc": "2026-11-14T06:00:12.750Z"
     },
     {
       "kind": "job_finished",
-      "seq": 57,
-      "text": "kite.b9 F001 L1: job kite.b9- (rule_found)",
-      "utc": "2026-11-14T06:00:14.000Z"
+      "seq": 58,
+      "text": "kite.b9 F001 L1: job kite.b9- (rule_found, accept canonical)",
+      "utc": "2026-11-14T06:00:14.500Z"
     },
     {
       "kind": "item_accepted",
-      "seq": 61,
+      "seq": 62,
       "text": "kite.b9 F001: rule kite.b9:R:campaign:1 accepted (identity_tested)",
-      "utc": "2026-11-14T06:00:15.000Z"
+      "utc": "2026-11-14T06:00:15.500Z"
     },
     {
       "kind": "job_finished",
-      "seq": 68,
-      "text": "kite.b9 F002 L0: job kite.b9- (rule_found)",
-      "utc": "2026-11-14T06:00:16.750Z"
+      "seq": 69,
+      "text": "kite.b9 F002 L0: job kite.b9- (rule_found, accept canonical)",
+      "utc": "2026-11-14T06:00:17.250Z"
     },
     {
       "kind": "item_accepted",
-      "seq": 72,
+      "seq": 73,
       "text": "kite.b9 F002: rule kite.b9:R:campaign:2 accepted (geometry_accepted)",
-      "utc": "2026-11-14T06:00:17.750Z"
+      "utc": "2026-11-14T06:00:18.250Z"
     },
     {
       "kind": "job_finished",
-      "seq": 79,
-      "text": "kite.b9 F003 n9=-1 L0: job kite.b9- (no_rule)",
-      "utc": "2026-11-14T06:00:19.500Z"
-    },
-    {
-      "kind": "item_rejected",
-      "seq": 81,
-      "text": "kite.b9 F003 n9=-1: rejected (rule_covers_none)",
+      "seq": 80,
+      "text": "kite.b9 F003 n9=-1 L0: job kite.b9- (no_rule, accept committed_rules)",
       "utc": "2026-11-14T06:00:20.000Z"
     },
     {
-      "kind": "item_escalated",
+      "kind": "item_rejected",
       "seq": 82,
-      "text": "kite.b9 F003 n9=-1: escalated to L1 (rule_covers_none)",
-      "utc": "2026-11-14T06:00:20.250Z"
+      "text": "kite.b9 F003 n9=-1: rejected (rule_covers_none)",
+      "utc": "2026-11-14T06:00:20.500Z"
     },
     {
-      "kind": "terminal_proposed",
-      "seq": 84,
-      "text": "kite.b9 F003 n9=-1: terminal candidate (terminal_after_ladder)",
+      "kind": "item_escalated",
+      "seq": 83,
+      "text": "kite.b9 F003 n9=-1: escalated to L1 (rule_covers_none)",
       "utc": "2026-11-14T06:00:20.750Z"
     },
     {
-      "kind": "terminal_declared",
+      "kind": "terminal_proposed",
       "seq": 85,
-      "text": "kite.b9 F003 n9=-1: 2 terminal key(s) declared",
-      "utc": "2026-11-14T06:00:21.000Z"
-    },
-    {
-      "kind": "node",
-      "seq": 86,
-      "text": "kite.b9: closure round 1, defect 37 of 150037 keys",
+      "text": "kite.b9 F003 n9=-1: terminal candidate (terminal_after_ladder)",
       "utc": "2026-11-14T06:00:21.250Z"
     },
     {
-      "kind": "node",
-      "seq": 87,
-      "text": "kite.b9: attempt ended (full attempt: 5 fixer rounds without closure (U-6)): 2 faces, 1 loci, 150 keys block closure",
+      "kind": "terminal_declared",
+      "seq": 86,
+      "text": "kite.b9 F003 n9=-1: 2 terminal key(s) declared",
       "utc": "2026-11-14T06:00:21.500Z"
     },
     {
       "kind": "node",
-      "seq": 88,
-      "text": "kite.b9: full closure not reached; falling back to spec box kite.b9.box",
+      "seq": 87,
+      "text": "kite.b9: table set assembled (round 1)",
       "utc": "2026-11-14T06:00:21.750Z"
     },
     {
-      "kind": "rule_retired",
-      "seq": 89,
-      "text": "kite.b9 F000: rule kite.b9:R:campaign:0 superseded by kite.b9:I0001 (replaced_by)",
+      "kind": "node",
+      "seq": 88,
+      "text": "kite.b9: closure round 1, defect 37 of 150037 keys (Proved envelope)",
       "utc": "2026-11-14T06:00:22.000Z"
     },
     {
       "kind": "node",
-      "seq": 90,
-      "text": "kite.b9: closure round 2, defect 0 of 150000 keys",
+      "seq": 89,
+      "text": "kite.b9: fixer round 1 begins",
       "utc": "2026-11-14T06:00:22.250Z"
     },
     {
-      "kind": "rule_retired",
-      "seq": 91,
-      "text": "kite.b9 F002: rule kite.b9:R:campaign:2 retired (box_closure_pass)",
+      "kind": "node",
+      "seq": 90,
+      "text": "kite.b9: attempt ended (full attempt: the spec's fixer rounds without closure (U-6)): 2 faces, 1 loci, 150 keys block closure",
       "utc": "2026-11-14T06:00:22.500Z"
     },
     {
       "kind": "node",
-      "seq": 92,
-      "text": "kite.b9: closed (boxed)",
+      "seq": 91,
+      "text": "kite.b9: full closure not reached; falling back to spec box kite.b9.box",
       "utc": "2026-11-14T06:00:22.750Z"
     },
     {
-      "kind": "campaign",
-      "seq": 93,
-      "text": "campaign finished (every node closed)",
+      "kind": "rule_retired",
+      "seq": 92,
+      "text": "kite.b9 F000: rule kite.b9:R:campaign:0 superseded by kite.b9:I0001 (replaced_by)",
       "utc": "2026-11-14T06:00:23.000Z"
+    },
+    {
+      "kind": "rule_retired",
+      "seq": 93,
+      "text": "kite.b9 F002: rule kite.b9:R:campaign:2 retired (box_closure_pass)",
+      "utc": "2026-11-14T06:00:23.250Z"
+    },
+    {
+      "kind": "node",
+      "seq": 94,
+      "text": "kite.b9: table set assembled (round 2)",
+      "utc": "2026-11-14T06:00:23.500Z"
+    },
+    {
+      "kind": "node",
+      "seq": 95,
+      "text": "kite.b9: closure round 2, defect 0 of 150000 keys (Proved envelope)",
+      "utc": "2026-11-14T06:00:23.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 96,
+      "text": "kite.b9: closed (boxed)",
+      "utc": "2026-11-14T06:00:24.000Z"
+    },
+    {
+      "kind": "campaign",
+      "seq": 97,
+      "text": "campaign finished (every node closed)",
+      "utc": "2026-11-14T06:00:24.250Z"
     }
   ],
   "file": "events",
   "ledger": {
-    "head": "dde3cb5cab3a2c952502cf68277619dbec1295eee11d7e23cbc30f6bb36e514b",
-    "last_utc": "2026-11-14T06:00:23.000Z",
-    "seq": 93
+    "head": "66739b6d2c0d8855bc9f8827b572976b64f8cb93861488a64569852d9f73688d",
+    "last_utc": "2026-11-14T06:00:24.250Z",
+    "seq": 97
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
-  "written_utc": "2026-11-14T06:00:23.250Z"
+  "written_utc": "2026-11-14T06:00:24.500Z"
 }

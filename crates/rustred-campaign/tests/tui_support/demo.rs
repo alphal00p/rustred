@@ -78,6 +78,10 @@ fn fixture_files(name: &str) -> Option<Vec<(&'static str, &'static str)>> {
             "campaign.json" => "ledger/progress-campaign.json",
             "nodes/T162.json" => "ledger/progress-node-T162.json",
             "events.json" => "ledger/progress-events.json",
+            "heartbeat.json" => "ledger/progress-heartbeat.json",
+            "jobs.json" => "ledger/progress-jobs.json",
+            "attention.json" => "ledger/progress-attention.json",
+            "terminals.json" => "ledger/progress-terminals.json",
         ],
         "empty" => files![
             "campaign.json" => "tui/empty/progress/campaign.json",
@@ -86,6 +90,8 @@ fn fixture_files(name: &str) -> Option<Vec<(&'static str, &'static str)>> {
         "midrun" | "probe" => files![
             "campaign.json" => "tui/midrun/progress/campaign.json",
             "events.json" => "tui/midrun/progress/events.json",
+            "heartbeat.json" => "tui/midrun/progress/heartbeat.json",
+            "jobs.json" => "tui/midrun/progress/jobs.json",
             "nodes/T074.json" => "tui/midrun/progress/nodes/T074.json",
             "nodes/T162.json" => "tui/midrun/progress/nodes/T162.json",
             "nodes/T178.json" => "tui/midrun/progress/nodes/T178.json",
@@ -94,6 +100,8 @@ fn fixture_files(name: &str) -> Option<Vec<(&'static str, &'static str)>> {
         "finished" => files![
             "campaign.json" => "tui/finished/progress/campaign.json",
             "events.json" => "tui/finished/progress/events.json",
+            "heartbeat.json" => "tui/finished/progress/heartbeat.json",
+            "jobs.json" => "tui/finished/progress/jobs.json",
             "nodes/T162.json" => "tui/finished/progress/nodes/T162.json",
             "nodes/T178.json" => "tui/finished/progress/nodes/T178.json",
             "nodes/T266.json" => "tui/finished/progress/nodes/T266.json",
@@ -101,6 +109,8 @@ fn fixture_files(name: &str) -> Option<Vec<(&'static str, &'static str)>> {
         "stale" => files![
             "campaign.json" => "tui/stale/progress/campaign.json",
             "events.json" => "tui/stale/progress/events.json",
+            "heartbeat.json" => "tui/stale/progress/heartbeat.json",
+            "jobs.json" => "tui/stale/progress/jobs.json",
             "nodes/T162.json" => "tui/stale/progress/nodes/T162.json",
         ],
         "toy" => files![
@@ -127,8 +137,10 @@ pub fn probe_source() -> MemorySource {
     let mut m = fixture_map("midrun");
     let c = m.get_mut("campaign.json").expect("campaign");
     c["campaign_id"] = Value::String(format!("camp{TITLE}{BIDI}x"));
-    // job rows come from the ledger fallback path (no list in the progress files)
-    c["jobs"].as_object_mut().expect("jobs").remove("list");
+    // job rows come from the ledger fallback path (no jobs.json in the progress files)
+    let _ = c;
+    m.remove("jobs.json");
+    let c = m.get_mut("campaign.json").expect("campaign");
     let mut files = c["files"]["nodes"].clone();
     let evil = format!("T999{ALT_EXIT}{OSC52}");
     files[&evil] = Value::String(format!("nodes/{evil}.json"));

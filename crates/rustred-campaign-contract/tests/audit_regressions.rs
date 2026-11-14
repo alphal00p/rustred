@@ -643,8 +643,13 @@ fn audit_a_m2_verifier_counts_elided_loci_itself() {
     write_outcome(&l, &j);
     let c = classify_run(&l, &s, &blake3_hex(&sb), 0);
     assert_eq!(
-        (c.row, c.accept, c.action),
-        (25, Accept::Nothing, Action::RerunWithoutElision)
+        (c.row, c.kind, c.accept, c.action),
+        (
+            25,
+            OutcomeKind::SealedWithElided,
+            Accept::Nothing,
+            Action::RerunWithoutElision
+        )
     );
 }
 
@@ -741,8 +746,13 @@ fn audit_a_m4_every_kind_needs_its_sealed_outputs() {
     };
     let c = classify(&e);
     assert_eq!(
-        (c.row, c.accept, c.action),
-        (26, Accept::Nothing, Action::UnverifiableKind)
+        (c.row, c.kind, c.accept, c.action),
+        (
+            26,
+            OutcomeKind::UnverifiableKind,
+            Accept::Nothing,
+            Action::UnverifiableKind
+        )
     );
 }
 

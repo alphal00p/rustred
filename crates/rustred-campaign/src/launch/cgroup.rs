@@ -140,7 +140,11 @@ impl CgroupRoot {
                 .open(dir.join("cgroup.procs"))
         };
         match setup() {
-            Ok(procs) => Ok(JobCgroup { dir, procs }),
+            Ok(procs) => Ok(JobCgroup {
+                dir,
+                procs,
+                memory: true,
+            }),
             Err(e) => {
                 let _ = fs::remove_dir(&dir);
                 Err(format!("set up {}: {e}", dir.display()))
@@ -154,11 +158,18 @@ impl CgroupRoot {
 pub struct JobCgroup {
     dir: PathBuf,
     procs: File,
+    /// The leaf has a memory cap (`create_job`); false for a tracking-only leaf.
+    memory: bool,
 }
 
 impl JobCgroup {
     pub fn path(&self) -> &Path {
         &self.dir
+    }
+
+    /// Does the leaf carry the job's memory cap (false: tracking only)?
+    pub fn has_memory_cap(&self) -> bool {
+        self.memory
     }
 
     pub(super) fn procs_fd(&self) -> RawFd {
@@ -179,7 +190,12 @@ impl JobCgroup {
 
     /// `cgroup.kill` (Linux >= 5.14): SIGKILL to every process of the cgroup, escapees included.
     pub fn kill_all(&self) {
-        let _ = write_file(&self.dir.join("cgroup.kill"), "1");
+        let _ = kill_path(&self.dir);
+    }
+
+    /// Pids in `cgroup.procs` (strict: a read error is an error).
+    pub fn procs(&self) -> io::Result<Vec<u32>> {
+        procs_of(&self.dir)
     }
 
     /// `populated 0` in cgroup.events.
@@ -194,6 +210,176 @@ impl JobCgroup {
     pub(super) fn remove(self) {
         let _ = fs::remove_dir(&self.dir);
     }
+}
+
+/// Is `dir` delegated to us by systemd (`user.delegate` = "1" extended attribute, set on `Delegate=yes` units since
+/// systemd 251)?
+fn delegated(dir: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
+        return false;
+    };
+    for name in [c"user.delegate", c"trusted.delegate"] {
+        let mut buf = [0u8; 8];
+        // SAFETY: valid C strings and a buffer of the given length.
+        let n = unsafe {
+            libc::getxattr(
+                c.as_ptr(),
+                name.as_ptr(),
+                buf.as_mut_ptr().cast(),
+                buf.len(),
+            )
+        };
+        if n > 0 && buf[..n as usize].starts_with(b"1") {
+            return true;
+        }
+    }
+    false
+}
+
+impl CgroupRoot {
+    /// A TRACKING root for per-job leaf cgroups (gate re-audit B RB-C1 c): this process's own cgroup (or its parent,
+    /// when the supervisor moved itself into a `supervisor` leaf) if it is DELEGATED to us (systemd `Delegate=yes`), owned
+    /// by our euid, and a probe child accepts `cgroup.procs`, `cgroup.kill` and `cgroup.freeze`. No controller is needed
+    /// (the leaf proves membership and kills race-free; memory caps stay with the chosen cap mechanism). Refuses in every
+    /// other case, e.g. in a zellij shell (root-owned session scope).
+    pub fn probe_tracking() -> Result<Self, String> {
+        let own = crate::resources::own_cgroup_dir().ok_or("no cgroup-v2 membership")?;
+        let mut candidates = vec![own.clone()];
+        if own.file_name().is_some_and(|n| n == "supervisor")
+            && let Some(p) = own.parent()
+        {
+            candidates.push(p.to_path_buf());
+        }
+        // SAFETY: geteuid has no arguments and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        let mut why = Vec::new();
+        for dir in candidates {
+            if !delegated(&dir) {
+                why.push(format!(
+                    "{}: not delegated (no user.delegate xattr)",
+                    dir.display()
+                ));
+                continue;
+            }
+            match fs::metadata(&dir) {
+                Ok(m) if m.uid() == euid => {}
+                Ok(_) => {
+                    why.push(format!("{}: not owned by us", dir.display()));
+                    continue;
+                }
+                Err(e) => {
+                    why.push(format!("{}: {e}", dir.display()));
+                    continue;
+                }
+            }
+            let probe = dir.join(format!(
+                "rr-track-probe-{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            if let Err(e) = fs::create_dir(&probe) {
+                why.push(format!(
+                    "{}: cannot create a child cgroup: {e}",
+                    dir.display()
+                ));
+                continue;
+            }
+            let ok = [
+                "cgroup.procs",
+                "cgroup.kill",
+                "cgroup.freeze",
+                "cgroup.events",
+            ]
+            .iter()
+            .all(|f| probe.join(f).exists())
+                && OpenOptions::new()
+                    .write(true)
+                    .open(probe.join("cgroup.procs"))
+                    .is_ok();
+            let _ = fs::remove_dir(&probe);
+            if ok {
+                return Ok(Self { path: dir });
+            }
+            why.push(format!(
+                "{}: child cgroup lacks cgroup.procs / kill / freeze",
+                dir.display()
+            ));
+        }
+        Err(why.join("; "))
+    }
+
+    /// Create a tracking-only leaf `<root>/job-<label>-<pid>-<n>` (no memory settings).
+    pub(super) fn create_tracking_leaf(&self, label: &str) -> Result<JobCgroup, String> {
+        let safe: String = label
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .take(64)
+            .collect();
+        let dir = self.path.join(format!(
+            "job-{safe}-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        match OpenOptions::new()
+            .write(true)
+            .open(dir.join("cgroup.procs"))
+        {
+            Ok(procs) => Ok(JobCgroup {
+                dir,
+                procs,
+                memory: false,
+            }),
+            Err(e) => {
+                let _ = fs::remove_dir(&dir);
+                Err(format!("open {}/cgroup.procs: {e}", dir.display()))
+            }
+        }
+    }
+}
+
+/// Pids listed in `<dir>/cgroup.procs` (strict).
+pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
+    let t = read(&dir.join("cgroup.procs"))?;
+    t.split_whitespace()
+        .map(|w| {
+            w.parse::<u32>()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "cgroup.procs"))
+        })
+        .collect()
+}
+
+/// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths).
+pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
+    write_file(&dir.join("cgroup.kill"), "1")
+}
+
+/// Freeze (`cgroup.freeze` = 1), wait up to `wait` for `frozen 1`, then `cgroup.kill`. Errors: a write failed.
+pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io::Result<()> {
+    write_file(&dir.join("cgroup.freeze"), "1")?;
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < wait {
+        let frozen = read(&dir.join("cgroup.events"))
+            .ok()
+            .and_then(|t| {
+                t.lines()
+                    .find_map(|l| l.strip_prefix("frozen "))
+                    .map(|v| v.trim() == "1")
+            })
+            .unwrap_or(false);
+        if frozen {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    kill_path(dir)
 }
 
 #[cfg(test)]

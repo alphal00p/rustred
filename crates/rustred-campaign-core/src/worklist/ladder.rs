@@ -3,14 +3,21 @@
 //! and the key evidence the driver recorded) and returns the next attempts, the next facts it needs, or the final
 //! disposition. Acceptance of a candidate at a gap point is [`judge_point`] (d1-d4 through the core domain, the
 //! driver's facts and the FULL node comparator).
+//!
+//! GOVERNING PRINCIPLE (audits ladder-A / ladder-B, repair-library.md v1.2 section 0): nothing is recorded as
+//! accepted / covered / terminal beyond what the trait answers justify; every "unknown / unsupported / unavailable /
+//! error" answer is NOT a justification; every request kind has a counter and the item has a global step bound
+//! ([`Budgets::max_item_steps`]); an accepted cover member is a pair (rule, EFFECTIVE DOMAIN = written case minus its
+//! [`Exclusion`]s), safe under first-match dispatch at every gap point of the item whatever the order of the members.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::affine::AffineEq;
 use super::children::{derive_children, excepting_branch};
-use super::items::{EvidenceLevel, Item, ItemId, ItemKind, Key, NodeParams};
+use super::items::{Budgets, CaseSpec, EvidenceLevel, Item, ItemId, ItemKind, Key, NodeParams};
 use super::seed::{AttemptBudget, SeedSetting, attempt_budget, engine_seed_args, seed_space};
-use crate::domain::{CaseDomain, Verdict};
+use crate::domain::{CaseDomain, Stage, Verdict};
 use crate::economy::SelectionScore;
 use crate::repair::{Descent, FactSource};
 
@@ -25,16 +32,17 @@ pub enum Rung {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attempt {
     pub item: ItemId,
-    /// "<item id>|<setting canonical key>": never re-run once answered (operator / infra interrupts excepted).
+    /// "<item id>|<setting canonical key>": never re-run once it has a VERDICT outcome (non-verdict outcomes are
+    /// retried in a larger resource class up to `Budgets::nonverdict_retries`; interrupts as counted).
     pub key: String,
     pub case: super::items::CaseSpec,
     pub setting: SeedSetting,
     pub rung: Rung,
-    /// 0 = depth-2 wave, 1 = depth-3 wave.
+    /// Index of the wave of the item's seed space (built-in policy: 0 = depth 2, 1 = depth 3).
     pub wave: u8,
     pub budget: AttemptBudget,
     pub seed_args: Vec<String>,
-    /// 1 + interrupts so far (a new attempt number for the same key after an interrupt).
+    /// 1 + earlier answers of this key that were not verdicts (interrupts and non-verdict outcomes).
     pub attempt_no: u32,
 }
 
@@ -60,6 +68,11 @@ pub struct CandidateRule {
     /// The rule was generated with symmetry rows: a per-key exact proof (instance-span) is `Unsupported` for it; a
     /// node requiring per-key evidence can then not credit it (route to the replay level only where the spec allows).
     pub symmetry_rows: bool,
+    /// What the rule's SOURCE shows about its witness loci (core fix 2, campaign-core-domain.md section 8): only
+    /// `Complete` can be credited; `Elided` / `NotCarried` make the rule unusable wherever it would be selected (an
+    /// exclusion there). A candidate built from an export takes its status from `Table.meta`; new campaign jobs run
+    /// with no elision (normally `Complete`).
+    pub witness: crate::cover::WitnessStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,6 +96,23 @@ pub enum SolveOutcome {
     Error(String),
 }
 
+/// Class of a solver outcome (C3 of audit ladder-A). Only a VERDICT exhausts a setting: the solver searched the
+/// shells and returned rules (which acceptance then judges) or found no relation. Everything else says nothing about
+/// the existence of a relation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OutcomeClass {
+    /// `Rules` or `NoRelation`.
+    Verdict,
+    /// Crash (`Error`), memory kill, heavy / profile refusal, budget stop (by wall clock or work counter: the shells
+    /// were not searched to the end): retried in a larger resource class, then ATTENTION; never a terminal.
+    NonVerdict,
+    /// Infrastructure interrupt (counted, capped by `infra_retries`; never a verdict).
+    Infra,
+    /// Operator interrupt: never counts against a retry cap (U-5); only a sanity bound
+    /// (`max_operator_interrupts`) sends the item to ATTENTION.
+    Operator,
+}
+
 impl SolveOutcome {
     pub fn tag(&self) -> &'static str {
         match self {
@@ -94,6 +124,19 @@ impl SolveOutcome {
             SolveOutcome::KilledMemory => "killed_memory",
             SolveOutcome::Interrupted { .. } => "interrupted",
             SolveOutcome::Error(_) => "error",
+        }
+    }
+
+    pub fn class(&self) -> OutcomeClass {
+        match self {
+            SolveOutcome::Rules(_) | SolveOutcome::NoRelation => OutcomeClass::Verdict,
+            SolveOutcome::Interrupted {
+                by: Interruption::Operator,
+            } => OutcomeClass::Operator,
+            SolveOutcome::Interrupted {
+                by: Interruption::Infra,
+            } => OutcomeClass::Infra,
+            _ => OutcomeClass::NonVerdict,
         }
     }
 }
@@ -110,16 +153,51 @@ pub struct SolveAnswer {
 pub struct AttemptRecord {
     pub setting: SeedSetting,
     pub wave: u8,
+    /// The VERDICT answer (`Rules` / `NoRelation`), once there is one; never overwritten.
     pub answer: Option<SolveAnswer>,
+    /// Non-verdict answers in arrival order (tags; the setting is retried while there are at most
+    /// `Budgets::nonverdict_retries` of them).
+    pub non_verdict: Vec<String>,
     pub operator_interrupts: u32,
     pub infra_interrupts: u32,
     pub cpu_ms_total: u64,
+    /// The case the record's candidates were generated for, when it is not the item's own case (a reserve candidate
+    /// inherited from the parent item, see [`InheritedCandidate`]).
+    pub case: Option<CaseSpec>,
 }
 
 impl AttemptRecord {
-    pub fn is_final(&self) -> bool {
+    fn empty(setting: SeedSetting, wave: u8) -> Self {
+        AttemptRecord {
+            setting,
+            wave,
+            answer: None,
+            non_verdict: Vec::new(),
+            operator_interrupts: 0,
+            infra_interrupts: 0,
+            cpu_ms_total: 0,
+            case: None,
+        }
+    }
+
+    /// The setting has a VERDICT outcome.
+    pub fn is_verdict(&self) -> bool {
         self.answer.is_some()
     }
+
+    /// Nothing more will be asked for this setting: a verdict, or the non-verdict / infra caps are used up (the
+    /// setting then has NO verdict: it can never count for an exhaustion token).
+    pub fn settled(&self, b: &Budgets) -> bool {
+        self.answer.is_some()
+            || self.non_verdict.len() as u64 > b.nonverdict_retries as u64
+            || self.infra_interrupts > b.infra_retries
+    }
+
+    /// Settled without a verdict.
+    pub fn settled_without_verdict(&self, b: &Budgets) -> bool {
+        self.answer.is_none() && self.settled(b)
+    }
+
     pub fn candidates(&self) -> &[CandidateRule] {
         match &self.answer {
             Some(SolveAnswer {
@@ -153,12 +231,20 @@ pub enum Tri {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PointVerdict {
     Covered,
+    /// Not selected by first match (fixed slot / equation / target constant differ): dispatch moves on.
     NotInCase,
+    /// An exception branch vanishes: not selected, dispatch moves on.
     OnException {
         branch: usize,
     },
+    /// A pole locus vanishes: the rule IS selected and blocks the key (needs an exclusion where another rule serves).
     OnPole,
+    /// Witness loci elided: selected, unusable (fail closed; needs an exclusion).
     Elided,
+    /// Selected but unusable for another reason (chart mismatch, recenter bound): needs an exclusion.
+    Blocked {
+        why: String,
+    },
     /// d2 failed with no exception branch there: the rule's exceptions are incomplete (rejects the candidate).
     HiddenPole,
     NotDescending {
@@ -173,6 +259,13 @@ impl PointVerdict {
     pub fn covered(&self) -> bool {
         matches!(self, PointVerdict::Covered)
     }
+    /// First-match dispatch provably moves past the rule at this key (no exclusion needed there).
+    pub fn not_selected(&self) -> bool {
+        matches!(
+            self,
+            PointVerdict::NotInCase | PointVerdict::OnException { .. }
+        )
+    }
 }
 
 /// d1-d4 at one key (plan 2.4.5): d1 through the core domain (fixed, chart, equations, every exception branch, pole
@@ -183,13 +276,32 @@ pub fn judge_point(
     facts: &PointFacts,
     descent: &dyn Descent,
 ) -> PointVerdict {
-    match rule.domain.applies(key) {
-        Verdict::Applies => {}
+    let v = rule.domain.applies(key);
+    match v {
+        Verdict::Applies => match rule.witness {
+            crate::cover::WitnessStatus::Complete => {}
+            crate::cover::WitnessStatus::Elided => return PointVerdict::Elided,
+            crate::cover::WitnessStatus::NotCarried => {
+                return PointVerdict::Blocked {
+                    why: "witness loci not carried by the source".into(),
+                };
+            }
+        },
         Verdict::OnException { branch } => return PointVerdict::OnException { branch },
         Verdict::OnPole { .. } => return PointVerdict::OnPole,
         Verdict::Elided => return PointVerdict::Elided,
         Verdict::Error(e) => return PointVerdict::Unknown { why: e.to_string() },
-        _ => return PointVerdict::NotInCase,
+        other => {
+            return match other.stage() {
+                Stage::NotSelected => PointVerdict::NotInCase,
+                Stage::Blocked => PointVerdict::Blocked {
+                    why: format!("{other:?}"),
+                },
+                _ => PointVerdict::Unknown {
+                    why: format!("{other:?}"),
+                },
+            };
+        }
     }
     match facts.regular {
         Tri::Pass => {}
@@ -219,6 +331,13 @@ pub fn judge_point(
     }
 }
 
+const NO_FACTS: PointFacts = PointFacts {
+    regular: Tri::Unknown,
+    rhs_top: None,
+    exceptions_complete: Tri::Unknown,
+    note: None,
+};
+
 /// Judge one candidate at a list of keys through a fact source (driver helper).
 pub fn judge_points(
     rule: &CandidateRule,
@@ -234,17 +353,7 @@ pub fn judge_points(
                     let f = facts.facts(rule, k);
                     judge_point(rule, k, &f, descent)
                 }
-                _ => judge_point(
-                    rule,
-                    k,
-                    &PointFacts {
-                        regular: Tri::Unknown,
-                        rhs_top: None,
-                        exceptions_complete: Tri::Unknown,
-                        note: None,
-                    },
-                    descent,
-                ),
+                _ => judge_point(rule, k, &NO_FACTS, descent),
             }
         })
         .collect()
@@ -270,18 +379,20 @@ pub fn judge_points_with_hits(
                 if v.covered()
                     && let Some(rhs) = &f.rhs_top
                 {
-                    hits += rhs.iter().filter(|r| preferred.matches(r, lines)).count() as u64;
+                    hits = hits.saturating_add(
+                        rhs.iter().filter(|r| preferred.matches(r, lines)).count() as u64,
+                    );
                 }
                 out.push(v);
             }
-            _ => out.extend(judge_points(rule, std::slice::from_ref(k), facts, descent)),
+            _ => out.push(judge_point(rule, k, &NO_FACTS, descent)),
         }
     }
     (out, hits)
 }
 
 /// Proof failures of the key prover (A s.2: kept apart, never PASS).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ProofFailure {
     /// EXACT_NOT_IN_SPAN_AT_KEY (exact certificate) / FAIL_AT_KEY.
     NonMembership,
@@ -315,6 +426,8 @@ pub struct VerdictRequest {
     pub keys: Vec<Key>,
 }
 
+/// Identity evidence for a candidate at these keys. Issued AT MOST ONCE per candidate: after one recorded answer,
+/// a key the answer does not establish at `level` is NOT credited (no re-request; C2 of audit ladder-A).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvidenceRequest {
     pub attempt_key: String,
@@ -323,17 +436,154 @@ pub struct EvidenceRequest {
     pub level: EvidenceLevel,
 }
 
-/// The token that a POINT's ladder failed completely (the only way to make one; terminals.rs requires it).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// ------------------------------------------------------------------------------------------------------------------
+// Exclusions (C1)
+
+/// Where a rule must not be dispatched.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ExclusionTarget {
+    Key(Key),
+    /// Every key where all equations hold (an AND-list, presented frame).
+    Locus {
+        equations: Vec<AffineEq>,
+    },
+}
+
+impl ExclusionTarget {
+    pub fn holds(&self, key: &[i32]) -> bool {
+        match self {
+            ExclusionTarget::Key(k) => k.as_slice() == key,
+            ExclusionTarget::Locus { equations } => equations.iter().all(|e| e.holds(key)),
+        }
+    }
+}
+
+/// Why a key (or locus) is excluded from a rule's effective domain.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ExclusionReason {
+    /// d3 failed: a top RHS key is not lower under the full node comparator.
+    NotDescending { rhs: Key },
+    /// A pole locus vanishes at the key (the rule would be selected and block).
+    OnPole,
+    /// Witness loci elided (selected, unusable).
+    Elided,
+    /// Selected but unusable (chart mismatch, recenter bound).
+    Blocked { why: String },
+    /// Coverage (d1 evaluation, d2, rhs keys or d4) unknown.
+    CoverageUnknown { why: String },
+    /// The prover reported a failure (if a pass was ALSO recorded for the key, `conflicting_pass` is set: failure wins).
+    IdentityFailed {
+        failure: ProofFailure,
+        conflicting_pass: bool,
+    },
+    /// The prover answered without a level and without a failure.
+    IdentityUnknown,
+    /// The prover's answer did not mention the key.
+    IdentityNoAnswer,
+    /// Evidence below the level the node's spec requires.
+    EvidenceBelowLevel {
+        got: EvidenceLevel,
+        required: EvidenceLevel,
+    },
+    /// A gap point of the same tree inside the rule's written domain that THIS rule was not credited at (served by
+    /// another rule, or by an item judged elsewhere): the rule is not dispatched there.
+    NotCreditedHere,
+    /// A preferred terminal of the spec inside the rule's domain (P-4: keeps the terminal).
+    PreferredTerminal,
+    /// The locus of a child item read from this rule's POLE locus: the rule is excluded there so that the child is
+    /// reached (a pole blocks first-match dispatch).
+    PoleLocusChild { child: ItemId },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Exclusion {
+    pub target: ExclusionTarget,
+    pub reason: ExclusionReason,
+}
+
+pub(crate) fn add_exclusion(list: &mut Vec<Exclusion>, e: Exclusion) {
+    if !list.iter().any(|x| x.target == e.target) {
+        list.push(e);
+    }
+}
+
+/// The reason a NON-crediting verdict needs an exclusion, `None` where dispatch provably moves past the rule.
+pub fn exclusion_reason(v: &PointVerdict) -> Option<ExclusionReason> {
+    match v {
+        PointVerdict::Covered | PointVerdict::NotInCase | PointVerdict::OnException { .. } => None,
+        PointVerdict::OnPole => Some(ExclusionReason::OnPole),
+        PointVerdict::Elided => Some(ExclusionReason::Elided),
+        PointVerdict::Blocked { why } => Some(ExclusionReason::Blocked { why: why.clone() }),
+        PointVerdict::HiddenPole => Some(ExclusionReason::CoverageUnknown {
+            why: "hidden pole".into(),
+        }),
+        PointVerdict::NotDescending { rhs } => {
+            Some(ExclusionReason::NotDescending { rhs: rhs.clone() })
+        }
+        PointVerdict::Unknown { why } => {
+            Some(ExclusionReason::CoverageUnknown { why: why.clone() })
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// The exhaustion token (C3, (e))
+
+/// The token that a POINT's ladder failed completely: EVERY setting of the policy's seed space of the item has a
+/// VERDICT outcome (no crash, kill, refusal, budget stop or interrupt counts) and no candidate was accepted at the
+/// key. Fields are private and it has no `Deserialize`: the only constructors are the ladder (`next_steps`) and
+/// [`LadderExhaustedRecord::verify`], which re-checks the item state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LadderExhausted {
     item: ItemId,
     key: Key,
+    /// Number of verdict outcomes (= the size of the seed space).
     attempts: u32,
+    settings: u32,
     depth3_tried: bool,
     depth3_unfloored_tried: bool,
+    /// The space contains a depth >= 3 unfloored setting (with the built-in policy always; a spec policy may
+    /// replace the space).
+    space_has_depth3_unfloored: bool,
+    parent: Option<ItemId>,
 }
 
 impl LadderExhausted {
+    /// Mint the token from the item state, or `None` if a setting lacks a verdict.
+    pub(crate) fn mint(state: &ItemState, params: &NodeParams, key: &[i32]) -> Option<Self> {
+        let item = &state.item;
+        if !item.gap_points.iter().any(|k| k.as_slice() == key) {
+            return None;
+        }
+        let space: Vec<SeedSetting> = seed_space(&item.case, params)
+            .into_iter()
+            .flatten()
+            .collect();
+        if space.is_empty() {
+            return None;
+        }
+        let mut recs = Vec::new();
+        for s in &space {
+            let r = state.records.get(&attempt_key(&item.id, s))?;
+            if !r.is_verdict() {
+                return None;
+            }
+            recs.push(r);
+        }
+        Some(LadderExhausted {
+            item: item.id.clone(),
+            key: key.to_vec(),
+            attempts: recs.len() as u32,
+            settings: space.len() as u32,
+            depth3_tried: recs.iter().any(|r| r.setting.depth >= 3),
+            depth3_unfloored_tried: recs
+                .iter()
+                .any(|r| r.setting.depth >= 3 && !r.setting.floor),
+            space_has_depth3_unfloored: space.iter().any(|s| s.depth >= 3 && !s.floor),
+            parent: item.parent.clone(),
+        })
+    }
+
     pub fn item(&self) -> &ItemId {
         &self.item
     }
@@ -343,11 +593,35 @@ impl LadderExhausted {
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
+    pub fn settings(&self) -> u32 {
+        self.settings
+    }
     pub fn depth3_tried(&self) -> bool {
         self.depth3_tried
     }
     pub fn depth3_unfloored_tried(&self) -> bool {
         self.depth3_unfloored_tried
+    }
+    pub fn parent(&self) -> Option<&ItemId> {
+        self.parent.as_ref()
+    }
+    /// The deep condition of plan 2.4.4 (7): if the space has a depth >= 3 unfloored setting, it was tried (always
+    /// true for a minted token; kept as an explicit check for the terminal set).
+    pub fn deep_condition_met(&self) -> bool {
+        !self.space_has_depth3_unfloored || self.depth3_unfloored_tried
+    }
+    /// The unverified, serialisable form.
+    pub fn to_record(&self) -> LadderExhaustedRecord {
+        LadderExhaustedRecord {
+            item: self.item.clone(),
+            key: self.key.clone(),
+            attempts: self.attempts,
+            settings: self.settings,
+            depth3_tried: self.depth3_tried,
+            depth3_unfloored_tried: self.depth3_unfloored_tried,
+            space_has_depth3_unfloored: self.space_has_depth3_unfloored,
+            parent: self.parent.clone(),
+        }
     }
     #[cfg(test)]
     pub(crate) fn for_tests(key: Key, depth3_unfloored_tried: bool) -> Self {
@@ -355,11 +629,61 @@ impl LadderExhausted {
             item: ItemId("it1-test".into()),
             key,
             attempts: 0,
+            settings: 0,
             depth3_tried: true,
             depth3_unfloored_tried,
+            space_has_depth3_unfloored: true,
+            parent: None,
         }
     }
 }
+
+/// UNVERIFIED (deserialisable) form of a [`LadderExhausted`] token: becomes a token only through [`Self::verify`]
+/// against the item's recorded state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LadderExhaustedRecord {
+    pub item: ItemId,
+    pub key: Key,
+    pub attempts: u32,
+    pub settings: u32,
+    pub depth3_tried: bool,
+    pub depth3_unfloored_tried: bool,
+    #[serde(default)]
+    pub space_has_depth3_unfloored: bool,
+    pub parent: Option<ItemId>,
+}
+
+impl LadderExhaustedRecord {
+    /// Re-verify against the item state: the item must be the record's, every setting of its seed space must have a
+    /// verdict, and the state machine must propose exactly this key as a terminal.
+    pub fn verify(
+        &self,
+        state: &ItemState,
+        params: &NodeParams,
+    ) -> Result<LadderExhausted, String> {
+        if state.item.id != self.item {
+            return Err("token names another item".into());
+        }
+        match next_steps(state, params) {
+            Next::Done(Disposition::TerminalCandidates { keys, exhausted })
+                if keys.contains(&self.key) =>
+            {
+                let mut t = exhausted;
+                t.key = self.key.clone();
+                if t.to_record() != *self {
+                    return Err("token fields differ from the recorded state".into());
+                }
+                Ok(t)
+            }
+            other => Err(format!(
+                "the item state does not propose this key as a terminal: {other:?}"
+            )),
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// Covers
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoverMember {
@@ -368,8 +692,16 @@ pub struct CoverMember {
     pub setting: SeedSetting,
     pub digest: String,
     pub rhs_terms: u64,
+    /// The case the rule was generated for (its WRITTEN case; for an inherited reserve candidate the parent's).
+    pub case: CaseSpec,
     /// Gap points this member serves (first member in cover order that credits the key).
     pub served: Vec<Key>,
+    /// Every gap point the member is CREDITED at (verdict covered and evidence at the required level); served ⊆
+    /// credited.
+    pub credited: Vec<Key>,
+    /// The member's EFFECTIVE DOMAIN is its written domain minus these: every gap point (of the item, and after
+    /// [`crate::repair::seal_tree`] of the whole tree) inside the written domain where the member is not credited.
+    pub exclusions: Vec<Exclusion>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,6 +717,30 @@ impl Cover {
     }
 }
 
+/// Why an item needs a human (typed; never silent, never a terminal).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttentionReason {
+    /// The item's global step bound (`Budgets::max_item_steps`) was reached (C2).
+    StepBound { steps: u64, bound: u64 },
+    /// Operator interrupts of one attempt above the sanity bound (U-5: never a retry cap; a human decides).
+    OperatorInterrupts {
+        attempt: String,
+        count: u32,
+        bound: u32,
+    },
+    /// A POINT item has no accepted rule but some settings of its space have NO verdict outcome (crash, kill,
+    /// refusal, budget stop, infra cap): never a terminal proposal (C3).
+    NonVerdict { settings: Vec<String> },
+    /// A child's dimension above the root's (malformed input).
+    DimensionAboveRoot,
+    /// Left-over gap points no child could be built for (they would be lost).
+    UnplacedPoints { keys: Vec<Key> },
+    /// The seed space of the case is empty (a policy that offers nothing for this case).
+    EmptySeedSpace,
+    /// A point case with several gap points left (malformed case; audit B m1).
+    MalformedPointCase { keys: Vec<Key> },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Disposition {
     /// Every gap point is served by the cover at the node's evidence level.
@@ -392,23 +748,41 @@ pub enum Disposition {
     /// Part (or none) of the gap points served; the rest assigned to children (sub-cases, then points).
     /// `alternatives`: other standard planes holding left-over points; a driver releases one only for the points its
     /// primary children leave unserved (after their whole subtree), so no point gets two rules.
-    /// `reserve`: accepted candidates kept out of the cover by the economy pruning; a driver applies them, in order,
-    /// to the points the children's subtrees leave unserved (`served` lists their credited points).
+    /// `reserve`: accepted candidates kept out of the cover by the economy pruning; they are handed to the children
+    /// whose gap points they credit as INHERITED candidates (judged and selected there with the child's own ones,
+    /// before the child splits further), so a pruned symbolic rule never loses to point rules (audit A M1).
     Split {
         cover: Cover,
         children: Vec<Item>,
         alternatives: Vec<Item>,
         reserve: Vec<CoverMember>,
     },
-    /// A point whose ladder failed: terminal PROPOSAL (L5; declared only at S9, 2.4.9).
+    /// A point whose ladder failed with a VERDICT on every setting: terminal PROPOSAL (L5; declared only at S9).
     TerminalCandidates {
         keys: Vec<Key>,
         exhausted: LadderExhausted,
     },
     /// A counter was exceeded or the input is unusable; never silent.
-    Attention { why: String },
+    Attention {
+        reason: AttentionReason,
+        why: String,
+    },
     /// Optimise item: no acceptable replacement; the old rules stay (U-13).
     OptimiseKept { why: String },
+    /// RECIPE outcome (R48): the item's face is closed by a recipe rule on its CERTIFIED key set (keys of the item not
+    /// certified stay for other forms / children). Produced by [`super::recipe::recipe_disposition`] after the
+    /// node's full attempt ended; never by the symbolic search itself.
+    RecipeRule {
+        rule: Box<super::recipe::RecipeRule>,
+        uncertified: Vec<Key>,
+    },
+}
+
+impl Disposition {
+    fn attention(reason: AttentionReason) -> Self {
+        let why = format!("{reason:?}");
+        Disposition::Attention { reason, why }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -424,6 +798,18 @@ pub enum Next {
     Done(Disposition),
 }
 
+/// A reserve candidate of the parent handed to a child (economy pruning, decision D-L4 as revised): judged and
+/// selected at the child's gap points like the child's own candidates (wave 0, no solver CPU).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InheritedCandidate {
+    pub rule: CandidateRule,
+    /// The rule's written case (the parent's case).
+    pub case: CaseSpec,
+    pub setting: SeedSetting,
+    /// "<parent attempt key>#<index>".
+    pub from: String,
+}
+
 /// State of one item: the item and everything the driver recorded for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ItemState {
@@ -436,49 +822,65 @@ pub struct ItemState {
     pub preferred_hits: BTreeMap<(String, usize), u64>,
     /// Wave 0 answered (offers recorded, possibly none).
     pub offers_recorded: bool,
+    /// Number of driver answers recorded (every `record_*` call): the item's global step counter (C2).
+    pub steps: u64,
 }
 
 impl ItemState {
     pub fn new(item: Item) -> Self {
-        ItemState {
-            item,
+        let mut st = ItemState {
             records: BTreeMap::new(),
             verdicts: BTreeMap::new(),
             evidence: BTreeMap::new(),
             containment: BTreeMap::new(),
             preferred_hits: BTreeMap::new(),
             offers_recorded: false,
+            steps: 0,
+            item,
+        };
+        for (n, ic) in st.item.inherited.clone().into_iter().enumerate() {
+            let mut r = AttemptRecord::empty(ic.setting.clone(), 0);
+            r.answer = Some(SolveAnswer {
+                outcome: SolveOutcome::Rules(vec![ic.rule]),
+                cpu_ms: 0,
+                rows: None,
+            });
+            r.case = Some(ic.case);
+            st.records
+                .insert(offer_key(&st.item.id, &format!("inherited{n}")), r);
         }
+        st
     }
 
     /// Record the wave-0 offers (R43) as one pseudo-attempt "<item>|offer|<source>" with zero solver CPU.
     pub fn record_offers(&mut self, source: &str, offers: Vec<CandidateRule>) {
+        self.steps += 1;
         self.offers_recorded = true;
         if offers.is_empty() {
             return;
         }
         let key = offer_key(&self.item.id, source);
-        self.records.insert(
-            key,
-            AttemptRecord {
-                setting: SeedSetting {
-                    centre: super::seed::CentreKind::Explicit,
-                    offsets: vec![],
-                    floor: false,
-                    depth: 0,
-                    tight: false,
-                },
-                wave: 0,
-                answer: Some(SolveAnswer {
-                    outcome: SolveOutcome::Rules(offers),
-                    cpu_ms: 0,
-                    rows: None,
-                }),
-                operator_interrupts: 0,
-                infra_interrupts: 0,
-                cpu_ms_total: 0,
+        if self.records.contains_key(&key) {
+            return; // never overwritten
+        }
+        let mut r = AttemptRecord::empty(
+            SeedSetting {
+                centre: super::seed::CentreKind::Explicit,
+                offsets: vec![],
+                floor: false,
+                depth: 0,
+                tight: false,
+                layer_cap: None,
+                symmetry_rows: false,
             },
+            0,
         );
+        r.answer = Some(SolveAnswer {
+            outcome: SolveOutcome::Rules(offers),
+            cpu_ms: 0,
+            rows: None,
+        });
+        self.records.insert(key, r);
     }
 
     pub fn record_preferred_hits(&mut self, attempt_key: &str, index: usize, hits: u64) {
@@ -489,57 +891,67 @@ impl ItemState {
     }
 
     pub fn record_containment(&mut self, attempt_key: &str, index: usize, t: Tri) {
-        self.containment.insert((attempt_key.to_string(), index), t);
+        self.steps += 1;
+        self.containment
+            .entry((attempt_key.to_string(), index))
+            .or_insert(t);
     }
 
-    /// Record the solver's answer to an attempt. An interrupt keeps the key open (counted per kind).
+    /// Record the solver's answer to an attempt. A verdict is final and never overwritten; a non-verdict outcome
+    /// or an interrupt keeps the key open (counted per class, C3 / U-5).
     pub fn record_answer(&mut self, attempt: &Attempt, answer: SolveAnswer) {
+        self.steps += 1;
         let r = self
             .records
             .entry(attempt.key.clone())
-            .or_insert_with(|| AttemptRecord {
-                setting: attempt.setting.clone(),
-                wave: attempt.wave,
-                answer: None,
-                operator_interrupts: 0,
-                infra_interrupts: 0,
-                cpu_ms_total: 0,
-            });
+            .or_insert_with(|| AttemptRecord::empty(attempt.setting.clone(), attempt.wave));
         if r.answer.is_some() {
             return; // never re-run, never overwritten
         }
-        r.cpu_ms_total += answer.cpu_ms;
-        match answer.outcome {
-            SolveOutcome::Interrupted {
-                by: Interruption::Operator,
-            } => r.operator_interrupts += 1,
-            SolveOutcome::Interrupted {
-                by: Interruption::Infra,
-            } => r.infra_interrupts += 1,
-            _ => r.answer = Some(answer),
+        // interrupt CPU is not attempt CPU: it never feeds the economy extra budget (audit B M2, D-35)
+        if !matches!(
+            answer.outcome.class(),
+            OutcomeClass::Operator | OutcomeClass::Infra
+        ) {
+            r.cpu_ms_total = r.cpu_ms_total.saturating_add(answer.cpu_ms);
+        }
+        match answer.outcome.class() {
+            OutcomeClass::Operator => {
+                r.operator_interrupts = r.operator_interrupts.saturating_add(1)
+            }
+            OutcomeClass::Infra => r.infra_interrupts = r.infra_interrupts.saturating_add(1),
+            OutcomeClass::NonVerdict => r.non_verdict.push(answer.outcome.tag().to_string()),
+            OutcomeClass::Verdict => r.answer = Some(answer),
         }
     }
 
+    /// Verdicts of a candidate (recorded once; a later answer for the same candidate is ignored).
     pub fn record_verdicts(
         &mut self,
         attempt_key: &str,
         index: usize,
         verdicts: Vec<PointVerdict>,
     ) {
+        self.steps += 1;
         self.verdicts
-            .insert((attempt_key.to_string(), index), verdicts);
+            .entry((attempt_key.to_string(), index))
+            .or_insert(verdicts);
     }
 
+    /// Evidence of a candidate. The FIRST call for a candidate closes its evidence round: keys it does not
+    /// establish (no entry, no level, a failure, a lower level) are not credited; conflicting entries for one key:
+    /// failure wins.
     pub fn record_evidence(&mut self, attempt_key: &str, index: usize, ev: Vec<KeyEvidence>) {
+        self.steps += 1;
         self.evidence
             .entry((attempt_key.to_string(), index))
             .or_default()
             .extend(ev);
     }
 
-    /// Attempts with a final answer.
+    /// Attempts with a VERDICT outcome.
     pub fn attempts_made(&self) -> usize {
-        self.records.values().filter(|r| r.is_final()).count()
+        self.records.values().filter(|r| r.is_verdict()).count()
     }
 }
 
@@ -563,11 +975,14 @@ pub(crate) struct Accepted {
     pub index: usize,
     pub order: usize,
     pub setting: SeedSetting,
+    pub case: CaseSpec,
     pub rule: CandidateRule,
     /// Gap point indices credited by the verdicts (minus keys whose evidence failed).
     pub credited: BTreeSet<usize>,
-    /// Gap point indices still lacking evidence at the required level.
+    /// Gap point indices still lacking evidence at the required level (never asked yet).
     pub lacking: BTreeSet<usize>,
+    /// Gap point indices inside the written domain that are NOT credited, with the exclusion reason.
+    pub uncredited: BTreeMap<usize, ExclusionReason>,
     pub preferred_hits: u64,
 }
 
@@ -579,16 +994,44 @@ pub fn sub_counter(state: &ItemState, params: &NodeParams) -> usize {
         .sum()
 }
 
-fn evidence_ok(ev: &KeyEvidence, min: EvidenceLevel) -> Option<bool> {
-    if ev.failure.is_some() {
-        return Some(false);
+/// Evidence judgement of one key from every recorded entry (fail closed; failure wins over a pass).
+enum EvJudge {
+    Pass,
+    Lacking,
+    Fail(ExclusionReason),
+}
+
+fn judge_evidence(evs: Option<&Vec<KeyEvidence>>, key: &[i32], min: EvidenceLevel) -> EvJudge {
+    let Some(evs) = evs else {
+        return EvJudge::Lacking;
+    };
+    let mine: Vec<&KeyEvidence> = evs.iter().filter(|e| e.key.as_slice() == key).collect();
+    if mine.is_empty() {
+        return EvJudge::Fail(ExclusionReason::IdentityNoAnswer);
     }
-    ev.level.map(|l| l >= min)
+    let passes = mine
+        .iter()
+        .any(|e| e.failure.is_none() && e.level.is_some_and(|l| l >= min));
+    if let Some(f) = mine.iter().find_map(|e| e.failure.clone()) {
+        return EvJudge::Fail(ExclusionReason::IdentityFailed {
+            failure: f,
+            conflicting_pass: passes,
+        });
+    }
+    if mine.iter().any(|e| e.level.is_none()) {
+        return EvJudge::Fail(ExclusionReason::IdentityUnknown);
+    }
+    if let Some(low) = mine.iter().filter_map(|e| e.level).find(|&l| l < min) {
+        return EvJudge::Fail(ExclusionReason::EvidenceBelowLevel {
+            got: low,
+            required: min,
+        });
+    }
+    EvJudge::Pass
 }
 
 /// The accepted candidates of the finished attempts in `keys` (in enumeration order), with credited gap points.
 /// Returns `Err(requests)` if verdicts are missing.
-#[allow(clippy::type_complexity)]
 pub(crate) fn accepted_candidates(
     state: &ItemState,
     params: &NodeParams,
@@ -610,6 +1053,13 @@ pub(crate) fn accepted_candidates(
                 });
                 continue;
             };
+            // a rule found WITH symmetry rows whose class cannot reach the node's required level is never accepted:
+            // "found, awaiting a certificate route" (kept in the records, shown by explain; addendum 3 of R46)
+            if (setting.symmetry_rows || cand.symmetry_rows)
+                && !params.capabilities.can(true, params.min_evidence)
+            {
+                continue;
+            }
             if v.len() != gp.len() || v.iter().any(|x| matches!(x, PointVerdict::HiddenPole)) {
                 continue; // incomplete exceptions (or malformed answer): rejected for this item
             }
@@ -617,18 +1067,21 @@ pub(crate) fn accepted_candidates(
             if credited.is_empty() {
                 continue; // covers none of its gap points: rejected (the checker found 5 such rules)
             }
+            let mut uncredited: BTreeMap<usize, ExclusionReason> = (0..gp.len())
+                .filter_map(|i| exclusion_reason(&v[i]).map(|r| (i, r)))
+                .collect();
             let mut lacking = BTreeSet::new();
             if params.min_evidence > EvidenceLevel::A1 {
                 let ev = state.evidence.get(&(key.clone(), idx));
                 for &i in &credited.clone() {
-                    let e = ev.and_then(|evs| evs.iter().rev().find(|e| e.key == gp[i]));
-                    match e.and_then(|e| evidence_ok(e, params.min_evidence)) {
-                        Some(true) => {}
-                        Some(false) => {
-                            credited.remove(&i);
-                        }
-                        None => {
+                    match judge_evidence(ev, &gp[i], params.min_evidence) {
+                        EvJudge::Pass => {}
+                        EvJudge::Lacking => {
                             lacking.insert(i);
+                        }
+                        EvJudge::Fail(r) => {
+                            credited.remove(&i);
+                            uncredited.insert(i, r);
                         }
                     }
                 }
@@ -641,9 +1094,11 @@ pub(crate) fn accepted_candidates(
                 index: idx,
                 order: *order,
                 setting: setting.clone(),
+                case: rec.case.clone().unwrap_or_else(|| state.item.case.clone()),
                 rule: cand.clone(),
                 credited,
                 lacking,
+                uncredited,
                 preferred_hits: state
                     .preferred_hits
                     .get(&(key.clone(), idx))
@@ -675,6 +1130,14 @@ pub(crate) fn best_one_case(acc: &[Accepted], n_points: usize) -> Option<usize> 
         .min_by_key(|&i| score(&acc[i], n_points))
 }
 
+/// Deterministic tie key of a candidate (no collision: tuples, not `order * 1000 + index`).
+fn tie(a: &Accepted) -> (usize, usize) {
+    (a.order, a.index)
+}
+
+/// (volume, tie keys, members) of the best exact cover found so far.
+type BestCover = (u64, Vec<(usize, usize)>, Vec<usize>);
+
 /// Minimum set cover over the accepted candidates of the coverable points: exact (fewest members, then smallest
 /// RHS volume, then enumeration order) up to [`EXACT_COVER_MAX`] candidates and 6 members, else greedy.
 pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
@@ -685,11 +1148,10 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
     if coverable.is_empty() {
         return (vec![], false);
     }
-    // drop dominated candidates (credited subset of another's, not better): keep the order deterministic
     let n = acc.len();
     if n <= EXACT_COVER_MAX {
         for k in 1..=n.min(6) {
-            let mut best: Option<(u64, Vec<usize>)> = None;
+            let mut best: Option<BestCover> = None;
             let mut comb: Vec<usize> = (0..k).collect();
             loop {
                 let u: BTreeSet<usize> = comb
@@ -697,23 +1159,17 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
                     .flat_map(|&i| acc[i].credited.iter().copied())
                     .collect();
                 if u == coverable {
-                    let vol: u64 = comb.iter().map(|&i| acc[i].rule.rhs_terms).sum();
-                    let key: Vec<usize> = comb
+                    let vol: u64 = comb
                         .iter()
-                        .map(|&i| acc[i].order * 1000 + acc[i].index)
-                        .collect();
+                        .map(|&i| acc[i].rule.rhs_terms)
+                        .fold(0u64, |a, b| a.saturating_add(b));
+                    let key: Vec<(usize, usize)> = comb.iter().map(|&i| tie(&acc[i])).collect();
                     let better = match &best {
                         None => true,
-                        Some((bv, bc)) => {
-                            let bk: Vec<usize> = bc
-                                .iter()
-                                .map(|&i| acc[i].order * 1000 + acc[i].index)
-                                .collect();
-                            vol < *bv || (vol == *bv && key < bk)
-                        }
+                        Some((bv, bk, _)) => vol < *bv || (vol == *bv && key < *bk),
                     };
                     if better {
-                        best = Some((vol, comb.clone()));
+                        best = Some((vol, key, comb.clone()));
                     }
                 }
                 // next combination
@@ -729,7 +1185,7 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
                     comb[j] = comb[j - 1] + 1;
                 }
             }
-            if let Some((_, c)) = best {
+            if let Some((_, _, c)) = best {
                 return (c, false);
             }
         }
@@ -738,22 +1194,46 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
     let mut left = coverable;
     let mut chosen = Vec::new();
     while !left.is_empty() {
-        let pick = (0..n)
-            .filter(|i| !chosen.contains(i))
-            .max_by(|&a, &b| {
-                let ga = acc[a].credited.intersection(&left).count();
-                let gb = acc[b].credited.intersection(&left).count();
-                ga.cmp(&gb)
-                    .then(acc[b].rule.rhs_terms.cmp(&acc[a].rule.rhs_terms))
-                    .then(acc[b].order.cmp(&acc[a].order))
-            })
-            .expect("a candidate covers what is left");
+        let Some(pick) = (0..n).filter(|i| !chosen.contains(i)).max_by(|&a, &b| {
+            let ga = acc[a].credited.intersection(&left).count();
+            let gb = acc[b].credited.intersection(&left).count();
+            ga.cmp(&gb)
+                .then(acc[b].rule.rhs_terms.cmp(&acc[a].rule.rhs_terms))
+                .then(tie(&acc[b]).cmp(&tie(&acc[a])))
+        }) else {
+            break;
+        };
+        if acc[pick].credited.intersection(&left).count() == 0 {
+            break;
+        }
         for p in &acc[pick].credited {
             left.remove(p);
         }
         chosen.push(pick);
     }
     (chosen, true)
+}
+
+fn member_of(state: &ItemState, a: &Accepted, served: Vec<Key>) -> CoverMember {
+    let gp = &state.item.gap_points;
+    CoverMember {
+        attempt_key: a.key.clone(),
+        index: a.index,
+        setting: a.setting.clone(),
+        digest: a.rule.digest.clone(),
+        rhs_terms: a.rule.rhs_terms,
+        case: a.case.clone(),
+        served,
+        credited: a.credited.iter().map(|&p| gp[p].clone()).collect(),
+        exclusions: a
+            .uncredited
+            .iter()
+            .map(|(&p, r)| Exclusion {
+                target: ExclusionTarget::Key(gp[p].clone()),
+                reason: r.clone(),
+            })
+            .collect(),
+    }
 }
 
 pub(crate) fn make_cover(
@@ -766,7 +1246,7 @@ pub(crate) fn make_cover(
     let mut taken = BTreeSet::new();
     let mut out = Vec::new();
     let mut ms: Vec<usize> = members.to_vec();
-    ms.sort_by_key(|&i| (acc[i].order, acc[i].index));
+    ms.sort_by_key(|&i| tie(&acc[i]));
     for i in ms {
         let a = &acc[i];
         let served: Vec<Key> = a
@@ -775,14 +1255,7 @@ pub(crate) fn make_cover(
             .filter(|p| taken.insert(**p))
             .map(|&p| gp[p].clone())
             .collect();
-        out.push(CoverMember {
-            attempt_key: a.key.clone(),
-            index: a.index,
-            setting: a.setting.clone(),
-            digest: a.rule.digest.clone(),
-            rhs_terms: a.rule.rhs_terms,
-            served,
-        });
+        out.push(member_of(state, a, served));
     }
     Cover {
         members: out,
@@ -802,33 +1275,46 @@ pub struct ContainmentRequest {
 /// THE STATE MACHINE (repair-library.md section 4). Pure: same state and params -> same result.
 pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     let item = &state.item;
+    let b = &params.budgets;
     let gp = &item.gap_points;
     let n_points = gp.len();
+    if state.steps >= b.max_item_steps {
+        return Next::Done(Disposition::attention(AttentionReason::StepBound {
+            steps: state.steps,
+            bound: b.max_item_steps,
+        }));
+    }
     if n_points == 0 && item.kind != ItemKind::Optimise {
         return Next::Done(Disposition::Covered {
             cover: Cover::default(),
         });
     }
     if item.case.dim() > item.root_dim {
-        return Next::Done(Disposition::Attention {
-            why: format!(
-                "child dimension {} above the root's {}",
-                item.case.dim(),
-                item.root_dim
-            ),
-        });
+        return Next::Done(Disposition::attention(AttentionReason::DimensionAboveRoot));
     }
     if !state.offers_recorded {
         return Next::NeedOffers;
     }
+    for (k, r) in &state.records {
+        if !r.is_verdict() && r.operator_interrupts > b.max_operator_interrupts {
+            return Next::Done(Disposition::attention(
+                AttentionReason::OperatorInterrupts {
+                    attempt: k.clone(),
+                    count: r.operator_interrupts,
+                    bound: b.max_operator_interrupts,
+                },
+            ));
+        }
+    }
     let point = item.kind == ItemKind::Point || item.case.is_point();
     let optimise = item.kind == ItemKind::Optimise;
     let waves = seed_space(&item.case, params);
-    // wave 0: offered candidates (order 0), judged and selected like searched ones
+    // wave 0: offered and inherited candidates (order 0), judged and selected like searched ones
+    let prefix = format!("{}|offer|", item.id.0);
     let mut done_settings: Vec<(usize, SeedSetting, String)> = state
         .records
         .iter()
-        .filter(|(k, _)| k.starts_with(&format!("{}|offer|", item.id.0)))
+        .filter(|(k, r)| k.starts_with(&prefix) && r.is_verdict())
         .map(|(k, r)| (0usize, r.setting.clone(), k.clone()))
         .collect();
     let mut order = 0usize;
@@ -840,76 +1326,46 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                 (order, s.clone(), attempt_key(&item.id, s))
             })
             .collect();
-        for (_, _, k) in &entries {
-            if let Some(r) = state.records.get(k)
-                && !r.is_final()
-                && r.infra_interrupts > params.budgets.infra_retries
-            {
-                return Next::Done(Disposition::Attention {
-                    why: format!(
-                        "attempt {k}: {} infra interrupts (cap {})",
-                        r.infra_interrupts, params.budgets.infra_retries
-                    ),
-                });
-            }
-        }
-        let is_final = |k: &String| state.records.get(k).is_some_and(|r| r.is_final());
+        let settled = |k: &String| state.records.get(k).is_some_and(|r| r.settled(b));
         let finished: Vec<(usize, SeedSetting, String)> =
-            entries.iter().filter(|e| is_final(&e.2)).cloned().collect();
+            entries.iter().filter(|e| settled(&e.2)).cloned().collect();
         let pending: Vec<&(usize, SeedSetting, String)> =
-            entries.iter().filter(|e| !is_final(&e.2)).collect();
+            entries.iter().filter(|e| !settled(&e.2)).collect();
         let mut all_done = done_settings.clone();
         all_done.extend(finished.iter().cloned());
         let mut acc = match accepted_candidates(state, params, &all_done) {
             Ok(a) => a,
             Err(need) => return Next::NeedVerdicts(need),
         };
-        if optimise {
-            match optimise_filter(state, &mut acc) {
-                Ok(()) => {}
-                Err(req) => return Next::NeedContainment(req),
-            }
+        if optimise && let Err(req) = optimise_filter(state, &mut acc) {
+            return Next::NeedContainment(req);
         }
         let one = match one_case_with_evidence(&acc, gp, params) {
             Ok(o) => o,
             Err(req) => return Next::NeedEvidence(req),
         };
+        // WAVE SEMANTICS (audit B M3, addendum 4): a wave is the set of its settings fixed when it is issued; it is
+        // ALWAYS run to the end, so the choice is a function of the SET of verdict results of the wave and a
+        // sequential driver and a parallel batch driver reach the same disposition. The next wave runs only if this
+        // one gave no one-case cover. Only a wave-0 candidate (offered / inherited, no solver CPU) that covers every
+        // gap point before the first wave starts ends the search.
         let offer = match one {
             None => !pending.is_empty(),
-            Some(_) if pending.is_empty() => false,
-            Some(_) => {
-                // economy extra budget (R31 (b), U-13): c0 = CPU of the first acceptable one-case answer in
-                // enumeration order; the remaining settings of the wave are offered while the CPU spent on
-                // settings after it is <= factor x c0
-                let first_ok = acc
-                    .iter()
-                    .filter(|a| a.credited.len() == n_points && a.lacking.is_empty())
-                    .map(|a| a.order)
-                    .min()
-                    .unwrap_or(0);
-                let cpu = |e: &(usize, SeedSetting, String)| {
-                    state.records.get(&e.2).map_or(0, |r| r.cpu_ms_total)
-                };
-                let c0 = entries.iter().find(|e| e.0 == first_ok).map_or(0, cpu);
-                let spent: u64 = entries.iter().filter(|e| e.0 > first_ok).map(cpu).sum();
-                // a wave-0 offer (no solver CPU) that covers everything ends the search (extra-rules.md 5.2)
-                c0 > 0 && (spent as f64) <= params.budgets.economy_extra_factor * (c0 as f64)
+            Some(bi) => {
+                !pending.is_empty() && !(acc[bi].order == 0 && w == 0 && finished.is_empty())
             }
         };
         if offer {
-            let oversized = state.records.values().any(|r| {
-                matches!(
-                    r.answer,
-                    Some(SolveAnswer {
-                        outcome: SolveOutcome::RefusedHeavy { .. },
-                        ..
-                    })
-                )
-            });
+            let heavy = state
+                .records
+                .values()
+                .any(|r| r.non_verdict.iter().any(|t| t == "refused_heavy"));
             let attempts: Vec<Attempt> = pending
                 .iter()
                 .map(|(_, s, k)| {
                     let r = state.records.get(k);
+                    // a retry after a non-verdict outcome runs in the larger (oversized) resource class (C3)
+                    let retry = r.is_some_and(|r| !r.non_verdict.is_empty());
                     Attempt {
                         item: item.id.clone(),
                         key: k.clone(),
@@ -917,9 +1373,13 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                         setting: s.clone(),
                         rung: if point { Rung::Point } else { Rung::SeedSearch },
                         wave: w as u8,
-                        budget: attempt_budget(s, params, point, oversized),
+                        budget: attempt_budget(s, &item.case, params, point, heavy || retry),
                         seed_args: engine_seed_args(s),
-                        attempt_no: 1 + r.map_or(0, |r| r.operator_interrupts + r.infra_interrupts),
+                        attempt_no: 1 + r.map_or(0, |r| {
+                            r.operator_interrupts
+                                .saturating_add(r.infra_interrupts)
+                                .saturating_add(r.non_verdict.len() as u32)
+                        }),
                     }
                 })
                 .collect();
@@ -957,10 +1417,11 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     if !req.is_empty() {
         return Next::NeedEvidence(req);
     }
-    // ECONOMY PRUNING (decision, see repair-library.md 4.2): a member whose own points all lie on exception branches
-    // READ FROM an earlier member's rule, where that branch also holds a point the full cover leaves, adds a case
-    // the branch child makes anyway: it goes to the RESERVE, applied by the driver only to points the children's
-    // subtrees leave unserved (so a child that fails costs no closure, and a child that succeeds saves a case)
+    // ECONOMY PRUNING (decision D-L4, revised after audit A M1; repair-library.md 4.2): a member whose own points
+    // all lie on exception branches READ FROM an earlier member's rule, where that branch also holds a point the
+    // full cover leaves, adds a case the branch child makes anyway: it goes to the RESERVE and is handed to the
+    // children whose gap points it credits as an INHERITED candidate, where it competes in the child's own
+    // selection BEFORE the child splits further (so it can never lose to point rules).
     let mut members = members;
     let mut reserve_idx: Vec<usize> = Vec::new();
     loop {
@@ -1017,17 +1478,7 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     let cover = make_cover(state, &acc, &members, greedy);
     let reserve: Vec<CoverMember> = reserve_idx
         .iter()
-        .map(|&i| {
-            let a = &acc[i];
-            CoverMember {
-                attempt_key: a.key.clone(),
-                index: a.index,
-                setting: a.setting.clone(),
-                digest: a.rule.digest.clone(),
-                rhs_terms: a.rule.rhs_terms,
-                served: a.credited.iter().map(|&p| gp[p].clone()).collect(),
-            }
-        })
+        .map(|&i| member_of(state, &acc[i], vec![]))
         .collect();
     let served: BTreeSet<Key> = cover
         .members
@@ -1042,21 +1493,43 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     if leftover.is_empty() {
         return Next::Done(Disposition::Covered { cover });
     }
+    if point && leftover.len() > 1 {
+        // a point case holds ONE key; several left-over keys mean a malformed case (audit B m1): never one token
+        // for several keys
+        return Next::Done(Disposition::attention(
+            AttentionReason::MalformedPointCase { keys: leftover },
+        ));
+    }
     if point {
-        let tried: Vec<&AttemptRecord> = state.records.values().filter(|r| r.is_final()).collect();
-        let exhausted = LadderExhausted {
-            item: item.id.clone(),
-            key: leftover[0].clone(),
-            attempts: tried.len() as u32,
-            depth3_tried: tried.iter().any(|r| r.setting.depth >= 3),
-            depth3_unfloored_tried: tried
-                .iter()
-                .any(|r| r.setting.depth >= 3 && !r.setting.floor),
+        // C3: a terminal proposal only when EVERY setting of the space has a verdict outcome
+        let no_verdict: Vec<String> = waves
+            .iter()
+            .flatten()
+            .filter(|s| {
+                !state
+                    .records
+                    .get(&attempt_key(&item.id, s))
+                    .is_some_and(|r| r.is_verdict())
+            })
+            .map(|s| s.label())
+            .collect();
+        if waves.iter().all(|w| w.is_empty()) {
+            return Next::Done(Disposition::attention(AttentionReason::EmptySeedSpace));
+        }
+        if !no_verdict.is_empty() {
+            return Next::Done(Disposition::attention(AttentionReason::NonVerdict {
+                settings: no_verdict,
+            }));
+        }
+        return match LadderExhausted::mint(state, params, &leftover[0]) {
+            Some(exhausted) => Next::Done(Disposition::TerminalCandidates {
+                keys: leftover,
+                exhausted,
+            }),
+            None => Next::Done(Disposition::attention(AttentionReason::NonVerdict {
+                settings: vec![],
+            })),
         };
-        return Next::Done(Disposition::TerminalCandidates {
-            keys: leftover,
-            exhausted,
-        });
     }
     let cover_rules: Vec<&CandidateRule> = members.iter().map(|&m| &acc[m].rule).collect();
     // every other judged candidate informs the children, also one that credits no gap point (all of them on its
@@ -1077,16 +1550,40 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             }
         }
     }
-    let others = informants;
     let reserve_rules: Vec<&CandidateRule> = reserve_idx.iter().map(|&i| &acc[i].rule).collect();
-    let (children, alternatives) = derive_children(
+    let (mut children, alternatives) = derive_children(
         item,
         &cover_rules,
         &reserve_rules,
-        &others,
+        &informants,
         &leftover,
         params,
     );
+    let placed: BTreeSet<&Key> = children.iter().flat_map(|c| c.gap_points.iter()).collect();
+    let unplaced: Vec<Key> = leftover
+        .iter()
+        .filter(|k| !placed.contains(k))
+        .cloned()
+        .collect();
+    if !unplaced.is_empty() {
+        return Next::Done(Disposition::attention(AttentionReason::UnplacedPoints {
+            keys: unplaced,
+        }));
+    }
+    // hand the reserve to the children whose gap points it credits
+    for c in &mut children {
+        for &i in &reserve_idx {
+            let a = &acc[i];
+            if a.credited.iter().any(|&p| c.gap_points.contains(&gp[p])) {
+                c.inherited.push(InheritedCandidate {
+                    rule: a.rule.clone(),
+                    case: a.case.clone(),
+                    setting: a.setting.clone(),
+                    from: format!("{}#{}", a.key, a.index),
+                });
+            }
+        }
+    }
     Next::Done(Disposition::Split {
         cover,
         children,
@@ -1130,7 +1627,7 @@ fn optimise_filter(
         cases: old.len() as u64,
         size_class: SelectionScore::size_class_of(old_rhs),
         preferred_misses: u64::MAX,
-        rhs_terms: old.iter().map(|o| o.rhs_terms).sum(),
+        rhs_terms: old_rhs,
         monomials: old
             .iter()
             .map(|o| o.monomials.unwrap_or(u64::MAX / 4))

@@ -2,147 +2,3056 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ledger-record.schema.json",
   "title": "One line of the ledger of record (CDIR/ledger/segment-NNNNNN.jsonl)",
-  "description": "AS BUILT: rustred_campaign::ledger::Record (interfaces/ledger-and-progress.md 2-3). Closed list of kinds; the ledger is never read tolerantly (unknown kinds and fields refused). Canonical bytes = the line as written; `prev` = BLAKE3 of the previous line's bytes (64 zeros for seq 1).",
-  "x-rr-names": ["rustred.campaign.ledger.v1"],
+  "description": "AS BUILT: rustred_campaign::ledger::Record (interfaces/ledger-and-progress.md 2-3). Closed list of kinds; the ledger is never read tolerantly (unknown kinds and fields refused; the reader also requires the canonical bytes). Line = the canonical serialisation of the record WITHOUT `h`, with `,\"h\":\"<BLAKE3 of those bytes>\"` inserted before the final brace; `prev` = `h` of the previous record (64 zeros for seq 1). `job_progress` is no longer a ledger kind (samples go to progress/jobs.json).",
+  "x-rr-names": [
+    "rustred.campaign.ledger.v1"
+  ],
   "x-rr-owner": "I-LEDGER",
   "x-rr-struct": "rustred_campaign::ledger::Record",
   "x-rr-freeze": "M0",
   "type": "object",
-  "required": ["schema", "seq", "utc", "prev", "event"],
+  "required": [
+    "schema",
+    "seq",
+    "utc",
+    "prev",
+    "event",
+    "h"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": {"const": "rustred.campaign.ledger.v1"},
-    "seq": {"type": "integer", "minimum": 1},
-    "utc": {"$ref": "common.schema.json#/$defs/utc_ms"},
-    "prev": {"$ref": "common.schema.json#/$defs/blake3"},
-    "event": {"$ref": "#/$defs/event"}
+    "schema": {
+      "const": "rustred.campaign.ledger.v1"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "utc": {
+      "$ref": "common.schema.json#/$defs/utc_ms"
+    },
+    "prev": {
+      "$ref": "common.schema.json#/$defs/blake3"
+    },
+    "event": {
+      "$ref": "#/$defs/event"
+    },
+    "h": {
+      "$ref": "common.schema.json#/$defs/blake3"
+    }
   },
   "$defs": {
-    "str": {"type": "string"},
-    "strn": {"type": ["string", "null"]},
-    "u64": {"$ref": "common.schema.json#/$defs/u64"},
-    "u32": {"$ref": "common.schema.json#/$defs/u32"},
-    "fileref": {"$ref": "common.schema.json#/$defs/fileref"},
-    "fileref_or_null": {"$ref": "common.schema.json#/$defs/fileref_or_null"},
-    "reason_body": {"type": "object", "required": ["reason"], "additionalProperties": false, "properties": {"reason": {"type": "string"}}},
     "event": {
       "type": "object",
-      "required": ["kind", "body"],
+      "required": [
+        "kind",
+        "body"
+      ],
       "additionalProperties": false,
       "properties": {
-        "body": {"type": "object"},
-        "kind": {"enum": ["campaign_created", "campaign", "supervisor_started", "lock_takeover", "recovery", "segment_opened", "input_registered", "evidence_imported", "node_registered", "rule_economy", "node", "item_created", "item", "job_queued", "job", "intent", "done", "job_progress", "note"]}
+        "body": {
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "campaign_created",
+            "campaign",
+            "supervisor_started",
+            "lock_takeover",
+            "recovery",
+            "segment_opened",
+            "input_registered",
+            "evidence_imported",
+            "tables_imported",
+            "node_registered",
+            "rule_economy",
+            "node",
+            "item_created",
+            "item",
+            "job_queued",
+            "job",
+            "intent",
+            "done",
+            "control",
+            "orphan_killed",
+            "verify_checkpoint",
+            "artefact_lost",
+            "export",
+            "note"
+          ]
+        }
       },
       "allOf": [
-        {"if": {"properties": {"kind": {"const": "campaign_created"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/campaign_created"}}}},
-        {"if": {"properties": {"kind": {"const": "campaign"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/campaign"}}}},
-        {"if": {"properties": {"kind": {"const": "supervisor_started"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/supervisor_started"}}}},
-        {"if": {"properties": {"kind": {"const": "lock_takeover"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/lock_takeover"}}}},
-        {"if": {"properties": {"kind": {"const": "recovery"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/recovery"}}}},
-        {"if": {"properties": {"kind": {"const": "segment_opened"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/segment_opened"}}}},
-        {"if": {"properties": {"kind": {"const": "input_registered"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/input_registered"}}}},
-        {"if": {"properties": {"kind": {"const": "evidence_imported"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/evidence_imported"}}}},
-        {"if": {"properties": {"kind": {"const": "node_registered"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/node_registered"}}}},
-        {"if": {"properties": {"kind": {"const": "rule_economy"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/rule_economy"}}}},
-        {"if": {"properties": {"kind": {"const": "node"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/node"}}}},
-        {"if": {"properties": {"kind": {"const": "item_created"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/item_created"}}}},
-        {"if": {"properties": {"kind": {"const": "item"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/item"}}}},
-        {"if": {"properties": {"kind": {"const": "job_queued"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/job_queued"}}}},
-        {"if": {"properties": {"kind": {"const": "job"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/job"}}}},
-        {"if": {"properties": {"kind": {"const": "intent"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/intent"}}}},
-        {"if": {"properties": {"kind": {"const": "done"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/done"}}}},
-        {"if": {"properties": {"kind": {"const": "job_progress"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/job_progress"}}}},
-        {"if": {"properties": {"kind": {"const": "note"}}}, "then": {"properties": {"body": {"$ref": "#/$defs/note"}}}}
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "campaign_created"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/campaign_created"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "campaign"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/campaign"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "supervisor_started"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/supervisor_started"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "lock_takeover"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/lock_takeover"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "recovery"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/recovery"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "segment_opened"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/segment_opened"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "input_registered"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/input_registered"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "evidence_imported"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/evidence_imported"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tables_imported"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/tables_imported"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "node_registered"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/node_registered"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rule_economy"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/rule_economy"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "node"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/node"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "item_created"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/item_created"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "item"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/item"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "job_queued"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/job_queued"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "job"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/job"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "intent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/intent"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "done"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/done"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "control"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/control"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "orphan_killed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/orphan_killed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "verify_checkpoint"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/verify_checkpoint"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "artefact_lost"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/artefact_lost"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "export"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/export"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "note"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/note"
+              }
+            }
+          }
+        }
       ]
     },
-    "campaign_created": {"type": "object", "required": ["campaign_id", "spec_blake3", "terminal_bound"], "additionalProperties": false,
-      "properties": {"campaign_id": {"$ref": "common.schema.json#/$defs/id"}, "spec_blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "terminal_bound": {"$ref": "#/$defs/u32"}}},
-    "campaign": {"type": "object", "required": ["ev", "reason"], "additionalProperties": false,
-      "properties": {"ev": {"enum": ["start", "run", "drain", "stop", "finish"]}, "reason": {"type": "string"}}},
-    "identity": {"type": "object", "required": ["pid", "start_ticks", "boot_id", "host"], "additionalProperties": false,
-      "properties": {"pid": {"$ref": "#/$defs/u32"}, "start_ticks": {"$ref": "#/$defs/u64"}, "boot_id": {"type": "string"}, "host": {"type": "string"}}},
-    "supervisor_started": {"type": "object", "required": ["identity", "argv", "version", "lock_token"], "additionalProperties": false,
-      "properties": {"identity": {"$ref": "#/$defs/identity"}, "argv": {"type": "array", "items": {"type": "string"}}, "version": {"type": "string"}, "lock_token": {"type": "string"}}},
-    "dead_reason": {"anyOf": [
-      {"const": "pid_absent"},
-      {"type": "object", "required": ["start_time_differs"], "additionalProperties": false, "properties": {"start_time_differs": {"type": "object", "required": ["now"], "additionalProperties": false, "properties": {"now": {"$ref": "#/$defs/u64"}}}}},
-      {"type": "object", "required": ["boot_id_differs"], "additionalProperties": false, "properties": {"boot_id_differs": {"type": "object", "required": ["now"], "additionalProperties": false, "properties": {"now": {"type": "string"}}}}}
-    ]},
-    "lock_takeover": {"type": "object", "required": ["previous", "reason", "orphans"], "additionalProperties": false,
-      "properties": {"previous": {"$ref": "lock.schema.json"}, "reason": {"$ref": "#/$defs/dead_reason"}, "orphans": {"type": "array", "items": {"$ref": "#/$defs/u32"}}}},
-    "recovery": {"type": "object", "required": ["segment", "last_good_seq", "truncated_bytes", "saved_as", "detail"], "additionalProperties": false,
-      "properties": {"segment": {"$ref": "#/$defs/u32"}, "last_good_seq": {"$ref": "#/$defs/u64"}, "truncated_bytes": {"$ref": "#/$defs/u64"}, "saved_as": {"$ref": "#/$defs/strn"}, "detail": {"type": "string"}}},
-    "segment_opened": {"type": "object", "required": ["index", "previous_blake3", "snapshot_seq"], "additionalProperties": false,
-      "properties": {"index": {"$ref": "#/$defs/u32"}, "previous_blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "snapshot_seq": {"$ref": "#/$defs/u64"}}},
-    "input_registered": {"type": "object", "required": ["input", "role", "path", "bytes", "blake3"], "additionalProperties": false,
-      "properties": {"input": {"$ref": "common.schema.json#/$defs/id"}, "role": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "bytes": {"$ref": "#/$defs/u64"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}},
-    "evidence_imported": {"type": "object", "required": ["evidence", "producer", "description", "files"], "additionalProperties": false,
-      "properties": {"evidence": {"$ref": "common.schema.json#/$defs/id"}, "producer": {"type": "string"}, "description": {"type": "string"}, "files": {"type": "array", "items": {"$ref": "#/$defs/fileref"}}}},
-    "node_registered": {"type": "object", "required": ["node", "inputs", "terminal_bound", "spec_box"], "additionalProperties": false,
-      "properties": {"node": {"$ref": "common.schema.json#/$defs/id"}, "inputs": {"type": "array", "items": {"type": "string"}}, "terminal_bound": {"type": ["integer", "null"], "minimum": 0}, "spec_box": {"$ref": "#/$defs/strn"}}},
-    "rule_economy": {"type": "object", "required": ["item", "economy"], "additionalProperties": false,
-      "properties": {"item": {"type": "string"}, "economy": {"$ref": "common.schema.json#/$defs/economy"}}},
-    "blockers": {"type": "object", "required": ["faces", "loci", "keys", "list"], "additionalProperties": false,
-      "properties": {"faces": {"$ref": "#/$defs/u64"}, "loci": {"$ref": "#/$defs/u64"}, "keys": {"$ref": "#/$defs/u64"}, "list": {"$ref": "#/$defs/fileref_or_null"}}},
-    "node": {"type": "object", "required": ["node", "ev"], "additionalProperties": false,
-      "properties": {"node": {"type": "string"}, "ev": {"$ref": "#/$defs/node_ev"}}},
-    "node_ev": {"type": "object", "required": ["ev"],
-      "properties": {"ev": {"enum": ["start", "closure_result", "attempt_ended", "fall_back_to_box", "declare_open", "declare_closed", "declare_certified", "reopen", "mark_stale"]}},
+    "level_evidence": {
+      "type": "object",
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "identity_tested",
+            "identity_proved"
+          ]
+        }
+      },
       "allOf": [
-        {"if": {"properties": {"ev": {"enum": ["start", "declare_closed", "declare_certified"]}}}, "then": {"additionalProperties": false, "properties": {"ev": true}}},
-        {"if": {"properties": {"ev": {"const": "closure_result"}}}, "then": {"required": ["round", "defect_keys", "closure_keys", "rules_used", "rules_total", "keyset"], "additionalProperties": false,
-          "properties": {"ev": true, "round": {"$ref": "#/$defs/u32"}, "defect_keys": {"$ref": "#/$defs/u64"}, "closure_keys": {"$ref": "#/$defs/u64"}, "rules_used": {"type": ["integer", "null"], "minimum": 0}, "rules_total": {"type": ["integer", "null"], "minimum": 0}, "keyset": {"$ref": "#/$defs/fileref_or_null"}}}},
-        {"if": {"properties": {"ev": {"const": "attempt_ended"}}}, "then": {"required": ["blockers", "reason"], "additionalProperties": false, "properties": {"ev": true, "blockers": {"$ref": "#/$defs/blockers"}, "reason": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "fall_back_to_box"}}}, "then": {"required": ["box_id"], "additionalProperties": false, "properties": {"ev": true, "box_id": {"type": "string", "minLength": 1}}}},
-        {"if": {"properties": {"ev": {"enum": ["declare_open", "reopen", "mark_stale"]}}}, "then": {"required": ["reason"], "additionalProperties": false, "properties": {"ev": true, "reason": {"type": "string"}}}}
-      ]},
-    "item_created": {"type": "object", "required": ["item", "node", "kind", "rung", "parent", "inputs", "label", "weight"], "additionalProperties": false,
-      "properties": {"item": {"$ref": "common.schema.json#/$defs/id"}, "node": {"type": "string"}, "kind": {"type": "string", "minLength": 1}, "rung": {"$ref": "common.schema.json#/$defs/rung"}, "parent": {"$ref": "#/$defs/strn"}, "inputs": {"type": "array", "items": {"type": "string"}}, "label": {"type": "string"}, "weight": {"$ref": "#/$defs/u64"}}},
-    "item": {"type": "object", "required": ["item", "ev"], "additionalProperties": false,
-      "properties": {"item": {"type": "string"}, "ev": {"$ref": "#/$defs/item_ev"}}},
-    "accept_source": {"oneOf": [
-      {"type": "object", "required": ["from", "job", "attempt", "table_blake3"], "additionalProperties": false, "properties": {"from": {"const": "job"}, "job": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1}, "table_blake3": {"$ref": "common.schema.json#/$defs/blake3"}}},
-      {"type": "object", "required": ["from", "evidence"], "additionalProperties": false, "properties": {"from": {"const": "evidence"}, "evidence": {"type": "string"}}}
-    ]},
-    "retirement_proof": {"type": "object", "required": ["kind"],
-      "properties": {"kind": {"enum": ["empty_domain", "fully_shadowed", "replaced_by", "dispatch_order_change", "regeneration", "box_closure_pass"]}},
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "identity_tested"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "level",
+              "verdict"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "level": true,
+              "verdict": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "identity_proved"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "level",
+              "proofs",
+              "keys"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "level": true,
+              "proofs": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "keys": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "retirement_proof": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "empty_domain",
+            "fully_shadowed",
+            "replaced_by",
+            "dispatch_order_change",
+            "regeneration",
+            "box_closure_pass"
+          ]
+        }
+      },
       "allOf": [
-        {"if": {"properties": {"kind": {"enum": ["empty_domain", "fully_shadowed", "replaced_by", "dispatch_order_change"]}}}, "then": {"required": ["proof"], "additionalProperties": false, "properties": {"kind": true, "proof": {"$ref": "#/$defs/fileref"}}}},
-        {"if": {"properties": {"kind": {"const": "regeneration"}}}, "then": {"required": ["table", "proof"], "additionalProperties": false, "properties": {"kind": true, "table": {"$ref": "#/$defs/fileref"}, "proof": {"$ref": "#/$defs/fileref"}}}},
-        {"if": {"properties": {"kind": {"const": "box_closure_pass"}}}, "then": {"required": ["closure"], "additionalProperties": false, "properties": {"kind": true, "closure": {"$ref": "#/$defs/fileref"}}}}
-      ]},
-    "item_ev": {"type": "object", "required": ["ev"],
-      "properties": {"ev": {"enum": ["start", "produce", "accept", "upgrade", "reject", "escalate", "requeue", "propose_terminal", "declare_terminal", "mark_stale", "reopen", "retire"]}},
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "empty_domain"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "proof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "fully_shadowed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "proof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "replaced_by"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "proof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "dispatch_order_change"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "proof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "regeneration"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "table",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "table": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "proof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "box_closure_pass"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind",
+              "closure"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "closure": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "accept_source": {
+      "type": "object",
+      "required": [
+        "from"
+      ],
+      "properties": {
+        "from": {
+          "enum": [
+            "job",
+            "evidence"
+          ]
+        }
+      },
       "allOf": [
-        {"if": {"properties": {"ev": {"const": "start"}}}, "then": {"required": ["job"], "additionalProperties": false, "properties": {"ev": true, "job": {"$ref": "#/$defs/strn"}}}},
-        {"if": {"properties": {"ev": {"const": "produce"}}}, "then": {"required": ["job", "attempt", "table"], "additionalProperties": false, "properties": {"ev": true, "job": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1}, "table": {"$ref": "#/$defs/fileref"}}}},
-        {"if": {"properties": {"ev": {"const": "accept"}}}, "then": {"required": ["rule", "level", "record", "source", "elided"], "additionalProperties": false, "properties": {"ev": true, "rule": {"type": "string", "minLength": 1}, "level": {"$ref": "common.schema.json#/$defs/evidence_level"}, "record": {"$ref": "#/$defs/fileref"}, "source": {"$ref": "#/$defs/accept_source"}, "elided": {"type": "boolean"}}}},
-        {"if": {"properties": {"ev": {"const": "upgrade"}}}, "then": {"required": ["level", "evidence"], "additionalProperties": false, "properties": {"ev": true, "level": {"$ref": "common.schema.json#/$defs/evidence_level"}, "evidence": {"$ref": "#/$defs/fileref"}}}},
-        {"if": {"properties": {"ev": {"enum": ["reject", "requeue", "propose_terminal", "reopen"]}}}, "then": {"required": ["reason"], "additionalProperties": false, "properties": {"ev": true, "reason": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "escalate"}}}, "then": {"required": ["to", "reason"], "additionalProperties": false, "properties": {"ev": true, "to": {"$ref": "common.schema.json#/$defs/rung"}, "reason": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "declare_terminal"}}}, "then": {"required": ["count", "keys", "reason"], "additionalProperties": false, "properties": {"ev": true, "count": {"$ref": "#/$defs/u32"}, "keys": {"$ref": "#/$defs/fileref_or_null"}, "reason": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "mark_stale"}}}, "then": {"required": ["input"], "additionalProperties": false, "properties": {"ev": true, "input": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "retire"}}}, "then": {"required": ["rule", "proof", "superseded_by"], "additionalProperties": false, "properties": {"ev": true, "rule": {"type": "string"}, "proof": {"$ref": "#/$defs/retirement_proof"}, "superseded_by": {"$ref": "#/$defs/strn"}}}}
-      ]},
-    "job_queued": {"type": "object", "required": ["job", "item", "rung", "kind", "spec_blake3", "binary", "reserved_bytes"], "additionalProperties": false,
-      "properties": {"job": {"$ref": "common.schema.json#/$defs/id"}, "item": {"type": "string"}, "rung": {"$ref": "common.schema.json#/$defs/rung"}, "kind": {"type": "string"}, "spec_blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "binary": {"type": "string"}, "reserved_bytes": {"$ref": "#/$defs/u64"}}},
-    "job": {"type": "object", "required": ["job", "attempt", "ev"], "additionalProperties": false,
-      "properties": {"job": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1}, "ev": {"$ref": "#/$defs/job_ev"}}},
-    "job_ev": {"type": "object", "required": ["ev"],
-      "properties": {"ev": {"enum": ["launch", "started", "finished", "interrupt", "lose", "requeue", "retry", "cancel"]}},
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "job"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "from",
+              "job",
+              "attempt",
+              "table_blake3"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "from": true,
+              "job": {
+                "type": "string"
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "table_blake3": {
+                "$ref": "common.schema.json#/$defs/blake3"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "evidence"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "from",
+              "evidence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "from": true,
+              "evidence": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "item_ev": {
+      "type": "object",
+      "required": [
+        "ev"
+      ],
+      "properties": {
+        "ev": {
+          "enum": [
+            "start",
+            "produce",
+            "accept",
+            "import",
+            "upgrade",
+            "reject",
+            "escalate",
+            "requeue",
+            "propose_terminal",
+            "declare_terminal",
+            "mark_stale",
+            "reopen",
+            "retire",
+            "reinstate",
+            "replace",
+            "exclude_keys",
+            "attention"
+          ]
+        }
+      },
       "allOf": [
-        {"if": {"properties": {"ev": {"const": "launch"}}}, "then": {"required": ["run_dir", "cpus", "reserved_bytes"], "additionalProperties": false, "properties": {"ev": true, "run_dir": {"type": "string"}, "cpus": {"type": "array", "items": {"$ref": "#/$defs/u32"}}, "reserved_bytes": {"$ref": "#/$defs/u64"}}}},
-        {"if": {"properties": {"ev": {"const": "started"}}}, "then": {"required": ["pid", "start_ticks", "boot_id"], "additionalProperties": false, "properties": {"ev": true, "pid": {"$ref": "#/$defs/u32"}, "start_ticks": {"$ref": "#/$defs/u64"}, "boot_id": {"type": "string"}}}},
-        {"if": {"properties": {"ev": {"const": "finished"}}}, "then": {"required": ["class", "exit_code", "signal", "sealed_output", "outcome", "cpu_ms", "wall_ms", "peak_rss_bytes", "time_decided"], "additionalProperties": false,
-          "properties": {"ev": true, "class": {"$ref": "common.schema.json#/$defs/finish_class"}, "exit_code": {"type": ["integer", "null"]}, "signal": {"type": ["integer", "null"]}, "sealed_output": {"$ref": "#/$defs/fileref_or_null"}, "outcome": {"$ref": "#/$defs/fileref_or_null"}, "cpu_ms": {"$ref": "#/$defs/u64"}, "wall_ms": {"$ref": "#/$defs/u64"}, "peak_rss_bytes": {"$ref": "#/$defs/u64"}, "time_decided": {"type": "boolean"}}}},
-        {"if": {"properties": {"ev": {"enum": ["interrupt", "lose", "requeue", "retry", "cancel"]}}}, "then": {"required": ["reason"], "additionalProperties": false, "properties": {"ev": true, "reason": {"type": "string"}}}}
-      ]},
-    "intent": {"type": "object", "required": ["op", "action", "target"], "additionalProperties": false,
-      "properties": {"op": {"type": "string", "minLength": 1}, "action": {"type": "string"}, "target": {"type": "string"}}},
-    "done": {"type": "object", "required": ["op", "result"], "additionalProperties": false,
-      "properties": {"op": {"type": "string", "minLength": 1}, "result": {"$ref": "#/$defs/fileref_or_null"}}},
-    "job_progress": {"type": "object", "required": ["job", "attempt", "counters"], "additionalProperties": false,
-      "properties": {"job": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1}, "counters": {"type": "object", "additionalProperties": {"$ref": "#/$defs/u64"}}}},
-    "note": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {"text": {"type": "string"}}}
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "start"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "job"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "job": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "produce"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "job",
+              "attempt",
+              "table"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "job": {
+                "type": "string"
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "table": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "accept"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "rule",
+              "level",
+              "record",
+              "source",
+              "elided",
+              "evidence",
+              "round"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "rule": {
+                "type": "string",
+                "minLength": 1
+              },
+              "level": {
+                "$ref": "common.schema.json#/$defs/evidence_level"
+              },
+              "record": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "source": {
+                "$ref": "#/$defs/accept_source"
+              },
+              "elided": {
+                "type": "boolean"
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/level_evidence"
+                  }
+                ]
+              },
+              "round": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "import"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "rule",
+              "level",
+              "record",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "rule": {
+                "type": "string",
+                "minLength": 1
+              },
+              "level": {
+                "$ref": "common.schema.json#/$defs/evidence_level"
+              },
+              "record": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "provenance": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "upgrade"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "level",
+              "evidence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "level": {
+                "$ref": "common.schema.json#/$defs/evidence_level"
+              },
+              "evidence": {
+                "$ref": "#/$defs/level_evidence"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "reject"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason",
+              "disproof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              },
+              "disproof": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "escalate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "to",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "to": {
+                "$ref": "common.schema.json#/$defs/rung"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "requeue"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "propose_terminal"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason",
+              "preferred",
+              "exhausted"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              },
+              "preferred": {
+                "type": "boolean"
+              },
+              "exhausted": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "declare_terminal"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "count",
+              "keys",
+              "reason",
+              "preferred"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "keys": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "preferred": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "mark_stale"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "input"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "input": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "reopen"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "retire"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "rule",
+              "proof",
+              "superseded_by"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "rule": {
+                "type": "string"
+              },
+              "proof": {
+                "$ref": "#/$defs/retirement_proof"
+              },
+              "superseded_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "reinstate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "replace"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "replaces",
+              "containment"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "replaces": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "containment": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "exclude_keys"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "keys",
+              "disproof",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "keys": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "disproof": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "attention"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "code",
+              "text"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "node_ev": {
+      "type": "object",
+      "required": [
+        "ev"
+      ],
+      "properties": {
+        "ev": {
+          "enum": [
+            "start",
+            "fixer_round_begin",
+            "assembled",
+            "closure_result",
+            "winner_diff_done",
+            "attempt_ended",
+            "fall_back_to_box",
+            "declare_open",
+            "declare_closed",
+            "declare_certified",
+            "envelope_recheck",
+            "reopen",
+            "mark_stale"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "start"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "fixer_round_begin"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "round",
+              "partition"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "round": {
+                "$ref": "common.schema.json#/$defs/u32"
+              },
+              "partition": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "assembled"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "round",
+              "manifest",
+              "dispatch_order"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "round": {
+                "$ref": "common.schema.json#/$defs/u32"
+              },
+              "manifest": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "dispatch_order": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "closure_result"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "round",
+              "defect_keys",
+              "closure_keys",
+              "rules_used",
+              "rules_total",
+              "keyset",
+              "rule_set_digest",
+              "dispatch_order_digest",
+              "envelope",
+              "envelope_tables"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "round": {
+                "$ref": "common.schema.json#/$defs/u32"
+              },
+              "defect_keys": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "closure_keys": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "rules_used": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "rules_total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "keyset": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              },
+              "rule_set_digest": {
+                "$ref": "common.schema.json#/$defs/blake3"
+              },
+              "dispatch_order_digest": {
+                "$ref": "common.schema.json#/$defs/blake3"
+              },
+              "envelope": {
+                "enum": [
+                  "measured",
+                  "proved"
+                ]
+              },
+              "envelope_tables": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/fileref"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "winner_diff_done"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "round",
+              "diff",
+              "failures"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "round": {
+                "$ref": "common.schema.json#/$defs/u32"
+              },
+              "diff": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "failures": {
+                "$ref": "common.schema.json#/$defs/u64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "attempt_ended"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "blockers",
+              "reason",
+              "cause"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "blockers": {
+                "$ref": "#/$defs/blockers"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "cause": {
+                "enum": [
+                  "cpu_budget",
+                  "fixer_rounds"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "fall_back_to_box"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "box_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "box_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "declare_open"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "declare_closed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "declare_certified"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "envelope_recheck"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "passed",
+              "report",
+              "envelope_tables"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "passed": {
+                "type": "boolean"
+              },
+              "report": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              },
+              "envelope_tables": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/fileref"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "reopen"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "mark_stale"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "job_ev": {
+      "type": "object",
+      "required": [
+        "ev"
+      ],
+      "properties": {
+        "ev": {
+          "enum": [
+            "launch",
+            "started",
+            "finished",
+            "interrupt",
+            "lose",
+            "requeue",
+            "retry",
+            "cancel"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "launch"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "run_dir",
+              "cpus",
+              "reserved_bytes",
+              "spec_blake3"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "spec_blake3": {
+                "$ref": "common.schema.json#/$defs/blake3",
+                "description": "BLAKE3 of the attempt's job.json as written (the job.finished binding must name it)"
+              },
+              "run_dir": {
+                "type": "string"
+              },
+              "cpus": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/u32"
+                }
+              },
+              "reserved_bytes": {
+                "$ref": "common.schema.json#/$defs/u64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "started"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "pid",
+              "start_ticks",
+              "boot_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "pid": {
+                "$ref": "common.schema.json#/$defs/u32"
+              },
+              "start_ticks": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "boot_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "finished"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "class",
+              "accept",
+              "exit_code",
+              "signal",
+              "sealed_output",
+              "outcome",
+              "binding",
+              "cpu_ms",
+              "wall_ms",
+              "peak_rss_bytes",
+              "time_decided"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "class": {
+                "$ref": "common.schema.json#/$defs/finish_class"
+              },
+              "accept": {
+                "enum": [
+                  "canonical",
+                  "committed_rules",
+                  "nothing"
+                ]
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "signal": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sealed_output": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              },
+              "outcome": {
+                "$ref": "common.schema.json#/$defs/fileref_or_null"
+              },
+              "binding": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "job",
+                      "attempt",
+                      "spec_blake3"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "job": {
+                        "type": "string"
+                      },
+                      "attempt": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "spec_blake3": {
+                        "$ref": "common.schema.json#/$defs/blake3"
+                      }
+                    }
+                  }
+                ]
+              },
+              "cpu_ms": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "wall_ms": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "peak_rss_bytes": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "time_decided": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "interrupt"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "lose"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "requeue"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "retry"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "cancel"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "blockers": {
+      "type": "object",
+      "required": [
+        "faces",
+        "loci",
+        "keys",
+        "list"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "faces": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "loci": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "keys": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "list": {
+          "$ref": "common.schema.json#/$defs/fileref_or_null"
+        }
+      }
+    },
+    "spec_values": {
+      "type": "object",
+      "required": [
+        "certify_full",
+        "certify_boxed",
+        "full_attempt_cpu_hours",
+        "full_attempt_fixer_rounds",
+        "terminal_rung",
+        "preferred_terminals",
+        "preferred_listed",
+        "preferred_count_against_bound"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "certify_full": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "replay",
+                "per-key"
+              ]
+            }
+          ]
+        },
+        "certify_boxed": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "replay",
+                "per-key"
+              ]
+            }
+          ]
+        },
+        "full_attempt_cpu_hours": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "full_attempt_fixer_rounds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "terminal_rung": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/rung"
+            }
+          ]
+        },
+        "preferred_terminals": {
+          "$ref": "common.schema.json#/$defs/fileref_or_null"
+        },
+        "preferred_listed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "preferred_count_against_bound": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "pid",
+        "start_ticks",
+        "boot_id",
+        "host"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "start_ticks": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "boot_id": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        }
+      }
+    },
+    "dead_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "pid_absent",
+            "own_record"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "start_time_differs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "start_time_differs": {
+              "type": "object",
+              "required": [
+                "now"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "now": {
+                  "$ref": "common.schema.json#/$defs/u64"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "boot_id_differs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "boot_id_differs": {
+              "type": "object",
+              "required": [
+                "now"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "now": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control_target": {
+      "type": "object",
+      "required": [
+        "scope"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "campaign",
+            "node",
+            "item"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "campaign"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scope"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scope": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "node"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scope",
+              "node"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scope": true,
+              "node": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "item"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "scope",
+              "item"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scope": true,
+              "item": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control_ev": {
+      "type": "object",
+      "required": [
+        "ev"
+      ],
+      "properties": {
+        "ev": {
+          "enum": [
+            "requested",
+            "applied",
+            "refused"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "requested"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "verb",
+              "target",
+              "by",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "verb": {
+                "enum": [
+                  "pause",
+                  "resume",
+                  "stop",
+                  "retry",
+                  "skip"
+                ]
+              },
+              "target": {
+                "$ref": "#/$defs/control_target"
+              },
+              "by": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "applied"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "effect"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "effect": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "refused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "why"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "why": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "export_ev": {
+      "type": "object",
+      "required": [
+        "ev"
+      ],
+      "properties": {
+        "ev": {
+          "enum": [
+            "candidate",
+            "published",
+            "revoked"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "candidate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "manifest"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "manifest": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "published"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "manifest"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "manifest": {
+                "$ref": "common.schema.json#/$defs/fileref"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "revoked"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "cause"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "cause": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "campaign_created": {
+      "type": "object",
+      "required": [
+        "campaign_id",
+        "spec_blake3",
+        "terminal_bound",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "campaign_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "spec_blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        },
+        "terminal_bound": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "mode": {
+          "enum": [
+            "close",
+            "optimise"
+          ]
+        }
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "required": [
+        "ev",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ev": {
+          "enum": [
+            "start",
+            "run",
+            "drain",
+            "stop",
+            "finish"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "supervisor_started": {
+      "type": "object",
+      "required": [
+        "identity",
+        "argv",
+        "version",
+        "lock_token"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": "string"
+        },
+        "lock_token": {
+          "type": "string"
+        }
+      }
+    },
+    "lock_takeover": {
+      "type": "object",
+      "required": [
+        "previous",
+        "reason",
+        "orphans"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "previous": {
+          "$ref": "lock.schema.json"
+        },
+        "reason": {
+          "$ref": "#/$defs/dead_reason"
+        },
+        "orphans": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/u32"
+          }
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "required": [
+        "segment",
+        "last_good_seq",
+        "truncated_bytes",
+        "saved_as",
+        "detail",
+        "forced"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "segment": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "last_good_seq": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "truncated_bytes": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "saved_as": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "forced": {
+          "type": "boolean"
+        }
+      }
+    },
+    "segment_opened": {
+      "type": "object",
+      "required": [
+        "index",
+        "previous_blake3",
+        "snapshot_seq"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "previous_blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        },
+        "snapshot_seq": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "input_registered": {
+      "type": "object",
+      "required": [
+        "input",
+        "role",
+        "path",
+        "bytes",
+        "blake3"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        }
+      }
+    },
+    "evidence_imported": {
+      "type": "object",
+      "required": [
+        "evidence",
+        "producer",
+        "description",
+        "files",
+        "level_claimed",
+        "producer_blake3",
+        "provenance_class"
+      ],
+      "additionalProperties": false,
+      "description": "producer_blake3 null (producer never recorded, historical import) requires a provenance_class other than `recorded`; such evidence is PROVENANCE ONLY: the reducer refuses any accept / import from it (no evidence level by itself)",
+      "allOf": [
+        {
+          "if": {"properties": {"producer_blake3": {"type": "null"}}, "required": ["producer_blake3"]},
+          "then": {"properties": {"provenance_class": {"enum": ["unknown: historical import", "unknown: not recorded by the producer"]}}}
+        }
+      ],
+      "properties": {
+        "producer_blake3": {
+          "anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]
+        },
+        "provenance_class": {
+          "anyOf": [{"type": "null"}, {"enum": ["recorded", "unknown: historical import", "unknown: not recorded by the producer"]}]
+        },
+        "evidence": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/fileref"
+          }
+        },
+        "level_claimed": {
+          "$ref": "common.schema.json#/$defs/evidence_level"
+        }
+      }
+    },
+    "tables_imported": {
+      "type": "object",
+      "required": [
+        "provenance",
+        "producer",
+        "source_campaign",
+        "manifest",
+        "files",
+        "level_claimed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provenance": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "source_campaign": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifest": {
+          "$ref": "common.schema.json#/$defs/fileref"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/fileref"
+          }
+        },
+        "level_claimed": {
+          "$ref": "common.schema.json#/$defs/evidence_level"
+        }
+      }
+    },
+    "node_registered": {
+      "type": "object",
+      "required": [
+        "node",
+        "inputs",
+        "terminal_bound",
+        "spec_box",
+        "spec",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "terminal_bound": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "spec_box": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spec": {
+          "$ref": "#/$defs/spec_values"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "description": "comparison only (U-9): never read by any check",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "rule_economy": {
+      "type": "object",
+      "required": [
+        "item",
+        "economy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "economy": {
+          "$ref": "common.schema.json#/$defs/economy"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "node",
+        "ev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "ev": {
+          "$ref": "#/$defs/node_ev"
+        }
+      }
+    },
+    "item_created": {
+      "type": "object",
+      "required": [
+        "item",
+        "node",
+        "kind",
+        "rung",
+        "parent",
+        "inputs",
+        "label",
+        "weight"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "node": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rung": {
+          "$ref": "common.schema.json#/$defs/rung"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "label": {
+          "type": "string"
+        },
+        "weight": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "item",
+        "ev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "ev": {
+          "$ref": "#/$defs/item_ev"
+        }
+      }
+    },
+    "job_queued": {
+      "type": "object",
+      "required": [
+        "job",
+        "item",
+        "rung",
+        "kind",
+        "spec_blake3",
+        "binary",
+        "reserved_bytes",
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "item": {
+          "type": "string"
+        },
+        "rung": {
+          "$ref": "common.schema.json#/$defs/rung"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "spec_blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        },
+        "binary": {
+          "type": "string"
+        },
+        "reserved_bytes": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "required": [
+        "job",
+        "attempt",
+        "ev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ev": {
+          "$ref": "#/$defs/job_ev"
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "required": [
+        "op",
+        "action",
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "done": {
+      "type": "object",
+      "required": [
+        "op",
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "$ref": "common.schema.json#/$defs/fileref_or_null"
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": [
+        "id",
+        "ev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ev": {
+          "$ref": "#/$defs/control_ev"
+        }
+      }
+    },
+    "orphan_killed": {
+      "type": "object",
+      "required": [
+        "job",
+        "pid",
+        "start_ticks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pid": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "start_ticks": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "verify_checkpoint": {
+      "type": "object",
+      "required": [
+        "seq",
+        "clean",
+        "report"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "clean": {
+          "type": "boolean"
+        },
+        "report": {
+          "$ref": "common.schema.json#/$defs/fileref_or_null"
+        }
+      }
+    },
+    "artefact_lost": {
+      "type": "object",
+      "required": [
+        "path",
+        "blake3",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "export": {
+      "type": "object",
+      "required": [
+        "rev",
+        "ev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "rev": {
+          "type": "string"
+        },
+        "ev": {
+          "$ref": "#/$defs/export_ev"
+        }
+      }
+    },
+    "note": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

@@ -20,10 +20,8 @@
 //! - when a campaign id is set ([`Sampler::set_campaign`]), lists every live process of our uid carrying a marker of
 //!   that campaign (`Snapshot::marked`, the orphan scan of plan 2.7.1), with environ reads bounded and cached per
 //!   (pid, start time);
-//! - reaps STRAY zombie children (orphans re-parented to the supervisor as child subreaper) that are provably ours
-//!   (marked by this campaign while alive, or members of a tracked session) and are not tracked leaders; reaping goes
-//!   through a pidfd after a start-time check, under the leader registry lock, so a tracked leader's status is never
-//!   taken;
+//! - (since the second fix package the sampler no longer reaps: the process-wide adopted-children reaper of
+//!   `resources::children` reaps every zombie child that is not a registered leader and not in our own session);
 //! - publishes its health: [`Sampler::health`] says when the latest scan is older than a threshold (audit A M2).
 
 use super::marked::{
@@ -156,7 +154,8 @@ pub struct Snapshot {
     pub marked: Vec<MarkedProcess>,
     /// Candidates whose environ could not be read in this scan (unknown: never signalled, retried).
     pub marked_unreadable: usize,
-    /// Stray zombie children reaped by this scan (pid, start ticks).
+    /// Always empty since the second fix package: reaping is done by the process-wide adopted-children reaper
+    /// (`resources::reaper_stats`). Kept for readers of the first interface.
     pub reaped_strays: Vec<(u32, u64)>,
 }
 
@@ -390,11 +389,19 @@ fn run(shared: Arc<Shared>) {
         let campaign = lock(&shared.campaign).clone();
         let started_at = Instant::now();
         let host_before = host_memory().ok();
-        let raw = scan_raw(&sids, shared.config.collect_foreign_pinning);
-        let (marked, marked_unreadable) = match &campaign {
+        let mut raw = scan_raw(&sids, shared.config.collect_foreign_pinning);
+        refine_rss(&mut raw, &sids);
+        let (mut marked, marked_unreadable) = match &campaign {
             Some(c) => marked_of(&raw, c, &mut cache),
             None => (Vec::new(), 0),
         };
+        for m in marked.iter_mut() {
+            if !sids.contains(&m.session)
+                && let Some(r) = statm_rss(m.pid)
+            {
+                m.rss_bytes = r;
+            }
+        }
         let pss = pss_of_members(&raw, &sids);
         let host_after = host_memory().ok();
         let finished_at = Instant::now();
@@ -407,10 +414,8 @@ fn run(shared: Arc<Shared>) {
             }
             out
         };
-        let reaped_strays = match &campaign {
-            Some(c) => reap_strays(&raw, &cache, c, &sids, &shared.leaders),
-            None => Vec::new(),
-        };
+        // Reaping moved to the process-wide adopted-children reaper (resources::children; gate re-audit B RB-M1).
+        let reaped_strays = Vec::new();
         let snap = Arc::new(Snapshot {
             seq,
             started_at,
@@ -514,6 +519,31 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         all,
         foreign_pinned: pinned,
         read_errors,
+    }
+}
+
+/// Exact resident set size (bytes) from `/proc/<pid>/statm` (field 2, pages). `/proc/<pid>/stat` field 24 is the kernel's
+/// APPROXIMATE per-CPU counter (`percpu_counter_read`): on this 384-CPU host it lags by up to ~2 x 384 pages per CPU and
+/// reads 0 for a small fresh process [computed 2026-11-14: stat 775 pages vs statm / status / smaps 1121 pages]; statm
+/// and status use the summed counter. Same in a pid namespace and on the host.
+fn statm_rss(pid: u32) -> Option<u64> {
+    let t = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+    t.split_whitespace()
+        .nth(1)?
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(super::page_size())
+}
+
+/// Replace the approximate stat RSS of every live member of a tracked session by the exact statm value.
+fn refine_rss(raw: &mut RawScan, sids: &BTreeSet<u32>) {
+    for p in raw.all.iter_mut() {
+        if sids.contains(&p.session)
+            && !p.is_dead()
+            && let Some(r) = statm_rss(p.pid)
+        {
+            p.rss_bytes = r;
+        }
     }
 }
 
@@ -701,42 +731,10 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
     out
 }
 
-/// Reap zombie children of this process that are provably ours and not tracked leaders (subreaper strays).
-/// Ours = a member of a tracked session (job descendants keep their session unless they call setsid), or a process
-/// whose environ carried this campaign's marker while it was alive (the cache entry survives while the zombie is
-/// listed). Anything else (e.g. a helper the supervisor spawned with std::process::Command) is left to its owner.
-fn reap_strays(
-    raw: &RawScan,
-    cache: &HashMap<(u32, u64), CachedMarker>,
-    c: &CampaignCfg,
-    sids: &BTreeSet<u32>,
-    leaders: &Leaders,
-) -> Vec<(u32, u64)> {
-    let me = std::process::id();
-    let mut out = Vec::new();
-    let guard = leaders.lock();
-    for p in raw.all.iter().filter(|p| p.ppid == me && p.is_dead()) {
-        if guard.contains(&p.pid) {
-            continue;
-        }
-        let marked = matches!(
-            cache.get(&(p.pid, p.start_ticks)),
-            Some(CachedMarker::Value(v)) if CampaignMarker::parse(v).is_some_and(|m| m.campaign_id == c.id)
-        );
-        if !sids.contains(&p.session) && !marked {
-            continue;
-        }
-        if crate::launch::reap_exact(p.pid, p.start_ticks) {
-            out.push((p.pid, p.start_ticks));
-        }
-    }
-    drop(guard);
-    out
-}
-
 /// Synchronous scan of the given sessions (blocks the caller; for tests and one-off checks, never the control loop).
 pub fn scan_sessions_now(sids: &BTreeSet<u32>) -> BTreeMap<u32, SessionUsage> {
-    let raw = scan_raw(sids, false);
+    let mut raw = scan_raw(sids, false);
+    refine_rss(&mut raw, sids);
     let mut tracked: BTreeMap<u32, Track> = sids.iter().map(|&s| (s, Track::default())).collect();
     fold(&raw, &mut tracked)
 }
@@ -846,8 +844,28 @@ mod tests {
             }
         };
         assert!(u.members.iter().any(|m| m.pid == cpid), "{u:?}");
-        // stat RSS comes from per-CPU kernel counters that may lag for a fresh process; PSS walks the page tables.
-        assert!(u.rss_bytes > 0 || u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
+        // Wait until the member runs `sleep` (exec done), then BOTH numbers must be positive: RSS comes from statm (exact;
+        // stat's per-CPU counter read 0 here: the failure two lanes saw), PSS from smaps_rollup. Same in a namespace and
+        // on the host.
+        let mut u = u;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !(u.members.iter().any(|m| m.pid == cpid && m.comm == "sleep")
+            && u.pss_bytes.is_some())
+            && Instant::now() < deadline
+        {
+            let snap = s
+                .wait_for_scan_after(Instant::now(), Duration::from_secs(60))
+                .expect("a scan");
+            u = snap.session(sid).cloned().unwrap_or_default();
+        }
+        assert!(u.rss_bytes > 0, "{u:?}");
+        assert!(u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
+        let exact = statm_rss(cpid).unwrap();
+        let approx = crate::resources::read_stat(cpid)
+            .unwrap()
+            .unwrap()
+            .rss_bytes;
+        println!("sampler RSS {} (statm {exact}, stat {approx})", u.rss_bytes);
         s.untrack(sid);
         child.kill().unwrap();
         child.wait().unwrap();

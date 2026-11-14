@@ -1,0 +1,14 @@
+{
+  "schema": "rustred.campaign.progress.v1",
+  "campaign_id": "p5l-boxed-final",
+  "ledger": {
+    "seq": 91233,
+    "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+    "last_utc": "2026-11-27T10:59:59.000Z"
+  },
+  "source_of_truth": "ledger",
+  "file": "jobs",
+  "written_utc": "2026-11-27T11:00:00.000Z",
+  "sampled_utc": "2026-11-27T11:00:00.000Z",
+  "list": []
+}

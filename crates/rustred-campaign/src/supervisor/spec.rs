@@ -39,6 +39,14 @@ pub struct CampaignSpec {
     /// The campaign directory an `optimise` run boots from (read-only for this run: never written).
     #[serde(default)]
     pub source_campaign_dir: Option<PathBuf>,
+    /// Default terminal bound per node (record 1 `campaign_created.terminal_bound`; a node's own registration may
+    /// state another). Spec data, never a constant of the code.
+    #[serde(default = "d_terminal_bound")]
+    pub terminal_bound: u32,
+}
+
+fn d_terminal_bound() -> u32 {
+    100
 }
 
 fn d_mode() -> String {

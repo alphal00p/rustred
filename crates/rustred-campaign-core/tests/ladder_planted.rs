@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use ladder_common::*;
 use rustred_campaign_core::domain::CaseDomain;
 use rustred_campaign_core::economy::{
-    ContainmentProof, CoverageState, RetireError, Retirement, RuleMeasure, SupersedeReason,
+    CoverageState, RetireError, Retirement, RuleMeasure, SupersedeReason,
 };
 use rustred_campaign_core::explain::explain;
 use rustred_campaign_core::poly::Poly;
@@ -72,6 +72,7 @@ impl LabelSolver {
             rows: None,
             tie_break_only: None,
             symmetry_rows: false,
+            witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 }
@@ -252,10 +253,27 @@ fn hidden_pole_rejects_the_candidate() {
 
 #[test]
 fn box_restricted_item_needs_a_user_box_r35() {
+    use rustred_campaign_core::worklist::items::{FullAttemptEnded, FullAttemptEvidence};
     let mut p = p2();
     let c = CaseSpec::face_case(Face::new(vec![0], vec![]));
+    let ev = |cpu_ms: u64, rounds: u32, open: Vec<String>| FullAttemptEvidence {
+        node: "P".into(),
+        cpu_ms,
+        fixer_rounds: rounds,
+        open,
+    };
+    // R35 / U-6: the full attempt must have ended (budget used up, something still open)
+    assert!(matches!(
+        FullAttemptEnded::from_evidence(&p, ev(1000, 1, vec!["face".into()])),
+        Err(WorklistError::FullAttemptNotEnded(_))
+    ));
+    assert!(matches!(
+        FullAttemptEnded::from_evidence(&p, ev(u64::MAX, 9, vec![])),
+        Err(WorklistError::FullAttemptNotEnded(_))
+    ));
+    let ended = FullAttemptEnded::from_evidence(&p, ev(10, 5, vec!["face".into()])).unwrap();
     assert_eq!(
-        box_restricted_item(c.clone(), vec![key(2, 1)], &p).unwrap_err(),
+        box_restricted_item(c.clone(), vec![key(2, 1)], &p, &ended).unwrap_err(),
         WorklistError::NoUserBox
     );
     p.user_box = Some(UserBox {
@@ -263,14 +281,14 @@ fn box_restricted_item_needs_a_user_box_r35() {
         given_by: "tool".into(),
     });
     assert!(matches!(
-        box_restricted_item(c.clone(), vec![], &p),
+        box_restricted_item(c.clone(), vec![], &p, &ended),
         Err(WorklistError::BoxNotUserGiven(_))
     ));
     p.user_box = Some(UserBox {
         id: "R*".into(),
         given_by: "user".into(),
     });
-    let it = box_restricted_item(c, vec![key(2, 1)], &p).unwrap();
+    let it = box_restricted_item(c, vec![key(2, 1)], &p, &ended).unwrap();
     assert_eq!(it.box_id.as_deref(), Some("R*"));
 }
 
@@ -331,22 +349,8 @@ fn full_node_retirement_needs_a_containment_proof_r33() {
         None,
     );
     assert_eq!(e.unwrap_err(), RetireError::FullNodeNeedsProof);
-    let proof = ContainmentProof {
-        old_tables_digest: "o".into(),
-        new_tables_digest: "n".into(),
-        method: "exact_partition".into(),
-        artefact_sha256: "x".into(),
-    };
-    let r = Retirement::new(
-        "N",
-        CoverageState::Full,
-        &old,
-        ("c", &m(50)),
-        SupersedeReason::FaceRetiresPoints,
-        Some(proof),
-    )
-    .unwrap();
-    assert_eq!(r.retired().len(), 2);
+    // a ContainmentProof cannot be built outside the crate (audit A M5); the positive path is the unit test
+    // economy::tests::full_node_retirement_needs_a_checked_proof_and_records_reverify
     let one = vec![("a".to_string(), m(100))];
     assert_eq!(
         Retirement::new(

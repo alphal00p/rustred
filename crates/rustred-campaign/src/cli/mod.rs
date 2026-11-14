@@ -4,16 +4,20 @@
 use crate::supervisor::exit;
 use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::{self, CONTROL_SCHEMA, ControlRequest, RunOptions};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const USAGE: &str = "usage:
-  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G]
+  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--accept-truncation-to SEQ]
+      (the live dashboard when stdout is a terminal and --plain is not given; Ctrl-C = drain, twice = force)
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
-  rr_campaign control CDIR pause|resume|stop|retry ITEM|skip ITEM
+  rr_campaign watch CDIR [--plain]          (alias: dashboard; read-only viewer: q / Ctrl-C close it, the campaign is unaffected)
+  rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
+  rr_campaign control CDIR pause [NODE|ITEM]|resume [NODE|ITEM]|stop|retry ITEM|skip ITEM [--reason TEXT]
   rr_campaign verify CDIR
-  rr_campaign status CDIR [--once]
   rr_campaign result CDIR";
 
 /// Dispatch `argv` (without the program name).
@@ -29,6 +33,7 @@ pub fn main_with(args: &[String]) -> i32 {
         "control" => cmd_control(rest),
         "verify" => cmd_verify(rest),
         "status" => cmd_status(rest),
+        "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
@@ -50,6 +55,11 @@ struct Flags {
     accept_binary_change: bool,
     adopt_moved: bool,
     once: bool,
+    json: bool,
+    width: Option<u16>,
+    height: Option<u16>,
+    reason: Option<String>,
+    accept_truncation_to: Option<u64>,
     cores: Option<usize>,
     mem_total: Option<u64>,
     positional: Vec<String>,
@@ -72,6 +82,19 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--accept-binary-change" => f.accept_binary_change = true,
             "--adopt-moved-campaign" => f.adopt_moved = true,
             "--once" => f.once = true,
+            "--json" => f.json = true,
+            "--width" => f.width = Some(val("--width")?.parse().map_err(|_| "--width: a number")?),
+            "--height" => {
+                f.height = Some(val("--height")?.parse().map_err(|_| "--height: a number")?)
+            }
+            "--reason" => f.reason = Some(val("--reason")?),
+            "--accept-truncation-to" => {
+                f.accept_truncation_to = Some(
+                    val("--accept-truncation-to")?
+                        .parse()
+                        .map_err(|_| "--accept-truncation-to: a ledger seq")?,
+                )
+            }
             "--cores" => f.cores = Some(val("--cores")?.parse().map_err(|_| "--cores: a number")?),
             "--mem-total" => {
                 f.mem_total = Some(supervisor::spec::ByteSize::parse(&val("--mem-total")?)?.0)
@@ -125,11 +148,22 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
     };
     let mut full = vec!["rr_campaign".to_string()];
     full.extend(argv.iter().cloned());
-    let r = supervisor::run(RunOptions {
+    let dash_opts = crate::tui::DashboardOptions {
+        plain: f.plain,
+        ..Default::default()
+    };
+    // The dashboard needs a terminal on stdout; otherwise (or with --plain) the supervisor's plain log lines.
+    let quiet = Arc::new(AtomicBool::new(false));
+    let with_dashboard = !f.plain
+        && std::io::stdout().is_terminal()
+        && std::env::var("TERM").ok().as_deref() != Some("dumb");
+    let done = Arc::new(AtomicBool::new(false));
+    let mut dash: Option<std::thread::JoinHandle<crate::tui::ExitReason>> = None;
+    let opts = RunOptions {
         spec,
         spec_blake3: digest,
-        cdir,
-        plain: f.plain || true,
+        cdir: cdir.clone(),
+        plain: !with_dashboard,
         fake_child: f.fake_child,
         accept_binary_change: f.accept_binary_change,
         adopt_moved: f.adopt_moved,
@@ -137,7 +171,40 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         mem_total: f.mem_total,
         argv: full,
         tick: Duration::from_millis(200),
+        accept_truncation_to: f.accept_truncation_to,
+        quiet_stderr: Some(Arc::clone(&quiet)),
+    };
+    let r = supervisor::run_with(opts, &mut |started| {
+        if !with_dashboard {
+            return;
+        }
+        // The dashboard runs on its OWN thread (its file reading on its reader thread): the control loop is never
+        // blocked by rendering. Ctrl-C in raw mode = `request_stop()` on the supervisor's stop handle.
+        quiet.store(true, Ordering::SeqCst);
+        let controls = crate::tui::SupervisorControls {
+            handle: started.handle.clone(),
+            grace_s: started.grace_s,
+            done: Arc::clone(&done),
+        };
+        let source: Arc<dyn crate::tui::ProgressSource> =
+            Arc::new(crate::tui::DirSource::new(cdir.clone()));
+        let o = dash_opts.clone();
+        let q = Arc::clone(&quiet);
+        dash = std::thread::Builder::new()
+            .name("dashboard".into())
+            .spawn(move || {
+                let reason = crate::tui::run_dashboard(source, &controls, &o);
+                // Terminal restored: later supervisor log lines go to stderr again.
+                q.store(false, Ordering::SeqCst);
+                reason
+            })
+            .ok();
     });
+    done.store(true, Ordering::SeqCst);
+    if let Some(h) = dash {
+        let _ = h.join();
+    }
+    quiet.store(false, Ordering::SeqCst);
     match &r {
         supervisor::RunExit::Refused(m)
         | supervisor::RunExit::Moved(m)
@@ -145,6 +212,17 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         | supervisor::RunExit::Internal(m) => {
             eprintln!("rr_campaign: {m}")
         }
+        supervisor::RunExit::Finished if with_dashboard => {
+            eprintln!(
+                "rr_campaign: FINISHED (exit 0); log: {}",
+                cdir.join("log").join("supervisor.log").display()
+            )
+        }
+        supervisor::RunExit::Stopped { code } if with_dashboard => eprintln!(
+            "rr_campaign: STOPPED (exit {code}); resume with the same command; log: {}",
+            cdir.join("log").join("supervisor.log").display()
+        ),
+        other if with_dashboard => eprintln!("rr_campaign: {other:?} (exit {})", other.code()),
         _ => {}
     }
     r.code()
@@ -499,20 +577,32 @@ fn version_line(p: &Path) -> Result<String, String> {
 }
 
 fn cmd_control(rest: &[String]) -> i32 {
-    let (Some(cdir), Some(verb)) = (rest.first(), rest.get(1)) else {
+    let f = match parse(rest) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("{e}\n{USAGE}");
+            return exit::USAGE;
+        }
+    };
+    let (Some(cdir), Some(verb)) = (f.positional.first(), f.positional.get(1)) else {
         eprintln!("{USAGE}");
         return exit::USAGE;
     };
-    let target = rest.get(2).cloned();
+    let target = f.positional.get(2).cloned();
     match (verb.as_str(), &target) {
-        ("pause" | "resume" | "stop", None) => {}
+        ("pause" | "resume", _) | ("stop", None) => {}
         ("retry" | "skip", Some(_)) => {}
         _ => {
             eprintln!("{USAGE}");
             return exit::USAGE;
         }
     }
-    match write_control(Path::new(cdir), verb, target.as_deref()) {
+    match write_control_with(
+        Path::new(cdir),
+        verb,
+        target.as_deref(),
+        f.reason.as_deref(),
+    ) {
         Ok(p) => {
             println!("request written: {}", p.display());
             exit::OK
@@ -529,6 +619,16 @@ pub fn write_control(
     cdir: &Path,
     verb: &str,
     target: Option<&str>,
+) -> Result<PathBuf, (i32, String)> {
+    write_control_with(cdir, verb, target, None)
+}
+
+/// [`write_control`] with the operator's reason (recorded in the ledger's `control {requested}` record).
+pub fn write_control_with(
+    cdir: &Path,
+    verb: &str,
+    target: Option<&str>,
+    reason: Option<&str>,
 ) -> Result<PathBuf, (i32, String)> {
     if !cdir
         .join("ledger")
@@ -557,6 +657,7 @@ pub fn write_control(
         by: format!("{} (cli)", std::env::var("USER").unwrap_or_default()),
         verb: verb.into(),
         target: target.map(str::to_string),
+        reason: reason.map(str::to_string),
     };
     let p = dir.join(format!("{id}.json"));
     crate::atomic::write_json_atomic(&p, &req).map_err(|e| (exit::INTERNAL, e.to_string()))?;
@@ -605,52 +706,83 @@ fn cmd_verify(rest: &[String]) -> i32 {
     }
 }
 
+/// `status CDIR [--once] [--width N] [--height M] [--json]`: ONE rendering through the dashboard's view-model (the
+/// same adapter as the live dashboard and the website numbers): text of the summary screen, or the view-model as
+/// JSON. Reads the progress files only (never the lock, never a write).
 fn cmd_status(rest: &[String]) -> i32 {
-    let Some(cdir) = rest.iter().find(|a| !a.starts_with("--")) else {
+    let f = match parse(rest) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("{e}\n{USAGE}");
+            return exit::USAGE;
+        }
+    };
+    let Some(cdir) = f.positional.first() else {
         eprintln!("{USAGE}");
         return exit::USAGE;
     };
-    let p = Path::new(cdir).join("progress").join("campaign.json");
-    let Ok(b) = std::fs::read(&p) else {
-        eprintln!("no progress file {}", p.display());
+    let cdir = Path::new(cdir);
+    if !cdir
+        .join(crate::progress::PROGRESS_DIR)
+        .join("campaign.json")
+        .exists()
+    {
+        eprintln!(
+            "no progress file {}",
+            cdir.join(crate::progress::PROGRESS_DIR)
+                .join("campaign.json")
+                .display()
+        );
         return exit::NOT_FOUND;
+    }
+    let source = crate::tui::DirSource::new(cdir);
+    let opts = crate::tui::DashboardOptions::default();
+    if f.json {
+        println!("{}", crate::tui::view_model_json_text(&source, &opts));
+        return exit::OK;
+    }
+    let (tw, th) = if std::io::stdout().is_terminal() {
+        crate::tui::terminal::terminal_area()
+            .map(|a| (a.width, a.height))
+            .unwrap_or((120, 40))
+    } else {
+        (120, 40)
     };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b) else {
-        eprintln!("unreadable progress file {}", p.display());
-        return exit::NOT_FOUND;
-    };
-    let g = |path: &[&str]| -> String {
-        let mut x = &v;
-        for k in path {
-            match x.get(k) {
-                Some(y) => x = y,
-                None => return "null".into(),
-            }
-        }
-        x.to_string()
-    };
-    println!(
-        "campaign {}  phase {}  ledger seq {}  written {}",
-        g(&["campaign_id"]),
-        g(&["campaign", "phase"]),
-        g(&["ledger", "seq"]),
-        g(&["written_utc"])
+    let text = crate::tui::render_once(
+        &source,
+        &opts,
+        f.width.unwrap_or(tw).max(20),
+        f.height.unwrap_or(th).max(5),
     );
-    println!(
-        "jobs: {}  live {}  cpus {} / {}",
-        g(&["jobs", "total"]),
-        g(&["resources", "live_jobs"]),
-        g(&["resources", "cpus_in_use"]),
-        g(&["resources", "cpus_allowed"])
-    );
-    println!("items by phase: {}", g(&["items", "by_phase"]));
-    println!(
-        "rules accepted {}  terminals {}  eta {}",
-        g(&["rules", "accepted"]),
-        g(&["terminals", "declared"]),
-        g(&["eta"])
-    );
+    print!("{text}");
     exit::OK
+}
+
+/// `watch CDIR` / `dashboard CDIR`: the read-only live viewer (it never takes the lock, never writes, never signals;
+/// q / Ctrl-C close it and the campaign continues).
+fn cmd_watch(rest: &[String]) -> i32 {
+    let f = match parse(rest) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("{e}\n{USAGE}");
+            return exit::USAGE;
+        }
+    };
+    let Some(cdir) = f.positional.first() else {
+        eprintln!("{USAGE}");
+        return exit::USAGE;
+    };
+    let opts = crate::tui::DashboardOptions {
+        plain: f.plain,
+        ..Default::default()
+    };
+    match crate::tui::run_viewer(PathBuf::from(cdir), &opts) {
+        crate::tui::ExitReason::TerminalError(e) => {
+            eprintln!("watch: {e}");
+            exit::INTERNAL
+        }
+        _ => exit::OK,
+    }
 }
 
 fn cmd_result(rest: &[String]) -> i32 {

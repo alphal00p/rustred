@@ -1,0 +1,14 @@
+{
+  "campaign_id": "fixture-finished",
+  "file": "jobs",
+  "ledger": {
+    "head": "66739b6d2c0d8855bc9f8827b572976b64f8cb93861488a64569852d9f73688d",
+    "last_utc": "2026-11-14T06:00:24.250Z",
+    "seq": 97
+  },
+  "list": [],
+  "sampled_utc": "2026-11-14T06:00:24.500Z",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T06:00:24.500Z"
+}

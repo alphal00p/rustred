@@ -4,11 +4,11 @@
   "events": [],
   "file": "events",
   "ledger": {
-    "head": "c3b65588898f58153cb2a0d6299ac279967c9c5698a317ea8d51971c47d2c8a4",
-    "last_utc": "2026-11-14T08:00:01.750Z",
+    "head": "80bdcd6cc5edbaa9faf54b0c3ff9b0414e2188ff10743aafc0eb7caed200de02",
+    "last_utc": "2026-11-14T08:00:02.000Z",
     "seq": 8
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
-  "written_utc": "2026-11-14T08:00:02.000Z"
+  "written_utc": "2026-11-14T08:00:02.250Z"
 }
