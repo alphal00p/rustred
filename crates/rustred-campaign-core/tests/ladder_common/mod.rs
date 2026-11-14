@@ -62,7 +62,10 @@ pub struct RecItem {
 
 pub fn read_jsonl<T: for<'de> Deserialize<'de>>(name: &str) -> Vec<T> {
     let text = std::fs::read_to_string(format!("{DATA}/{name}")).expect("fixture");
-    text.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).expect("record")).collect()
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("record"))
+        .collect()
 }
 
 pub fn t178_comparator() -> NodeComparator {
@@ -70,7 +73,9 @@ pub fn t178_comparator() -> NodeComparator {
         &NodeOrderRecord {
             name: "orderB".into(),
             slot_permutation: None,
-            coordinate_priority: Some(vec![6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19]),
+            coordinate_priority: Some(vec![
+                6, 4, 9, 8, 5, 2, 1, 0, 7, 3, 11, 12, 10, 13, 15, 14, 16, 17, 18, 19,
+            ]),
             source_order: SourceOrder::Input,
         },
         20,
@@ -92,7 +97,13 @@ impl Descent for DotsRankOnly {
         let dr = |k: &[i32]| -> i64 {
             k.iter()
                 .enumerate()
-                .map(|(i, &v)| if i < self.n_lines { (v - 1).max(0) as i64 } else { (-v).max(0) as i64 })
+                .map(|(i, &v)| {
+                    if i < self.n_lines {
+                        (v - 1).max(0) as i64
+                    } else {
+                        (-v).max(0) as i64
+                    }
+                })
                 .sum()
         };
         dr(a) < dr(b)
@@ -100,8 +111,16 @@ impl Descent for DotsRankOnly {
 }
 
 pub fn case_of(rc: &RecCase, arity: usize) -> CaseSpec {
-    let fixed: BTreeMap<usize, i32> = rc.fixed.iter().map(|(s, v)| (s.parse().unwrap(), *v)).collect();
-    let eqs: Vec<AffineEq> = rc.eqs.iter().map(|e| AffineEq::parse(e, arity).expect("eq")).collect();
+    let fixed: BTreeMap<usize, i32> = rc
+        .fixed
+        .iter()
+        .map(|(s, v)| (s.parse().unwrap(), *v))
+        .collect();
+    let eqs: Vec<AffineEq> = rc
+        .eqs
+        .iter()
+        .map(|e| AffineEq::parse(e, arity).expect("eq"))
+        .collect();
     CaseSpec::new(Face::new(rc.sd.clone(), rc.sn.clone()), fixed, eqs).expect("case")
 }
 
@@ -112,7 +131,10 @@ pub fn setting_of(r: &Rec, case: &CaseSpec, lines: &[bool]) -> SeedSetting {
         .iter()
         .map(|m| m.iter().map(|(s, v)| (s.parse().unwrap(), *v)).collect())
         .collect();
-    let face_line = case.free().iter().any(|&s| lines[s] && case.face.sd.contains(&s))
+    let face_line = case
+        .free()
+        .iter()
+        .any(|&s| lines[s] && case.face.sd.contains(&s))
         || case.fixed_off_floor(lines).iter().any(|&s| lines[s]);
     SeedSetting {
         centre: CentreKind::Explicit,
@@ -141,7 +163,10 @@ impl Scripted {
         for (i, r) in recs.iter().enumerate() {
             let c = case_of(&r.case, params.arity);
             let s = setting_of(r, &c, &params.lines);
-            index.entry((c.canonical_text(), s.canonical_key())).or_default().push(i);
+            index
+                .entry((c.canonical_text(), s.canonical_key()))
+                .or_default()
+                .push(i);
         }
         Scripted {
             params,
@@ -154,7 +179,8 @@ impl Scripted {
     }
 
     fn covered(&self, r: &Rec, v: &str) -> bool {
-        v == "regular" || (v == "exception" && *self.exception_covered.get(&r.item).unwrap_or(&false))
+        v == "regular"
+            || (v == "exception" && *self.exception_covered.get(&r.item).unwrap_or(&false))
     }
 
     /// The candidate a recorded relation stands for: the case's domain, with the reference's non-covered points as
@@ -168,11 +194,18 @@ impl Scripted {
         let free: BTreeSet<usize> = case.free().into_iter().collect();
         for i in 0..p.arity {
             if !free.contains(&i) {
-                d.fixed[i] = Some(case.fixed.get(&i).copied().unwrap_or(if p.lines[i] { 1 } else { 0 }));
+                d.fixed[i] =
+                    Some(
+                        case.fixed
+                            .get(&i)
+                            .copied()
+                            .unwrap_or(if p.lines[i] { 1 } else { 0 }),
+                    );
             }
         }
         for e in &case.equations {
-            d.equations.push(Poly::parse_d_free(&e.to_engine(), p.arity).unwrap());
+            d.equations
+                .push(Poly::parse_d_free(&e.to_engine(), p.arity).unwrap());
         }
         let bad: Vec<Key> = r
             .points
@@ -194,7 +227,8 @@ impl Scripted {
             if good.iter().any(|g| eq.holds(g)) {
                 continue;
             }
-            d.exceptions.push(vec![Poly::parse_d_free(&eq.to_engine(), p.arity).unwrap()]);
+            d.exceptions
+                .push(vec![Poly::parse_d_free(&eq.to_engine(), p.arity).unwrap()]);
             for i in held {
                 done[i] = true;
             }
@@ -203,7 +237,10 @@ impl Scripted {
             if !done[i] {
                 d.exceptions.push(
                     fv.iter()
-                        .map(|&s| Poly::parse_d_free(&AffineEq::fixed(s, k[s]).to_engine(), p.arity).unwrap())
+                        .map(|&s| {
+                            Poly::parse_d_free(&AffineEq::fixed(s, k[s]).to_engine(), p.arity)
+                                .unwrap()
+                        })
                         .collect(),
                 );
             }
@@ -230,9 +267,17 @@ impl CaseSolver for Scripted {
             Some(list) => {
                 // every recorded relation of this (case, setting) is a candidate (the grid "reports every relation
                 // found", 2.4.13); the C record first
-                let mut with: Vec<usize> = list.iter().copied().filter(|&i| self.recs[i].exists).collect();
+                let mut with: Vec<usize> = list
+                    .iter()
+                    .copied()
+                    .filter(|&i| self.recs[i].exists)
+                    .collect();
                 with.sort_by_key(|&i| (self.recs[i].meas != "C", i));
-                let cpu: u64 = list.iter().map(|&i| self.recs[i].cpu_ms.max(1)).max().unwrap_or(1);
+                let cpu: u64 = list
+                    .iter()
+                    .map(|&i| self.recs[i].cpu_ms.max(1))
+                    .max()
+                    .unwrap_or(1);
                 if with.is_empty() {
                     SolveAnswer {
                         outcome: SolveOutcome::NoRelation,
@@ -241,7 +286,9 @@ impl CaseSolver for Scripted {
                     }
                 } else {
                     SolveAnswer {
-                        outcome: SolveOutcome::Rules(with.iter().map(|&i| self.candidate(i)).collect()),
+                        outcome: SolveOutcome::Rules(
+                            with.iter().map(|&i| self.candidate(i)).collect(),
+                        ),
                         cpu_ms: cpu,
                         rows: self.recs[with[0]].rows,
                     }
@@ -289,7 +336,12 @@ impl ScriptedFacts<'_> {
             r[h] += 1;
             return self.cmp.lower(&r, k).then_some(r);
         }
-        let l = self.line_priority.iter().rev().copied().find(|&i| k[i] >= 2)?;
+        let l = self
+            .line_priority
+            .iter()
+            .rev()
+            .copied()
+            .find(|&i| k[i] >= 2)?;
         let h = self.line_priority.iter().copied().find(|&i| i != l)?;
         let mut r = k.to_vec();
         r[l] -= 1;
@@ -301,7 +353,9 @@ impl ScriptedFacts<'_> {
 impl FactSource for ScriptedFacts<'_> {
     fn facts(&mut self, rule: &CandidateRule, key: &[i32]) -> PointFacts {
         let rhs = if rule.tie_break_only == Some(true) {
-            self.tie_rhs(key).map(|r| vec![r]).unwrap_or_else(|| self.lower_rhs(key))
+            self.tie_rhs(key)
+                .map(|r| vec![r])
+                .unwrap_or_else(|| self.lower_rhs(key))
         } else {
             self.lower_rhs(key)
         };
@@ -317,7 +371,12 @@ impl FactSource for ScriptedFacts<'_> {
 /// A prover that confirms every key at the wanted level (the reference relations replayed at two primes).
 pub struct ReplayProver;
 impl KeyProver for ReplayProver {
-    fn prove(&mut self, _r: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence> {
+    fn prove(
+        &mut self,
+        _r: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence> {
         keys.iter()
             .map(|k| KeyEvidence {
                 key: k.clone(),
@@ -331,8 +390,22 @@ impl KeyProver for ReplayProver {
 pub fn root_item(params: &NodeParams, face: Face, census: Vec<Key>) -> Item {
     let case = CaseSpec::face_case(face);
     let dim = case.dim();
-    let kind = if dim == 0 { ItemKind::Point } else { ItemKind::GenericFace };
-    Item::new(&params.node, kind, case, census, None, 0, dim, ChildOrigin::Root(RootSource::Partition), None)
+    let kind = if dim == 0 {
+        ItemKind::Point
+    } else {
+        ItemKind::GenericFace
+    };
+    Item::new(
+        &params.node,
+        kind,
+        case,
+        census,
+        None,
+        0,
+        dim,
+        ChildOrigin::Root(RootSource::Partition),
+        None,
+    )
 }
 
 /// Outcome of one replayed reference item.
@@ -356,7 +429,11 @@ pub fn outcome(rep: &TreeReport) -> Outcome {
             point_rules += 1;
         }
         // record the setting as the recorded offsets (labels of explicit settings are rebuilt by the library)
-        rules.push((it.state.item.case.canonical_text(), m.setting.label(), m.served.len()));
+        rules.push((
+            it.state.item.case.canonical_text(),
+            m.setting.label(),
+            m.served.len(),
+        ));
     }
     let attention = rep
         .items
@@ -369,7 +446,11 @@ pub fn outcome(rep: &TreeReport) -> Outcome {
     Outcome {
         cases: rules.len(),
         point_rules,
-        terminals: rep.terminal_candidates().into_iter().map(|(k, _)| k).collect(),
+        terminals: rep
+            .terminal_candidates()
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect(),
         attention,
         rules,
         attempts: rep.attempts.len(),
@@ -385,7 +466,17 @@ pub fn run_item(
     census: Vec<Key>,
 ) -> (TreeReport, Outcome) {
     let root = root_item(params, face, census);
-    let rep = drive_tree(vec![root], params, descent, solver, facts, &mut ReplayProver, None, None, &TreeLimits::default());
+    let rep = drive_tree(
+        vec![root],
+        params,
+        descent,
+        solver,
+        facts,
+        &mut ReplayProver,
+        None,
+        None,
+        &TreeLimits::default(),
+    );
     let o = outcome(&rep);
     (rep, o)
 }

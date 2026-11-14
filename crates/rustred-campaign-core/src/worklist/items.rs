@@ -65,7 +65,12 @@ impl Face {
 
     /// "{6}x{11}" in presented slots.
     pub fn label(&self) -> String {
-        let j = |v: &[usize]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
+        let j = |v: &[usize]| {
+            v.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         format!("{{{}}}x{{{}}}", j(&self.sd), j(&self.sn))
     }
 }
@@ -96,7 +101,11 @@ impl CaseSpec {
 
     /// A canonical case: fixed values of face slots and equations; equations reduced, unit single-slot equations
     /// turned into fixed values; values of slots outside the face are refused (they are at their floor).
-    pub fn new(face: Face, fixed: BTreeMap<usize, i32>, equations: Vec<AffineEq>) -> Result<Self, AffineError> {
+    pub fn new(
+        face: Face,
+        fixed: BTreeMap<usize, i32>,
+        equations: Vec<AffineEq>,
+    ) -> Result<Self, AffineError> {
         let (equations, fixed) = canonical_system(&equations, &fixed)?;
         Ok(CaseSpec {
             face,
@@ -106,7 +115,11 @@ impl CaseSpec {
     }
 
     /// This case with more constraints (canonical).
-    pub fn constrained(&self, more_fixed: &[(usize, i32)], more_eqs: &[AffineEq]) -> Result<Self, AffineError> {
+    pub fn constrained(
+        &self,
+        more_fixed: &[(usize, i32)],
+        more_eqs: &[AffineEq],
+    ) -> Result<Self, AffineError> {
         let mut fixed = self.fixed.clone();
         for &(s, v) in more_fixed {
             if let Some(&old) = fixed.get(&s)
@@ -123,7 +136,11 @@ impl CaseSpec {
 
     /// Free slots (face slots not fixed), ascending.
     pub fn free(&self) -> Vec<usize> {
-        self.face.slots().into_iter().filter(|s| !self.fixed.contains_key(s)).collect()
+        self.face
+            .slots()
+            .into_iter()
+            .filter(|s| !self.fixed.contains_key(s))
+            .collect()
     }
 
     /// Free dimension: free slots minus the rank of the (canonical, hence independent) equations.
@@ -183,7 +200,12 @@ impl CaseSpec {
     pub fn canonical_text(&self) -> String {
         let fx: Vec<String> = self.fixed.iter().map(|(s, v)| format!("{s}:{v}")).collect();
         let eq: Vec<String> = self.equations.iter().map(|e| e.to_engine()).collect();
-        format!("face={};fixed={};eq={}", self.face.label(), fx.join(","), eq.join(","))
+        format!(
+            "face={};fixed={};eq={}",
+            self.face.label(),
+            fx.join(","),
+            eq.join(",")
+        )
     }
 
     /// Engine case spec (presented slots): per slot "n<i>" (free) or its value, as the hand campaign's
@@ -248,9 +270,15 @@ pub enum Derived {
 pub enum ChildOrigin {
     Root(RootSource),
     /// A standard plane (a dotted line at 2 or 3, a numerator at -1 or -2: R13 A5, R39).
-    Standard { slot: usize, value: i32 },
+    Standard {
+        slot: usize,
+        value: i32,
+    },
     /// Conjunction of exception branches of accepted rules (`branches`: "rule digest#branch").
-    ExceptionBranch { derived: Derived, branches: Vec<String> },
+    ExceptionBranch {
+        derived: Derived,
+        branches: Vec<String>,
+    },
     /// Open obligation of an engine run (`F.obligations.json`, after WP-C0).
     Obligation,
     /// Left-over point of the parent.
@@ -341,12 +369,38 @@ impl Item {
 
     /// An optimise item (U-13): case = the old rules' common case (face or locus), gap points = sample keys of their
     /// served set (acceptance targets), `replaces` = the old rules.
-    pub fn optimise(node: &str, case: CaseSpec, sample_keys: Vec<Key>, replaces: Vec<OldRule>) -> Self {
+    pub fn optimise(
+        node: &str,
+        case: CaseSpec,
+        sample_keys: Vec<Key>,
+        replaces: Vec<OldRule>,
+    ) -> Self {
         let dim = case.dim();
-        let mut it = Item::new(node, ItemKind::Optimise, case, sample_keys, None, 0, dim, ChildOrigin::Root(RootSource::Partition), None);
+        let mut it = Item::new(
+            node,
+            ItemKind::Optimise,
+            case,
+            sample_keys,
+            None,
+            0,
+            dim,
+            ChildOrigin::Root(RootSource::Partition),
+            None,
+        );
         let mut d: Vec<&str> = replaces.iter().map(|r| r.digest.as_str()).collect();
         d.sort_unstable();
-        it.id = ItemId(format!("it1-{:032x}", fnv1a128(format!("v1|optimise|{}|{}|{}", node, it.case.canonical_text(), d.join(",")).as_bytes())));
+        it.id = ItemId(format!(
+            "it1-{:032x}",
+            fnv1a128(
+                format!(
+                    "v1|optimise|{}|{}|{}",
+                    node,
+                    it.case.canonical_text(),
+                    d.join(",")
+                )
+                .as_bytes()
+            )
+        ));
         it.replaces = replaces;
         it
     }
@@ -494,7 +548,9 @@ impl PreferredTerminals {
             PreferredEntry::Key(k) => k.as_slice() == key,
             PreferredEntry::Sector { lines: ls } => {
                 key.len() == lines.len() && {
-                    let support: Vec<usize> = (0..key.len()).filter(|&i| lines[i] && key[i] >= 1).collect();
+                    let support: Vec<usize> = (0..key.len())
+                        .filter(|&i| lines[i] && key[i] >= 1)
+                        .collect();
                     let mut l = ls.clone();
                     l.sort_unstable();
                     l.dedup();
@@ -510,17 +566,23 @@ impl PreferredTerminals {
         let mut w = Vec::new();
         for e in &self.entries {
             match e {
-                PreferredEntry::Key(k) if k.len() != lines.len() => {
-                    w.push(format!("preferred key {k:?}: arity {} (node {})", k.len(), lines.len()))
-                }
+                PreferredEntry::Key(k) if k.len() != lines.len() => w.push(format!(
+                    "preferred key {k:?}: arity {} (node {})",
+                    k.len(),
+                    lines.len()
+                )),
                 PreferredEntry::Key(k) => {
                     if k.iter().enumerate().any(|(i, &v)| !lines[i] && v > 0) {
-                        w.push(format!("preferred key {k:?}: positive numerator (not a chart key of this node)"));
+                        w.push(format!(
+                            "preferred key {k:?}: positive numerator (not a chart key of this node)"
+                        ));
                     }
                 }
                 PreferredEntry::Sector { lines: ls } => {
                     if ls.iter().any(|&i| i >= lines.len() || !lines[i]) {
-                        w.push(format!("preferred sector {ls:?}: names a slot that is not a line of this node"));
+                        w.push(format!(
+                            "preferred sector {ls:?}: names a slot that is not a line of this node"
+                        ));
                     }
                 }
             }
@@ -536,8 +598,10 @@ impl PreferredTerminals {
             return out;
         }
         for it in items.iter_mut() {
-            let (keep, pref): (Vec<Key>, Vec<Key>) =
-                it.gap_points.drain(..).partition(|k| !self.matches(k, lines));
+            let (keep, pref): (Vec<Key>, Vec<Key>) = it
+                .gap_points
+                .drain(..)
+                .partition(|k| !self.matches(k, lines));
             it.gap_points = keep;
             it.weight = it.gap_points.len() as u64;
             out.extend(pref);
@@ -602,8 +666,13 @@ pub enum WorklistError {
 impl fmt::Display for WorklistError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WorklistError::NoUserBox => write!(f, "box-restricted item refused: the node's spec has no user box (R35)"),
-            WorklistError::BoxNotUserGiven(g) => write!(f, "box given by {g:?}, not by the user (R35)"),
+            WorklistError::NoUserBox => write!(
+                f,
+                "box-restricted item refused: the node's spec has no user box (R35)"
+            ),
+            WorklistError::BoxNotUserGiven(g) => {
+                write!(f, "box given by {g:?}, not by the user (R35)")
+            }
             WorklistError::NotTopChart(k) => write!(f, "not a top-sector chart key: {k:?}"),
             WorklistError::Case(s) => write!(f, "case: {s}"),
         }
@@ -673,7 +742,11 @@ pub fn items_from_partition(
             let lc = case
                 .constrained(&[], &l.equations)
                 .map_err(|e| WorklistError::Case(e.to_string()))?;
-            let kind = if lc.is_point() { ItemKind::Point } else { ItemKind::Locus };
+            let kind = if lc.is_point() {
+                ItemKind::Point
+            } else {
+                ItemKind::Locus
+            };
             let mut it = Item::new(
                 &params.node,
                 kind,
@@ -696,10 +769,14 @@ pub fn items_from_partition(
 
 /// Items from the closure's uncovered keys (R30 fallback when the partition does not scale): one whole-face item per
 /// face spanned by the keys; the proof label is `closure_lower_bound`.
-pub fn items_from_closure_keys(keys: &[Key], params: &NodeParams) -> Result<Vec<Item>, WorklistError> {
+pub fn items_from_closure_keys(
+    keys: &[Key],
+    params: &NodeParams,
+) -> Result<Vec<Item>, WorklistError> {
     let mut by_face: BTreeMap<Face, Vec<Key>> = BTreeMap::new();
     for k in keys {
-        let f = Face::of_key(k, &params.lines).ok_or_else(|| WorklistError::NotTopChart(k.clone()))?;
+        let f =
+            Face::of_key(k, &params.lines).ok_or_else(|| WorklistError::NotTopChart(k.clone()))?;
         by_face.entry(f).or_default().push(k.clone());
     }
     let mut items: Vec<Item> = by_face
@@ -707,7 +784,11 @@ pub fn items_from_closure_keys(keys: &[Key], params: &NodeParams) -> Result<Vec<
         .map(|(f, pts)| {
             let case = CaseSpec::face_case(f);
             let dim = case.dim();
-            let kind = if dim == 0 { ItemKind::Point } else { ItemKind::GenericFace };
+            let kind = if dim == 0 {
+                ItemKind::Point
+            } else {
+                ItemKind::GenericFace
+            };
             let mut it = Item::new(
                 &params.node,
                 kind,
@@ -729,7 +810,11 @@ pub fn items_from_closure_keys(keys: &[Key], params: &NodeParams) -> Result<Vec<
 }
 
 /// A box-restricted item (the BOXED fallback of 2.4.15): only for a node whose spec carries a user box.
-pub fn box_restricted_item(case: CaseSpec, gap_points: Vec<Key>, params: &NodeParams) -> Result<Item, WorklistError> {
+pub fn box_restricted_item(
+    case: CaseSpec,
+    gap_points: Vec<Key>,
+    params: &NodeParams,
+) -> Result<Item, WorklistError> {
     let b = params.user_box.as_ref().ok_or(WorklistError::NoUserBox)?;
     if b.given_by != "user" {
         return Err(WorklistError::BoxNotUserGiven(b.given_by.clone()));
@@ -750,18 +835,35 @@ pub fn box_restricted_item(case: CaseSpec, gap_points: Vec<Key>, params: &NodePa
 
 /// The item for one key in live repair: the WHOLE face case of the key, gap points = the key and extra targets.
 pub fn repair_item(key: &[i32], extra: &[Key], params: &NodeParams) -> Result<Item, WorklistError> {
-    let f = Face::of_key(key, &params.lines).ok_or_else(|| WorklistError::NotTopChart(key.to_vec()))?;
+    let f =
+        Face::of_key(key, &params.lines).ok_or_else(|| WorklistError::NotTopChart(key.to_vec()))?;
     let case = CaseSpec::face_case(f);
     let mut pts = vec![key.to_vec()];
     pts.extend(
         extra
             .iter()
-            .filter(|k| case.contains(k, &params.lines) && !params.preferred.matches(k, &params.lines))
+            .filter(|k| {
+                case.contains(k, &params.lines) && !params.preferred.matches(k, &params.lines)
+            })
             .cloned(),
     );
     let dim = case.dim();
-    let kind = if dim == 0 { ItemKind::Point } else { ItemKind::GenericFace };
-    Ok(Item::new(&params.node, kind, case, pts, None, 0, dim, ChildOrigin::Root(RootSource::Repair), None))
+    let kind = if dim == 0 {
+        ItemKind::Point
+    } else {
+        ItemKind::GenericFace
+    };
+    Ok(Item::new(
+        &params.node,
+        kind,
+        case,
+        pts,
+        None,
+        0,
+        dim,
+        ChildOrigin::Root(RootSource::Repair),
+        None,
+    ))
 }
 
 /// Scheduling order, a HEURISTIC only (DESIGN-COMMENTS A3): weight descending, then pour order (more face slots
@@ -809,12 +911,23 @@ pub fn standard_children(item: &Item, params: &NodeParams) -> Vec<Item> {
     }
     for s in item.case.free() {
         for &v in params.standard_values.for_slot(params.lines[s]) {
-            let Ok(c) = item.case.constrained(&[(s, v)], &[]) else { continue };
+            let Ok(c) = item.case.constrained(&[(s, v)], &[]) else {
+                continue;
+            };
             if c.dim() >= item.case.dim() {
                 continue;
             }
-            let pts: Vec<Key> = item.gap_points.iter().filter(|k| c.contains(k, &params.lines)).cloned().collect();
-            let kind = if c.is_point() { ItemKind::Point } else { ItemKind::Child };
+            let pts: Vec<Key> = item
+                .gap_points
+                .iter()
+                .filter(|k| c.contains(k, &params.lines))
+                .cloned()
+                .collect();
+            let kind = if c.is_point() {
+                ItemKind::Point
+            } else {
+                ItemKind::Child
+            };
             out.push(Item::new(
                 &params.node,
                 kind,

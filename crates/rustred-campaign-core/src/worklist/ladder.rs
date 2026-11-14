@@ -67,11 +67,19 @@ pub enum SolveOutcome {
     Rules(Vec<CandidateRule>),
     /// No relation within the shells of the setting.
     NoRelation,
-    BudgetStop { time_decided: bool },
-    RefusedHeavy { reason: String },
-    ProfileRefused { reason: String },
+    BudgetStop {
+        time_decided: bool,
+    },
+    RefusedHeavy {
+        reason: String,
+    },
+    ProfileRefused {
+        reason: String,
+    },
     KilledMemory,
-    Interrupted { by: Interruption },
+    Interrupted {
+        by: Interruption,
+    },
     Error(String),
 }
 
@@ -146,13 +154,19 @@ pub enum Tri {
 pub enum PointVerdict {
     Covered,
     NotInCase,
-    OnException { branch: usize },
+    OnException {
+        branch: usize,
+    },
     OnPole,
     Elided,
     /// d2 failed with no exception branch there: the rule's exceptions are incomplete (rejects the candidate).
     HiddenPole,
-    NotDescending { rhs: Key },
-    Unknown { why: String },
+    NotDescending {
+        rhs: Key,
+    },
+    Unknown {
+        why: String,
+    },
 }
 
 impl PointVerdict {
@@ -163,7 +177,12 @@ impl PointVerdict {
 
 /// d1-d4 at one key (plan 2.4.5): d1 through the core domain (fixed, chart, equations, every exception branch, pole
 /// loci, elision fail-closed), d2 and d4 from the facts, d3 with the FULL node comparator on every top RHS key.
-pub fn judge_point(rule: &CandidateRule, key: &[i32], facts: &PointFacts, descent: &dyn Descent) -> PointVerdict {
+pub fn judge_point(
+    rule: &CandidateRule,
+    key: &[i32],
+    facts: &PointFacts,
+    descent: &dyn Descent,
+) -> PointVerdict {
     match rule.domain.applies(key) {
         Verdict::Applies => {}
         Verdict::OnException { branch } => return PointVerdict::OnException { branch },
@@ -375,9 +394,17 @@ pub enum Disposition {
     /// primary children leave unserved (after their whole subtree), so no point gets two rules.
     /// `reserve`: accepted candidates kept out of the cover by the economy pruning; a driver applies them, in order,
     /// to the points the children's subtrees leave unserved (`served` lists their credited points).
-    Split { cover: Cover, children: Vec<Item>, alternatives: Vec<Item>, reserve: Vec<CoverMember> },
+    Split {
+        cover: Cover,
+        children: Vec<Item>,
+        alternatives: Vec<Item>,
+        reserve: Vec<CoverMember>,
+    },
     /// A point whose ladder failed: terminal PROPOSAL (L5; declared only at S9, 2.4.9).
-    TerminalCandidates { keys: Vec<Key>, exhausted: LadderExhausted },
+    TerminalCandidates {
+        keys: Vec<Key>,
+        exhausted: LadderExhausted,
+    },
     /// A counter was exceeded or the input is unusable; never silent.
     Attention { why: String },
     /// Optimise item: no acceptable replacement; the old rules stay (U-13).
@@ -456,7 +483,8 @@ impl ItemState {
 
     pub fn record_preferred_hits(&mut self, attempt_key: &str, index: usize, hits: u64) {
         if hits > 0 {
-            self.preferred_hits.insert((attempt_key.to_string(), index), hits);
+            self.preferred_hits
+                .insert((attempt_key.to_string(), index), hits);
         }
     }
 
@@ -466,14 +494,17 @@ impl ItemState {
 
     /// Record the solver's answer to an attempt. An interrupt keeps the key open (counted per kind).
     pub fn record_answer(&mut self, attempt: &Attempt, answer: SolveAnswer) {
-        let r = self.records.entry(attempt.key.clone()).or_insert_with(|| AttemptRecord {
-            setting: attempt.setting.clone(),
-            wave: attempt.wave,
-            answer: None,
-            operator_interrupts: 0,
-            infra_interrupts: 0,
-            cpu_ms_total: 0,
-        });
+        let r = self
+            .records
+            .entry(attempt.key.clone())
+            .or_insert_with(|| AttemptRecord {
+                setting: attempt.setting.clone(),
+                wave: attempt.wave,
+                answer: None,
+                operator_interrupts: 0,
+                infra_interrupts: 0,
+                cpu_ms_total: 0,
+            });
         if r.answer.is_some() {
             return; // never re-run, never overwritten
         }
@@ -489,12 +520,21 @@ impl ItemState {
         }
     }
 
-    pub fn record_verdicts(&mut self, attempt_key: &str, index: usize, verdicts: Vec<PointVerdict>) {
-        self.verdicts.insert((attempt_key.to_string(), index), verdicts);
+    pub fn record_verdicts(
+        &mut self,
+        attempt_key: &str,
+        index: usize,
+        verdicts: Vec<PointVerdict>,
+    ) {
+        self.verdicts
+            .insert((attempt_key.to_string(), index), verdicts);
     }
 
     pub fn record_evidence(&mut self, attempt_key: &str, index: usize, ev: Vec<KeyEvidence>) {
-        self.evidence.entry((attempt_key.to_string(), index)).or_default().extend(ev);
+        self.evidence
+            .entry((attempt_key.to_string(), index))
+            .or_default()
+            .extend(ev);
     }
 
     /// Attempts with a final answer.
@@ -533,7 +573,10 @@ pub(crate) struct Accepted {
 
 /// The total seed-search space of an item (the sub-counter, D-43).
 pub fn sub_counter(state: &ItemState, params: &NodeParams) -> usize {
-    seed_space(&state.item.case, params).iter().map(|w| w.len()).sum()
+    seed_space(&state.item.case, params)
+        .iter()
+        .map(|w| w.len())
+        .sum()
 }
 
 fn evidence_ok(ev: &KeyEvidence, min: EvidenceLevel) -> Option<bool> {
@@ -555,7 +598,9 @@ pub(crate) fn accepted_candidates(
     let mut need = Vec::new();
     let mut out = Vec::new();
     for (order, setting, key) in settings {
-        let Some(rec) = state.records.get(key) else { continue };
+        let Some(rec) = state.records.get(key) else {
+            continue;
+        };
         for (idx, cand) in rec.candidates().iter().enumerate() {
             let Some(v) = state.verdicts.get(&(key.clone(), idx)) else {
                 need.push(VerdictRequest {
@@ -599,7 +644,11 @@ pub(crate) fn accepted_candidates(
                 rule: cand.clone(),
                 credited,
                 lacking,
-                preferred_hits: state.preferred_hits.get(&(key.clone(), idx)).copied().unwrap_or(0),
+                preferred_hits: state
+                    .preferred_hits
+                    .get(&(key.clone(), idx))
+                    .copied()
+                    .unwrap_or(0),
             });
         }
     }
@@ -629,7 +678,10 @@ pub(crate) fn best_one_case(acc: &[Accepted], n_points: usize) -> Option<usize> 
 /// Minimum set cover over the accepted candidates of the coverable points: exact (fewest members, then smallest
 /// RHS volume, then enumeration order) up to [`EXACT_COVER_MAX`] candidates and 6 members, else greedy.
 pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
-    let coverable: BTreeSet<usize> = acc.iter().flat_map(|a| a.credited.iter().copied()).collect();
+    let coverable: BTreeSet<usize> = acc
+        .iter()
+        .flat_map(|a| a.credited.iter().copied())
+        .collect();
     if coverable.is_empty() {
         return (vec![], false);
     }
@@ -640,14 +692,23 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
             let mut best: Option<(u64, Vec<usize>)> = None;
             let mut comb: Vec<usize> = (0..k).collect();
             loop {
-                let u: BTreeSet<usize> = comb.iter().flat_map(|&i| acc[i].credited.iter().copied()).collect();
+                let u: BTreeSet<usize> = comb
+                    .iter()
+                    .flat_map(|&i| acc[i].credited.iter().copied())
+                    .collect();
                 if u == coverable {
                     let vol: u64 = comb.iter().map(|&i| acc[i].rule.rhs_terms).sum();
-                    let key: Vec<usize> = comb.iter().map(|&i| acc[i].order * 1000 + acc[i].index).collect();
+                    let key: Vec<usize> = comb
+                        .iter()
+                        .map(|&i| acc[i].order * 1000 + acc[i].index)
+                        .collect();
                     let better = match &best {
                         None => true,
                         Some((bv, bc)) => {
-                            let bk: Vec<usize> = bc.iter().map(|&i| acc[i].order * 1000 + acc[i].index).collect();
+                            let bk: Vec<usize> = bc
+                                .iter()
+                                .map(|&i| acc[i].order * 1000 + acc[i].index)
+                                .collect();
                             vol < *bv || (vol == *bv && key < bk)
                         }
                     };
@@ -695,7 +756,12 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
     (chosen, true)
 }
 
-pub(crate) fn make_cover(state: &ItemState, acc: &[Accepted], members: &[usize], greedy: bool) -> Cover {
+pub(crate) fn make_cover(
+    state: &ItemState,
+    acc: &[Accepted],
+    members: &[usize],
+    greedy: bool,
+) -> Cover {
     let gp = &state.item.gap_points;
     let mut taken = BTreeSet::new();
     let mut out = Vec::new();
@@ -739,11 +805,17 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     let gp = &item.gap_points;
     let n_points = gp.len();
     if n_points == 0 && item.kind != ItemKind::Optimise {
-        return Next::Done(Disposition::Covered { cover: Cover::default() });
+        return Next::Done(Disposition::Covered {
+            cover: Cover::default(),
+        });
     }
     if item.case.dim() > item.root_dim {
         return Next::Done(Disposition::Attention {
-            why: format!("child dimension {} above the root's {}", item.case.dim(), item.root_dim),
+            why: format!(
+                "child dimension {} above the root's {}",
+                item.case.dim(),
+                item.root_dim
+            ),
         });
     }
     if !state.offers_recorded {
@@ -784,7 +856,8 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         let is_final = |k: &String| state.records.get(k).is_some_and(|r| r.is_final());
         let finished: Vec<(usize, SeedSetting, String)> =
             entries.iter().filter(|e| is_final(&e.2)).cloned().collect();
-        let pending: Vec<&(usize, SeedSetting, String)> = entries.iter().filter(|e| !is_final(&e.2)).collect();
+        let pending: Vec<&(usize, SeedSetting, String)> =
+            entries.iter().filter(|e| !is_final(&e.2)).collect();
         let mut all_done = done_settings.clone();
         all_done.extend(finished.iter().cloned());
         let mut acc = match accepted_candidates(state, params, &all_done) {
@@ -814,7 +887,9 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                     .map(|a| a.order)
                     .min()
                     .unwrap_or(0);
-                let cpu = |e: &(usize, SeedSetting, String)| state.records.get(&e.2).map_or(0, |r| r.cpu_ms_total);
+                let cpu = |e: &(usize, SeedSetting, String)| {
+                    state.records.get(&e.2).map_or(0, |r| r.cpu_ms_total)
+                };
                 let c0 = entries.iter().find(|e| e.0 == first_ok).map_or(0, cpu);
                 let spent: u64 = entries.iter().filter(|e| e.0 > first_ok).map(cpu).sum();
                 // a wave-0 offer (no solver CPU) that covers everything ends the search (extra-rules.md 5.2)
@@ -890,8 +965,16 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     let mut reserve_idx: Vec<usize> = Vec::new();
     loop {
         let full = make_cover(state, &acc, &members, greedy);
-        let served_full: BTreeSet<Key> = full.members.iter().flat_map(|m| m.served.iter().cloned()).collect();
-        let left_full: Vec<Key> = gp.iter().filter(|k| !served_full.contains(*k)).cloned().collect();
+        let served_full: BTreeSet<Key> = full
+            .members
+            .iter()
+            .flat_map(|m| m.served.iter().cloned())
+            .collect();
+        let left_full: Vec<Key> = gp
+            .iter()
+            .filter(|k| !served_full.contains(*k))
+            .cloned()
+            .collect();
         if left_full.is_empty() || members.len() < 2 {
             break;
         }
@@ -902,7 +985,11 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             }
             let earlier: Vec<&CandidateRule> = full.members[..pos]
                 .iter()
-                .filter_map(|e| acc.iter().find(|a| a.key == e.attempt_key && a.index == e.index).map(|a| &a.rule))
+                .filter_map(|e| {
+                    acc.iter()
+                        .find(|a| a.key == e.attempt_key && a.index == e.index)
+                        .map(|a| &a.rule)
+                })
                 .collect();
             let all_on_live_branch = m.served.iter().all(|p| {
                 earlier.iter().any(|r| match excepting_branch(r, p) {
@@ -913,7 +1000,9 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                 })
             });
             if all_on_live_branch {
-                dropped = acc.iter().position(|a| a.key == m.attempt_key && a.index == m.index);
+                dropped = acc
+                    .iter()
+                    .position(|a| a.key == m.attempt_key && a.index == m.index);
                 break;
             }
         }
@@ -940,8 +1029,16 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             }
         })
         .collect();
-    let served: BTreeSet<Key> = cover.members.iter().flat_map(|m| m.served.iter().cloned()).collect();
-    let leftover: Vec<Key> = gp.iter().filter(|k| !served.contains(*k)).cloned().collect();
+    let served: BTreeSet<Key> = cover
+        .members
+        .iter()
+        .flat_map(|m| m.served.iter().cloned())
+        .collect();
+    let leftover: Vec<Key> = gp
+        .iter()
+        .filter(|k| !served.contains(*k))
+        .cloned()
+        .collect();
     if leftover.is_empty() {
         return Next::Done(Disposition::Covered { cover });
     }
@@ -952,7 +1049,9 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             key: leftover[0].clone(),
             attempts: tried.len() as u32,
             depth3_tried: tried.iter().any(|r| r.setting.depth >= 3),
-            depth3_unfloored_tried: tried.iter().any(|r| r.setting.depth >= 3 && !r.setting.floor),
+            depth3_unfloored_tried: tried
+                .iter()
+                .any(|r| r.setting.depth >= 3 && !r.setting.floor),
         };
         return Next::Done(Disposition::TerminalCandidates {
             keys: leftover,
@@ -965,7 +1064,9 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     // candidates with a hidden pole are not trusted for their exception set
     let mut informants: Vec<&CandidateRule> = Vec::new();
     for (_, _, key) in &done_settings {
-        let Some(rec) = state.records.get(key) else { continue };
+        let Some(rec) = state.records.get(key) else {
+            continue;
+        };
         for (idx, c) in rec.candidates().iter().enumerate() {
             let hidden = state
                 .verdicts
@@ -978,7 +1079,14 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     }
     let others = informants;
     let reserve_rules: Vec<&CandidateRule> = reserve_idx.iter().map(|&i| &acc[i].rule).collect();
-    let (children, alternatives) = derive_children(item, &cover_rules, &reserve_rules, &others, &leftover, params);
+    let (children, alternatives) = derive_children(
+        item,
+        &cover_rules,
+        &reserve_rules,
+        &others,
+        &leftover,
+        params,
+    );
     Next::Done(Disposition::Split {
         cover,
         children,
@@ -1011,7 +1119,10 @@ fn one_case_with_evidence(
 
 /// Optimise items (U-13): keep only candidates whose domain CONTAINS the old rules' (driver verdict, R33 proof on
 /// FULL nodes) and whose measure is STRICTLY better than the old rules' together; ask for missing containment.
-fn optimise_filter(state: &ItemState, acc: &mut Vec<Accepted>) -> Result<(), Vec<ContainmentRequest>> {
+fn optimise_filter(
+    state: &ItemState,
+    acc: &mut Vec<Accepted>,
+) -> Result<(), Vec<ContainmentRequest>> {
     let old = &state.item.replaces;
     let old_rhs: u64 = old.iter().map(|o| o.rhs_terms).sum();
     let old_score = SelectionScore {
@@ -1020,8 +1131,15 @@ fn optimise_filter(state: &ItemState, acc: &mut Vec<Accepted>) -> Result<(), Vec
         size_class: SelectionScore::size_class_of(old_rhs),
         preferred_misses: u64::MAX,
         rhs_terms: old.iter().map(|o| o.rhs_terms).sum(),
-        monomials: old.iter().map(|o| o.monomials.unwrap_or(u64::MAX / 4)).fold(0u64, |a, b| a.saturating_add(b)),
-        degree: old.iter().map(|o| o.max_degree.unwrap_or(u32::MAX)).max().unwrap_or(u32::MAX),
+        monomials: old
+            .iter()
+            .map(|o| o.monomials.unwrap_or(u64::MAX / 4))
+            .fold(0u64, |a, b| a.saturating_add(b)),
+        degree: old
+            .iter()
+            .map(|o| o.max_degree.unwrap_or(u32::MAX))
+            .max()
+            .unwrap_or(u32::MAX),
         order: 0,
     };
     let n = state.item.gap_points.len();
@@ -1029,7 +1147,13 @@ fn optimise_filter(state: &ItemState, acc: &mut Vec<Accepted>) -> Result<(), Vec
     acc.retain(|a| {
         let s = score(a, n);
         let better = (s.failed, s.cases, s.rhs_terms, s.monomials, s.degree)
-            < (old_score.failed, old_score.cases, old_score.rhs_terms, old_score.monomials, old_score.degree);
+            < (
+                old_score.failed,
+                old_score.cases,
+                old_score.rhs_terms,
+                old_score.monomials,
+                old_score.degree,
+            );
         if !better || a.credited.len() != n {
             return false;
         }

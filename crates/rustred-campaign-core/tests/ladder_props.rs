@@ -12,10 +12,10 @@ use rustred_campaign_core::domain::CaseDomain;
 use rustred_campaign_core::poly::Poly;
 use rustred_campaign_core::repair::{CaseRequest, CaseSolver, TreeLimits, drive_tree};
 use rustred_campaign_core::worklist::affine::AffineEq;
-use rustred_campaign_core::worklist::items::{fnv1a128, Face, Item, NodeParams};
+use rustred_campaign_core::worklist::items::{Face, Item, NodeParams, fnv1a128};
 use rustred_campaign_core::worklist::ladder::{
-    CandidateRule, Disposition, Interruption, ItemState, Next, SolveAnswer, SolveOutcome, judge_points, next_steps,
-    sub_counter,
+    CandidateRule, Disposition, Interruption, ItemState, Next, SolveAnswer, SolveOutcome,
+    judge_points, next_steps, sub_counter,
 };
 use rustred_campaign_core::worklist::seed::AttemptBudget;
 
@@ -40,9 +40,13 @@ impl CaseSolver for RandomSolver {
         let n = *n;
         let h = self.h(&req.attempt_key, n);
         let outcome = match h % 10 {
-            0 | 1 | 2 => SolveOutcome::NoRelation,
-            3 if n < 3 => SolveOutcome::Interrupted { by: Interruption::Operator },
-            4 if n < 3 => SolveOutcome::Interrupted { by: Interruption::Infra },
+            0..=2 => SolveOutcome::NoRelation,
+            3 if n < 3 => SolveOutcome::Interrupted {
+                by: Interruption::Operator,
+            },
+            4 if n < 3 => SolveOutcome::Interrupted {
+                by: Interruption::Infra,
+            },
             5 => SolveOutcome::Error("planted".into()),
             _ => {
                 let p = &self.params;
@@ -50,17 +54,30 @@ impl CaseSolver for RandomSolver {
                 let free: Vec<usize> = req.case.free();
                 for i in 0..p.arity {
                     if !free.contains(&i) {
-                        d.fixed[i] = Some(req.case.fixed.get(&i).copied().unwrap_or(if p.lines[i] { 1 } else { 0 }));
+                        d.fixed[i] =
+                            Some(req.case.fixed.get(&i).copied().unwrap_or(if p.lines[i] {
+                                1
+                            } else {
+                                0
+                            }));
                     }
                 }
                 for e in &req.case.equations {
-                    d.equations.push(Poly::parse_d_free(&e.to_engine(), p.arity).unwrap());
+                    d.equations
+                        .push(Poly::parse_d_free(&e.to_engine(), p.arity).unwrap());
                 }
                 // exceptions: a random slot at a random small value
                 for (j, &s) in free.iter().enumerate() {
                     if (h >> (8 + j)) & 1 == 1 {
-                        let v = if p.lines[s] { 2 + ((h >> (16 + j)) & 1) as i32 } else { -1 - ((h >> (20 + j)) & 1) as i32 };
-                        d.exceptions.push(vec![Poly::parse_d_free(&AffineEq::fixed(s, v).to_engine(), p.arity).unwrap()]);
+                        let v = if p.lines[s] {
+                            2 + ((h >> (16 + j)) & 1) as i32
+                        } else {
+                            -1 - ((h >> (20 + j)) & 1) as i32
+                        };
+                        d.exceptions.push(vec![
+                            Poly::parse_d_free(&AffineEq::fixed(s, v).to_engine(), p.arity)
+                                .unwrap(),
+                        ]);
                     }
                 }
                 SolveOutcome::Rules(vec![CandidateRule {
@@ -72,11 +89,15 @@ impl CaseSolver for RandomSolver {
                     bytes: None,
                     rows: None,
                     tie_break_only: None,
-            symmetry_rows: false,
+                    symmetry_rows: false,
                 }])
             }
         };
-        SolveAnswer { outcome, cpu_ms: 1 + h % 5000, rows: None }
+        SolveAnswer {
+            outcome,
+            cpu_ms: 1 + h % 5000,
+            rows: None,
+        }
     }
 }
 
@@ -91,7 +112,9 @@ fn face_points(face: &Face, p: &NodeParams) -> Vec<Vec<i32>> {
     let slots = face.slots();
     let mut idx = vec![0i32; slots.len()];
     loop {
-        let mut k: Vec<i32> = (0..p.arity).map(|i| if p.lines[i] { 1 } else { 0 }).collect();
+        let mut k: Vec<i32> = (0..p.arity)
+            .map(|i| if p.lines[i] { 1 } else { 0 })
+            .collect();
         for (j, &s) in slots.iter().enumerate() {
             k[s] = if p.lines[s] { 2 + idx[j] } else { -1 - idx[j] };
         }
@@ -115,7 +138,11 @@ fn face_points(face: &Face, p: &NodeParams) -> Vec<Vec<i32>> {
 /// Batch driver of ONE item: answers every attempt of a Run at once.
 fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemState, Disposition) {
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(p.arity, None).unwrap();
-    let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 4, line_priority: (0..4).collect() };
+    let mut facts = ScriptedFacts {
+        cmp: &cmp,
+        n_lines: 4,
+        line_priority: (0..4).collect(),
+    };
     let mut st = ItemState::new(item);
     for _ in 0..100_000 {
         match next_steps(&st, p) {
@@ -135,7 +162,12 @@ fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemStat
             Next::NeedEvidence(r) => {
                 for q in r {
                     let c = st.records[&q.attempt_key].candidates()[q.index].clone();
-                    let ev = rustred_campaign_core::repair::KeyProver::prove(&mut ReplayProver, &c, &q.keys, q.level);
+                    let ev = rustred_campaign_core::repair::KeyProver::prove(
+                        &mut ReplayProver,
+                        &c,
+                        &q.keys,
+                        q.level,
+                    );
                     st.record_evidence(&q.attempt_key, q.index, ev);
                 }
             }
@@ -149,8 +181,13 @@ fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemStat
 
 fn summary(d: &Disposition) -> String {
     match d {
-        Disposition::Covered { cover } => format!("covered {:?}", cover.members.iter().map(|m| &m.digest).collect::<Vec<_>>()),
-        Disposition::Split { cover, children, .. } => format!(
+        Disposition::Covered { cover } => format!(
+            "covered {:?}",
+            cover.members.iter().map(|m| &m.digest).collect::<Vec<_>>()
+        ),
+        Disposition::Split {
+            cover, children, ..
+        } => format!(
             "split {:?} {:?}",
             cover.members.iter().map(|m| &m.digest).collect::<Vec<_>>(),
             children.iter().map(|c| &c.id).collect::<Vec<_>>()

@@ -58,7 +58,11 @@ impl FallbackSet {
 
     /// Add a key BY RULE: only with the ladder's exhaustion token for that key (depth 3 unfloored tried), and only up
     /// to the bound.
-    pub fn add_by_rule(&mut self, key: &[i32], token: &LadderExhausted) -> Result<bool, TerminalError> {
+    pub fn add_by_rule(
+        &mut self,
+        key: &[i32],
+        token: &LadderExhausted,
+    ) -> Result<bool, TerminalError> {
         if token.key() != key {
             return Err(TerminalError::TokenMismatch);
         }
@@ -92,7 +96,12 @@ impl FallbackSet {
 
     /// Drop keys the closure no longer reaches (2.4.9 (e)).
     pub fn retain_reached(&mut self, reached: &BTreeSet<Key>) -> Vec<Key> {
-        let gone: Vec<Key> = self.keys.iter().filter(|k| !reached.contains(*k)).cloned().collect();
+        let gone: Vec<Key> = self
+            .keys
+            .iter()
+            .filter(|k| !reached.contains(*k))
+            .cloned()
+            .collect();
         for k in &gone {
             self.keys.remove(k);
             self.explicit.remove(k);
@@ -121,10 +130,18 @@ impl FallbackSet {
 /// the declaration of that key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalFlag {
-    OverBound { count: usize, bound: usize },
+    OverBound {
+        count: usize,
+        bound: usize,
+    },
     /// A declared terminal lies in an accepted rule's domain (export gate).
-    CoveredTerminal { key: Key, rule: String },
-    NotDeepTried { key: Key },
+    CoveredTerminal {
+        key: Key,
+        rule: String,
+    },
+    NotDeepTried {
+        key: Key,
+    },
 }
 
 /// Checks of a declared terminal set: the bound, no terminal inside a rule's domain, every key's ladder exhausted
@@ -144,14 +161,20 @@ pub fn check_terminals(
         .filter(|(k, _)| preferred.count_against_bound || !preferred.matches(k, lines))
         .count();
     if counted > bound {
-        flags.push(TerminalFlag::OverBound { count: counted, bound });
+        flags.push(TerminalFlag::OverBound {
+            count: counted,
+            bound,
+        });
     }
     for (k, tok) in terminals {
         if preferred.matches(k, lines) {
             continue;
         }
         if let CoverageVerdict::Covered { rule } = tables.verdict(k) {
-            flags.push(TerminalFlag::CoveredTerminal { key: k.clone(), rule });
+            flags.push(TerminalFlag::CoveredTerminal {
+                key: k.clone(),
+                rule,
+            });
         }
         if let Some(t) = tok
             && !t.depth3_unfloored_tried()
@@ -172,10 +195,7 @@ pub struct KeyExclusion {
 }
 
 /// Exclusions needed to keep the REACHED preferred keys terminal where a rule's domain contains them.
-pub fn preferred_exclusions(
-    reached_preferred: &[Key],
-    tables: &dyn Coverage,
-) -> Vec<KeyExclusion> {
+pub fn preferred_exclusions(reached_preferred: &[Key], tables: &dyn Coverage) -> Vec<KeyExclusion> {
     reached_preferred
         .iter()
         .filter_map(|k| match tables.verdict(k) {
@@ -235,7 +255,11 @@ pub fn preferred_report(
             r.other_terminals.push((k.clone(), why));
         }
     }
-    r.kept_by_exclusion = exclusions.iter().filter(|e| preferred.matches(&e.key, lines)).cloned().collect();
+    r.kept_by_exclusion = exclusions
+        .iter()
+        .filter(|e| preferred.matches(&e.key, lines))
+        .cloned()
+        .collect();
     r.not_kept = refused.to_vec();
     for e in &preferred.entries {
         if let crate::worklist::items::PreferredEntry::Key(k) = e
@@ -260,7 +284,11 @@ pub struct ReferenceComparison {
     pub note: String,
 }
 
-pub fn compare_with_reference(campaign: usize, reference: &MasterCounts, label: &str) -> ReferenceComparison {
+pub fn compare_with_reference(
+    campaign: usize,
+    reference: &MasterCounts,
+    label: &str,
+) -> ReferenceComparison {
     let note = match reference.ibp {
         None => "no reference".to_string(),
         Some(n) if n as usize == campaign => "equal".into(),
@@ -287,21 +315,42 @@ mod tests {
         let t1 = LadderExhausted::for_tests(vec![1, 2], true);
         let t2 = LadderExhausted::for_tests(vec![2, 1], true);
         assert_eq!(f.add_by_rule(&[1, 2], &t1), Ok(true));
-        assert_eq!(f.add_by_rule(&[2, 1], &t2), Err(TerminalError::OverBound { bound: 1 }));
-        assert_eq!(f.add_by_rule(&[2, 1], &t1), Err(TerminalError::TokenMismatch));
+        assert_eq!(
+            f.add_by_rule(&[2, 1], &t2),
+            Err(TerminalError::OverBound { bound: 1 })
+        );
+        assert_eq!(
+            f.add_by_rule(&[2, 1], &t1),
+            Err(TerminalError::TokenMismatch)
+        );
         let shallow = LadderExhausted::for_tests(vec![3, 3], false);
         let mut g = FallbackSet::new(5);
-        assert_eq!(g.add_by_rule(&[3, 3], &shallow), Err(TerminalError::NotDeepTried));
+        assert_eq!(
+            g.add_by_rule(&[3, 3], &shallow),
+            Err(TerminalError::NotDeepTried)
+        );
         let lines = vec![true, true];
         let none = PreferredTerminals::default();
-        let flags = check_terminals(&[(vec![1, 2], None), (vec![2, 1], None)], 1, &NoTables, &none, &lines);
+        let flags = check_terminals(
+            &[(vec![1, 2], None), (vec![2, 1], None)],
+            1,
+            &NoTables,
+            &none,
+            &lines,
+        );
         assert_eq!(flags, vec![TerminalFlag::OverBound { count: 2, bound: 1 }]);
         // a preferred terminal does not count against the bound by default
         let pref = PreferredTerminals {
             entries: vec![crate::worklist::items::PreferredEntry::Key(vec![2, 1])],
             count_against_bound: false,
         };
-        let flags = check_terminals(&[(vec![1, 2], None), (vec![2, 1], None)], 1, &NoTables, &pref, &lines);
+        let flags = check_terminals(
+            &[(vec![1, 2], None), (vec![2, 1], None)],
+            1,
+            &NoTables,
+            &pref,
+            &lines,
+        );
         assert!(flags.is_empty());
     }
 }

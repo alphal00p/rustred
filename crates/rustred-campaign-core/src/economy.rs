@@ -52,10 +52,19 @@ fn lexical_monomials(coef: &str) -> u64 {
         match ch {
             '(' => depth += 1,
             ')' => depth -= 1,
-            '+' | '-' if depth == 0 => {
-                if !matches!(prev, None | Some('(') | Some('*') | Some('/') | Some('^') | Some('e') | Some('E')) {
-                    n += 1;
-                }
+            '+' | '-'
+                if depth == 0
+                    && !matches!(
+                        prev,
+                        None | Some('(')
+                            | Some('*')
+                            | Some('/')
+                            | Some('^')
+                            | Some('e')
+                            | Some('E')
+                    ) =>
+            {
+                n += 1;
             }
             _ => {}
         }
@@ -137,21 +146,28 @@ impl NodeMeasure {
 
     /// Used share by rules (used / rules), in [0, 1]; 0 for an empty table.
     pub fn used_share(&self) -> f64 {
-        if self.rules == 0 { 0.0 } else { self.used_rules as f64 / self.rules as f64 }
+        if self.rules == 0 {
+            0.0
+        } else {
+            self.used_rules as f64 / self.rules as f64
+        }
     }
 
     /// Used share by RHS volume.
     pub fn used_volume_share(&self) -> f64 {
-        if self.rhs_terms == 0 { 0.0 } else { self.used_rhs_terms as f64 / self.rhs_terms as f64 }
+        if self.rhs_terms == 0 {
+            0.0
+        } else {
+            self.used_rhs_terms as f64 / self.rhs_terms as f64
+        }
     }
 
     /// Total order, smaller = more economical: cases, rules, RHS terms, monomials, coefficient degree, used share
     /// (HIGHER is better, compared in parts per million), closure size, bytes.
     pub fn economy_cmp(&self, o: &NodeMeasure) -> Ordering {
-        let share = |m: &NodeMeasure| {
-            if m.rules == 0 { 0 } else { m.used_rules * 1_000_000 / m.rules }
-        };
-        let closure = |m: &NodeMeasure| m.closure_inside.unwrap_or(0) + m.closure_outside.unwrap_or(0);
+        let share = |m: &NodeMeasure| (m.used_rules * 1_000_000).checked_div(m.rules).unwrap_or(0);
+        let closure =
+            |m: &NodeMeasure| m.closure_inside.unwrap_or(0) + m.closure_outside.unwrap_or(0);
         self.cases
             .cmp(&o.cases)
             .then(self.rules.cmp(&o.rules))
@@ -232,7 +248,10 @@ impl Retirement {
         if state == CoverageState::Full && proof.is_none() {
             return Err(RetireError::FullNodeNeedsProof);
         }
-        if !supersedes(new.1, &old.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>()) {
+        if !supersedes(
+            new.1,
+            &old.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>(),
+        ) {
             return Err(RetireError::NotCheaper);
         }
         Ok(Retirement {
@@ -279,9 +298,13 @@ mod tests {
 
     #[test]
     fn record_measure_uses_monomials_field() {
-        let line = r#"{"type":"rule","rhs":[["I(n0)","1+n0"],["I(n1)","-2*d+(3-n1)"]],"monomials":100}"#;
+        let line =
+            r#"{"type":"rule","rhs":[["I(n0)","1+n0"],["I(n1)","-2*d+(3-n1)"]],"monomials":100}"#;
         let m = RuleMeasure::from_record_json(line).unwrap();
-        assert_eq!((m.rhs_terms, m.monomials, m.monomials_estimated), (2, 100, false));
+        assert_eq!(
+            (m.rhs_terms, m.monomials, m.monomials_estimated),
+            (2, 100, false)
+        );
         let line = r#"{"type":"rule","rhs":[["I(n0)","1+n0"],["I(n1)","-2*d+(3-n1)"]]}"#;
         let m = RuleMeasure::from_record_json(line).unwrap();
         assert_eq!((m.monomials, m.monomials_estimated), (4, true));

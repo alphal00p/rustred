@@ -20,8 +20,8 @@ fn preferred_keys_are_allowed_terminals_and_reported() {
     p.preferred = PreferredTerminals {
         entries: vec![
             PreferredEntry::Key(k(2, 1)),
-            PreferredEntry::Key(k(9, 9)),           // never reached: not needed
-            PreferredEntry::Key(vec![1, 1]),        // wrong arity: warning only
+            PreferredEntry::Key(k(9, 9)),    // never reached: not needed
+            PreferredEntry::Key(vec![1, 1]), // wrong arity: warning only
             PreferredEntry::Sector { lines: vec![0, 4] }, // slot 4 is not a line: warning only
         ],
         count_against_bound: false,
@@ -43,7 +43,16 @@ fn preferred_keys_are_allowed_terminals_and_reported() {
     assert_eq!(ex[0].reason, "keeps_terminal");
     // bound: preferred terminals reported separately
     let terms = vec![(k(2, 1), None), (k(1, 2), None)];
-    assert!(check_terminals(&terms, 1, &rustred_campaign_core::repair::NoTables, &p.preferred, &p.lines).is_empty());
+    assert!(
+        check_terminals(
+            &terms,
+            1,
+            &rustred_campaign_core::repair::NoTables,
+            &p.preferred,
+            &p.lines
+        )
+        .is_empty()
+    );
     // (d), (e)
     let reached: BTreeSet<Vec<i32>> = [k(2, 1), k(1, 2)].into_iter().collect();
     let r = preferred_report(&p.preferred, &p.lines, &terms, &reached, &ex, &[]);

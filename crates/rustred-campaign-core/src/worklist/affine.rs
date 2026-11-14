@@ -98,7 +98,9 @@ impl AffineEq {
     /// `Some((slot, value))` if this is `n_slot = value`.
     pub fn as_fixed(&self) -> Option<(usize, i32)> {
         if self.coeffs.len() == 1 && self.coeffs[0].1 == 1 {
-            i32::try_from(-self.constant).ok().map(|v| (self.coeffs[0].0, v))
+            i32::try_from(-self.constant)
+                .ok()
+                .map(|v| (self.coeffs[0].0, v))
         } else {
             None
         }
@@ -125,7 +127,13 @@ impl AffineEq {
     pub fn to_engine(&self) -> String {
         let mut s = String::new();
         for (k, &(slot, c)) in self.coeffs.iter().enumerate() {
-            let sign = if c < 0 { "-" } else if k > 0 { "+" } else { "" };
+            let sign = if c < 0 {
+                "-"
+            } else if k > 0 {
+                "+"
+            } else {
+                ""
+            };
             let a = c.abs();
             if a == 1 {
                 s.push_str(&format!("{sign}n{slot}"));
@@ -244,12 +252,12 @@ pub fn rref(eqs: &[AffineEq]) -> Result<Vec<AffineEq>, AffineError> {
             if r != prow && m[r][c] != 0 {
                 let a = m[prow][c];
                 let b = m[r][c];
-                for k in 0..=n {
-                    let v = m[r][k]
+                let pivot_row = m[prow].clone();
+                for (x, &y) in m[r].iter_mut().zip(&pivot_row) {
+                    *x = x
                         .checked_mul(a)
-                        .and_then(|x| m[prow][k].checked_mul(b).and_then(|y| x.checked_sub(y)))
+                        .and_then(|u| y.checked_mul(b).and_then(|w| u.checked_sub(w)))
                         .ok_or(AffineError::Overflow)?;
-                    m[r][k] = v;
                 }
                 normalise_row(&mut m[r]);
             }
@@ -298,7 +306,11 @@ pub fn fit_loci(points: &[Vec<i32>], slots: &[usize]) -> Vec<(AffineEq, Vec<usiz
     loop {
         let mut best: Option<(AffineEq, Vec<usize>)> = None;
         let consider = |eq: AffineEq, best: &mut Option<(AffineEq, Vec<usize>)>| {
-            let held: Vec<usize> = left.iter().copied().filter(|&i| eq.holds(&points[i])).collect();
+            let held: Vec<usize> = left
+                .iter()
+                .copied()
+                .filter(|&i| eq.holds(&points[i]))
+                .collect();
             if held.len() >= 2 && best.as_ref().is_none_or(|(_, b)| held.len() > b.len()) {
                 *best = Some((eq, held));
             }
@@ -313,8 +325,10 @@ pub fn fit_loci(points: &[Vec<i32>], slots: &[usize]) -> Vec<(AffineEq, Vec<usiz
         }
         for (a, &s) in slots.iter().enumerate() {
             for &t in &slots[a + 1..] {
-                let mut diffs: Vec<i64> =
-                    left.iter().map(|&i| points[i][s] as i64 - points[i][t] as i64).collect();
+                let mut diffs: Vec<i64> = left
+                    .iter()
+                    .map(|&i| points[i][s] as i64 - points[i][t] as i64)
+                    .collect();
                 diffs.sort_unstable();
                 diffs.dedup();
                 for dlt in diffs {
@@ -339,8 +353,11 @@ pub fn fit_loci(points: &[Vec<i32>], slots: &[usize]) -> Vec<(AffineEq, Vec<usiz
                             // dy * (n_s - p_s) - dx * (n_t - p_t) = 0
                             let c = -(dy * p[s] as i64) + dx * p[t] as i64;
                             if let Some(eq) = AffineEq::new(vec![(s, dy), (t, -dx)], c) {
-                                let held: Vec<usize> =
-                                    left.iter().copied().filter(|&k| eq.holds(&points[k])).collect();
+                                let held: Vec<usize> = left
+                                    .iter()
+                                    .copied()
+                                    .filter(|&k| eq.holds(&points[k]))
+                                    .collect();
                                 if held.len() >= 3 {
                                     best = Some((eq, held));
                                     break 'pairs;
@@ -386,7 +403,10 @@ mod tests {
         ];
         assert_eq!(rref(&a).unwrap(), rref(&b).unwrap());
         let (eqs, fx) = canonical_system(
-            &[AffineEq::parse("n0-n4", 20).unwrap(), AffineEq::parse("n4-2", 20).unwrap()],
+            &[
+                AffineEq::parse("n0-n4", 20).unwrap(),
+                AffineEq::parse("n4-2", 20).unwrap(),
+            ],
             &BTreeMap::new(),
         )
         .unwrap();
@@ -398,7 +418,10 @@ mod tests {
             Err(AffineError::NoIntegerPoint)
         );
         assert_eq!(
-            canonical_system(&[AffineEq::parse("4*n0+4*n11-1", 20).unwrap()], &BTreeMap::new()),
+            canonical_system(
+                &[AffineEq::parse("4*n0+4*n11-1", 20).unwrap()],
+                &BTreeMap::new()
+            ),
             Err(AffineError::NoIntegerPoint)
         );
     }

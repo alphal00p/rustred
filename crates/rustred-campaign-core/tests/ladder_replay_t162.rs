@@ -26,9 +26,26 @@ fn t162_44_hard_faces_close_in_at_most_48_cases() {
     let mut per_face: BTreeMap<Vec<usize>, usize> = BTreeMap::new();
     for it in &items {
         let face = Face::new(it.sd.clone().unwrap(), vec![]);
-        let (_rep, o) = run_item(&params, &mut solver, &cmp, &mut facts, face.clone(), it.census.clone());
-        assert!(o.terminals.is_empty(), "face {:?}: terminals {:?} ({:?})", face, o.terminals, o.rules);
-        assert_eq!(o.point_rules, 0, "face {:?}: point rules {:?}", face, o.rules);
+        let (_rep, o) = run_item(
+            &params,
+            &mut solver,
+            &cmp,
+            &mut facts,
+            face.clone(),
+            it.census.clone(),
+        );
+        assert!(
+            o.terminals.is_empty(),
+            "face {:?}: terminals {:?} ({:?})",
+            face,
+            o.terminals,
+            o.rules
+        );
+        assert_eq!(
+            o.point_rules, 0,
+            "face {:?}: point rules {:?}",
+            face, o.rules
+        );
         assert!(o.attention.is_empty(), "{:?}", o.attention);
         total += o.cases;
         per_face.insert(face.sd.clone(), o.cases);
@@ -37,7 +54,10 @@ fn t162_44_hard_faces_close_in_at_most_48_cases() {
             // the union of the three line centres (h2/STAGES.txt:53; mc.jsonl 134diag_mc_floor)
             assert_eq!(o.cases, 3, "{:?}", o.rules);
             assert!(
-                o.rules.iter().any(|(case, set, _)| case.contains("eq=n1-n4,n3-n4") && set.starts_with("union_lines")),
+                o.rules
+                    .iter()
+                    .any(|(case, set, _)| case.contains("eq=n1-n4,n3-n4")
+                        && set.starts_with("union_lines")),
                 "{:?}",
                 o.rules
             );

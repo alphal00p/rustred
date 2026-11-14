@@ -4,7 +4,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::worklist::items::NodeParams;
-use crate::worklist::ladder::{Disposition, ItemState, Next, PointVerdict, SolveOutcome, attempt_key, next_steps};
+use crate::worklist::ladder::{
+    Disposition, ItemState, Next, PointVerdict, SolveOutcome, attempt_key, next_steps,
+};
 use crate::worklist::seed::seed_space;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,17 +74,20 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
     for (w, wave) in waves.iter().enumerate() {
         for s in wave {
             let k = attempt_key(&item.id, s);
-            let Some(r) = state.records.get(&k) else { continue };
+            let Some(r) = state.records.get(&k) else {
+                continue;
+            };
             let (outcome, detail) = match &r.answer {
                 None => ("interrupted".to_string(), None),
                 Some(a) => (
                     a.outcome.tag().to_string(),
                     match &a.outcome {
-                        SolveOutcome::RefusedHeavy { reason } | SolveOutcome::ProfileRefused { reason } => {
-                            Some(reason.clone())
-                        }
+                        SolveOutcome::RefusedHeavy { reason }
+                        | SolveOutcome::ProfileRefused { reason } => Some(reason.clone()),
                         SolveOutcome::Error(e) => Some(e.clone()),
-                        SolveOutcome::BudgetStop { time_decided } => Some(format!("time_decided={time_decided}")),
+                        SolveOutcome::BudgetStop { time_decided } => {
+                            Some(format!("time_decided={time_decided}"))
+                        }
                         _ => None,
                     },
                 ),
@@ -132,7 +137,11 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 "run {} attempt(s) of wave {}: {}",
                 list.len(),
                 list[0].wave,
-                list.iter().take(4).map(|a| a.setting.label()).collect::<Vec<_>>().join(", ")
+                list.iter()
+                    .take(4)
+                    .map(|a| a.setting.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             None,
             "seed search in progress".to_string(),
@@ -146,7 +155,10 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
         Next::NeedEvidence(r) => (
             "open".into(),
             format!("prove {} candidate(s) at the required level", r.len()),
-            Some(format!("identity evidence at level {:?} missing", params.min_evidence)),
+            Some(format!(
+                "identity evidence at level {:?} missing",
+                params.min_evidence
+            )),
             "waiting for identity evidence".into(),
         ),
         Next::NeedOffers => (
@@ -169,10 +181,17 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 format!(
                     "covered by {} case(s): {}",
                     cover.cases(),
-                    cover.members.iter().map(|m| m.setting.label()).collect::<Vec<_>>().join(" + ")
+                    cover
+                        .members
+                        .iter()
+                        .map(|m| m.setting.label())
+                        .collect::<Vec<_>>()
+                        .join(" + ")
                 ),
             ),
-            Disposition::Split { cover, children, .. } => (
+            Disposition::Split {
+                cover, children, ..
+            } => (
                 "split".into(),
                 format!("{} child item(s)", children.len()),
                 None,
@@ -196,7 +215,12 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                     exhausted.depth3_unfloored_tried()
                 ),
             ),
-            Disposition::Attention { why } => ("attention".into(), "operator".into(), Some(why.clone()), why),
+            Disposition::Attention { why } => (
+                "attention".into(),
+                "operator".into(),
+                Some(why.clone()),
+                why,
+            ),
             Disposition::OptimiseKept { why } => ("optimise_kept".into(), "none".into(), None, why),
         },
     };
@@ -220,7 +244,14 @@ impl Explanation {
     pub fn to_text(&self) -> String {
         let mut s = format!(
             "item {} ({}) {}\n  state: {} - {}\n  gap points: {}; attempts {}/{} of the seed-search space\n",
-            self.item, self.kind, self.case, self.state, self.summary, self.gap_points, self.attempts_made, self.sub_counter
+            self.item,
+            self.kind,
+            self.case,
+            self.state,
+            self.summary,
+            self.gap_points,
+            self.attempts_made,
+            self.sub_counter
         );
         for a in &self.attempts {
             s.push_str(&format!("  [w{}] {:<28} {}", a.wave, a.setting, a.outcome));

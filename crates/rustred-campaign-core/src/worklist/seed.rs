@@ -14,7 +14,10 @@ pub enum CentreKind {
     Target,
     LineDown(usize),
     NumUp(usize),
-    Pair { line: usize, num: usize },
+    Pair {
+        line: usize,
+        num: usize,
+    },
     Combined,
     CombinedNum,
     /// A child's (or point's) fixed off-floor slot, one step towards its floor (H s.2).
@@ -99,7 +102,11 @@ impl SeedSetting {
             CentreKind::CombinedNum => "combined_num".into(),
             CentreKind::FixedSlot(s) => format!("fixed:{s}"),
             CentreKind::UnionLines | CentreKind::UnionPairs | CentreKind::Explicit => {
-                let slots: BTreeSet<usize> = self.offsets.iter().flat_map(|m| m.keys().copied()).collect();
+                let slots: BTreeSet<usize> = self
+                    .offsets
+                    .iter()
+                    .flat_map(|m| m.keys().copied())
+                    .collect();
                 let name = match self.centre {
                     CentreKind::UnionLines => "union_lines",
                     CentreKind::UnionPairs => "union_pairs",
@@ -107,7 +114,11 @@ impl SeedSetting {
                 };
                 format!(
                     "{name}({})",
-                    slots.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",")
+                    slots
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
                 )
             }
         };
@@ -121,7 +132,11 @@ impl SeedSetting {
 
     /// The slots that carry a centre offset (for evidence records).
     pub fn slots(&self) -> Vec<usize> {
-        let s: BTreeSet<usize> = self.offsets.iter().flat_map(|m| m.keys().copied()).collect();
+        let s: BTreeSet<usize> = self
+            .offsets
+            .iter()
+            .flat_map(|m| m.keys().copied())
+            .collect();
         s.into_iter().collect()
     }
 }
@@ -160,11 +175,25 @@ pub fn engine_seed_args(s: &SeedSetting) -> Vec<String> {
 }
 
 /// Instances of one policy entry on a case.
-fn expand(spec: &SettingSpec, depth: u8, case: &CaseSpec, params: &NodeParams, class_tight: bool) -> Vec<SeedSetting> {
+fn expand(
+    spec: &SettingSpec,
+    depth: u8,
+    case: &CaseSpec,
+    params: &NodeParams,
+    class_tight: bool,
+) -> Vec<SeedSetting> {
     let lines = &params.lines;
     let free = case.free();
-    let lines_free: Vec<usize> = free.iter().copied().filter(|&s| lines[s] && case.face.sd.contains(&s)).collect();
-    let nums_free: Vec<usize> = free.iter().copied().filter(|&s| !lines[s] && case.face.sn.contains(&s)).collect();
+    let lines_free: Vec<usize> = free
+        .iter()
+        .copied()
+        .filter(|&s| lines[s] && case.face.sd.contains(&s))
+        .collect();
+    let nums_free: Vec<usize> = free
+        .iter()
+        .copied()
+        .filter(|&s| !lines[s] && case.face.sn.contains(&s))
+        .collect();
     let fixed_off = case.fixed_off_floor(lines);
     let toward = |s: usize| if lines[s] { -1 } else { 1 };
     let face_line = !lines_free.is_empty() || fixed_off.iter().any(|&s| lines[s]);
@@ -188,7 +217,11 @@ fn expand(spec: &SettingSpec, depth: u8, case: &CaseSpec, params: &NodeParams, c
         }
         CentreSpec::Fixed => {
             for &x in &fixed_off {
-                out.push(mk(CentreKind::FixedSlot(x), vec![one(&[(x, toward(x))])], floor));
+                out.push(mk(
+                    CentreKind::FixedSlot(x),
+                    vec![one(&[(x, toward(x))])],
+                    floor,
+                ));
             }
         }
         CentreSpec::Num => {
@@ -199,7 +232,11 @@ fn expand(spec: &SettingSpec, depth: u8, case: &CaseSpec, params: &NodeParams, c
         CentreSpec::Pair => {
             for &x in &lines_free {
                 for &j in &nums_free {
-                    out.push(mk(CentreKind::Pair { line: x, num: j }, vec![one(&[(x, -1), (j, 1)])], floor));
+                    out.push(mk(
+                        CentreKind::Pair { line: x, num: j },
+                        vec![one(&[(x, -1), (j, 1)])],
+                        floor,
+                    ));
                 }
             }
         }
@@ -214,7 +251,10 @@ fn expand(spec: &SettingSpec, depth: u8, case: &CaseSpec, params: &NodeParams, c
         }
         CentreSpec::CombinedNum => {
             let mut m = BTreeMap::new();
-            for &x in nums_free.iter().chain(fixed_off.iter().filter(|&&s| !lines[s])) {
+            for &x in nums_free
+                .iter()
+                .chain(fixed_off.iter().filter(|&&s| !lines[s]))
+            {
                 m.insert(x, 1);
             }
             if m.len() >= 2 {
@@ -258,7 +298,12 @@ pub fn seed_space(case: &CaseSpec, params: &NodeParams) -> Vec<Vec<SeedSetting>>
     let mut waves = Vec::new();
     for depth in [2u8, 3u8] {
         let mut wave = Vec::new();
-        let listed: Vec<&SettingSpec> = class.waves.iter().filter(|w| w.depth == depth).flat_map(|w| &w.settings).collect();
+        let listed: Vec<&SettingSpec> = class
+            .waves
+            .iter()
+            .filter(|w| w.depth == depth)
+            .flat_map(|w| &w.settings)
+            .collect();
         let builtin = builtin_wave(depth);
         for spec in listed.into_iter().chain(builtin.settings.iter()) {
             for st in expand(spec, depth, case, params, class.tight) {
@@ -269,9 +314,16 @@ pub fn seed_space(case: &CaseSpec, params: &NodeParams) -> Vec<Vec<SeedSetting>>
         }
         if !priors.is_empty() {
             let rank = |st: &SeedSetting| -> f64 {
-                priors.get(&(st.centre.spec(), st.floor, st.depth)).copied().unwrap_or(f64::INFINITY)
+                priors
+                    .get(&(st.centre.spec(), st.floor, st.depth))
+                    .copied()
+                    .unwrap_or(f64::INFINITY)
             };
-            wave.sort_by(|a, b| rank(a).partial_cmp(&rank(b)).unwrap_or(std::cmp::Ordering::Equal));
+            wave.sort_by(|a, b| {
+                rank(a)
+                    .partial_cmp(&rank(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
         waves.push(wave);
     }
@@ -314,7 +366,12 @@ pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
 
 /// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d)); memory by depth; the
 /// point and oversized classes have their own figures.
-pub fn attempt_budget(s: &SeedSetting, params: &NodeParams, point: bool, oversized: bool) -> AttemptBudget {
+pub fn attempt_budget(
+    s: &SeedSetting,
+    params: &NodeParams,
+    point: bool,
+    oversized: bool,
+) -> AttemptBudget {
     let b = &params.budgets;
     let est = estimated_seeds(s, params.arity);
     let max_rows = est.saturating_mul(params.ibp_rows_per_seed as u64);
@@ -343,7 +400,11 @@ pub fn attempt_budget(s: &SeedSetting, params: &NodeParams, point: bool, oversiz
             estimated_seeds(&one, params.arity)
         })
         .max(1);
-    let scaled = if est > r { base.saturating_mul(est) / r } else { base };
+    let scaled = if est > r {
+        base.saturating_mul(est) / r
+    } else {
+        base
+    };
     AttemptBudget {
         seconds: scaled.min(b.cap_seconds),
         mem_mb: mem,
@@ -363,11 +424,23 @@ mod tests {
         let c = CaseSpec::face_case(Face::new(vec![6], vec![]));
         let w = seed_space(&c, &p);
         let n: usize = w.iter().map(|x| x.len()).sum();
-        assert_eq!(n, 6, "{:?}", w.iter().flatten().map(|s| s.label()).collect::<Vec<_>>());
+        assert_eq!(
+            n,
+            6,
+            "{:?}",
+            w.iter().flatten().map(|s| s.label()).collect::<Vec<_>>()
+        );
         assert_eq!(w[0][1].label(), "line:6/fl/d2");
         assert_eq!(
             engine_seed_args(&w[0][1]),
-            vec!["--seed-centre-offset", "6:-1", "--seed-face-floor", "1", "--max-depth", "2"]
+            vec![
+                "--seed-centre-offset",
+                "6:-1",
+                "--seed-face-floor",
+                "1",
+                "--max-depth",
+                "2"
+            ]
         );
     }
 
@@ -375,13 +448,21 @@ mod tests {
     fn union_and_pairs_present() {
         let p = NodeParams::new("T178", 20, 10);
         let c = CaseSpec::face_case(Face::new(vec![0, 6], vec![11]));
-        let all: Vec<String> = seed_space(&c, &p).into_iter().flatten().map(|s| s.label()).collect();
+        let all: Vec<String> = seed_space(&c, &p)
+            .into_iter()
+            .flatten()
+            .map(|s| s.label())
+            .collect();
         assert!(all.contains(&"union_lines(0,6)/fl/d2".to_string()));
         assert!(all.contains(&"union_lines(0,6)/unfl/d3".to_string()));
         assert!(all.contains(&"pair:0:11/fl/d2".to_string()));
         assert!(all.contains(&"combined/fl/d2".to_string()));
         assert!(all.contains(&"union_pairs(0,6,11)/fl/d2".to_string()));
-        let u = seed_space(&c, &p)[0].iter().find(|s| s.centre == CentreKind::UnionLines).cloned().unwrap();
+        let u = seed_space(&c, &p)[0]
+            .iter()
+            .find(|s| s.centre == CentreKind::UnionLines)
+            .cloned()
+            .unwrap();
         assert_eq!(engine_seed_args(&u)[1], "0:-1;6:-1");
         let b = attempt_budget(&u, &p, false, false);
         assert_eq!(b.seconds, 300);

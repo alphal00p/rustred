@@ -10,8 +10,8 @@ use crate::cover::{Dispatch, Dispatcher};
 use crate::order::NodeComparator;
 use crate::worklist::items::{CaseSpec, EvidenceLevel, Item, ItemId, Key, NodeParams, repair_item};
 use crate::worklist::ladder::{
-    Attempt, CandidateRule, Disposition, ItemState, KeyEvidence, LadderExhausted, Next, PointFacts, SolveAnswer,
-    SolveOutcome, Tri, judge_points_with_hits, next_steps,
+    Attempt, CandidateRule, Disposition, ItemState, KeyEvidence, LadderExhausted, Next, PointFacts,
+    SolveAnswer, SolveOutcome, Tri, judge_points_with_hits, next_steps,
 };
 use crate::worklist::seed::{AttemptBudget, SeedSetting};
 use crate::worklist::supplied::CandidateSource;
@@ -65,7 +65,12 @@ impl Descent for NodeComparator {
 
 /// Identity evidence at keys, at the level the node's spec requires (U-12: `replay` = A2, `per-key` = A3).
 pub trait KeyProver {
-    fn prove(&mut self, rule: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence>;
+    fn prove(
+        &mut self,
+        rule: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence>;
 }
 
 /// Optimise items (U-13): does the candidate's domain contain the old rules' domains (R33: exact partition proof on
@@ -158,7 +163,9 @@ impl TreeReport {
         let mut out = Vec::new();
         for r in &self.items {
             let cover = match &r.disposition {
-                Some(Disposition::Covered { cover }) | Some(Disposition::Split { cover, .. }) => cover,
+                Some(Disposition::Covered { cover }) | Some(Disposition::Split { cover, .. }) => {
+                    cover
+                }
                 _ => continue,
             };
             for m in &cover.members {
@@ -270,15 +277,19 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
             match next_steps(st, self.params) {
                 Next::Run(list) => {
                     if self.attempts >= self.limits.max_attempts {
-                        self.report.stopped = Some(format!("attempt limit {}", self.limits.max_attempts));
+                        self.report.stopped =
+                            Some(format!("attempt limit {}", self.limits.max_attempts));
                         return;
                     }
                     if self.report.cpu_ms >= self.limits.max_cpu_ms {
-                        self.report.stopped = Some(format!("cpu limit {} ms", self.limits.max_cpu_ms));
+                        self.report.stopped =
+                            Some(format!("cpu limit {} ms", self.limits.max_cpu_ms));
                         return;
                     }
                     let a = &list[0];
-                    let ans = self.solver.solve(&CaseRequest::from_attempt(&self.params.node, a), &a.budget);
+                    let ans = self
+                        .solver
+                        .solve(&CaseRequest::from_attempt(&self.params.node, a), &a.budget);
                     self.attempts += 1;
                     self.report.cpu_ms = self.report.cpu_ms.saturating_add(ans.cpu_ms);
                     self.report.attempts.push(AttemptSummary {
@@ -296,8 +307,14 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                 Next::NeedVerdicts(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let (v, hits) =
-                            judge_points_with_hits(&cand, &r.keys, self.facts, self.descent, &self.params.preferred, &self.params.lines);
+                        let (v, hits) = judge_points_with_hits(
+                            &cand,
+                            &r.keys,
+                            self.facts,
+                            self.descent,
+                            &self.params.preferred,
+                            &self.params.lines,
+                        );
                         st.record_verdicts(&r.attempt_key, r.index, v);
                         st.record_preferred_hits(&r.attempt_key, r.index, hits);
                     }
@@ -325,7 +342,10 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                     let (name, offers) = match self.source.as_deref_mut() {
                         Some(src) => {
                             let o = src.offer(&st.item, self.params);
-                            (src.name().to_string(), o.into_iter().map(|c| c.candidate).collect())
+                            (
+                                src.name().to_string(),
+                                o.into_iter().map(|c| c.candidate).collect(),
+                            )
                         }
                         None => ("none".to_string(), Vec::new()),
                     };
@@ -371,7 +391,9 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                                 continue;
                             }
                             self.served.extend(m.served.iter().cloned());
-                            if let Some(Disposition::Split { cover, .. }) = &mut self.report.items[idx].disposition {
+                            if let Some(Disposition::Split { cover, .. }) =
+                                &mut self.report.items[idx].disposition
+                            {
                                 cover.members.push(m);
                             }
                         }
@@ -434,13 +456,28 @@ pub struct RepairOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RepairFailure {
     NotImplemented,
-    InvalidKey { why: String },
-    BudgetExhausted { attempts: Vec<AttemptSummary> },
-    NoRelation { attempts: Vec<AttemptSummary> },
-    NotAccepted { why: String, attempts: Vec<AttemptSummary> },
-    Terminal { key: Key, exhausted: LadderExhausted, attempts: Vec<AttemptSummary> },
+    InvalidKey {
+        why: String,
+    },
+    BudgetExhausted {
+        attempts: Vec<AttemptSummary>,
+    },
+    NoRelation {
+        attempts: Vec<AttemptSummary>,
+    },
+    NotAccepted {
+        why: String,
+        attempts: Vec<AttemptSummary>,
+    },
+    Terminal {
+        key: Key,
+        exhausted: LadderExhausted,
+        attempts: Vec<AttemptSummary>,
+    },
     /// The key is a PREFERRED terminal of the spec (P-4): kept unevaluated, no ladder effort spent.
-    PreferredTerminal { key: Key },
+    PreferredTerminal {
+        key: Key,
+    },
 }
 
 /// Repair ONE key (plan 3.9): if the tables in force cover it, nothing to do; else the whole face of the key is
@@ -460,7 +497,9 @@ pub fn repair_key(
         });
     }
     if p.preferred.matches(&inputs.key, &p.lines) {
-        return Err(RepairFailure::PreferredTerminal { key: inputs.key.clone() });
+        return Err(RepairFailure::PreferredTerminal {
+            key: inputs.key.clone(),
+        });
     }
     match inputs.tables.verdict(&inputs.key) {
         CoverageVerdict::Covered { .. } => {
@@ -478,15 +517,24 @@ pub fn repair_key(
             });
         }
     }
-    let item = repair_item(&inputs.key, &inputs.extra_targets, p).map_err(|e| RepairFailure::InvalidKey {
-        why: e.to_string(),
-    })?;
+    let item = repair_item(&inputs.key, &inputs.extra_targets, p)
+        .map_err(|e| RepairFailure::InvalidKey { why: e.to_string() })?;
     let limits = TreeLimits {
         max_attempts: budget.max_attempts,
         max_cpu_ms: budget.max_cpu_ms,
         max_items: budget.max_items,
     };
-    let rep = drive_tree(vec![item], p, inputs.descent, solver, facts, prover, None, source, &limits);
+    let rep = drive_tree(
+        vec![item],
+        p,
+        inputs.descent,
+        solver,
+        facts,
+        prover,
+        None,
+        source,
+        &limits,
+    );
     let rules: Vec<AcceptedRule> = rep
         .accepted_rules()
         .into_iter()
@@ -516,7 +564,11 @@ pub fn repair_key(
             already_covered: false,
         });
     }
-    if let Some((k, ex)) = rep.terminal_candidates().into_iter().find(|(k, _)| *k == inputs.key) {
+    if let Some((k, ex)) = rep
+        .terminal_candidates()
+        .into_iter()
+        .find(|(k, _)| *k == inputs.key)
+    {
         return Err(RepairFailure::Terminal {
             key: k,
             exhausted: ex,
@@ -524,10 +576,14 @@ pub fn repair_key(
         });
     }
     if rep.stopped.is_some() {
-        return Err(RepairFailure::BudgetExhausted { attempts: rep.attempts });
+        return Err(RepairFailure::BudgetExhausted {
+            attempts: rep.attempts,
+        });
     }
     if rep.attempts.iter().all(|a| a.candidates == 0) {
-        return Err(RepairFailure::NoRelation { attempts: rep.attempts });
+        return Err(RepairFailure::NoRelation {
+            attempts: rep.attempts,
+        });
     }
     let why = rep
         .items

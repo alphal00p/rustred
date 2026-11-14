@@ -189,7 +189,10 @@ impl SeedPolicy {
     pub fn from_json(text: &str) -> Result<(Self, Vec<String>), String> {
         let mut p: SeedPolicy = serde_json::from_str(text).map_err(|e| e.to_string())?;
         if p.schema != SEED_POLICY_SCHEMA {
-            return Err(format!("schema {} (expected {SEED_POLICY_SCHEMA})", p.schema));
+            return Err(format!(
+                "schema {} (expected {SEED_POLICY_SCHEMA})",
+                p.schema
+            ));
         }
         let mut notes = Vec::new();
         for c in &p.classes {
@@ -237,7 +240,9 @@ impl SeedPolicy {
             a.0 += r as f64;
             a.1 += 1;
         }
-        acc.into_iter().map(|(k, (s, n))| (k, s / n as f64)).collect()
+        acc.into_iter()
+            .map(|(k, (s, n))| (k, s / n as f64))
+            .collect()
     }
 }
 

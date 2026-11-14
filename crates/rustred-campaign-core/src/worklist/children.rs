@@ -41,8 +41,18 @@ pub fn excepting_branch(rule: &CandidateRule, key: &[i32]) -> Option<(String, Ve
     }
 }
 
-fn child_item(parent: &Item, case: CaseSpec, pts: Vec<Key>, origin: ChildOrigin, params: &NodeParams) -> Item {
-    let kind = if case.is_point() { ItemKind::Point } else { ItemKind::Child };
+fn child_item(
+    parent: &Item,
+    case: CaseSpec,
+    pts: Vec<Key>,
+    origin: ChildOrigin,
+    params: &NodeParams,
+) -> Item {
+    let kind = if case.is_point() {
+        ItemKind::Point
+    } else {
+        ItemKind::Child
+    };
     let mut it = Item::new(
         &params.node,
         kind,
@@ -71,8 +81,13 @@ pub(crate) fn derive_children(
 ) -> (Vec<Item>, Vec<Item>) {
     let dim = item.case.dim();
     let mut groups: BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)> = BTreeMap::new();
-    let add = |case: CaseSpec, p: Key, origin: ChildOrigin, groups: &mut BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)>| {
-        let e = groups.entry(case.canonical_text()).or_insert((case, Vec::new(), origin));
+    let add = |case: CaseSpec,
+               p: Key,
+               origin: ChildOrigin,
+               groups: &mut BTreeMap<String, (CaseSpec, Vec<Key>, ChildOrigin)>| {
+        let e = groups
+            .entry(case.canonical_text())
+            .or_insert((case, Vec::new(), origin));
         e.1.push(p);
     };
     let mut rest: Vec<Key> = Vec::new();
@@ -118,7 +133,15 @@ pub(crate) fn derive_children(
                 && let Ok(c) = item.case.constrained(&[(s, p[s])], &[])
                 && c.dim() < dim
             {
-                add(c, p.clone(), ChildOrigin::Standard { slot: s, value: p[s] }, &mut groups);
+                add(
+                    c,
+                    p.clone(),
+                    ChildOrigin::Standard {
+                        slot: s,
+                        value: p[s],
+                    },
+                    &mut groups,
+                );
                 placed = true;
                 break;
             }
@@ -207,12 +230,21 @@ pub(crate) fn derive_children(
             if !vals.contains(&p[s]) {
                 continue;
             }
-            let Ok(c) = item.case.constrained(&[(s, p[s])], &[]) else { continue };
+            let Ok(c) = item.case.constrained(&[(s, p[s])], &[]) else {
+                continue;
+            };
             if c.dim() >= dim || out.iter().any(|o| o.case == c && o.gap_points.contains(p)) {
                 continue;
             }
             alt.entry(c.canonical_text())
-                .or_insert((c, Vec::new(), ChildOrigin::Standard { slot: s, value: p[s] }))
+                .or_insert((
+                    c,
+                    Vec::new(),
+                    ChildOrigin::Standard {
+                        slot: s,
+                        value: p[s],
+                    },
+                ))
                 .1
                 .push(p.clone());
         }
@@ -236,7 +268,11 @@ pub enum ChildGate {
     Superseded,
 }
 
-pub fn standard_child_gate(child: &Item, parent_children: Option<&[Item]>, released_early: bool) -> ChildGate {
+pub fn standard_child_gate(
+    child: &Item,
+    parent_children: Option<&[Item]>,
+    released_early: bool,
+) -> ChildGate {
     match parent_children {
         None => ChildGate::Blocked,
         Some(ch) if ch.iter().any(|c| c.id == child.id) => ChildGate::Release,

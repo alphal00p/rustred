@@ -8,8 +8,9 @@ use rustred_campaign_core::economy::{NodeMeasure, RuleMeasure};
 
 #[test]
 fn r0_table_measure() {
-    let base = std::env::var("RUSTRED_CAMPAIGN_FIXTURES")
-        .unwrap_or_else(|_| "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/fixtures".into());
+    let base = std::env::var("RUSTRED_CAMPAIGN_FIXTURES").unwrap_or_else(|_| {
+        "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/fixtures".into()
+    });
     let path = format!("{base}/T178B/raw/R0_try1.F.table.jsonl");
     let Ok(f) = std::fs::File::open(&path) else {
         eprintln!("SKIP: {path} absent");
@@ -33,5 +34,8 @@ fn r0_table_measure() {
     assert!(node.rhs_terms > 0 && node.monomials > 0);
     assert_eq!(node.used_share(), 1.0);
     assert_eq!(half.economy_cmp(&node), std::cmp::Ordering::Less);
-    eprintln!("R0_try1: {} rules, {} RHS terms, {} monomials, {} bytes", node.rules, node.rhs_terms, node.monomials, node.bytes);
+    eprintln!(
+        "R0_try1: {} rules, {} RHS terms, {} monomials, {} bytes",
+        node.rules, node.rhs_terms, node.monomials, node.bytes
+    );
 }
