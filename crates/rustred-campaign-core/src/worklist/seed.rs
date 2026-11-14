@@ -186,9 +186,11 @@ impl SeedSetting {
 /// THE ONE mapping of a setting to engine argv (interfaces/coord-ec1-seed-centre.md, EC-1 first form; addendum 3 of
 /// R46): `--seed-centre-offset 'S:D[,..][;..]'` (omitted for the target), `--seed-face-floor 1` (floor on only; the flag
 /// is omitted for floor off), `--max-depth K`, `--seed-layer-cap D,R[,B]` for a tight setting (coordinator branch,
-/// `solver::SeedLayerCap`), `--symmetry-rows` for symmetry rows in the seed system (sym-symbolic line). Depth 0 with
-/// symmetry rows = the symmetry rows at the target alone (`--max-depth 0 --symmetry-rows`; REQUEST to the engine lane
-/// if the engine refuses depth 0).
+/// `solver::SeedLayerCap`), `--symmetry-symbolic` for symmetry rows (EC-1 v2 section 5, int4: a setting's symmetry rows
+/// are rows of the CASE SEARCH; the engine's `--symmetry-rows` adds them to the shared numeric bulk solve only and is
+/// implied by `--symmetry-symbolic`). Depth 0 = the symmetry rows at the target alone: `--max-depth 0 --numeric-depth 0`
+/// (EC-1 v2 section 6, measured form for a point; a symbolic face additionally needs `--open-on-refusal`, a property of
+/// the CASE that the job builder adds, not of the setting).
 pub fn engine_seed_args(s: &SeedSetting) -> Vec<String> {
     let mut a = Vec::new();
     let centres: Vec<String> = s
@@ -213,6 +215,10 @@ pub fn engine_seed_args(s: &SeedSetting) -> Vec<String> {
     }
     a.push("--max-depth".into());
     a.push(s.depth.to_string());
+    if s.depth == 0 {
+        a.push("--numeric-depth".into());
+        a.push("0".into());
+    }
     if let Some(c) = &s.layer_cap {
         a.push("--seed-layer-cap".into());
         a.push(
@@ -223,7 +229,7 @@ pub fn engine_seed_args(s: &SeedSetting) -> Vec<String> {
         );
     }
     if s.symmetry_rows {
-        a.push("--symmetry-rows".into());
+        a.push("--symmetry-symbolic".into());
     }
     a
 }
