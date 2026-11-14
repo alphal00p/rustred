@@ -33,8 +33,6 @@
     {
       "id": "T162",
       "class": "5L_integer",
-      "lines": 9,
-      "arity": 20,
       "family": {
         "id": "T162.family",
         "path": "/abs/families/T162.sym",
@@ -79,16 +77,41 @@
           "blake3": "2222222222222222222222222222222222222222222222222222222222222222",
           "priority": 0,
           "trust": "pre_fix",
-          "filter": null
+          "filter": null,
+          "format": "table_dump.v1",
+          "provenance": {
+            "by": "Astra (hand closure)",
+            "utc": "2026-11-13T22:45:00Z",
+            "from": "handoff/t162-bank export",
+            "evidence": "astra-bank-20261113"
+          }
         }
       ],
       "box": {
         "id": "T162.box",
-        "path": "/abs/boxes/T162.Rstar.json",
         "blake3": "3333333333333333333333333333333333333333333333333333333333333333",
-        "measure": "dots-rank-v1",
-        "kind": "union_band",
-        "cap": 5
+        "path": null,
+        "predicate": {
+          "layers": [
+            {
+              "dots": [
+                0,
+                0
+              ],
+              "rank_max": 3
+            },
+            {
+              "dots": [
+                1,
+                4
+              ],
+              "rank_max": 4
+            }
+          ],
+          "line_power_max": 5,
+          "keys": null,
+          "union": true
+        }
       },
       "envelope": null,
       "symmetry": {
@@ -118,13 +141,55 @@
         "terminals": 2,
         "rules": null
       },
-      "children": []
+      "children": [],
+      "derived": {
+        "arity": 20,
+        "lines": 9
+      },
+      "envelopes": [
+        {
+          "id": "T162.env",
+          "path": "/abs/T162.envelope.keys",
+          "blake3": "8888888888888888888888888888888888888888888888888888888888888888",
+          "label": "measured",
+          "from_tables": [
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ]
+        }
+      ],
+      "preferred_terminals": [
+        {
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "sector_mask": "11111111100000000000"
+        }
+      ]
     },
     {
       "id": "T178",
       "class": "5L_integer",
-      "lines": 9,
-      "arity": 20,
       "family": {
         "id": "T178.family",
         "path": "/abs/families/T178.sym",
@@ -169,16 +234,41 @@
           "blake3": "2222222222222222222222222222222222222222222222222222222222222222",
           "priority": 0,
           "trust": "pre_fix",
-          "filter": null
+          "filter": null,
+          "format": "table_dump.v1",
+          "provenance": {
+            "by": "Astra (hand closure)",
+            "utc": "2026-11-13T22:45:00Z",
+            "from": "handoff/t162-bank export",
+            "evidence": "astra-bank-20261113"
+          }
         }
       ],
       "box": {
         "id": "T178.box",
-        "path": "/abs/boxes/T178.Rstar.json",
         "blake3": "3333333333333333333333333333333333333333333333333333333333333333",
-        "measure": "dots-rank-v1",
-        "kind": "union_band",
-        "cap": 5
+        "path": null,
+        "predicate": {
+          "layers": [
+            {
+              "dots": [
+                0,
+                0
+              ],
+              "rank_max": 3
+            },
+            {
+              "dots": [
+                1,
+                4
+              ],
+              "rank_max": 4
+            }
+          ],
+          "line_power_max": 5,
+          "keys": null,
+          "union": true
+        }
       },
       "envelope": null,
       "symmetry": {
@@ -208,7 +298,51 @@
         "terminals": 2,
         "rules": null
       },
-      "children": []
+      "children": [],
+      "derived": {
+        "arity": 20,
+        "lines": 9
+      },
+      "envelopes": [
+        {
+          "id": "T178.env",
+          "path": "/abs/T178.envelope.keys",
+          "blake3": "8888888888888888888888888888888888888888888888888888888888888888",
+          "label": "measured",
+          "from_tables": [
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ]
+        }
+      ],
+      "preferred_terminals": [
+        {
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "sector_mask": "11111111100000000000"
+        }
+      ]
     }
   ],
   "scope": {

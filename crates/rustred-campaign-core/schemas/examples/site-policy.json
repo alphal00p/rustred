@@ -16,19 +16,23 @@
   "held_files": [
     {
       "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.held",
-      "key": "held"
+      "key": "held",
+      "required": false
     },
     {
       "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/FOREIGN_5L_LIFT.json",
-      "key": "all_cpus_listed"
+      "key": "all_cpus_listed",
+      "required": false
     },
     {
       "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/OUR_PINS.json",
-      "key": "entries[].cpus"
+      "key": "entries[].cpus",
+      "required": false
     },
     {
       "path": "/shared/vhirschi/t3code/vakint/scratchpad/5l-pilot/coordinator/admission/LIFT16359_CPUS.json",
-      "key": "cpus"
+      "key": "cpus",
+      "required": false
     }
   ],
   "pause_files": [

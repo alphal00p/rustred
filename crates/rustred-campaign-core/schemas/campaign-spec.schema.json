@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "campaign-spec.schema.json",
   "title": "Campaign spec CDIR/spec.json (immutable for a campaign; amendments are patch files recorded in the ledger)",
-  "description": "NO AS-BUILT WRITER yet: plan 3.3.1 re-expressed against the as-built ledger and contract (input ids registered by `input_registered` / `node_registered`, BLAKE3 digests, `large:` root, the contract's work / wall budgets, determinism and elision options, the site / plain CPU policy of process-layer.md 9, the per-node box as an OPTIONAL user-provided input (R35) and the fallback terminal bound of `campaign_created` / `node_registered`). Integers only (no floats, no '2G' strings): the spec is an identifying document (plan 3.3.0). Readers ignore unknown fields of a known major. USER RULINGS R40 applied: per-node `certification` (U-12), optional user `box` (U-7), `full_attempt` budget (U-6), `economy.extra_budget_factor` (U-13), campaign `mode` close | optimise (U-13), seed-policy file (R37); NO knock-out flag, master count, lp or old residuals as inputs (U-9): such numbers only inside a node's `reference` block marked comparison only; no publication into the existing ledgers (U-11).",
+  "description": "NO AS-BUILT WRITER yet: plan 3.3.1 re-expressed against the as-built ledger and contract (input ids registered by `input_registered` / `node_registered`, BLAKE3 digests, `large:` root, the contract's work / wall budgets, determinism and elision options, the site / plain CPU policy of process-layer.md 9, the per-node box as an OPTIONAL user-provided input (R35) and the fallback terminal bound of `campaign_created` / `node_registered`). Integers only (no floats, no '2G' strings): the spec is an identifying document (plan 3.3.0). Readers ignore unknown fields of a known major. USER RULINGS R40 applied: per-node `certification` (U-12), optional user `box` (U-7), `full_attempt` budget (U-6), `economy.extra_budget_factor` (U-13), campaign `mode` close | optimise (U-13), seed-policy file (R37); NO knock-out flag, master count, lp or old residuals as inputs (U-9): such numbers only inside a node's `reference` block marked comparison only; no publication into the existing ledgers (U-11). R41 applied: GENERIC (P-5, L8): nothing assumes the five-loop set; arity and line count are DERIVED from the family (optional informational `derived` block only); tables carry format + provenance; the box is a generic declarative predicate with id + digest; hand-down envelopes are key-set files labelled measured | proved; optional preferred terminals (P-4: a preference only).",
   "x-rr-names": [
     "rustred.campaign.spec.v1"
   ],
@@ -614,31 +614,84 @@
     },
     "box": {
       "type": "object",
-      "description": "OPTIONAL user-provided box of a node (R35): an input with its own id (ledger node_registered.spec_box, input_registered role `box`) and digest; never chosen or widened by the campaign",
+      "description": "OPTIONAL user-provided box (R35, U-7, P-5): a generic declarative predicate with its own id (ledger spec_box) and digest (BLAKE3 of the canonical JSON of `predicate`, or of the file at `path`); never chosen or widened by the campaign",
       "required": [
         "id",
-        "path",
         "blake3",
-        "measure",
-        "kind"
-      ],
-      "allOf": [
-        {
-          "$ref": "common.schema.json#/$defs/input_file"
-        }
+        "predicate"
       ],
       "properties": {
-        "measure": {
-          "type": "string",
-          "minLength": 1
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
         },
-        "kind": {
-          "type": "string",
-          "minLength": 1
+        "blake3": {
+          "$ref": "common.schema.json#/$defs/blake3"
         },
-        "cap": {
-          "type": "integer",
-          "minimum": 1
+        "path": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/abs_path"
+            }
+          ]
+        },
+        "predicate": {
+          "type": "object",
+          "properties": {
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "dots",
+                  "rank_max"
+                ],
+                "properties": {
+                  "dots": {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ],
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "rank_max": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "line_power_max": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "keys": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/input_file"
+                }
+              ]
+            },
+            "union": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },
@@ -651,7 +704,9 @@
       "type": "object",
       "required": [
         "priority",
-        "trust"
+        "trust",
+        "format",
+        "provenance"
       ],
       "properties": {
         "priority": {
@@ -672,6 +727,37 @@
             "object",
             "null"
           ]
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1,
+          "description": "format tag, e.g. table_dump.v1"
+        },
+        "provenance": {
+          "type": "object",
+          "required": [
+            "by",
+            "utc",
+            "from"
+          ],
+          "properties": {
+            "by": {
+              "type": "string"
+            },
+            "utc": {
+              "$ref": "common.schema.json#/$defs/utc"
+            },
+            "from": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "ledger evidence_imported id"
+            }
+          }
         }
       }
     },
@@ -679,9 +765,6 @@
       "type": "object",
       "required": [
         "id",
-        "class",
-        "lines",
-        "arity",
         "family",
         "order",
         "tables",
@@ -694,18 +777,6 @@
         "id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-        },
-        "class": {
-          "type": "string"
-        },
-        "lines": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "arity": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 64
         },
         "family": {
           "$ref": "common.schema.json#/$defs/input_file"
@@ -903,6 +974,45 @@
             }
           },
           "description": "U-6: full-closure attempt before the box fallback; stop at whichever comes first (default 50 CPU-h / 5 rounds)"
+        },
+        "class": {
+          "type": "string",
+          "description": "free label (data)"
+        },
+        "derived": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "arity": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lines": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ],
+          "description": "INFORMATIONAL echo of what the campaign derives from the family; never an input"
+        },
+        "envelopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/envelope_file"
+          },
+          "description": "optional hand-down envelope key sets"
+        },
+        "preferred_terminals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/preferred_terminal"
+          },
+          "description": "P-4 / L9: preference only (semantics: interfaces/preferred-terminals.md, lane I-LADDER)"
         }
       },
       "not": {
@@ -929,6 +1039,61 @@
           }
         ]
       }
+    },
+    "envelope_file": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/input_file"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "label",
+        "from_tables"
+      ],
+      "properties": {
+        "label": {
+          "enum": [
+            "measured",
+            "proved"
+          ]
+        },
+        "from_tables": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/blake3"
+          }
+        }
+      }
+    },
+    "preferred_terminal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "$ref": "common.schema.json#/$defs/key"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "sector_mask"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "sector_mask": {
+              "type": "string",
+              "pattern": "^[01]+$"
+            }
+          }
+        }
+      ]
     }
   }
 }

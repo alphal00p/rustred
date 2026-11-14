@@ -112,9 +112,11 @@ pub struct Licence {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeSpec {
     pub id: String,
-    pub class: String,
-    pub lines: u32,
-    pub arity: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    /// INFORMATIONAL echo of the arity / line count the campaign derives from the family (P-5): never an input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived: Option<Value>,
     pub family: InputFile,
     pub order: Value,
     #[serde(default)]
@@ -125,6 +127,12 @@ pub struct NodeSpec {
     pub r#box: Option<BoxSpec>,
     #[serde(default)]
     pub envelope: Option<Value>,
+    /// Hand-down envelope key sets, each `measured` | `proved` with the digests of the tables they came from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub envelopes: Vec<EnvelopeFile>,
+    /// P-4 / L9: preferred terminals (keys or sector masks): a preference, never a restriction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_terminals: Vec<Value>,
     #[serde(default)]
     pub symmetry: Option<Value>,
     pub terminals: NodeTerminals,
@@ -173,22 +181,37 @@ pub struct TableSpec {
     pub id: String,
     pub path: String,
     pub blake3: String,
+    /// Format tag (e.g. `table_dump.v1`).
+    pub format: String,
     pub priority: u32,
     pub trust: String,
+    /// Who made it, when, from what (P-1: imported material carries provenance).
+    pub provenance: Value,
     #[serde(default)]
     pub filter: Option<Value>,
 }
 
+/// The user's box (R35, U-7, P-5): a generic declarative predicate with its own id and digest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoxSpec {
     /// Input id (ledger `node_registered.spec_box`, `input_registered` role `box`).
     pub id: String,
+    /// BLAKE3 of the canonical JSON of `predicate` (or of the file at `path`).
+    pub blake3: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Layers over (dots, rank), per-line power cap, explicit key list (kept as JSON: the box module interprets it).
+    pub predicate: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvelopeFile {
+    pub id: String,
     pub path: String,
     pub blake3: String,
-    pub measure: String,
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cap: Option<u32>,
+    /// `measured` (closure against it is PROVISIONAL, DEV-12) or `proved`.
+    pub label: String,
+    pub from_tables: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -3,45 +3,236 @@
   "$id": "progress-node.schema.json",
   "title": "Progress file CDIR/progress/nodes/<node>.json",
   "description": "AS BUILT: rustred_campaign::progress::derive (\"file\": \"node\"). closure_kind FULL / BOXED / OPEN (R33 / R35), economy before / after (R31). Plan 3.P.4 `rustred.campaign.node.v1` differs (DISAGREEMENTS).",
-  "x-rr-names": ["rustred.campaign.progress.v1"],
-  "x-rr-select": {"file": "node"},
+  "x-rr-names": [
+    "rustred.campaign.progress.v1"
+  ],
+  "x-rr-select": {
+    "file": "node"
+  },
   "x-rr-owner": "I-LEDGER (co-signer C-DASH)",
   "x-rr-struct": "rustred_campaign_core::schema::progress::NodeProgress",
   "x-rr-freeze": "M0",
-  "allOf": [{"$ref": "progress-common.schema.json#/$defs/envelope"}],
+  "allOf": [
+    {
+      "$ref": "progress-common.schema.json#/$defs/envelope"
+    }
+  ],
   "type": "object",
-  "required": ["node", "phase", "closure_kind", "certified", "target", "spec_box", "attempt_ended", "blockers", "closure", "economy", "terminals", "items", "accepted_by_evidence", "inputs", "stale_reason", "cpu_seconds"],
+  "required": [
+    "node",
+    "phase",
+    "closure_kind",
+    "certified",
+    "target",
+    "spec_box",
+    "attempt_ended",
+    "blockers",
+    "closure",
+    "economy",
+    "terminals",
+    "items",
+    "accepted_by_evidence",
+    "inputs",
+    "stale_reason",
+    "cpu_seconds"
+  ],
   "properties": {
-    "file": {"const": "node"},
-    "node": {"type": "string", "minLength": 1},
-    "phase": {"$ref": "common.schema.json#/$defs/node_phase"},
-    "closure_kind": {"$ref": "common.schema.json#/$defs/closure_kind"},
-    "certified": {"type": "boolean"},
-    "target": {"oneOf": [
-      {"type": "object", "required": ["target"], "additionalProperties": false, "properties": {"target": {"const": "full"}}},
-      {"type": "object", "required": ["target", "box_id"], "additionalProperties": false, "properties": {"target": {"const": "boxed"}, "box_id": {"type": "string", "minLength": 1}}}
-    ]},
-    "spec_box": {"type": ["string", "null"]},
-    "attempt_ended": {"type": "boolean"},
-    "blockers": {"type": "object", "required": ["full", "box"], "properties": {"full": {"$ref": "progress-common.schema.json#/$defs/blockers_or_null"}, "box": {"$ref": "progress-common.schema.json#/$defs/blockers_or_null"}}},
-    "closure": {
-      "type": "object", "required": ["rounds", "defect_keys", "keyset", "closure_keys", "rules_used", "rules_total", "used_share"],
+    "file": {
+      "const": "node"
+    },
+    "node": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "$ref": "common.schema.json#/$defs/node_phase"
+    },
+    "closure_kind": {
+      "$ref": "common.schema.json#/$defs/closure_kind"
+    },
+    "certified": {
+      "type": "boolean"
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "target": {
+              "const": "full"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "target",
+            "box_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "target": {
+              "const": "boxed"
+            },
+            "box_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "spec_box": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attempt_ended": {
+      "type": "boolean"
+    },
+    "blockers": {
+      "type": "object",
+      "required": [
+        "full",
+        "box"
+      ],
       "properties": {
-        "rounds": {"$ref": "common.schema.json#/$defs/u32"},
-        "defect_keys": {"type": ["integer", "null"], "minimum": 0},
-        "keyset": {"$ref": "common.schema.json#/$defs/fileref_or_null"},
-        "closure_keys": {"type": ["integer", "null"], "minimum": 0},
-        "rules_used": {"type": ["integer", "null"], "minimum": 0},
-        "rules_total": {"type": ["integer", "null"], "minimum": 0},
-        "used_share": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        "full": {
+          "$ref": "progress-common.schema.json#/$defs/blockers_or_null"
+        },
+        "box": {
+          "$ref": "progress-common.schema.json#/$defs/blockers_or_null"
+        }
       }
     },
-    "economy": {"$ref": "progress-common.schema.json#/$defs/node_economy"},
-    "terminals": {"type": "object", "required": ["declared", "bound", "candidates"], "properties": {"declared": {"$ref": "common.schema.json#/$defs/u32"}, "bound": {"$ref": "common.schema.json#/$defs/u32"}, "candidates": {"$ref": "common.schema.json#/$defs/u64"}}},
-    "items": {"type": "object", "required": ["by_phase", "by_level", "open"], "properties": {"by_phase": {"$ref": "progress-common.schema.json#/$defs/phase_counts"}, "by_level": {"$ref": "progress-common.schema.json#/$defs/by_level"}, "open": {"$ref": "common.schema.json#/$defs/u64"}}},
-    "accepted_by_evidence": {"$ref": "progress-common.schema.json#/$defs/level_counts"},
-    "inputs": {"type": "array", "items": {"type": "string"}},
-    "stale_reason": {"type": ["string", "null"]},
-    "cpu_seconds": {"type": "number", "minimum": 0}
+    "closure": {
+      "type": "object",
+      "required": [
+        "rounds",
+        "defect_keys",
+        "keyset",
+        "closure_keys",
+        "rules_used",
+        "rules_total",
+        "used_share"
+      ],
+      "properties": {
+        "rounds": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "defect_keys": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "keyset": {
+          "$ref": "common.schema.json#/$defs/fileref_or_null"
+        },
+        "closure_keys": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rules_used": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rules_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "used_share": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "economy": {
+      "$ref": "progress-common.schema.json#/$defs/node_economy"
+    },
+    "terminals": {
+      "type": "object",
+      "required": [
+        "declared",
+        "bound",
+        "candidates"
+      ],
+      "properties": {
+        "declared": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "bound": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "candidates": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "items": {
+      "type": "object",
+      "required": [
+        "by_phase",
+        "by_level",
+        "open"
+      ],
+      "properties": {
+        "by_phase": {
+          "$ref": "progress-common.schema.json#/$defs/phase_counts"
+        },
+        "by_level": {
+          "$ref": "progress-common.schema.json#/$defs/by_level"
+        },
+        "open": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "accepted_by_evidence": {
+      "$ref": "progress-common.schema.json#/$defs/level_counts"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stale_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cpu_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "envelope": {
+      "enum": [
+        "measured",
+        "proved",
+        null
+      ],
+      "description": "R41 P-2 / DEV-12: closure against measured hand-down ranges is closed but PROVISIONAL. NOT in the as-built derive yet (ledger fix lane)."
+    }
   }
 }
