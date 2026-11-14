@@ -1,0 +1,20 @@
+{
+  "schema": "rustred.campaign.progress.v1", "file": "node", "fixture_origin": "hand",
+  "campaign_id": "p5l-boxed-final", "written_utc": "2026-11-20T08:15:04.000Z", "source_of_truth": "ledger",
+  "ledger": {"seq": 18402, "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000", "last_utc": "2026-11-20T08:15:03.250Z"},
+  "node": "T178", "phase": "running", "closure_kind": "open", "certified": false,
+  "target": {"target": "full"}, "spec_box": "T178.rstar", "attempt_ended": false,
+  "blockers": {"full": null, "box": null},
+  "closure": {"rounds": 3, "defect_keys": 412, "keyset": null, "closure_keys": 88410, "rules_used": 1381, "rules_total": 5938, "used_share": 0.233},
+  "economy": {"rules_before": 1490, "rules_after": 1381, "superseded": 109, "unmeasured": 4,
+              "before": {"bytes": 500000000, "cases": 1490, "coefficient_degree": 20, "monomials": 5000000, "rhs_terms": 1101000, "rules": 1490},
+              "after": {"bytes": 420000000, "cases": 1381, "coefficient_degree": 20, "monomials": 4300000, "rhs_terms": 990321, "rules": 1381}},
+  "terminals": {"declared": 1, "bound": 100, "candidates": 2},
+  "items": {"open": 121, "by_phase": {"open": 98, "in_progress": 14, "produced": 3, "accepted": 401, "rejected": 13, "escalated": 92, "terminal_candidate": 2, "terminal": 1, "stale": 0, "retired": 20},
+            "by_level": {"L0": {"open": 61, "in_progress": 6, "produced": 3, "accepted": 260, "rejected": 4, "escalated": 50, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 9},
+                         "L1": {"open": 29, "in_progress": 5, "produced": 0, "accepted": 100, "rejected": 5, "escalated": 30, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 8},
+                         "L2": {"open": 6, "in_progress": 2, "produced": 0, "accepted": 41, "rejected": 3, "escalated": 12, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 3},
+                         "L4": {"open": 2, "in_progress": 1, "produced": 0, "accepted": 0, "rejected": 1, "escalated": 0, "terminal_candidate": 2, "terminal": 0, "stale": 0, "retired": 0}}},
+  "accepted_by_evidence": {"geometry_accepted": 40, "identity_tested": 60, "identity_proved": 301},
+  "inputs": ["T178.family", "T178.bank", "T178.rstar"], "stale_reason": null, "cpu_seconds": 83520.0
+}

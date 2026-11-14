@@ -1,0 +1,105 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 0,
+    "identity_proved": 2,
+    "identity_tested": 0
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "fixture-mid",
+  "certified": true,
+  "closure": {
+    "closure_keys": 150000,
+    "defect_keys": 0,
+    "keyset": {
+      "blake3": "de8316adbfdc2cbfe8b732be639379ccf5652deafe064d1bb29bf47def5d75ce",
+      "bytes": 1027,
+      "path": "large:keysets/T164-closure-1.keys"
+    },
+    "rounds": 1,
+    "rules_total": 2440,
+    "rules_used": 5,
+    "used_share": 0.002
+  },
+  "closure_kind": "full",
+  "cpu_seconds": 3.0,
+  "economy": {
+    "after": {
+      "bytes": 72000,
+      "cases": 2,
+      "coefficient_degree": 12,
+      "monomials": 4200,
+      "rhs_terms": 600,
+      "rules": 2
+    },
+    "before": {
+      "bytes": 72000,
+      "cases": 2,
+      "coefficient_degree": 12,
+      "monomials": 4200,
+      "rhs_terms": 600,
+      "rules": 2
+    },
+    "rules_after": 2,
+    "rules_before": 2,
+    "superseded": 0,
+    "unmeasured": 0
+  },
+  "file": "node",
+  "inputs": [
+    "T164.family",
+    "T164.bank"
+  ],
+  "items": {
+    "by_level": {
+      "L0": {
+        "accepted": 2,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      }
+    },
+    "by_phase": {
+      "accepted": 2,
+      "escalated": 0,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 0
+    },
+    "open": 0
+  },
+  "ledger": {
+    "head": "0c892333623389922bce9c931ba25feff166add6aacd92ae06aaf28d2aa21746",
+    "last_utc": "2026-11-14T11:58:32.750Z",
+    "seq": 132
+  },
+  "node": "T164",
+  "phase": "certified",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec_box": null,
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 100,
+    "candidates": 0,
+    "declared": 0
+  },
+  "written_utc": "2026-11-14T11:58:33.000Z"
+}

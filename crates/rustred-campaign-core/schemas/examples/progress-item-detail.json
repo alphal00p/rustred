@@ -1,0 +1,44 @@
+{
+  "children": [
+    "T162-item-00005"
+  ],
+  "item": "T162-item-00004",
+  "jobs": [
+    {
+      "attempt": 2,
+      "cpu_seconds": 2.5,
+      "job": "T162-job-00004-L0",
+      "run_dir": "large:jobs/j4.a2",
+      "state": {
+        "class": "no_rule",
+        "state": "succeeded_sealed"
+      }
+    }
+  ],
+  "record": {
+    "accepted": null,
+    "cpu_ms": 2500,
+    "created_seq": 52,
+    "economy": null,
+    "inputs": [],
+    "jobs": [
+      "T162-job-00004-L0"
+    ],
+    "kind": "locus",
+    "label": "F004 n9=-1",
+    "node": "T162",
+    "parent": null,
+    "phase": {
+      "detail": "L1",
+      "phase": "escalated"
+    },
+    "retired": null,
+    "rung": "L0",
+    "stale_from": null,
+    "stale_input": null,
+    "terminal_keys": 0,
+    "updated_seq": 62,
+    "weight": 5
+  },
+  "why": "escalated to L1"
+}

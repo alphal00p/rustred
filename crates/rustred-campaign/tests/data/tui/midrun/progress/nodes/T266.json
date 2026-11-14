@@ -1,0 +1,20 @@
+{
+  "schema": "rustred.campaign.progress.v1", "file": "node", "fixture_origin": "hand",
+  "campaign_id": "p5l-boxed-final", "written_utc": "2026-11-20T08:15:04.000Z", "source_of_truth": "ledger",
+  "ledger": {"seq": 18402, "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000", "last_utc": "2026-11-20T08:15:03.250Z"},
+  "node": "T266", "phase": "running", "closure_kind": "open", "certified": false,
+  "target": {"target": "full"}, "spec_box": "T266.rstar", "attempt_ended": false,
+  "blockers": {"full": null, "box": null},
+  "closure": {"rounds": 1, "defect_keys": 37, "keyset": null, "closure_keys": 13951428, "rules_used": 12658, "rules_total": 33660, "used_share": 0.376},
+  "economy": {"rules_before": 0, "rules_after": 0, "superseded": 0, "unmeasured": 0,
+              "before": {"bytes": 0, "cases": 0, "coefficient_degree": 0, "monomials": 0, "rhs_terms": 0, "rules": 0},
+              "after": {"bytes": 0, "cases": 0, "coefficient_degree": 0, "monomials": 0, "rhs_terms": 0, "rules": 0}},
+  "terminals": {"declared": 0, "bound": 100, "candidates": 0},
+  "items": {"open": 72, "by_phase": {"open": 67, "in_progress": 1, "produced": 0, "accepted": 0, "rejected": 0, "escalated": 0, "terminal_candidate": 0, "terminal": 0, "stale": 4, "retired": 0},
+            "by_level": {"L0": {"open": 36, "in_progress": 0, "produced": 0, "accepted": 0, "rejected": 0, "escalated": 0, "terminal_candidate": 0, "terminal": 0, "stale": 4, "retired": 0},
+                         "L1": {"open": 9, "in_progress": 0, "produced": 0, "accepted": 0, "rejected": 0, "escalated": 0, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 0},
+                         "L2": {"open": 11, "in_progress": 0, "produced": 0, "accepted": 0, "rejected": 0, "escalated": 0, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 0},
+                         "L4": {"open": 11, "in_progress": 1, "produced": 0, "accepted": 0, "rejected": 0, "escalated": 0, "terminal_candidate": 0, "terminal": 0, "stale": 0, "retired": 0}}},
+  "accepted_by_evidence": {"geometry_accepted": 0, "identity_tested": 0, "identity_proved": 0},
+  "inputs": ["T266.family", "T266.joined", "T266.rstar"], "stale_reason": "input T266.joined changed (version 2): 4 items re-opened", "cpu_seconds": 0.0
+}

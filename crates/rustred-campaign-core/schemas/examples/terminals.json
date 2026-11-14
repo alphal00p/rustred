@@ -1,0 +1,114 @@
+{
+  "schema": "rustred.campaign.terminals.v1",
+  "campaign_id": "p5l-boxed-example",
+  "written_utc": "2026-11-20T08:15:04Z",
+  "seq": 17550,
+  "source_of_truth": "ledger",
+  "compatible_with": "p5l-terminals.v1",
+  "nodes": [
+    {
+      "id": "T162",
+      "provisional": true,
+      "closure_kind": "boxed",
+      "box_id": "T162.box",
+      "source": "campaign p5l-boxed-example (ledger seq 17550)",
+      "lane": "rr-campaign",
+      "graph": {
+        "L": 5,
+        "E": 9,
+        "edges_str": "<targets.tsv edge string>",
+        "S": 0,
+        "T": 6
+      },
+      "box": null,
+      "keys_in_box": 55704,
+      "keys_covered": 55702,
+      "bound": 100,
+      "table": {
+        "path": "large:tables/T162.table.jsonl",
+        "bytes": 123456789,
+        "blake3": "7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "certification": "pending",
+      "reference": {
+        "comparison_only": true,
+        "name": "Astra T162 hand closure",
+        "terminals": 2
+      },
+      "terminals": [
+        {
+          "id": "T162:corner",
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "frame": "census",
+          "presented_key": {
+            "frame": "phys_swap_0_3_rot7",
+            "key": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "label": "corner I(1^9,0^11)",
+          "origin": "ladder_exhausted",
+          "evaluation_status": "unknown integral",
+          "item": "T162:I0001",
+          "reason": "terminal_after_ladder",
+          "drawing": {
+            "present_lines": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "pinched_lines": [],
+            "dots": {},
+            "numerators": []
+          }
+        }
+      ]
+    }
+  ]
+}

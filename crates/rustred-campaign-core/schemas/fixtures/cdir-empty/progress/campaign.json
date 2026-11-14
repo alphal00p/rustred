@@ -1,0 +1,160 @@
+{
+  "campaign": {
+    "crash_recoveries": 0,
+    "created_utc": "2026-11-14T08:00:00.000Z",
+    "lock_takeovers": 0,
+    "pending_operations": 0,
+    "phase": null,
+    "segments_opened": 0,
+    "sessions": 0,
+    "spec_blake3": "37561bcf6d03efc561d7240e0f6884a6f4ec100ee8a6702c59e34012fe97dbe9",
+    "torn_tail_recoveries": 0,
+    "unsettled_jobs": 0
+  },
+  "campaign_id": "fixture-empty",
+  "certified": {
+    "accepted": 0,
+    "basis": "accepted items at identity_proved / all accepted items",
+    "identity_proved": 0,
+    "share": null
+  },
+  "closure": {
+    "defect_keys": null,
+    "nodes_checked": 0,
+    "nodes_with_defect": 0
+  },
+  "cost": {
+    "by_level": {},
+    "cpu_seconds": 0.0
+  },
+  "economy": {
+    "after": {
+      "bytes": 0,
+      "cases": 0,
+      "coefficient_degree": 0,
+      "monomials": 0,
+      "rhs_terms": 0,
+      "rules": 0
+    },
+    "before": {
+      "bytes": 0,
+      "cases": 0,
+      "coefficient_degree": 0,
+      "monomials": 0,
+      "rhs_terms": 0,
+      "rules": 0
+    },
+    "retired": 0,
+    "rules_after": 0,
+    "rules_before": 0
+  },
+  "eta": {
+    "cpu_seconds": {
+      "high": 0.0,
+      "low": 0.0,
+      "mid": 0.0
+    },
+    "estimator": "sum over levels of remaining items (open + in_progress) x CPU-seconds quantile (p25 / p50 / p75) of finished jobs at that level, divided by live parallelism",
+    "parallelism": 0,
+    "pooled_levels": [],
+    "reason": "nothing left",
+    "remaining_items": 0,
+    "wall_seconds": {
+      "high": 0.0,
+      "low": 0.0,
+      "mid": 0.0
+    }
+  },
+  "file": "campaign",
+  "files": {
+    "events": "events.json",
+    "nodes": {
+      "T162": "nodes/T162.json"
+    }
+  },
+  "items": {
+    "by_level": {},
+    "by_phase": {
+      "accepted": 0,
+      "escalated": 0,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 0
+    },
+    "total": 0
+  },
+  "jobs": {
+    "by_state": {
+      "budget_stopped": 0,
+      "cancelled": 0,
+      "failed": 0,
+      "interrupted": 0,
+      "launching": 0,
+      "lost": 0,
+      "queued": 0,
+      "running": 0,
+      "succeeded_sealed": 0
+    },
+    "reserved_bytes_running": 0,
+    "settled_by_class": {},
+    "total": 0
+  },
+  "ledger": {
+    "head": "c3b65588898f58153cb2a0d6299ac279967c9c5698a317ea8d51971c47d2c8a4",
+    "last_utc": "2026-11-14T08:00:01.750Z",
+    "seq": 8
+  },
+  "nodes": {
+    "by_closure": {
+      "boxed": 0,
+      "full": 0,
+      "open": 1
+    },
+    "by_phase": {
+      "certified": 0,
+      "closed": 0,
+      "closure_check": 0,
+      "open": 0,
+      "registered": 1,
+      "running": 0,
+      "stale": 0
+    },
+    "certified": 0,
+    "total": 1
+  },
+  "resources": {
+    "cpus_allowed": 0,
+    "cpus_in_use": 0,
+    "host_floor_bytes": 0,
+    "host_mem_available_bytes": 0,
+    "live_jobs": 0,
+    "measured_rss_bytes": 0,
+    "mem_cap_bytes": 0,
+    "reserved_bytes": 0,
+    "sampled_utc": null
+  },
+  "rules": {
+    "accepted": 0,
+    "accepted_items_by_evidence": {
+      "geometry_accepted": 0,
+      "identity_proved": 0,
+      "identity_tested": 0
+    },
+    "rejected": 0,
+    "rejected_by_reason": {},
+    "upgrades": 0
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "terminals": {
+    "bound_per_node_default": 100,
+    "candidates": 0,
+    "declared": 0
+  },
+  "written_utc": "2026-11-14T08:00:02.000Z"
+}

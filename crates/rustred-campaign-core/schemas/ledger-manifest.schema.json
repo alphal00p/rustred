@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ledger-manifest.schema.json",
+  "title": "Ledger manifest (CDIR/ledger/MANIFEST.json): sealed segments, active segment, snapshot",
+  "description": "AS BUILT: rustred_campaign::ledger::Manifest. The commit point of a rotation.",
+  "x-rr-names": ["rustred.campaign.ledger-manifest.v1"],
+  "x-rr-owner": "I-LEDGER",
+  "x-rr-struct": "rustred_campaign::ledger::Manifest",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "campaign_id", "sealed", "active", "snapshot"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rustred.campaign.ledger-manifest.v1"},
+    "campaign_id": {"$ref": "common.schema.json#/$defs/id"},
+    "sealed": {"type": "array", "items": {
+      "type": "object",
+      "required": ["index", "file", "first_seq", "last_seq", "bytes", "blake3", "last_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {"type": "integer", "minimum": 1},
+        "file": {"type": "string", "pattern": "^segment-[0-9]{6}\\.jsonl$"},
+        "first_seq": {"type": "integer", "minimum": 1},
+        "last_seq": {"type": "integer", "minimum": 1},
+        "bytes": {"$ref": "common.schema.json#/$defs/u64"},
+        "blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "last_hash": {"$ref": "common.schema.json#/$defs/blake3"}
+      }}},
+    "active": {
+      "type": "object",
+      "required": ["index", "file", "first_seq", "prev"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {"type": "integer", "minimum": 1},
+        "file": {"type": "string", "pattern": "^segment-[0-9]{6}\\.jsonl$"},
+        "first_seq": {"type": "integer", "minimum": 1},
+        "prev": {"$ref": "common.schema.json#/$defs/blake3"}
+      }},
+    "snapshot": {"anyOf": [{"type": "null"}, {
+      "type": "object",
+      "required": ["file", "seq", "blake3", "state_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"type": "string", "pattern": "^snapshot-[0-9]{12}\\.json$"},
+        "seq": {"type": "integer", "minimum": 1},
+        "blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "state_digest": {"$ref": "common.schema.json#/$defs/blake3"}
+      }}]}
+  }
+}
