@@ -392,6 +392,24 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
         "{rep}"
     );
     assert_eq!(fr["key"], serde_json::json!([4, 1, 0]));
+    // lane closeloop2 (closeloop.md 13.4): the statement's open list carries the recipe's per-key failure
+    let open: Vec<Value> =
+        std::fs::read_to_string(cdir.join("closeloop/toy/final/open_keys.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+    let o = open
+        .iter()
+        .find(|v| v["key"] == serde_json::json!([4, 1, 0]))
+        .expect("[4,1,0] in the open list");
+    let rf = &o["recipe_refusals"][0];
+    assert_eq!(rf["recipe"], "R1", "{o}");
+    assert_eq!(rf["class"], "no_relation_in_seeds", "{o}");
+    assert!(
+        rf["reproduce"].as_str().unwrap().contains("--key 4,1,0"),
+        "{o}"
+    );
     // the item whose only key failed escalated (never accepted)
     assert!(
         st.items

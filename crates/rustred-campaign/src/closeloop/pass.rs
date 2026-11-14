@@ -888,6 +888,30 @@ fn write_final(
     std::fs::create_dir_all(&inp.final_dir)
         .map_err(|e| format!("{}: {e}", inp.final_dir.display()))?;
     // the open list (typed): every kept row that is not certified (plain streamed rows are certified)
+    // the recipes' per-key refusals (R48 3b; `RecipeVerdict::Rejected` keeps them, closeloop.md 13.4) by key
+    // from our own answers lines: verdict, failure class and message per (recipe, key), else the import's reason
+    let mut refusals: BTreeMap<Vec<i32>, Vec<Value>> = BTreeMap::new();
+    for (p, _) in &inp.answers {
+        for l in std::fs::read_to_string(p).unwrap_or_default().lines() {
+            let Ok(v) = serde_json::from_str::<Value>(l) else {
+                continue;
+            };
+            if v["verdict"] == "SOLVED" {
+                continue;
+            }
+            if let Ok(k) = serde_json::from_value::<Vec<i32>>(v["key"].clone()) {
+                refusals.entry(k).or_default().push(json!({"recipe": v["source"],
+                    "verdict": v["verdict"], "class": v["failure"]["class"],
+                    "reason": v["failure"]["message"], "reproduce": v["failure_record"]["reproduce"]}));
+            }
+        }
+    }
+    for s in &res.solve_refusals {
+        let e = refusals.entry(s.key.clone()).or_default();
+        if !e.iter().any(|x| x["recipe"] == s.source.as_str()) {
+            e.push(json!({"recipe": s.source, "reason": s.reason}));
+        }
+    }
     let mut open_lines = String::new();
     let mut open_n = 0u64;
     for r in &res.rows {
@@ -898,6 +922,7 @@ fn write_final(
         let v = json!({"key": r.key, "status": r.status, "class": class_of(set, r),
             "evidence": r.evidence.map(|e| e.word()), "basis": r.basis,
             "open_status": r.open_status, "open_reason": r.open_reason,
+            "recipe_refusals": refusals.get(&r.key).cloned().unwrap_or_default(),
             "regularity_unknown": r.regularity_unknown, "coefficient_unknown": r.coefficient_unknown});
         open_lines.push_str(&v.to_string());
         open_lines.push('\n');
