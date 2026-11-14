@@ -11,9 +11,12 @@ use rustred::family::{AffineDenominator, IntegralFamily};
 use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
-    BoxLaportaSession, BoxOptions, CensusRouter, ColumnOrder, IdentityRouter, SectorRouter,
-    Seeding, SlotPriority,
+    BoxLaportaSession, BoxOptions, CensusRouter, ColumnOrder, DEFAULT_CERTIFICATE_PRIME, FfOptions,
+    IdentityRouter, SectorRouter, Seeding, SlotPriority,
 };
+use serde_json::Value;
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::Rational;
 
 const N: usize = 6;
 const TOP: [i16; N] = [1, 1, 1, 1, 1, 1];
@@ -264,4 +267,53 @@ fn encoding_needs_a_selection() {
     )
     .unwrap();
     assert!(session.to_native_bytes().is_err());
+}
+
+/// The checkpoint carries everything the lanes need: a session decoded from
+/// it (the original dropped) materialises the same finite-field solution
+/// (masters, coefficients, provenance and the exchange file up to its
+/// timing statistics), and that solution passes the probabilistic
+/// certificate in the restored session.
+#[test]
+fn restored_session_materialises_the_same_finite_field_solution() {
+    let (mut session, targets) = extended();
+    let d0 = Rational::from((Integer::from(37), Integer::from(11)));
+    let fixed = vec![("d".to_string(), d0)];
+    let reference = session
+        .materialize_ff(&targets, &fixed, &FfOptions::default())
+        .unwrap();
+    let family = session.harness_family();
+    let without_stats = |text: &str| {
+        let mut value: Value = serde_json::from_str(text).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("stats");
+        object.remove("content_blake3");
+        value
+    };
+    let reference_file = reference
+        .to_harness_json(&family, &Value::Null, &[])
+        .unwrap();
+    let bytes = session.to_native_bytes().unwrap();
+    let source = session.family().clone();
+    drop(session);
+    let mut restored = BoxLaportaSession::<N>::from_native_bytes(
+        &bytes,
+        source.clone(),
+        census(&source),
+        options(),
+    )
+    .unwrap();
+    let again = restored
+        .materialize_ff(&targets, &fixed, &FfOptions::default())
+        .unwrap();
+    assert_eq!(again.masters, reference.masters);
+    assert_eq!(again.coefficients, reference.coefficients);
+    assert_eq!(again.provenance, reference.provenance);
+    assert_eq!(
+        without_stats(&again.to_harness_json(&family, &Value::Null, &[]).unwrap()),
+        without_stats(&reference_file)
+    );
+    restored
+        .certify(&again, Some(DEFAULT_CERTIFICATE_PRIME), 5)
+        .unwrap();
 }
