@@ -87,6 +87,12 @@ pub struct SectorBoxReduceSpec {
     /// `a_slot > 0` (derivative in the mass of that line).
     #[serde(default)]
     pub derivative_slot: Option<usize>,
+    /// Further derivative slots (one mass on several lines): the demand is
+    /// closed under `I[a] -> I[a + e_s]` for every listed `s` with `a_s > 0`,
+    /// so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced. Merged with
+    /// `derivative_slot`.
+    #[serde(default)]
+    pub derivative_slots: Vec<usize>,
     /// Maximal closure rounds after the first modular phase (default 8); an
     /// unclosed demand after them is an error.
     #[serde(default)]
@@ -428,7 +434,7 @@ fn modular_phase<const N: usize>(
     session: &mut BoxLaportaSession<N>,
     targets: &[[i16; N]],
     preferred: &[[i16; N]],
-    derivative_slot: Option<usize>,
+    derivative_slots: &[usize],
     closure_rounds: usize,
 ) -> Result<ModularPhase<N>, PhaseError> {
     let clock = Instant::now();
@@ -442,18 +448,20 @@ fn modular_phase<const N: usize>(
                 SolverError::MasterCheck(message) => PhaseError::MasterCheck(message),
                 other => PhaseError::Other(engine("modular phase")(other)),
             })?;
-        let Some(slot) = derivative_slot else {
+        if derivative_slots.is_empty() {
             return Ok((report, final_targets, log));
-        };
-        let known: BTreeSet<[i16; N]> = final_targets.iter().copied().collect();
+        }
+        let mut known: BTreeSet<[i16; N]> = final_targets.iter().copied().collect();
         let mut added = 0usize;
         for master in &report.masters {
-            if master[slot] > 0 {
-                let mut seed = *master;
-                seed[slot] += 1;
-                if !known.contains(&seed) {
-                    final_targets.push(seed);
-                    added += 1;
+            for &slot in derivative_slots {
+                if master[slot] > 0 {
+                    let mut seed = *master;
+                    seed[slot] += 1;
+                    if known.insert(seed) {
+                        final_targets.push(seed);
+                        added += 1;
+                    }
                 }
             }
         }
@@ -575,12 +583,18 @@ fn run_phases<const N: usize>(
             .map_err(|_| AppError::input(format!("expected class {class:?} is not a sector id")))?;
         expected.insert(id, *count);
     }
-    if let Some(slot) = spec.derivative_slot
-        && slot >= arity
-    {
-        return Err(AppError::input(format!(
-            "derivative_slot {slot} is not a slot of the {arity}-denominator family"
-        )));
+    let mut derivative_slots: Vec<usize> = spec.derivative_slot.into_iter().collect();
+    for &slot in &spec.derivative_slots {
+        if !derivative_slots.contains(&slot) {
+            derivative_slots.push(slot);
+        }
+    }
+    for &slot in &derivative_slots {
+        if slot >= arity {
+            return Err(AppError::input(format!(
+                "derivative_slot {slot} is not a slot of the {arity}-denominator family"
+            )));
+        }
     }
     // Parameters: the dimension takes the values of `d_list`, `fixed` the
     // others, and exactly one stays free.
@@ -748,7 +762,7 @@ fn run_phases<const N: usize>(
                 &mut session,
                 &targets,
                 &kept,
-                spec.derivative_slot,
+                &derivative_slots,
                 spec.closure_rounds.unwrap_or(8),
             ) {
                 Ok(phase) => phase,

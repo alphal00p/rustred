@@ -473,3 +473,32 @@ fn two_loop_one_mass_kite_propagator_family_closes() {
     let closure = report["modular"]["closure"].as_array().unwrap();
     assert_eq!(closure.last().unwrap()["added"], 0);
 }
+
+/// One mass on several lines (`derivative_slots`): the all-mass kite
+/// (mass z on all five lines) closes under d/dz = sum_s a_s e_s with eight
+/// masters; listing the slots in another order gives the same report masters.
+#[test]
+fn derivative_slots_close_the_all_mass_kite() {
+    let spec = |dir: &Path, slots: Value| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p2l_kite/family-allmass.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1]],
+            "derivative_slots": slots,
+            "d_list": ["37/11"],
+            "free": "z",
+            "lp_gate": false,
+            "workers": 1,
+        })
+    };
+    let dir = scratch("p2l-allmass");
+    let (code, report) = run(&dir, &spec(&dir, json!([0, 1, 2, 3, 4])));
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(report["modular"]["masters"].as_array().unwrap().len(), 8, "{report}");
+    assert_eq!(report["modular"]["closure"].as_array().unwrap().last().unwrap()["added"], 0);
+    let dir2 = scratch("p2l-allmass-perm");
+    let (code2, report2) = run(&dir2, &spec(&dir2, json!([4, 2, 0, 3, 1])));
+    assert_eq!(code2, 0);
+    assert_eq!(report["modular"]["masters"], report2["modular"]["masters"]);
+}
