@@ -451,7 +451,7 @@ impl Value {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Poly {
     terms: Vec<(Mono, i128)>,
-    big: Option<Box<Vec<(Mono, BigInt)>>>,
+    big: Option<Box<[(Mono, BigInt)]>>,
 }
 
 fn mono_mul(a: &Mono, b: &Mono) -> Result<Mono, PolyError> {
@@ -521,7 +521,7 @@ impl Poly {
             Some(terms) => Poly::small(terms),
             None => Poly {
                 terms: vec![],
-                big: Some(Box::new(t)),
+                big: Some(t.into_boxed_slice()),
             },
         }
     }
@@ -542,7 +542,7 @@ impl Poly {
     /// Every term with its exact coefficient (both forms).
     pub fn exact_terms(&self) -> Vec<(Mono, BigInt)> {
         match &self.big {
-            Some(b) => b.as_ref().clone(),
+            Some(b) => b.to_vec(),
             None => self
                 .terms
                 .iter()

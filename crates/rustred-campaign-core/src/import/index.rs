@@ -48,6 +48,9 @@ pub const SAMPLE_BYTES: usize = 1 << 16;
 /// Bytes of table lines in flight between the reader and its consumers (one larger line is admitted alone).
 pub const IN_FLIGHT_BYTES: usize = 256 << 20;
 
+/// Callback of [`TableIndex::scan_bodies`]: (ordinal, record_sha256, rhs keys).
+pub type BodyVisitor<'a> = dyn FnMut(usize, &str, Vec<String>) -> Result<(), ImportError> + 'a;
+
 /// `index.json`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IndexMeta {
@@ -554,7 +557,7 @@ impl TableIndex {
     pub fn scan_bodies(
         &self,
         want: &dyn Fn(usize) -> bool,
-        visit: &mut dyn FnMut(usize, &str, Vec<String>) -> Result<(), ImportError>,
+        visit: &mut BodyVisitor,
     ) -> Result<(), ImportError> {
         let bp = self.dir.join("bodies.jsonl");
         let f = std::fs::File::open(&bp).map_err(|e| io_err(&bp, e))?;
