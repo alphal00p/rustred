@@ -289,7 +289,7 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
         fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
     }
     let m = |a: &str| vec![(MARKER_VAR, format!("{id}:{a}"))];
-    let mut members = vec![
+    let mut members = [
         spawn(&m("job-t0:a1"), "exec sleep 600"),
         spawn(&m("job-t1:a2"), "setsid sleep 600 & exec sleep 600"),
         spawn(

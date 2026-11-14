@@ -10,10 +10,6 @@ use rustred_campaign::ledger::{Event, JobEvent};
 use rustred_campaign::state::AttemptState;
 use std::time::Duration;
 
-fn small() -> serde_json::Value {
-    serde_json::json!({"items": 16, "case_ms": [80, 200], "seed": 5})
-}
-
 /// Jobs whose attempt is still `launching` (journalled, never confirmed).
 fn launching(d: &std::path::Path) -> Vec<String> {
     state(d)

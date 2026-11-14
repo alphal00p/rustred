@@ -3265,6 +3265,25 @@ fn not_an_attempt(job: &str, attempt: u32, why: &str) -> Vec<Event> {
     ]
 }
 
+/// A ledger error that means "no more room" (gate-B m3): ENOSPC / EDQUOT / EFBIG in an I/O error, or a poisoned handle
+/// whose cause text names them (the ledger keeps only the text there: FOR LEDGERFIX2, carry the kind).
+fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
+    match e {
+        LedgerError::NoSpace { .. } => true,
+        LedgerError::Io { source, .. } => matches!(
+            source.raw_os_error(),
+            Some(libc::ENOSPC | libc::EDQUOT | libc::EFBIG)
+        ),
+        LedgerError::Poisoned { why } => {
+            let w = why.to_ascii_lowercase();
+            w.contains("file too large")
+                || w.contains("no space left")
+                || w.contains("quota exceeded")
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3460,31 +3479,12 @@ mod tests {
             b
         );
         assert_eq!(control_seq_of("c-20261114T000000Z-ab.json"), 0);
-        let mut names = vec![
+        let mut names = [
             format!("c-{b:012}-20261114T000000Z-00.json"),
             format!("c-{a:012}-20261114T000000Z-ff.json"),
         ];
         names.sort_by_key(|n| (control_seq_of(n), n.clone()));
         assert!(names[0].contains(&format!("{a:012}")));
         let _ = std::fs::remove_dir_all(&d);
-    }
-}
-
-/// A ledger error that means "no more room" (gate-B m3): ENOSPC / EDQUOT / EFBIG in an I/O error, or a poisoned handle
-/// whose cause text names them (the ledger keeps only the text there: FOR LEDGERFIX2, carry the kind).
-fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
-    match e {
-        LedgerError::NoSpace { .. } => true,
-        LedgerError::Io { source, .. } => matches!(
-            source.raw_os_error(),
-            Some(libc::ENOSPC | libc::EDQUOT | libc::EFBIG)
-        ),
-        LedgerError::Poisoned { why } => {
-            let w = why.to_ascii_lowercase();
-            w.contains("file too large")
-                || w.contains("no space left")
-                || w.contains("quota exceeded")
-        }
-        _ => false,
     }
 }
