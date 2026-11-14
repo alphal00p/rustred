@@ -123,7 +123,8 @@ impl AffineEq {
         }
         let mut coeffs = Vec::new();
         let mut constant: i128 = 0;
-        for (mono, c) in p.terms() {
+        // a big exact literal (coefficient beyond i128) has no affine i64 form
+        for (mono, c) in p.small_terms()? {
             match mono.as_slice() {
                 [] => constant += *c,
                 [(v, 1)] if *v != D_VAR => coeffs.push((*v as usize, i64::try_from(*c).ok()?)),

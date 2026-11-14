@@ -859,7 +859,9 @@ impl MPoly {
     pub fn from_poly(p: &Poly, arity: usize, with_d: bool) -> XResult<Self> {
         let nv = arity.saturating_add(usize::from(with_d));
         let mut out = MPoly::zero(nv);
-        for (m, c) in p.terms() {
+        // an exact domain literal with a coefficient beyond i128 (Poly::is_big) is an overflow here (typed, fail closed)
+        let terms = p.small_terms().ok_or(ExactError::Overflow)?;
+        for (m, c) in terms {
             let mut e = vec![0u32; nv];
             for &(v, x) in m {
                 let idx = if v == D_VAR {

@@ -330,7 +330,10 @@ fn printed_factors(den: &str) -> Vec<String> {
 
 /// `c` (d-free) is a nonzero rational multiple of `l`.
 fn proportional(c: &Poly, l: &Poly) -> bool {
-    let (a, b) = (c.terms(), l.terms());
+    // a big exact literal (coefficient beyond i128): not decided here (false = not proven, conservative)
+    let (Some(a), Some(b)) = (c.small_terms(), l.small_terms()) else {
+        return false;
+    };
     if a.is_empty() || a.len() != b.len() {
         return false;
     }
@@ -358,7 +361,10 @@ fn never_zero(c: &Poly, singles: &[&Poly], ranges: &[Range]) -> bool {
     if sup.len() == 1 && c.degree() == 1 && !c.has_d() {
         let p = sup[0];
         let (mut a, mut b) = (0i128, 0i128);
-        for (m, k) in c.terms() {
+        let Some(ct) = c.small_terms() else {
+            return false;
+        };
+        for (m, k) in ct {
             if m.is_empty() {
                 b = *k;
             } else {

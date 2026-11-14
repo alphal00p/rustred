@@ -84,7 +84,8 @@ pub struct GroupReport {
 }
 
 /// The family text with its `prop(..)` lines reordered into the presented frame: presented slot `j` carries the
-/// family's slot `new_to_old[j]`. Refused unless the text has exactly one `prop(` line per slot.
+/// family's slot `new_to_old[j]` (its momentum and eps shift) and is RELABELLED `D{j+1}`, as the engine's header
+/// `family_source` is. Refused unless the text has exactly one `prop(` line per slot, each with a label.
 pub fn presented_family_text(src: &str, new_to_old: &[usize]) -> Result<String, String> {
     let lines: Vec<&str> = src.lines().collect();
     let props: Vec<usize> = lines
@@ -116,7 +117,18 @@ pub fn presented_family_text(src: &str, new_to_old: &[usize]) -> Result<String, 
             .collect();
         let had_comma = lines[line_no].trim_end().ends_with(',');
         let body = src_line.trim_end_matches(',');
-        out[line_no] = format!("{indent}{body}{}", if had_comma { "," } else { "" });
+        // relabel: presented slot j is `D{j+1}` (Family::parse wants D1..Dn in order; audit-credits m2), the rest of
+        // the line (momentum, eps shift) travels with the slot
+        let rest = body
+            .strip_prefix("prop(")
+            .and_then(|r| r.split_once(','))
+            .map(|(_, r)| r)
+            .ok_or_else(|| format!("prop line without a label: {src_line:?}"))?;
+        out[line_no] = format!(
+            "{indent}prop(D{},{rest}{}",
+            j + 1,
+            if had_comma { "," } else { "" }
+        );
     }
     Ok(out.join("\n"))
 }

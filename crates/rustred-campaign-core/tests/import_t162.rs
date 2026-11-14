@@ -693,3 +693,199 @@ fn t162_canonical_set_0623z_reproduction() {
         }
     }
 }
+
+/// Lane import3 item 5, the T162 LEFTOVERS on the canonical set of statement 0623Z:
+/// (a) the 19 symmetry keys (own records symr-c000#0..18, whose bound proofs belong to the composite records of
+///     side/symr-composite.table.jsonl, not to the set lines) are served through the VERIFIED group credit path
+///     instead: the 19 point records are removed from the dispatch (reason recorded) and a `symmetry_credit` source
+///     derives the group from the frame header's presented family (re-derived and proved exactly, never trusted); each
+///     key is credited I(key) = I(image) with the image served by its own rule, and its evidence level is the image's
+///     (per-key when a per-key proof is bound to (image record, image): the closure's image lift, closure.md 17);
+/// (b) the two coefficient facts of the extra key's only predecessor terms (sc-c005#2 term 2 at I(1,6,1,1,2,1^4,0^11);
+///     sc-c005#4 term 0 at I(1,6,2,1^6,0^11)) are PRODUCED by the exact evaluation (`import::exact_facts`) as compact
+///     fact verdict lines, loaded as evidence: the extra key leaves the closure and the key sets become equal.
+#[test]
+#[ignore = "big data: the T162 canonical set, proofs and facts; run with --ignored in release"]
+fn t162_leftovers_verified_credits_and_exact_facts() {
+    let (ws, large) = (ws(), large());
+    let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
+    let own = large.join("t162box-20261114d");
+    if !stmt.join("keys.jsonl").is_file() || !own.join("SHA256SUMS").is_file() {
+        println!("SKIP: T162 canonical material missing");
+        return;
+    }
+    let st: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("statement.json")).unwrap())
+            .unwrap();
+    let terms: Vec<Vec<i32>> = st["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| parse_key_text(t.as_str().unwrap(), 20).unwrap())
+        .collect();
+    let out = std::env::var_os("RUSTRED_IMPORT_SCRATCH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(format!(
+                "/common/build-cache/{}/p_integral_dev/implementer-scratch/import3",
+                std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
+            ))
+        })
+        .join("t162-leftovers");
+    std::fs::create_dir_all(&out).unwrap();
+    let tpath = out.join("terminals.json");
+    std::fs::write(&tpath, serde_json::to_string(&terms).unwrap()).unwrap();
+    let symr: Vec<i64> = (100100..=100118).collect();
+    let reason = "symmetry point record: its key is served through the VERIFIED group credit path (re-derived), \
+                  its bound proofs belong to the composite records";
+    let sv = json!({"schema":"rustred.campaign.import-spec.v1","node":"T162","frame_from":"bank","bits":6,
+        "start":{"path": stmt.join("keys.jsonl").display().to_string(),"format":"hand_statement",
+                 "hand_format": serde_json::to_value(hand_format()).unwrap()},
+        "required_evidence":"per-key","policies":{"tier":"auto","elided":"lift_with_per_key_proof"},
+        "sources":[
+          {"id":"bank","kind":"table_set","class":"bank",
+           "priority_file": ws.join("SCRATCHPAD/bank-conv/out/20261114c/DISPATCH-PRIORITY.json").display().to_string(),
+           "variant":"qualified","tables_dir": large.join("20261114c").display().to_string(),
+           "sha256sums":[{"path": large.join("20261114c/SHA256SUMS").display().to_string(),
+                          "sha256":"fbaa6454dc87a4ac4b2ed13067d75ea8183a01018078d455dbf0ad3f8b5aef12"}],
+           "label_scope":"t162-set","domain":"qualified_recenter","hand_name":{"template":"bank#{label}"}},
+          {"id":"own","kind":"table_set","class":"own",
+           "priority_file": ws.join("SCRATCHPAD/bank-conv/out/t162box-20261114d/DISPATCH-PRIORITY.json").display().to_string(),
+           "variant":"all","tables_dir": own.display().to_string(),
+           "sha256sums":[{"path": own.join("SHA256SUMS").display().to_string(),
+                          "sha256":"facae32114e3c79feef6671d2742918f5b7bf16f8454dc1f1a5dcb764ecc5547"}],
+           "removed": symr.iter().map(|l| json!({"label": l, "reason": reason})).collect::<Vec<_>>(),
+           "label_scope":"t162-set","hand_name":{"template":"{origin}#{origin_index}","strip":["tb-"]}},
+          {"id":"credits","kind":"symmetry_credit","class":"symmetry","group_format":"derive"},
+          {"id":"terminals","kind":"terminals","path": tpath.display().to_string()}],
+        "evidence":{"facts":[{"path": large.join("facts-20261114d/facts").display().to_string()}],
+                    "proofs":[{"path": large.join("proofs-20261114d/proofs").display().to_string()}]}});
+    std::fs::write(
+        out.join("spec.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
+    let hand = read_hand_statement(&stmt.join("keys.jsonl"), &hand_format(), 20).unwrap();
+    let t0 = std::time::Instant::now();
+    let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
+    let set = load(&spec, Path::new("/")).unwrap();
+    let t_load = t0.elapsed().as_secs_f64();
+    println!(
+        "T162L load {t_load:.1}s VmHWM {} MB; records {}; group {:?}; removed {}",
+        vm_hwm_kb() / 1024,
+        set.report.records,
+        set.report
+            .sources
+            .iter()
+            .find_map(|s| s.group.clone())
+            .map(|g| (g.elements, g.provenance)),
+        set.report.sources[1].removed.len()
+    );
+    // (b) the two exact fact lines
+    let extra = [1, 7, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let extra_digest = format!("{:016x}", import::lines::term_key_digest(&extra));
+    let cases: [(&str, [i32; 20]); 2] = [
+        (
+            "52687224e2a55f9230d86f43a3c7cfc6fce0f8d04749750ed4d8829c1392f9cc",
+            [1, 6, 1, 1, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ),
+        (
+            "c8b5b4c8dd3eb7b42aa430ecad31d035d83f8172f99352a08afc6427a434da3d",
+            [1, 6, 2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ),
+    ];
+    let mut lines = String::new();
+    for (sha, key) in cases {
+        let (t, r) = set.find_sha(sha).expect("record of the canonical set");
+        let v = import::exact_facts::fact_verdict_line(&set, t, r, &key).unwrap();
+        let nz: Vec<&str> = v["nonzero"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
+        println!(
+            "T162L FACT {} at {}: verdict {} n_terms {} nonzero {} zero {} unknown {}; the extra key's term listed non-zero: {}",
+            set.rule(t, r).hand_name.clone().unwrap_or_default(),
+            import::lines::key_text(&key),
+            v["verdict"],
+            v["n_terms"],
+            nz.len(),
+            v["zero_terms"],
+            v["unknown"].as_array().map_or(0, Vec::len),
+            nz.contains(&extra_digest.as_str())
+        );
+        assert!(
+            !nz.contains(&extra_digest.as_str()),
+            "the extra key's term is identically zero"
+        );
+        lines.push_str(&v.to_string());
+        lines.push('\n');
+    }
+    let fpath = out.join("facts-extra-key.jsonl");
+    std::fs::write(&fpath, &lines).unwrap();
+    // (a)+(b) the check
+    let mut ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
+    ev.load_facts(
+        &set,
+        Path::new("/"),
+        &import::spec::FileRef {
+            path: fpath.display().to_string(),
+            sha256: Some(import::lines::file_sha256(&fpath).unwrap()),
+        },
+    )
+    .unwrap();
+    let res = check(&set, &ev, &CheckOptions::default()).unwrap();
+    let dir = out.join("statement");
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &dir,
+        Some(json!({"load_s": t_load, "vm_hwm_kb": vm_hwm_kb()})),
+    )
+    .unwrap();
+    let cmp = compare(&set, &res, &hand);
+    cmp.write(&dir).unwrap();
+    let credited: Vec<&import::KeyRow> = res
+        .rows
+        .iter()
+        .filter(|r| matches!(r.server, Some(import::Server::Credit { .. })))
+        .collect();
+    let mut by_level: std::collections::BTreeMap<String, usize> = Default::default();
+    for r in &credited {
+        *by_level
+            .entry(format!("{:?}:{}", r.evidence, r.basis.unwrap_or("-")))
+            .or_default() += 1;
+    }
+    println!(
+        "T162L keys ours {} hand {} equal {}; same server {}; differences {:?}; credited {} {:?}; counts {:?}; \
+         blocking {:?}; VmHWM {} MB",
+        res.rows.len(),
+        hand.rows.len(),
+        cmp.key_sets_equal,
+        cmp.same_server,
+        cmp.counts,
+        credited.len(),
+        by_level,
+        res.counts(),
+        res.blocking(),
+        vm_hwm_kb() / 1024
+    );
+    for d in cmp.differences.iter().take(40) {
+        println!("T162L diff {}", serde_json::to_string(d).unwrap());
+    }
+    for r in &credited {
+        println!(
+            "T162L CREDIT {} evidence {:?} basis {:?} image rule {:?}",
+            import::lines::key_text(&r.key),
+            r.evidence,
+            r.basis,
+            import::statement::server_hand_name(&set, r)
+        );
+    }
+    assert!(
+        cmp.key_sets_equal,
+        "key sets equal after the two exact facts"
+    );
+}

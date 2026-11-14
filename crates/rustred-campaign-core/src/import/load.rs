@@ -13,9 +13,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
+use super::index::{IndexOrigin, TableIndex, open_or_build};
 use super::lines::{
     MAX_BOUND_EXCLUSIONS_PER_SLOT, RawRecord, RawTable, parse_key_text, read_sha256sums,
-    scan_table, scan_table_each, verify_file,
+    scan_table, verify_file,
 };
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
@@ -92,6 +93,8 @@ pub struct SuppliedInfo {
     pub verification_sha256: Option<String>,
     /// `verify`: the re-derivation from the verified group at the key (None: not asked).
     pub check: Option<RelationCheck>,
+    /// From a `diagnostic` (keys-only) source: followed, never certified.
+    pub diagnostic: bool,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -125,6 +128,19 @@ pub struct SourceReport {
     /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
     pub relations_verified: usize,
     pub relations_not_verified: Vec<(Vec<i32>, String)>,
+    /// Table sources: how each file's index was obtained (one pass over the table, or a reused index; NOT
+    /// identifying: a reused index carries the file sha256 recorded when it was built, see `import::index`). Never
+    /// serialized into the canonical statement (it holds timings); callers put it into their timing record.
+    #[serde(skip_serializing)]
+    pub indexes: Vec<IndexOrigin>,
+}
+
+/// Options of [`load_with`] (not part of the spec: they never change a result).
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// Directory of the persistent table indexes (`import::index`): an index is reused when the table's path, size,
+    /// mtime and sampled digest match; `None` = a private temporary index per table file (one pass all the same).
+    pub index_dir: Option<PathBuf>,
 }
 
 /// The load report.
@@ -174,6 +190,10 @@ pub struct ImportedSet {
     /// Source id -> class.
     pub classes: BTreeMap<String, String>,
     pub report: LoadReport,
+    /// Under the DIAGNOSTIC `witness_check: off_diagnostic` only: the STRICT domain (witness loci checked) of every
+    /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
+    /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
+    pub strict_domains: HashMap<(usize, usize), CaseDomain>,
 }
 
 impl std::fmt::Debug for ImportedSet {
@@ -249,9 +269,22 @@ struct FileUnit {
     expected_sha: Option<String>,
 }
 
-/// Load the spec. Relative paths resolve against `base`.
+/// Load the spec. Relative paths resolve against `base`. (= [`load_with`] with default options: temporary indexes.)
 pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError> {
+    load_with(spec, base, &LoadOptions::default())
+}
+
+/// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
+/// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
+/// reused; the bodies are then read from the index.
+pub fn load_with(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
     let spec_digest = spec.digest();
+    // open table indexes by file (kept for the body pass)
+    let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
     // ---- the frame: the first file of `frame_from`
     let fsrc = spec
         .sources
@@ -291,6 +324,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     // per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the second (body) pass
     let mut body_plan: Vec<BodyPlan> = vec![];
     let mut rules: Vec<Vec<RuleInfo>> = vec![];
+    let mut strict_domains: HashMap<(usize, usize), CaseDomain> = HashMap::new();
     let mut fact_tables = BTreeMap::new();
     let mut table_digests = BTreeMap::new();
     let mut supplied: Vec<Arc<RelationSet>> = vec![];
@@ -328,7 +362,16 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                 let mut first_table_name: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let raw = scan_table(&src.id, &u.path, false, &|_, _| true)?;
+                    let (idx, origin) =
+                        open_or_build(&src.id, &u.path, lopts.index_dir.as_deref())?;
+                    rep.indexes.push(origin);
+                    let mut recs = vec![];
+                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
+                        recs.push(r);
+                        Ok(())
+                    })?;
+                    raw.records = recs;
+                    indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {
                         let e = e.trim_start_matches("sha256:");
@@ -424,6 +467,31 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         let (t, tf, infos) = build_table(
                             src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
                         )?;
+                        if !witness {
+                            // the strict domains of the records with complete witness loci (diagnostic runs)
+                            for (k, info) in infos.iter().enumerate() {
+                                if info.witness != WitnessKind::Complete {
+                                    continue;
+                                }
+                                let rec = &raw.records[order[t.meta[k].source_index]].rec;
+                                let mut d = CaseDomain::from_rule_record(
+                                    rec,
+                                    &frame,
+                                    DomainOptions {
+                                        witness: true,
+                                        ..Default::default()
+                                    },
+                                )
+                                .map_err(|e| {
+                                    ImportError::Source {
+                                        source: src.id.clone(),
+                                        msg: format!("strict domain of label {}: {e}", info.label),
+                                    }
+                                })?;
+                                d.bounds = t.domains[k].bounds.clone();
+                                strict_domains.insert((tables.len(), k), d);
+                            }
+                        }
                         if !t.is_empty() {
                             if first_table_name.is_none() {
                                 first_table_name = Some(name.clone());
@@ -614,33 +682,29 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
             }
         }
         let src_id = &body_plan[ts[0]].1;
-        scan_table_each(
-            src_id,
-            path,
-            true,
-            &|o, _| want.contains_key(&o),
-            &mut |r| {
-                let (sha, places) = &want[&r.ordinal];
-                if *sha != r.sha256 {
-                    return Err(ImportError::Source {
-                        source: src_id.clone(),
-                        msg: format!(
-                            "{} changed between the passes (record {})",
-                            path.display(),
-                            r.ordinal
-                        ),
-                    });
-                }
-                let rhs = r.rec.rhs_keys.as_deref().unwrap_or(&[]);
-                for &(t, k) in places {
-                    bodies.set(&disp, t, k, rhs).map_err(|e| {
-                        ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
-                    })?;
-                }
-                Ok(())
-            },
-        )?;
+        let idx = indexes
+            .get(path)
+            .ok_or_else(|| ImportError::Core(format!("no index for {}", path.display())))?;
+        idx.scan_bodies(&|o| want.contains_key(&o), &mut |o, rsha, rhs| {
+            let (sha, places) = &want[&o];
+            if *sha != rsha {
+                return Err(ImportError::Source {
+                    source: src_id.clone(),
+                    msg: format!(
+                        "index of {}: body of record {o} has sha256 {rsha}, its domain entry {sha}",
+                        path.display()
+                    ),
+                });
+            }
+            for &(t, k) in places {
+                bodies.set(&disp, t, k, &rhs).map_err(|e| {
+                    ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
+                })?;
+            }
+            Ok(())
+        })?;
     }
+    drop(indexes);
     for t in 0..disp.tables().len() {
         let with = bodies.count_with_body(t);
         if with != disp.tables()[t].len() {
@@ -704,6 +768,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         by_sha,
         classes,
         report,
+        strict_domains,
     })
 }
 
@@ -1232,6 +1297,8 @@ fn load_supplied(
                 .relations_not_verified
                 .push((key.clone(), format!("{c:?}"))),
             None if ver.is_some() => bits |= VERDICT_EXACT,
+            // a DIAGNOSTIC keys-only relation is followed as if exact (never certified: see check)
+            None if src.diagnostic => bits |= VERDICT_EXACT,
             None => {}
         }
         b.push(&key, &rhs, digest, bits)
@@ -1252,6 +1319,7 @@ fn load_supplied(
                     .map(|h| hand_name(h, &src.id, None, r, label.unwrap_or(r.ordinal as i64))),
                 verification_sha256: ver.clone(),
                 check,
+                diagnostic: src.diagnostic,
             },
         );
     }
@@ -1382,7 +1450,9 @@ fn load_recipe(
     };
     let polys = |v: Vec<String>| -> Result<Vec<Poly>, ImportError> {
         v.iter()
-            .map(|s| Poly::parse_d_free(s, n).map_err(|e| bad(format!("polynomial {s}: {e}"))))
+            .map(|s| {
+                Poly::parse_d_free_exact(s, n).map_err(|e| bad(format!("polynomial {s}: {e}")))
+            })
             .collect()
     };
     let equations = polys(strs(dom.get("equations"))?)?;
@@ -1398,20 +1468,52 @@ fn load_recipe(
     let exceptions = exc.into_iter().map(polys).collect::<Result<Vec<_>, _>>()?;
     let mut bounds = vec![];
     if let Some(b) = dom.get("bounds").filter(|b| !b.is_null()) {
+        match b.as_object() {
+            Some(o) if o.keys().all(|k| k == "min" || k == "max") => {}
+            _ => return Err(bad(format!("domain.bounds {b} (refused, never ignored)"))),
+        }
         for (side, sign) in [("min", 1i32), ("max", -1)] {
-            if let Some(a) = b.get(side).and_then(Value::as_array) {
+            let a = match b.get(side) {
+                None | Some(Value::Null) => None,
+                Some(Value::Array(a)) => Some(a),
+                Some(o) => {
+                    return Err(bad(format!(
+                        "domain.bounds.{side} {o} (refused, never ignored)"
+                    )));
+                }
+            };
+            if let Some(a) = a {
                 if a.len() != n {
                     return Err(bad(format!("bounds.{side} length")));
                 }
                 for (i, x) in a.iter().enumerate() {
-                    if let Some(c) = x.as_i64() {
-                        let p = Poly::slot_minus(i, c as i128);
-                        bounds.push(if sign > 0 {
-                            p
-                        } else {
-                            p.neg().map_err(|e| bad(e.to_string()))?
-                        });
-                    }
+                    // exact or refused, never dropped (audit-credits m1: a dropped bound GROWS the domain). JSON
+                    // integers in the 64-bit range are exact (i64 / u64); a number beyond them reaches us as a float
+                    // whose exact value is lost: the recipe is refused (typed), as is any non-integer entry.
+                    let c: i128 = match x {
+                        Value::Null => continue,
+                        Value::Number(num) => match (num.as_i64(), num.as_u64()) {
+                            (Some(c), _) => c as i128,
+                            (None, Some(c)) => c as i128,
+                            (None, None) => {
+                                return Err(bad(format!(
+                                    "domain.bounds.{side}[{i}] = {num} is not an exact integer (a bound beyond \
+                                     64 bits loses its exact value in JSON: refused, never dropped)"
+                                )));
+                            }
+                        },
+                        o => {
+                            return Err(bad(format!(
+                                "domain.bounds.{side}[{i}] = {o} is not an integer or null (refused, never dropped)"
+                            )));
+                        }
+                    };
+                    let p = Poly::slot_minus(i, c);
+                    bounds.push(if sign > 0 {
+                        p
+                    } else {
+                        p.neg().map_err(|e| bad(e.to_string()))?
+                    });
                 }
             }
         }
