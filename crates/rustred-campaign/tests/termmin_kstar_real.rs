@@ -92,7 +92,12 @@ fn real_explicit_and_mixed_shell_solves_at_one_key() {
         extra_solved: vec![],
         terminals: None,
         spec,
-        program: Program::from_file("rr_node", &PathBuf::from(s("program")), Invocation::Contract).unwrap(),
+        program: Program::from_file(
+            "rr_node",
+            &PathBuf::from(s("program")),
+            Invocation::Contract,
+        )
+        .unwrap(),
         family: s("family").into(),
         order,
         cpus: cpus.clone(),
@@ -115,8 +120,13 @@ fn real_explicit_and_mixed_shell_solves_at_one_key() {
         .iter()
         .zip(&cpus)
         .map(|((id, rp), &cpu)| {
-            let (cfg, sampler, key, id, rp) =
-                (cfg.clone(), sampler.clone(), key.clone(), id.clone(), rp.clone());
+            let (cfg, sampler, key, id, rp) = (
+                cfg.clone(),
+                sampler.clone(),
+                key.clone(),
+                id.clone(),
+                rp.clone(),
+            );
             std::thread::spawn(move || {
                 solve_recipe_once(&cfg, &rp, &key, &id, cpu, sampler)
                     .unwrap_or_else(|e| json!({"id": id, "error": e}))
@@ -129,5 +139,9 @@ fn real_explicit_and_mixed_shell_solves_at_one_key() {
     }
     let rep = json!({"key": key, "generic_mixed_shell_seeds": generic.len(), "containment": containment,
                      "results": results});
-    std::fs::write(out.join("report.json"), serde_json::to_vec_pretty(&rep).unwrap()).unwrap();
+    std::fs::write(
+        out.join("report.json"),
+        serde_json::to_vec_pretty(&rep).unwrap(),
+    )
+    .unwrap();
 }

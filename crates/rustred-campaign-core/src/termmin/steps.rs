@@ -178,7 +178,11 @@ pub fn parse_shell(name: &str) -> Result<(u32, u32), String> {
         }
     };
     let p = num(up, 0)?;
-    let q = if rest.contains('m') { num(down, u32::MAX)? } else { 0 };
+    let q = if rest.contains('m') {
+        num(down, u32::MAX)?
+    } else {
+        0
+    };
     if q == u32::MAX || (rest.contains('m') && q == 0) || p + q > 4 {
         return Err(bad());
     }
@@ -208,7 +212,11 @@ fn multisets(n: usize, k: u32) -> Vec<Vec<usize>> {
 /// line one step down in slot order; shells in the listed order; within a shell raised multiset outer, lowered multiset
 /// inner, both lexicographic; first occurrence wins), keeping only seeds in the chart's top sector (every line >= 1,
 /// every numerator <= 0). Raised and lowered slots are disjoint (a slot is not raised and lowered in one offset).
-pub fn mixed_shell_offsets(key: &[i32], lines: &[bool], shells: &[String]) -> Result<Vec<Vec<i32>>, String> {
+pub fn mixed_shell_offsets(
+    key: &[i32],
+    lines: &[bool],
+    shells: &[String],
+) -> Result<Vec<Vec<i32>>, String> {
     let n = key.len();
     let mut centres: Vec<Vec<i32>> = vec![vec![0; n]];
     for (i, &l) in lines.iter().enumerate() {
@@ -218,7 +226,10 @@ pub fn mixed_shell_offsets(key: &[i32], lines: &[bool], shells: &[String]) -> Re
             centres.push(c);
         }
     }
-    let fams: Vec<(u32, u32)> = shells.iter().map(|x| parse_shell(x)).collect::<Result<_, _>>()?;
+    let fams: Vec<(u32, u32)> = shells
+        .iter()
+        .map(|x| parse_shell(x))
+        .collect::<Result<_, _>>()?;
     let mut seen: BTreeSet<Vec<i32>> = BTreeSet::new();
     let mut out = vec![];
     for c in &centres {
@@ -256,7 +267,11 @@ pub fn mixed_shell_offsets(key: &[i32], lines: &[bool], shells: &[String]) -> Re
 /// The mixed-shell POINT recipe at `key`: the explicit offsets as centres with the single shell S0 (the recipe format
 /// has no S1m2: its named shells, same `harder` unit, are S0 S1 Sm1 S1m1 S2 S3 S2m1 Sm2), domain =
 /// the point (`domain.fixed`), no floor, sector filter on, relation rule left to the engine (recorded).
-pub fn point_recipe_mixed(key: &[i32], lines: &[bool], ms: &super::spec::MixedShell) -> Result<PointRecipe, String> {
+pub fn point_recipe_mixed(
+    key: &[i32],
+    lines: &[bool],
+    ms: &super::spec::MixedShell,
+) -> Result<PointRecipe, String> {
     let offs = mixed_shell_offsets(key, lines, &ms.shells)?;
     let n = key.len();
     let chart: String = lines.iter().map(|&l| if l { '1' } else { '0' }).collect();
@@ -382,15 +397,24 @@ mod tests {
         assert_eq!(parse_shell("S1m2").unwrap(), (1, 2));
         assert_eq!(parse_shell("Sm2").unwrap(), (0, 2));
         assert_eq!(parse_shell("S2m1").unwrap(), (2, 1));
-        assert!(parse_shell("Sm").is_err() && parse_shell("X1").is_err() && parse_shell("S9").is_err());
+        assert!(
+            parse_shell("Sm").is_err() && parse_shell("X1").is_err() && parse_shell("S9").is_err()
+        );
         let ms = crate::termmin::spec::MixedShell::default();
         // a corner of a 10-line / 10-numerator chart: no slot can be lowered inside the top sector: S0 + S1 = 21
         let lines: Vec<bool> = (0..20).map(|i| i < 10).collect();
         let corner: Vec<i32> = (0..20).map(|i| if i < 10 { 1 } else { 0 }).collect();
-        assert_eq!(mixed_shell_offsets(&corner, &lines, &ms.shells).unwrap().len(), 21);
+        assert_eq!(
+            mixed_shell_offsets(&corner, &lines, &ms.shells)
+                .unwrap()
+                .len(),
+            21
+        );
         // the helper's K* (9 lines, 11 numerators): 458 seeds from the centres {key, line 0 down}
         let lines9: Vec<bool> = (0..20).map(|i| i < 9).collect();
-        let k = [2, 1, 1, 1, 1, 1, 1, 1, 1, -2, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1];
+        let k = [
+            2, 1, 1, 1, 1, 1, 1, 1, 1, -2, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1,
+        ];
         let offs = mixed_shell_offsets(&k, &lines9, &ms.shells).unwrap();
         assert_eq!(offs.len(), 458);
         let r = point_recipe_mixed(&k, &lines9, &ms).unwrap();

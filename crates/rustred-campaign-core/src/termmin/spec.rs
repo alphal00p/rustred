@@ -57,7 +57,10 @@ impl Default for MixedShell {
     fn default() -> Self {
         MixedShell {
             enabled: true,
-            shells: ["S0", "S1", "Sm1", "S1m1", "S1m2", "Sm2"].iter().map(|x| x.to_string()).collect(),
+            shells: ["S0", "S1", "Sm1", "S1m1", "S1m2", "Sm2"]
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             relation_rule: "m1_first".into(),
         }
     }

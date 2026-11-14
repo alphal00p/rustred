@@ -395,7 +395,11 @@ impl Termmin {
                     ),
                     StepKind::MixedShell => (
                         "mixed_shell".to_string(),
-                        Some(super::steps::point_recipe_mixed(key, lines, &spec.mixed_shell)?),
+                        Some(super::steps::point_recipe_mixed(
+                            key,
+                            lines,
+                            &spec.mixed_shell,
+                        )?),
                     ),
                 };
                 let mut skip = None;
@@ -666,36 +670,38 @@ impl Termmin {
                         continue;
                     }
                 },
-                StepKind::Recipe(_) | StepKind::MixedShell => match self.answers.get(&Self::step_id(i, s)).cloned() {
-                    None => return Ok(false),
-                    Some(SolveAnswer::Failed {
-                        class,
-                        verdict,
-                        failure,
-                        cost,
-                        ..
-                    }) => {
-                        let refused = class != "no_relation_in_seeds";
-                        if refused {
-                            self.ts[i].refused = true;
+                StepKind::Recipe(_) | StepKind::MixedShell => {
+                    match self.answers.get(&Self::step_id(i, s)).cloned() {
+                        None => return Ok(false),
+                        Some(SolveAnswer::Failed {
+                            class,
+                            verdict,
+                            failure,
+                            cost,
+                            ..
+                        }) => {
+                            let refused = class != "no_relation_in_seeds";
+                            if refused {
+                                self.ts[i].refused = true;
+                            }
+                            self.set_record(i, s, |r| {
+                                r.outcome = if refused { "refused" } else { "no_relation" }.into();
+                                r.verdict = verdict.or(Some(class.to_uppercase()));
+                                r.failure = failure;
+                                r.cost = Some(cost);
+                            });
+                            self.ts[i].next += 1;
+                            continue;
                         }
-                        self.set_record(i, s, |r| {
-                            r.outcome = if refused { "refused" } else { "no_relation" }.into();
-                            r.verdict = verdict.or(Some(class.to_uppercase()));
-                            r.failure = failure;
-                            r.cost = Some(cost);
-                        });
-                        self.ts[i].next += 1;
-                        continue;
+                        Some(SolveAnswer::Relation { candidate, cost }) => {
+                            self.set_record(i, s, |r| {
+                                r.cost = Some(cost);
+                                r.verdict = Some("SOLVED".into());
+                            });
+                            candidate
+                        }
                     }
-                    Some(SolveAnswer::Relation { candidate, cost }) => {
-                        self.set_record(i, s, |r| {
-                            r.cost = Some(cost);
-                            r.verdict = Some("SOLVED".into());
-                        });
-                        candidate
-                    }
-                },
+                }
             };
             match self.evaluate(i, s, &cand, oracle)? {
                 Eval::Waiting => return Ok(false),

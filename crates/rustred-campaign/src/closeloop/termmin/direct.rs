@@ -538,7 +538,8 @@ pub fn solve_recipe_once(
     let c = &out.classification;
     let mut record = Value::Null;
     let layout = RunLayout::new(&run_dir);
-    if let Ok((_, h)) = verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end"])
+    if let Ok((_, h)) =
+        verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end"])
         && let Ok(lines) = h.canonical_lines()
     {
         for b in lines {

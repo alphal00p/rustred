@@ -810,7 +810,8 @@ pub fn default_recipes(key: &[i32], params: &NodeParams, node_order: &str) -> Ve
             &crate::termmin::spec::MixedShell::default().shells,
         )
     {
-        let mut r = Recipe::from_setting(&tag(4), &SeedSetting::target(1), &case, params, node_order);
+        let mut r =
+            Recipe::from_setting(&tag(4), &SeedSetting::target(1), &case, params, node_order);
         r.seeds.centres = offs;
         r.seeds.generator = RecipeGenerator::Shells(vec!["S0".into()]);
         r.seeds.min_offset = BTreeMap::new();
