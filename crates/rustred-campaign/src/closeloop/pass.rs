@@ -334,6 +334,19 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         }
         .map_err(|e| format!("import load: {e}"))?),
     };
+    // lane t266run (audit-closeloop M1): every spec evidence file pinned by sha256 (directories cannot carry one)
+    if inp.scale.as_ref().is_some_and(|sc| sc.require_pinned_evidence) {
+        let ev_spec = &set.spec.evidence;
+        for r in ev_spec.facts.iter().chain(&ev_spec.proofs).chain(&ev_spec.solved) {
+            let p = rustred_campaign_core::import::spec::resolve(&inp.base, &r.path);
+            if r.sha256.is_none() || p.is_dir() {
+                return Err(format!(
+                    "evidence {} is not pinned (a file with its sha256 is required; scale.require_pinned_evidence)",
+                    p.display()
+                ));
+            }
+        }
+    }
     // lane t266run: in big-node mode the spec's facts / proofs and the node's own answer files live in disk-backed
     // evidence stores (interfaces/evidence-store.md), never in memory
     let store_opts = inp.scale.as_ref().map(|sc| StoreOptions {
