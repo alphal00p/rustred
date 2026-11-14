@@ -35,12 +35,22 @@
 //! - the Zp row factory: IBP templates compiled once, instantiated at seeds
 //!   and parameter samples, with routing of every term onto representative
 //!   sectors and exact zero-sector decisions.
+//! - the global modular system (one `Discovery` over every seeded row, rows
+//!   inserted as batches easiest first, so the system is a function of the
+//!   row set) and the selection kernel: the closure of a demand over U,
+//!   restricted back-substitution to reduced rows and masters, row selection
+//!   from the L dependencies, and the second-sample replay of the selected
+//!   rows;
+//! - seed boxes and regions (Kira's `(r, s, d)` boxes and their unions, with
+//!   shell enumeration between an old and a new region).
 //!
 //! The session (demand propagation, seeding, elimination, master selection)
 //! and the finite-field and exact lanes follow in the next steps.
 
-// `order` and `rows` are used by the session (a later step of the series);
-// their unit tests exercise them here.
+// `modular`, `order`, `rows`, `seeds` and `select` are used by the session (a later
+// step of the series); their unit and property tests exercise them here.
+#[allow(dead_code)]
+mod modular;
 #[allow(dead_code)]
 mod order;
 mod router;
@@ -49,12 +59,19 @@ mod router_census;
 mod router_tests;
 #[allow(dead_code)]
 mod rows;
+#[allow(dead_code)]
+mod seeds;
+#[allow(dead_code)]
+mod select;
+#[cfg(test)]
+mod select_tests;
 
 use std::fmt;
 
 pub use order::{ColumnOrder, SlotPriority};
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;
+pub use seeds::{SeedBox, SeedRegion};
 
 /// Default structure prime of the modular samples, `2^61 - 1`.
 pub const DEFAULT_PRIME: u64 = (1 << 61) - 1;
