@@ -257,20 +257,27 @@ pub struct ContainmentProof {
     artefact_sha256: String,
 }
 
-/// The digest of a table set as the containment proof sees it: SHA-256 over the canonical text of every domain in
-/// dispatch order (a version-1 text, not a fingerprint of the files).
+/// THE digest of a table set (integration lane int4: the ONE definition; assembly's former digest over record line
+/// digests is gone). It covers exactly what the DISPATCH-mode partition consumes, in dispatch order: per record its
+/// case domain (canonical text) and its witness block ([`crate::partition::DomainSource::witness_block`], which blocks
+/// a selected record without serving). Two sets with one digest therefore have one dispatch coverage by construction;
+/// a digest over record bytes alone would not bind a proof to the domains the partition actually ran on (a caller
+/// could pair real line digests with fully-covering fake domains), and a digest over domains without the witness
+/// blocks would let a proof run on unblocked domains stand for blocked ones. Record identities (which rule is
+/// retired, which supersedes it) are checked by the caller against its own records. Version-2 text, not a fingerprint
+/// of the files (version 1 had no witness blocks).
 pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
     let mut h = crate::replay_base::sha256::Sha256::new();
     h.update(
         format!(
-            "containment-tables.v1;arity={};n={}\n",
+            "containment-tables.v2;arity={};n={}\n",
             src.arity(),
             src.len()
         )
         .as_bytes(),
     );
     for i in 0..src.len() {
-        h.update(format!("{:?}\n", src.domain(i)).as_bytes());
+        h.update(format!("{:?};witness_block={:?}\n", src.domain(i), src.witness_block(i)).as_bytes());
     }
     format!("sha256:{}", h.hex())
 }

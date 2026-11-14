@@ -475,44 +475,47 @@ pub struct ArtefactIds {
     pub dispatch_order_digest: String,
 }
 
-/// The result of [`gap_partition`].
+/// The result of [`gap_partition`]. FIELDS ARE PRIVATE and [`gap_partition`] is the ONLY public producer (integration
+/// lane int4; re-audit ladder-A: a report with public fields could be built or edited by a caller, and every verdict
+/// read from it, [`PartitionReport::proves_no_gap`] first, would then be forgeable). Read it through the accessors of
+/// the same names.
 pub struct PartitionReport {
-    pub nf: NfRules,
-    pub states: Vec<Vec<Range>>,
-    pub root: Option<Rc<Node>>,
-    pub classes: Vec<Class>,
-    pub stats: EnumStats,
-    pub faces: Vec<GapFace>,
-    pub resolution: Option<crate::loci::LociReport>,
-    pub outcome: Outcome,
-    pub coverage: CoverageNotion,
+    nf: NfRules,
+    states: Vec<Vec<Range>>,
+    root: Option<Rc<Node>>,
+    classes: Vec<Class>,
+    stats: EnumStats,
+    faces: Vec<GapFace>,
+    resolution: Option<crate::loci::LociReport>,
+    outcome: Outcome,
+    coverage: CoverageNotion,
     /// Reasons why this report's COVERAGE claims are not a proof even when the outcome is complete (an elided
     /// record credited under `ElidedPolicy::Ordinary`; in dispatch mode a record excluded or weakened in the normal
     /// form, whose blocked set is then unknown).
-    pub caveats: Vec<String>,
+    caveats: Vec<String>,
     /// Classes with more `any` slots than `max_any_slots` (not expanded into faces / loci).
-    pub families: Vec<FaceFamily>,
-    pub max_any_slots: usize,
+    families: Vec<FaceFamily>,
+    max_any_slots: usize,
     /// The off-floor cap of the run (faces beyond it are not listed).
-    pub max_off_floor: Option<usize>,
+    max_off_floor: Option<usize>,
     /// The face budget (`Budget::max_faces`) stopped the face list: outcome `Incomplete`.
-    pub faces_truncated: bool,
-    pub elided: ElidedPolicy,
-    pub literal_tests: LiteralTests,
-    pub millis: u64,
-    pub state_unknown: u64,
+    faces_truncated: bool,
+    elided: ElidedPolicy,
+    literal_tests: LiteralTests,
+    millis: u64,
+    state_unknown: u64,
     /// FailClosed (elided records) / dispatch mode (every blocking record): per blocking source index, the
     /// partition of its BLOCKED region (selected set minus applies set minus the earlier applies sets); its U / F
     /// classes are gaps of the node in addition to the main classes. Sub-reports with no class and a complete
     /// outcome are not kept (counted in `blocked_empty`).
-    pub blocked: Vec<(usize, PartitionReport)>,
-    pub blocked_empty: usize,
+    blocked: Vec<(usize, PartitionReport)>,
+    blocked_empty: usize,
     /// Main report: per rule the smallest dispatch position of its sources (for the blocked regions' oracle).
-    pub rule_min_pos: Vec<usize>,
+    rule_min_pos: Vec<usize>,
     /// Blocked sub-report: dispatch position of its blocking record; its `nf.rules` keep only the complement of
     /// the record's selected set (`compacted`), the earlier records being answered by the main report.
-    pub blocked_pos: usize,
-    pub compacted: bool,
+    blocked_pos: usize,
+    compacted: bool,
 }
 
 /// Where a key falls.
@@ -673,8 +676,9 @@ pub fn gap_partition(
     Ok(rep)
 }
 
-/// The partition of an already built normal form.
-pub fn partition_nf(
+/// The partition of an already built normal form (module-private: a caller-built normal form never yields a public
+/// report, int4).
+fn partition_nf(
     nf: NfRules,
     opts: &PartitionOptions,
     progress: Option<&dyn Fn(&Progress)>,
@@ -784,6 +788,85 @@ pub fn faces_from_uncovered_keys(frame: &NodeFrame, keys: &[Key], range: KeyRang
 }
 
 impl PartitionReport {
+    // ---- read-only accessors (fields are private: int4) ----
+    /// The normal form the run partitioned.
+    pub fn nf(&self) -> &NfRules {
+        &self.nf
+    }
+    pub fn states(&self) -> &[Vec<Range>] {
+        &self.states
+    }
+    pub fn root(&self) -> Option<&Rc<Node>> {
+        self.root.as_ref()
+    }
+    pub fn classes(&self) -> &[Class] {
+        &self.classes
+    }
+    pub fn stats(&self) -> &EnumStats {
+        &self.stats
+    }
+    pub fn faces(&self) -> &[GapFace] {
+        &self.faces
+    }
+    pub fn resolution(&self) -> Option<&crate::loci::LociReport> {
+        self.resolution.as_ref()
+    }
+    pub fn outcome(&self) -> &Outcome {
+        &self.outcome
+    }
+    pub fn coverage(&self) -> CoverageNotion {
+        self.coverage
+    }
+    /// Reasons why this report's COVERAGE claims are not a proof even when the outcome is complete.
+    pub fn caveats(&self) -> &[String] {
+        &self.caveats
+    }
+    /// Classes with more `any` slots than `max_any_slots` (not expanded into faces / loci).
+    pub fn families(&self) -> &[FaceFamily] {
+        &self.families
+    }
+    pub fn max_any_slots(&self) -> usize {
+        self.max_any_slots
+    }
+    /// The off-floor cap of the run (faces beyond it are not listed).
+    pub fn max_off_floor(&self) -> Option<usize> {
+        self.max_off_floor
+    }
+    /// The face budget stopped the face list (outcome `Incomplete`).
+    pub fn faces_truncated(&self) -> bool {
+        self.faces_truncated
+    }
+    pub fn elided(&self) -> ElidedPolicy {
+        self.elided
+    }
+    pub fn literal_tests(&self) -> LiteralTests {
+        self.literal_tests
+    }
+    pub fn millis(&self) -> u64 {
+        self.millis
+    }
+    pub fn state_unknown(&self) -> u64 {
+        self.state_unknown
+    }
+    /// Per blocking source index, the partition of its BLOCKED region (see the field documentation in the source).
+    pub fn blocked(&self) -> &[(usize, PartitionReport)] {
+        &self.blocked
+    }
+    pub fn blocked_empty(&self) -> usize {
+        self.blocked_empty
+    }
+    /// Main report: per rule the smallest dispatch position of its sources.
+    pub fn rule_min_pos(&self) -> &[usize] {
+        &self.rule_min_pos
+    }
+    /// Blocked sub-report: dispatch position of its blocking record.
+    pub fn blocked_pos(&self) -> usize {
+        self.blocked_pos
+    }
+    pub fn compacted(&self) -> bool {
+        self.compacted
+    }
+
     pub fn arity(&self) -> usize {
         self.nf.arity
     }

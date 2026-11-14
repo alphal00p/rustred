@@ -52,12 +52,9 @@ fn accepted_recipe_served_set_equals_closure_dispatch() {
     let ko = Dispatcher::new(vec![t], vec![0]).unwrap();
     let (_, line) = witness_lines("TOY2kite", "K2-single")[0].clone();
     let w = RuleText::parse(&line, &node.frame).unwrap();
-    let solve = json!({"centre": "Target", "offsets": [], "floor": false, "depth": 2, "tight": false,
-        "elimination": "engine-default-v1", "symmetry_rows": false});
-    let recipe = Recipe::new(
-        &w.value,
+    let recipe = Recipe::from_file(
+        &recipe_file(&w.value, &node.frame, 2),
         "sha256:order",
-        &solve,
         "test-contract-v1",
         &node.frame,
     )
@@ -77,7 +74,7 @@ fn accepted_recipe_served_set_equals_closure_dispatch() {
     // key 0 solve failed, key 2 exact check failed: in the domain, NOT certified (must fall through)
     let mut text = String::new();
     for (i, k) in gaps.iter().enumerate() {
-        text.push_str(&answer(&recipe.digest, k, &rhs_of(k), |v| match i {
+        text.push_str(&answer(recipe.digest(), k, &rhs_of(k), |v| match i {
             0 => {
                 v["status"] = json!("failed");
                 v["relation_digest"] = Value::Null;
@@ -86,7 +83,7 @@ fn accepted_recipe_served_set_equals_closure_dispatch() {
             _ => {}
         }));
     }
-    let mut ans = SolveAnswers::new(&recipe.digest);
+    let mut ans = SolveAnswers::new(recipe.digest());
     ans.load(&text).unwrap();
     let nv = || {
         view(
@@ -121,7 +118,7 @@ fn accepted_recipe_served_set_equals_closure_dispatch() {
             .unwrap();
     assert_eq!(set.relations.len(), certified.len());
     // strictness: other answers than the certified ones are refused
-    let mut other = SolveAnswers::new(&recipe.digest);
+    let mut other = SolveAnswers::new(recipe.digest());
     other
         .load(&text.replace("\"cost_ms\":7", "\"cost_ms\":8"))
         .unwrap();
@@ -151,13 +148,13 @@ fn accepted_recipe_served_set_equals_closure_dispatch() {
     let c = closure(&ko, &bodies, &node.cmp, &start, &cfg, &NoFacts).unwrap();
     let cert: std::collections::BTreeSet<Key> = certified.iter().cloned().collect();
     let entry = RecipeEntry {
-        domain: &recipe.domain,
+        domain: recipe.domain(),
         certified: &cert,
     };
     let (mut n_recipe, mut n_fell_through, mut n) = (0, 0, 0);
     for k in c.keys().iter() {
         let i = c.index_of(&k).unwrap();
-        let stop = composed_stop_domain(&nv(), Some(&ko), Some(&recipe.domain), None, &k).unwrap();
+        let stop = composed_stop_domain(&nv(), Some(&ko), Some(recipe.domain()), None, &k).unwrap();
         let accept_says = stop == Stop::Served && entry.matches(&k);
         assert_eq!(c.is_recipe_served(i), accept_says, "{k:?}: stop {stop:?}");
         if !accept_says {

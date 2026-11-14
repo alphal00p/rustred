@@ -38,12 +38,9 @@ fn recipe_certification_and_assembly() {
     let ko = Dispatcher::new(vec![t], vec![0]).unwrap();
     let (_, line) = witness_lines("TOY2kite", "K2-single")[0].clone();
     let w = RuleText::parse(&line, &node.frame).unwrap();
-    let solve = json!({"centre": "Target", "offsets": [], "floor": false, "depth": 2, "tight": false,
-        "elimination": "engine-default-v1", "symmetry_rows": false});
-    let recipe = Recipe::new(
-        &w.value,
+    let recipe = Recipe::from_file(
+        &recipe_file(&w.value, &node.frame, 2),
         "sha256:order",
-        &solve,
         "test-contract-v1",
         &node.frame,
     )
@@ -77,7 +74,7 @@ fn recipe_certification_and_assembly() {
         expected_binary: Some(BIN.into()),
     };
     // 1. no answers: a request for the 20 dispatched keys and the determinism sample
-    let mut ans = SolveAnswers::new(&recipe.digest);
+    let mut ans = SolveAnswers::new(recipe.digest());
     let v = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap();
     let RecipeVerdict::NeedsExternal { requests } = &v else {
         panic!("{v:?}")
@@ -100,8 +97,8 @@ fn recipe_certification_and_assembly() {
             2 => v["exact_check"] = json!("fail"),
             _ => {}
         };
-        text.push_str(&answer(&recipe.digest, k, 1, &rhs, edit));
-        text.push_str(&answer(&recipe.digest, k, 2, &rhs, edit));
+        text.push_str(&answer(recipe.digest(), k, 1, &rhs, edit));
+        text.push_str(&answer(recipe.digest(), k, 2, &rhs, edit));
     }
     ans.load(&text).unwrap();
     let v = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap();
@@ -158,22 +155,22 @@ fn recipe_certification_and_assembly() {
     assert_eq!(eco.recipe_certified_keys, 17);
     assert!(!eco.engine_loadable);
     // 4. determinism mismatch -> Rejected; stale binary -> Undecided
-    let mut bad = SolveAnswers::new(&recipe.digest);
+    let mut bad = SolveAnswers::new(recipe.digest());
     let k = &gaps[5];
     let mut t2 = String::new();
     for kk in &gaps {
-        t2.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |_| {}));
-        t2.push_str(&answer(&recipe.digest, kk, 2, &rhs_of(kk), |v| {
+        t2.push_str(&answer(recipe.digest(), kk, 1, &rhs_of(kk), |_| {}));
+        t2.push_str(&answer(recipe.digest(), kk, 2, &rhs_of(kk), |v| {
             v["relation_digest"] = json!("sha256:other")
         }));
     }
     bad.load(&t2).unwrap();
     let v = accept_recipe(&mk_input(Determinism::PerMille(1000)), &bad).unwrap();
     assert!(matches!(v, RecipeVerdict::Rejected { .. }), "{v:?}");
-    let mut stale = SolveAnswers::new(&recipe.digest);
+    let mut stale = SolveAnswers::new(recipe.digest());
     let mut t3 = String::new();
     for kk in &gaps {
-        t3.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |v| {
+        t3.push_str(&answer(recipe.digest(), kk, 1, &rhs_of(kk), |v| {
             if kk == k {
                 v["binary_sha256"] = json!("sha256:another-binary")
             }
@@ -186,10 +183,10 @@ fn recipe_certification_and_assembly() {
         "{v:?}"
     );
     // another determinism contract id: stale as well
-    let mut other = SolveAnswers::new(&recipe.digest);
+    let mut other = SolveAnswers::new(recipe.digest());
     let mut t4 = String::new();
     for kk in &gaps {
-        t4.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |v| {
+        t4.push_str(&answer(recipe.digest(), kk, 1, &rhs_of(kk), |v| {
             v["determinism_contract"] = json!("v2")
         }));
     }
@@ -220,14 +217,8 @@ fn engine_results_shape_is_read() {
     let (_, line) = witness_lines("TOY2kite", "K2-single")[0].clone();
     let w = RuleText::parse(&line, &node.frame).unwrap();
     let det = "rustred.recipe-solve.v1/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized";
-    let recipe = Recipe::new(
-        &w.value,
-        "sha256:order",
-        &json!({"seeds": {"unit": "harder"}}),
-        det,
-        &node.frame,
-    )
-    .unwrap();
+    let recipe = Recipe::from_file(&recipe_file(&w.value, &node.frame, 2), "sha256:order", det, &node.frame)
+        .unwrap();
     let gaps = gap_keys(&node, "K2-single");
     let inst = Instantiator::new(&w).unwrap();
     let mut text = String::new();
@@ -261,7 +252,7 @@ fn engine_results_shape_is_read() {
         text.push_str(&format!("{v}\n"));
     }
     text.push_str("{\"type\":\"end\",\"records\":20}\n");
-    let mut ans = SolveAnswers::new(&recipe.digest);
+    let mut ans = SolveAnswers::new(recipe.digest());
     assert_eq!(
         ans.load_engine_results(&text, 1, "abc", "blake3:binary")
             .unwrap(),

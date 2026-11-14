@@ -454,3 +454,63 @@ pub fn closure_facts(
     }
     cf
 }
+
+/// A recipe FILE (`worklist::recipe::Recipe`, the engine's `rustred.recipe.v1`: the ONE recipe type of the crate, int4)
+/// on the domain of a rule line (its `fixed`, `equations`, `exceptions`), seeds = an L1 ball of radius `depth` around
+/// the key, down-moves on the free slots; no provenance. TEST DATA builder.
+pub fn recipe_file(
+    rule: &Value,
+    frame: &NodeFrame,
+    depth: u8,
+) -> rustred_campaign_core::worklist::recipe::Recipe {
+    use rustred_campaign_core::worklist::recipe as wr;
+    let n = frame.arity();
+    let fixed: Vec<Option<i32>> = rule["fixed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_i64().map(|x| x as i32))
+        .collect();
+    let strs = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect())
+            .unwrap_or_default()
+    };
+    let exceptions: Vec<Vec<String>> = rule["exceptions"]
+        .as_array()
+        .map(|a| a.iter().map(strs).collect())
+        .unwrap_or_default();
+    let down: Vec<usize> = (0..n).filter(|&i| fixed[i].is_none()).collect();
+    let r = wr::Recipe {
+        schema: wr::RECIPE_SCHEMA.into(),
+        id: "test-recipe".into(),
+        arity: n,
+        chart: frame.mask_string(),
+        domain: wr::RecipeDomain {
+            fixed,
+            equations: strs(&rule["equations"]),
+            exceptions,
+            bounds: None,
+        },
+        seeds: wr::RecipeSeeds {
+            unit: wr::RECIPE_UNIT.into(),
+            centres: vec![],
+            generator: wr::RecipeGenerator::Ball(wr::RecipeBall {
+                radius: depth,
+                down,
+            }),
+            min_offset: Default::default(),
+            max_offset: Default::default(),
+            layer_cap: None,
+            sector_filter: true,
+            sector_slots: None,
+        },
+        symmetry_rows: false,
+        elimination: wr::RecipeElimination {
+            convention: wr::RECIPE_ELIMINATION.into(),
+        },
+        provenance: None,
+    };
+    r.validate().unwrap();
+    r
+}

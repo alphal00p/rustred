@@ -29,30 +29,30 @@ fn run(raw: bool, elided: ElidedPolicy, tests: LiteralTests) -> Option<Partition
     let rep = gap_partition(&src, &t178_frame(), &opts, None).unwrap();
     println!(
         "T178B raw={raw} {elided:?} {tests:?}: inputs {:?}; nodes {} memo hits {} U {} F {} faces {} ({} generic, {} locus-only) loci {} ({} unresolved) in {} ms; unknown tests {}",
-        rep.nf.stats,
-        rep.stats.nodes,
-        rep.stats.memo_hits,
+        rep.nf().stats,
+        rep.stats().nodes,
+        rep.stats().memo_hits,
         rep.n_u(),
         rep.n_f(),
-        rep.faces.len(),
-        rep.faces
+        rep.faces().len(),
+        rep.faces()
             .iter()
             .filter(|f| f.kind == FaceKind::Generic)
             .count(),
-        rep.faces
+        rep.faces()
             .iter()
             .filter(|f| f.kind == FaceKind::LocusOnly)
             .count(),
-        rep.resolution.as_ref().map_or(0, |r| r.loci.len()),
-        rep.resolution.as_ref().map_or(0, |r| r.n_unresolved()),
-        rep.millis,
-        rep.stats.unknown_literal_tests,
+        rep.resolution().map_or(0, |r| r.loci.len()),
+        rep.resolution().map_or(0, |r| r.n_unresolved()),
+        rep.millis(),
+        rep.stats().unknown_literal_tests,
     );
     Some(rep)
 }
 
 fn face_set(rep: &PartitionReport, kind: Option<FaceKind>) -> BTreeSet<(Vec<usize>, Vec<usize>)> {
-    rep.faces
+    rep.faces()
         .iter()
         .filter(|f| kind.is_none_or(|k| f.kind == k))
         .map(|f| f.key())
@@ -70,18 +70,18 @@ fn t178b_ordinary_reference_compatible() {
         return;
     };
     // states: lines {1,2,>=3} except n2 {1,2,3,>=4}; numerators {0,-1,<=-2}
-    for (s, st) in rep.states.iter().enumerate() {
+    for (s, st) in rep.states().iter().enumerate() {
         let want = if s == 2 { 4 } else { 3 };
         assert_eq!(st.len(), want, "slot {s}: {st:?}");
     }
-    assert_eq!(rep.nf.stats.distinct, 3169);
+    assert_eq!(rep.nf().stats.distinct, 3169);
     assert_eq!((rep.n_u(), rep.n_f()), (321, 284));
     let gens = face_set(&rep, Some(FaceKind::Generic));
     let loc = face_set(&rep, Some(FaceKind::LocusOnly));
     for f in &loc {
         println!("locus-only face {}", face_str(f));
     }
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     for l in &res.loci {
         println!(
             "locus {} face {} eqs {:?} dim {} classes {} witness {:?} unresolved {}",
@@ -140,12 +140,12 @@ fn t178b_ordinary_exact_tests_same_faces() {
     };
     // exact literal tests: same U classes, same generic and locus-only faces, same loci count; F may only shrink
     let ua: BTreeSet<_> = a
-        .classes
+        .classes()
         .iter()
         .filter(|c| c.label == rustred_campaign_core::partition::Label::Uncovered)
         .collect();
     let ub: BTreeSet<_> = b
-        .classes
+        .classes()
         .iter()
         .filter(|c| c.label == rustred_campaign_core::partition::Label::Uncovered)
         .collect();
@@ -210,8 +210,8 @@ fn t178b_fail_closed_new_reference() {
     ) else {
         return;
     };
-    assert_eq!(ord.nf.stats.dropped_elided, 0);
-    assert_eq!(fc.nf.stats.dropped_elided, 1);
+    assert_eq!(ord.nf().stats.dropped_elided, 0);
+    assert_eq!(fc.nf().stats.dropped_elided, 1);
     // ordinary on the raw-substituted tables = ordinary on the case exports (the raw domains equal the exports)
     assert_eq!((ord.n_u(), ord.n_f()), (321, 284));
     let keys = t178_box();
@@ -226,10 +226,10 @@ fn t178b_fail_closed_new_reference() {
         "FailClosed: U {} F {} faces {} ({} generic + {} locus-only) loci {}; box {} uncovered = {} generic + {} locus; extra keys:",
         fc.n_u(),
         fc.n_f(),
-        fc.faces.len(),
+        fc.faces().len(),
         face_set(&fc, Some(FaceKind::Generic)).len(),
         face_set(&fc, Some(FaceKind::LocusOnly)).len(),
-        fc.resolution.as_ref().map_or(0, |r| r.loci.len()),
+        fc.resolution().map_or(0, |r| r.loci.len()),
         cf.uncovered.len(),
         cf.n_generic(),
         cf.n_locus()
@@ -245,7 +245,7 @@ fn t178b_fail_closed_new_reference() {
         "FailClosed faces not in Ordinary: {}",
         new_faces.iter().map(face_str).collect::<Vec<_>>().join(" ")
     );
-    for f in &fc.faces {
+    for f in fc.faces() {
         println!(
             "FC face {} {:?} thresholds {:?}",
             face_str(&f.key()),
@@ -361,14 +361,14 @@ fn t178b_memo_equals_reference_mode_cap5_cap6() {
     .unwrap();
     println!(
         "cap 6: memo {} nodes, reference {} nodes {} ms; U {} F {}",
-        a6.stats.nodes,
-        b6.stats.nodes,
-        b6.millis,
+        a6.stats().nodes,
+        b6.stats().nodes,
+        b6.millis(),
         a6.n_u(),
         a6.n_f()
     );
-    let c6a: BTreeSet<_> = a6.classes.iter().cloned().collect();
-    let c6b: BTreeSet<_> = b6.classes.iter().cloned().collect();
+    let c6a: BTreeSet<_> = a6.classes().iter().cloned().collect();
+    let c6b: BTreeSet<_> = b6.classes().iter().cloned().collect();
     assert_eq!(c6a, c6b);
     let base = PartitionOptions {
         max_off_floor: Some(5),
@@ -387,15 +387,15 @@ fn t178b_memo_equals_reference_mode_cap5_cap6() {
     .unwrap();
     println!(
         "cap 5: memo {} nodes {} ms; reference {} nodes {} ms; U {} F {}",
-        a.stats.nodes,
-        a.millis,
-        b.stats.nodes,
-        b.millis,
+        a.stats().nodes,
+        a.millis(),
+        b.stats().nodes,
+        b.millis(),
         a.n_u(),
         a.n_f()
     );
-    let ca: BTreeSet<_> = a.classes.iter().cloned().collect();
-    let cb: BTreeSet<_> = b.classes.iter().cloned().collect();
+    let ca: BTreeSet<_> = a.classes().iter().cloned().collect();
+    let cb: BTreeSet<_> = b.classes().iter().cloned().collect();
     assert_eq!(ca, cb);
     assert_eq!((a.n_u(), a.n_f()), (321, 268));
 }
@@ -462,13 +462,13 @@ fn t178b_dispatch_mode_equals_first_match() {
     let mine: BTreeSet<Key> = cen.uncovered.iter().map(|x| x.0.clone()).collect();
     println!(
         "T178B dispatch mode: {} blockers, {} blocked sub-partitions with classes, {} empty; faces {}; box open {} (dispatcher {}); outcome {:?}; {} ms",
-        rep.nf.blockers.len(),
-        rep.blocked.len(),
-        rep.blocked_empty,
-        rep.faces.len(),
+        rep.nf().blockers.len(),
+        rep.blocked().len(),
+        rep.blocked_empty(),
+        rep.faces().len(),
         mine.len(),
         open.len(),
-        rep.outcome,
+        rep.outcome(),
         t.elapsed().as_millis()
     );
     assert!(cen.uncovered_in_c.is_empty());
@@ -571,15 +571,15 @@ fn t178b_raw38_dispatch_mode_409_uncovered_39_blocked() {
     let blocked_mine: BTreeSet<Key> = mine.difference(&not_selected).cloned().collect();
     println!(
         "T178B raw38 dispatch mode: {} blockers ({} witness-blocked), {} non-empty blocked regions, faces {}; box {} = {} not selected + {} blocked (dispatcher open {}); outcome {:?}; {} ms",
-        rep.nf.blockers.len(),
-        rep.nf.elided.len(),
-        rep.blocked.len(),
-        rep.faces.len(),
+        rep.nf().blockers.len(),
+        rep.nf().elided.len(),
+        rep.blocked().len(),
+        rep.faces().len(),
         mine.len(),
         not_selected.len(),
         blocked_mine.len(),
         open.len(),
-        rep.outcome,
+        rep.outcome(),
         t.elapsed().as_millis()
     );
     assert!(cen.uncovered_in_c.is_empty());

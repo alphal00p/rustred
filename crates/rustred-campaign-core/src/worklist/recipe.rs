@@ -310,32 +310,16 @@ impl Recipe {
         key.len() == self.arity && self.case_domain().is_ok_and(|d| d.applies(key).applies())
     }
 
-    /// The acceptance lane's record of THIS recipe (re-audit A M6: one definition): its domain fields are this
-    /// recipe's domain, its solve recipe is this recipe's file JSON verbatim, `order_digest` the node comparator's
-    /// identity, `contract` the determinism contract id.
+    /// The acceptance lane's view of THIS recipe (one definition: re-audit A M6, int4): it carries this file
+    /// verbatim and derives its domain from it ([`crate::accept::recipe::Recipe::from_file`]); `order_digest` = the
+    /// node comparator's identity, `contract` = the determinism contract id.
     pub fn to_acceptance(
         &self,
         order_digest: &str,
         contract: &str,
         frame: &crate::key::NodeFrame,
     ) -> Result<crate::accept::recipe::Recipe, String> {
-        let fixed: Vec<serde_json::Value> = self
-            .domain
-            .fixed
-            .iter()
-            .map(|f| match f {
-                Some(v) => serde_json::json!(v),
-                None => serde_json::Value::Null,
-            })
-            .collect();
-        let domain = serde_json::json!({
-            "chart": self.chart,
-            "fixed": fixed,
-            "equations": self.domain.equations,
-            "exceptions": self.domain.exceptions,
-        });
-        let solve = serde_json::to_value(self).map_err(|e| e.to_string())?;
-        crate::accept::recipe::Recipe::new(&domain, order_digest, &solve, contract, frame)
+        crate::accept::recipe::Recipe::from_file(self, order_digest, contract, frame)
     }
 }
 
