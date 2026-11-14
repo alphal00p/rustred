@@ -313,9 +313,24 @@ fn invalid_requests_are_input_errors() {
         s["seeding"] = json!({"kind": "kira-box", "r": 8, "s": 0, "d": 2});
         s["tubes"] = json!({"min_rank": 1, "halo": 0});
     });
+    // The report in `out_dir` is never left at "running": a request that
+    // fails after its first write ends with status "failed" and the error.
+    let out_report =
+        |spec: &Value| PathBuf::from(spec["out_dir"].as_str().unwrap()).join("report.json");
     for (label, spec) in cases {
+        let _ = std::fs::remove_file(out_report(&spec));
         let (code, report) = run(&dir, &spec);
         assert_eq!(code, 4, "{label}: {report}");
+        if let Ok(text) = std::fs::read_to_string(out_report(&spec)) {
+            let written: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(written["status"], "failed", "{label}: {written}");
+            assert_eq!(written["error"]["kind"], "input", "{label}: {written}");
+        } else {
+            assert_ne!(
+                label, "index range",
+                "the index check runs after the first write"
+            );
+        }
     }
     // An arity without a compiled dispatch (2 denominators).
     std::fs::write(

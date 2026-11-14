@@ -518,11 +518,13 @@ fn verdict<T>(result: &Result<T, SolverError>) -> &'static str {
     }
 }
 
+/// Runs the request with a report whose final state is always terminal: a
+/// run that fails after the first report write leaves `status: "failed"`
+/// with the error, never `"running"`.
 fn run<const N: usize>(
     spec: &SectorBoxReduceSpec,
     family: Arc<IntegralFamily>,
 ) -> Result<SectorBoxReduceOutcome, AppError> {
-    let arity = family.denominator_count();
     std::fs::create_dir_all(&spec.out_dir)
         .map_err(|e| AppError::input(format!("cannot create {}: {e}", spec.out_dir.display())))?;
     let mut out = Report {
@@ -534,6 +536,25 @@ fn run<const N: usize>(
     out.set("status", json!("running"));
     out.set("label", json!("uncertified-sector-box"));
     out.write()?;
+    let result = run_phases::<N>(spec, family, &mut out);
+    if let Err(error) = &result {
+        out.set("status", json!("failed"));
+        out.set(
+            "error",
+            json!({"kind": error.kind().as_str(), "message": error.message()}),
+        );
+        // Best effort: the run's own error is the one returned.
+        let _ = out.write();
+    }
+    result
+}
+
+fn run_phases<const N: usize>(
+    spec: &SectorBoxReduceSpec,
+    family: Arc<IntegralFamily>,
+    out: &mut Report,
+) -> Result<SectorBoxReduceOutcome, AppError> {
+    let arity = family.denominator_count();
 
     let targets: Vec<[i16; N]> = spec
         .targets
@@ -727,7 +748,7 @@ fn run<const N: usize>(
                     out.set("error", json!(message));
                     out.write()?;
                     return Ok(SectorBoxReduceOutcome {
-                        report: Value::Object(out.fields),
+                        report: Value::Object(out.fields.clone()),
                         status: "master-check-failed",
                     });
                 }
@@ -752,7 +773,7 @@ fn run<const N: usize>(
         out.set("status", json!("modular-only"));
         out.write()?;
         return Ok(SectorBoxReduceOutcome {
-            report: Value::Object(out.fields),
+            report: Value::Object(out.fields.clone()),
             status: "modular-only",
         });
     }
@@ -858,7 +879,7 @@ fn run<const N: usize>(
     out.set("status", json!(status));
     out.write()?;
     Ok(SectorBoxReduceOutcome {
-        report: Value::Object(out.fields),
+        report: Value::Object(out.fields.clone()),
         status,
     })
 }
