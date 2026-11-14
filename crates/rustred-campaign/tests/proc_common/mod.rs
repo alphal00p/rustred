@@ -24,10 +24,23 @@ impl TempDir {
     pub fn new(name: &str) -> Self {
         static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let p =
-            std::env::temp_dir().join(format!("rr-proc-test-{}-{name}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&p);
-        std::fs::create_dir_all(&p).unwrap();
+        // Unique on the host (procfix3 item 0): inside the private pid namespaces every test binary is pid 1.
+        static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        let token = TOKEN.get_or_init(|| {
+            let ns = std::fs::read_link("/proc/self/ns/pid")
+                .map(|l| l.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            blake3::hash(format!("{ns}|{}|{stat}|{t}", std::process::id()).as_bytes()).to_hex()[..8]
+                .to_string()
+        });
+        let p = std::env::temp_dir().join(format!("rr-proc-test-{token}-{name}-{n}"));
+        std::fs::create_dir_all(std::env::temp_dir()).unwrap();
+        std::fs::create_dir(&p).unwrap_or_else(|e| panic!("{}: {e} (not unique?)", p.display()));
         Self(p)
     }
     pub fn path(&self) -> &Path {

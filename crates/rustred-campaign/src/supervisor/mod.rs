@@ -2557,6 +2557,10 @@ impl Supervisor {
                             self.bypassed.remove(&r.job);
                             if let Err(e) = self.launch(r, lease) {
                                 self.log.line("WARN", &format!("{}: {e}", r.job));
+                                if self.resource_backoff_until.is_some() {
+                                    // gate-B M3: a supervisor resource failure ends this pass (back-off).
+                                    break;
+                                }
                             }
                         }
                         Ok(Acquire::NotNow(why)) => {
