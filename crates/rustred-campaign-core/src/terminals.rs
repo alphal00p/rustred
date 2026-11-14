@@ -26,8 +26,10 @@ pub enum TerminalError {
 }
 
 /// The fallback terminal set F of one node: explicit keys from the spec, and keys added by rule after their full
-/// ladder failed. It only SHRINKS under accepted rules (a key re-enters only if its covering rule is removed).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// ladder failed. It only SHRINKS under accepted rules (a key re-enters only if its covering rule is removed). No
+/// `Deserialize` (re-audit A m2): a key "added by rule" never re-enters without its token; read a
+/// [`FallbackSetRecord`] back and [`FallbackSetRecord::verify`] it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FallbackSet {
     bound: usize,
     keys: BTreeSet<Key>,
@@ -125,6 +127,45 @@ impl FallbackSet {
     pub fn is_explicit(&self, k: &[i32]) -> bool {
         self.explicit.contains(k)
     }
+    /// The explicit (spec) keys.
+    pub fn explicit_keys(&self) -> &BTreeSet<Key> {
+        &self.explicit
+    }
+    /// The unverified, serialisable form.
+    pub fn to_record(&self) -> FallbackSetRecord {
+        FallbackSetRecord {
+            bound: self.bound,
+            keys: self.keys.iter().cloned().collect(),
+            explicit: self.explicit.iter().cloned().collect(),
+        }
+    }
+}
+
+/// UNVERIFIED serialisable form of a [`FallbackSet`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FallbackSetRecord {
+    pub bound: usize,
+    pub keys: Vec<Key>,
+    pub explicit: Vec<Key>,
+}
+
+impl FallbackSetRecord {
+    /// Rebuild the set: explicit keys as given; every other key only with its exhaustion token (re-verified tokens,
+    /// e.g. from `LadderExhaustedRecord::verify`), through [`FallbackSet::add_by_rule`].
+    pub fn verify(&self, tokens: &[LadderExhausted]) -> Result<FallbackSet, TerminalError> {
+        let mut f = FallbackSet::with_explicit(self.bound, self.explicit.clone())?;
+        for k in &self.keys {
+            if f.is_explicit(k) {
+                continue;
+            }
+            let t = tokens
+                .iter()
+                .find(|t| t.key() == k.as_slice())
+                .ok_or(TerminalError::TokenMismatch)?;
+            f.add_by_rule(k, t)?;
+        }
+        Ok(f)
+    }
 }
 
 /// Flags of a terminal set. `OverBound`, `CoveredTerminal` and `UndecidedTerminal` block acceptance (U-9; D0: a
@@ -149,23 +190,62 @@ pub enum TerminalFlag {
         key: Key,
         why: String,
     },
+    /// A declared terminal that is neither an honoured preferred key nor an explicit spec key and carries NO
+    /// exhaustion token (re-audit A m2): blocks its declaration.
+    MissingToken {
+        key: Key,
+    },
+    /// INFORMATION: the key's ladder was searched only to the largest work counter on these settings ("terminal
+    /// within budget"; a run with a larger budget retries them).
+    WithinBudget {
+        key: Key,
+        settings: Vec<String>,
+    },
+    /// INFORMATION: a relation exists for the key but no prover can certify it at the node's level (symmetry rows):
+    /// "awaiting a certificate route" (rule digests).
+    AwaitingCertificateRoute {
+        key: Key,
+        relations: Vec<String>,
+    },
+}
+
+impl TerminalFlag {
+    /// Whether the flag blocks acceptance / the declaration (the informational flags do not).
+    pub fn is_blocking(&self) -> bool {
+        !matches!(
+            self,
+            TerminalFlag::WithinBudget { .. } | TerminalFlag::AwaitingCertificateRoute { .. }
+        )
+    }
+}
+
+/// What [`check_terminals`] needs besides the terminal list (re-audit B m1, A m2).
+#[derive(Clone, Copy, Debug)]
+pub struct TerminalContext<'a> {
+    pub lines: &'a [bool],
+    /// The HONOURED preferred keys AS FIXED WHEN THE WORK LIST WAS STRIPPED (`StripReport::kept_preferred`): the
+    /// bound applies relative to the gap keys, never relative to the terminal list (a surplus preferred key that
+    /// received ladder effort is an ordinary terminal).
+    pub honoured: &'a BTreeSet<Key>,
+    /// Keys given explicitly by the spec (`FallbackSet::explicit_keys`): allowed without a token.
+    pub explicit: &'a BTreeSet<Key>,
 }
 
 /// Checks of a declared terminal set: the bound, no terminal inside a rule's domain, no terminal where the tables
-/// are undecided, every key's ladder exhausted. HONOURED preferred terminals (P-4; at most
-/// `preferred.bound(bound)` of them, in key order: audit A M3) are exempt from the ladder condition, are kept inside a
-/// rule's domain by a key exclusion (see [`preferred_exclusions`]) and count against the bound only when the spec
-/// says so; preferred keys beyond that bound are ordinary terminals.
+/// are undecided, every key's ladder exhausted (a token, deep condition met) unless it is an HONOURED preferred key
+/// (`ctx.honoured`, fixed at strip time) or an explicit spec key (`ctx.explicit`). Honoured preferred terminals
+/// (P-4) are exempt from the ladder condition, are kept inside a rule's domain by a key exclusion (see
+/// [`preferred_exclusions`]) and count against the bound only when the spec says so. Informational flags
+/// ([`TerminalFlag::is_blocking`] false): `WithinBudget`, `AwaitingCertificateRoute` from the tokens.
 pub fn check_terminals(
     terminals: &[(Key, Option<LadderExhausted>)],
     bound: usize,
     tables: &dyn Coverage,
     preferred: &PreferredTerminals,
-    lines: &[bool],
+    ctx: &TerminalContext,
 ) -> Vec<TerminalFlag> {
     let mut flags = Vec::new();
-    let keys: Vec<Key> = terminals.iter().map(|(k, _)| k.clone()).collect();
-    let honoured = preferred.honoured(&keys, lines, bound);
+    let honoured = ctx.honoured;
     let counted = terminals
         .iter()
         .filter(|(k, _)| preferred.count_against_bound || !honoured.contains(k))
@@ -191,10 +271,32 @@ pub fn check_terminals(
             }),
             CoverageVerdict::Uncovered => {}
         }
-        if let Some(t) = tok
-            && (t.key() != k.as_slice() || !t.deep_condition_met())
-        {
-            flags.push(TerminalFlag::NotDeepTried { key: k.clone() });
+        match tok {
+            Some(t) => {
+                if t.key() != k.as_slice() || !t.deep_condition_met() {
+                    flags.push(TerminalFlag::NotDeepTried { key: k.clone() });
+                }
+                if t.within_budget() {
+                    flags.push(TerminalFlag::WithinBudget {
+                        key: k.clone(),
+                        settings: t.budget_limited().iter().map(|(l, _)| l.clone()).collect(),
+                    });
+                }
+                if t.awaiting_certificate_route() {
+                    flags.push(TerminalFlag::AwaitingCertificateRoute {
+                        key: k.clone(),
+                        relations: t
+                            .uncertified_relations()
+                            .iter()
+                            .map(|(_, d)| d.clone())
+                            .collect(),
+                    });
+                }
+            }
+            None if !ctx.explicit.contains(k) => {
+                flags.push(TerminalFlag::MissingToken { key: k.clone() });
+            }
+            None => {}
         }
     }
     flags
@@ -346,27 +448,48 @@ mod tests {
         );
         let lines = vec![true, true];
         let none = PreferredTerminals::default();
+        let explicit: BTreeSet<Key> = [vec![1, 2], vec![2, 1]].into_iter().collect();
+        let no_pref = BTreeSet::new();
+        let ctx = TerminalContext {
+            lines: &lines,
+            honoured: &no_pref,
+            explicit: &explicit,
+        };
         let flags = check_terminals(
             &[(vec![1, 2], None), (vec![2, 1], None)],
             1,
             &NoTables,
             &none,
-            &lines,
+            &ctx,
         );
         assert_eq!(flags, vec![TerminalFlag::OverBound { count: 2, bound: 1 }]);
-        // a preferred terminal does not count against the bound by default
+        // a preferred terminal (honoured at strip time) does not count against the bound by default
         let pref = PreferredTerminals {
             entries: vec![crate::worklist::items::PreferredEntry::Key(vec![2, 1])],
             count_against_bound: false,
             max_preferred: None,
+        };
+        let honoured: BTreeSet<Key> = [vec![2, 1]].into_iter().collect();
+        let ctx = TerminalContext {
+            lines: &lines,
+            honoured: &honoured,
+            explicit: &explicit,
         };
         let flags = check_terminals(
             &[(vec![1, 2], None), (vec![2, 1], None)],
             1,
             &NoTables,
             &pref,
-            &lines,
+            &ctx,
         );
         assert!(flags.is_empty());
+        // a non-explicit terminal without a token is flagged (re-audit A m2)
+        let ctx = TerminalContext {
+            lines: &lines,
+            honoured: &no_pref,
+            explicit: &no_pref,
+        };
+        let flags = check_terminals(&[(vec![1, 2], None)], 5, &NoTables, &none, &ctx);
+        assert_eq!(flags, vec![TerminalFlag::MissingToken { key: vec![1, 2] }]);
     }
 }

@@ -43,7 +43,13 @@ pub struct NumericStats {
     pub discovery: Option<DiscoveryStats>,
     pub elapsed: Duration,
     pub exact_materialization: Duration,
+    /// sym-gen: exact symmetry rows generated / independent in the modular reducer (0 when off).
+    pub symmetry_rows: usize,
+    pub symmetry_rows_independent: usize,
 }
+
+/// [`SeedSource::basis_row`] of an exact one-term symmetry row (not a basis ordinal).
+pub const SYMMETRY_ROW: usize = usize::MAX;
 
 #[derive(Debug)]
 pub struct NumericResult<const N: usize> {
@@ -77,9 +83,26 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     /// `SectorConfig::numerical_exact_backend`.
     pub fn solve_numeric_cases_with_source_order(
         &self,
+        cases: Vec<CoordinateCase<N>>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+    ) -> Result<NumericResult<N>, SolverError> {
+        self.solve_numeric_cases_with_symmetry(cases, options, source_order, None)
+    }
+
+    /// [`Self::solve_numeric_cases_with_source_order`] with EXACT one-term symmetry rows (sym-gen, default off):
+    /// at every seed `a`, after its IBP rows, `images(a)` lists exact images `(g a, negative)` of authenticated
+    /// automorphisms (`I(a) = s I(g a)`, `s = -1` when `negative`); each distinct pair adds the row
+    /// `I(a) - s I(g a)` (harder term first; `g a = a` with `s = -1` gives `2 I(a)`) to the same modular reducer and
+    /// the same exact union replay as the IBP rows. Their sources carry `basis_row` = [`SYMMETRY_ROW`] and the seed
+    /// `a`. Residuals then form a basis modulo IBP AND symmetry (masters modulo symmetry) as far as the seed depth
+    /// reaches. `None` is exactly the IBP-only solve.
+    pub fn solve_numeric_cases_with_symmetry(
+        &self,
         mut cases: Vec<CoordinateCase<N>>,
         options: SearchOptions,
         source_order: Option<&[usize]>,
+        images: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>>,
     ) -> Result<NumericResult<N>, SolverError> {
         if let Some(order) = source_order {
             super::discovery_strategy::validate_visit_order(order, self.basis.len())?;
@@ -152,6 +175,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let mut modular_hits = Vec::new();
+        // sym-gen symmetry rows: the unit coefficient (built from the first IBP coefficient's ring) and the pairs seen
+        let mut first_coefficient: Option<crate::algebra::Coefficient> = None;
+        let mut unit: Option<crate::algebra::Coefficient> = None;
+        let mut sym_pairs: BTreeSet<((Integral<N>, Integral<N>), bool)> = BTreeSet::new();
 
         while remaining != 0 {
             let next = seeds.next();
@@ -169,6 +196,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 continue;
             }
             let seed = next.expect("checked seed availability")?;
+            // t266-tight: optional seed layer cap relative to the point the seeds are centred on (default off)
+            if let (Some(cap), Some(centre)) = (super::SeedLayerCap::installed(), current)
+                && !cap.admits(
+                    &cases[centre].integral(),
+                    &seed.integral,
+                    self.order.sector(),
+                    &self.seed_frozen(),
+                )
+            {
+                continue;
+            }
             if !visited.insert(seed.integral) {
                 stats.duplicate_seeds += 1;
                 continue;
@@ -194,6 +232,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 )?;
                 stats.rows += 1;
                 let Some(leading) = row.first() else { continue };
+                if images.is_some() && first_coefficient.is_none() {
+                    first_coefficient = Some(leading.coefficient.clone());
+                }
                 if self.order.compare(&easiest, &leading.integral) == Ordering::Less {
                     continue;
                 }
@@ -260,6 +301,120 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 }
                 if remaining == 0 {
                     break;
+                }
+            }
+            // sym-gen: exact symmetry rows at this seed (same reducer, same cutoff, same direct-hit path)
+            if let (Some(images), true) = (images, remaining != 0) {
+                if unit.is_none() {
+                    unit = first_coefficient
+                        .as_ref()
+                        .map(|c: &crate::algebra::Coefficient| {
+                            let one: crate::algebra::Coefficient = c.numerator.one().into();
+                            one
+                        });
+                }
+                let Some(one) = unit.as_ref() else { continue };
+                for (image, negative) in images(&seed.integral) {
+                    let a = seed.integral;
+                    if image == a && !negative {
+                        continue;
+                    }
+                    let pair = if a <= image { (a, image) } else { (image, a) };
+                    if !sym_pairs.insert((pair, negative)) {
+                        continue;
+                    }
+                    let row: ExactRow<N> = if image == a {
+                        vec![Term {
+                            integral: a,
+                            coefficient: one + one,
+                        }]
+                    } else {
+                        let other = if negative { one.clone() } else { -one.clone() };
+                        let mut r = vec![
+                            Term {
+                                integral: a,
+                                coefficient: one.clone(),
+                            },
+                            Term {
+                                integral: image,
+                                coefficient: other,
+                            },
+                        ];
+                        if self.order.compare(&r[0].integral, &r[1].integral) != Ordering::Less {
+                            r.swap(0, 1);
+                        }
+                        r
+                    };
+                    stats.symmetry_rows += 1;
+                    let leading = row[0].integral;
+                    if self.order.compare(&easiest, &leading) == Ordering::Less {
+                        continue;
+                    }
+                    let source = SeedSource {
+                        basis_row: SYMMETRY_ROW,
+                        seed,
+                    };
+                    if let Some(index) = matching_case(&cases, &pending, leading) {
+                        let (target, rhs) = canonicalize(row.clone(), &self.system.indices)?;
+                        rules.push(RuleCandidate {
+                            case: cases[index].into(),
+                            target,
+                            rhs,
+                            sources: vec![source],
+                            stats: SearchStats {
+                                seeds: stats.seeds,
+                                rows: stats.rows,
+                                independent_rows: original_rows.len(),
+                                exact_trace_rows: 1,
+                                direct_hit: true,
+                                elapsed: start.elapsed(),
+                                discovery: probe.as_ref().map(|p| p.discovery.stats()),
+                                ..Default::default()
+                            },
+                            hidden_poles: Vec::new(),
+                        });
+                        stats.direct_rules += 1;
+                        pending[index] = false;
+                        remaining -= 1;
+                        switch_solved_centre(
+                            index,
+                            &cases,
+                            &pending,
+                            &mut current,
+                            &mut seeds,
+                            *self.order.sector(),
+                            self.seed_frozen(),
+                        );
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                    let probe = probe.get_or_insert_with(|| {
+                        Probe::new(self.order.clone(), self.system.variable_count, options)
+                    });
+                    let modular_row = probe.evaluate(&row)?;
+                    if let Some(pivot) = probe.discovery.add_row(&modular_row) {
+                        stats.symmetry_rows_independent += 1;
+                        original_rows.push(row);
+                        original_sources.push(source);
+                        if let Some(index) = matching_case(&cases, &pending, pivot) {
+                            modular_hits.push((index, original_rows.len() - 1));
+                            pending[index] = false;
+                            remaining -= 1;
+                            switch_solved_centre(
+                                index,
+                                &cases,
+                                &pending,
+                                &mut current,
+                                &mut seeds,
+                                *self.order.sector(),
+                                self.seed_frozen(),
+                            );
+                        }
+                    }
+                    if remaining == 0 {
+                        break;
+                    }
                 }
             }
         }

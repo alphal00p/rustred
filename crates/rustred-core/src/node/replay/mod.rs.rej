@@ -1,0 +1,55 @@
+diff a/crates/rustred-core/src/node/replay/mod.rs b/crates/rustred-core/src/node/replay/mod.rs	(rejected hunks)
+@@ -1496,8 +1540,34 @@ fn replay_point(
+         .iter()
+         .map(|(_, c)| Expr::parse(c, n))
+         .collect::<Result<_, _>>()?;
++    // sym-gen step 2: a rule whose trace used exact symmetry rows is replayed on ALL original IBPs plus the exact
++    // symmetry rows of the table's verified group at its exported seeds (its cand dump names no basis row for them)
++    let sym_rows = rule.raw["sym_rows"].as_u64().unwrap_or(0);
++    let used_sym = sym_rows > 0;
++    let sym_actions: Option<&[Vec<Option<usize>>]> = if sym_rows > 0 {
++        Some(
++            ctx.sym
++                .get(&rule.chart)
++                .filter(|v| !v.is_empty())
++                .ok_or("rule uses symmetry rows but the table has no verified symmetry_group for its chart")?
++                .as_slice(),
++        )
++    } else {
++        None
++    };
++    let no_dump: Option<PathBuf> = None;
++    let dump_dir = if sym_rows > 0 { &no_dump } else { &ctx.args.cand_dump_dir };
++    let b_sup = if sym_rows > 0 {
++        let mut c = b.clone();
++        if let Some(o) = c.as_object_mut() {
++            o.remove("cand_dump");
++        }
++        c
++    } else {
++        b.clone()
++    };
+     let (rc, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(|(rc, a)| {
+-        support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (rc, a, s, m))
++        support(rule, &b_sup, dump_dir, n, ctx.cert).map(|(s, m)| (rc, a, s, m))
+     }) {
+         Ok(x) => x,
+         Err(e) if e.starts_with("missing symbolic raw pivot/recenter") && rule.direct_hit => {
+@@ -1527,7 +1597,7 @@ fn replay_point(
+         for (k, v) in rhskeys.iter().zip(&values) {
+             addto(&mut desired, k.clone(), arith::neg(P, *v));
+         }
+-        let built = rows_for(&sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart)?;
++        let built = rows_for(&sup, &point, &rc, *d, ctx.f, ctx.cert, &rule.chart, sym_actions)?;
+         let mut universe = built.universe.clone();
+         universe.insert(target.clone());
+         universe.extend(rhskeys.iter().cloned());
+@@ -1603,7 +1673,7 @@ fn replay_point(
+     Ok(json!({
+         "status": if pass { "PASS_RS2_RS3_SAMPLED" } else { "FAIL_RS2_RS3_SAMPLED" },
+         "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
+-        "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
++        "support_kind": sup.kind(), "support": supp_meta, "symmetry_rows": used_sym, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
+     }))
+ }
+ 

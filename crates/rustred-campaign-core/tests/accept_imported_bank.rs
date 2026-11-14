@@ -38,6 +38,10 @@ impl Regularity for GrantRegular {
     fn engine_fact_digest(&self) -> Option<String> {
         Some("sha256:test-only-grant".into())
     }
+    // acceptfix (audit-accept-A M4, B C2): check 0 asks for facts bound to THIS rule
+    fn fact_digest_for(&self, _: &RuleText) -> Option<String> {
+        Some("sha256:test-only-grant".into())
+    }
 }
 
 fn keys(path: PathBuf) -> Vec<Key> {
@@ -172,6 +176,7 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
                     ordinal: *rec as u64,
                     byte_offset: Some(*off),
                     producer: None,
+                    table_guard_version: None,
                 },
                 position: Position {
                     class: PriorityClass::Input,
@@ -194,7 +199,7 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
         };
         let v = accept_candidate(&input, &mut facts, &mut prover).unwrap();
         let tag = match &v {
-            AcceptVerdict::Accepted { .. } => "ACCEPTED".to_string(),
+            AcceptVerdict::Accepted(_) => "ACCEPTED".to_string(),
             AcceptVerdict::Undecided { check, missing } => format!(
                 "undecided {check:?}: {}",
                 missing[0].what.chars().take(60).collect::<String>()
