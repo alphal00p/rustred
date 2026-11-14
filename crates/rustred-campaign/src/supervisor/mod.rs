@@ -57,6 +57,7 @@ pub mod exit {
     pub const PF_MEMORY: i32 = 23;
     pub const PF_DISK: i32 = 24;
     pub const PF_LOCK: i32 = 25;
+    pub const PF_INPUT: i32 = 26;
     pub const INTERNAL: i32 = 70;
     pub const DISK_FULL: i32 = 75;
     pub const DISK_FLOOR: i32 = 76;
@@ -656,6 +657,19 @@ impl Supervisor {
                 blake3: digest.clone(),
             });
         }
+        for i in &self.opts.spec.inputs {
+            let bytes = i.check().map_err(RunExit::Refused)?;
+            if self.st().inputs.get(&i.id).is_some_and(|x| x.blake3 == i.blake3) {
+                continue;
+            }
+            ev.push(Event::InputRegistered {
+                input: i.id.clone(),
+                role: i.role.clone(),
+                path: i.path.to_string_lossy().into_owned(),
+                bytes,
+                blake3: i.blake3.clone(),
+            });
+        }
         if !changed.is_empty() && !self.opts.accept_binary_change {
             return Err(RunExit::BinaryChanged(format!(
                 "binary changed since the campaign started: {} (resume refused; --accept-binary-change marks its rows stale and redoes them)",
@@ -1232,7 +1246,14 @@ impl Supervisor {
                 }
             }
         }
-        let _ = first_wait;
+        if let Some(w) = first_wait {
+            if w != self.last_block_log {
+                self.log.line("INFO", &format!("admission waits: {w}"));
+                self.last_block_log = w;
+            }
+        } else if self.last_block_log.starts_with("HostFloor") || self.last_block_log.starts_with("CampaignMemCap") {
+            self.last_block_log.clear();
+        }
     }
 
     fn write_progress(&mut self, force: bool) {

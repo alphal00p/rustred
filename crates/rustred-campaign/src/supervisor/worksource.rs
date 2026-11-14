@@ -10,7 +10,7 @@ use crate::ledger::{AcceptSource, Event, FileRef, ItemEvent};
 use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung};
 use rustred_campaign_contract::classify::{Accept, Classification, OutcomeKind};
 use rustred_campaign_contract::exit::ExitCode;
-use rustred_campaign_contract::fake::{FakeOp, FakeRule, FakeScript, OnSigterm, RssPlan};
+use rustred_campaign_contract::fake::{Fault, FaultKind, FakeOp, FakeRule, FakeScript, HelperPlan, RssPlan};
 use rustred_campaign_contract::spec::{Budgets, InputRef, JobKind, WorkCounter};
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use serde::Serialize;
@@ -281,6 +281,12 @@ impl ScriptedWorkSource {
             verdict: None,
         };
         let ops = match self.behaviour(i, r) {
+            Behaviour::Rule if self.cfg.escape_helpers => vec![
+                FakeOp::Prepare { ms: 20 },
+                FakeOp::Helper { index: 0 },
+                rule_case(ms),
+                end,
+            ],
             Behaviour::Rule => vec![FakeOp::Prepare { ms: 20 }, rule_case(ms), end],
             Behaviour::NoRule => vec![
                 FakeOp::Prepare { ms: 20 },
@@ -311,14 +317,35 @@ impl ScriptedWorkSource {
                 },
             ],
         };
+        let helpers = if self.cfg.escape_helpers {
+            vec![HelperPlan {
+                sleep_ms: 120_000,
+                pdeathsig: false,
+                ignore_sigterm: true,
+                escape_group: true,
+            }]
+        } else {
+            vec![]
+        };
+        let faults = if r == 0 && self.cfg.hang_items.contains(&i) {
+            vec![Fault {
+                at_op: 1,
+                kind: FaultKind::StopHeartbeat,
+                bytes: 0,
+                code: 0,
+                path: None,
+            }]
+        } else {
+            vec![]
+        };
         FakeScript {
             script: ops,
-            on_sigterm: OnSigterm::Graceful,
+            on_sigterm: self.cfg.on_sigterm,
             slow_ms: 0,
             start_delay_ms: 0,
             rss: RssPlan::default(),
-            helpers: vec![],
-            faults: vec![],
+            helpers,
+            faults,
             time_scale: 1.0,
             volatile_jitter: true,
         }

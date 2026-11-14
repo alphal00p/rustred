@@ -227,6 +227,15 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             }
         }
     }
+    for i in &spec.inputs {
+        match i.check() {
+            Ok(b) => pf(out, "ok", &format!("input {} ({}): {} ({b} bytes, blake3 verified)", i.id, i.role, i.path.display())),
+            Err(e) => {
+                pf(out, "REFUSE", &e);
+                refuse(exit::PF_INPUT, &mut code);
+            }
+        }
+    }
     match &spec.licence.env {
         Some(name) if std::env::var_os(name).is_some() => {
             pf(out, "ok", &format!("licence variable {name}: present (value not shown)"))

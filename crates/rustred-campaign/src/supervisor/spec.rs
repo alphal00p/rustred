@@ -28,6 +28,10 @@ pub struct CampaignSpec {
     pub progress: ProgressCfg,
     #[serde(default)]
     pub synthetic: Option<Synthetic>,
+    /// Existing material the campaign starts from (tables, hand rules, evidence), by path + digest (R41 P-1): the
+    /// pre-flight and every start verify each one and refuse otherwise; they are registered as ledger inputs.
+    #[serde(default)]
+    pub inputs: Vec<SpecInput>,
     /// `campaign` (default) or `optimise` (user ruling U-13: boot from an existing campaign result and write the new
     /// result beside it; the work source decides the work, the supervisor passes the mode through).
     #[serde(default = "d_mode")]
@@ -64,6 +68,35 @@ pub struct Program {
     pub blake3: Option<String>,
     #[serde(default)]
     pub optional: bool,
+}
+
+/// One input of the spec (generic: the work source gives the role its meaning).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpecInput {
+    /// Ledger input id (`[A-Za-z0-9._:-]`).
+    pub id: String,
+    /// e.g. `table`, `family`, `evidence`, `box`.
+    pub role: String,
+    pub path: PathBuf,
+    /// BLAKE3 hex of the file.
+    pub blake3: String,
+}
+
+impl SpecInput {
+    /// Ok((bytes)) when the file exists with the stated digest.
+    pub fn check(&self) -> Result<u64, String> {
+        match crate::atomic::blake3_file(&self.path) {
+            Ok((bytes, d)) if d == self.blake3 => Ok(bytes),
+            Ok((_, d)) => Err(format!(
+                "input {} ({}): blake3 {d} differs from the spec's {}",
+                self.id,
+                self.path.display(),
+                self.blake3
+            )),
+            Err(e) => Err(format!("input {} missing: {} ({e})", self.id, self.path.display())),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -192,6 +225,16 @@ pub struct Synthetic {
     pub heartbeat_s: u32,
     #[serde(default = "d_child_grace")]
     pub stop_grace_s: u32,
+    /// Reaction of every fake child to SIGTERM (tests: `ignore` = only the group kill ends it).
+    #[serde(default)]
+    pub on_sigterm: rustred_campaign_contract::fake::OnSigterm,
+    /// Every rule job forks a helper that ESCAPES its group (setsid, no PDEATHSIG): a contract violation that the
+    /// marker sweep after the job end must clean up.
+    #[serde(default)]
+    pub escape_helpers: bool,
+    /// Items whose rung-0 job stops its heartbeat and hangs (the heartbeat timeout must kill it).
+    #[serde(default)]
+    pub hang_items: Vec<u32>,
 }
 
 fn d_nodes() -> u32 {
@@ -338,6 +381,17 @@ impl CampaignSpec {
                 "only synthetic campaigns are supported by this version (real adapters come with the integration lane)"
                     .into(),
             );
+        }
+        for i in &self.inputs {
+            if i.id.is_empty()
+                || i.id.starts_with("bin:")
+                || !i.id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+            {
+                return Err(format!("input id {:?}: [A-Za-z0-9._:-], not bin:*", i.id));
+            }
+            if !rustred_campaign_contract::is_blake3_hex(&i.blake3) {
+                return Err(format!("input {}: blake3 must be 64 lower-case hex", i.id));
+            }
         }
         match self.mode.as_str() {
             "campaign" => {}
