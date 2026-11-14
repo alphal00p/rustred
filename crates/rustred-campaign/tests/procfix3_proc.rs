@@ -199,3 +199,122 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
     let planted = "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
     assert!(allowed.iter().filter(|(p, _)| planted.contains(p)).count() >= 3);
 }
+
+/// The freezing campaign sweep never touches a DECOY: unmarked processes, another campaign id, prefix / suffix / case
+/// variants of the id, the marker text in another variable, the exact marker on a process started BEFORE the bound,
+/// and a marked process the caller's narrowing refuses (reported in `left`, alive). Every true member dies, including a
+/// marked chain that re-forks into a new session every 0.1 s.
+#[test]
+fn sweep_kills_only_marked_members_and_never_a_decoy() {
+    use rustred_campaign::launch::sweep::{SweepSpec, sweep};
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    let _g = serial();
+    require_namespace();
+    let d = TempDir::new("sweep-decoys");
+    let id = "pf3sweep.0123456789abcdef";
+    let spawn = |env: &[(&str, String)], script: &str| {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", script])
+            .current_dir(d.path())
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        c.spawn().unwrap()
+    };
+    // An OLD process with the exact marker (started before the bound below).
+    let mut old = spawn(&[(MARKER_VAR, format!("{id}:job-t0:a1"))], "exec sleep 600");
+    std::thread::sleep(Duration::from_millis(50));
+    let bound = read_stat(std::process::id()).unwrap().unwrap().start_ticks.max(
+        read_stat(old.id()).unwrap().unwrap().start_ticks + 1,
+    );
+    std::thread::sleep(Duration::from_millis(30));
+    let mut decoys = vec![
+        spawn(&[], "exec sleep 600"),
+        spawn(&[(MARKER_VAR, "other.0123456789abcdef:job-t0:a1".into())], "exec sleep 600"),
+        spawn(&[(MARKER_VAR, format!("{id}0:job-t0:a1"))], "exec sleep 600"),
+        spawn(&[(MARKER_VAR, format!("x{id}:job-t0:a1"))], "exec sleep 600"),
+        spawn(&[(MARKER_VAR, id.to_uppercase() + ":job-t0:a1")], "exec sleep 600"),
+        spawn(&[("FOO", format!("{MARKER_VAR}={id}:job-t0:a1"))], "exec sleep 600"),
+        spawn(&[(&format!("X{MARKER_VAR}"), format!("{id}:job-t0:a1"))], "exec sleep 600"),
+    ];
+    // True members: plain sleepers, a setsid'd one, and a marked re-fork chain (new session per hop).
+    let relay = d.path().join("relay.sh");
+    fs::write(
+        &relay,
+        "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let m = |a: &str| vec![(MARKER_VAR, format!("{id}:{a}"))];
+    let mut members = vec![
+        spawn(&m("job-t0:a1"), "exec sleep 600"),
+        spawn(&m("job-t1:a2"), "setsid sleep 600 & exec sleep 600"),
+        spawn(&m("job-t2:a1"), &format!("{} & exec sleep 600", relay.display())),
+    ];
+    // A member the narrowing refuses (cwd /).
+    let mut refused = {
+        let mut c = std::process::Command::new("sleep");
+        c.arg("600")
+            .current_dir("/")
+            .env_clear()
+            .env(MARKER_VAR, format!("{id}:job-t3:a1"));
+        c.spawn().unwrap()
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let root = d.path().to_path_buf();
+    let narrowing: rustred_campaign::launch::Narrowing = Arc::new(move |p| {
+        let cwd = fs::read_link(format!("/proc/{}/cwd", p.pid)).map_err(|e| e.to_string())?;
+        if cwd.starts_with(&root) {
+            Ok(())
+        } else {
+            Err(format!("cwd {} outside", cwd.display()))
+        }
+    });
+    let r = sweep(
+        &SweepSpec {
+            campaign_id: id.into(),
+            only_attempt: None,
+            not_before_ticks: bound,
+            budget: Duration::from_secs(20),
+            pass_gap: Duration::from_millis(20),
+            narrowing: Some(narrowing),
+        },
+        &AtomicBool::new(false),
+    );
+    println!("PF3 sweep: proven={} reason={:?} killed={} left={:?}", r.proven, r.reason, r.killed.len(), r.left);
+    assert!(r.proven, "{r:?}");
+    assert!(r.killed.len() >= 5, "members, the setsid'd sleeper, chain hops: {}", r.killed.len());
+    assert_eq!(r.left.len(), 1, "{:?}", r.left);
+    assert_eq!(r.left[0].process.pid, refused.id());
+    // No live process of ours carries a marker of the campaign any more, except the refused one and the old one.
+    let marked_now: Vec<u32> = fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&p| live(p) && marker_of(p).is_some_and(|m| m.starts_with(&format!("{id}:"))))
+        .collect();
+    let mut expect = vec![refused.id(), old.id()];
+    expect.sort_unstable();
+    let mut got = marked_now.clone();
+    got.sort_unstable();
+    assert_eq!(got, expect, "only the refused and the too-old marked processes are left");
+    for dcy in &mut decoys {
+        assert!(dcy.try_wait().unwrap().is_none(), "decoy {} was signalled", dcy.id());
+    }
+    assert!(old.try_wait().unwrap().is_none(), "the process older than the bound was signalled");
+    assert!(refused.try_wait().unwrap().is_none(), "the refused process was signalled");
+    for c in decoys.iter_mut().chain(members.iter_mut()) {
+        kill_own(c.id());
+        let _ = c.wait();
+    }
+    kill_own(old.id());
+    let _ = old.wait();
+    kill_own(refused.id());
+    let _ = refused.wait();
+}
