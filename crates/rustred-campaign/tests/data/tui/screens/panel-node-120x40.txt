@@ -1,18 +1,18 @@
-rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
 -[ Node T162 ]--------------------------------------------------------------------------------------------- q: back ----
-coverage OPEN  target full  spec box T162.box  phase closure_check  certified no  attempt ended no
-closure  rounds 1  defect 37  closure keys 154,783  rules used 5 / 2,440 (0.2%)
+node T162
+coverage OPEN  target full  spec box T162.box  phase closure_check  attempt ended no
+certification asked -  reached -  (not yet at the level asked)
+closure  rounds 1  defect 37  closure keys 154,783  rules used 5 of 2,440 (0.2%)
 economy  rules 5 -> 4 (superseded 1)  RHS terms 2,860 -> 2,130
-terminals 2 / 100 (candidates 0)  items open 3  CPU 0.0 h
-evidence geometry 1  tested 1  proved 2  (cert 50.0%)
+terminals 2 of bound 100 (candidates 0)  items open 3  CPU 0.0 h
+evidence geometry 1  tested 1  proved 2  (per-key proved 50.0%)
 blockers full: -   box: -
-certification asked -  reached -
-preferred terminals (a wish, not a requirement): none given   other terminals: 2
 items by state: open 3, accepted 4, escalated 1, terminal 1, retired 1
-open by rung: L0 3
--[ Items (1 of 1; state: all) ]------------------------------------------------------------ 1-9 filter  Enter/w why ----
-item               label                  rung state              why                                         cpu s jobs
-T162-item-00004    F004 n9=-1             L0   escalated          escalated to L1                               2.5    1
+open by rung: L0:3
+-[ Items (1 of 1; state: all) ]---------------------------------------------------------- 1-9,0 filter  Enter/w why ----
+item            label      kind  rung state     why             cpu s jobs seq
+T162-item-00004 F004 n9=-1 locus L0   escalated escalated to L1   2.5    1  62
 
 
 
@@ -37,4 +37,4 @@ T162-item-00004    F004 n9=-1             L0   escalated          escalated to L
 
 
 
-n/N item  Enter/w why  1-9 filter by state (0 all)  PgUp/PgDn  q back  q/Ctrl-C close viewer (campaign unaffected)
+n/N item  Enter/w why  1-9,0 filter by state (* all)  PgUp/PgDn  q back  q/Ctrl-C close viewer (campaign unaffected)

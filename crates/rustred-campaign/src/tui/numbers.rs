@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::format::{count, gib, percent, thousands};
+use super::format::{count, gib, thousands};
 
 /// Labels of the summary header and the key each value is stored under.
 const LABELS: &[(&str, &str)] = &[
@@ -17,12 +17,11 @@ const LABELS: &[(&str, &str)] = &[
     ("FULL ", "nodes_full"),
     ("BOXED ", "nodes_boxed"),
     ("OPEN ", "nodes_open"),
-    ("certified ", "nodes_certified"),
+    ("CERTIFIED at the level asked: ", "nodes_certified"),
     ("ITEMS ", "items_total"),
     ("open ", "items_open"),
     ("RULES accepted ", "rules_accepted"),
     ("rejected ", "rules_rejected"),
-    ("CERT ", "cert_share"),
     ("TERMINALS ", "terminals_declared"),
     ("DEFECT ", "defect_keys"),
     ("cpu-h ", "cpu_hours"),
@@ -45,10 +44,13 @@ fn token_after(line: &str, label: &str) -> Option<String> {
     None
 }
 
-/// Numbers of the SUMMARY header block, read from the screen text (first 12 lines).
+/// Numbers of the SUMMARY header block, read from the screen text (first 12 lines; banner, problem, message and
+/// NEXT lines carry free text and are skipped).
 pub fn screen_numbers(screen: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    for line in screen.lines().take(12) {
+    for line in screen.lines().take(12).filter(|l| {
+        !(l.starts_with("NEXT") || l.starts_with('!') || l.starts_with(' ') || l.starts_with('>'))
+    }) {
         for (label, key) in LABELS {
             if out.contains_key(*key) {
                 continue;
@@ -63,6 +65,12 @@ pub fn screen_numbers(screen: &str) -> BTreeMap<String, String> {
     {
         out.insert("cpus_in_use".into(), a.into());
         out.insert("cpus_allowed".into(), b.into());
+    }
+    if let Some(r) = out.get("ram_used_g").cloned() {
+        out.insert(
+            "ram_used_g".into(),
+            r.split('/').next().unwrap_or("").to_string(),
+        );
     }
     if let Some(h) = out.get("cpu_hours").cloned() {
         out.insert(
@@ -87,7 +95,10 @@ pub fn campaign_json_numbers(c: &Value) -> BTreeMap<String, String> {
     let allowed = uv(c, "/resources/cpus_allowed").filter(|v| *v > 0);
     put("cpus_in_use", count(uv(c, "/resources/cpus_in_use")));
     put("cpus_allowed", count(allowed));
-    put("ram_used_g", gib(uv(c, "/resources/measured_rss_bytes")));
+    // an RSS of 0 while jobs are live was not sampled (shown `?`)
+    let rss = uv(c, "/resources/measured_rss_bytes")
+        .filter(|r| *r > 0 || uv(c, "/resources/live_jobs").unwrap_or(0) == 0);
+    put("ram_used_g", gib(rss));
     put("nodes_total", count(uv(c, "/nodes/total")));
     put("nodes_full", count(uv(c, "/nodes/by_closure/full")));
     put("nodes_boxed", count(uv(c, "/nodes/by_closure/boxed")));
@@ -111,10 +122,6 @@ pub fn campaign_json_numbers(c: &Value) -> BTreeMap<String, String> {
     put("items_open", count(open));
     put("rules_accepted", count(uv(c, "/rules/accepted")));
     put("rules_rejected", count(uv(c, "/rules/rejected")));
-    put(
-        "cert_share",
-        percent(c.pointer("/certified/share").and_then(Value::as_f64)),
-    );
     put("terminals_declared", count(uv(c, "/terminals/declared")));
     put(
         "defect_keys",

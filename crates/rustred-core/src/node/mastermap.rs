@@ -82,7 +82,7 @@ pub fn key_text(k: &[i64]) -> String {
 }
 
 /// Pattern argument of a rule integral: `Some(axis) + offset`, or a constant.
-type Pat = Vec<(Option<usize>, i64)>;
+pub(crate) type Pat = Vec<(Option<usize>, i64)>;
 
 fn parse_pat(text: &str, n: usize) -> Result<Pat, String> {
     let inner = text
@@ -222,15 +222,15 @@ fn veval(
     })
 }
 
-struct Rule {
-    fixed: Vec<Option<i64>>,
-    equations: Vec<Expr>,
-    exceptions: Vec<Vec<Expr>>,
-    target: Pat,
+pub(crate) struct Rule {
+    pub(crate) fixed: Vec<Option<i64>>,
+    pub(crate) equations: Vec<Expr>,
+    pub(crate) exceptions: Vec<Vec<Expr>>,
+    pub(crate) target: Pat,
     rhs_pats: Vec<Pat>,
     rhs_text: Vec<String>,
     rhs_expr: Option<Vec<Expr>>,
-    skip: bool,
+    pub(crate) skip: bool,
 }
 
 /// A node table loaded for reduction.
@@ -238,8 +238,8 @@ pub struct Table {
     pub path: String,
     pub n: usize,
     pub mask: Vec<bool>,
-    zero: HashSet<Vec<bool>>,
-    rules: Vec<Rule>,
+    pub(crate) zero: HashSet<Vec<bool>>,
+    pub(crate) rules: Vec<Rule>,
     /// Masters in table order: residual records, else an Astra composite's terminal ledger, else set by the caller.
     pub masters: Vec<Key>,
     pub family_source: Option<String>,
@@ -410,7 +410,7 @@ impl Table {
         std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))
     }
 
-    fn in_sector(&self, k: &[i64]) -> Result<bool, String> {
+    pub(crate) fn in_sector(&self, k: &[i64]) -> Result<bool, String> {
         if (0..self.n).any(|i| !self.mask[i] && k[i] > 0) {
             return Err(format!("ISP in a denominator: {}", key_text(k)));
         }
@@ -418,7 +418,7 @@ impl Table {
     }
 
     /// First applicable rule (table order) and the rule point of key `k`.
-    fn find_rule(&self, k: &[i64]) -> Option<(usize, Vec<i64>)> {
+    pub(crate) fn find_rule(&self, k: &[i64]) -> Option<(usize, Vec<i64>)> {
         let gen_d = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
         let n = self.n;
         'r: for (ri, r) in self.rules.iter().enumerate() {

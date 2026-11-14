@@ -1,13 +1,55 @@
 //! Interactive state of the dashboard (panel, selection, scroll, stop protocol) and the key handling. Pure: no
 //! terminal, so the stop protocol and navigation are unit-testable with a fake [`Controls`].
+//!
+//! Drill-down data comes through a [`Fetcher`]: any `ProgressSource` answers at once (tests, `--once`); the live
+//! dashboard's background reader answers later ([`Fetched::Pending`], the panel says "loading"), so a key never
+//! waits for the file system (audit M1).
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::Value;
 
+use super::clean::{Clean, cl};
 use super::controls::Controls;
-use super::model::{PHASES, ViewModel};
+use super::model::{self, ItemView, PHASES, ViewModel};
 use super::source::{ItemRow, ProgressSource};
 use crate::signals::StopLevel;
+
+/// An answer now, or later through [`App::apply_items`] / [`App::apply_detail`].
+#[derive(Debug)]
+pub enum Fetched<T> {
+    Now(Result<T, String>),
+    Pending,
+}
+
+/// Where the drill-down data comes from.
+pub trait Fetcher {
+    fn items(&self, node: &str) -> Fetched<Vec<ItemRow>>;
+    fn detail(&self, item: &str) -> Fetched<Value>;
+}
+
+impl<S: ProgressSource + ?Sized> Fetcher for S {
+    fn items(&self, node: &str) -> Fetched<Vec<ItemRow>> {
+        Fetched::Now(self.node_items(node))
+    }
+    fn detail(&self, item: &str) -> Fetched<Value> {
+        Fetched::Now(self.item_detail(item))
+    }
+}
+
+/// A drill-down value being loaded or loaded.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Slot<T> {
+    Loading,
+    Ready(T),
+}
+
+/// The node panel's items: loading, or the sanitised rows / error.
+pub type ItemsSlot = Slot<Result<Vec<ItemView>, Clean>>;
+/// The item panel's detail: loading, or the sanitised record / error.
+pub type DetailSlot = Slot<Result<Value, Clean>>;
+
+/// Minimum pause before the third Ctrl-C leaves the dashboard (a key-repeat burst must not; audit m8).
+pub const THIRD_CTRL_C_PAUSE_S: f64 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -31,13 +73,14 @@ pub enum CompactTable {
 }
 
 impl CompactTable {
+    /// Nodes first (which nodes are closed is the first question), then the ladder, jobs, events, attention.
     pub fn next(self) -> Self {
         match self {
-            CompactTable::Ladder => CompactTable::Nodes,
-            CompactTable::Nodes => CompactTable::Jobs,
+            CompactTable::Nodes => CompactTable::Ladder,
+            CompactTable::Ladder => CompactTable::Jobs,
             CompactTable::Jobs => CompactTable::Events,
             CompactTable::Events => CompactTable::Attention,
-            CompactTable::Attention => CompactTable::Ladder,
+            CompactTable::Attention => CompactTable::Nodes,
         }
     }
     pub fn title(self) -> &'static str {
@@ -92,8 +135,11 @@ pub struct App {
     pub stop_first_s: Option<f64>,
     pub grace_s: u64,
     pub hosts_campaign: bool,
-    pub node_items: Option<(String, Result<Vec<ItemRow>, String>)>,
-    pub item_detail: Option<(String, Result<Value, String>)>,
+    /// Drill-down: the node's items (sanitised) and the item detail (every string sanitised).
+    pub node_items: Option<(Clean, ItemsSlot)>,
+    pub item_detail: Option<(Clean, DetailSlot)>,
+    /// Time of the last Ctrl-C key.
+    pub last_ctrl_c_s: Option<f64>,
 }
 
 impl App {
@@ -101,7 +147,7 @@ impl App {
         App {
             panel: Panel::Summary,
             stack: Vec::new(),
-            compact: CompactTable::Ladder,
+            compact: CompactTable::Nodes,
             selected_node: 0,
             selected_item: 0,
             scroll: 0,
@@ -114,11 +160,30 @@ impl App {
             hosts_campaign,
             node_items: None,
             item_detail: None,
+            last_ctrl_c_s: None,
         }
     }
 
-    pub fn say(&mut self, text: impl Into<String>, now_s: f64) {
-        self.message = Some(text.into());
+    /// An answer of the background reader for the node panel (ignored when another node is open by now).
+    pub fn apply_items(&mut self, node: &str, r: Result<Vec<ItemRow>, String>) {
+        if let Some((id, slot)) = &mut self.node_items
+            && id == node
+        {
+            *slot = Slot::Ready(model::item_views(r));
+        }
+    }
+
+    /// An answer of the background reader for the item panel.
+    pub fn apply_detail(&mut self, item: &str, r: Result<Value, String>) {
+        if let Some((id, slot)) = &mut self.item_detail
+            && id == item
+        {
+            *slot = Slot::Ready(model::item_detail_view(r));
+        }
+    }
+
+    pub fn say(&mut self, text: impl AsRef<str>, now_s: f64) {
+        self.message = Some(cl(text).into_string());
         self.message_until_s = now_s + 8.0;
     }
 
@@ -155,9 +220,9 @@ impl App {
     }
 
     /// Items of the node panel after the filter.
-    pub fn visible_items(&self) -> Vec<&ItemRow> {
+    pub fn visible_items(&self) -> Vec<&ItemView> {
         match &self.node_items {
-            Some((_, Ok(v))) => v
+            Some((_, Slot::Ready(Ok(v)))) => v
                 .iter()
                 .filter(|i| self.item_filter.is_none_or(|k| i.state == PHASES[k]))
                 .collect(),
@@ -178,25 +243,29 @@ impl App {
         self.scroll = 0;
     }
 
-    fn open_node(&mut self, vm: &ViewModel, source: &dyn ProgressSource) {
-        if let Some(id) = self.selected_node_id(vm).map(String::from) {
-            let items = source.node_items(&id);
-            self.node_items = Some((id, items));
+    fn open_node(&mut self, vm: &ViewModel, source: &dyn Fetcher) {
+        if let Some(id) = self.selected_node_id(vm).map(cl) {
+            self.node_items = Some((id.clone(), Slot::Loading));
+            if let Fetched::Now(r) = source.items(id.as_str()) {
+                self.apply_items(id.as_str(), r);
+            }
             self.selected_item = 0;
             self.item_filter = None;
             self.push(Panel::Node);
         }
     }
 
-    fn open_item(&mut self, source: &dyn ProgressSource, now_s: f64) {
+    fn open_item(&mut self, source: &dyn Fetcher, now_s: f64) {
         let item = self
             .visible_items()
             .get(self.selected_item)
             .map(|i| i.item.clone());
         match item {
             Some(id) => {
-                let d = source.item_detail(&id);
-                self.item_detail = Some((id, d));
+                self.item_detail = Some((id.clone(), Slot::Loading));
+                if let Fetched::Now(r) = source.detail(id.as_str()) {
+                    self.apply_detail(id.as_str(), r);
+                }
                 self.push(Panel::Item);
             }
             None => self.say(
@@ -229,7 +298,7 @@ impl App {
         &mut self,
         key: KeyEvent,
         vm: &ViewModel,
-        source: &dyn ProgressSource,
+        source: &dyn Fetcher,
         controls: &dyn Controls,
         now_s: f64,
     ) -> Action {
@@ -284,9 +353,15 @@ impl App {
             KeyCode::Char('e') => self.push(Panel::Events),
             KeyCode::Char('a') => self.push(Panel::Attention),
             KeyCode::Char('?') | KeyCode::Char('h') => self.push(Panel::Help),
+            // 1..9 select the first nine phases, 0 the tenth, * all (every phase reachable, audit m6)
             KeyCode::Char(c @ '0'..='9') if self.panel == Panel::Node => {
                 let k = c as usize - '0' as usize;
-                self.item_filter = (k >= 1 && k <= PHASES.len()).then(|| k - 1);
+                let idx = if k == 0 { 9 } else { k - 1 };
+                self.item_filter = (idx < PHASES.len()).then_some(idx);
+                self.selected_item = 0;
+            }
+            KeyCode::Char('*') if self.panel == Panel::Node => {
+                self.item_filter = None;
                 self.selected_item = 0;
             }
             KeyCode::Char(c @ ('p' | 'r' | 'd' | '+' | '-' | 'R' | 'S' | 'T' | 'k' | '/')) => {
@@ -316,6 +391,20 @@ impl App {
             controls.request_stop();
             return Action::Quit(ExitReason::ViewerQuit);
         }
+        // the third press leaves the dashboard only after a pause (a burst / key repeat forces the stop, no more)
+        if self.stop_count >= 2
+            && self
+                .last_ctrl_c_s
+                .is_some_and(|t| now_s - t < THIRD_CTRL_C_PAUSE_S)
+        {
+            self.last_ctrl_c_s = Some(now_s);
+            self.say(
+                "forced stop already requested; Ctrl-C again after a pause leaves the dashboard",
+                now_s,
+            );
+            return Action::Redraw;
+        }
+        self.last_ctrl_c_s = Some(now_s);
         let level = controls.request_stop();
         let count = controls.stop_count();
         if self.stop_first_s.is_none() {
