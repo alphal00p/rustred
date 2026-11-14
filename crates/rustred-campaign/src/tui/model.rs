@@ -162,6 +162,33 @@ pub struct NodeRow {
     pub blockers_box: Option<String>,
     /// Why this node file is not usable (absent, invalid, unknown schema).
     pub problem: Option<String>,
+    /// Closed against MEASURED hand-down ranges (R41 P-2): closed, labelled provisional, rechecked later.
+    pub provisional: bool,
+    /// Certification level asked by the spec (`replay`, `per-key`, ...) and reached.
+    pub cert_asked: Option<String>,
+    pub cert_reached: Option<String>,
+    /// The user's optional PREFERRED terminals (R41 P-4): total in the wish list, used, not needed.
+    pub preferred: Option<Preferred>,
+    /// Read-only REFERENCE numbers (an existing ledger): comparison only, never an error.
+    pub reference: Option<Reference>,
+}
+
+/// Preferred terminals (a preference, never a requirement).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Preferred {
+    pub total: Option<u64>,
+    pub used: Option<u64>,
+    pub not_needed: Option<u64>,
+}
+
+/// Read-only comparison numbers from an existing ledger.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Reference {
+    pub name: Option<String>,
+    pub terminals: Option<u64>,
+    pub rules: Option<u64>,
+    pub rhs_terms: Option<u64>,
+    pub status: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -304,6 +331,11 @@ pub struct ViewModel {
     pub faces_total: Option<u64>,
     pub cost_cpu_s: Option<f64>,
     pub budget_cpu_hours: Option<f64>,
+    /// Campaign mode (`generate`, `optimise`, ...); `optimise` shows economy before / after.
+    pub mode: Option<String>,
+    /// Certification level asked by the spec for the campaign (when the campaign file states it).
+    pub cert_asked: Option<String>,
+    pub preferred: Option<Preferred>,
     pub eta: EtaView,
     pub nodes: Vec<NodeRow>,
     pub jobs: JobsView,
@@ -379,6 +411,31 @@ fn blockers(v: Option<&Value>) -> Option<String> {
         n("loci"),
         n("keys")
     ))
+}
+
+fn preferred(v: Option<&Value>) -> Option<Preferred> {
+    let p = v.filter(|x| x.is_object())?;
+    Some(Preferred {
+        total: u(p, "/total"),
+        used: u(p, "/used"),
+        not_needed: u(p, "/not_needed"),
+    })
+}
+
+fn reference(v: Option<&Value>) -> Option<Reference> {
+    let r = v.filter(|x| x.is_object())?;
+    let out = Reference {
+        name: s(r, "/name"),
+        terminals: u(r, "/terminals"),
+        rules: u(r, "/rules"),
+        rhs_terms: u(r, "/rhs_terms"),
+        status: s(r, "/status").or_else(|| s(r, "/comparison/status")),
+    };
+    (out.terminals.is_some()
+        || out.rules.is_some()
+        || out.rhs_terms.is_some()
+        || out.name.is_some())
+    .then_some(out)
 }
 
 fn event_tag(kind: &str, text: &str) -> EventTag {
@@ -457,6 +514,11 @@ fn node_row(id: &str, r: &FileRead) -> NodeRow {
         blockers_full: None,
         blockers_box: None,
         problem: None,
+        provisional: false,
+        cert_asked: None,
+        cert_reached: None,
+        preferred: None,
+        reference: None,
     };
     let v = match r {
         FileRead::Ok(v) => v,
@@ -546,6 +608,17 @@ fn node_row(id: &str, r: &FileRead) -> NodeRow {
     row.stale_reason = s(v, "/stale_reason");
     row.blockers_full = blockers(v.pointer("/blockers/full"));
     row.blockers_box = blockers(v.pointer("/blockers/box"));
+    row.provisional = v
+        .get("provisional")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || v.pointer("/closure/provisional")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    row.cert_asked = s(v, "/certification/asked");
+    row.cert_reached = s(v, "/certification/reached");
+    row.preferred = preferred(v.pointer("/terminals/preferred"));
+    row.reference = reference(v.get("reference"));
     row
 }
 
@@ -860,6 +933,9 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         faces_total,
         cost_cpu_s: f(c, "/cost/cpu_seconds"),
         budget_cpu_hours: f(c, "/cost/budget_cpu_hours"),
+        mode: s(c, "/campaign/mode").or_else(|| s(c, "/mode")),
+        cert_asked: s(c, "/certification/asked"),
+        preferred: preferred(c.pointer("/terminals/preferred")),
         eta,
         nodes,
         jobs,

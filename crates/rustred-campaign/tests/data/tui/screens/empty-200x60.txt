@@ -5,11 +5,11 @@ ITEMS 0  open 0  run 0  acc 0  esc 0  rej 0  term 0  ret 0  stale 0
 RULES accepted 0  rejected 0  CERT - (0/0 proved)  upgrades 0  retired 0
 TERMINALS 0 (cand 0, bound 100/node)  DEFECT not checked yet  ECONOMY rules 0->0  RHS 0->0
 cpu-h 0.0  ETA: nothing left
--[ Nodes (0) ]---------------------------------------------------------------------------------- Enter: node detail ----  -[ Attention (0) ]------------------------------------------------ a: all ----
-node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS     (nothing needs a decision)
+-[ Nodes (0) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
+node     coverage            cert phase           open by rung               term   defect  cert%   rules  used%       RHS   CPU-h
 (no node files yet)
--[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------
-rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 0  rejected 0  upgrades 0  retired 0
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ Attention (0) ]------------------------------------------------ a: all ----
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 0  rejected 0  upgrades 0  retired 0         (nothing needs a decision)
 (no items yet)                                                      rejected by reason: -
                                                                     evidence: geometry 0  tested 0  proved 0
                                                                     certified share - (accepted items at identity_prove~

@@ -5,19 +5,24 @@ ITEMS 1,634  open 0  run 0  acc 1,333  esc 241  rej 0  term 3  ret 57  stale 0
 RULES accepted 1,201  rejected 31  CERT 99.1% (987/1,144 proved)  upgrades 640  retired 282
 TERMINALS 5 (cand 0, bound 100/node)  DEFECT 0 keys (0 of 3 nodes with defect)  ECONOMY rules 3,402->3,120  RHS 2,310,455->2,093,318
 cpu-h 417.0  ETA: nothing left
--[ Nodes (3) ]---------------------------------------------------------------------------------- Enter: node detail ----  -[ T162 (selected; n/N) ]-----------------------------------------------------
-node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS     coverage [BOXED T162.rstar]  target T162.rstar  spec box T162.rstar  phase ce~
-T162     [BOXED T162.rstar]  certified          0 -                    2/100        0  94.7%   1,308  42.5%   765,004     closure  rounds 6  defect 0  closure keys 61,210  rules used 1,308 / 3,079 (4~
-T178     [BOXED T178.rstar]  certified          0 -                    1/100        0  75.1%   1,381  23.3%   990,321     economy  rules 1,340 -> 1,308 (superseded 32)  RHS terms 802,113 -> 765,004
-T266     [BOXED T266.rstar]  closed             0 -                    2/100        0      -       0  37.6%         0     terminals 2 / 100 (candidates 0)  items open 0  CPU 38.2 h
--[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  evidence geometry 10  tested 22  proved 569  (cert 94.7%)
-rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 1,201  rejected 31  upgrades 640             blockers full: 9 faces, 3 loci, 1820 keys   box: -
-L0        0    -    -    849    -  132     -    - 1,001   41.0      rejected by reason: cert_failed 2, exception_unknow~  items by state: accepted 420, escalated 67, retired 30
-L1        0    -    -    254    -   70     -    -   288   96.0      evidence: geometry 61  tested 96  proved 987          open by rung: -
-L2        0    -    -    172    -   28     -    -   184   38.0      certified share 99.1% (accepted items at identity_p~  -[ Attention (0) ]------------------------------------------------ a: all ----
-L3        0    -    -     26    -    7     -    -    31  140.0      economy: rules 3,402 -> 3,120, RHS terms 2,310,455 ~  (nothing needs a decision)
-L4        0    -    -     32    -    4     -    -    25  210.0      closure defect keys: T162 0, T178 0, T266 0
-L5        0    -    -      -    -    -     -    3     -      -      jobs 1,904 settled: complete 311, crashed 3, killed~
+-[ Nodes (3) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
+node     coverage            cert phase           open by rung               term   defect  cert%   rules  used%       RHS   CPU-h
+T162     [BOXED T162.rstar]  yes  certified          0 -                    2/100        0  94.7%   1,308  42.5%   765,004    38.2
+T178     [BOXED T178.rstar]  yes  certified          0 -                    1/100        0  75.1%   1,381  23.3%   990,321    23.2
+T266     [BOXED T266.rstar]  -    closed             0 -                    2/100        0      -       0  37.6%         0     0.0
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ T162 (selected; n/N) ]-----------------------------------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 1,201  rejected 31  upgrades 640             coverage [BOXED T162.rstar]  target T162.rstar  spec box T162.rstar  phase ce~
+L0        0    -    -    849    -  132     -    - 1,001   41.0      rejected by reason: cert_failed 2, exception_unknow~  closure  rounds 6  defect 0  closure keys 61,210  rules used 1,308 / 3,079 (4~
+L1        0    -    -    254    -   70     -    -   288   96.0      evidence: geometry 61  tested 96  proved 987          economy  rules 1,340 -> 1,308 (superseded 32)  RHS terms 802,113 -> 765,004
+L2        0    -    -    172    -   28     -    -   184   38.0      certified share 99.1% (accepted items at identity_p~  terminals 2 / 100 (candidates 0)  items open 0  CPU 38.2 h
+L3        0    -    -     26    -    7     -    -    31  140.0      economy: rules 3,402 -> 3,120, RHS terms 2,310,455 ~  evidence geometry 10  tested 22  proved 569  (cert 94.7%)
+L4        0    -    -     32    -    4     -    -    25  210.0      closure defect keys: T162 0, T178 0, T266 0           blockers full: 9 faces, 3 loci, 1820 keys   box: -
+L5        0    -    -      -    -    -     -    3     -      -      jobs 1,904 settled: complete 311, crashed 3, killed~  certification asked -  reached -
+                                                                                                                          preferred terminals (a wish, not a requirement): none given   other terminals~
+                                                                                                                          items by state: accepted 420, escalated 67, retired 30
+                                                                                                                          open by rung: -
+                                                                                                                          -[ Attention (0) ]------------------------------------------------ a: all ----
+                                                                                                                          (nothing needs a decision)
 -[ Running jobs 0 ]-------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
 job                node     item               rung  cpu       RSS / cap elapsed / budget    hb phase            pid run dir
 (no job running)
@@ -29,11 +34,6 @@ job                node     item               rung  cpu       RSS / cap elapsed
 08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points
 08:14:31 esc  item_escalated    T178 F019: escalated to L2 (rule_covers_none)
 08:14:10 FAIL item_rejected     T178 F044: rejected (irregular_point)
-
-
-
-
-
 
 
 

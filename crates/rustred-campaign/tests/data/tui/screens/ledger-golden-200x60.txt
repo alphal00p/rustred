@@ -5,17 +5,22 @@ ITEMS 10  open 3  run 0  acc 4  esc 1  rej 0  term 1  ret 1  stale 0
 RULES accepted 5  rejected 1  CERT 50.0% (2/4 proved)  upgrades 1  retired 1
 TERMINALS 2 (cand 0, bound 100/node)  DEFECT 37 keys (1 of 1 nodes with defect)  ECONOMY rules 5->4  RHS 2,860->2,130
 cpu-h 0.0  ETA ~ 1s-3s wall (3s-9s CPU left; 3 items; 3 jobs)
--[ Nodes (1) ]---------------------------------------------------------------------------------- Enter: node detail ----  -[ T162 (selected; n/N) ]-----------------------------------------------------
-node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS     coverage OPEN  target full  spec box T162.box  phase closure_check  certified~
-T162     OPEN                closure_check      3 L0 3                 2/100       37  50.0%       4   0.2%     2,130     closure  rounds 1  defect 37  closure keys 154,783  rules used 5 / 2,440 (0.2~
--[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  economy  rules 5 -> 4 (superseded 1)  RHS terms 2,860 -> 2,130
-rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 5  rejected 1  upgrades 1  retired 1         terminals 2 / 100 (candidates 0)  items open 3  CPU 0.0 h
-L0        3    -    -      4    -    1     -    -     6    2.0      rejected by reason: rule_covers_none 1                evidence geometry 1  tested 1  proved 2  (cert 50.0%)
-L1        0    -    -      -    -    -     -    1     -      -      evidence: geometry 1  tested 1  proved 2              blockers full: -   box: -
-                                                                    certified share 50.0% (accepted items at identity_p~  items by state: open 3, accepted 4, escalated 1, terminal 1, retired 1
-                                                                    economy: rules 5 -> 4, RHS terms 2,860 -> 2,130       open by rung: L0 3
-                                                                    closure defect keys: T162 37                          -[ Attention (0) ]------------------------------------------------ a: all ----
-                                                                    jobs 6 settled: complete 1, no_rule 1, rule_found 4   (nothing needs a decision)
+-[ Nodes (1) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
+node     coverage            cert phase           open by rung               term   defect  cert%   rules  used%       RHS   CPU-h
+T162     OPEN                -    closure_check      3 L0 3                 2/100       37  50.0%       4   0.2%     2,130     0.0
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ T162 (selected; n/N) ]-----------------------------------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 5  rejected 1  upgrades 1  retired 1         coverage OPEN  target full  spec box T162.box  phase closure_check  certified~
+L0        3    -    -      4    -    1     -    -     6    2.0      rejected by reason: rule_covers_none 1                closure  rounds 1  defect 37  closure keys 154,783  rules used 5 / 2,440 (0.2~
+L1        0    -    -      -    -    -     -    1     -      -      evidence: geometry 1  tested 1  proved 2              economy  rules 5 -> 4 (superseded 1)  RHS terms 2,860 -> 2,130
+                                                                    certified share 50.0% (accepted items at identity_p~  terminals 2 / 100 (candidates 0)  items open 3  CPU 0.0 h
+                                                                    economy: rules 5 -> 4, RHS terms 2,860 -> 2,130       evidence geometry 1  tested 1  proved 2  (cert 50.0%)
+                                                                    closure defect keys: T162 37                          blockers full: -   box: -
+                                                                    jobs 6 settled: complete 1, no_rule 1, rule_found 4   certification asked -  reached -
+                                                                                                                          preferred terminals (a wish, not a requirement): none given   other terminals~
+                                                                                                                          items by state: open 3, accepted 4, escalated 1, terminal 1, retired 1
+                                                                                                                          open by rung: L0 3
+                                                                                                                          -[ Attention (0) ]------------------------------------------------ a: all ----
+                                                                                                                          (nothing needs a decision)
 -[ Running jobs 0 ]-------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
 running 0 (job list not in the progress files and not available from the ledger)
 -[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
@@ -41,11 +46,6 @@ running 0 (job list not in the progress files and not available from the ledger)
 23:00:02 .    node              T162: running (open)
 23:00:02 .    campaign          campaign running (preflight ok)
 23:00:01 .    campaign          campaign starting (test)
-
-
-
-
-
 
 
 

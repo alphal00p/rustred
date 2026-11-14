@@ -267,11 +267,63 @@ fn cov_role(n: &NodeRow) -> Role {
 }
 
 fn cov_text(n: &NodeRow) -> String {
-    match n.coverage {
+    let base: String = match n.coverage {
         Coverage::Boxed => format!("[BOXED {}]", n.target),
         Coverage::Full => "FULL".into(),
         Coverage::Open => "OPEN".into(),
         Coverage::Unknown => "?".into(),
+    };
+    if n.provisional { base + " PROV" } else { base }
+}
+
+/// Certification asked / reached (`per-key/replay`), or `yes` / `-` when the node file does not state levels.
+fn cert_text(n: &NodeRow) -> String {
+    match (&n.cert_asked, &n.cert_reached) {
+        (None, None) => {
+            if n.certified {
+                "yes".into()
+            } else {
+                "-".into()
+            }
+        }
+        (a, r) => format!(
+            "{}/{}",
+            a.as_deref().unwrap_or("?"),
+            r.as_deref().unwrap_or("-")
+        ),
+    }
+}
+
+fn pref_text(n: &NodeRow) -> String {
+    match &n.preferred {
+        None => "-".into(),
+        Some(p) => format!(
+            "{}/{}{}",
+            cell(p.used),
+            cell(p.total),
+            p.not_needed.map(|k| format!(" nn{k}")).unwrap_or_default()
+        ),
+    }
+}
+
+fn ref_text(n: &NodeRow) -> String {
+    match &n.reference {
+        None => "-".into(),
+        Some(r) => {
+            let mut v = Vec::new();
+            if let Some(t) = r.terminals {
+                v.push(format!("term {t}"));
+            }
+            if let Some(k) = r.rules {
+                v.push(format!("rules {}", thousands(k)));
+            }
+            if v.is_empty()
+                && let Some(st) = &r.status
+            {
+                v.push(st.clone());
+            }
+            v.join(" ")
+        }
     }
 }
 
@@ -413,6 +465,12 @@ fn header_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
         + vm.torn_tail_recoveries.unwrap_or(0);
     if rec > 0 {
         segs.push(kv("recoveries", rec.to_string(), Role::Warn, t));
+    }
+    if let Some(m) = &vm.mode {
+        segs.push(kv("mode", m.clone(), Role::Label, t));
+    }
+    if let Some(a) = &vm.cert_asked {
+        segs.push(kv("cert asked", a.clone(), Role::Normal, t));
     }
     if let Some(ti) = &vm.title {
         segs.push(vec![span(ti.clone(), Role::Normal, t)]);
@@ -589,10 +647,14 @@ fn closure_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
         kv(
             "TERMINALS",
             format!(
-                "{} (cand {}, bound {}/node)",
+                "{} (cand {}, bound {}/node{})",
                 count(vm.terminals_declared),
                 count(vm.terminal_candidates),
-                count(vm.terminal_bound)
+                count(vm.terminal_bound),
+                vm.preferred
+                    .as_ref()
+                    .map(|p| format!(", preferred used {}/{}", cell(p.used), cell(p.total)))
+                    .unwrap_or_default()
             ),
             Role::Terminal,
             t,
@@ -747,10 +809,26 @@ fn nodes_table(
 ) -> Vec<Line<'static>> {
     let compact = class == WidthClass::Compact;
     let has_faces = vm.nodes.iter().any(|n| n.faces_total.is_some());
+    let has_lvl = vm
+        .nodes
+        .iter()
+        .any(|n| n.cert_asked.is_some() || n.cert_reached.is_some());
+    let has_pref = vm.nodes.iter().any(|n| n.preferred.is_some());
+    let has_ref = vm.nodes.iter().any(|n| n.reference.is_some());
+    let optimise = vm.mode.as_deref() == Some("optimise");
+    let cov_w = if vm.nodes.iter().any(|n| n.provisional) {
+        24
+    } else {
+        19
+    };
     let cols = [
         col("node", 8, Align::L, 0),
-        col("coverage", 19, Align::L, 0),
-        col("cert", 4, Align::L, 8),
+        col("coverage", cov_w, Align::L, 0),
+        if has_lvl {
+            col("cert asked/got", 15, Align::L, 3)
+        } else {
+            col("cert", 4, Align::L, 8)
+        },
         col("phase", 13, Align::L, 3),
         col(
             "faces ok/all",
@@ -767,12 +845,27 @@ fn nodes_table(
         col("open", 6, Align::R, 0),
         col("by rung", 18, Align::L, if compact { 9 } else { 5 }),
         col("term", 7, Align::R, 1),
+        col("pref used", 11, Align::R, if has_pref { 4 } else { 99 }),
         col("defect", 8, Align::R, 1),
         col("cert%", 6, Align::R, if compact { 9 } else { 4 }),
-        col("rules", 7, Align::R, 2),
+        if optimise {
+            col("rules bef>aft", 13, Align::R, 2)
+        } else {
+            col("rules", 7, Align::R, 2)
+        },
         col("used%", 6, Align::R, 2),
-        col("RHS", 9, Align::R, if compact { 9 } else { 6 }),
+        if optimise {
+            col("RHS bef>aft", 19, Align::R, if compact { 9 } else { 6 })
+        } else {
+            col("RHS", 9, Align::R, if compact { 9 } else { 6 })
+        },
         col("CPU-h", 7, Align::R, if compact { 9 } else { 6 }),
+        col(
+            "reference (info)",
+            18,
+            Align::L,
+            if has_ref { 7 } else { 99 },
+        ),
     ];
     let total = vm.nodes.len();
     let sel = c.app.selected_node.min(total.saturating_sub(1));
@@ -817,12 +910,14 @@ fn nodes_table(
                 ),
                 (cov_text(nd), rr),
                 (
-                    if nd.certified {
-                        "yes".into()
+                    cert_text(nd),
+                    if nd.certified
+                        || (nd.cert_reached.is_some() && nd.cert_reached == nd.cert_asked)
+                    {
+                        Role::Ok
                     } else {
-                        "-".into()
+                        row_role
                     },
-                    if nd.certified { Role::Ok } else { row_role },
                 ),
                 (
                     if nd.problem.is_some() {
@@ -853,6 +948,7 @@ fn nodes_table(
                     row_role,
                 ),
                 (term, Role::Terminal),
+                (pref_text(nd), Role::Terminal),
                 (
                     match nd.defect_keys {
                         None => "-".into(),
@@ -865,10 +961,26 @@ fn nodes_table(
                     },
                 ),
                 (percent(nd.certified_share), row_role),
-                (cell(nd.rules_after), row_role),
+                (
+                    if optimise {
+                        format!("{}>{}", cell(nd.rules_before), cell(nd.rules_after))
+                    } else {
+                        cell(nd.rules_after)
+                    },
+                    row_role,
+                ),
                 (percent(nd.used_share), row_role),
-                (cell(nd.rhs_after), row_role),
+                (
+                    if optimise {
+                        format!("{}>{}", cell(nd.rhs_before), cell(nd.rhs_after))
+                    } else {
+                        cell(nd.rhs_after)
+                    },
+                    row_role,
+                ),
                 (cpu_hours(nd.cpu_seconds), row_role),
+                // a reference is information: neutral colour, never an error colour
+                (ref_text(nd), Role::Queued),
             ]
         })
         .collect();
@@ -1361,7 +1473,59 @@ fn node_detail_lines(nd: &NodeRow, w: usize, c: &Ctx) -> Vec<Line<'static>> {
                 Role::Normal
             },
         ),
+        l(
+            format!(
+                "certification asked {}  reached {}{}",
+                nd.cert_asked.clone().unwrap_or_else(|| "-".into()),
+                nd.cert_reached.clone().unwrap_or_else(|| "-".into()),
+                if nd.provisional {
+                    "   PROVISIONAL: closed against measured hand-down ranges (rechecked when proved)"
+                } else {
+                    ""
+                }
+            ),
+            if nd.provisional {
+                Role::Warn
+            } else {
+                Role::Normal
+            },
+        ),
+        l(
+            format!(
+                "preferred terminals (a wish, not a requirement): {}   other terminals: {}",
+                nd.preferred
+                    .as_ref()
+                    .map(|p| format!(
+                        "used {} of {}, not needed {}",
+                        cell(p.used),
+                        cell(p.total),
+                        cell(p.not_needed)
+                    ))
+                    .unwrap_or_else(|| "none given".into()),
+                match (&nd.preferred, nd.terminals) {
+                    (Some(p), Some(t)) => p
+                        .used
+                        .map_or("?".into(), |u| t.saturating_sub(u).to_string()),
+                    (None, Some(t)) => t.to_string(),
+                    _ => "?".into(),
+                }
+            ),
+            Role::Terminal,
+        ),
     ];
+    if let Some(r) = &nd.reference {
+        v.push(l(
+            format!(
+                "reference (information only) {}: terminals {}  rules {}  RHS terms {}  {}",
+                r.name.clone().unwrap_or_else(|| "existing ledger".into()),
+                cell(r.terminals),
+                cell(r.rules),
+                cell(r.rhs_terms),
+                r.status.clone().unwrap_or_default()
+            ),
+            Role::Queued,
+        ));
+    }
     let phases: Vec<String> = PHASES
         .iter()
         .zip(nd.items_by_phase)
@@ -1493,6 +1657,13 @@ fn default_body(
         c,
     )];
     v.extend(nodes_table(vm, w, nodes_rows, class, c));
+    v.extend(ladder_rules(vm, w, c));
+    v
+}
+
+/// The work list by ladder level beside the rules and certificates panel.
+fn ladder_rules(vm: &ViewModel, w: usize, c: &Ctx) -> Vec<Line<'static>> {
+    let mut v = Vec::new();
     let lw = (w / 2 + 6).clamp(60.min(w), 78);
     let rw = w.saturating_sub(lw + 2);
     let mut left = vec![rule("Work list by ladder level", "", lw, c)];
@@ -1523,7 +1694,16 @@ fn default_screen(
     let main = if class == WidthClass::Wide {
         let lw = 120usize.min(w);
         let rw = w.saturating_sub(lw + 2);
-        let left = default_body(vm, lw, nodes_rows, c, WidthClass::Default);
+        // the nodes table uses the full width (all columns); the selected node and the attention list sit beside
+        // the work list and the rules panel
+        let mut top = vec![rule(
+            &format!("Nodes ({})", vm.nodes.len()),
+            "Enter: node detail",
+            w,
+            c,
+        )];
+        top.extend(nodes_table(vm, w, nodes_rows, class, c));
+        let left = ladder_rules(vm, lw, c);
         let mut right = Vec::new();
         if let Some(nd) = vm
             .nodes
@@ -1532,7 +1712,7 @@ fn default_screen(
             right.push(rule(&format!("{} (selected; n/N)", nd.id), "", rw, c));
             right.extend(node_detail_lines(nd, rw, c));
         }
-        let room = left.len().saturating_sub(right.len() + 1).max(3);
+        let room = (left.len() + 6).saturating_sub(right.len() + 1).max(3);
         right.push(rule(
             &format!("Attention ({})", vm.attention.len()),
             "a: all",
@@ -1542,8 +1722,9 @@ fn default_screen(
         right.extend(attention_lines(&vm.attention, rw, room, true, c));
         let n = left.len();
         let mut j = hjoin(left, lw, right, 2);
-        j.truncate(n.max(j.len().min(n + 4)));
-        j
+        j.truncate(n.max(j.len().min(n + 6)));
+        top.extend(j);
+        top
     } else {
         default_body(vm, w, nodes_rows, c, class)
     };

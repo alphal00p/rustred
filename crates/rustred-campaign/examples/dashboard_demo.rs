@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! dashboard_demo CDIR                              live read-only viewer of CDIR/progress (q or Ctrl-C closes it)
-//! dashboard_demo --fixture midrun                  built-in fixture: golden | empty | midrun | finished | stale
+//! dashboard_demo --fixture midrun                  built-in fixture: golden | empty | midrun | finished | stale | toy
 //! dashboard_demo --fixture midrun --once [--width 200 --height 60]   one text rendering
 //! dashboard_demo --fixture midrun --plain | --json
 //! dashboard_demo --fixture midrun --supervisor [--grace 5]           Ctrl-C protocol as inside `run` (fake supervisor)
@@ -75,6 +75,12 @@ fn fixture(name: &str) -> Option<Vec<(&'static str, &'static str)>> {
             "events.json" => "tui/stale/progress/events.json",
             "nodes/T162.json" => "tui/stale/progress/nodes/T162.json",
         ],
+        "toy" => files![
+            "campaign.json" => "tui/toy/progress/campaign.json",
+            "events.json" => "tui/toy/progress/events.json",
+            "nodes/kite.json" => "tui/toy/progress/nodes/kite.json",
+            "nodes/sunset.json" => "tui/toy/progress/nodes/sunset.json",
+        ],
         _ => return None,
     })
 }
@@ -90,7 +96,7 @@ fn fixture_now(campaign: &Value) -> Option<UtcMillis> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dashboard_demo (CDIR | --fixture golden|empty|midrun|finished|stale) [--once [--width W --height H]] [--plain] [--json] [--supervisor [--grace S]] [--color auto|always|never] [--utf8]"
+        "usage: dashboard_demo (CDIR | --fixture golden|empty|midrun|finished|stale|toy) [--once [--width W --height H]] [--plain] [--json] [--supervisor [--grace S]] [--color auto|always|never] [--utf8]"
     );
     std::process::exit(2)
 }

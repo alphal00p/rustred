@@ -30,7 +30,7 @@ fn golden_screens_of_every_fixture_at_three_widths() {
             &tui::render_once(&golden, &o, w, h),
         );
     }
-    for name in ["empty", "midrun", "finished", "stale"] {
+    for name in ["empty", "midrun", "finished", "stale", "toy"] {
         let dir = fixture_dir(name);
         let c = read_json(&dir.join("progress/campaign.json"));
         let src = DirSource::new(&dir);
@@ -46,7 +46,7 @@ fn golden_screens_of_every_fixture_at_three_widths() {
 
 #[test]
 fn every_line_fits_and_nothing_wraps() {
-    for name in ["empty", "midrun", "finished", "stale"] {
+    for name in ["empty", "midrun", "finished", "stale", "toy"] {
         let dir = fixture_dir(name);
         let c = read_json(&dir.join("progress/campaign.json"));
         let src = DirSource::new(&dir);
@@ -212,7 +212,7 @@ fn summary_numbers_equal_campaign_json_website_equals_terminal() {
     let g = ledger_golden_source();
     let gc = g.files["campaign.json"].clone();
     cases.push(("ledger-golden".into(), Box::new(g), gc));
-    for name in ["empty", "midrun", "finished", "stale"] {
+    for name in ["empty", "midrun", "finished", "stale", "toy"] {
         let d = fixture_dir(name);
         let c = read_json(&d.join("progress/campaign.json"));
         cases.push((name.into(), Box::new(DirSource::new(&d)), c));
@@ -407,4 +407,44 @@ fn thirty_thousand_items_render_windowed_and_fast() {
     app.on_key(key(KeyCode::Char('1')), &vm, &src, &controls, now); // filter open
     let t = tui::buffer_text(&tui::render_to_buffer(&vm, &app, true, false, now, 200, 60));
     assert!(t.contains("Items (7500 of 30000; state: open)"), "{t}");
+}
+
+#[test]
+fn toy_campaign_generic_columns_provisional_certification_preferred_reference_optimise() {
+    // a campaign that is NOT the five-loop setup: labels, counts and columns come from the files
+    let dir = fixture_dir("toy");
+    let c = read_json(&dir.join("progress/campaign.json"));
+    let (vm, o) = vm_of(&DirSource::new(&dir), &c);
+    let now = o.clock.now_utc().0 as f64 / 1000.0;
+    let app = App::new(false, 120);
+    let t = tui::render_text(&vm, &app, &o, 200, 60);
+    assert!(
+        t.contains("mode optimise") && t.contains("cert asked replay"),
+        "{t}"
+    );
+    assert!(t.contains("FULL PROV"), "provisional marker: {t}");
+    assert!(
+        t.contains("replay/replay") && t.contains("replay/-"),
+        "certification asked/reached: {t}"
+    );
+    assert!(
+        t.contains("2/3 nn1"),
+        "preferred used/total, not needed: {t}"
+    );
+    assert!(t.contains("preferred used 2/3"), "{t}");
+    assert!(
+        t.contains("14>8") && t.contains("280>151"),
+        "optimise before>after: {t}"
+    );
+    assert!(t.contains("term 3 rules 14"), "reference column: {t}");
+    let buf = tui::render_to_buffer(&vm, &app, true, false, now, 200, 60);
+    let (x, y) = find(&buf, "term 3 rules 14").unwrap();
+    assert!(
+        !matches!(buf[(x, y)].fg, Color::Red | Color::Yellow),
+        "a reference difference is information, not an error"
+    );
+    // no expected-master pass/fail wording anywhere
+    for word in ["master", "knock", "expected"] {
+        assert!(!t.to_lowercase().contains(word), "{word} on screen: {t}");
+    }
 }
