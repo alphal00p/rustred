@@ -48,7 +48,7 @@ use crate::solver::{Case, CoordinateCase};
 /// Program name in job mode.
 pub const PROGRAM: &str = "rr_node";
 /// Features this build reports in `version --json` (3.2.1) and accepts in `program.features_required`.
-pub const FEATURES: [&str; 8] = [
+pub const FEATURES: [&str; 18] = [
     "job",
     "initial_presented",
     "descend_open",
@@ -57,6 +57,17 @@ pub const FEATURES: [&str; 8] = [
     "signals",
     "heartbeat",
     "resume",
+    // engine line (coord-ec1-seed-centre.md v2): seed options and symmetry rows usable through `args` / the cases input
+    "max_depth",
+    "seed_centre",
+    "case_seed_centres",
+    "seed_face_floor",
+    "seed_layer_cap",
+    "symmetry_rows",
+    "symmetry_symbolic",
+    "case_seed_rung",
+    "slim_rules",
+    "open_on_refusal",
 ];
 
 static JOB: OnceLock<Arc<Job>> = OnceLock::new();
@@ -194,6 +205,8 @@ pub struct Resumed {
     /// Deferred regions and failed branch admissions (charts, PRESENTED slots) with the driver's detail object
     /// (kind, rule, branch, reason, ...; `null` when an older RESUME has none).
     pub deferred: Vec<(CaseSpec, Value)>,
+    /// Cases left open by `--open-on-refusal` (PRESENTED slots) with the driver's detail object.
+    pub refused_open: Vec<(CaseSpec, Value)>,
     /// A resume of an earlier attempt (the table and queue log continue a copied prefix); false for PRESENTED cases.
     pub prefix: bool,
 }
@@ -297,6 +310,7 @@ pub(crate) fn queue_lists<const N: usize>(
     pending: &[Case<N>],
     numerical: &[CoordinateCase<N>],
     deferred: &[(Case<N>, Value)],
+    refused: &[(Case<N>, Value)],
     n: usize,
 ) -> OpenQueue {
     OpenQueue {
@@ -319,14 +333,22 @@ pub(crate) fn queue_lists<const N: usize>(
                 serde_json::json!({"chart": job_case(&super::driver::case_spec(c, n)), "detail": d})
             })
             .collect(),
+        refused: refused
+            .iter()
+            .map(|(c, d)| {
+                serde_json::json!({"case": job_case(&super::driver::case_spec(c, n)), "detail": d})
+            })
+            .collect(),
     }
 }
 
-/// The open queue at a safe point (RESUME `pending`, `numerical`, `deferred`).
+/// The open queue at a safe point (RESUME `pending`, `numerical`, `deferred`, `refused_open`).
 pub struct OpenQueue {
     pub pending: Vec<JobCase>,
     pub numerical: Vec<Vec<i64>>,
     pub deferred: Vec<Value>,
+    /// `--open-on-refusal`: `{"case": .., "detail": ..}` per refused case (RESUME `refused_open`).
+    pub refused: Vec<Value>,
 }
 
 fn job_case(c: &CaseSpec) -> JobCase {
@@ -446,7 +468,11 @@ pub fn queue_done(
         j.remember_open(None, &q);
         if DESCEND_OPEN.load(Relaxed) {
             let mut st = j.st();
-            let n = st.returned.len() + q.pending.len() + q.numerical.len() + q.deferred.len();
+            let n = st.returned.len()
+                + q.pending.len()
+                + q.numerical.len()
+                + q.deferred.len()
+                + q.refused.len();
             if n > 0 {
                 stop = Some(StopReason::Descended { returned: n });
             }
@@ -787,6 +813,12 @@ impl Job {
                 .filter_map(|d| serde_json::from_value::<JobCase>(d["chart"].clone()).ok())
                 .map(|c| ("region", c)),
         );
+        l.extend(
+            q.refused
+                .iter()
+                .filter_map(|d| serde_json::from_value::<JobCase>(d["case"].clone()).ok())
+                .map(|c| ("refused", c)),
+        );
         self.st().open_list = l;
     }
 
@@ -805,6 +837,7 @@ impl Job {
             pending,
             numerical,
             deferred,
+            refused,
         } = q;
         if !force && !self.resume_due() {
             return;
@@ -833,7 +866,7 @@ impl Job {
                 pending,
                 numerical,
                 deferred,
-                refused_open: vec![],
+                refused_open: refused,
                 counters_at_commit: self.counters(Some(&st)),
                 symbolic_cases: st.symbolic_cases,
                 discarded: st.engine[2] as u64,
@@ -1544,6 +1577,14 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
                 Some((spec_of(&c), d.get("detail").cloned().unwrap_or(Value::Null)))
             })
             .collect(),
+        refused_open: r
+            .refused_open
+            .iter()
+            .filter_map(|d| {
+                let c = serde_json::from_value::<JobCase>(d["case"].clone()).ok()?;
+                Some((spec_of(&c), d.get("detail").cloned().unwrap_or(Value::Null)))
+            })
+            .collect(),
         prefix: true,
     });
     SUPPRESS.store(true, SeqCst);
@@ -1629,10 +1670,14 @@ fn unsupported_or_exit(spec: &JobSpec) {
     }
 }
 
-/// The cases input (3.8.3): ORIGINAL-frame case lines become the node's initial cases. PRESENTED cases need the
-/// `initial_presented` engine feature, which this line does not have (refused, 42); spill lines likewise.
-pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
+/// The cases input (3.8.3): ORIGINAL-frame case lines become the node's initial cases (returned); PRESENTED cases
+/// and spill lines replace the driver's initial queue at the resume point (feature `initial_presented`). A PRESENTED
+/// case's optional `seed_centre_offset` (`[ints]` or `[[ints], ..]`, PRESENTED slots; engine line, feature
+/// `case_seed_centres`) becomes a per-case seed centre entry (returned second; the driver applies it to every case
+/// contained in that case, its exception children included), exactly as `--initial-presented` does.
+pub fn initial_cases(spec: &JobSpec) -> (Vec<CaseSpec>, Vec<super::driver::CaseSeedCentre>) {
     let mut out = Vec::new();
+    let mut centres: Vec<super::driver::CaseSeedCentre> = Vec::new();
     let mut presented = PresentedCases::default();
     for i in spec.inputs.iter().filter(|i| i.role == "cases") {
         let p = spec.input_path(i);
@@ -1657,7 +1702,7 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                     if c.seed_centre_offset.is_some() {
                         fail(
                             ExitCode::Refused,
-                            "seed_centre_offset needs the seed_centre engine feature",
+                            "seed_centre_offset is given in PRESENTED slots: write the case in frame PRESENTED",
                         );
                     }
                     out.push(CaseSpec {
@@ -1683,15 +1728,10 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                 "ORIGINAL and PRESENTED cases cannot be mixed in one job",
             );
         }
-        if presented
-            .cases
-            .iter()
-            .any(|c| c.seed_centre_offset.is_some())
-        {
-            fail(
-                ExitCode::Refused,
-                "seed_centre_offset needs the seed_centre engine feature",
-            );
+        for c in &presented.cases {
+            if let Some(v) = c.seed_centre_offset.as_ref().filter(|v| !v.is_null()) {
+                centres.push(case_seed_centre(c, v));
+            }
         }
         // PRESENTED cases replace the driver's initial queue at the resume point (a resumed attempt keeps the
         // queue of its RESUME instead)
@@ -1703,11 +1743,37 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                 symbolic_cases: 0,
                 counters: [0; 5],
                 deferred: vec![],
+                refused_open: vec![],
                 prefix: false,
             });
         }
     }
-    out
+    (out, centres)
+}
+
+/// One per-case seed centre entry from a PRESENTED case line (the legacy `--initial-presented` parsing): one centre
+/// `[ints]` or several `[[ints], ..]` (union of their shells), each of the case's arity.
+fn case_seed_centre(c: &JobCase, v: &Value) -> super::driver::CaseSeedCentre {
+    let mut offs: Vec<Vec<i64>> = match serde_json::from_value::<Vec<i64>>(v.clone()) {
+        Ok(one) => vec![one],
+        Err(_) => serde_json::from_value(v.clone())
+            .unwrap_or_else(|e| fail(ExitCode::Input, &format!("cases: seed_centre_offset: {e}"))),
+    };
+    if offs.is_empty() || offs.iter().any(|o| o.len() != c.fixed.len()) {
+        fail(
+            ExitCode::Input,
+            &format!(
+                "cases: seed_centre_offset must be one or more offsets of the case arity {}",
+                c.fixed.len()
+            ),
+        );
+    }
+    let first = offs.remove(0);
+    super::driver::CaseSeedCentre {
+        case: driver_case(c),
+        seed_centre_offset: first,
+        extra: offs,
+    }
 }
 
 /// PRESENTED cases and spill lines of the cases input (3.8.3).
@@ -1959,6 +2025,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
                     pending: vec![],
                     numerical: vec![],
                     deferred: vec![],
+                    refused: vec![],
                 },
                 true,
             );

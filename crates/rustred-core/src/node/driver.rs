@@ -4195,6 +4195,15 @@ fn run<const N: usize>(
     let mut leased: Vec<(Case<N>, String)> = Vec::new();
     let mut returned: Vec<Case<N>> = Vec::new();
     let mut refused_open: Vec<(Case<N>, serde_json::Value)> = Vec::new();
+    // child-job resume: the cases a previous attempt left open by `open_on_refusal`
+    if let Some(r) = super::childjob::resumed() {
+        for (c, d) in &r.refused_open {
+            if let Some(c) = build_case::<N>(c, &template, &idx, &sector, n)? {
+                refused_open.push((c, d.clone()));
+            }
+        }
+        outcome.refused_open = refused_open.len();
+    }
     let mut in_flight: Option<Case<N>>;
     loop {
         in_flight = None;
@@ -4355,7 +4364,7 @@ fn run<const N: usize>(
         let current = pending.remove(0);
         // child-job (job mode only): commit point of the previous case, safe point, start of this one
         if super::childjob::active() {
-            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, n))? {
+            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, n))? {
                 super::childjob::Boundary::Stop(s) => {
                     // the popped case stays open: `current` in RESUME and F.subcases, and in F.obligations
                     in_flight = Some(current.clone());
@@ -5371,7 +5380,7 @@ fn run<const N: usize>(
     }
     // child-job (job mode only): commit point at the end of the symbolic queue
     if super::childjob::active() {
-        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, n))?;
+        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, n))?;
         if stop.is_none() && error.is_none() {
             stop = s;
         }
@@ -5413,7 +5422,7 @@ fn run<const N: usize>(
         for (point_index, point) in numerical.clone().into_iter().enumerate() {
             // child-job (job mode only): safe point and commit point before each numeric endpoint
             if super::childjob::active() {
-                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, n))? {
+                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, &refused_open, n))? {
                     super::childjob::Boundary::Stop(s) => {
                         stop = Some(s);
                         break;

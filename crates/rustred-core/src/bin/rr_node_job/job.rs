@@ -115,8 +115,18 @@ fn resolve(spec: &JobSpec) -> Resolved {
     let mut options = node_options(&mut a, &family_text);
     options.order = order_arg(&order, &family_text, None);
     a.done();
+    if options.symmetry {
+        // sym-gen closes cases by `sym` / `sym_zero` table records: not part of the child-job contract v1 (no
+        // acceptance rule, no case result, no resume of their indices / cover entries): fail closed
+        childjob::fail(
+            cc::ExitCode::Refused,
+            "--symmetry (sym-gen case records) is not supported in job mode: the contract has no rule for sym records",
+        );
+    }
     options.max_cases = spec.budgets.work.cases.map(|c| c as usize);
-    options.initial = childjob::initial_cases(spec);
+    let (initial, centres) = childjob::initial_cases(spec);
+    options.initial = initial;
+    options.case_seed_centres = centres;
     options.cover_tables = childjob::cover_tables(spec);
     options.case_budget_exit = None;
     Resolved {
