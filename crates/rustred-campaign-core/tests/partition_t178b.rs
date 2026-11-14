@@ -429,3 +429,44 @@ fn t178b_fallback_faces_from_closure_keys() {
         assert!(rep.uncovered(k).unwrap());
     }
 }
+
+/// audit-part-A M3: DISPATCH-mode partition (every record's blocked set: poles, elision) on the raw-substituted
+/// tables equals the core dispatcher's first-match open set on the box key by key.
+#[test]
+#[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES; release; run with --ignored"]
+fn t178b_dispatch_mode_equals_first_match() {
+    use rustred_campaign_core::partition::CoverageNotion;
+    let Some(fx) = fx() else { return };
+    let (disp, _) = t178_dispatcher(&fx, true);
+    let src = DispatcherSource::new(&disp);
+    let t = std::time::Instant::now();
+    let opts = PartitionOptions {
+        coverage: CoverageNotion::DispatchCoverage,
+        literal_tests: LiteralTests::ReferenceCompatible,
+        ..Default::default()
+    };
+    let rep = gap_partition(&src, &t178_frame(), &opts, None).unwrap();
+    let keys = t178_box();
+    let cen = rep.census(&keys).unwrap();
+    let br = disp.batch(&keys, 4).unwrap();
+    let open: BTreeSet<Key> = keys
+        .iter()
+        .zip(&br.results)
+        .filter(|(_, r)| r.is_open())
+        .map(|(k, _)| k.clone())
+        .collect();
+    let mine: BTreeSet<Key> = cen.uncovered.iter().map(|x| x.0.clone()).collect();
+    println!(
+        "T178B dispatch mode: {} blockers, {} blocked sub-partitions with classes, {} empty; faces {}; box open {} (dispatcher {}); outcome {:?}; {} ms",
+        rep.nf.blockers.len(),
+        rep.blocked.len(),
+        rep.blocked_empty,
+        rep.faces.len(),
+        mine.len(),
+        open.len(),
+        rep.outcome,
+        t.elapsed().as_millis()
+    );
+    assert!(cen.uncovered_in_c.is_empty());
+    assert_eq!(mine, open);
+}
