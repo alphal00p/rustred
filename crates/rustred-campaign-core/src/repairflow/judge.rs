@@ -91,15 +91,28 @@ pub enum Class {
     Shadowed,
     EmptyDomain,
     /// The job gave no candidate: budget stop, refusal (screen, exhausted shells, open obligation), error.
-    NoCandidate { why: String },
+    NoCandidate {
+        why: String,
+    },
     /// The generated table is not in the node's frame.
-    FrameMismatch { why: String },
+    FrameMismatch {
+        why: String,
+    },
     /// The candidate's domain could not be built.
-    DomainError { why: String },
+    DomainError {
+        why: String,
+    },
     /// A per-rule cap is exceeded.
-    OverCap { field: String, value: u64, cap: u64 },
+    OverCap {
+        field: String,
+        value: u64,
+        cap: u64,
+    },
     /// It serves too few open keys of its face.
-    TooFewKeys { served: u64, needed: u64 },
+    TooFewKeys {
+        served: u64,
+        needed: u64,
+    },
     /// Following the recipe at the served keys is cheaper (cost model).
     CostlierThanRecipe,
     /// Kept by the judge, but the node budget was exhausted (`order` of the budget decided).
@@ -122,8 +135,8 @@ pub struct Cost {
 /// C_table and C_recipe of a candidate serving `served` keys (interface section 3).
 pub fn cost(m: &Measures, served: u64, p: &RepairPolicy) -> Cost {
     let c = &p.cost;
-    let uses = served as f64 * c.uses_per_served_key
-        + m.free_dims as f64 * c.unbounded_direction_uses;
+    let uses =
+        served as f64 * c.uses_per_served_key + m.free_dims as f64 * c.unbounded_direction_uses;
     let c_table = c.table_weight
         * (c.load_ns_per_byte * m.bytes as f64
             + uses * (c.apply_ns_base + c.apply_ns_per_monomial * m.monomials as f64));

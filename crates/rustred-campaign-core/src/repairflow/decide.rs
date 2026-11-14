@@ -242,7 +242,10 @@ pub fn decide(
         let la = &faces[*ia].label;
         let lb = &faces[*ib].label;
         let (sa, sb) = (a.served.len() as u128, b2.served.len() as u128);
-        let (ba, bb) = (a.measures.bytes.max(1) as u128, b2.measures.bytes.max(1) as u128);
+        let (ba, bb) = (
+            a.measures.bytes.max(1) as u128,
+            b2.measures.bytes.max(1) as u128,
+        );
         let ord = match b.order.as_str() {
             "keys" => sb.cmp(&sa),
             "bytes_asc" => ba.cmp(&bb),
@@ -319,8 +322,10 @@ pub fn extension_sources(
     if let Some(t) = table_path
         && d.kept_rules > 0
     {
-        v.push(json!({"id": "rf:symbolic", "kind": "engine_table", "class": "repair-symbolic",
-                      "path": t, "hand_name": {"template": "rf:symbolic#{ordinal}"}}));
+        v.push(
+            json!({"id": "rf:symbolic", "kind": "engine_table", "class": "repair-symbolic",
+                      "path": t, "hand_name": {"template": "rf:symbolic#{ordinal}"}}),
+        );
     }
     for f in &d.faces {
         for s in &f.recipe_steps {

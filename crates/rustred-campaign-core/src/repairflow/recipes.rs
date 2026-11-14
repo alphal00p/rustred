@@ -117,12 +117,8 @@ pub fn face_recipe(
         None
     } else {
         Some(RecipeBounds {
-            min: (0..n)
-                .map(|i| face.sd.contains(&i).then_some(2))
-                .collect(),
-            max: (0..n)
-                .map(|i| face.sn.contains(&i).then_some(-1))
-                .collect(),
+            min: (0..n).map(|i| face.sd.contains(&i).then_some(2)).collect(),
+            max: (0..n).map(|i| face.sn.contains(&i).then_some(-1)).collect(),
         })
     };
     let r = Recipe {

@@ -46,7 +46,10 @@ fn policy_defaults_merge_overrides_and_refusals() {
     assert_eq!(c.symbolic.max_depth, 3);
     assert!(c.symbolic.enabled);
     let n = f.effective(Some("N")).unwrap();
-    assert_eq!(n.keep.max_bytes, 1000, "campaign section kept under the node override");
+    assert_eq!(
+        n.keep.max_bytes, 1000,
+        "campaign section kept under the node override"
+    );
     assert_eq!(n.keep.min_keys_served, 7);
     assert!(!n.symbolic.enabled);
     assert_ne!(c.digest(), n.digest());
@@ -92,7 +95,10 @@ fn faces_group_order_and_requests() {
     let a = s_args(&f, &p, "id", &[2, 1, 0], &[4, 3]);
     let s = a.join(" ");
     // last line in the priority among the face lines = 0, floored
-    assert!(s.contains("--seed-centre-offset 0:-1 --seed-face-floor 1"), "{s}");
+    assert!(
+        s.contains("--seed-centre-offset 0:-1 --seed-face-floor 1"),
+        "{s}"
+    );
     assert!(s.contains("--descend open"));
     assert!(s.contains("--screen 0,64,24,2500 --on-heavy refuse --open-on-refusal"));
     let pn = policy(json!({"symbolic": {"centre": "union_floored"}}));
@@ -102,7 +108,10 @@ fn faces_group_order_and_requests() {
             .contains("0:-1;2:-1;3:1 --seed-face-floor 1")
     );
     let corner = Face::new(vec![], vec![]);
-    assert!(!s_args(&corner, &p, "id", &[0, 1, 2], &[3, 4]).contains(&"--seed-centre-offset".to_string()));
+    assert!(
+        !s_args(&corner, &p, "id", &[0, 1, 2], &[3, 4])
+            .contains(&"--seed-centre-offset".to_string())
+    );
 }
 
 #[test]
@@ -139,19 +148,25 @@ fn judge_classes_and_cost_model() {
         }
     );
     // cost model: with every use from the cache, a large rule serving few keys does not amortise its load
-    let pc = policy(json!({"cost": {"cache_hit_fraction": 1.0}, "keep": {"max_bytes": 1u64 << 40,
-        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}));
+    let pc = policy(
+        json!({"cost": {"cache_hit_fraction": 1.0}, "keep": {"max_bytes": 1u64 << 40,
+        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}),
+    );
     let big = m(50 << 20, 5_000, 2_000_000, 4_000);
     assert_eq!(judge(&big, 2, 2, &pc).class, Class::CostlierThanRecipe);
     let c = cost(&big, 2, &pc);
     assert!(c.c_table_ns > c.c_recipe_ns);
     // uncached recipes (cold runs): the same rule is cheaper than solving at the key
-    let pu = policy(json!({"cost": {"cache_hit_fraction": 0.0}, "keep": {"max_bytes": 1u64 << 40,
-        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}));
+    let pu = policy(
+        json!({"cost": {"cache_hit_fraction": 0.0}, "keep": {"max_bytes": 1u64 << 40,
+        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}),
+    );
     assert_eq!(judge(&big, 2, 2, &pu).class, Class::Keep);
     // cost off: caps only
-    let po = policy(json!({"cost": {"enabled": false, "cache_hit_fraction": 1.0}, "keep": {"max_bytes": 1u64 << 40,
-        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}));
+    let po = policy(
+        json!({"cost": {"enabled": false, "cache_hit_fraction": 1.0}, "keep": {"max_bytes": 1u64 << 40,
+        "max_monomials": 1u64 << 40, "max_rhs_terms": 1u64 << 40, "max_trace_rows": 1u64 << 40}}),
+    );
     assert_eq!(judge(&big, 2, 2, &po).class, Class::Keep);
 }
 
@@ -176,25 +191,62 @@ fn cand(sha: &str, bytes: u64, served: Vec<Vec<i32>>) -> CandidateAnswer {
 
 #[test]
 fn node_budget_by_keys_per_byte_and_determinism() {
-    let fa = face(&[0], &[], vec![vec![2, 1, 1, 0, 0], vec![3, 1, 1, 0, 0], vec![4, 1, 1, 0, 0]]);
+    let fa = face(
+        &[0],
+        &[],
+        vec![
+            vec![2, 1, 1, 0, 0],
+            vec![3, 1, 1, 0, 0],
+            vec![4, 1, 1, 0, 0],
+        ],
+    );
     let fb = face(&[1], &[], vec![vec![1, 2, 1, 0, 0], vec![1, 3, 1, 0, 0]]);
     let fc = face(&[2], &[], vec![vec![1, 1, 2, 0, 0], vec![1, 1, 3, 0, 0]]);
     let faces = vec![fa.clone(), fb.clone(), fc.clone()];
     let shadow = vec![ShadowClass::Skipped; 3];
     let mut answers = BTreeMap::new();
     // A: 3 keys / 3000 B (1e-3), B: 2 keys / 1000 B (2e-3), C: 2 keys / 4000 B (5e-4)
-    answers.insert(fa.label.clone(), FaceAnswer::Candidates { job: "ja".into(), candidates: vec![cand("a", 3000, fa.open_keys.clone())] });
-    answers.insert(fb.label.clone(), FaceAnswer::Candidates { job: "jb".into(), candidates: vec![cand("b", 1000, fb.open_keys.clone())] });
-    answers.insert(fc.label.clone(), FaceAnswer::Candidates { job: "jc".into(), candidates: vec![cand("c", 4000, fc.open_keys.clone())] });
+    answers.insert(
+        fa.label.clone(),
+        FaceAnswer::Candidates {
+            job: "ja".into(),
+            candidates: vec![cand("a", 3000, fa.open_keys.clone())],
+        },
+    );
+    answers.insert(
+        fb.label.clone(),
+        FaceAnswer::Candidates {
+            job: "jb".into(),
+            candidates: vec![cand("b", 1000, fb.open_keys.clone())],
+        },
+    );
+    answers.insert(
+        fc.label.clone(),
+        FaceAnswer::Candidates {
+            job: "jc".into(),
+            candidates: vec![cand("c", 4000, fc.open_keys.clone())],
+        },
+    );
     let p = policy(json!({"node_budget": {"max_bytes": 4500}}));
     let d = decide("N", &faces, &shadow, &answers, &[], &p);
     // B (best keys/byte) then A fit (4000 <= 4500); C does not
     assert_eq!(d.kept_rules, 2);
     assert_eq!(d.kept_bytes, 4000);
     assert!(d.faces[0].kept.is_some() && d.faces[1].kept.is_some());
-    assert!(matches!(d.faces[2].symbolic.class, Class::OverNodeBudget { running_bytes: 4000, max_bytes: 4500, .. }));
+    assert!(matches!(
+        d.faces[2].symbolic.class,
+        Class::OverNodeBudget {
+            running_bytes: 4000,
+            max_bytes: 4500,
+            ..
+        }
+    ));
     // every face gets the recipe escalation (kept ones too: their exception keys)
-    assert!(d.faces.iter().all(|f| f.recipe_steps == p.recipes.escalation));
+    assert!(
+        d.faces
+            .iter()
+            .all(|f| f.recipe_steps == p.recipes.escalation)
+    );
     // order "bytes_asc": B (1000), A (3000) -> same here; "keys": A first then B (5 keys / 4000 B) and C refused
     let pk = policy(json!({"node_budget": {"max_bytes": 4500, "order": "keys"}}));
     let dk = decide("N", &faces, &shadow, &answers, &[], &pk);
@@ -209,53 +261,147 @@ fn node_budget_by_keys_per_byte_and_determinism() {
         serde_json::to_string(&d).unwrap()
     );
     // NEVER TABLES / NEVER RECIPES / face caps
-    let nt = decide("N", &faces, &shadow, &answers, &[], &policy(json!({"symbolic": {"enabled": false}})));
+    let nt = decide(
+        "N",
+        &faces,
+        &shadow,
+        &answers,
+        &[],
+        &policy(json!({"symbolic": {"enabled": false}})),
+    );
     assert_eq!(nt.kept_rules, 0);
-    assert!(nt.faces.iter().all(|f| f.symbolic.class == Class::SymbolicOff && !f.recipe_steps.is_empty()));
-    let nr = decide("N", &faces, &shadow, &answers, &[], &policy(json!({"recipes": {"enabled": false}})));
+    assert!(
+        nt.faces
+            .iter()
+            .all(|f| f.symbolic.class == Class::SymbolicOff && !f.recipe_steps.is_empty())
+    );
+    let nr = decide(
+        "N",
+        &faces,
+        &shadow,
+        &answers,
+        &[],
+        &policy(json!({"recipes": {"enabled": false}})),
+    );
     assert!(nr.faces.iter().all(|f| f.recipe_steps.is_empty()));
-    let cap = s_plan(&faces, &shadow, &policy(json!({"symbolic": {"max_faces": 1}})));
+    let cap = s_plan(
+        &faces,
+        &shadow,
+        &policy(json!({"symbolic": {"max_faces": 1}})),
+    );
     assert_eq!(cap, vec![None, Some(Class::FaceCap), Some(Class::FaceCap)]);
-    let sh = vec![ShadowClass::Shadowed { certificate: "c".into() }, ShadowClass::Skipped, ShadowClass::Skipped];
+    let sh = vec![
+        ShadowClass::Shadowed {
+            certificate: "c".into(),
+        },
+        ShadowClass::Skipped,
+        ShadowClass::Skipped,
+    ];
     assert_eq!(s_plan(&faces, &sh, &p)[0], Some(Class::Shadowed));
 }
 
 #[test]
 fn face_recipes_domain_and_seeds() {
-    let ctx = RecipeContext { node: "N", node_order: "id", policy_digest: "p" };
+    let ctx = RecipeContext {
+        node: "N",
+        node_order: "id",
+        policy_digest: "p",
+    };
     let f = Face::new(vec![0, 2], vec![3]);
     let r = face_recipe(&f, "d2_clast_fon_mM1C", &lines(), &[2, 1, 0], &[3, 4], &ctx).unwrap();
     assert_eq!(r.seeds.centres, vec![vec![-1, 0, 0, 0, 0]]);
-    assert_eq!(r.seeds.min_offset.keys().copied().collect::<Vec<_>>(), vec![0, 2]);
+    assert_eq!(
+        r.seeds.min_offset.keys().copied().collect::<Vec<_>>(),
+        vec![0, 2]
+    );
     assert!(r.in_domain(&[2, 1, 3, -1, 0]));
-    assert!(!r.in_domain(&[1, 1, 3, -1, 0]), "a key of a smaller face is outside the face domain");
+    assert!(
+        !r.in_domain(&[1, 1, 3, -1, 0]),
+        "a key of a smaller face is outside the face domain"
+    );
     assert!(!r.in_domain(&[2, 1, 3, 0, 0]));
-    assert!(!r.in_domain(&[2, 1, 3, -1, -1]), "another numerator off its floor: another face");
-    let u = face_recipe(&f, "d3_cunion_foff_mM1C", &lines(), &[0, 1, 2], &[3, 4], &ctx).unwrap();
+    assert!(
+        !r.in_domain(&[2, 1, 3, -1, -1]),
+        "another numerator off its floor: another face"
+    );
+    let u = face_recipe(
+        &f,
+        "d3_cunion_foff_mM1C",
+        &lines(),
+        &[0, 1, 2],
+        &[3, 4],
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(u.seeds.centres.len(), 3);
     assert!(u.seeds.min_offset.is_empty());
-    let s = face_recipe(&f, "d0_cnone_foff_ssym_mM1C", &lines(), &[0, 1, 2], &[3, 4], &ctx).unwrap();
+    let s = face_recipe(
+        &f,
+        "d0_cnone_foff_ssym_mM1C",
+        &lines(),
+        &[0, 1, 2],
+        &[3, 4],
+        &ctx,
+    )
+    .unwrap();
     assert!(s.symmetry_rows && s.seeds.centres.is_empty());
-    let deep = face_recipe(&f, "d4_cfirst_foff_mM1C", &lines(), &[0, 1, 2], &[3, 4], &ctx).unwrap();
-    assert!(matches!(deep.seeds.generator, rustred_campaign_core::worklist::recipe::RecipeGenerator::Ball(_)));
-    assert!(face_recipe(&f, "d2_clast_fon", &lines(), &[0], &[3], &ctx).is_err(), "first_admissible not expressible");
+    let deep = face_recipe(
+        &f,
+        "d4_cfirst_foff_mM1C",
+        &lines(),
+        &[0, 1, 2],
+        &[3, 4],
+        &ctx,
+    )
+    .unwrap();
+    assert!(matches!(
+        deep.seeds.generator,
+        rustred_campaign_core::worklist::recipe::RecipeGenerator::Ball(_)
+    ));
+    assert!(
+        face_recipe(&f, "d2_clast_fon", &lines(), &[0], &[3], &ctx).is_err(),
+        "first_admissible not expressible"
+    );
     // the file the verb reads round-trips through the acceptance parser
     let text = serde_json::to_string(&r).unwrap();
-    assert_eq!(rustred_campaign_core::worklist::recipe::Recipe::parse(&text).unwrap(), r);
+    assert_eq!(
+        rustred_campaign_core::worklist::recipe::Recipe::parse(&text).unwrap(),
+        r
+    );
 }
 
 #[test]
 fn extension_sources_order() {
     let fa = face(&[0], &[], vec![vec![2, 1, 1, 0, 0], vec![3, 1, 1, 0, 0]]);
     let mut answers = BTreeMap::new();
-    answers.insert(fa.label.clone(), FaceAnswer::Candidates { job: "j".into(), candidates: vec![cand("a", 10, fa.open_keys.clone())] });
+    answers.insert(
+        fa.label.clone(),
+        FaceAnswer::Candidates {
+            job: "j".into(),
+            candidates: vec![cand("a", 10, fa.open_keys.clone())],
+        },
+    );
     let p = policy(json!({"recipes": {"escalation": ["d2_clast_fon_mM1C", "d3_clast_fon_mM1C"]}}));
-    let d = decide("N", std::slice::from_ref(&fa), &[ShadowClass::Skipped], &answers, &[], &p);
+    let d = decide(
+        "N",
+        std::slice::from_ref(&fa),
+        &[ShadowClass::Skipped],
+        &answers,
+        &[],
+        &p,
+    );
     let mut files = BTreeMap::new();
     for s in &p.recipes.escalation {
         files.insert((fa.label.clone(), s.clone()), format!("/r/{s}.json"));
     }
     let v = extension_sources(&d, Some("/t.jsonl"), &files);
     let ids: Vec<&str> = v.iter().map(|x| x["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, vec!["rf:symbolic", "rf:d0_n:d2_clast_fon_mM1C", "rf:d0_n:d3_clast_fon_mM1C"]);
+    assert_eq!(
+        ids,
+        vec![
+            "rf:symbolic",
+            "rf:d0_n:d2_clast_fon_mM1C",
+            "rf:d0_n:d3_clast_fon_mM1C"
+        ]
+    );
 }

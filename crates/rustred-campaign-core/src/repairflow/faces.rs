@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::policy::RepairPolicy;
+use crate::cover::RuleRef;
 use crate::domain::CaseDomain;
 use crate::key::NodeFrame;
 use crate::loci::contain::{Containment, Emptiness, ProofBudget, is_empty_with, shadowed_with};
-use crate::cover::RuleRef;
 use crate::partition::DomainSource;
 use crate::worklist::items::{CaseSpec, Face};
 
@@ -101,11 +101,19 @@ pub fn face_domain(face: &Face, lines: &[bool]) -> Option<CaseDomain> {
 #[serde(rename_all = "snake_case", tag = "verdict")]
 pub enum ShadowClass {
     /// Some key of the face is not matched by an earlier record (search it).
-    NotShadowed { witness: Option<Key> },
+    NotShadowed {
+        witness: Option<Key>,
+    },
     /// Every key of the proper face is MATCHED by an earlier record: a rule appended after them never fires.
-    Shadowed { certificate: String },
-    EmptyDomain { certificate: String },
-    Unknown { why: String },
+    Shadowed {
+        certificate: String,
+    },
+    EmptyDomain {
+        certificate: String,
+    },
+    Unknown {
+        why: String,
+    },
     /// The test is off by policy.
     Skipped,
 }
@@ -228,7 +236,13 @@ pub fn centre_args(
             if !slots.is_empty() {
                 let c: Vec<String> = slots
                     .iter()
-                    .map(|&s| if face.sd.contains(&s) { line(s) } else { num(s) })
+                    .map(|&s| {
+                        if face.sd.contains(&s) {
+                            line(s)
+                        } else {
+                            num(s)
+                        }
+                    })
                     .collect();
                 v.push("--seed-centre-offset".into());
                 v.push(c.join(";"));

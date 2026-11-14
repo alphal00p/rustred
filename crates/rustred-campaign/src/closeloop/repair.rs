@@ -17,18 +17,23 @@
 //!   default recipe) = input `repairflow:<n>:extension`; items `Accept` (geometry: the closing loop certifies the keys)
 //!   or `Reject` (class);
 //! - P5 (after the closing loop's final result): the report and the export directory.
+//!
 //! Generic (L8): nothing here knows a node, an arity or a count.
 
 use super::config::{CONFIG_ROLE, CloseLoopConfig, NodeCfg};
 use super::ids::{input_final, input_import_spec, node_dir, safe};
 use crate::ledger::{AcceptSource, Event, ItemEvent};
-use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung};
+use crate::state::{
+    AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung,
+};
 use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::worksource::{
     AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
 };
 use rustred_campaign_contract::fake::{FakeOp, FakeRule, FakeScript, OnSigterm, RssPlan};
-use rustred_campaign_contract::spec::{Budgets as JobBudgets, InputRef, JobKind, WallBudgets, WorkBudgets};
+use rustred_campaign_contract::spec::{
+    Budgets as JobBudgets, InputRef, JobKind, WallBudgets, WorkBudgets,
+};
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use rustred_campaign_core::import::check::{CheckOptions, RowStatus};
 use rustred_campaign_core::import::{Evidence, ImportedSet, TableSetSpec};
@@ -224,9 +229,12 @@ pub fn wrap<S: WorkSource>(
     if let Some(p) = pin.first() {
         let text = std::fs::read_to_string(&p.path)
             .map_err(|e| format!("repairflow policy {}: {e}", p.path.display()))?;
-        let raw: Value = serde_json::from_str(&text).map_err(|e| format!("repairflow policy: {e}"))?;
+        let raw: Value =
+            serde_json::from_str(&text).map_err(|e| format!("repairflow policy: {e}"))?;
         let fake: Option<FakeGen> = match raw.get("fake") {
-            Some(f) => Some(serde_json::from_value(f.clone()).map_err(|e| format!("repairflow fake: {e}"))?),
+            Some(f) => Some(
+                serde_json::from_value(f.clone()).map_err(|e| format!("repairflow fake: {e}"))?,
+            ),
             None => None,
         };
         let mut pv = raw.clone();
@@ -323,7 +331,14 @@ impl<S: WorkSource> RepairFlowSource<S> {
         Ok(())
     }
 
-    fn job_request(&self, i: usize, item: &str, job: String, face: &FaceGroup, prio: i64) -> Result<JobRequest, String> {
+    fn job_request(
+        &self,
+        i: usize,
+        item: &str,
+        job: String,
+        face: &FaceGroup,
+        prio: i64,
+    ) -> Result<JobRequest, String> {
         let r = &self.nodes[i];
         let p1 = r.p1.as_ref().ok_or("p1 not loaded")?;
         let sp = &r.policy.symbolic;
@@ -417,14 +432,21 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let node = self.nodes[i].cfg.node.clone();
         let p1 = self.nodes[i].p1.clone().ok_or("p1 not loaded")?;
         let items = self.s_items(st, i);
-        if items.iter().any(|(_, ph, _)| matches!(ph, ItemPhase::Open | ItemPhase::InProgress)) {
+        if items
+            .iter()
+            .any(|(_, ph, _)| matches!(ph, ItemPhase::Open | ItemPhase::InProgress))
+        {
             return Ok(());
         }
         // answers by face label (the last answer input of each item)
         let mut answers: BTreeMap<String, FaceAnswer> = BTreeMap::new();
         let mut produced: Vec<(String, String)> = vec![]; // (item, face label)
         for (item, ph, jobs) in &items {
-            let label = st.items.get(item).map(|x| x.label.clone()).unwrap_or_default();
+            let label = st
+                .items
+                .get(item)
+                .map(|x| x.label.clone())
+                .unwrap_or_default();
             for job in jobs.iter().rev() {
                 let id = input_answer(item, job);
                 if st.inputs.contains_key(&id) {
@@ -440,14 +462,21 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 produced.push((item.clone(), label));
             }
         }
-        let d = rf::decide(&node, &p1.faces, &p1.shadow, &answers, &p1.outside, &self.nodes[i].policy);
+        let d = rf::decide(
+            &node,
+            &p1.faces,
+            &p1.shadow,
+            &answers,
+            &p1.outside,
+            &self.nodes[i].policy,
+        );
         let dbytes = json_bytes(&serde_json::to_value(&d).map_err(|e| e.to_string())?);
-        if let Some(r) = st.inputs.get(&input_decisions(&n)) {
-            if r.blake3 != blake3_hex(&dbytes) {
-                return Err(format!(
-                    "node {node}: the recomputed repair decisions differ from the recorded ones: refused (U-1)"
-                ));
-            }
+        if let Some(r) = st.inputs.get(&input_decisions(&n))
+            && r.blake3 != blake3_hex(&dbytes)
+        {
+            return Err(format!(
+                "node {node}: the recomputed repair decisions differ from the recorded ones: refused (U-1)"
+            ));
         }
         let dir = rf_dir(&n);
         // the re-homed symbolic table (frame header + kept lines, index renumbered, `type` first)
@@ -485,13 +514,23 @@ impl<S: WorkSource> RepairFlowSource<S> {
         for f in &d.faces {
             let face = Face::new(f.sd.clone(), f.sn.clone());
             for s in &f.recipe_steps {
-                match rf::face_recipe(&face, s, p1.frame.mask(), &p1.line_prio, &p1.num_prio, &rctx) {
+                match rf::face_recipe(
+                    &face,
+                    s,
+                    p1.frame.mask(),
+                    &p1.line_prio,
+                    &p1.num_prio,
+                    &rctx,
+                ) {
                     Ok(r) => {
                         let rel = format!("{dir}/recipes/{}.{s}.json", rf::face_tag(&face));
                         let mut b = serde_json::to_vec(&r).map_err(|e| e.to_string())?;
                         b.push(b'\n');
                         rt.accepts.push(record(rel.clone(), b));
-                        files.insert((f.face.clone(), s.clone()), self.abs(&rel).display().to_string());
+                        files.insert(
+                            (f.face.clone(), s.clone()),
+                            self.abs(&rel).display().to_string(),
+                        );
                     }
                     Err(e) => recipe_errors.push(json!({"face": f.face, "step": s, "error": e})),
                 }
@@ -499,7 +538,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
         }
         let ext = rf::extension_sources(
             &d,
-            table_rel.as_ref().map(|r| self.abs(r).display().to_string()).as_deref(),
+            table_rel
+                .as_ref()
+                .map(|r| self.abs(r).display().to_string())
+                .as_deref(),
             &files,
         );
         // the composed spec: the closeloop's effective spec + the extension BEFORE the default recipe
@@ -519,7 +561,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
         }
         // (the import spec refuses unknown fields: the policy / decisions digests live in the decisions and report)
         let composed = serde_json::to_string_pretty(&v).expect("json") + "\n";
-        if st.inputs.get(&input_decisions(&n)).is_none() {
+        if !st.inputs.contains_key(&input_decisions(&n)) {
             let rec = record(format!("{dir}/decisions.json"), dbytes.clone());
             self.reg(rt, input_decisions(&n), ROLE_DECISIONS, rec);
         }
@@ -532,7 +574,11 @@ impl<S: WorkSource> RepairFlowSource<S> {
         // items: produced -> Accept (kept) / Reject (class)
         for (item, label) in produced {
             let fd = d.faces.iter().find(|f| f.face == label);
-            let job = st.items.get(&item).and_then(|x| x.jobs.last().cloned()).unwrap_or_default();
+            let job = st
+                .items
+                .get(&item)
+                .and_then(|x| x.jobs.last().cloned())
+                .unwrap_or_default();
             let ans_ref = st.inputs.get(&input_answer(&item, &job));
             let produced_by = st.items.get(&item).and_then(|x| x.produced.clone());
             match (fd, ans_ref, produced_by) {
@@ -575,7 +621,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 }),
             }
         }
-        let rec = record(format!("{dir}/import-spec.composed.json"), composed.into_bytes());
+        let rec = record(
+            format!("{dir}/import-spec.composed.json"),
+            composed.into_bytes(),
+        );
         self.reg(rt, input_extension(&n), ROLE_EXTENSION, rec);
         Ok(())
     }
@@ -606,9 +655,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
             let node = r.cfg.node.clone();
             let mut withheld = vec![];
             rt.events.retain(|e| match e {
-                Event::Node { node: x, ev: NodeEvent::AttemptEnded { .. } | NodeEvent::DeclareOpen { .. } }
-                    if *x == node =>
-                {
+                Event::Node {
+                    node: x,
+                    ev: NodeEvent::AttemptEnded { .. } | NodeEvent::DeclareOpen { .. },
+                } if *x == node => {
                     withheld.push(e.clone());
                     false
                 }
@@ -616,8 +666,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
             });
             let w = record(
                 format!("{}/withheld.json", rf_dir(&r.n)),
-                json_bytes(&json!({"schema": "rustred.campaign.repairflow-withheld.v1", "node": node,
-                    "events": withheld})),
+                json_bytes(
+                    &json!({"schema": "rustred.campaign.repairflow-withheld.v1", "node": node,
+                    "events": withheld}),
+                ),
             );
             let f = w.file_ref();
             rt.events.push(Event::InputRegistered {
@@ -640,11 +692,21 @@ impl<S: WorkSource> RepairFlowSource<S> {
     fn solve_costs(&self, st: &CampaignState, i: usize) -> BTreeMap<String, (u64, u64, Vec<f64>)> {
         let node = &self.nodes[i].cfg.node;
         let mut m: BTreeMap<String, (u64, u64, Vec<f64>)> = BTreeMap::new();
-        for (item, it) in st.items.iter().filter(|(_, it)| it.node == *node && it.kind == super::ids::KIND_SOLVE) {
-            let Ok(b) = read_input(st, &super::ids::input_batch(item)) else { continue };
-            let Ok(bf) = serde_json::from_slice::<super::accept::BatchFile>(&b) else { continue };
+        for (item, it) in st
+            .items
+            .iter()
+            .filter(|(_, it)| it.node == *node && it.kind == super::ids::KIND_SOLVE)
+        {
+            let Ok(b) = read_input(st, &super::ids::input_batch(item)) else {
+                continue;
+            };
+            let Ok(bf) = serde_json::from_slice::<super::accept::BatchFile>(&b) else {
+                continue;
+            };
             for j in &it.jobs {
-                let Some(rd) = st.jobs.get(j).and_then(|x| x.run_dir.clone()) else { continue };
+                let Some(rd) = st.jobs.get(j).and_then(|x| x.run_dir.clone()) else {
+                    continue;
+                };
                 let c = super::termmin::cost_of(Path::new(&rd), j);
                 let e = m.entry(bf.source.clone()).or_default();
                 e.0 += 1;
@@ -666,7 +728,8 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let dir = rf_dir(&n);
         let d: NodeDecisions = serde_json::from_slice(&read_input(st, &input_decisions(&n))?)
             .map_err(|e| format!("decisions: {e}"))?;
-        let fin: Value = serde_json::from_slice(&read_input(st, &input_final(&n))?).unwrap_or(Value::Null);
+        let fin: Value =
+            serde_json::from_slice(&read_input(st, &input_final(&n))?).unwrap_or(Value::Null);
         // the final statement rows: per key status + server source + evidence
         let stmt = self.abs(&format!("{}/final/statement/statement.jsonl", node_dir(&n)));
         let mut by_server: BTreeMap<String, Vec<Value>> = BTreeMap::new();
@@ -676,7 +739,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
         if let Ok(t) = std::fs::read_to_string(&stmt) {
             for l in t.lines().filter(|l| !l.trim().is_empty()) {
                 stmt_lines.push(l.to_string());
-                let Ok(r) = serde_json::from_str::<Value>(l) else { continue };
+                let Ok(r) = serde_json::from_str::<Value>(l) else {
+                    continue;
+                };
                 let status = r["status"].as_str().unwrap_or("");
                 let src = r["server"]["source"].as_str().unwrap_or("").to_string();
                 let class = r["server"]["class"].as_str().unwrap_or("").to_string();
@@ -686,13 +751,20 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 if status == "served" {
                     *by_class.entry(class).or_default() += 1;
                     if src.starts_with("rf:") || src == "default-recipe" {
-                        by_server.entry(src).or_default().push(json!({"key": r["key"],
+                        by_server
+                            .entry(src)
+                            .or_default()
+                            .push(json!({"key": r["key"],
                             "evidence": r["evidence"], "basis": r["basis"]}));
                     }
                 }
             }
         }
-        let lines: Vec<bool> = self.nodes[i].p1.as_ref().map(|p| p.frame.mask().to_vec()).unwrap_or_default();
+        let lines: Vec<bool> = self.nodes[i]
+            .p1
+            .as_ref()
+            .map(|p| p.frame.mask().to_vec())
+            .unwrap_or_default();
         // terminal proposals: open keys with their face and the steps of that face (the escalation's generic end)
         let mut proposals = vec![];
         if self.nodes[i].policy.proposals.enabled {
@@ -704,8 +776,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
                     .and_then(|fl| d.faces.iter().find(|f| &f.face == fl))
                     .map(|f| f.recipe_steps.clone())
                     .unwrap_or_default();
-                proposals.push(json!({"key": key, "face": face, "tried_steps": steps, "default_recipe": true,
-                    "status": "terminal_proposal"}));
+                proposals.push(
+                    json!({"key": key, "face": face, "tried_steps": steps, "default_recipe": true,
+                    "status": "terminal_proposal"}),
+                );
             }
         }
         // the close-out by the proposals (withheld open declaration)
@@ -719,7 +793,11 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let (closed, why) = if st.inputs.contains_key(&input_withheld(&n)) {
             self.closeout_check(i, &fin, open_keys.len())
         } else {
-            (false, "no withheld open declaration (closed by the closing loop, or close-out off)".into())
+            (
+                false,
+                "no withheld open declaration (closed by the closing loop, or close-out off)"
+                    .into(),
+            )
         };
         let exp = format!("{dir}/export");
         if closed {
@@ -735,7 +813,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 t.push_str(&r.to_string());
                 t.push('\n');
             }
-            rt.accepts.push(record(format!("{dir}/statement-with-proposals/statement.jsonl"), t.into_bytes()));
+            rt.accepts.push(record(
+                format!("{dir}/statement-with-proposals/statement.jsonl"),
+                t.into_bytes(),
+            ));
             rt.accepts.push(record(
                 format!("{dir}/statement-with-proposals/terminals_declared.json"),
                 json_bytes(&json!(open_keys)),
@@ -759,9 +840,15 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 });
             }
             rt.events.push(Event::Note {
-                text: format!("repairflow {node}: closed with {} declared terminal proposal(s): {why}", open_keys.len()),
+                text: format!(
+                    "repairflow {node}: closed with {} declared terminal proposal(s): {why}",
+                    open_keys.len()
+                ),
             });
-            rt.events.push(Event::Node { node: node.clone(), ev: NodeEvent::DeclareClosed });
+            rt.events.push(Event::Node {
+                node: node.clone(),
+                ev: NodeEvent::DeclareClosed,
+            });
         } else {
             rt.events.extend(withheld);
         }
@@ -773,7 +860,8 @@ impl<S: WorkSource> RepairFlowSource<S> {
         if let Ok(b) = std::fs::read(self.abs(&format!("{dir}/symbolic.table.jsonl"))) {
             exported_table_bytes = b.len() as u64;
             sums.push_str(&format!("{}  symbolic.table.jsonl\n", sha256_hex(&b)));
-            rt.accepts.push(record(format!("{exp}/symbolic.table.jsonl"), b));
+            rt.accepts
+                .push(record(format!("{exp}/symbolic.table.jsonl"), b));
         }
         let costs = self.solve_costs(st, i);
         let range = |v: &[f64]| -> Value {
@@ -792,7 +880,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 let id = format!("rf:{}:{s}", rf::face_tag(&face));
                 let fname = format!("{}.{s}.json", rf::face_tag(&face));
                 let certified = by_server.get(&id).cloned().unwrap_or_default();
-                let Ok(b) = std::fs::read(self.abs(&format!("{dir}/recipes/{fname}"))) else { continue };
+                let Ok(b) = std::fs::read(self.abs(&format!("{dir}/recipes/{fname}"))) else {
+                    continue;
+                };
                 let sha = sha256_hex(&b);
                 let cost = costs.get(&id).map(|c| range(&c.2)).unwrap_or(Value::Null);
                 esc.push(json!({"source": id, "step": s, "file": format!("recipes/{fname}"), "sha256": sha,
@@ -803,14 +893,23 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 exported_recipe_bytes += b.len() as u64;
                 sums.push_str(&format!("{sha}  recipes/{fname}\n"));
                 let cf: String = certified.iter().map(|c| format!("{c}\n")).collect();
-                sums.push_str(&format!("{}  certified/{}.{s}.jsonl\n", sha256_hex(cf.as_bytes()), rf::face_tag(&face)));
-                rt.accepts.push(record(format!("{exp}/certified/{}.{s}.jsonl", rf::face_tag(&face)), cf.into_bytes()));
+                sums.push_str(&format!(
+                    "{}  certified/{}.{s}.jsonl\n",
+                    sha256_hex(cf.as_bytes()),
+                    rf::face_tag(&face)
+                ));
+                rt.accepts.push(record(
+                    format!("{exp}/certified/{}.{s}.jsonl", rf::face_tag(&face)),
+                    cf.into_bytes(),
+                ));
                 recipes.push(json!({"source": id, "face": f.face, "step": s, "file": format!("recipes/{fname}"),
                     "sha256": sha, "certified_keys_served": certified.len(), "per_key_cpu_s": cost}));
                 rt.accepts.push(record(format!("{exp}/recipes/{fname}"), b));
             }
-            face_entries.push(json!({"face": f.face, "sd": f.sd, "sn": f.sn, "escalation": esc,
-                "symbolic_kept": f.kept.is_some()}));
+            face_entries.push(
+                json!({"face": f.face, "sd": f.sd, "sn": f.sn, "escalation": esc,
+                "symbolic_kept": f.kept.is_some()}),
+            );
         }
         // the default sequence (the closing loop's default recipe) with its certified keys and cost
         let dflt = self.nodes[i].cfg.default_recipe.clone();
@@ -820,13 +919,23 @@ impl<S: WorkSource> RepairFlowSource<S> {
         {
             let certified = by_server.get("default-recipe").cloned().unwrap_or_default();
             let cf: String = certified.iter().map(|c| format!("{c}\n")).collect();
-            sums.push_str(&format!("{}  recipes/default.recipe.json\n", sha256_hex(&b)));
-            sums.push_str(&format!("{}  certified/default.jsonl\n", sha256_hex(cf.as_bytes())));
+            sums.push_str(&format!(
+                "{}  recipes/default.recipe.json\n",
+                sha256_hex(&b)
+            ));
+            sums.push_str(&format!(
+                "{}  certified/default.jsonl\n",
+                sha256_hex(cf.as_bytes())
+            ));
             default_seq.push(json!({"source": "default-recipe", "file": "recipes/default.recipe.json",
                 "sha256": sha256_hex(&b), "certified_keys": certified.len(),
                 "per_key_cpu_s": costs.get("default-recipe").map(|c| range(&c.2)).unwrap_or(Value::Null)}));
-            rt.accepts.push(record(format!("{exp}/recipes/default.recipe.json"), b));
-            rt.accepts.push(record(format!("{exp}/certified/default.jsonl"), cf.into_bytes()));
+            rt.accepts
+                .push(record(format!("{exp}/recipes/default.recipe.json"), b));
+            rt.accepts.push(record(
+                format!("{exp}/certified/default.jsonl"),
+                cf.into_bytes(),
+            ));
         }
         let policy = &self.nodes[i].policy;
         let manifest = json!({
@@ -852,8 +961,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
         let rj: String = recipes.iter().map(|r| format!("{r}\n")).collect();
         sums.push_str(&format!("{}  recipes.jsonl\n", sha256_hex(rj.as_bytes())));
-        rt.accepts.push(record(format!("{exp}/recipes.jsonl"), rj.into_bytes()));
-        rt.accepts.push(record(format!("{exp}/SHA256SUMS"), sums.into_bytes()));
+        rt.accepts
+            .push(record(format!("{exp}/recipes.jsonl"), rj.into_bytes()));
+        rt.accepts
+            .push(record(format!("{exp}/SHA256SUMS"), sums.into_bytes()));
         // the S jobs' cost
         let (mut s_cpu, mut s_wall, mut s_jobs, mut s_peak) = (0.0f64, 0.0f64, 0u64, 0u64);
         for (_, _, jobs) in self.s_items(st, i) {
@@ -910,7 +1021,10 @@ pub fn closeout_check(p: &rf::policy::ProposalPolicy, fin: &Value, open: usize) 
         .filter(|b| !b.starts_with("import_open_keys:") && !b.starts_with("open_keys:"))
         .collect();
     let k = &fin["keys"];
-    let (closure, cert) = (k["closure"].as_u64().unwrap_or(0), k["certified"].as_u64().unwrap_or(0));
+    let (closure, cert) = (
+        k["closure"].as_u64().unwrap_or(0),
+        k["certified"].as_u64().unwrap_or(0),
+    );
     if !p.enabled || !p.declare_terminal {
         return (false, "declaration of proposals off by policy".into());
     }
@@ -924,9 +1038,15 @@ pub fn closeout_check(p: &rf::policy::ProposalPolicy, fin: &Value, open: usize) 
         return (false, format!("{open} proposals (max {})", p.max_terminals));
     }
     if cert + open as u64 != closure {
-        return (false, format!("certified {cert} + proposals {open} != closure {closure}"));
+        return (
+            false,
+            format!("certified {cert} + proposals {open} != closure {closure}"),
+        );
     }
-    (true, format!("{open} terminal proposals declared; every other closure key certified"))
+    (
+        true,
+        format!("{open} terminal proposals declared; every other closure key certified"),
+    )
 }
 
 /// `{"type":"rule","index":K, <the other fields sorted>}`: rr_proof reads a record at an offset only when its line
@@ -973,7 +1093,8 @@ fn fake_gen_script(f: &FakeGen, face: &str) -> FakeScript {
             });
         }
         Some(b) => {
-            let stop: StopCode = serde_json::from_value(b["stop"].clone()).unwrap_or(StopCode::OpenObligations);
+            let stop: StopCode =
+                serde_json::from_value(b["stop"].clone()).unwrap_or(StopCode::OpenObligations);
             ops.push(FakeOp::Case {
                 ordinal: 0,
                 ms: f.ms,
@@ -1019,7 +1140,8 @@ fn p1_pass(
     rows: &Path,
 ) -> Result<P1, String> {
     let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
-    let set = rustred_campaign_core::import::load(&spec, base).map_err(|e| format!("import load: {e}"))?;
+    let set = rustred_campaign_core::import::load(&spec, base)
+        .map_err(|e| format!("import load: {e}"))?;
     let ev = Evidence::from_spec(&set, base).map_err(|e| format!("evidence: {e}"))?;
     let res = rustred_campaign_core::import::check::check_streamed(
         &set,
@@ -1053,7 +1175,10 @@ fn p1_pass(
         .iter()
         .find(|s| s.id == spec.frame_from)
         .ok_or("frame_from source missing")?;
-    let fpath = fsrc.path.clone().ok_or("frame_from source without a path")?;
+    let fpath = fsrc
+        .path
+        .clone()
+        .ok_or("frame_from source without a path")?;
     let fpath = if Path::new(&fpath).is_absolute() {
         PathBuf::from(&fpath)
     } else {
@@ -1068,12 +1193,16 @@ fn p1_pass(
             .map_err(|e| e.to_string())?;
         l.trim_end_matches('\n').to_string()
     };
-    let header: Value = serde_json::from_str(&header_line).map_err(|e| format!("frame header: {e}"))?;
+    let header: Value =
+        serde_json::from_str(&header_line).map_err(|e| format!("frame header: {e}"))?;
     let cp: Option<Vec<usize>> = header["node_order"]["coordinate_priority"]
         .as_array()
-        .map(|a| a.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect());
-    let (mut lp, mut np) =
-        rustred_campaign_core::termmin::priorities(&lines, cp.as_deref());
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_u64().map(|x| x as usize))
+                .collect()
+        });
+    let (mut lp, mut np) = rustred_campaign_core::termmin::priorities(&lines, cp.as_deref());
     if let Some(l) = &policy.recipes.line_priority {
         lp = l.clone();
     }
@@ -1136,7 +1265,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                     if let Some(d) = p.parent() {
                         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
                     }
-                    crate::atomic::write_atomic(&p, &b).map_err(|e| format!("{}: {e}", p.display()))?;
+                    crate::atomic::write_atomic(&p, &b)
+                        .map_err(|e| format!("{}: {e}", p.display()))?;
                     ev.push(Event::InputRegistered {
                         input: id,
                         role: ROLE_POLICY.into(),
@@ -1153,21 +1283,32 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn ready(&mut self, st: &CampaignState, ctx: &SourceContext, limit: usize) -> Vec<JobRequest> {
         let mut out = vec![];
         for i in 0..self.nodes.len() {
-            if self.nodes[i].p1.is_none() || st.inputs.contains_key(&input_extension(&self.nodes[i].n)) {
+            if self.nodes[i].p1.is_none()
+                || st.inputs.contains_key(&input_extension(&self.nodes[i].n))
+            {
                 continue;
             }
             for (item, ph, jobs) in self.s_items(st, i) {
                 let job = match ph {
                     ItemPhase::Open => Some(format!("{item}-t{}", jobs.len())),
-                    ItemPhase::InProgress => match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
-                        Some(AttemptState::Queued) => jobs.last().cloned(),
-                        _ => None,
-                    },
+                    ItemPhase::InProgress => {
+                        match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
+                            Some(AttemptState::Queued) => jobs.last().cloned(),
+                            _ => None,
+                        }
+                    }
                     _ => None,
                 };
                 let Some(job) = job else { continue };
-                let Some(face) = self.face_of(st, i, &item) else { continue };
-                let prio = 1_000_000_000 - st.items.get(&item).map(|x| x.weight as i64).unwrap_or(0).min(1);
+                let Some(face) = self.face_of(st, i, &item) else {
+                    continue;
+                };
+                let prio = 1_000_000_000
+                    - st.items
+                        .get(&item)
+                        .map(|x| x.weight as i64)
+                        .unwrap_or(0)
+                        .min(1);
                 match self.job_request(i, &item, job, &face, prio) {
                     Ok(r) => out.push(r),
                     Err(e) => eprintln!("repairflow: no job for {item}: {e}"),
@@ -1180,7 +1321,12 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         out
     }
 
-    fn route(&mut self, st: &CampaignState, ctx: &SourceContext, done: &Settled) -> Result<Routing, String> {
+    fn route(
+        &mut self,
+        st: &CampaignState,
+        ctx: &SourceContext,
+        done: &Settled,
+    ) -> Result<Routing, String> {
         let Some(i) = self.node_of_item(st, &done.item) else {
             return self.inner.route(st, ctx, done);
         };
@@ -1190,26 +1336,61 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             .ok_or_else(|| format!("repairflow: {}: face unknown (P1 not loaded)", done.item))?;
         let p1 = self.nodes[i].p1.clone().ok_or("p1 not loaded")?;
         let c = &done.classification;
-        let why = format!("row {} {} {:?} {:?}: {}", c.row, c.sub, c.kind, c.action, c.why);
+        let why = format!(
+            "row {} {} {:?} {:?}: {}",
+            c.row, c.sub, c.kind, c.action, c.why
+        );
         let answer = match (&done.table, done.canonical_lines.is_empty()) {
             (Some(t), false) => {
-                let run_dir = st.jobs.get(&done.job).and_then(|j| j.run_dir.clone()).unwrap_or_default();
+                let run_dir = st
+                    .jobs
+                    .get(&done.job)
+                    .and_then(|j| j.run_dir.clone())
+                    .unwrap_or_default();
                 match candidates_of(&run_dir, t, &done.canonical_lines, &p1, &face) {
-                    Ok(Ok(cands)) => FaceAnswer::Candidates { job: done.job.clone(), candidates: cands },
-                    Ok(Err((kind, w))) if kind == "frame" => FaceAnswer::FrameMismatch { job: done.job.clone(), why: w },
-                    Ok(Err((_, w))) => FaceAnswer::DomainError { job: done.job.clone(), why: w },
-                    Err(e) => FaceAnswer::NoCandidate { job: done.job.clone(), why: format!("{why}; {e}") },
+                    Ok(Ok(cands)) => FaceAnswer::Candidates {
+                        job: done.job.clone(),
+                        candidates: cands,
+                    },
+                    Ok(Err((kind, w))) if kind == "frame" => FaceAnswer::FrameMismatch {
+                        job: done.job.clone(),
+                        why: w,
+                    },
+                    Ok(Err((_, w))) => FaceAnswer::DomainError {
+                        job: done.job.clone(),
+                        why: w,
+                    },
+                    Err(e) => FaceAnswer::NoCandidate {
+                        job: done.job.clone(),
+                        why: format!("{why}; {e}"),
+                    },
                 }
             }
-            _ => FaceAnswer::NoCandidate { job: done.job.clone(), why },
+            _ => FaceAnswer::NoCandidate {
+                job: done.job.clone(),
+                why,
+            },
         };
-        let has = matches!(&answer, FaceAnswer::Candidates { candidates, .. } if !candidates.is_empty());
+        let has =
+            matches!(&answer, FaceAnswer::Candidates { candidates, .. } if !candidates.is_empty());
         let rec = record(
-            format!("{}/answers/{}.{}.answer.json", rf_dir(&self.nodes[i].n), done.item, done.job),
-            json_bytes(&json!({"schema": ANSWER_SCHEMA, "item": done.item, "face": face.label,
-                "job": done.job, "attempt": done.attempt, "answer": answer})),
+            format!(
+                "{}/answers/{}.{}.answer.json",
+                rf_dir(&self.nodes[i].n),
+                done.item,
+                done.job
+            ),
+            json_bytes(
+                &json!({"schema": ANSWER_SCHEMA, "item": done.item, "face": face.label,
+                "job": done.job, "attempt": done.attempt, "answer": answer}),
+            ),
         );
-        self.reg(&mut rt, input_answer(&done.item, &done.job), ROLE_ANSWER, rec);
+        self.reg(
+            &mut rt,
+            input_answer(&done.item, &done.job),
+            ROLE_ANSWER,
+            rec,
+        );
         if has && let Some(t) = &done.table {
             rt.events.push(Event::Item {
                 item: done.item.clone(),
@@ -1231,7 +1412,12 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         Ok(rt)
     }
 
-    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String> {
+    fn control(
+        &mut self,
+        st: &CampaignState,
+        verb: &str,
+        target: &str,
+    ) -> Result<Vec<Event>, String> {
         if self.node_of_item(st, target).is_some() {
             return match verb {
                 "retry" | "skip" => Ok(vec![]),
@@ -1247,12 +1433,16 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         for i in 0..self.nodes.len() {
             let n = self.nodes[i].n.clone();
             let node = self.nodes[i].cfg.node.clone();
-            let Some(nr) = st.nodes.get(&node) else { continue };
+            let Some(nr) = st.nodes.get(&node) else {
+                continue;
+            };
             if nr.state.phase == NodePhase::Registered {
                 continue;
             }
             if st.inputs.contains_key(&input_extension(&n)) {
-                if st.inputs.contains_key(&input_final(&n)) && !st.inputs.contains_key(&input_report(&n)) {
+                if st.inputs.contains_key(&input_final(&n))
+                    && !st.inputs.contains_key(&input_report(&n))
+                {
                     // P5 (the faces of the decisions; P1 not needed beyond the frame mask)
                     if self.nodes[i].p1.is_none() && self.nodes[i].pass.is_none() {
                         self.start_p1(st, i)?;
@@ -1326,7 +1516,12 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         Ok(rt)
     }
 
-    fn confirm_coverage(&mut self, st: &CampaignState, ctx: &SourceContext, done: &Settled) -> Result<Option<Vec<Event>>, String> {
+    fn confirm_coverage(
+        &mut self,
+        st: &CampaignState,
+        ctx: &SourceContext,
+        done: &Settled,
+    ) -> Result<Option<Vec<Event>>, String> {
         if self.node_of_item(st, &done.item).is_some() {
             return Ok(None);
         }
@@ -1336,7 +1531,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn finished(&self, st: &CampaignState) -> bool {
         self.inner.finished(st)
             && self.nodes.iter().all(|r| {
-                !st.inputs.contains_key(&input_final(&r.n)) || st.inputs.contains_key(&input_report(&r.n))
+                !st.inputs.contains_key(&input_final(&r.n))
+                    || st.inputs.contains_key(&input_report(&r.n))
             })
     }
 
@@ -1369,7 +1565,10 @@ fn candidates_of(
     let path = Path::new(run_dir).join("out").join("F.table.jsonl");
     let b = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     if blake3_hex(&b) != t.blake3 {
-        return Err(format!("{}: differs from the verified table", path.display()));
+        return Err(format!(
+            "{}: differs from the verified table",
+            path.display()
+        ));
     }
     let canon: BTreeSet<&str> = canonical.iter().map(String::as_str).collect();
     let text = String::from_utf8(b).map_err(|e| e.to_string())?;
@@ -1392,8 +1591,15 @@ fn candidates_of(
                     let a = rustred_campaign_core::assemble::header_identity(&v);
                     let f = rustred_campaign_core::assemble::header_identity(&p1.frame_header);
                     if a != f {
-                        let k = a.keys().chain(f.keys()).find(|k| a.get(*k) != f.get(*k)).cloned();
-                        return Ok(Err(("frame".into(), format!("header identity differs at {k:?}"))));
+                        let k = a
+                            .keys()
+                            .chain(f.keys())
+                            .find(|k| a.get(*k) != f.get(*k))
+                            .cloned();
+                        return Ok(Err((
+                            "frame".into(),
+                            format!("header identity differs at {k:?}"),
+                        )));
                     }
                 }
             }

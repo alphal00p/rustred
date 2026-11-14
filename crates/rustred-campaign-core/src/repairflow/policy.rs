@@ -346,7 +346,8 @@ pub fn merge(base: &mut Value, over: &Value) {
 
 impl PolicyFile {
     pub fn parse(text: &str) -> Result<PolicyFile, String> {
-        let f: PolicyFile = serde_json::from_str(text).map_err(|e| format!("repair policy: {e}"))?;
+        let f: PolicyFile =
+            serde_json::from_str(text).map_err(|e| format!("repair policy: {e}"))?;
         if f.schema != POLICY_SCHEMA {
             return Err(format!(
                 "repair policy: schema {:?}, expected {POLICY_SCHEMA}",
@@ -398,16 +399,27 @@ impl RepairPolicy {
         for (x, what) in [
             (self.cost.load_ns_per_byte, "cost.load_ns_per_byte"),
             (self.cost.apply_ns_base, "cost.apply_ns_base"),
-            (self.cost.apply_ns_per_monomial, "cost.apply_ns_per_monomial"),
+            (
+                self.cost.apply_ns_per_monomial,
+                "cost.apply_ns_per_monomial",
+            ),
             (self.cost.recipe_solve_s, "cost.recipe_solve_s"),
             (self.cost.cached_ns_base, "cost.cached_ns_base"),
-            (self.cost.cached_ns_per_rhs_term, "cost.cached_ns_per_rhs_term"),
+            (
+                self.cost.cached_ns_per_rhs_term,
+                "cost.cached_ns_per_rhs_term",
+            ),
             (self.cost.uses_per_served_key, "cost.uses_per_served_key"),
-            (self.cost.unbounded_direction_uses, "cost.unbounded_direction_uses"),
+            (
+                self.cost.unbounded_direction_uses,
+                "cost.unbounded_direction_uses",
+            ),
             (self.cost.table_weight, "cost.table_weight"),
         ] {
             if !x.is_finite() || x < 0.0 {
-                return Err(format!("repair policy: {what} = {x} must be finite and >= 0"));
+                return Err(format!(
+                    "repair policy: {what} = {x} must be finite and >= 0"
+                ));
             }
         }
         if !matches!(
@@ -439,7 +451,9 @@ impl RepairPolicy {
         }
         for c in &self.keep.choice_order {
             if !CHOICE_CRITERIA.contains(&c.as_str()) {
-                return Err(format!("repair policy: keep.choice_order: unknown criterion {c:?}"));
+                return Err(format!(
+                    "repair policy: keep.choice_order: unknown criterion {c:?}"
+                ));
             }
         }
         if self.symbolic.wall_case_s == 0 {
