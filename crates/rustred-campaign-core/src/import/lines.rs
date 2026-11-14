@@ -28,6 +28,13 @@ pub const KNOWN_KINDS: &[&str] = &[
     "composite_terminal_ledger",
 ];
 
+/// The most values a `domain_bounds` entry may exclude on a FREE slot (a line `min m` excludes `1..m`, a numerator
+/// `max M` excludes `M+1..=0`). The engine materialises bounds as one exception branch per excluded value and refuses
+/// a farther bound (rustred-core node/bounds.rs `MAX_EXCLUDED_PER_SLOT`); the importer refuses the same, so that both
+/// sides accept or refuse a record identically (lane engfix4, re-audit mn-2). A bound on a FIXED slot is a comparison
+/// with the fixed value and has no limit on either side.
+pub const MAX_BOUND_EXCLUSIONS_PER_SLOT: i64 = 64;
+
 /// Inclusive selection bounds on the rule point (`domain_bounds` of the engine line, coord-bank-tables.md s.10).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DomainBounds {

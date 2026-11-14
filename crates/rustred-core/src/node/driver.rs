@@ -1480,6 +1480,38 @@ fn case_json<const N: usize>(c: &Case<N>, n: usize) -> String {
     serde_json::to_string(&case_spec(c, n)).expect("case json")
 }
 
+// ---- child-job journal records (job mode only; engfix4, re-audit MJ-1). The legacy queue log leaves a few changes of
+// the open state silent (duplicate discards, a branch admitted with nothing left, the full detail objects of deferred
+// charts and refused cases, the PRESENTED queue that replaces the initial one). In job mode these are written as
+// `job_*` records, so that a resumed attempt re-derives every open-state field of RESUME.json from the committed
+// queue-log prefix ([`resume_replay_check`]). Legacy invocations write none of them (byte-identical queue log).
+
+/// A discard the legacy log leaves silent: `{"type":"job_discard","why":W,"case"|"at":..}` (`what` = (key, JSON)).
+fn job_discard(qlog: &mut impl std::io::Write, why: &str, what: (&str, &str)) -> Result<(), String> {
+    if !super::childjob::active() {
+        return Ok(());
+    }
+    writeln!(qlog, "{{\"type\":\"job_discard\",\"why\":{},\"{}\":{}}}", q(why), what.0, what.1)
+        .map_err(|e| e.to_string())
+}
+
+/// An entry of an open list with the detail object RESUME carries: `{"type":"job_open","list":"deferred"|"refused",
+/// "case":C,"detail":D}`.
+fn job_open<const N: usize>(
+    qlog: &mut impl std::io::Write,
+    list: &str,
+    case: &Case<N>,
+    detail: &serde_json::Value,
+    n: usize,
+) -> Result<(), String> {
+    if !super::childjob::active() {
+        return Ok(());
+    }
+    let d = serde_json::to_string(detail).map_err(|e| e.to_string())?;
+    writeln!(qlog, "{{\"type\":\"job_open\",\"list\":{},\"case\":{},\"detail\":{d}}}", q(list), case_json(case, n))
+        .map_err(|e| e.to_string())
+}
+
 /// Linear integer expression in `n<i>` (`3*n1-n2+4`) as a coefficient polynomial of the family's index variables.
 pub(super) fn parse_index_poly(
     expr: &str,
@@ -3345,7 +3377,9 @@ fn run<const N: usize>(
     // coefficients are skipped) or a compact cover index (`rr_node cover-index`) bound to its table
     let mut cover: Vec<CoverEntry<N>> = Vec::new();
     for (path, upto) in &opts.cover_tables {
-        let (shapes, head) = super::registry::read_rule_shapes(path, *upto)?;
+        // child-job (engfix4 mn-1): read through the input file whose digest the job verified (legacy: `path`)
+        let read_path = super::childjob::input_read_path(path);
+        let (shapes, head) = super::registry::read_rule_shapes(&read_path, *upto)?;
         // guard-fix D1: cover material of another guard semantics is REFUSED (a pre-fix rule lacks the witness-pole
         // branches, so as a cover it would suppress the child cases this run must open). Header (absent = 1; a cover
         // index carries its table's), and every rule line that carries its own stamp.
@@ -3379,7 +3413,7 @@ fn run<const N: usize>(
                 ));
             }
             use std::io::BufRead as _;
-            let f = std::fs::File::open(path).map_err(|e| format!("cover table {path}: {e}"))?;
+            let f = std::fs::File::open(&read_path).map_err(|e| format!("cover table {path}: {e}"))?;
             let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
             let mut line = String::new();
             rd.read_line(&mut line)
@@ -3859,6 +3893,9 @@ fn run<const N: usize>(
             let fixed = *case.face();
             if numerical.contains(&fixed) {
                 *discarded += 1;
+                // child-job (job mode only, engfix4 MJ-1): a discard the legacy log leaves silent is journaled, so a
+                // resumed attempt re-derives the `discarded` counter from the committed queue log
+                let _ = job_discard(qlog, "numerical_duplicate", ("case", &case_json(&case, n)));
                 return;
             }
             let _ = writeln!(
@@ -3870,7 +3907,10 @@ fn run<const N: usize>(
             return;
         }
         match pending.binary_search_by(|queued| queued.queue_cmp(&case)) {
-            Ok(_) => *discarded += 1,
+            Ok(_) => {
+                *discarded += 1;
+                let _ = job_discard(qlog, "queued_duplicate", ("case", &case_json(&case, n)));
+            }
             Err(position) => {
                 let _ = writeln!(
                     qlog,
@@ -4223,6 +4263,36 @@ fn run<const N: usize>(
             }
         }
         outcome.refused_open = refused_open.len();
+        if r.prefix {
+            // engfix4 (re-audit MJ-1): RESUME is used only where it equals what the copied committed prefixes prove
+            let frame = ReplayFrame {
+                ordering: solver.ordering(),
+                template: &template,
+                idx: &idx,
+                sector: &sector,
+                n,
+                descend_open: super::childjob::descend_open(),
+            };
+            let got = ResumeBuilt {
+                pending: &pending,
+                numerical: &numerical,
+                numeric_stage: resumed_numeric.as_ref(),
+                deferred: &deferred_charts,
+                refused: &refused_open,
+            };
+            if let Err(m) = resume_replay_check::<N>(r, &out_dir.join("F.queue.jsonl"), &frame, &got) {
+                super::childjob::fail_input(&format!("resume refused: {m}"));
+            }
+        } else {
+            // PRESENTED cases replaced the initial queue (job mode): journaled for a later resume's replay (MJ-1)
+            writeln!(
+                qlog,
+                "{{\"type\":\"job_queue_reset\",\"source\":\"presented\",\"cases\":{},\"numerical\":{}}}",
+                pending.len(),
+                numerical.len()
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
     let mut in_flight: Option<Case<N>>;
     loop {
@@ -5084,10 +5154,9 @@ fn run<const N: usize>(
             .map_err(|e| e.to_string())?;
             if opts.open_on_refusal {
                 outcome.refused_open += 1;
-                refused_open.push((
-                    current.clone(),
-                    serde_json::json!({"reason": "lift refused", "reports": serde_json::to_value(&refusals).unwrap_or_default()}),
-                ));
+                let detail = serde_json::json!({"reason": "lift refused", "reports": serde_json::to_value(&refusals).unwrap_or_default()});
+                job_open(&mut qlog, "refused", &current, &detail, n)?;
+                refused_open.push((current.clone(), detail));
                 continue;
             }
             stop = Some(StopReason::LiftRefused {
@@ -5159,10 +5228,9 @@ fn run<const N: usize>(
                     writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len() + adopted_rules, case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
                     if opts.open_on_refusal {
                         outcome.refused_open += 1;
-                        refused_open.push((
-                            current.clone(),
-                            serde_json::json!({"reason": format!("guard extraction timeout ({secs} s)"), "rhs": candidate.rhs.len()}),
-                        ));
+                        let detail = serde_json::json!({"reason": format!("guard extraction timeout ({secs} s)"), "rhs": candidate.rhs.len()});
+                        job_open(&mut qlog, "refused", &current, &detail, n)?;
+                        refused_open.push((current.clone(), detail));
                         continue;
                     }
                     stop = Some(StopReason::GuardTimeout {
@@ -5313,7 +5381,9 @@ fn run<const N: usize>(
                 note_forked(&r, super::childjob::TimeWhat::Admission, secs, Some(index), "deferred region");
                 if !matches!(r, Forked::Done(..)) {
                     deferred_regions += 1;
-                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)})));
+                    let detail = serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)});
+                    job_open(&mut qlog, "deferred", &rule.candidate.case, &detail, n)?;
+                    deferred_charts.push((rule.candidate.case.clone(), detail));
                     writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"reason\":\"AdmissionTimeout({secs} s)\",\"chart\":{},\"conjunction\":{}}}", case_json(&rule.candidate.case, n), strings(branch.iter())).map_err(|e| e.to_string())?;
                     continue;
                 }
@@ -5337,11 +5407,15 @@ fn run<const N: usize>(
                 Ok(r) => {
                     for (di, d) in r.deferred.iter().enumerate() {
                         deferred_regions += 1;
-                        deferred_charts.push((d.chart.clone(), region_detail(index, bi, di, d, n)));
+                        let detail = region_detail(index, bi, di, d, n);
+                        job_open(&mut qlog, "deferred", &d.chart, &detail, n)?;
+                        deferred_charts.push((d.chart.clone(), detail));
                         writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                     }
                     if r.cases.is_empty() && r.deferred.is_empty() {
                         discarded += 1;
+                        // child-job (job mode only, engfix4 MJ-1): the silent discard is journaled
+                        job_discard(&mut qlog, "branch_empty", ("at", &format!("{{\"rule\":{index},\"branch\":{bi}}}")))?;
                     }
                     for ch in &r.cases {
                         writeln!(
@@ -5355,7 +5429,9 @@ fn run<const N: usize>(
                 }
                 Err(e) => {
                     deferred_branches += 1;
-                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()})));
+                    let detail = serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()});
+                    job_open(&mut qlog, "deferred", &rule.candidate.case, &detail, n)?;
+                    deferred_charts.push((rule.candidate.case.clone(), detail));
                     writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                 }
             }
@@ -5406,7 +5482,7 @@ fn run<const N: usize>(
     }
     // child-job (job mode only): commit point at the end of the symbolic queue
     if super::childjob::active() {
-        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, resumed_numeric.as_ref().map(|(t, e)| (*t, e.as_slice())), n))?;
+        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], error.is_some(), &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, resumed_numeric.as_ref().map(|(t, e)| (*t, e.as_slice())), n))?;
         if stop.is_none() && error.is_none() {
             stop = s;
         }
@@ -6353,6 +6429,372 @@ fn write_cand_dump_named<const N: usize>(
         pivots.join(",")
     );
     std::fs::write(path, body).map_err(|e| format!("cand dump: {e}"))
+}
+
+/// The open state a resumed attempt built from RESUME.json (`current` first in `pending`), checked by
+/// [`resume_replay_check`].
+struct ResumeBuilt<'a, const N: usize> {
+    pending: &'a [Case<N>],
+    numerical: &'a [CoordinateCase<N>],
+    numeric_stage: Option<&'a (usize, Vec<CoordinateCase<N>>)>,
+    deferred: &'a [(Case<N>, serde_json::Value)],
+    refused: &'a [(Case<N>, serde_json::Value)],
+}
+
+/// The node's frame for [`resume_replay_check`].
+struct ReplayFrame<'a, const N: usize> {
+    ordering: &'a crate::solver::IntegralOrder<N>,
+    template: &'a CoefficientPolynomial,
+    idx: &'a [usize; N],
+    sector: &'a [bool; N],
+    n: usize,
+    descend_open: bool,
+}
+
+/// Child-job resume SELF-CHECK (engfix4, re-audit MJ-1): RESUME.json is never trusted beyond what the committed
+/// prefixes it names PROVE. The copied queue-log prefix is replayed through the driver's own queue operations
+/// (`enqueue` / `enqueue_numerical` with the silent subsumption pruning and the sorted insertion, `job_taken` pops
+/// of the first queued case / first open endpoint, discards, `job_open` entries of the open lists, numeric-stage
+/// `numerical_exhausted`, the PRESENTED `job_queue_reset` from the cases input) and the copied table prefix is
+/// re-read (rule indices, RHS sizes, exception branches, monomials, and the strict-descent test of every RHS key under
+/// the node order, as the driver does for a winning rule). Every open-state field RESUME carries and the resumed
+/// attempt uses must equal the re-derived value: the open queue (`current` + `pending`), `numerical`, the numeric
+/// stage (`numerical_cases`, `exhausted`), `deferred`, `refused_open` (with their detail objects), `symbolic_cases`,
+/// the five running counters of the end records, `engine.not_lower` (as a multiset), `engine.descend_open` (own set,
+/// returned list), and the derivable work counters of `counters_at_commit`. Any difference: Err (the caller refuses
+/// the resume with exit 41). Each queue-log `rule` record must also match the table rule of its index (case or fixed
+/// point, RHS size, trace rows): the table prefix is bound to the history the queue log records.
+fn resume_replay_check<const N: usize>(
+    r: &super::childjob::Resumed,
+    queue_log: &Path,
+    f: &ReplayFrame<'_, N>,
+    got: &ResumeBuilt<'_, N>,
+) -> Result<(), String> {
+    use serde_json::Value;
+    let n = f.n;
+    let text = std::fs::read_to_string(queue_log)
+        .map_err(|e| format!("committed queue log {}: {e}", queue_log.display()))?;
+    let build = |v: &Value| -> Result<Case<N>, String> {
+        let spec: CaseSpec = serde_json::from_value(v.clone()).map_err(|e| format!("case {v}: {e}"))?;
+        build_case::<N>(&spec, f.template, f.idx, f.sector, n)?
+            .ok_or_else(|| format!("case {v} is empty"))
+    };
+    let point = |v: &Value| -> Result<CoordinateCase<N>, String> {
+        let p: Vec<i64> = serde_json::from_value(v.clone()).map_err(|e| format!("endpoint {v}: {e}"))?;
+        numeric_point::<N>(&p, n).map_err(|e| format!("endpoint {v}: {e}"))
+    };
+    let key = |c: &Case<N>| super::childjob::case_key(&case_spec(c, n));
+    let mut pending: Vec<Case<N>> = Vec::new();
+    let mut numerical: Vec<CoordinateCase<N>> = Vec::new();
+    let mut deferred: Vec<(Case<N>, Value)> = Vec::new();
+    let mut refused: Vec<(Case<N>, Value)> = Vec::new();
+    let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
+    let mut numeric_total: Option<usize> = None;
+    let mut symbolic_cases = 0usize;
+    let (mut discarded, mut deferred_regions, mut deferred_branches) = (0usize, 0usize, 0usize);
+    let mut own: Option<std::collections::BTreeSet<String>> = None;
+    let mut returned: Vec<String> = Vec::new();
+    let mut numeric_points = 0u64;
+    let mut qrules: Vec<Value> = Vec::new();
+    for (k, line) in text.lines().enumerate() {
+        let at = |m: String| format!("committed queue log line {}: {m}", k + 1);
+        let v: Value = serde_json::from_str(line).map_err(|e| at(e.to_string()))?;
+        let t = v["type"].as_str().unwrap_or("").to_string();
+        match t.as_str() {
+            "enqueue" => {
+                let c = build(&v["case"]).map_err(at)?;
+                if !prune_subsumed(&mut pending, &c) {
+                    return Err(at("an enqueued case is contained in a queued case".into()));
+                }
+                match pending.binary_search_by(|queued| queued.queue_cmp(&c)) {
+                    Ok(_) => return Err(at("an enqueued case is already queued".into())),
+                    Err(p) => pending.insert(p, c),
+                }
+            }
+            "enqueue_numerical" => {
+                let c = build(&v["case"]).map_err(at)?;
+                if !c.is_numerical() || !prune_subsumed(&mut pending, &c) {
+                    return Err(at("not an open numeric endpoint".into()));
+                }
+                let fixed = *c.face();
+                if numerical.contains(&fixed) {
+                    return Err(at("a numeric endpoint enqueued twice".into()));
+                }
+                numerical.push(fixed);
+            }
+            "covered" if v.get("by_registry").is_some() => {
+                return Err(at("a registry record cannot be replayed in job mode".into()));
+            }
+            "covered" | "union_covered" | "subsumed_by_pending" => discarded += 1,
+            "job_discard" => {
+                match v["why"].as_str() {
+                    // as `enqueue`: the subsumption pruning runs first (its side effect included)
+                    Some("numerical_duplicate") => {
+                        let c = build(&v["case"]).map_err(at)?;
+                        if !c.is_numerical()
+                            || !prune_subsumed(&mut pending, &c)
+                            || !numerical.contains(c.face())
+                        {
+                            return Err(at("a duplicate endpoint that is not open".into()));
+                        }
+                    }
+                    Some("queued_duplicate") => {
+                        let c = build(&v["case"]).map_err(at)?;
+                        if !prune_subsumed(&mut pending, &c)
+                            || pending.binary_search_by(|queued| queued.queue_cmp(&c)).is_err()
+                        {
+                            return Err(at("a duplicate case that is not queued".into()));
+                        }
+                    }
+                    Some("branch_empty") => {}
+                    other => return Err(at(format!("job_discard why {other:?}"))),
+                }
+                discarded += 1;
+            }
+            "job_taken" => {
+                let back = v["returned"].as_bool().unwrap_or(false);
+                if v["numerical"].as_bool() == Some(true) {
+                    let p = point(&v["fixed"]).map_err(at)?;
+                    if back != f.descend_open {
+                        return Err(at("a numeric endpoint is returned iff the job runs --descend open".into()));
+                    }
+                    numeric_total.get_or_insert(numerical.len());
+                    if numerical.first() != Some(&p) {
+                        return Err(at("the endpoint taken is not the first open endpoint".into()));
+                    }
+                    numerical.remove(0);
+                    if back {
+                        returned.push(format!("numeric|{}", key(&Case::from(p))));
+                    } else {
+                        numeric_points += 1;
+                    }
+                } else {
+                    let c = build(&v["case"]).map_err(at)?;
+                    if numeric_total.is_some() {
+                        return Err(at("a symbolic case taken after the numeric stage started".into()));
+                    }
+                    if f.descend_open && own.is_none() {
+                        own = Some(pending.iter().map(key).collect());
+                    }
+                    if pending.first() != Some(&c) {
+                        return Err(at("the case taken is not the first queued case".into()));
+                    }
+                    pending.remove(0);
+                    let is_own = own.as_ref().is_some_and(|s| s.contains(&key(&c)));
+                    if back == (is_own || !f.descend_open) {
+                        return Err(at(format!(
+                            "a case {} although it is {}one of the job's own cases",
+                            if back { "returned" } else { "solved" },
+                            if is_own { "" } else { "not " }
+                        )));
+                    }
+                    if back {
+                        returned.push(format!("case|{}", key(&c)));
+                    }
+                }
+            }
+            "rule" => {
+                if v["numerical"].as_bool() != Some(true) {
+                    symbolic_cases += 1;
+                }
+                qrules.push(v);
+            }
+            "guard_timeout" => symbolic_cases += 1,
+            "numerical_exhausted" => exhausted.push(point(&v["fixed"]).map_err(at)?),
+            "deferred_region" => deferred_regions += 1,
+            "deferred_branch" => deferred_branches += 1,
+            "job_open" => {
+                let c = build(&v["case"]).map_err(at)?;
+                match v["list"].as_str() {
+                    Some("deferred") => deferred.push((c, v["detail"].clone())),
+                    Some("refused") => refused.push((c, v["detail"].clone())),
+                    other => return Err(at(format!("job_open list {other:?}"))),
+                }
+            }
+            "job_queue_reset" => {
+                let Some((cases, points)) = super::childjob::presented_input() else {
+                    return Err(at("a PRESENTED queue reset but the job has no PRESENTED cases input".into()));
+                };
+                if !qrules.is_empty() {
+                    return Err(at("a PRESENTED queue reset after a rule".into()));
+                }
+                pending = Vec::new();
+                for c in cases {
+                    if let Some(c) = build_case::<N>(c, f.template, f.idx, f.sector, n).map_err(at)? {
+                        pending.push(c);
+                    }
+                }
+                numerical = points
+                    .iter()
+                    .map(|p| numeric_point::<N>(p, n))
+                    .collect::<Result<_, _>>()
+                    .map_err(at)?;
+                if v["cases"].as_u64() != Some(pending.len() as u64)
+                    || v["numerical"].as_u64() != Some(numerical.len() as u64)
+                {
+                    return Err(at("the PRESENTED queue reset does not match the cases input".into()));
+                }
+                deferred.clear();
+                refused.clear();
+                exhausted.clear();
+                numeric_total = None;
+                symbolic_cases = 0;
+                (discarded, deferred_regions, deferred_branches) = (0, 0, 0);
+            }
+            "pool_claim" | "lease" | "lease_resolved" | "lease_returned" | "sym_closed" | "declared_terminal"
+            | "bank_adopted" => {
+                return Err(at(format!("a {t} record cannot be replayed in job mode")));
+            }
+            _ => {}
+        }
+    }
+    // `--descend open`: the own set was fixed at the first symbolic safe point; a stop AT that point (RESUME `current`
+    // set, no case taken yet) fixed it to the open queue
+    if f.descend_open && own.is_none() && r.current {
+        own = Some(pending.iter().map(key).collect());
+    }
+    let cmp_cases = |what: &str, a: &[Case<N>], b: &[Case<N>]| -> Result<(), String> {
+        if let Some(i) = (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i)) {
+            let show = |c: Option<&Case<N>>| c.map_or("none".to_string(), |c| case_json(c, n));
+            return Err(format!(
+                "RESUME {what} ({} entries) differs from what the committed queue log proves ({} entries): first \
+                 difference at position {i}: RESUME {} / queue log {}",
+                a.len(),
+                b.len(),
+                show(a.get(i)),
+                show(b.get(i))
+            ));
+        }
+        Ok(())
+    };
+    if r.cases.len() != got.pending.len() {
+        return Err(format!(
+            "RESUME current + pending: {} cases, {} of them build",
+            r.cases.len(),
+            got.pending.len()
+        ));
+    }
+    cmp_cases("current + pending", got.pending, &pending)?;
+    let pts = |v: &[CoordinateCase<N>]| v.iter().map(|p| Case::from(*p)).collect::<Vec<_>>();
+    cmp_cases("numerical", &pts(got.numerical), &pts(&numerical))?;
+    match got.numeric_stage {
+        None => {
+            if numeric_total.is_some() || !exhausted.is_empty() {
+                return Err("RESUME has no engine.numeric_stage but the committed queue log shows the numeric stage started".into());
+            }
+        }
+        Some((total, ex)) => {
+            let want = numeric_total.unwrap_or(numerical.len());
+            if *total != want {
+                return Err(format!(
+                    "RESUME engine.numeric_stage.numerical_cases {total}, the committed queue log proves {want}"
+                ));
+            }
+            cmp_cases("engine.numeric_stage.exhausted", &pts(ex), &pts(&exhausted))?;
+        }
+    }
+    let cmp_list = |what: &str, want_len: usize, a: &[(Case<N>, Value)], b: &[(Case<N>, Value)]| {
+        if want_len != a.len() {
+            return Err(format!("RESUME {what}: {want_len} entries, {} of them build", a.len()));
+        }
+        let ca: Vec<Case<N>> = a.iter().map(|x| x.0.clone()).collect();
+        let cb: Vec<Case<N>> = b.iter().map(|x| x.0.clone()).collect();
+        cmp_cases(what, &ca, &cb)?;
+        if let Some(i) = (0..a.len()).find(|&i| a[i].1 != b[i].1) {
+            return Err(format!("RESUME {what}[{i}].detail differs from the committed queue log"));
+        }
+        Ok(())
+    };
+    cmp_list("deferred", r.deferred.len(), got.deferred, &deferred)?;
+    cmp_list("refused_open", r.refused_open.len(), got.refused, &refused)?;
+    // the committed table prefix: rule indices, the running sums of the end records, the strict-descent test
+    let (mut terms, mut branches, mut monomials) = (0usize, 0usize, 0u64);
+    let mut not_lower: Vec<String> = Vec::new();
+    for (i, v) in r.rules.iter().enumerate() {
+        let bad = |m: &str| format!("committed table rule {i}: {m}");
+        if v["index"].as_u64() != Some(i as u64) {
+            return Err(bad("index out of sequence"));
+        }
+        let target = super::descent::parse_key::<N>(v["target"].as_str().ok_or_else(|| bad("no target"))?)
+            .map_err(|e| bad(&e))?;
+        let rhs = v["rhs"].as_array().ok_or_else(|| bad("no rhs"))?;
+        for t in rhs {
+            let k = t[0].as_str().ok_or_else(|| bad("rhs term without a key"))?;
+            let ik = super::descent::parse_key::<N>(k).map_err(|e| bad(&e))?;
+            if f.ordering.compare(&target, &ik) != Ordering::Less {
+                not_lower.push(k.to_string());
+            }
+        }
+        terms += rhs.len();
+        branches += v["exceptions"].as_array().ok_or_else(|| bad("no exceptions"))?.len();
+        monomials += v["monomials"].as_u64().ok_or_else(|| bad("no monomials"))?;
+    }
+    if qrules.len() != r.rules.len() {
+        return Err(format!(
+            "the committed table prefix has {} rules, the committed queue log records {}",
+            r.rules.len(),
+            qrules.len()
+        ));
+    }
+    for q in &qrules {
+        let i = q["index"].as_u64().unwrap_or(u64::MAX) as usize;
+        let Some(t) = r.rules.get(i) else {
+            return Err(format!("queue-log rule {i} is not in the committed table prefix"));
+        };
+        let same_case = if q["numerical"].as_bool() == Some(true) {
+            let fixed: Option<Vec<i64>> = serde_json::from_value(t["fixed"].clone()).ok();
+            fixed.is_some() && serde_json::from_value::<Vec<i64>>(q["fixed"].clone()).ok() == fixed
+        } else {
+            let tc = CaseSpec {
+                fixed: serde_json::from_value(t["fixed"].clone()).unwrap_or_default(),
+                equations: serde_json::from_value(t["equations"].clone()).unwrap_or_default(),
+            };
+            serde_json::from_value::<CaseSpec>(q["case"].clone()).ok() == Some(tc)
+        };
+        if !same_case
+            || q["rhs"].as_u64() != t["rhs"].as_array().map(|a| a.len() as u64)
+            || q["trace_rows"] != t["trace_rows"]
+        {
+            return Err(format!(
+                "committed table rule {i} does not match the queue-log record of its discovery (case, RHS size, trace rows)"
+            ));
+        }
+    }
+    let mut want_nl = r.not_lower.clone();
+    want_nl.sort();
+    not_lower.sort();
+    if want_nl != not_lower {
+        return Err(format!(
+            "RESUME engine.not_lower {want_nl:?}, the committed table prefix has not-lower RHS keys {not_lower:?}"
+        ));
+    }
+    let counters = [terms, branches, discarded, deferred_regions, deferred_branches];
+    if r.counters != counters || r.symbolic_cases != symbolic_cases {
+        return Err(format!(
+            "RESUME counters [rhs_terms, branches, discarded, deferred_regions, deferred_branches] {:?} / \
+             symbolic_cases {}, the committed prefixes prove {counters:?} / {symbolic_cases}",
+            r.counters, r.symbolic_cases
+        ));
+    }
+    let w = &r.work;
+    let want_w = (symbolic_cases as u64, r.rules.len() as u64, terms as u64, monomials, numeric_points);
+    if (w.cases, w.rules_committed, w.rhs_terms, w.lift_monomials, w.numeric_points) != want_w {
+        return Err(format!(
+            "RESUME counters_at_commit (cases, rules_committed, rhs_terms, lift_monomials, numeric_points) {:?}, \
+             the committed prefixes prove {want_w:?}",
+            (w.cases, w.rules_committed, w.rhs_terms, w.lift_monomials, w.numeric_points)
+        ));
+    }
+    let own_v: Option<Vec<String>> = own.map(|s| s.into_iter().collect());
+    let mut r_own = r.own.clone();
+    if let Some(o) = r_own.as_mut() {
+        o.sort();
+        o.dedup();
+    }
+    if r_own != own_v || r.returned != returned {
+        return Err("RESUME engine.descend_open (own cases / returned list) differs from the committed queue log".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

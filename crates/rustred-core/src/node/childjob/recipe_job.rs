@@ -41,7 +41,7 @@ use cc::stop::{JobStatus, StopCode, StopSource};
 use rustred_campaign_contract as cc;
 use serde_json::{Value, json};
 
-use super::{FINAL, JobStart, effective_env, lock, park_forever, proc};
+use super::{FINAL, JobStart, Sink, effective_env, lock, park_forever, proc, say};
 use crate::node::order::NodeOrder;
 use crate::node::recipe;
 
@@ -61,7 +61,7 @@ struct RJob {
     layout: RunLayout,
     inputs: Vec<InputCheck>,
     program: ProgramInfo,
-    sink: EventSink,
+    sink: Sink,
     started: Instant,
     started_utc: String,
     effective: Mutex<Option<Effective>>,
@@ -133,6 +133,7 @@ impl RJob {
         }
     }
 
+    /// `bounded`: the hard-safe stop (`last_seq` from the sink's lock-free copy, engfix4 mn-4).
     #[allow(clippy::too_many_arguments)]
     fn outcome(
         &self,
@@ -143,6 +144,7 @@ impl RJob {
         time_decisions: Vec<TimeDecision>,
         error: Option<ErrorInfo>,
         legacy: serde_json::Map<String, Value>,
+        bounded: bool,
     ) -> Outcome {
         let mut j = JobOutcome::for_spec(
             &self.spec,
@@ -161,7 +163,11 @@ impl RJob {
             cert: None,
             queue: None,
             events: Some(EventsOutput {
-                last_seq: self.sink.next_seq(),
+                last_seq: if bounded {
+                    self.sink.seen()
+                } else {
+                    self.sink.next_seq()
+                },
             }),
             resume: None,
             extra,
@@ -185,15 +191,16 @@ impl RJob {
         o
     }
 
-    /// Write OUTCOME (no-clobber; the reserve released first), emit `job_finished`; the exit code.
+    /// Write OUTCOME (no-clobber; the reserve released first), emit `job_finished`; the exit code. No diagnostic
+    /// here can panic (engfix4 MJ-2).
     fn publish(&self, o: &Outcome) -> i32 {
-        if let Err(e) = o.job.check() {
-            eprintln!("rr_node job: OUTCOME self-check: {e}");
-        }
         let _ = cc::atomic::release_reserve(&self.layout.reserve());
+        if let Err(e) = o.job.check() {
+            say(format!("OUTCOME self-check: {e}"));
+        }
         let code = o.job.exit_code;
         if let Err(e) = o.write_new(&self.layout.outcome()) {
-            eprintln!("rr_node job: OUTCOME: {e}");
+            say(format!("OUTCOME: {e}"));
             return cc::atomic::exit_for_io(&e).code();
         }
         let _ = self.sink.emit(Event::JobFinished {
@@ -226,11 +233,12 @@ impl RJob {
             vec![],
             None,
             serde_json::Map::new(),
+            true,
         );
-        if let Err(e) = o.job.check() {
-            eprintln!("rr_node job: OUTCOME self-check: {e}");
-        }
         let _ = cc::atomic::release_reserve(&self.layout.reserve());
+        if let Err(e) = o.job.check() {
+            say(format!("OUTCOME self-check: {e}"));
+        }
         let _ = o.write_new(&self.layout.outcome());
         self.sink.try_emit_for(
             Event::JobFinished {
@@ -253,7 +261,9 @@ impl RJob {
             ExitCode::Io => (StopCode::IoError, ErrorClass::Io),
             _ => (StopCode::InternalError, ErrorClass::Internal),
         };
-        eprintln!("rr_node job: {message}");
+        // engfix4 MJ-2: the reserve first (a full disk's OUTCOME is written from it), a diagnostic that cannot panic
+        let _ = cc::atomic::release_reserve(&self.layout.reserve());
+        say(message);
         let info = StopInfo {
             code: Some(stop),
             detail: Value::Null,
@@ -268,8 +278,36 @@ impl RJob {
             vec![],
             Some(ErrorInfo::new(class, message)),
             serde_json::Map::new(),
+            false,
         );
         self.publish(&o)
+    }
+}
+
+/// The job's output or print failure, if one happened (engfix4, re-audit MJ-2): (50 for no space / 51, message).
+/// Sources: a failed write of the verb's outputs (its OS error carried by [`recipe::output_errno`]) and a failed
+/// diagnostic print anywhere in the engine (the job's panic hook, [`super::io_errno`]).
+fn io_failure() -> Option<(ExitCode, String)> {
+    let e = match super::io_errno() {
+        0 => recipe::output_errno(),
+        e => e,
+    };
+    (e != 0).then(|| {
+        let err = if e > 0 {
+            std::io::Error::from_raw_os_error(e)
+        } else {
+            std::io::Error::other("output failure without an OS error")
+        };
+        (cc::atomic::exit_for_io(&err), err.to_string())
+    })
+}
+
+/// Exit code and message of an error the batch returned: an output / print failure is 50 / 51 (with its OS error),
+/// otherwise as the CLI ([`batch_error_code`]).
+fn batch_failure(e: &str) -> (ExitCode, String) {
+    match io_failure() {
+        Some((code, m)) => (code, format!("{e} ({m})")),
+        None => (batch_error_code(e), e.to_string()),
     }
 }
 
@@ -435,6 +473,11 @@ fn canon_path(p: &std::path::Path) -> String {
 /// Exit code of an error the batch returns before any key ran (mirrors the CLI: recipe, arity and two-sided family
 /// problems are input errors, everything else internal).
 fn batch_error_code(e: &str) -> ExitCode {
+    // the verb marks the errors of sealing its outputs (engine-line 0e9a4cb8): an I/O error (51) when no OS error
+    // number was carried (with one, `batch_failure` maps it first: 50 / 51)
+    if e.starts_with(crate::node::recipe_job::IO_ERROR_PREFIX) {
+        return ExitCode::Io;
+    }
     if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
         ExitCode::Input
     } else {
@@ -450,6 +493,14 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
     // every per-key event of the verb (written before its results) is forwarded now, none after `job_finished`
     j.forward_events(true);
     j.set_phase(2);
+    // engfix4 MJ-2: an output or print failure during the batch (e.g. a key's solve that panicked on a full disk while
+    // printing a diagnostic, recorded as that key's error) taints the attempt: 50 / 51, nothing of it is used
+    if let Some((code, m)) = io_failure() {
+        return j.fail_outcome(
+            code,
+            &format!("an output or diagnostic write failed during the batch ({m}); no result of this attempt is used"),
+        );
+    }
     let internal = |m: String| j.fail_outcome(ExitCode::Internal, &m);
     let rel = RunLayout::out_rel(RESULTS);
     let (vs, handle) =
@@ -461,6 +512,23 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
         Ok(l) => l,
         Err(e) => return internal(format!("{rel}: {e}")),
     };
+    // engine-line 0e9a4cb8 computes the results' digests at the source (the verb's own `outputs.results`): the
+    // dispatcher VERIFIES them against the contract's verifier instead of trusting or rewriting them (lane engfix4)
+    let vr = &verb["outputs"]["results"];
+    if vr["blake3"].as_str() != Some(vs.blake3.as_str())
+        || vr["canonical_blake3"].as_str() != Some(vs.canonical_blake3.as_str())
+        || vr["records"].as_u64() != Some(vs.records)
+    {
+        return internal(format!(
+            "the verb's own results digests ({}, canonical {}, {} records) differ from the contract verifier's ({}, canonical {}, {} records)",
+            vr["blake3"],
+            vr["canonical_blake3"],
+            vr["records"],
+            vs.blake3,
+            vs.canonical_blake3,
+            vs.records
+        ));
+    }
     let keys = lock(&j.keys).clone();
     let (outs, tally) = match key_outcomes(&lines, &keys) {
         Ok(x) => x,
@@ -536,6 +604,7 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
         time_decisions,
         None,
         legacy,
+        false,
     );
     j.publish(&o)
 }
@@ -554,24 +623,25 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
     } = start;
     if resume.is_some() {
         // the kind constraints refuse `resume` already (L1); fail closed if a spec reaches here with one
-        eprintln!("rr_node job: kind solve-recipe has no resume");
+        say("kind solve-recipe has no resume");
         std::process::exit(ExitCode::Usage.code());
     }
     for d in [layout.out_dir(), layout.tmp_dir()] {
         if let Err(e) = std::fs::create_dir_all(&d) {
-            eprintln!("rr_node job: {}: {e}", d.display());
+            say(format!("{}: {e}", d.display()));
             std::process::exit(cc::atomic::exit_for_io(&e).code());
         }
     }
     if let Err(e) = cc::atomic::create_reserve(&layout.reserve(), cc::layout::RESERVE_BYTES) {
-        eprintln!("rr_node job: reserve: {e}");
         let _ = cc::atomic::release_reserve(&layout.reserve());
+        say(format!("reserve: {e}"));
         std::process::exit(ExitCode::NoSpace.code());
     }
     let sink = match EventSink::create(&layout.events()) {
-        Ok(s) => s,
+        Ok(s) => Sink::new(s),
         Err(e) => {
-            eprintln!("rr_node job: EVENTS: {e}");
+            let _ = cc::atomic::release_reserve(&layout.reserve());
+            say(format!("EVENTS: {e}"));
             std::process::exit(cc::atomic::exit_for_io(&e).code());
         }
     };
@@ -597,9 +667,20 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
         forward: Mutex::new(Forward::default()),
     });
     if RJOB.set(j.clone()).is_err() {
-        eprintln!("rr_node job: one job per process");
+        say("one job per process");
         std::process::exit(ExitCode::Internal.code());
     }
+    // engfix4 MJ-2: a failed diagnostic print anywhere is the job's I/O failure; the verb's own exit paths (watchdog:
+    // grace expired, only budget-expired keys left) report a failed output write through this job's error OUTCOME
+    super::install_panic_hook();
+    let hook_job = j.clone();
+    recipe::set_fail_hook(Arc::new(move |e: &str| {
+        if FINAL.swap(true, SeqCst) {
+            park_forever();
+        }
+        let (code, m) = batch_failure(&format!("writing the results: {e}"));
+        hook_job.fail_outcome(code, &m)
+    }));
     let _ = j.sink.emit(Event::JobStarted {
         job_id: j.spec.job_id.clone(),
         attempt: j.spec.attempt,
@@ -657,23 +738,22 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
     let a = resolve(spec, &family_text);
     *lock(&j.key_budget_s) = a.key_budget_s;
     let order_json: Value = serde_json::from_str(&a.order.to_json()).unwrap_or(Value::Null);
+    // `job.effective` (contract 3.2.4, ruling 2026-11-14): node_options exactly as the verb's job envelope lists them
+    // (coord-recipe-solve.md 14 M5), env = the behaviour-changing variables (licence: presence only), `blake3` = the
+    // contract's domain-separated digest of the five members (`Effective::sealed`)
     *lock(&j.effective) = Some({
-        let mut e = Effective {
+        let e = Effective {
             subcommand: "solve-recipe".into(),
             args: spec.args.clone(),
-            node_options: json!({"threads": a.threads.max(1), "max_trace_rows": a.max_trace_rows,
-                "key_budget_s": a.key_budget_s, "proof": true, "expect_keys": expect.len(),
-                "determinism_id": recipe::DETERMINISM_ID, "relation_rule": relation_rule,
-                "recipe_id": parsed.id.clone(), "recipe_digest": parsed.digest()}),
+            node_options: json!({"recipe_digest": parsed.digest(), "determinism_id": recipe::DETERMINISM_ID,
+                "relation_rule": relation_rule, "threads": a.threads.max(1),
+                "max_trace_rows": a.max_trace_rows, "key_budget_s": a.key_budget_s, "proof": true}),
             order: order_json,
             env: effective_env(),
             blake3: String::new(),
         };
-        let bytes = serde_json::to_vec(&e).unwrap_or_default();
-        e.blake3 = cc::canon::canonical_line(&bytes)
-            .map(|c| cc::blake3_hex(&c))
-            .unwrap_or_else(|_| cc::blake3_hex(&bytes));
-        e
+        e.sealed()
+            .unwrap_or_else(|err| fail(ExitCode::Internal, &format!("effective digest: {err}")))
     });
     // the verb's informational `inputs` echo (its own OUTCOME in out/); the contract OUTCOME carries the preflight's
     let inputs_echo: Vec<Value> = spec
@@ -712,14 +792,21 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
     }));
     match res {
         Ok(Ok(code)) => std::process::exit(code),
-        Ok(Err(e)) => fail(batch_error_code(&e), &e),
+        Ok(Err(e)) => {
+            let (code, m) = batch_failure(&e);
+            fail(code, &m)
+        }
         Err(p) => {
             let m = p
                 .downcast_ref::<String>()
                 .cloned()
                 .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "panic".into());
-            fail(ExitCode::Internal, &format!("panic: {m}"))
+            // a panic after (or from) a failed output / print is that I/O failure (MJ-2)
+            match io_failure() {
+                Some((code, io)) => fail(code, &format!("output failure ({io}); then panic: {m}")),
+                None => fail(ExitCode::Internal, &format!("panic: {m}")),
+            }
         }
     }
 }

@@ -1419,26 +1419,116 @@ fn not_lower_rule_maps_to_row_6_before_any_other_end() {
     let (w, _) = run_to_end(&ok);
     assert_eq!(w, WaitStatus::Exited(0));
     assert_eq!(classified(&ok, w, KillReason::None).row, 1);
-    // the same RESUME with a not-lower key (rewritten in place after the control used it; new digest)
+    // lane engfix4 (re-audit MJ-1): RESUME is used only where the committed prefixes prove it. (1) A RESUME that
+    // merely CLAIMS a not-lower key (rewritten in place after the control used it; new digest) is refused: 41.
     let layout = RunLayout::new(&a.run_dir);
-    let mut res = resume_json(&a);
-    res["engine"]["not_lower"] = serde_json::json!(["I(1,1,1,1,1,1,1,1,0)"]);
+    let res0 = resume_json(&a);
     let injected = layout.resume();
-    std::fs::write(&injected, serde_json::to_vec(&res).unwrap()).unwrap();
-    let mut b = resume_spec(&r, &a);
-    b.attempt = 3;
-    b.run_dir = rustred_campaign_contract::layout::attempt_dir(&r, &a.job_id, 3)
-        .to_str()
-        .unwrap()
-        .into();
-    std::fs::create_dir_all(&b.run_dir).unwrap();
-    b.resume = Some(rustred_campaign_contract::resume::ResumeRef {
-        from: injected.to_str().unwrap().into(),
-        blake3: b3(&injected),
+    let attempt_from = |attempt: u32, res: &serde_json::Value| -> JobSpec {
+        std::fs::write(&injected, serde_json::to_vec(res).unwrap()).unwrap();
+        let mut b = resume_spec(&r, &a);
+        b.attempt = attempt;
+        b.run_dir = rustred_campaign_contract::layout::attempt_dir(&r, &a.job_id, attempt)
+            .to_str()
+            .unwrap()
+            .into();
+        std::fs::create_dir_all(&b.run_dir).unwrap();
+        b.resume = Some(rustred_campaign_contract::resume::ResumeRef {
+            from: injected.to_str().unwrap().into(),
+            blake3: b3(&injected),
+        });
+        b
+    };
+    let mut claim = res0.clone();
+    claim["engine"]["not_lower"] = serde_json::json!(["I(1,1,1,1,1,1,1,1,0)"]);
+    let b = attempt_from(3, &claim);
+    let (w, _) = run_to_end(&b);
+    eprintln!("claimed not_lower without a rule: {w:?}");
+    assert_eq!(
+        w,
+        WaitStatus::Exited(41),
+        "a not-lower claim the table does not prove is refused"
+    );
+    assert_eq!(classified(&b, w, KillReason::None).row, 13);
+    // (2) A CONSISTENT committed history with a not-lower rule (an earlier attempt's rule whose RHS holds its own target:
+    // the table rule, the queue-log record of its discovery, every figure of RESUME and the counters agree) is restored and
+    // ends with stop not_lower BEFORE any other end (M1): exit 10, row 6, nothing accepted.
+    let prefix_of =
+        |path: &Path, bytes: u64| std::fs::read(path).unwrap()[..bytes as usize].to_vec();
+    let rewrite = |prefix: &[u8], f: &mut dyn FnMut(&mut serde_json::Value) -> bool| -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut done = false;
+        for line in prefix.split_inclusive(|&c| c == b'\n') {
+            let mut v: serde_json::Value = serde_json::from_slice(line).unwrap();
+            if !done && f(&mut v) {
+                done = true;
+                out.extend_from_slice(serde_json::to_string(&v).unwrap().as_bytes());
+                out.push(b'\n');
+            } else {
+                out.extend_from_slice(line);
+            }
+        }
+        assert!(done, "the record to plant is in the committed prefix");
+        out
+    };
+    let figures = |rel: &str, bytes: &[u8]| -> serde_json::Value {
+        let scratch = r.join("figures.tmp");
+        std::fs::write(&scratch, bytes).unwrap();
+        let (canon, _) = rustred_campaign_contract::canon::canonical_digest_file(&scratch).unwrap();
+        let lines: Vec<serde_json::Value> = bytes
+            .split(|&c| c == b'\n')
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_slice(l).unwrap())
+            .collect();
+        serde_json::json!({"path": rel, "bytes": bytes.len(), "blake3": rustred_campaign_contract::blake3_hex(bytes),
+            "records": lines.len(), "rules": lines.iter().filter(|v| v["type"] == "rule").count(),
+            "canonical_blake3": canon})
+    };
+    let (tp, qp) = (layout.table(), layout.queue());
+    let (tb, qb) = (
+        res0["table"]["bytes"].as_u64().unwrap(),
+        res0["queue"]["bytes"].as_u64().unwrap(),
+    );
+    let mut target = String::new();
+    let table_prefix = rewrite(&prefix_of(&tp, tb), &mut |v| {
+        if v["type"] == "rule" && v["index"] == 0 {
+            target = v["target"].as_str().unwrap().to_string();
+            v["rhs"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!([target, "1"]));
+            return true;
+        }
+        false
     });
+    let queue_prefix = rewrite(&prefix_of(&qp, qb), &mut |v| {
+        if v["type"] == "rule" && v["index"] == 0 {
+            let n = v["rhs"].as_u64().unwrap();
+            v["rhs"] = serde_json::json!(n + 1);
+            return true;
+        }
+        false
+    });
+    for (p, pre, len) in [(&tp, &table_prefix, tb), (&qp, &queue_prefix, qb)] {
+        let old = std::fs::read(p).unwrap();
+        let mut whole = pre.clone();
+        whole.extend_from_slice(&old[len as usize..]);
+        std::fs::write(p, whole).unwrap();
+    }
+    let mut planted = res0.clone();
+    planted["table"] = figures("out/F.table.jsonl", &table_prefix);
+    planted["queue"] = figures("out/F.queue.jsonl", &queue_prefix);
+    planted["engine"]["not_lower"] = serde_json::json!([target]);
+    let bump = |v: &mut serde_json::Value| *v = serde_json::json!(v.as_u64().unwrap() + 1);
+    bump(&mut planted["engine"]["rhs_terms"]);
+    bump(&mut planted["counters_at_commit"]["rhs_terms"]);
+    let b = attempt_from(4, &planted);
     let (w, _) = run_to_end(&b);
     let o = outcome(&b);
-    eprintln!("injected not_lower: {w:?} stop {:?}", o.job.stop.code);
+    eprintln!(
+        "consistent not-lower history: {w:?} stop {:?}",
+        o.job.stop.code
+    );
     assert_eq!(w, WaitStatus::Exited(10));
     assert_eq!(o.job.stop.code, Some(StopCode::NotLower));
     assert!(o.job.error.is_none());
@@ -1451,7 +1541,7 @@ fn not_lower_rule_maps_to_row_6_before_any_other_end() {
     let lines = table_lines(&b);
     let end = lines.last().unwrap();
     assert_eq!(end["type"], "partial");
-    assert_eq!(end["native_descent_not_lower"][0], "I(1,1,1,1,1,1,1,1,0)");
+    assert_eq!(end["native_descent_not_lower"][0], target.as_str());
 }
 
 /// audit-engjob M2: with `--strict-numeric-search`, a stop honoured after an exhausted endpoint (SIGTERM during the

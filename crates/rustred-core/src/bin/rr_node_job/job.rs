@@ -61,8 +61,13 @@ pub fn cmd_version(mut a: Args) -> i32 {
         super::die("version --json");
     }
     a.done();
-    println!("{}", serde_json::to_string(&version_info()).unwrap());
-    0
+    // engfix4 (re-audit MJ-2): no print on a job-related path may panic; a failed write is exit 1
+    use std::io::Write;
+    let line = serde_json::to_string(&version_info()).unwrap_or_default();
+    match writeln!(std::io::stdout(), "{line}").and_then(|()| std::io::stdout().flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
 }
 
 /// The legacy parser's `die` in job mode: an error OUTCOME (usage, exit 40) instead of exit 2. Returns in legacy
@@ -74,7 +79,11 @@ pub fn on_die(msg: &str) {
 /// `rr_node job RUN/job.json`.
 pub fn cmd_job(a: Args) -> i32 {
     let [path] = a.items.as_slice() else {
-        eprintln!("rr_node: usage: rr_node job RUN/job.json");
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "rr_node: usage: rr_node job RUN/job.json"
+        );
         std::process::exit(cc::ExitCode::Usage.code());
     };
     cmd_job_at(path)

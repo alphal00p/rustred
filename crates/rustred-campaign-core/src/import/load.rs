@@ -14,7 +14,8 @@ use serde_json::Value;
 
 use super::error::{ImportError, io_err};
 use super::lines::{
-    RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, scan_table_each, verify_file,
+    MAX_BOUND_EXCLUSIONS_PER_SLOT, RawRecord, RawTable, parse_key_text, read_sha256sums,
+    scan_table, scan_table_each, verify_file,
 };
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
@@ -988,6 +989,20 @@ fn build_table(
         }
         if let Some(db) = &r.domain_bounds {
             for i in 0..frame.arity() {
+                // engfix4 mn-2: the engine's limit on a FREE slot (one exception branch per excluded value there)
+                let free = r.rec.fixed.get(i).is_some_and(Option::is_none);
+                let far = db.min[i].is_some_and(|lo| lo - 1 > MAX_BOUND_EXCLUSIONS_PER_SLOT)
+                    || db.max[i].is_some_and(|hi| -hi > MAX_BOUND_EXCLUSIONS_PER_SLOT);
+                if free && far {
+                    return Err(ImportError::Line {
+                        source: src.id.clone(),
+                        path: u.path.display().to_string(),
+                        line: r.line_no,
+                        msg: format!(
+                            "domain_bounds on the free slot {i} excludes more than {MAX_BOUND_EXCLUSIONS_PER_SLOT} values (refused as by the engine)"
+                        ),
+                    });
+                }
                 if let Some(lo) = db.min[i] {
                     if !frame.is_line(i) {
                         return Err(ImportError::Line {
