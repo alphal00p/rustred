@@ -804,3 +804,28 @@ fn measure_route0b_smallest_element() {
             "best_element_counts": best_el, "elements": actions, "first": sizes_all.iter().collect::<Vec<_>>()})
     );
 }
+
+/// WRITER (ignored; reads a finished run's decisions): `face_recipe.v1` records of a node (`RF_DECISIONS` ->
+/// `RF_OUT`).
+#[test]
+#[ignore]
+fn write_face_recipe_records() {
+    use rustred_campaign_core::repairflow::face_format::{Binding, face_recipe_records};
+    let d: NodeDecisions = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("RF_DECISIONS").unwrap()).unwrap(),
+    )
+    .unwrap();
+    let recs = face_recipe_records(
+        &d,
+        &Binding {
+            policy_digest: d.policy_digest.clone(),
+            ..Default::default()
+        },
+    );
+    std::fs::write(
+        std::env::var("RF_OUT").unwrap(),
+        recs.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    println!("{} records", recs.len());
+}

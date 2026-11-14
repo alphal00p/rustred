@@ -1101,6 +1101,23 @@ impl<S: WorkSource> RepairFlowSource<S> {
             format!("{exp}/relations.entries.jsonl"),
             ej.into_bytes(),
         ));
+        // the common face record (face_recipe.v1 + our additive fields)
+        let frs = rf::face_format::face_recipe_records(
+            &d,
+            &rf::face_format::Binding {
+                node_identity: Some(node_identity.clone()),
+                table_set_digest: None,
+                engine_binary_sha256: None,
+                policy_digest: d.policy_digest.clone(),
+            },
+        );
+        let fj: String = frs.iter().map(|r| format!("{r}\n")).collect();
+        sums.push_str(&format!(
+            "{}  face_recipes.jsonl\n",
+            sha256_hex(fj.as_bytes())
+        ));
+        rt.accepts
+            .push(record(format!("{exp}/face_recipes.jsonl"), fj.into_bytes()));
         let mb = json_bytes(&manifest);
         sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
