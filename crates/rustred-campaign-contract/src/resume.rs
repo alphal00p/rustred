@@ -55,7 +55,8 @@ impl CommittedFile {
             blake3: crate::blake3_hex(b""),
             records: 0,
             rules: 0,
-            canonical_blake3: crate::blake3_hex(b""),
+            // the canonical digest of NO record (its own domain, lane contractfix2, ac2-m7)
+            canonical_blake3: crate::canon::CanonicalDigest::new().hex(),
         }
     }
 
