@@ -175,6 +175,7 @@ pub fn verify_resume(spec: &JobSpec, r: &ResumeRef) -> Result<VerifiedResume, (E
     if digest != r.blake3 {
         return Err(e41("RESUME.json digest mismatch".into()));
     }
+    crate::canon::check_document(&bytes).map_err(|e| e41(format!("RESUME.json: {e}")))?;
     let state: ResumeState =
         serde_json::from_slice(&bytes).map_err(|e| e41(format!("RESUME.json: {e}")))?;
     state
@@ -192,6 +193,7 @@ pub fn verify_resume(spec: &JobSpec, r: &ResumeRef) -> Result<VerifiedResume, (E
             "RESUME.json spec_blake3 is not the digest of the previous job.json".into(),
         ));
     }
+    crate::canon::check_document(&job).map_err(|e| e41(format!("previous job.json: {e}")))?;
     let prev: JobSpec =
         serde_json::from_slice(&job).map_err(|e| e41(format!("previous job.json: {e}")))?;
     if prev.job_id != state.job_id
@@ -254,14 +256,17 @@ pub fn preflight(
         )
     })?;
     let digest = crate::spec::spec_blake3(&bytes);
-    let spec: JobSpec = serde_json::from_slice(&bytes).map_err(|e| {
-        refuse(
-            ExitCode::Usage,
-            SpecError::Parse(e.to_string()).to_string(),
-            None,
-            false,
-        )
-    })?;
+    let spec: JobSpec = crate::canon::check_document(&bytes)
+        .map_err(|e| e.to_string())
+        .and_then(|()| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
+        .map_err(|e| {
+            refuse(
+                ExitCode::Usage,
+                SpecError::Parse(e.to_string()).to_string(),
+                None,
+                false,
+            )
+        })?;
     let with = |s: &JobSpec| Some((Box::new(s.clone()), digest.clone()));
     if spec_path.file_name().and_then(|n| n.to_str()) != Some(layout::JOB_SPEC) {
         return Err(refuse(

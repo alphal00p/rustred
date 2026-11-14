@@ -129,9 +129,9 @@ fn row_03_max_cases_no_rule_nothing_needed_complete() {
             (c.row, c.kind, c.accept, c.action),
             (
                 3,
-                OutcomeKind::Complete,
+                OutcomeKind::NoRule,
                 Accept::Nothing,
-                Action::ItemDoneNoRule
+                Action::ConfirmCoverageElseNextRung
             )
         );
     }
