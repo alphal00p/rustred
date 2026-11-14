@@ -14,7 +14,7 @@ WS=/shared/vhirschi/t3code/vakint_dev/p_integral_dev
 T=$(cd "$(dirname "$0")" && pwd)
 D=/common/build-cache/vhirschi/p_integral_dev/vk5l-wp6
 NAME=$1; SPEC=$2; THREADS=${3:-8}
-PLAN=$D/plan
+PLAN=${WP6_PLAN:-$D/plan}
 PKG=$D/pkg-1-5/$NAME
 BIN=${WP6_BIN:-$WS/build/vk5l-wp6/release}
 SEED=${WP6_SEED:-$WS/SCRATCHPAD/p5l-library-2/pkg/FULL2/lib}

@@ -94,6 +94,15 @@ fn main() {
         Some("check") => check(&args[2..]),
         Some("reduce") => reduce_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
+        // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
+        Some("seed-fingerprints") => {
+            let count = rustred_app::propagator::seed::write_seed_fingerprints(
+                std::path::Path::new(&args[2]),
+                std::path::Path::new(&args[3]),
+            )
+            .unwrap();
+            println!("{count} family fingerprints written to {}", args[3]);
+        }
         Some("edges") => edges(
             &args[2],
             args[3].parse().unwrap(),

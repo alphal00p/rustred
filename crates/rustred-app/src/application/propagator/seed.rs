@@ -27,6 +27,102 @@ use super::format::{
     decode_census, decode_family_file,
 };
 
+/// `RUSTRED_P_ASSEMBLE_CENSUS_SEED_FINGERPRINTS=<json>`: the seed's family
+/// fingerprints written by [`write_seed_fingerprints`], read instead of the
+/// seed's `families/*.rrbin`. A family file embeds a Symbolica state export, so
+/// a binary on another Symbolica save format cannot decode the seed's family
+/// files; the census itself (`census.rrbin`, bincode) and `library.json` carry
+/// no Symbolica state. With the sidecar a seed written on one Symbolica pin
+/// seeds an assembly on another (the census is checked afterwards as always).
+pub const SEED_FINGERPRINTS_ENV: &str = "RUSTRED_P_ASSEMBLE_CENSUS_SEED_FINGERPRINTS";
+/// Schema of the sidecar (simple version constant).
+pub const SEED_FINGERPRINTS_SCHEMA: &str = "rustred.p-seed-fingerprints.v1";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SeedFingerprints {
+    schema: String,
+    /// `library.json` `identity` of the seed package the map belongs to.
+    identity: String,
+    fingerprints: BTreeMap<String, String>,
+}
+
+fn family_fingerprints(
+    directory: &Path,
+    manifest: &LibraryManifest,
+) -> Result<BTreeMap<String, String>, PError> {
+    let mut fingerprints = BTreeMap::new();
+    for record in &manifest.files.family_files {
+        let bytes = std::fs::read(directory.join(&record.file)).map_err(|error| {
+            malformed(format!(
+                "reading {}/{}: {error}",
+                directory.display(),
+                record.file
+            ))
+        })?;
+        let family = decode_family_file(&bytes, &record.file)?;
+        fingerprints.insert(record.file.clone(), family.fingerprint().to_owned());
+    }
+    Ok(fingerprints)
+}
+
+fn read_seed_fingerprints(
+    path: &Path,
+    manifest: &LibraryManifest,
+) -> Result<BTreeMap<String, String>, PError> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| malformed(format!("reading {}: {error}", path.display())))?;
+    let sidecar: SeedFingerprints = serde_json::from_slice(&bytes)
+        .map_err(|error| malformed(format!("{}: {error}", path.display())))?;
+    if sidecar.schema != SEED_FINGERPRINTS_SCHEMA {
+        return Err(malformed(format!(
+            "{}: schema {} (expected {SEED_FINGERPRINTS_SCHEMA})",
+            path.display(),
+            sidecar.schema
+        )));
+    }
+    if sidecar.identity != manifest.identity {
+        return Err(malformed(format!(
+            "{}: written for the package {}, the seed is {}",
+            path.display(),
+            sidecar.identity,
+            manifest.identity
+        )));
+    }
+    for record in &manifest.files.family_files {
+        if !sidecar.fingerprints.contains_key(&record.file) {
+            return Err(malformed(format!(
+                "{}: no fingerprint for the family file {}",
+                path.display(),
+                record.file
+            )));
+        }
+    }
+    Ok(sidecar.fingerprints)
+}
+
+/// Writes the fingerprint sidecar of the package `directory` to `out` (run it
+/// with a binary that can decode the package's family files); returns the
+/// number of family files.
+pub fn write_seed_fingerprints(directory: &Path, out: &Path) -> Result<usize, PError> {
+    let bytes = std::fs::read(directory.join(LIBRARY_FILE))
+        .map_err(|error| malformed(format!("reading {LIBRARY_FILE}: {error}")))?;
+    let manifest: LibraryManifest = serde_json::from_slice(&bytes)
+        .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    let fingerprints = family_fingerprints(directory, &manifest)?;
+    let count = fingerprints.len();
+    let sidecar = SeedFingerprints {
+        schema: SEED_FINGERPRINTS_SCHEMA.to_owned(),
+        identity: manifest.identity.clone(),
+        fingerprints,
+    };
+    let text = serde_json::to_vec_pretty(&sidecar)
+        .map_err(|error| malformed(format!("encoding the sidecar: {error}")))?;
+    std::fs::write(out, text)
+        .map_err(|error| malformed(format!("writing {}: {error}", out.display())))?;
+    Ok(count)
+}
+
 fn malformed(detail: String) -> PError {
     PError::MalformedLibrary(format!("census seed: {detail}"))
 }
@@ -66,6 +162,7 @@ pub struct CensusSeedReport {
 pub fn census_seed(
     directory: &Path,
     presentations: &[Arc<Presentation>],
+    fingerprints: Option<&Path>,
 ) -> Result<(PCensus, CensusSeedReport), PError> {
     let read = |name: &str| {
         std::fs::read(directory.join(name))
@@ -73,11 +170,10 @@ pub fn census_seed(
     };
     let manifest: LibraryManifest = serde_json::from_slice(&read(LIBRARY_FILE)?)
         .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
-    let mut fingerprints: BTreeMap<String, String> = BTreeMap::new();
-    for record in &manifest.files.family_files {
-        let family = decode_family_file(&read(&record.file)?, &record.file)?;
-        fingerprints.insert(record.file.clone(), family.fingerprint().to_owned());
-    }
+    let fingerprints = match fingerprints {
+        Some(path) => read_seed_fingerprints(path, &manifest)?,
+        None => family_fingerprints(directory, &manifest)?,
+    };
     let fingerprint_of = |record: &PresentationRecord| {
         fingerprints
             .get(&record.family)

@@ -1980,7 +1980,7 @@ fn a_census_seed_from_another_package_gives_the_same_census() {
     use rustred::propagator::census::{
         PCensusJournal, PCensusOptions, PRouteMaps, p_census_journaled,
     };
-    use rustred_app::propagator::seed::census_seed;
+    use rustred_app::propagator::seed::{census_seed, write_seed_fingerprints};
     let two = scope_two();
     let presentations = two.library.presentations();
     let options = PCensusOptions {
@@ -1991,13 +1991,23 @@ fn a_census_seed_from_another_package_gives_the_same_census() {
     let one = assemble(1);
     let (_s1, dir_one) = written(&one, "seed-one");
     let (_s2, dir_two) = written(two, "seed-two");
-    let (seed_one, report_one) = census_seed(&dir_one, presentations).unwrap();
+    let (seed_one, report_one) = census_seed(&dir_one, presentations, None).unwrap();
     assert_eq!(
         report_one.matched_presentations,
         one.library.presentations().len()
     );
     assert!(report_one.translated_sectors > 0);
-    let (seed_two, report_two) = census_seed(&dir_two, presentations).unwrap();
+    let (seed_two, report_two) = census_seed(&dir_two, presentations, None).unwrap();
+    // The fingerprint sidecar (written once, read instead of the family files:
+    // a seed across a Symbolica save-format change) gives the same seed; a
+    // sidecar of another package is refused.
+    let sidecar = dir_two.join("..").join("seed-two.fingerprints.json");
+    let written_count = write_seed_fingerprints(&dir_two, &sidecar).unwrap();
+    assert!(written_count > 0);
+    let (seed_side, report_side) = census_seed(&dir_two, presentations, Some(&sidecar)).unwrap();
+    assert_eq!(seed_side, seed_two);
+    assert_eq!(report_side, report_two);
+    assert!(census_seed(&dir_one, presentations, Some(&sidecar)).is_err());
     assert_eq!(
         report_two.translated_sectors,
         two.library.census().sectors.len()

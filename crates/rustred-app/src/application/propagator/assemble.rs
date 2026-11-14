@@ -451,8 +451,13 @@ fn assemble(
     // =seeded it also limits the census check (below), on a restart too.
     let seeded = match std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS_SEED") {
         Some(directory) => {
-            let (seed, report) =
-                super::seed::census_seed(std::path::Path::new(&directory), &presentations)?;
+            let sidecar =
+                std::env::var_os(super::seed::SEED_FINGERPRINTS_ENV).map(std::path::PathBuf::from);
+            let (seed, report) = super::seed::census_seed(
+                std::path::Path::new(&directory),
+                &presentations,
+                sidecar.as_deref(),
+            )?;
             eprintln!("[census] seed {}: {report:?}", directory.to_string_lossy());
             Some(seed)
         }
