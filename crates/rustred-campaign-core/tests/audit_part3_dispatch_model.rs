@@ -67,8 +67,14 @@ fn p3_c1_rule_subset_mints_a_proof_for_a_fully_blocked_table_set() {
     }
     // the honest call refuses
     assert!(
-        prove_coverage_preserved(&src, &src, &f, &dispatch_opts(), &DispatchOrderStatement::SameOrder)
-            .is_err()
+        prove_coverage_preserved(
+            &src,
+            &src,
+            &f,
+            &dispatch_opts(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_err()
     );
     // DEFECT: a subset that omits the blocker, or puts it last, yields a proof bound to the full table set
     for subset in [vec![1], vec![1, 0]] {
@@ -77,7 +83,9 @@ fn p3_c1_rule_subset_mints_a_proof_for_a_fully_blocked_table_set() {
             ..Default::default()
         };
         let p = prove_coverage_preserved(&src, &src, &f, &o, &DispatchOrderStatement::SameOrder);
-        let p = p.unwrap_or_else(|e| panic!("subset {subset:?}: expected the defect (a proof), got {e}"));
+        let p = p.unwrap_or_else(|e| {
+            panic!("subset {subset:?}: expected the defect (a proof), got {e}")
+        });
         assert_eq!(p.new_tables_digest(), table_set_digest(&src));
     }
 }
@@ -108,8 +116,14 @@ fn p3_c2_engine_zero_test_reachable_at_every_key_and_proof_minted() {
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
     assert!(!rep.uncovered(&[1, 0]).unwrap());
     assert!(
-        prove_coverage_preserved(&src, &src, &f, &dispatch_opts(), &DispatchOrderStatement::SameOrder)
-            .is_ok()
+        prove_coverage_preserved(
+            &src,
+            &src,
+            &f,
+            &dispatch_opts(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_ok()
     );
     // (b) an EQUATION p1*p2*n0 = 0 on an earlier record: never selected exactly, but undecided for the dispatcher at
     // every key, so the later full record never serves
@@ -120,8 +134,14 @@ fn p3_c2_engine_zero_test_reachable_at_every_key_and_proof_minted() {
     assert!(open(&d, &[3, -1]));
     let src = DispatcherSource::new(&d);
     assert!(
-        prove_coverage_preserved(&src, &src, &f, &dispatch_opts(), &DispatchOrderStatement::SameOrder)
-            .is_ok(),
+        prove_coverage_preserved(
+            &src,
+            &src,
+            &f,
+            &dispatch_opts(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_ok(),
         "DEFECT: proof minted while every key is undecided"
     );
 }
@@ -162,8 +182,14 @@ fn p3_m1_rule_point_overflow_is_checked_before_the_equations() {
     assert!(!rep.uncovered(&[648, 0]).unwrap());
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
     assert!(
-        prove_coverage_preserved(&src, &src, &f, &dispatch_opts(), &DispatchOrderStatement::SameOrder)
-            .is_ok()
+        prove_coverage_preserved(
+            &src,
+            &src,
+            &f,
+            &dispatch_opts(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_ok()
     );
 }
 
@@ -173,5 +199,51 @@ fn p3_digest_v2_sees_the_witness_block_of_a_dispatcher_source() {
     let n = 2;
     let ds = vec![CaseDomain::free(n, chart(n, 1))];
     let d = disp(&ds, n);
-    assert_eq!(table_set_digest(&DispatcherSource::new(&d)), table_set_digest(&list(&ds, n)));
+    assert_eq!(
+        table_set_digest(&DispatcherSource::new(&d)),
+        table_set_digest(&list(&ds, n))
+    );
+}
+
+/// P3-C3 (CRITICAL): `max_off_floor = Some(L)` prunes classes in the RECURSION (counted, outcome Partial), but the
+/// face / locus EXPANSION of a class decided earlier also drops every cell with more than L off-floor slots
+/// (`PartitionReport::expand`) without counting it: such cells of a Fragile class are never resolved, the outcome
+/// stays Complete and `proves_no_gap` succeeds. `prove_coverage_preserved` passes the caller's `max_off_floor`
+/// through. Table (arity 3, lines): r0 fixes n2 = 1; r1 free except on the diagonal n0 = n1 (fragile, complete at
+/// depth 2); r2 fixes n0 = n1 = 1. Key (2, 2, 2) is uncovered; with L = 2 the class (n0 >= 2, n1 >= 2, any) is
+/// Fragile at depth 2 with 2 off-floor slots, so its cells with n2 >= 2 are dropped.
+#[test]
+fn p3_c3_max_off_floor_drops_fragile_cells_and_proves_no_gap() {
+    let n = 3;
+    let f = NodeFrame::without_header_lines_first(n, 3);
+    let c = chart(n, 3);
+    let mut r0 = CaseDomain::free(n, c.clone());
+    r0.fixed[2] = Some(1);
+    let mut r1 = CaseDomain::free(n, c.clone());
+    r1.exceptions = vec![vec![Poly::parse("n0-n1", n, false).unwrap()]];
+    let mut r2 = CaseDomain::free(n, c.clone());
+    r2.fixed[0] = Some(1);
+    r2.fixed[1] = Some(1);
+    let ds = vec![r0, r1, r2];
+    let d = disp(&ds, n);
+    assert!(open(&d, &[2, 2, 2]), "(2,2,2) is uncovered");
+    let src = DispatcherSource::new(&d);
+    // the honest run: a gap locus
+    let full = gap_partition(&src, &f, &dispatch_opts(), None).unwrap();
+    assert!(
+        full.proves_no_gap(CoverageNotion::DispatchCoverage)
+            .is_err()
+    );
+    assert!(full.uncovered(&[2, 2, 2]).unwrap());
+    // DEFECT: the capped run is Complete and proves no gap
+    let capped = PartitionOptions {
+        max_off_floor: Some(2),
+        ..dispatch_opts()
+    };
+    let rep = gap_partition(&src, &f, &capped, None).unwrap();
+    assert_eq!(rep.stats().pruned_off_floor, 0);
+    assert!(rep.outcome().is_complete(), "{:?}", rep.outcome());
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
+    let p = prove_coverage_preserved(&src, &src, &f, &capped, &DispatchOrderStatement::SameOrder);
+    assert!(p.is_ok(), "a FULL-node proof is minted");
 }
