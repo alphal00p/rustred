@@ -587,10 +587,17 @@ impl Supervisor {
         let source: Box<dyn WorkSource> = match &opts.spec.synthetic {
             Some(s) => Box::new(ScriptedWorkSource::new(s.clone())),
             // lane closeloop (closeloop.md 6.2): an input of role `closeloop` names the close-from-material config
-            None if opts.spec.inputs.iter().any(|i| i.role == crate::closeloop::CONFIG_ROLE) => Box::new(
-                crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
-                    .map_err(RunExit::Refused)?,
-            ),
+            None if opts
+                .spec
+                .inputs
+                .iter()
+                .any(|i| i.role == crate::closeloop::CONFIG_ROLE) =>
+            {
+                Box::new(
+                    crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
+                        .map_err(RunExit::Refused)?,
+                )
+            }
             None => return Err(RunExit::Refused("no work source for this spec".into())),
         };
         let ctx = SourceContext {
@@ -1047,9 +1054,9 @@ impl Supervisor {
             }
         } else if wants_table
             && let Some(s) = ev.verified.as_ref().and_then(|v| {
-                v.streams
-                    .iter()
-                    .find(|s| s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS))
+                v.streams.iter().find(|s| {
+                    s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS)
+                })
             })
         {
             // lane closeloop (closeloop.md 6.4): a kind without a table whose sealed `results` stream the contract
@@ -1732,14 +1739,18 @@ impl Supervisor {
                 if e.is_no_space() {
                     self.ledger_dead = Some(RunExit::DiskFull);
                 }
-                self.log
-                    .line("ERROR", &format!("source record {}: {e}; not recorded", a.path));
+                self.log.line(
+                    "ERROR",
+                    &format!("source record {}: {e}; not recorded", a.path),
+                );
                 return;
             }
         }
         if let Err(e) = self.commit_or_refused(routing.events) {
-            self.log
-                .line("ERROR", &format!("work source events refused by the ledger: {e}"));
+            self.log.line(
+                "ERROR",
+                &format!("work source events refused by the ledger: {e}"),
+            );
         }
     }
 

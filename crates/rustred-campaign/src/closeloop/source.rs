@@ -29,6 +29,11 @@ use std::time::Instant;
 
 pub const PROGRESS_SCHEMA: &str = "rustred.campaign.closeloop-progress.v1";
 
+/// Fake-child answers per (recipe source, key): verdict and right-hand-side keys (tests only).
+type Oracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
+/// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention.
+type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64);
+
 enum PassResult {
     Loaded(Arc<ImportedSet>),
     Checked(Box<PassOut>),
@@ -50,7 +55,7 @@ struct NodeRt {
     prefixes: BTreeMap<String, Option<Dispatcher>>,
     batches: BTreeMap<String, BatchFile>,
     pins: BTreeMap<String, String>,
-    oracle: BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>,
+    oracle: Oracle,
     last_check: Option<Value>,
     pass_started: Option<Instant>,
 }
@@ -101,7 +106,11 @@ fn json_bytes(v: &Value) -> Vec<u8> {
 impl CloseFromMaterialSource {
     /// The source of a campaign spec with an input of role `closeloop` (supervisor change 6.2).
     pub fn from_spec(spec: &CampaignSpec, cdir: &Path) -> Result<Self, String> {
-        let ins: Vec<_> = spec.inputs.iter().filter(|i| i.role == CONFIG_ROLE).collect();
+        let ins: Vec<_> = spec
+            .inputs
+            .iter()
+            .filter(|i| i.role == CONFIG_ROLE)
+            .collect();
         let [inp] = ins.as_slice() else {
             return Err(format!(
                 "closeloop: exactly one input of role {CONFIG_ROLE} expected, {} found",
@@ -155,8 +164,10 @@ impl CloseFromMaterialSource {
                     .and_then(Value::as_array_mut)
                     .ok_or("import spec: no sources")?;
                 // R49: the default recipe is the LAST recipe source (after every other source: slot Last)
-                srcs.push(json!({"id": "default-recipe", "kind": "recipe", "class": "recipe",
-                    "path": r.display().to_string()}));
+                srcs.push(
+                    json!({"id": "default-recipe", "kind": "recipe", "class": "recipe",
+                    "path": r.display().to_string()}),
+                );
             }
             if let Some(r) = &nc.required_evidence {
                 o.insert("required_evidence".into(), Value::from(r.clone()));
@@ -178,10 +189,9 @@ impl CloseFromMaterialSource {
                         serde_json::from_value(x["key"].clone()).map_err(|e| e.to_string())?;
                     let verdict: Verdict =
                         serde_json::from_value(x["verdict"].clone()).map_err(|e| e.to_string())?;
-                    let rhs: Vec<Vec<i64>> = serde_json::from_value(
-                        x.get("rhs").cloned().unwrap_or(json!([])),
-                    )
-                    .map_err(|e| e.to_string())?;
+                    let rhs: Vec<Vec<i64>> =
+                        serde_json::from_value(x.get("rhs").cloned().unwrap_or(json!([])))
+                            .map_err(|e| e.to_string())?;
                     let src = x["source"].as_str().unwrap_or("").to_string();
                     oracle.insert((src, key), (verdict, rhs));
                 }
@@ -230,7 +240,6 @@ impl CloseFromMaterialSource {
         st.items
             .iter()
             .filter(move |(_, it)| it.node == node && it.kind == kind)
-            .map(|(k, v)| (k, v))
     }
 
     fn item_final(p: &ItemPhase) -> bool {
@@ -285,18 +294,21 @@ impl CloseFromMaterialSource {
                         .and_then(|(item, _)| st.items.get(item))
                         .is_some_and(|it| it.node == *node)
             })
-            .map(|(id, r)| (r.registered_seq, id.clone(), PathBuf::from(&r.path), r.blake3.clone()))
+            .map(|(id, r)| {
+                (
+                    r.registered_seq,
+                    id.clone(),
+                    PathBuf::from(&r.path),
+                    r.blake3.clone(),
+                )
+            })
             .collect();
         v.sort();
         v.into_iter().map(|(_, id, p, b)| (id, p, b)).collect()
     }
 
     /// (recipe source, key) pairs of every solve item of the node, keys issued, jobs issued, items in attention.
-    fn issued(
-        &mut self,
-        st: &CampaignState,
-        i: usize,
-    ) -> Result<(BTreeSet<(String, Vec<i32>)>, u64, u64, u64), String> {
+    fn issued(&mut self, st: &CampaignState, i: usize) -> Result<Issued, String> {
         let node = self.nodes[i].cfg.node.clone();
         let items: Vec<(String, ItemPhase)> = Self::items_of(st, &node, KIND_SOLVE)
             .map(|(k, it)| (k.clone(), it.phase.clone()))
@@ -323,9 +335,7 @@ impl CloseFromMaterialSource {
             return None;
         }
         let node = &r.cfg.node;
-        let Some(nr) = st.nodes.get(node) else {
-            return None;
-        };
+        let nr = st.nodes.get(node)?;
         if nr.state.phase == NodePhase::Registered || nr.state.phase == NodePhase::Stale {
             return None;
         }
@@ -387,9 +397,7 @@ impl CloseFromMaterialSource {
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
-            .spawn(move || {
-                run_pass(&inp, cached).map(|o| PassResult::Checked(Box::new(o)))
-            })
+            .spawn(move || run_pass(&inp, cached).map(|o| PassResult::Checked(Box::new(o))))
             .map_err(|e| format!("pass thread: {e}"))?;
         self.nodes[i].running = Some(Running { round, handle: h });
         self.nodes[i].pass_started = Some(Instant::now());
@@ -572,7 +580,11 @@ impl CloseFromMaterialSource {
         let mut rule_set = nr.rule_set.clone();
         let mut dispatch = nr.state.dispatch_order.clone();
         let imp = import_item(&n);
-        if st.items.get(&imp).is_some_and(|it| it.phase == ItemPhase::Open) {
+        if st
+            .items
+            .get(&imp)
+            .is_some_and(|it| it.phase == ItemPhase::Open)
+        {
             let man = record(
                 format!("{}/import-manifest.json", node_dir(&n)),
                 json_bytes(&out.import_manifest),
@@ -798,7 +810,10 @@ impl CloseFromMaterialSource {
         let mut rt = Routing::default();
         let v = json!({"schema": super::pass::RESULT_SCHEMA, "node": node, "verdict": "error", "rounds": round,
             "blockers": [format!("pass_failed: {e}")], "error": e});
-        let fr = record(format!("{}/final/result.json", node_dir(&n)), json_bytes(&v));
+        let fr = record(
+            format!("{}/final/result.json", node_dir(&n)),
+            json_bytes(&v),
+        );
         let r = fr.file_ref();
         rt.events.push(Event::Note {
             text: format!("closeloop {node}: pass {round} failed: {e}"),
@@ -811,7 +826,11 @@ impl CloseFromMaterialSource {
             blake3: r.blake3,
         });
         let imp = import_item(&n);
-        if st.items.get(&imp).is_some_and(|it| it.phase == ItemPhase::Open) {
+        if st
+            .items
+            .get(&imp)
+            .is_some_and(|it| it.phase == ItemPhase::Open)
+        {
             rt.events.push(Event::Item {
                 item: imp,
                 ev: ItemEvent::Attention {
@@ -885,7 +904,9 @@ impl CloseFromMaterialSource {
         let text = serde_json::to_string_pretty(&v).expect("json");
         let due = match &self.last_progress {
             None => true,
-            Some((t, old)) => *old != text && (t.elapsed().as_millis() >= 1000 || !finalized.is_empty()),
+            Some((t, old)) => {
+                *old != text && (t.elapsed().as_millis() >= 1000 || !finalized.is_empty())
+            }
         };
         if due {
             let p = self.cdir.join("progress").join("closeloop.json");
@@ -899,7 +920,11 @@ impl CloseFromMaterialSource {
 }
 
 impl WorkSource for CloseFromMaterialSource {
-    fn bootstrap(&mut self, st: &CampaignState, _ctx: &SourceContext) -> Result<Vec<Event>, String> {
+    fn bootstrap(
+        &mut self,
+        st: &CampaignState,
+        _ctx: &SourceContext,
+    ) -> Result<Vec<Event>, String> {
         let mut ev = Vec::new();
         for r in &self.nodes {
             let n = &r.n;
@@ -937,7 +962,8 @@ impl WorkSource for CloseFromMaterialSource {
                     .as_str()
                     .ok_or("import spec: start.path missing")?;
                 let sp = resolve(&r.cfg.base(), sp);
-                let b = std::fs::read(&sp).map_err(|e| format!("start set {}: {e}", sp.display()))?;
+                let b =
+                    std::fs::read(&sp).map_err(|e| format!("start set {}: {e}", sp.display()))?;
                 let d = blake3_hex(&b);
                 let bid = input_box(n);
                 match st.inputs.get(&bid) {
@@ -1010,9 +1036,10 @@ impl WorkSource for CloseFromMaterialSource {
         for i in 0..self.nodes.len() {
             let node = self.nodes[i].cfg.node.clone();
             let max_att = self.nodes[i].cfg.budgets.max_job_attempts;
-            let items: Vec<(String, ItemPhase, Vec<String>)> = Self::items_of(st, &node, KIND_SOLVE)
-                .map(|(k, it)| (k.clone(), it.phase.clone(), it.jobs.clone()))
-                .collect();
+            let items: Vec<(String, ItemPhase, Vec<String>)> =
+                Self::items_of(st, &node, KIND_SOLVE)
+                    .map(|(k, it)| (k.clone(), it.phase.clone(), it.jobs.clone()))
+                    .collect();
             for (item, ph, jobs) in items {
                 let (k, j) = parse_solve_item(&self.nodes[i].n, &item).unwrap_or((0, 0));
                 let base = -(k as i64) * 1_000_000 - j as i64;
@@ -1027,15 +1054,17 @@ impl WorkSource for CloseFromMaterialSource {
                     .count() as u32;
                 let job = match ph {
                     ItemPhase::Open => Some(format!("{item}-t{}", jobs.len())),
-                    ItemPhase::InProgress => match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
-                        Some(AttemptState::Queued) => jobs.last().cloned(),
-                        Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_))
-                            if failed < max_att =>
-                        {
-                            Some(format!("{item}-t{}", jobs.len()))
+                    ItemPhase::InProgress => {
+                        match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
+                            Some(AttemptState::Queued) => jobs.last().cloned(),
+                            Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_))
+                                if failed < max_att =>
+                            {
+                                Some(format!("{item}-t{}", jobs.len()))
+                            }
+                            _ => None,
                         }
-                        _ => None,
-                    },
+                    }
                     _ => None,
                 };
                 if let Some(job) = job {
@@ -1092,7 +1121,11 @@ impl WorkSource for CloseFromMaterialSource {
                         text: format!(
                             "row {}{} ({}): {}; job {} attempt {}; {} keys of recipe {} stay open",
                             c.row,
-                            if c.sub.is_empty() { String::new() } else { format!("/{}", c.sub) },
+                            if c.sub.is_empty() {
+                                String::new()
+                            } else {
+                                format!("/{}", c.sub)
+                            },
                             crate::state::class_word(c.kind),
                             c.why,
                             done.job,
@@ -1169,7 +1202,9 @@ impl WorkSource for CloseFromMaterialSource {
         if !d.certified.is_empty() {
             let keys = record(
                 format!("{dir}/{}.{}.keys.json", done.item, done.job),
-                json_bytes(&json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified})),
+                json_bytes(
+                    &json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified}),
+                ),
             );
             let kref = keys.file_ref();
             let canon = done
@@ -1223,7 +1258,12 @@ impl WorkSource for CloseFromMaterialSource {
         Ok(rt)
     }
 
-    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String> {
+    fn control(
+        &mut self,
+        st: &CampaignState,
+        verb: &str,
+        target: &str,
+    ) -> Result<Vec<Event>, String> {
         let it = st
             .items
             .get(target)

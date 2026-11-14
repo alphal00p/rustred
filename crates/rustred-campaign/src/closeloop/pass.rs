@@ -278,11 +278,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
-    let defect = if closed {
-        0
-    } else {
-        (keys - certified).max(1)
-    };
+    let defect = if closed { 0 } else { (keys - certified).max(1) };
     // new requests: those of no item yet (termination: finitely many keys x recipes; descent, R49)
     let new_reqs: Vec<_> = res
         .solve_requests
@@ -350,19 +346,20 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // the budget stops the loop only when nothing could be issued
     let budget_stop = batches.is_empty() && budget_why.is_some();
     if budget_stop {
-        blocking.push(format!("budget_stop: {}", budget_why.as_deref().unwrap_or("")));
+        blocking.push(format!(
+            "budget_stop: {}",
+            budget_why.as_deref().unwrap_or("")
+        ));
     }
     // the check record
     let ds = set.disp.summary();
     let rules_total: u64 = ds.tables.iter().map(|t| t.records as u64).sum();
     let counts = res.counts();
     let solve_by_source: BTreeMap<String, usize> =
-        res.solve_requests
-            .iter()
-            .fold(BTreeMap::new(), |mut m, r| {
-                *m.entry(r.source.clone()).or_default() += 1;
-                m
-            });
+        res.solve_requests.iter().fold(BTreeMap::new(), |mut m, r| {
+            *m.entry(r.source.clone()).or_default() += 1;
+            m
+        });
     let check_v = json!({
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
@@ -412,7 +409,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             FinalCtx {
                 verdict,
                 blocking: &blocking,
-                budget_why: if budget_stop { budget_why.as_deref() } else { None },
+                budget_why: if budget_stop {
+                    budget_why.as_deref()
+                } else {
+                    None
+                },
                 check: &check_v,
                 elapsed: t0.elapsed().as_secs_f64(),
             },
@@ -540,7 +541,9 @@ fn write_final(
     let mut served_by_recipe: BTreeMap<String, u64> = BTreeMap::new();
     let mut served_by_supplied: BTreeMap<String, u64> = BTreeMap::new();
     for r in &res.rows {
-        if let (RowStatus::Served, Some(Server::Relation { set: s, recipe })) = (r.status, &r.server) {
+        if let (RowStatus::Served, Some(Server::Relation { set: s, recipe })) =
+            (r.status, &r.server)
+        {
             if *recipe {
                 *served_by_recipe.entry(s.clone()).or_default() += 1;
             } else {
@@ -564,7 +567,12 @@ fn write_final(
         .sum();
     let failed_keys: u64 = answered
         .values()
-        .map(|m| m.iter().filter(|(v, _)| *v != "SOLVED").map(|(_, n)| n).sum::<u64>())
+        .map(|m| {
+            m.iter()
+                .filter(|(v, _)| *v != "SOLVED")
+                .map(|(_, n)| n)
+                .sum::<u64>()
+        })
         .sum();
     let result = json!({
         "schema": RESULT_SCHEMA, "node": inp.node, "verdict": f.verdict, "rounds": inp.round,

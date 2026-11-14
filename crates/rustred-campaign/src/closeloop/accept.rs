@@ -165,7 +165,10 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
             tag: None,
         })
         .collect();
-    let bytes: Vec<Vec<u8>> = canonical_lines.iter().map(|l| l.as_bytes().to_vec()).collect();
+    let bytes: Vec<Vec<u8>> = canonical_lines
+        .iter()
+        .map(|l| l.as_bytes().to_vec())
+        .collect();
     let (outcomes, tally) = key_outcomes(&bytes, &keys)?;
     let digest = tally
         .recipe_digest
@@ -388,7 +391,9 @@ fn open_word(r: &OpenReason) -> String {
         OpenReason::SolveFailed(w) => format!("solve failed: {w}"),
         OpenReason::ExactCheck(w) => format!("exact check {w}"),
         OpenReason::Irregular(w) => format!("irregular: {w}"),
-        OpenReason::NotDescending { rhs } => format!("rhs key {rhs:?} not lower under the node comparator"),
+        OpenReason::NotDescending { rhs } => {
+            format!("rhs key {rhs:?} not lower under the node comparator")
+        }
         OpenReason::Malformed(w) => format!("malformed: {w}"),
     }
 }

@@ -33,13 +33,25 @@ fn result_json(cdir: &Path) -> Value {
         .unwrap()
 }
 
-/// The decisions of a run: items (id, label, weight, phase word) and the certified keys per accepted item.
-fn decisions(cdir: &Path) -> (BTreeSet<(String, String, u64, String)>, BTreeMap<String, Vec<Value>>) {
+/// Items (id, label, weight, phase word) and the certified relations per accepted solve item.
+type Decisions = (
+    BTreeSet<(String, String, u64, String)>,
+    BTreeMap<String, Vec<Value>>,
+);
+
+fn decisions(cdir: &Path) -> Decisions {
     let st = state(cdir);
     let items = st
         .items
         .iter()
-        .map(|(k, it)| (k.clone(), it.label.clone(), it.weight, it.phase.tag().to_string()))
+        .map(|(k, it)| {
+            (
+                k.clone(),
+                it.label.clone(),
+                it.weight,
+                it.phase.tag().to_string(),
+            )
+        })
         .collect();
     let mut cert = BTreeMap::new();
     for (k, it) in st.items.iter() {
@@ -140,10 +152,17 @@ fn pass_round_one_lists_the_first_batches_in_process() {
     let cut = run_pass(&mk(small, 0), None).unwrap();
     assert_eq!(cut.batches.len(), 1);
     assert!(cut.final_.is_none());
-    assert!(cut.check["budget"].as_str().unwrap().contains("1 of 2"), "{}", cut.check);
+    assert!(
+        cut.check["budget"].as_str().unwrap().contains("1 of 2"),
+        "{}",
+        cut.check
+    );
     let stop = run_pass(&mk(small, 1), Some(cut.set.clone())).unwrap();
     assert!(stop.batches.is_empty());
-    assert_eq!(stop.final_.as_ref().map(|f| f.verdict.as_str()), Some("budget"));
+    assert_eq!(
+        stop.final_.as_ref().map(|f| f.verdict.as_str()),
+        Some("budget")
+    );
     let out = run_pass(
         &PassIn {
             node: "toy".into(),
@@ -166,8 +185,11 @@ fn pass_round_one_lists_the_first_batches_in_process() {
         None,
     )
     .unwrap();
-    let b: Vec<(String, Vec<Vec<i32>>)> =
-        out.batches.iter().map(|b| (b.source.clone(), b.keys.clone())).collect();
+    let b: Vec<(String, Vec<Vec<i32>>)> = out
+        .batches
+        .iter()
+        .map(|b| (b.source.clone(), b.keys.clone()))
+        .collect();
     assert_eq!(
         b,
         vec![
@@ -222,7 +244,13 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
     assert_eq!(r["verdict"], "closed", "{r:#}");
     assert_eq!(r["comparison"]["key_sets_equal"], true, "{r:#}");
     assert_eq!(r["check"]["strict"], true);
-    assert!(r["evidence_by_class"]["recipe"]["certified"].as_u64().unwrap() >= 7, "{r:#}");
+    assert!(
+        r["evidence_by_class"]["recipe"]["certified"]
+            .as_u64()
+            .unwrap()
+            >= 7,
+        "{r:#}"
+    );
     // R49: [1,1,0] is in no per-face recipe's domain (R1 covers n0 >= 2): the default recipe certified it
     let ans = answers_lines(&cdir);
     assert!(
@@ -235,14 +263,22 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
     // node machine: FULL attempt = the import check, then the box, then closed
     let ev = node_events(&cdir);
     assert!(
-        ev.contains(&"fall_back_to_box".to_string()) && ev.last().map(String::as_str) == Some("declare_closed"),
+        ev.contains(&"fall_back_to_box".to_string())
+            && ev.last().map(String::as_str) == Some("declare_closed"),
         "{ev:?}"
     );
     // statement + comparison files, progress file
-    assert!(cdir.join("closeloop/toy/final/statement/statement.jsonl").is_file());
-    assert!(cdir.join("closeloop/toy/final/comparison/comparison.json").is_file());
+    assert!(
+        cdir.join("closeloop/toy/final/statement/statement.jsonl")
+            .is_file()
+    );
+    assert!(
+        cdir.join("closeloop/toy/final/comparison/comparison.json")
+            .is_file()
+    );
     let p: Value =
-        serde_json::from_slice(&std::fs::read(cdir.join("progress/closeloop.json")).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(cdir.join("progress/closeloop.json")).unwrap())
+            .unwrap();
     assert_eq!(p["nodes"][0]["phase"], "closed", "{p:#}");
     assert_eq!(verify(&cdir), 0, "progress verify");
 }
@@ -312,12 +348,21 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
     std::fs::write(&files.hand, "").unwrap();
     assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
     let st = state(&cdir);
-    assert_eq!(st.nodes["toy"].state.phase, NodePhase::Open, "{:?}", node_events(&cdir));
+    assert_eq!(
+        st.nodes["toy"].state.phase,
+        NodePhase::Open,
+        "{:?}",
+        node_events(&cdir)
+    );
     assert!(!node_events(&cdir).contains(&"declare_closed".to_string()));
     let r = result_json(&cdir);
     assert_eq!(r["verdict"], "open", "{r:#}");
     assert!(
-        r["blockers"].as_array().unwrap().iter().any(|b| b.as_str().unwrap().starts_with("open_keys")),
+        r["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b.as_str().unwrap().starts_with("open_keys")),
         "{r:#}"
     );
     let f = answers_lines(&cdir)
@@ -331,12 +376,18 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
     assert_eq!(fr["recipe"]["id"], "R1");
     let rep = fr["reproduce"].as_str().unwrap();
     assert!(
-        rep.contains(" solve-recipe --family ") && rep.contains("--key 4,1,0") && rep.contains("--recipe "),
+        rep.contains(" solve-recipe --family ")
+            && rep.contains("--key 4,1,0")
+            && rep.contains("--recipe "),
         "{rep}"
     );
     assert_eq!(fr["key"], serde_json::json!([4, 1, 0]));
     // the item whose only key failed escalated (never accepted)
-    assert!(st.items.values().any(|it| matches!(it.phase, ItemPhase::Escalated(_))));
+    assert!(
+        st.items
+            .values()
+            .any(|it| matches!(it.phase, ItemPhase::Escalated(_)))
+    );
 }
 
 #[test]
@@ -355,10 +406,18 @@ fn lying_children_are_refused_and_never_close_the_node() {
     assert_eq!(accepts(&cdir), 0, "nothing accepted from a lying child");
     let st = state(&cdir);
     assert_eq!(st.nodes["toy"].state.phase, NodePhase::Open);
-    assert!(st.items.values().any(|it| matches!(&it.phase, ItemPhase::Attention(c) if c == "solve_job_failed")));
+    assert!(
+        st.items
+            .values()
+            .any(|it| matches!(&it.phase, ItemPhase::Attention(c) if c == "solve_job_failed"))
+    );
     let r = result_json(&cdir);
     assert!(
-        r["blockers"].as_array().unwrap().iter().any(|b| b.as_str().unwrap().starts_with("solve_items_in_attention")),
+        r["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b.as_str().unwrap().starts_with("solve_items_in_attention")),
         "{r:#}"
     );
     // (b) a relation of another recipe digest than the pinned one: every R1 answer refused
@@ -375,7 +434,8 @@ fn lying_children_are_refused_and_never_close_the_node() {
     assert_eq!(accepts(&cdir2), 0);
     let ans = answers_lines(&cdir2);
     assert!(
-        ans.iter().any(|v| v["source"] == "R1" && v["verdict"] == "REFUSED"),
+        ans.iter()
+            .any(|v| v["source"] == "R1" && v["verdict"] == "REFUSED"),
         "{ans:#?}"
     );
     assert_eq!(state(&cdir2).nodes["toy"].state.phase, NodePhase::Open);
@@ -398,7 +458,13 @@ fn lying_children_are_refused_and_never_close_the_node() {
     assert_eq!(x["verdict"], "REFUSED", "{x:#}");
     // the core chain refuses it (its `Rejected` verdict carries no per-key reason when NO key of the batch is certified:
     // request to the acceptance owner in the lane notes)
-    assert!(x["failure"]["message"].as_str().unwrap().contains("rejected"), "{x:#}");
+    assert!(
+        x["failure"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("rejected"),
+        "{x:#}"
+    );
     assert_eq!(accepts(&cdir3), 0);
     assert_eq!(state(&cdir3).nodes["toy"].state.phase, NodePhase::Open);
     let _ = NodeEvent::Start;

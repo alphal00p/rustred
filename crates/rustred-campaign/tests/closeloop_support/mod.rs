@@ -17,7 +17,9 @@ pub fn sha256_file(p: &Path) -> String {
 }
 
 pub fn blake3_file(p: &Path) -> String {
-    blake3::hash(&std::fs::read(p).unwrap()).to_hex().to_string()
+    blake3::hash(&std::fs::read(p).unwrap())
+        .to_hex()
+        .to_string()
 }
 
 /// A rule line over the toy node.
@@ -62,6 +64,9 @@ pub fn recipe(dir: &Path, name: &str, fixed: [Option<i64>; 3]) -> PathBuf {
     p
 }
 
+/// An oracle override: (recipe source, key, verdict, rhs keys).
+pub type Override = (String, [i32; 3], String, Vec<[i32; 3]>);
+
 /// What a toy test varies.
 #[derive(Clone)]
 pub struct Toy {
@@ -73,7 +78,7 @@ pub struct Toy {
     /// Face R1 covers n0 >= 2 only (so [1,1,0] is first met while closing and needs the default recipe, R49).
     pub r1_from_two: bool,
     /// Oracle overrides: (source, key) -> (verdict, rhs).
-    pub overrides: Vec<(String, [i32; 3], String, Vec<[i32; 3]>)>,
+    pub overrides: Vec<Override>,
     pub quirks: Vec<String>,
     pub ms: u64,
     /// Pin an engine digest in the import spec for R1 (a wrong one makes every answer of R1 a lie).
@@ -159,7 +164,10 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
     let st = dir.join("start.jsonl");
     std::fs::write(
         &st,
-        start.iter().map(|k| format!("{}\n", json!(k))).collect::<String>(),
+        start
+            .iter()
+            .map(|k| format!("{}\n", json!(k)))
+            .collect::<String>(),
     )
     .unwrap();
     let mut r1src = json!({"id":"R1","kind":"recipe","class":"recipe","path": r1.display().to_string(),
@@ -214,7 +222,12 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
         &op,
         oracle
             .iter()
-            .map(|(s, k, v, r)| format!("{}\n", json!({"source": s, "key": k, "verdict": v, "rhs": r})))
+            .map(|(s, k, v, r)| {
+                format!(
+                    "{}\n",
+                    json!({"source": s, "key": k, "verdict": v, "rhs": r})
+                )
+            })
             .collect::<String>(),
     )
     .unwrap();

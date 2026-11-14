@@ -247,7 +247,10 @@ impl CloseLoopConfig {
             if n.budgets.max_job_attempts == 0 {
                 return Err(format!("node {}: max_job_attempts must be >= 1", n.node));
             }
-            if !matches!(n.solve.relation_rule.as_str(), "m1_first" | "first_admissible") {
+            if !matches!(
+                n.solve.relation_rule.as_str(),
+                "m1_first" | "first_admissible"
+            ) {
                 return Err(format!(
                     "node {}: relation_rule {:?} (m1_first | first_admissible)",
                     n.node, n.solve.relation_rule
