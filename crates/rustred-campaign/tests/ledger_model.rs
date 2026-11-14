@@ -212,6 +212,7 @@ fn guided(st: &CampaignState, r: &mut Rng, k: usize) -> Option<Event> {
                     cpus: vec![1],
                     reserved_bytes: 1,
                     spec_blake3: digest(&jn),
+                    scope_unit: None,
                 }),
                 "launching" => ev(JobEvent::Started {
                     pid: 100,
@@ -445,6 +446,7 @@ fn adversarial(st: &CampaignState, r: &mut Rng, n_items: usize) -> Event {
                     cpus: vec![],
                     reserved_bytes: 1,
                     spec_blake3: digest("r"),
+                    scope_unit: None,
                 },
                 _ => {
                     let class = FINISH_CLASSES[r.below(FINISH_CLASSES.len())];

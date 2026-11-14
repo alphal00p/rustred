@@ -279,6 +279,7 @@ fn launch(l: &mut Ledger, i: &str, j: &str, rung: u8, cpu: u32) {
                 cpus: vec![cpu],
                 reserved_bytes: 2 << 30,
                 spec_blake3: b3(j.as_bytes()),
+                scope_unit: None,
             },
         ),
         job(
@@ -879,8 +880,11 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
 
 const FIXTURES: [&str; 4] = ["cdir-empty", "cdir-mid", "cdir-finished", "cdir-stale"];
 
+/// `<one TMPDIR-rooted directory unique to this test process>/<tag>` (lane int5: never the pid alone); the same tag
+/// gives the same path within the process (the tests remove and recreate their own scratch directories by tag).
 fn scratch(tag: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("rr-schema-{tag}-{}", std::process::id()))
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| unique_temp_dir("rr-schema")).join(tag)
 }
 
 fn committed(dir: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -1076,6 +1080,7 @@ fn ledger_record_examples_cover_every_kind() {
                 cpus: vec![3],
                 reserved_bytes: 1 << 30,
                 spec_blake3: h('3'),
+                scope_unit: None,
             },
         ),
         job(
@@ -1100,6 +1105,7 @@ fn ledger_record_examples_cover_every_kind() {
                 cpus: vec![3],
                 reserved_bytes: 1 << 30,
                 spec_blake3: h('3'),
+                scope_unit: None,
             },
         ),
         job(
@@ -1258,6 +1264,85 @@ fn ledger_record_examples_cover_every_kind() {
     drop(lk);
     recs.extend(ledger::read_records(&d).unwrap());
     let _ = fs::remove_dir_all(&d);
+    // lane int5: the unconfirmed-launch records (a launch journalled in session 1, never confirmed; session 2 marks it
+    // `unconfirmed`, then the proven `not_spawned` and the requeue), in a second small ledger.
+    let d2 = scratch("catalogue-unconfirmed");
+    let _ = fs::remove_dir_all(&d2);
+    fs::create_dir_all(&d2).unwrap();
+    let clk2 = Arc::new(ManualClock::at("2026-11-14T06:00:00Z").with_tick(250));
+    let c2: Arc<dyn Clock> = clk2.clone();
+    let (lk2, _) = lock::acquire(&d2, clk2.as_ref(), &["catalogue".into()]).unwrap();
+    let mut l2 = Ledger::create(
+        &d2,
+        &lk2,
+        c2,
+        LedgerConfig::default(),
+        Genesis::new("catalogue", &h('1'), 100),
+    )
+    .unwrap();
+    l2.append_all(register(&spec, &sref)).unwrap();
+    l2.append_all(vec![
+        camp(CampaignEvent::Start, "supervisor session"),
+        camp(CampaignEvent::Run, "scheduling"),
+        node("T162", NodeEvent::Start),
+        created("T162", "T162:I0000", "face", 0, None, "F000"),
+        Event::JobQueued {
+            job: "j1".into(),
+            item: "T162:I0000".into(),
+            rung: Rung(0),
+            kind: "generate".into(),
+            spec_blake3: h('3'),
+            binary: "program:rr_node".into(),
+            reserved_bytes: 1 << 30,
+            inputs: vec![],
+        },
+        item(
+            "T162:I0000",
+            ItemEvent::Start {
+                job: Some("j1".into()),
+            },
+        ),
+        job(
+            "j1",
+            1,
+            JobEvent::Launch {
+                run_dir: "large:jobs/j1/a1".into(),
+                cpus: vec![3],
+                reserved_bytes: 1 << 30,
+                spec_blake3: h('4'),
+                scope_unit: None,
+            },
+        ),
+        camp(CampaignEvent::Start, "supervisor session"),
+        job(
+            "j1",
+            1,
+            JobEvent::Unconfirmed {
+                reason: "launch journalled in session 1, never confirmed by job.started before that supervisor ended"
+                    .into(),
+            },
+        ),
+        job(
+            "j1",
+            1,
+            JobEvent::NotSpawned {
+                reason: "authenticated run directory large:jobs/j1/a1 has no RUN/sup/SPAWN; no marked process of j1:a1"
+                    .into(),
+            },
+        ),
+        job(
+            "j1",
+            2,
+            JobEvent::Requeue {
+                reason: "spawn provably never happened".into(),
+            },
+        ),
+    ])
+    .unwrap();
+    drop(l2);
+    drop(lk2);
+    recs.extend(ledger::read_records(&d2).unwrap());
+    let _ = fs::remove_dir_all(&d2);
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
     for r in &recs {
         let v = serde_json::to_value(r).unwrap();
@@ -1420,4 +1505,35 @@ fn coordinator_bank_accept_lines_validate() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// A NEW directory `<TMPDIR>/<prefix>-<token>` unique on the host (lane int5, procfix3 item 0): never derived from the
+/// pid alone (inside the private pid namespaces of rule L10 every test binary is pid 1, and two lanes may share a temp
+/// root), and created with `create_dir` (a directory it did not create is never reused or removed).
+#[allow(dead_code)]
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    std::fs::create_dir_all(&base).unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid")
+        .map(|l| l.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    loop {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let token = blake3::hash(format!("{ns}|{}|{stat}|{t}|{n}", std::process::id()).as_bytes())
+            .to_hex()[..12]
+            .to_string();
+        let p = base.join(format!("{prefix}-{token}"));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return p,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{}: {e}", p.display()),
+        }
+    }
 }

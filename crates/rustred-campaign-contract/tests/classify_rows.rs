@@ -503,6 +503,87 @@ fn row_17_internal_crashed() {
 }
 
 #[test]
+fn row_15b_host_resource_failure_is_never_evidence() {
+    // lane int5 (gate3 M4): | 15b | c in {51, 70}, O whose error names a host resource errno | lost | retry after a
+    // launch back-off, then attention | -- never no_rule, never a next rung
+    use rustred_campaign_contract::outcome::{ErrorClass, ErrorInfo};
+    let failing = |code: ExitCode, msg: &str| {
+        let mut j = o(code, Some(StopCode::Panic));
+        j.error = Some(ErrorInfo::new(ErrorClass::Panic, msg));
+        j
+    };
+    for (code, msg, errno) in [
+        (
+            ExitCode::Internal,
+            "panicked at std/src/thread/functions.rs:131:29:\nfailed to spawn thread: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }",
+            11,
+        ),
+        (
+            ExitCode::Internal,
+            "fork: Resource temporarily unavailable (os error 11)",
+            11,
+        ),
+        (
+            ExitCode::Io,
+            "open out/x: Too many open files (os error 24)",
+            24,
+        ),
+        (
+            ExitCode::Internal,
+            "Too many open files in system (os error 23)",
+            23,
+        ),
+        (
+            ExitCode::Internal,
+            "memory allocation failed: Os { code: 12, kind: OutOfMemory, .. }",
+            12,
+        ),
+        (
+            ExitCode::Io,
+            "write: No space left on device (os error 28)",
+            28,
+        ),
+        (
+            ExitCode::Io,
+            "write: Disk quota exceeded (os error 122)",
+            122,
+        ),
+    ] {
+        let j = failing(code, msg);
+        assert_eq!(resource_errno_of(&j), Some(errno), "{msg}");
+        let c = x(ev(WaitStatus::Exited(code.code()), Some(j), false));
+        assert_eq!(
+            (c.row, c.sub.as_str(), c.kind, c.accept, c.action),
+            (
+                15,
+                "b",
+                OutcomeKind::Lost,
+                Accept::Nothing,
+                Action::RetryAfterResourceBackoff
+            ),
+            "{msg}"
+        );
+    }
+    // other errnos and engine errors stay crashes (rows 16 / 17): only host resources are exempt from evidence
+    for (code, msg, row) in [
+        (ExitCode::Internal, "synthetic crash of N0.i0004.L0", 17),
+        (ExitCode::Internal, "Permission denied (os error 13)", 17),
+        (ExitCode::Internal, "os error 110 (timed out)", 17),
+        (ExitCode::Io, "Input/output error (os error 5)", 16),
+    ] {
+        let j = failing(code, msg);
+        assert_eq!(resource_errno_of(&j), None, "{msg}");
+        assert_eq!(
+            x(ev(WaitStatus::Exited(code.code()), Some(j), false)).row,
+            row,
+            "{msg}"
+        );
+    }
+    // the row is in the table
+    assert!(ROWS.iter().any(|r| r.row == 15 && r.sub == "b"));
+}
+
+#[test]
 fn row_18_sigkill_memory() {
     // | 18 | s=9, K=memory (or cgroup oom_kill count increased) | killed_memory | as row 10 |
     let mut e = ev(WaitStatus::Signaled(SIGKILL), None, false);

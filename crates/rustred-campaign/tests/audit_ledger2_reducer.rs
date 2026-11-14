@@ -448,6 +448,7 @@ fn random_event(h: &Harness, rng: &mut Rng, counter: &mut u64) -> Event {
                     cpus: vec![1],
                     reserved_bytes: 1,
                     spec_blake3: digest(&format!("{job}.a{attempt}")),
+                    scope_unit: None,
                 },
                 AttemptState::Launching => match rng.below(4) {
                     0 => JobEvent::Interrupt {
@@ -1163,6 +1164,7 @@ fn a2_input_flip_back_revives_nothing() {
             cpus: vec![1],
             reserved_bytes: 1,
             spec_blake3: digest("a1"),
+            scope_unit: None,
         },
     });
     h.ok(Event::Job {
@@ -1353,6 +1355,7 @@ fn a2_launch_of_job_that_can_never_feed() {
             cpus: vec![1],
             reserved_bytes: 1,
             spec_blake3: digest("a"),
+            scope_unit: None,
         },
     });
     eprintln!(

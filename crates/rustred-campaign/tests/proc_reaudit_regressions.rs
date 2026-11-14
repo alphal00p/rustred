@@ -174,7 +174,7 @@ fn poll_until_finished(h: &mut RealChild, t: Duration) -> Option<FinalReport> {
     None
 }
 
-fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
+fn site_cfg_raw(root: &Path, cpu: usize) -> SiteConfig {
     fs::create_dir_all(root.join("locks")).unwrap();
     SiteConfig {
         schema: SITE_SCHEMA.into(),
@@ -723,6 +723,9 @@ fn rb_minor_m5_future_and_newer_than_host_measurements_are_stale() {
 /// list missed every one of them), then run on the real sources.
 #[test]
 fn ra_m5_tripwire_covers_every_signal_form_and_directory() {
+    // procfix3: serialised with the descriptor-exhaustion tests of this binary (it reads every source file; under the
+    // default parallel test threads it hit EMFILE while rb_c1 held the table full).
+    let _g = serial();
     let planted = [
         ("supervisor/x.rs", "use libc::kill as k; k(pid, 9);"),
         ("cli/x.rs", "child.kill().unwrap();"),
@@ -915,4 +918,27 @@ fn _marker(c: &str) -> CampaignMarker {
 fn scan_of_an_unused_id_is_empty() {
     let s = scan_campaign("rb-unused-id", 0, &BTreeSet::new()).unwrap();
     assert!(s.processes.is_empty());
+}
+
+/// gate3 m3 (lane int5): the campaign never creates the site's files: a test site has its ledger and one lock file per
+/// CPU (0..=1023 would be too many: the candidate CPUs and the excluded ones) before `SitePolicy::new`.
+fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
+    std::fs::create_dir_all(&cfg.lock_dir).unwrap();
+    if !cfg.ledger_file.exists() {
+        std::fs::write(&cfg.ledger_file, b"").unwrap();
+    }
+    for c in cpus {
+        let p = cfg
+            .lock_dir
+            .join(cfg.lock_name.replace("{n}", &c.to_string()));
+        if !p.exists() {
+            std::fs::write(&p, b"").unwrap();
+        }
+    }
+}
+
+fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
+    let c = site_cfg_raw(root, cpu);
+    make_site_files(&c, &[cpu]);
+    c
 }
