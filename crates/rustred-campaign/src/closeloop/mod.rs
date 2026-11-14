@@ -7,6 +7,8 @@ pub mod config;
 pub mod ids;
 pub mod pass;
 pub mod source;
+// lane termmin (interfaces/termmin.md): phase E, terminal minimisation (FOR CLOSELOOP2: one line)
+pub mod termmin;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;
