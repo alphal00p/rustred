@@ -2344,7 +2344,7 @@ pub fn import_table_from<R: std::io::BufRead>(
                 if !exceptions.is_empty() {
                     excepted += 1;
                 }
-                let exclusions = exceptions
+                let mut exclusions: Vec<_> = exceptions
                     .iter()
                     .map(|branch| {
                         branch
@@ -2359,6 +2359,20 @@ pub fn import_table_from<R: std::io::BufRead>(
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<_, _>>()?;
+                // engine line: an optional `domain_bounds` (imported bank rules) becomes extra exclusion branches
+                // (node::bounds); absent = nothing added, so every existing package is byte-identical
+                let bounds = crate::node::bounds::bound_exclusions(record).map_err(malformed)?;
+                if !bounds.is_empty() && exceptions.is_empty() {
+                    excepted += 1;
+                }
+                for branch in bounds {
+                    exclusions.push(
+                        branch
+                            .iter()
+                            .map(|equation| coefficients.polynomial(equation))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
+                }
                 match record["dispatch"].as_str() {
                     None | Some("Partition") => {}
                     Some("AfterBaselinePartitionWholePiece") => dispatch.push(RuleDispatchRecord {
