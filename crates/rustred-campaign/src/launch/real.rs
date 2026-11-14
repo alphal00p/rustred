@@ -23,7 +23,7 @@
 //! Every signal goes through `guard` (identity checklist, pidfd delivery, leader-registry group fast path).
 
 use super::guard::{
-    self, DEFAULT_VERIFY_TIMEOUT, Proof, ProcessTarget, StartRule, signal_pinned_group,
+    self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
     signal_verified,
 };
 use super::{
@@ -33,8 +33,8 @@ use super::{
 };
 use crate::resources::{
     CampaignMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, MemKind, ProcStat,
-    ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded,
-    run_bounded, scan_campaign, ticks_per_second,
+    ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded, run_bounded,
+    scan_campaign, ticks_per_second,
 };
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -209,8 +209,7 @@ impl RealLauncher {
     pub fn with_config(sampler: Arc<Sampler>, config: RealConfig) -> Self {
         let sigchld =
             guard::ensure_sigchld_default().unwrap_or(guard::SigchldSetup::AlreadyDefault);
-        let child_subreaper =
-            config.child_subreaper && guard::set_child_subreaper(true).is_ok();
+        let child_subreaper = config.child_subreaper && guard::set_child_subreaper(true).is_ok();
         if crate::resources::validate_campaign_id(&config.campaign_id).is_err() {
             // An invalid id would make every marker invalid: fall back to an ad-hoc one (recognises nothing old).
             let mut c = config.clone();
@@ -600,7 +599,15 @@ impl ChildLauncher for RealLauncher {
             }
         };
         self.sampler.track(pid);
-        let mechanism = match (&cgroup, &mechanism_choice_kind(&spec.memory_cap_bytes, &cgroup, &self.setup, spec.cap_mechanism)) {
+        let mechanism = match (
+            &cgroup,
+            &mechanism_choice_kind(
+                &spec.memory_cap_bytes,
+                &cgroup,
+                &self.setup,
+                spec.cap_mechanism,
+            ),
+        ) {
             (Some(c), _) => MemoryMechanism::Cgroup(c.path().to_path_buf()),
             (None, k) => k.clone(),
         };
@@ -656,7 +663,8 @@ impl ChildLauncher for RealLauncher {
                 crate::resources::Liveness::OtherBoot => LostReason::OtherBoot,
                 crate::resources::Liveness::Alive { zombie: true } => LostReason::Gone,
                 crate::resources::Liveness::Alive { zombie: false } => LostReason::NotOurs {
-                    why: "the recorded process does not carry this attempt's campaign marker".into(),
+                    why: "the recorded process does not carry this attempt's campaign marker"
+                        .into(),
                 },
             };
             return Ok(Reattached::Lost(reason));
@@ -866,7 +874,11 @@ impl RealChild {
                     continue; // reached by the pinned group signal
                 }
                 out.push((
-                    self.target(m.pid, StartRule::NotBefore(launch), Proof::PinnedSession(self.sid)),
+                    self.target(
+                        m.pid,
+                        StartRule::NotBefore(launch),
+                        Proof::PinnedSession(self.sid),
+                    ),
                     (m.pid, m.start_ticks),
                 ));
             }
@@ -895,7 +907,9 @@ impl RealChild {
     /// Returns (deliveries, identities delivered to).
     fn signal_job(&mut self, sig: i32, only_new: bool) -> usize {
         let mut n = 0;
-        if self.pinned() && !only_new && signal_pinned_group(&self.leaders, self.sid, sig).delivered()
+        if self.pinned()
+            && !only_new
+            && signal_pinned_group(&self.leaders, self.sid, sig).delivered()
         {
             n += 1;
         }
@@ -1180,7 +1194,11 @@ impl ChildHandle for RealChild {
                     let alive = s.marked.iter().any(|p| {
                         p.pid == self.identity.pid && p.start_ticks == self.identity.start_ticks
                     });
-                    if alive { None } else { Some(ExitState::Unknown) }
+                    if alive {
+                        None
+                    } else {
+                        Some(ExitState::Unknown)
+                    }
                 }
                 None => None,
             }
@@ -1284,7 +1302,9 @@ impl ChildHandle for RealChild {
             let _ = self.poll_exit();
             self.sampler.request_now();
             return Ok(ChildProgress::Finished(
-                self.finished.clone().unwrap_or_else(|| self.report(Verification::Verified)),
+                self.finished
+                    .clone()
+                    .unwrap_or_else(|| self.report(Verification::Verified)),
             ));
         }
         let now = Instant::now();
@@ -1327,8 +1347,8 @@ impl ChildHandle for RealChild {
                 (None, Some((m, kind, seq))) if m > cap => {
                     // Under the RSS fallback (shared / CoW pages counted twice: audit B m2) a kill needs two
                     // consecutive over-cap scans; PSS or a cgroup number kills at the first.
-                    let confirmed = kind != MemKind::Rss
-                        || self.over_cap_seq.is_some_and(|p| p != seq);
+                    let confirmed =
+                        kind != MemKind::Rss || self.over_cap_seq.is_some_and(|p| p != seq);
                     if self.over_cap_seq.is_none() {
                         self.over_cap_seq = Some(seq);
                     }
@@ -1415,9 +1435,10 @@ impl ChildHandle for RealChild {
                             comm: m.comm.clone(),
                         })
                         .collect();
-                    return Ok(ChildProgress::Finished(
-                        self.finish_unverified(left, "job not empty at verify timeout".into()),
-                    ));
+                    return Ok(ChildProgress::Finished(self.finish_unverified(
+                        left,
+                        "job not empty at verify timeout".into(),
+                    )));
                 }
                 self.kill_leftovers(&survivors);
             }

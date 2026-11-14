@@ -303,7 +303,8 @@ fn missing_passthrough_variable_fails_by_name_only() {
     assert!(names.contains(&"RR_GIVEN") && names.contains(&"HOME"));
     // The campaign marker is always set: <campaign id>:<label>.
     assert!(
-        out.lines().any(|l| l.starts_with("RR_CAMPAIGN_JOB=adhoc-") && l.ends_with(":env2")),
+        out.lines()
+            .any(|l| l.starts_with("RR_CAMPAIGN_JOB=adhoc-") && l.ends_with(":env2")),
         "{out}"
     );
 }

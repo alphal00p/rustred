@@ -209,7 +209,9 @@ pub enum WaitReason {
         holder: u64,
     },
     /// The host reading is older than `max_sample_age`: nothing is admitted on it.
-    StaleMeasurements { age_ms: u64 },
+    StaleMeasurements {
+        age_ms: u64,
+    },
     /// Can never start under this policy (cap above the campaign limit, more cores than the budget).
     NeverFits {
         why: String,
@@ -868,7 +870,9 @@ mod tests {
         let mut q = p.clone();
         q.victim_order = VictimOrder::LargestRssFirst;
         assert_eq!(
-            choose_victims(&q, hv(38), &running, low(2)).unwrap().victims,
+            choose_victims(&q, hv(38), &running, low(2))
+                .unwrap()
+                .victims,
             vec![1]
         );
         // Deficit beyond everything we hold: all holders, whole_campaign.

@@ -28,12 +28,12 @@ pub use fake::{
     FakeEvent, FakeEventKind, ManualTime, MonotonicTime, OnTerm, Script, ScriptedChild,
     ScriptedLauncher, TimeSource,
 };
+pub(crate) use guard::reap_exact;
 pub use guard::{
     ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict, ensure_sigchld_default,
     is_child_subreaper, kill_orphan, pidfd_supported, set_child_subreaper, sigchld_autoreaps,
     signal_verified_process,
 };
-pub(crate) use guard::reap_exact;
 pub use real::{
     CapPreference, LauncherSetup, RealChild, RealConfig, RealLauncher, adhoc_campaign_id,
     audit_inheritable_fds, in_private_namespace, peek_exit,
@@ -350,7 +350,9 @@ impl LaunchSpec {
             }
         }
         for (i, (k, _)) in self.env.iter().enumerate() {
-            let ok = k.to_str().is_some_and(|k| !k.is_empty() && !k.contains('=') && !k.contains('\0'));
+            let ok = k
+                .to_str()
+                .is_some_and(|k| !k.is_empty() && !k.contains('=') && !k.contains('\0'));
             if !ok {
                 return Err(LaunchError::InvalidSpec(format!(
                     "env entry #{i} has an invalid name"
@@ -396,7 +398,10 @@ pub enum CapRequest {
 /// The latest usage with its freshness (audit A M2).
 #[derive(Clone, Debug)]
 pub enum UsageReading {
-    Fresh { usage: SessionUsage, age: std::time::Duration },
+    Fresh {
+        usage: SessionUsage,
+        age: std::time::Duration,
+    },
     /// The sampler has not reported for longer than the threshold: "cannot verify memory". Admission must charge the
     /// job its full cap; a sampled cap cannot be enforced meanwhile (kernel caps still are).
     Stale {
@@ -428,7 +433,13 @@ impl fmt::Debug for LaunchSpec {
                 &self
                     .env_passthrough
                     .iter()
-                    .map(|n| if is_env_name(n) { n.as_str() } else { "<not a name: hidden>" })
+                    .map(|n| {
+                        if is_env_name(n) {
+                            n.as_str()
+                        } else {
+                            "<not a name: hidden>"
+                        }
+                    })
                     .collect::<Vec<_>>(),
             )
             .field("cpus", &self.cpus)
@@ -540,7 +551,8 @@ mod tests {
         assert!(fd.validate().is_err());
         // Audit B m8: a misused passthrough entry is refused WITHOUT echoing it, also not in Debug.
         let mut leak = s.clone();
-        leak.env_passthrough.push("SYMBOLICA_LICENSE=dummy-secret-77".into());
+        leak.env_passthrough
+            .push("SYMBOLICA_LICENSE=dummy-secret-77".into());
         let e = leak.validate().unwrap_err().to_string();
         assert!(!e.contains("dummy-secret-77"), "{e}");
         assert!(!format!("{leak:?}").contains("dummy-secret-77"));

@@ -26,7 +26,9 @@
 //!   taken;
 //! - publishes its health: [`Sampler::health`] says when the latest scan is older than a threshold (audit A M2).
 
-use super::marked::{CampaignMarker, ENVIRON_READ_TIMEOUT, MarkedProcess, MarkerRead, read_marker_at};
+use super::marked::{
+    CampaignMarker, ENVIRON_READ_TIMEOUT, MarkedProcess, MarkerRead, read_marker_at,
+};
 use super::{MemInfo, ProcStat, host_memory, live_thread_stat, read_stat};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -293,7 +295,9 @@ impl Sampler {
     pub fn health(&self, stale_after: Duration) -> SamplerHealth {
         let now = Instant::now();
         let thread_alive = self.thread.as_ref().is_some_and(|t| !t.is_finished());
-        let age = self.latest().map(|s| now.saturating_duration_since(s.finished_at));
+        let age = self
+            .latest()
+            .map(|s| now.saturating_duration_since(s.finished_at));
         match age {
             Some(a) if a <= stale_after && thread_alive => SamplerHealth::Fresh { age: a },
             None if thread_alive
@@ -683,7 +687,11 @@ fn pss_of(pid: u32) -> Option<u64> {
 /// Per tracked session: sum of Pss over its live members, None when any member's Pss could not be read.
 fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u64>> {
     let mut out: BTreeMap<u32, Option<u64>> = BTreeMap::new();
-    for p in raw.all.iter().filter(|p| sids.contains(&p.session) && !p.is_dead()) {
+    for p in raw
+        .all
+        .iter()
+        .filter(|p| sids.contains(&p.session) && !p.is_dead())
+    {
         let e = out.entry(p.session).or_insert(Some(0));
         *e = match (*e, pss_of(p.pid)) {
             (Some(a), Some(b)) => Some(a.saturating_add(b)),

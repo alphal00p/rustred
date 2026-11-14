@@ -219,7 +219,11 @@ fn helper_entry() {
             let out = std::path::PathBuf::from(std::env::var("RR_PROC_OUT").unwrap());
             let mut l = launcher();
             let h = l
-                .launch(&sh(&out, "orph", "sleep 600 & echo $! > gc.pid; exec sleep 600"))
+                .launch(&sh(
+                    &out,
+                    "orph",
+                    "sleep 600 & echo $! > gc.pid; exec sleep 600",
+                ))
                 .unwrap();
             fs::write(out.join("campaign.tmp"), l.config().campaign_id.clone()).unwrap();
             fs::rename(out.join("campaign.tmp"), out.join("campaign")).unwrap();
@@ -252,9 +256,19 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     std::thread::sleep(Duration::from_millis(300));
     let mut second = launcher();
     let r = second
-        .reattach(&id, "c1", ReattachChoice::Kill { grace: Duration::ZERO })
+        .reattach(
+            &id,
+            "c1",
+            ReattachChoice::Kill {
+                grace: Duration::ZERO,
+            },
+        )
         .unwrap();
-    assert!(matches!(r, Reattached::Lost(LostReason::Recycled)), "{:?}", lost(&r));
+    assert!(
+        matches!(r, Reattached::Lost(LostReason::Recycled)),
+        "{:?}",
+        lost(&r)
+    );
     std::thread::sleep(Duration::from_millis(500));
     assert!(alive(&mut d), "decoy leader must survive");
     let sids: BTreeSet<u32> = [id.pid].into();
@@ -276,11 +290,24 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let member = read_pid_file(&pidfile);
     let mstart = read_stat(member).unwrap().unwrap().start_ticks;
     let r = second
-        .reattach(&id2, "c1b", ReattachChoice::Kill { grace: Duration::ZERO })
+        .reattach(
+            &id2,
+            "c1b",
+            ReattachChoice::Kill {
+                grace: Duration::ZERO,
+            },
+        )
         .unwrap();
-    assert!(matches!(r, Reattached::Lost(LostReason::Gone)), "{:?}", lost(&r));
+    assert!(
+        matches!(r, Reattached::Lost(LostReason::Gone)),
+        "{:?}",
+        lost(&r)
+    );
     std::thread::sleep(Duration::from_millis(500));
-    assert!(pid_alive(member, mstart), "member of the leaderless decoy session must survive");
+    assert!(
+        pid_alive(member, mstart),
+        "member of the leaderless decoy session must survive"
+    );
     kill_decoy_member(member, mstart);
 }
 
@@ -303,25 +330,46 @@ fn a_c1_decoy_with_other_campaign_marker_survives() {
     std::thread::sleep(Duration::from_millis(300));
     let id = ProcessIdentity::capture(other.id()).unwrap();
     let mut l = launcher();
-    for choice in [ReattachChoice::Adopt, ReattachChoice::Kill { grace: Duration::ZERO }] {
+    for choice in [
+        ReattachChoice::Adopt,
+        ReattachChoice::Kill {
+            grace: Duration::ZERO,
+        },
+    ] {
         let r = l.reattach(&id, "c1m", choice).unwrap();
-        assert!(matches!(r, Reattached::Lost(LostReason::NotOurs { .. })), "{:?}", lost(&r));
+        assert!(
+            matches!(r, Reattached::Lost(LostReason::NotOurs { .. })),
+            "{:?}",
+            lost(&r)
+        );
     }
     let v = signal_verified_process(&id, &marker("c1m"), libc::SIGKILL);
-    assert!(matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })), "{v:?}");
+    assert!(
+        matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })),
+        "{v:?}"
+    );
     let id2 = ProcessIdentity::capture(other_attempt.id()).unwrap();
     let v = signal_verified_process(&id2, &marker("c1m"), libc::SIGKILL);
-    assert!(matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })), "{v:?}");
+    assert!(
+        matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })),
+        "{v:?}"
+    );
     // Orphan scan of OUR campaign lists the other-attempt decoy (it carries our marker) but never the other campaign's.
     let scan = scan_campaign(&campaign(), 0, &BTreeSet::new()).unwrap();
     assert!(!scan.processes.iter().any(|p| p.pid == other.id()));
     // The orphan kill for a third campaign id refuses our-campaign decoy.
     if let Some(p) = scan.processes.iter().find(|p| p.pid == other_attempt.id()) {
         let v = kill_orphan("third-campaign", &boot_id().unwrap(), p, libc::SIGKILL);
-        assert!(matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })), "{v:?}");
+        assert!(
+            matches!(v, Verdict::NotOurs(Refusal::OtherMarker { .. })),
+            "{v:?}"
+        );
     }
     std::thread::sleep(Duration::from_millis(300));
-    assert!(alive(&mut other) && alive(&mut other_attempt), "decoys must survive");
+    assert!(
+        alive(&mut other) && alive(&mut other_attempt),
+        "decoys must survive"
+    );
     for mut d in [other, other_attempt] {
         d.kill().unwrap();
         d.wait().unwrap();
@@ -350,7 +398,9 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
         h.poll().unwrap();
         h.usage().is_some_and(|u| u.groups.contains(&g))
     });
-    wait_until("group ended and reaped", LONG, || read_stat(g).ok().flatten().is_none());
+    wait_until("group ended and reaped", LONG, || {
+        read_stat(g).ok().flatten().is_none()
+    });
     // The handle's last usage still names group g. A decoy now creates a leaderless group g in its own session.
     let mfile = dir.path().join("dm.pid");
     let dscript = format!("sleep 600 & echo $! > {}; exit 0", mfile.display());
@@ -358,12 +408,19 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     dl.wait().unwrap();
     let dm = read_pid_file(&mfile);
     let dstart = read_stat(dm).unwrap().unwrap().start_ticks;
-    assert_eq!(read_stat(dm).unwrap().unwrap().pgrp, g, "decoy member is in group g");
+    assert_eq!(
+        read_stat(dm).unwrap().unwrap().pgrp,
+        g,
+        "decoy member is in group g"
+    );
     h.terminate(Duration::from_secs(2), KillReason::Stop);
     let r = drive(&mut h);
     assert_eq!(r.verification, Verification::Verified, "{r:?}");
     assert_session_gone(sid);
-    assert!(pid_alive(dm, dstart), "the decoy's leaderless group g must survive");
+    assert!(
+        pid_alive(dm, dstart),
+        "the decoy's leaderless group g must survive"
+    );
     kill_decoy_member(dm, dstart);
 }
 
@@ -382,7 +439,10 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
     std::thread::sleep(Duration::from_millis(300));
     assert!(matches!(
         s.health(Duration::from_millis(100)),
-        SamplerHealth::Stale { thread_alive: true, .. }
+        SamplerHealth::Stale {
+            thread_alive: true,
+            ..
+        }
     ));
     assert!(s.health(Duration::from_secs(3600)).is_fresh());
     // stale_after = 0: no snapshot ever counts as fresh -> usage Stale, verification Unverified after the timeout.
@@ -401,9 +461,14 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
     }
     assert!(!r.session_verified_empty);
     // The zombie is kept unreaped (pinned) while Unverified.
-    assert!(peek_exit(pid).unwrap().is_some(), "leader still an unreaped zombie");
+    assert!(
+        peek_exit(pid).unwrap().is_some(),
+        "leader still an unreaped zombie"
+    );
     drop(h); // hands the reap to a helper thread
-    wait_until("leader reaped", Duration::from_secs(30), || peek_exit(pid).is_err());
+    wait_until("leader reaped", Duration::from_secs(30), || {
+        peek_exit(pid).is_err()
+    });
 }
 
 /// A-M3 (property): with stale or skewed job measurements (arbitrary values, unrelated to the truth), a batch never
@@ -481,7 +546,10 @@ fn a_m3_stale_or_skewed_measurements_never_admit_below_floor() {
         let grow: u64 = running.iter().map(|j| j.cap_bytes).sum::<u64>() - used_true;
         let worst = host.mem_available_bytes as i128 - grow as i128 - caps as i128;
         if !out.admitted().is_empty() {
-            assert!(worst >= p.floor_bytes as i128, "{running:?} {host:?} {queue:?} {out:?}");
+            assert!(
+                worst >= p.floor_bytes as i128,
+                "{running:?} {host:?} {queue:?} {out:?}"
+            );
         }
     }
     assert!(admitted > 1000, "property exercised: {admitted}");
@@ -492,7 +560,13 @@ fn a_m3_stale_or_skewed_measurements_never_admit_below_floor() {
         measured_at: Duration::ZERO,
         now: Duration::from_secs(60),
     };
-    let c = Candidate { id: 1, expected_peak_bytes: GB, cap_bytes: GB, cores: 1, bypassed: 0 };
+    let c = Candidate {
+        id: 1,
+        expected_peak_bytes: GB,
+        cap_bytes: GB,
+        cores: 1,
+        bypassed: 0,
+    };
     assert!(matches!(
         admission::admit_one(&p, host, &[], &c),
         Decision::Wait(WaitReason::StaleMeasurements { .. })
@@ -538,16 +612,25 @@ fn a_m5_no_blocking_in_the_control_path() {
     // SAFETY: mkfifo with a valid C string.
     assert_eq!(unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) }, 0);
     let t0 = Instant::now();
-    assert!(matches!(read_bounded(&fifo, Duration::from_millis(200)), ReadOutcome::TimedOut));
+    assert!(matches!(
+        read_bounded(&fifo, Duration::from_millis(200)),
+        ReadOutcome::TimedOut
+    ));
     assert!(t0.elapsed() < Duration::from_secs(3));
     let _w = fs::OpenOptions::new().write(true).open(&fifo).unwrap(); // releases the stuck reader
     // Drop of a running handle: quick, and the job dies.
     let mut l = launcher();
-    let h = l.launch(&sh(dir.path(), "m5", "trap '' TERM; sleep 600")).unwrap();
+    let h = l
+        .launch(&sh(dir.path(), "m5", "trap '' TERM; sleep 600"))
+        .unwrap();
     let sid = h.identity().pid;
     let t0 = Instant::now();
     drop(h);
-    assert!(t0.elapsed() < Duration::from_secs(2), "Drop blocked for {:?}", t0.elapsed());
+    assert!(
+        t0.elapsed() < Duration::from_secs(2),
+        "Drop blocked for {:?}",
+        t0.elapsed()
+    );
     assert_session_gone(sid);
 }
 
@@ -561,7 +644,10 @@ fn site(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
         ledger_file: root.join("CPU_LEDGER.md"),
         ledger_scan_lines: 1500,
         candidates: Some(
-            cpus.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(","),
+            cpus.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
         ),
         exclude: vec![],
         held_files: vec![],
@@ -602,7 +688,10 @@ fn a_m6_lease_fd_inherited_and_restart_reconciliation() {
         .write(true)
         .open(dir.path().join(format!("locks/cpu.{cpu}")))
         .unwrap();
-    assert!(lockf.try_lock().is_err(), "the job still holds the CPU's flock");
+    assert!(
+        lockf.try_lock().is_err(),
+        "the job still holds the CPU's flock"
+    );
     h.kill_now(KillReason::Other("test".into()));
     drive(&mut h);
     wait_until("flock free after the job", Duration::from_secs(30), || {
@@ -631,7 +720,13 @@ fn a_m6_lease_fd_inherited_and_restart_reconciliation() {
     assert_eq!(rec.released, vec![free_cpu]);
     assert_eq!(rec.held, vec![held_cpu]);
     let text = fs::read_to_string(&cfg.ledger_file).unwrap();
-    assert!(text.lines().last().unwrap().contains("reconciled at restart"), "{text}");
+    assert!(
+        text.lines()
+            .last()
+            .unwrap()
+            .contains("reconciled at restart"),
+        "{text}"
+    );
     let v = ledger_claims_strict(text.lines());
     let own = v.claims.get("rr-procfix-test").cloned().unwrap_or_default();
     assert!(!own.contains(&free_cpu) && own.contains(&held_cpu));
@@ -647,7 +742,13 @@ fn a_m7_cap_mechanism_detected_and_recorded() {
     let mut l = launcher();
     if rustred_campaign::launch::in_private_namespace() {
         assert!(l.setup().systemd_run.is_none());
-        assert!(l.setup().systemd_unavailable.as_deref().unwrap().contains("namespace"));
+        assert!(
+            l.setup()
+                .systemd_unavailable
+                .as_deref()
+                .unwrap()
+                .contains("namespace")
+        );
     }
     let mut spec = sh(dir.path(), "m7", "exit 0");
     spec.memory_cap_bytes = Some(1 << 30);
@@ -657,11 +758,19 @@ fn a_m7_cap_mechanism_detected_and_recorded() {
     } else {
         r.memory_mechanism == MemoryMechanism::Sampling
     };
-    assert!(expect, "{:?} with setup {:?}", r.memory_mechanism, l.setup());
+    assert!(
+        expect,
+        "{:?} with setup {:?}",
+        r.memory_mechanism,
+        l.setup()
+    );
     let mut req = spec.clone();
     req.cap_mechanism = CapRequest::SystemdScope;
     if l.setup().systemd_run.is_none() {
-        assert!(l.launch(&req).is_err(), "a required scope that is unavailable fails the launch");
+        assert!(
+            l.launch(&req).is_err(),
+            "a required scope that is unavailable fails the launch"
+        );
     }
 }
 
@@ -674,7 +783,10 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     let mut l = launcher();
     assert!(rustred_campaign::launch::is_child_subreaper());
     let f = dir.path().join("d.pid");
-    let script = format!("( setsid sh -c 'echo $$ > {}; exec sleep 600' & ); sleep 1; exit 0", f.display());
+    let script = format!(
+        "( setsid sh -c 'echo $$ > {}; exec sleep 600' & ); sleep 1; exit 0",
+        f.display()
+    );
     let mut h = l.launch(&sh(dir.path(), "sub", &script)).unwrap();
     let d = read_pid_file(&f);
     let st = read_stat(d).unwrap().unwrap();
@@ -683,7 +795,10 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     assert_eq!(r.verification, Verification::Verified, "{r:?}");
     assert!(r.leftovers_killed.iter().any(|x| x.pid == d), "{r:?}");
     wait_until("daemon reaped (no zombie)", Duration::from_secs(60), || {
-        read_stat(d).ok().flatten().is_none_or(|s| s.start_ticks != st.start_ticks)
+        read_stat(d)
+            .ok()
+            .flatten()
+            .is_none_or(|s| s.start_ticks != st.start_ticks)
     });
 }
 
@@ -692,12 +807,27 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
 #[test]
 fn a_minor_m1_and_b_c1_c2_invalid_pids_are_typed_errors() {
     let b = boot_id().unwrap();
-    for js in ["-1", "0", "1", "4194305", "2147483648", "4294967295", "4294967296", "1.5"] {
+    for js in [
+        "-1",
+        "0",
+        "1",
+        "4194305",
+        "2147483648",
+        "4294967295",
+        "4294967296",
+        "1.5",
+    ] {
         let t = format!("{{\"pid\":{js},\"start_ticks\":1,\"boot_id\":\"{b}\"}}");
-        assert!(serde_json::from_str::<ProcessIdentity>(&t).is_err(), "pid {js} accepted");
+        assert!(
+            serde_json::from_str::<ProcessIdentity>(&t).is_err(),
+            "pid {js} accepted"
+        );
     }
     for p in [-1i64, 0, 1, 1 << 31, i64::from(u32::MAX)] {
-        assert!(ValidPid::new(p).is_err() && ValidPid::for_signal(p).is_err(), "{p}");
+        assert!(
+            ValidPid::new(p).is_err() && ValidPid::for_signal(p).is_err(),
+            "{p}"
+        );
     }
     let me = i64::from(std::process::id());
     assert!(ValidPid::for_signal(me).is_err());
@@ -711,12 +841,27 @@ fn a_minor_m1_and_b_c1_c2_invalid_pids_are_typed_errors() {
     assert!(ProcessIdentity::capture(1).is_err() && ProcessIdentity::capture(0).is_err());
     let mut l = launcher();
     for pid in [0u32, 1, u32::MAX, 4_194_305, std::process::id()] {
-        let id = ProcessIdentity { pid, start_ticks: 1, boot_id: b.clone() };
+        let id = ProcessIdentity {
+            pid,
+            start_ticks: 1,
+            boot_id: b.clone(),
+        };
         let e = l
-            .reattach(&id, "x", ReattachChoice::Kill { grace: Duration::ZERO })
+            .reattach(
+                &id,
+                "x",
+                ReattachChoice::Kill {
+                    grace: Duration::ZERO,
+                },
+            )
             .err()
             .unwrap_or_else(|| panic!("pid {pid} accepted by reattach"));
-        assert!(e.get_ref().and_then(|x| x.downcast_ref::<InvalidPid>()).is_some(), "{e}");
+        assert!(
+            e.get_ref()
+                .and_then(|x| x.downcast_ref::<InvalidPid>())
+                .is_some(),
+            "{e}"
+        );
         assert!(matches!(
             signal_verified_process(&id, &marker("x"), libc::SIGKILL),
             Verdict::NotOurs(Refusal::InvalidPid(_))
@@ -740,8 +885,15 @@ fn a_minor_m2_zombie_non_child_is_not_signalled() {
         read_stat(z).ok().flatten().is_none_or(|s| s.is_dead())
     });
     if let Some(st) = read_stat(z).unwrap() {
-        let id = ProcessIdentity { pid: z, start_ticks: st.start_ticks, boot_id: boot_id().unwrap() };
-        assert_eq!(signal_verified_process(&id, &marker("m2z"), libc::SIGKILL), Verdict::Gone);
+        let id = ProcessIdentity {
+            pid: z,
+            start_ticks: st.start_ticks,
+            boot_id: boot_id().unwrap(),
+        };
+        assert_eq!(
+            signal_verified_process(&id, &marker("m2z"), libc::SIGKILL),
+            Verdict::Gone
+        );
     }
     h.kill_now(KillReason::Other("test".into()));
     drive(&mut h);
@@ -767,7 +919,10 @@ fn a_minor_m4_unparsable_claims_fail_closed() {
 #[test]
 fn a_minor_m5_labels_sanitised_and_lines_atomic() {
     let s = sanitize("evil) RELEASED 3,4 (x\n+ CPU 9 ; done");
-    assert!(!s.contains("RELEASED") && !s.contains('+') && !s.contains('\n') && !s.contains(')'), "{s}");
+    assert!(
+        !s.contains("RELEASED") && !s.contains('+') && !s.contains('\n') && !s.contains(')'),
+        "{s}"
+    );
     let dir = TempDir::new("a-m5l");
     let p = dir.path().join("L");
     assert!(rustred_campaign::cpu_policy::append_line(&p, &"x".repeat(5000)).is_err());
@@ -785,13 +940,19 @@ fn a_minor_m6_b_minor_m6_huge_line_does_not_hide_claims() {
     let cfg = site(dir.path(), &c, "rr-procfix-test");
     let mut text = String::new();
     for cpu in &c[..3] {
-        text.push_str(&format!("2026-11-14T00:00:00Z (foreign): + CPU {cpu} (flock) -> long job.\n"));
+        text.push_str(&format!(
+            "2026-11-14T00:00:00Z (foreign): + CPU {cpu} (flock) -> long job.\n"
+        ));
     }
     text.push_str(&"z".repeat(800_000));
     text.push('\n');
     fs::write(&cfg.ledger_file, text).unwrap();
     let mut p = SitePolicy::new(cfg).unwrap();
-    let lease = p.acquire(1, "t").unwrap().granted().expect("the one free CPU");
+    let lease = p
+        .acquire(1, "t")
+        .unwrap()
+        .granted()
+        .expect("the one free CPU");
     assert_eq!(lease.cpus(), &[c[3]]);
     assert!(matches!(p.acquire(1, "t").unwrap(), Acquire::NotNow(_)));
 }
@@ -805,7 +966,18 @@ fn a_minor_m8_cgroup_headroom_has_its_own_margin() {
         cgroup_headroom: Some(10 * GB),
     };
     assert_eq!(m.effective_available_for(50 * GB), 60 * GB);
-    assert!(admission::choose_victims(&AdmissionPolicy::new(8), HostView::at(m.effective_available_for(50 * GB)), &[], LowState { samples: 9, since: Duration::ZERO }).is_none());
+    assert!(
+        admission::choose_victims(
+            &AdmissionPolicy::new(8),
+            HostView::at(m.effective_available_for(50 * GB)),
+            &[],
+            LowState {
+                samples: 9,
+                since: Duration::ZERO
+            }
+        )
+        .is_none()
+    );
 }
 
 /// A-m10: SIGHUP never escalates (a closing pane's HUP + TERM is ONE request); Ctrl-Z (SIGTSTP) does not stop us.
@@ -822,7 +994,11 @@ fn a_minor_m10_hangup_does_not_escalate_and_tstp_is_ignored() {
     assert_eq!(h.level(), rustred_campaign::signals::StopLevel::Drain);
     unsafe { libc::raise(libc::SIGTSTP) };
     std::thread::sleep(Duration::from_millis(100));
-    assert_eq!(h.level(), rustred_campaign::signals::StopLevel::Drain, "still running");
+    assert_eq!(
+        h.level(),
+        rustred_campaign::signals::StopLevel::Drain,
+        "still running"
+    );
     drop(s);
 }
 
@@ -834,7 +1010,10 @@ fn b_c3_leaderless_session_with_older_record_is_refused() {
     let _g = serial();
     let dir = TempDir::new("b-c3");
     let f = dir.path().join("m.pid");
-    let mut lead = decoy_session(&format!("sleep 600 & echo $! > {}; sleep 0.3; exit 0", f.display()), None);
+    let mut lead = decoy_session(
+        &format!("sleep 600 & echo $! > {}; sleep 0.3; exit 0", f.display()),
+        None,
+    );
     let lead_pid = lead.id();
     let lead_start = read_stat(lead_pid).unwrap().unwrap().start_ticks;
     lead.wait().unwrap();
@@ -846,7 +1025,15 @@ fn b_c3_leaderless_session_with_older_record_is_refused() {
         boot_id: boot_id().unwrap(),
     };
     let mut l = launcher();
-    let r = l.reattach(&rec, "tamper", ReattachChoice::Kill { grace: Duration::from_secs(1) }).unwrap();
+    let r = l
+        .reattach(
+            &rec,
+            "tamper",
+            ReattachChoice::Kill {
+                grace: Duration::from_secs(1),
+            },
+        )
+        .unwrap();
     assert!(matches!(r, Reattached::Lost(_)), "{}", lost(&r));
     std::thread::sleep(Duration::from_millis(500));
     assert!(pid_alive(m, mstart), "decoy member must survive");
@@ -863,28 +1050,43 @@ fn b_c4_orphans_daemons_and_escapees() {
     let mut l = launcher();
     // (a) T2.
     let f = dir.path().join("d.pid");
-    let script = format!("( setsid sh -c 'echo $$ > {}; exec sleep 20' & ); exit 0", f.display());
+    let script = format!(
+        "( setsid sh -c 'echo $$ > {}; exec sleep 20' & ); exit 0",
+        f.display()
+    );
     let mut h = l.launch(&sh(dir.path(), "t2", &script)).unwrap();
     let r = drive(&mut h);
     let d = read_pid_file(&f);
-    assert!(r.leftovers_killed.iter().any(|x| x.pid == d), "daemon reported: {r:?}");
+    assert!(
+        r.leftovers_killed.iter().any(|x| x.pid == d),
+        "daemon reported: {r:?}"
+    );
     assert_eq!(r.verification, Verification::Verified);
     wait_until("daemon dead", Duration::from_secs(30), || {
-        read_stat(d).ok().flatten().is_none_or(|s| s.is_dead() || s.comm != "sleep")
+        read_stat(d)
+            .ok()
+            .flatten()
+            .is_none_or(|s| s.is_dead() || s.comm != "sleep")
     });
     // (c) setsid escapee allocating beyond the cap.
     let exe = std::env::current_exe().unwrap();
     let mut spec = sh(
         dir.path(),
         "esc-mem",
-        &format!("setsid '{}' --exact helper_entry --nocapture --test-threads=1 & wait", exe.display()),
+        &format!(
+            "setsid '{}' --exact helper_entry --nocapture --test-threads=1 & wait",
+            exe.display()
+        ),
     );
     spec.env.push(("RR_PROC_HELPER".into(), "alloc".into()));
     spec.memory_cap_bytes = Some(80_000_000);
     spec.cap_mechanism = CapRequest::Sampling;
     let mut h = l.launch(&spec).unwrap();
     let r = drive(&mut h);
-    assert!(matches!(r.kill_reason, Some(KillReason::MemoryCap { .. })), "{r:?}");
+    assert!(
+        matches!(r.kill_reason, Some(KillReason::MemoryCap { .. })),
+        "{r:?}"
+    );
     assert_eq!(r.verification, Verification::Verified, "{r:?}");
     // (d) orphan after a supervisor SIGKILL.
     let mut sup = l.launch(&helper(dir.path(), "minisup", "minisup")).unwrap();
@@ -894,12 +1096,23 @@ fn b_c4_orphans_daemons_and_escapees() {
     let camp = fs::read_to_string(&cfile).unwrap();
     sup.kill_now(KillReason::Other("test kills the helper supervisor".into()));
     drive(&mut sup);
-    let gstat = read_stat(gc).unwrap().expect("grandchild survives its supervisor");
+    let gstat = read_stat(gc)
+        .unwrap()
+        .expect("grandchild survives its supervisor");
     let scan = scan_campaign(&camp, 0, &BTreeSet::new()).unwrap();
-    let p = scan.processes.iter().find(|p| p.pid == gc).expect("found by the orphan scan");
+    let p = scan
+        .processes
+        .iter()
+        .find(|p| p.pid == gc)
+        .expect("found by the orphan scan");
     assert_eq!(p.attempt_id, "orph");
-    assert_eq!(kill_orphan(&camp, &boot_id().unwrap(), p, libc::SIGKILL), Verdict::Delivered);
-    wait_until("orphan gone", Duration::from_secs(30), || !pid_alive(gc, gstat.start_ticks));
+    assert_eq!(
+        kill_orphan(&camp, &boot_id().unwrap(), p, libc::SIGKILL),
+        Verdict::Delivered
+    );
+    wait_until("orphan gone", Duration::from_secs(30), || {
+        !pid_alive(gc, gstat.start_ticks)
+    });
 }
 
 /// B-M1: an adopted job whose leader's main thread exited while a thread lives is NOT reported finished.
@@ -908,18 +1121,26 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
     let _g = serial();
     let dir = TempDir::new("b-m1");
     let mut first = launcher();
-    let mut h = first.launch(&helper(dir.path(), "tl", "thread-leader")).unwrap();
+    let mut h = first
+        .launch(&helper(dir.path(), "tl", "thread-leader"))
+        .unwrap();
     let tl = read_pid_file(&dir.path().join("tl.pid"));
     let id = ProcessIdentity::capture(tl).unwrap();
     wait_until("main thread exited", LONG, || {
-        read_stat(id.pid).ok().flatten().is_some_and(|s| s.is_dead())
+        read_stat(id.pid)
+            .ok()
+            .flatten()
+            .is_some_and(|s| s.is_dead())
     });
     let mut second = launcher();
     let Reattached::Live(mut a) = second.reattach(&id, "tl", ReattachChoice::Adopt).unwrap() else {
         panic!("not adopted")
     };
     for _ in 0..20 {
-        assert!(!matches!(a.poll().unwrap(), ChildProgress::Finished(_)), "reported finished while a thread runs");
+        assert!(
+            !matches!(a.poll().unwrap(), ChildProgress::Finished(_)),
+            "reported finished while a thread runs"
+        );
         std::thread::sleep(Duration::from_millis(150));
     }
     drop(a);
@@ -928,10 +1149,20 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
     let r = drive(&mut h);
     assert_eq!(r.verification, Verification::Verified, "{r:?}");
     let tstart = id.start_ticks;
-    wait_until("thread leader gone (no live thread)", Duration::from_secs(30), || {
-        read_stat(tl).ok().flatten().is_none_or(|s| s.start_ticks != tstart)
-            || rustred_campaign::resources::live_thread_stat(tl).ok().flatten().is_none()
-    });
+    wait_until(
+        "thread leader gone (no live thread)",
+        Duration::from_secs(30),
+        || {
+            read_stat(tl)
+                .ok()
+                .flatten()
+                .is_none_or(|s| s.start_ticks != tstart)
+                || rustred_campaign::resources::live_thread_stat(tl)
+                    .ok()
+                    .flatten()
+                    .is_none()
+        },
+    );
 }
 
 /// B-M2 (port of I2d): the CORRECT identity of a decoy that is not a session leader (and has no marker): refused.
@@ -944,9 +1175,18 @@ fn b_m2_correct_identity_of_non_session_leader_is_refused() {
     std::thread::sleep(Duration::from_millis(200));
     let id = ProcessIdentity::capture(d.id()).unwrap();
     let mut l = launcher();
-    for choice in [ReattachChoice::Adopt, ReattachChoice::Kill { grace: Duration::from_secs(1) }] {
+    for choice in [
+        ReattachChoice::Adopt,
+        ReattachChoice::Kill {
+            grace: Duration::from_secs(1),
+        },
+    ] {
         let r = l.reattach(&id, "tamper", choice).unwrap();
-        assert!(matches!(r, Reattached::Lost(LostReason::NotOurs { .. })), "{}", lost(&r));
+        assert!(
+            matches!(r, Reattached::Lost(LostReason::NotOurs { .. })),
+            "{}",
+            lost(&r)
+        );
     }
     std::thread::sleep(Duration::from_millis(500));
     assert!(alive(&mut d));
@@ -974,7 +1214,10 @@ fn b_m3_cpu_ranges_are_bounded() {
         required: false,
     }];
     let mut p = SitePolicy::new(cfg).unwrap();
-    assert!(matches!(p.acquire(1, "x").unwrap(), Acquire::NotNow(_)), "fail closed");
+    assert!(
+        matches!(p.acquire(1, "x").unwrap(), Acquire::NotNow(_)),
+        "fail closed"
+    );
 }
 
 fn job(id: u64, rss: u64, seq: u64, stopping: bool) -> RunningJob {
@@ -1000,22 +1243,41 @@ fn b_m4_emergency_victims_minimal_and_in_flight() {
         measured_at: Duration::from_secs(10),
         now: Duration::from_secs(10),
     };
-    let low = LowState { samples: 3, since: Duration::ZERO };
+    let low = LowState {
+        samples: 3,
+        since: Duration::ZERO,
+    };
     // A5a: the oldest alone covers deficit 20 + 2.
-    let jobs = [job(1, 30, 0, false), job(2, 5, 1, false), job(3, 5, 2, false)];
+    let jobs = [
+        job(1, 30, 0, false),
+        job(2, 5, 1, false),
+        job(3, 5, 2, false),
+    ];
     let plan = admission::choose_victims(&p, host(30), &jobs, low).unwrap();
     assert_eq!(plan.victims, vec![1]);
     assert!(!plan.whole_campaign);
     // A5b: redundant victim dropped (2 alone suffices for 8 + 2).
-    let jobs = [job(1, 40, 0, false), job(2, 12, 1, false), job(3, 3, 2, false)];
+    let jobs = [
+        job(1, 40, 0, false),
+        job(2, 12, 1, false),
+        job(3, 3, 2, false),
+    ];
     let plan = admission::choose_victims(&p, host(42), &jobs, low).unwrap();
     assert_eq!(plan.victims, vec![2]);
     // All holders needed: whole campaign (30 + 12 + 3 < 52).
-    let jobs = [job(1, 30, 0, false), job(2, 12, 1, false), job(3, 3, 2, false)];
+    let jobs = [
+        job(1, 30, 0, false),
+        job(2, 12, 1, false),
+        job(3, 3, 2, false),
+    ];
     let plan = admission::choose_victims(&p, host(0), &jobs, low).unwrap();
     assert!(plan.whole_campaign && plan.victims.len() == 3);
     // A5c: victims being killed stay in `running` with stopping = true: nothing more is chosen while they cover it.
-    let jobs = [job(1, 40, 0, false), job(2, 12, 1, true), job(3, 3, 2, false)];
+    let jobs = [
+        job(1, 40, 0, false),
+        job(2, 12, 1, true),
+        job(3, 3, 2, false),
+    ];
     let plan = admission::choose_victims(&p, host(42), &jobs, low).unwrap();
     assert!(plan.victims.is_empty(), "{plan:?}");
 }
@@ -1033,13 +1295,22 @@ fn b_minor_m2_cow_pages_not_double_counted() {
     let t0 = Instant::now();
     let mut seen_two = false;
     while t0.elapsed() < Duration::from_secs(8) {
-        assert!(!matches!(h.poll().unwrap(), ChildProgress::Finished(_)), "killed: CoW counted twice");
-        seen_two |= h.usage().is_some_and(|u| u.members.len() >= 2 && u.pss_bytes.is_some());
+        assert!(
+            !matches!(h.poll().unwrap(), ChildProgress::Finished(_)),
+            "killed: CoW counted twice"
+        );
+        seen_two |= h
+            .usage()
+            .is_some_and(|u| u.members.len() >= 2 && u.pss_bytes.is_some());
         std::thread::sleep(Duration::from_millis(100));
     }
     assert!(seen_two, "the fork was sampled with PSS");
     let u = h.usage().unwrap();
-    assert!(u.rss_bytes > 120_000_000, "RSS double counts ({})", u.rss_bytes);
+    assert!(
+        u.rss_bytes > 120_000_000,
+        "RSS double counts ({})",
+        u.rss_bytes
+    );
     h.terminate(Duration::from_secs(2), KillReason::Stop);
     let r = drive(&mut h);
     assert_eq!(r.kill_reason, Some(KillReason::Stop));
@@ -1076,7 +1347,13 @@ fn b_minor_m4_adopted_leaderless_job_gets_sigterm_first() {
     drive_until_exit(&mut h);
     let mut second = launcher();
     let Reattached::Live(mut a) = second
-        .reattach(&id, "s3c", ReattachChoice::Kill { grace: Duration::from_secs(3) })
+        .reattach(
+            &id,
+            "s3c",
+            ReattachChoice::Kill {
+                grace: Duration::from_secs(3),
+            },
+        )
         .unwrap()
     else {
         panic!("leaderless job not found by its marker")
@@ -1095,8 +1372,17 @@ fn drive_until_exit<H: ChildHandle>(h: &mut H) {
 #[test]
 fn b_minor_m7_checked_admission_arithmetic() {
     let p = AdmissionPolicy::new(8);
-    let c = Candidate { id: 1, expected_peak_bytes: 1, cap_bytes: u64::MAX - 10, cores: 1, bypassed: 0 };
-    assert!(matches!(admission::admit_one(&p, HostView::at(u64::MAX), &[], &c), Decision::Wait(_)));
+    let c = Candidate {
+        id: 1,
+        expected_peak_bytes: 1,
+        cap_bytes: u64::MAX - 10,
+        cores: 1,
+        bypassed: 0,
+    };
+    assert!(matches!(
+        admission::admit_one(&p, HostView::at(u64::MAX), &[], &c),
+        Decision::Wait(_)
+    ));
     let mut q = p.clone();
     q.campaign_mem_cap_bytes = Some(u64::MAX);
     let r = [RunningJob {
@@ -1110,15 +1396,25 @@ fn b_minor_m7_checked_admission_arithmetic() {
         cpu_seconds: 0.0,
         stopping: false,
     }];
-    let c2 = Candidate { id: 2, expected_peak_bytes: 15, cap_bytes: 15, cores: 1, bypassed: 0 };
-    assert!(matches!(admission::admit_one(&q, HostView::at(u64::MAX), &r, &c2), Decision::Wait(_)));
+    let c2 = Candidate {
+        id: 2,
+        expected_peak_bytes: 15,
+        cap_bytes: 15,
+        cores: 1,
+        bypassed: 0,
+    };
+    assert!(matches!(
+        admission::admit_one(&q, HostView::at(u64::MAX), &r, &c2),
+        Decision::Wait(_)
+    ));
 }
 
 /// B-m8: a passthrough "NAME=value" misuse is refused without echoing the value (error and Debug).
 #[test]
 fn b_minor_m8_passthrough_misuse_never_echoes_the_value() {
     let mut s = LaunchSpec::new("x", "/bin/true", Path::new("/tmp"));
-    s.env_passthrough.push("SYMBOLICA_LICENSE=AUDIT-DUMMY-VALUE".into());
+    s.env_passthrough
+        .push("SYMBOLICA_LICENSE=AUDIT-DUMMY-VALUE".into());
     let e = s.validate().unwrap_err().to_string();
     assert!(!e.contains("AUDIT-DUMMY-VALUE"), "{e}");
     assert!(!format!("{s:?}").contains("AUDIT-DUMMY-VALUE"));
@@ -1146,7 +1442,15 @@ fn no_signal_syscall_outside_the_verified_wrapper() {
             }
         }
     }
-    let forbidden = ["kill(-", "killpg(", "kill(0", "SYS_kill", "tgkill", "tkill(", "pidfd_send_signal"];
+    let forbidden = [
+        "kill(-",
+        "killpg(",
+        "kill(0",
+        "SYS_kill",
+        "tgkill",
+        "tkill(",
+        "pidfd_send_signal",
+    ];
     let mut report = Vec::new();
     for f in &files {
         let rel = f.strip_prefix(&src).unwrap().display().to_string();
@@ -1175,9 +1479,28 @@ fn no_signal_syscall_outside_the_verified_wrapper() {
             !(f == "bin/rr_fake_child.rs" && pat == "libc::kill(")
         })
         .collect();
-    assert!(outside.is_empty(), "signal syscalls outside the wrapper: {outside:?}");
-    let guard: Vec<_> = report.iter().filter(|(f, ..)| f == "launch/guard.rs").collect();
-    assert_eq!(guard.iter().filter(|x| x.2 == "killpg(").count(), 1, "{guard:?}");
-    assert_eq!(guard.iter().filter(|x| x.2 == "libc::kill(").count(), 1, "{guard:?}");
-    assert!(!report.iter().any(|(_, _, pat, line)| pat == "kill(-" || (pat == "kill(0" && !line.contains("kill(0x"))));
+    assert!(
+        outside.is_empty(),
+        "signal syscalls outside the wrapper: {outside:?}"
+    );
+    let guard: Vec<_> = report
+        .iter()
+        .filter(|(f, ..)| f == "launch/guard.rs")
+        .collect();
+    assert_eq!(
+        guard.iter().filter(|x| x.2 == "killpg(").count(),
+        1,
+        "{guard:?}"
+    );
+    assert_eq!(
+        guard.iter().filter(|x| x.2 == "libc::kill(").count(),
+        1,
+        "{guard:?}"
+    );
+    assert!(
+        !report
+            .iter()
+            .any(|(_, _, pat, line)| pat == "kill(-"
+                || (pat == "kill(0" && !line.contains("kill(0x")))
+    );
 }

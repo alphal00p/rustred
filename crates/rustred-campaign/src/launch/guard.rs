@@ -11,6 +11,7 @@
 //!    when the kernel lacks pidfds, right after a second identity read;
 //! 3. `killpg(pgid, sig)` with a [`ValidPid`], only for the process group of a leader that is in the launcher's
 //!    leader registry (see [`signal_pinned_group`]).
+//!
 //! No other code of the crate calls kill/killpg/pidfd_send_signal (a test greps the sources for it).
 //!
 //! IDENTITY CHECKLIST for a single process (`signal_verified`), all at the moment of signalling:
@@ -46,7 +47,7 @@
 
 use crate::resources::{
     CampaignMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, ProcessIdentity, ValidPid,
-    boot_id, marker_in_environ, our_uid, parse_stat, page_size, run_bounded,
+    boot_id, marker_in_environ, our_uid, page_size, parse_stat, run_bounded,
 };
 use serde::Serialize;
 use std::io;
@@ -64,17 +65,34 @@ pub enum Refusal {
     InvalidPid(InvalidPid),
     /// The record is from another boot: nothing recorded may be signalled.
     OtherBoot,
-    StartMismatch { recorded: u64, current: u64 },
-    StartedBeforeLaunch { launch: u64, current: u64 },
-    NotSessionLeader { session: u32 },
-    OtherSession { session: u32, expected: u32 },
-    OtherUid { uid: u32 },
+    StartMismatch {
+        recorded: u64,
+        current: u64,
+    },
+    StartedBeforeLaunch {
+        launch: u64,
+        current: u64,
+    },
+    NotSessionLeader {
+        session: u32,
+    },
+    OtherSession {
+        session: u32,
+        expected: u32,
+    },
+    OtherUid {
+        uid: u32,
+    },
     /// The environ has no marker.
     NoMarker,
     /// The environ carries a marker of another campaign or attempt (the value is not secret: ids only).
-    OtherMarker { found: String },
+    OtherMarker {
+        found: String,
+    },
     /// The session's leader is not (or no longer) an unreaped leader of ours.
-    SessionNotPinned { sid: u32 },
+    SessionNotPinned {
+        sid: u32,
+    },
 }
 
 /// Result of a verified signal request.
@@ -321,7 +339,9 @@ fn judge(
         _ => {}
     }
     if t.require_session_leader && f.session != t.pid {
-        return Err(Verdict::NotOurs(Refusal::NotSessionLeader { session: f.session }));
+        return Err(Verdict::NotOurs(Refusal::NotSessionLeader {
+            session: f.session,
+        }));
     }
     match f.uid {
         Some(u) if u == uid => {}
@@ -601,7 +621,15 @@ pub fn ensure_sigchld_default() -> io::Result<SigchldSetup> {
 /// their marker and reaped) instead of to init.
 pub fn set_child_subreaper(on: bool) -> io::Result<()> {
     // SAFETY: prctl with integer arguments.
-    let r = unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, libc::c_ulong::from(on), 0, 0, 0) };
+    let r = unsafe {
+        libc::prctl(
+            libc::PR_SET_CHILD_SUBREAPER,
+            libc::c_ulong::from(on),
+            0,
+            0,
+            0,
+        )
+    };
     if r == 0 {
         Ok(())
     } else {
@@ -612,7 +640,15 @@ pub fn set_child_subreaper(on: bool) -> io::Result<()> {
 pub fn is_child_subreaper() -> bool {
     let mut v: libc::c_int = 0;
     // SAFETY: PR_GET_CHILD_SUBREAPER writes an int through the pointer.
-    let r = unsafe { libc::prctl(libc::PR_GET_CHILD_SUBREAPER, &mut v as *mut libc::c_int, 0, 0, 0) };
+    let r = unsafe {
+        libc::prctl(
+            libc::PR_GET_CHILD_SUBREAPER,
+            &mut v as *mut libc::c_int,
+            0,
+            0,
+            0,
+        )
+    };
     r == 0 && v != 0
 }
 
@@ -678,7 +714,10 @@ mod tests {
         ));
         let mut unread = facts(9, 9, 7, None);
         unread.marker = Some(Err("EACCES".into()));
-        assert!(matches!(judge(&c, &unread, 7, &no), Err(Verdict::Unverified(_))));
+        assert!(matches!(
+            judge(&c, &unread, 7, &no),
+            Err(Verdict::Unverified(_))
+        ));
         let s = target(Proof::PinnedSession(9), StartRule::NotBefore(1));
         assert_eq!(judge(&s, &facts(9, 9, 7, None), 7, &yes), Ok(()));
         assert!(matches!(
@@ -702,7 +741,10 @@ mod tests {
     /// pidfd opens); its fake stat names it with the right start time.
     #[test]
     fn slow_proc_read_gives_unverified_within_the_bound() {
-        let mut child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
         let pid = child.id();
         let real = crate::resources::read_stat(pid).unwrap().unwrap();
         let root = std::env::temp_dir().join(format!("rr-guard-fifo-{}", std::process::id()));
@@ -733,7 +775,10 @@ mod tests {
         let v = signal_verified_at(&root, &t, libc::SIGKILL, None, Duration::from_millis(300));
         assert!(matches!(v, Verdict::Unverified(_)), "{v:?}");
         assert!(t0.elapsed() < Duration::from_secs(5));
-        assert!(child.try_wait().unwrap().is_none(), "nothing may have been signalled");
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "nothing may have been signalled"
+        );
         // Unblock the stuck reader (open the FIFO for writing once) and clean up.
         let _w = std::fs::OpenOptions::new()
             .write(true)

@@ -44,6 +44,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Result of the bounded site I/O of an acquire: Err = I/O failure; Ok(Err) = not now (reason); Ok(Ok) = the CPUs
+/// with their held flock files (claim line written).
+type AcquireIo = Result<Result<(Vec<usize>, Vec<File>), String>, PolicyError>;
+
 /// Default bound of the site-file I/O of one acquire / release.
 pub const DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -158,7 +162,10 @@ pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
     if buf.len() > MAX_LEDGER_LINE || line.contains('\n') {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("ledger line of {} bytes (max {MAX_LEDGER_LINE}, one line)", buf.len()),
+            format!(
+                "ledger line of {} bytes (max {MAX_LEDGER_LINE}, one line)",
+                buf.len()
+            ),
         ));
     }
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
@@ -179,7 +186,9 @@ pub fn sanitize(label: &str) -> String {
         .chars()
         .take(120)
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | ':' | '/' | '@' | '=' | '-') {
+            if c.is_ascii_alphanumeric()
+                || matches!(c, ' ' | '.' | '_' | ':' | '/' | '@' | '=' | '-')
+            {
                 c
             } else {
                 '_'
@@ -768,7 +777,14 @@ fn owner_of(line: &str) -> Option<String> {
     if close == 0 {
         return None;
     }
-    Some(after[..close].split(',').next().unwrap_or("").trim().to_string())
+    Some(
+        after[..close]
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    )
 }
 
 /// After every "+ CPU" / "+ CPUs": the longest run of digits, ',', '-', ' ', read leniently.
@@ -929,7 +945,11 @@ impl SitePolicy {
             io_err(format!("read {}", self.config.ledger_file.display())),
         )?;
         let view = ledger_claims_strict(lines.iter().map(String::as_str));
-        let own = view.claims.get(&self.config.tag).cloned().unwrap_or_default();
+        let own = view
+            .claims
+            .get(&self.config.tag)
+            .cloned()
+            .unwrap_or_default();
         let in_use = lock(&self.book).in_use.clone();
         let mut out = Reconciled::default();
         let mut probes: Vec<File> = Vec::new();
@@ -967,9 +987,10 @@ impl SitePolicy {
                 utc_now(),
                 self.config.tag
             );
-            self.ledger
-                .append(&line)
-                .map_err(io_err(format!("append to {}", self.config.ledger_file.display())))?;
+            self.ledger.append(&line).map_err(io_err(format!(
+                "append to {}",
+                self.config.ledger_file.display()
+            )))?;
         }
         drop(probes); // RELEASED is on record before the probe flocks drop
         Ok(out)
@@ -1052,7 +1073,7 @@ impl CpuPolicy for SitePolicy {
             .collect();
         let ledger = self.ledger.clone();
         let label_owned = label.to_string();
-        let work = move || -> Result<Result<(Vec<usize>, Vec<File>), String>, PolicyError> {
+        let work = move || -> AcquireIo {
             let ex = match exclusions_of(&config, &exclude, foreign.as_ref()) {
                 Ok((e, _)) => e,
                 Err(reason) => return Ok(Err(reason)),
@@ -1107,12 +1128,15 @@ impl CpuPolicy for SitePolicy {
             // The claim is on record before the lease exists; no record, no lease (the flocks drop with `got`).
             ledger
                 .append(&ledger.claim_line(&cpus, &label_owned))
-                .map_err(io_err(format!("append to {}", config.ledger_file.display())))?;
+                .map_err(io_err(format!(
+                    "append to {}",
+                    config.ledger_file.display()
+                )))?;
             Ok(Ok((cpus, got.into_iter().map(|x| x.1).collect())))
         };
         let undo_ledger = self.ledger.clone();
         let undo_label = label.to_string();
-        let on_abandon = move |r: Result<Result<(Vec<usize>, Vec<File>), String>, PolicyError>| {
+        let on_abandon = move |r: AcquireIo| {
             // The caller gave up: a claim written late is released again, then its flocks drop.
             if let Ok(Ok((cpus, files))) = r {
                 let _ = undo_ledger.append(&undo_ledger.release_line(&cpus, &undo_label));

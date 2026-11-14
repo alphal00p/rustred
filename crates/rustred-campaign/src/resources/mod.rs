@@ -31,11 +31,11 @@ pub use marked::{
     validate_campaign_id,
 };
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
+pub(crate) use scan::Leaders;
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,
     scan_sessions_now,
 };
-pub(crate) use scan::Leaders;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -161,8 +161,7 @@ pub fn live_thread(pid: u32) -> io::Result<Option<(u32, ProcStat)>> {
         else {
             continue;
         };
-        if let Some(st) =
-            read_stat_path(pid, Path::new(&format!("/proc/{pid}/task/{tid}/stat")))?
+        if let Some(st) = read_stat_path(pid, Path::new(&format!("/proc/{pid}/task/{tid}/stat")))?
             && !st.is_dead()
         {
             return Ok(Some((tid, st)));

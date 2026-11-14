@@ -249,7 +249,8 @@ pub(crate) fn scan_campaign_at(
                     && m.campaign_id == campaign_id
                     && !live_attempts.contains(&m.attempt_id)
                 {
-                    out.processes.push(MarkedProcess::from_stat(&st, m.attempt_id));
+                    out.processes
+                        .push(MarkedProcess::from_stat(&st, m.attempt_id));
                 }
             }
             MarkerRead::Unreadable => out.unreadable += 1,
