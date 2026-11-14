@@ -31,6 +31,7 @@ order of `ROWS`.
 | 11c | c=30, O, K=memory (the supervisor stopped the child for memory) | killed_memory | nothing | next_memory_class_or_rung |
 | 11 | c=30, O, K=none or stop | interrupted | nothing | resume_on_campaign_resume |
 | 12 | c=40 | usage_error | nothing | stop_launching_kind |
+| 13b | c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span | refused | nothing | table_unreadable_by_tool |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |

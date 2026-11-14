@@ -184,6 +184,10 @@ pub enum Action {
     StopLaunchingKind,
     /// Row 13: item attention, no retry.
     ItemAttentionNoRetry,
+    /// Row 13b (line 7): the legacy proof tool cannot READ the table it was given (typed reader error
+    /// `UNREADABLE_RECORD` / `UNKNOWN_RECORD_KIND`): an input refusal of the job; no retry with the same table and
+    /// tool (the table needs a reader that knows it, or another tool); never a crash, never a per-key verdict.
+    TableUnreadableByTool,
     /// Row 15: pause all launches until free space; item queued again.
     PauseAllLaunches,
     /// Row 15b (lane int5, gate3 M4): the child ran out of a HOST resource (processes / threads, file descriptors,
@@ -243,9 +247,9 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
-/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
+/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 38] = {
+pub const ROWS: [RowSpec; 39] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -421,6 +425,14 @@ pub const ROWS: [RowSpec; 38] = {
             ResumeOnCampaignResume,
         ),
         rs(12, "", "c=40", UsageError, Nothing, StopLaunchingKind),
+        rs(
+            13,
+            "b",
+            "c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span",
+            Refused,
+            Nothing,
+            TableUnreadableByTool,
+        ),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
         rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
@@ -537,6 +549,7 @@ fn row(n: u8, sub: &str, why: impl Into<String>) -> Classification {
         Action::Attention
             | Action::StopLaunchingKind
             | Action::ItemAttentionNoRetry
+            | Action::TableUnreadableByTool
             | Action::UnverifiableKind
     );
     Classification {
@@ -844,6 +857,22 @@ fn decide(
                 },
                 _ => {}
             }
+        }
+        // line 7: a legacy proof tool's typed reader error is an input refusal of the job (row 13b), before 13 / 17
+        if matches!(c, 41 | 70)
+            && matches!(
+                e.kind,
+                JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            )
+            && let Some(name) = o
+                .and_then(|o| o.error.as_ref())
+                .and_then(|x| crate::instantiate::reader_error_in(&x.message))
+        {
+            return row(
+                13,
+                "b",
+                format!("the tool cannot read the table it was given ({name})"),
+            );
         }
         match c {
             40 => return row(12, "", "usage error (supervisor bug)"),

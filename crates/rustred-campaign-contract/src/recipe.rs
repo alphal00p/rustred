@@ -26,6 +26,173 @@ pub const PROBE_DETERMINISM_PREFIX: &str = "rustred.recipe-probe.v1/";
 pub const BUDGET_WORK_COUNTERS: [&str; 2] = ["trace_rows", M1_WORK_ROWS];
 /// Line 7: the counter name of the `--max-m1-rows` cap.
 pub const M1_WORK_ROWS: &str = "m1_work_rows";
+/// Line 7 (seed minimisation): `minimise.mode` values.
+pub const MINIMISE_MODES: [&str; 2] = ["support", "greedy"];
+/// Line 7 (coord-seed-minimise.md 7): `minimise.measure` values.
+pub const MINIMISE_MEASURES: [&str; 2] = ["comparator", "m1"];
+/// Line 7: `minimise.order` values (the only order defined now: outermost shell first).
+pub const MINIMISE_ORDERS: [&str; 1] = ["outermost_first"];
+/// Line 7: `minimise.stopped` values.
+pub const MINIMISE_STOPS: [&str; 2] = ["done", "max_solves"];
+/// Line 7 (seed minimisation, coord-seed-minimise.md 6): `centre_scan.reason` values.
+pub const CENTRE_SCAN_REASONS: [&str; 3] = ["regular", "smallest", "size_guard"];
+
+/// Line 7 (seed minimisation, coord-seed-minimise.md 6): the `centre_scan` member of a RELATION or RULE record, checked
+/// when present: `{entries: [{centre, verdict, rhs_before, rhs_after, solves, regular_at_d0}], chosen, reason,
+/// size_ratio}`; `entries` non-empty; `centre` a scan token (`floor_of_free` / `each_free_slot`) or a list of integers;
+/// `verdict` a relation verdict name; `rhs_before` / `rhs_after` unsigned integers or null (an entry that did not
+/// solve); `solves` an unsigned integer; `regular_at_d0` a boolean or null; `chosen` an index into `entries`;
+/// `reason` in [`CENTRE_SCAN_REASONS`]; `size_ratio` a number >= 0 or null. In a SOLVED record the chosen entry is
+/// SOLVED. Deterministic (entries sequential per key / case in list order), so NON-volatile: part of the canonical
+/// record.
+pub fn check_centre_scan(cs: &Value, record_verdict: Option<Verdict>) -> Result<(), String> {
+    let entries = cs["entries"]
+        .as_array()
+        .filter(|e| !e.is_empty())
+        .ok_or("centre_scan.entries is not a non-empty list")?;
+    let mut verdicts = Vec::with_capacity(entries.len());
+    for (i, e) in entries.iter().enumerate() {
+        let at = |m: &str| format!("centre_scan.entries[{i}]: {m}");
+        let c = &e["centre"];
+        let ok_centre = c
+            .as_str()
+            .is_some_and(|t| crate::arith::CENTRE_TOKENS.contains(&t))
+            || c.as_array()
+                .is_some_and(|v| !v.is_empty() && v.iter().all(|x| x.as_i64().is_some()));
+        if !ok_centre {
+            return Err(at("centre is not a scan token or an integer vector"));
+        }
+        let v = e["verdict"]
+            .as_str()
+            .and_then(Verdict::from_name)
+            .ok_or_else(|| at("verdict not in the closed list"))?;
+        for m in ["rhs_before", "rhs_after"] {
+            if !e[m].is_null() && e[m].as_u64().is_none() {
+                return Err(at(&format!("{m} is not an unsigned integer")));
+            }
+        }
+        u64_member(e, "solves", "centre_scan entry").map_err(|m| at(&m))?;
+        if !e["regular_at_d0"].is_null() && !e["regular_at_d0"].is_boolean() {
+            return Err(at("regular_at_d0 is not a boolean"));
+        }
+        verdicts.push(v);
+    }
+    let chosen = u64_member(cs, "chosen", "centre_scan")? as usize;
+    if chosen >= entries.len() {
+        return Err(format!("centre_scan.chosen {chosen} is not an entry"));
+    }
+    match cs["reason"].as_str() {
+        Some(r) if CENTRE_SCAN_REASONS.contains(&r) => {}
+        _ => {
+            return Err(format!(
+                "centre_scan.reason {} not in {CENTRE_SCAN_REASONS:?}",
+                cs["reason"]
+            ));
+        }
+    }
+    let ratio = &cs["size_ratio"];
+    if !ratio.is_null() && !ratio.as_f64().is_some_and(|x| x >= 0.0) {
+        return Err("centre_scan.size_ratio is not a number >= 0".into());
+    }
+    if record_verdict == Some(Verdict::Solved) && verdicts[chosen] != Verdict::Solved {
+        return Err("a SOLVED record whose chosen centre did not solve".into());
+    }
+    Ok(())
+}
+
+/// Line 7 (multi-term symmetry rows): `symmetry_rows_used.position` values.
+pub const SYMMETRY_POSITIONS: [&str; 2] = ["key_first", "after_seed"];
+
+/// Line 7 (seed minimisation, coord-seed-minimise.md 5 / 7): the `minimise` member of a RELATION or RULE record,
+/// checked when present: `{mode, measure, order, solves, stopped, seeds_before, seeds_after, rhs_before, rhs_after,
+/// original_relation_digest}` (+ optional `target_domain`, a case domain ([`crate::arith::check_case_domain`]), and
+/// `target_domain_blake3`, 64 hex, only beside it) with mode / measure / order / stopped from their closed lists, the
+/// counts unsigned integers, `seeds_after <= seeds_before`, `stopped = "max_solves"` only with `solves >= 1`, and the
+/// digest 64 hex. It is deterministic (a work budget, sequential decisions per key / case), so NON-volatile: part of
+/// the canonical record.
+pub fn check_minimise(m: &Value) -> Result<(), String> {
+    let pick = |f: &str, list: &[&str]| -> Result<(), String> {
+        match m[f].as_str() {
+            Some(v) if list.contains(&v) => Ok(()),
+            _ => Err(format!("minimise.{f} {} not in {list:?}", m[f])),
+        }
+    };
+    pick("mode", &MINIMISE_MODES)?;
+    pick("measure", &MINIMISE_MEASURES)?;
+    if !m["target_domain"].is_null() {
+        crate::arith::check_case_domain(&m["target_domain"])
+            .map_err(|e| format!("minimise.target_domain: {e}"))?;
+    }
+    if !m["target_domain_blake3"].is_null()
+        && (m["target_domain"].is_null()
+            || !m["target_domain_blake3"].as_str().is_some_and(is_hex64))
+    {
+        return Err("minimise.target_domain_blake3 is not 64 hex beside a target_domain".into());
+    }
+    pick("order", &MINIMISE_ORDERS)?;
+    pick("stopped", &MINIMISE_STOPS)?;
+    let solves = u64_member(m, "solves", "minimise")?;
+    let before = u64_member(m, "seeds_before", "minimise")?;
+    let after = u64_member(m, "seeds_after", "minimise")?;
+    u64_member(m, "rhs_before", "minimise")?;
+    u64_member(m, "rhs_after", "minimise")?;
+    if after > before {
+        return Err(format!(
+            "minimise.seeds_after {after} > seeds_before {before}"
+        ));
+    }
+    if m["stopped"] == "max_solves" && solves == 0 {
+        return Err("minimise stopped at max_solves after 0 solves".into());
+    }
+    if !m["original_relation_digest"].as_str().is_some_and(is_hex64) {
+        return Err("minimise.original_relation_digest is not 64 hex".into());
+    }
+    Ok(())
+}
+
+/// Line 7 (multi-term symmetry rows, coord-pole-engine.md 9): `symmetry_rows_used {elements, rows, terms, position}` and
+/// the proof's `symmetry {rows, form_check: "exact", group_order}`, checked when present; a SOLVED record that used
+/// symmetry rows (`symmetry_rows_used.rows >= 1`) carries the proof block; `ibp_rows` (9d) is an unsigned integer and a
+/// SOLVED record with `ibp_rows: 0` used symmetry rows. Deterministic: NON-volatile.
+pub fn check_symmetry_members(r: &Value, verdict: Verdict) -> Result<(), String> {
+    let used = &r["symmetry_rows_used"];
+    let mut rows_used = 0;
+    if !used.is_null() {
+        u64_member(used, "elements", "symmetry_rows_used")?;
+        u64_member(used, "terms", "symmetry_rows_used")?;
+        rows_used = u64_member(used, "rows", "symmetry_rows_used")?;
+        match used["position"].as_str() {
+            Some(p) if SYMMETRY_POSITIONS.contains(&p) => {}
+            _ => {
+                return Err(format!(
+                    "symmetry_rows_used.position {} not in {SYMMETRY_POSITIONS:?}",
+                    used["position"]
+                ));
+            }
+        }
+    }
+    // coord-pole-engine.md 9d: `ibp_rows` (0 when the recipe has `seeds.ibp_rows: false`): a SOLVED relation from
+    // symmetry rows only names them
+    if !r["ibp_rows"].is_null() {
+        let ibp = r["ibp_rows"]
+            .as_u64()
+            .ok_or("ibp_rows is not an unsigned integer")?;
+        if ibp == 0 && verdict == Verdict::Solved && rows_used == 0 {
+            return Err("SOLVED with ibp_rows 0 and no symmetry rows used".into());
+        }
+    }
+    let ps = &r["proof"]["symmetry"];
+    if !ps.is_null() {
+        u64_member(ps, "rows", "proof.symmetry")?;
+        u64_member(ps, "group_order", "proof.symmetry")?;
+        if ps["form_check"] != "exact" {
+            return Err("proof.symmetry.form_check is not \"exact\"".into());
+        }
+    } else if verdict == Verdict::Solved && rows_used >= 1 {
+        return Err("SOLVED with symmetry rows but no proof.symmetry block".into());
+    }
+    Ok(())
+}
 
 /// Verdicts (closed list v1.1, coord-recipe-solve.md 7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -48,10 +215,13 @@ pub enum Verdict {
     NotGenericAtD0,
     /// Line 7 (discovery_d set): a seed row's coefficient denominator vanishes at d0 (typed, never a silent redraw).
     D0SingularRows,
+    /// Line 7 (multi-term symmetry rows, coord-pole-engine.md 9): an element's image form does not decompose EXACTLY
+    /// (fail closed; never a resource failure, never evidence).
+    SymmetryFormCheckFailed,
 }
 
 impl Verdict {
-    pub const ALL: [Verdict; 14] = [
+    pub const ALL: [Verdict; 15] = [
         Verdict::Solved,
         Verdict::NoRelationInSeeds,
         Verdict::NotInDomain,
@@ -66,6 +236,7 @@ impl Verdict {
         Verdict::SolvedUnproved,
         Verdict::NotGenericAtD0,
         Verdict::D0SingularRows,
+        Verdict::SymmetryFormCheckFailed,
     ];
 
     /// The verdict's name as the verb writes it.
@@ -96,6 +267,7 @@ impl Verdict {
             Verdict::Error => FailureClass::Error,
             Verdict::NotGenericAtD0 => FailureClass::NotGenericAtD0,
             Verdict::D0SingularRows => FailureClass::D0SingularRows,
+            Verdict::SymmetryFormCheckFailed => FailureClass::SymmetryFormCheckFailed,
         })
     }
 
@@ -123,6 +295,9 @@ pub enum FailureClass {
     NotGenericAtD0,
     /// Line 7: per-key, routed like `no_relation_in_seeds` (next escalation step); never a resource failure.
     D0SingularRows,
+    /// Line 7: per-key, routed like `no_relation_in_seeds` (next escalation step); never a resource failure, never
+    /// evidence.
+    SymmetryFormCheckFailed,
 }
 
 impl FailureClass {
@@ -139,7 +314,8 @@ impl FailureClass {
             FailureClass::NoRelationInSeeds
             | FailureClass::NotInDomain
             | FailureClass::NotGenericAtD0
-            | FailureClass::D0SingularRows => KeyRoute::NextRecipeRung,
+            | FailureClass::D0SingularRows
+            | FailureClass::SymmetryFormCheckFailed => KeyRoute::NextRecipeRung,
             FailureClass::BudgetWork => KeyRoute::NextWorkClass,
             FailureClass::BudgetWall => KeyRoute::LadderDecides,
             FailureClass::Irregular => KeyRoute::SubCase,
@@ -610,6 +786,7 @@ fn string_list(v: &Value, what: &str) -> Result<Vec<String>, String> {
 ///   `BUDGET_WORK` record whose `failure.detail` is `{counter: "m1_work_rows", limit: N, value > N}`;
 /// - `discovery_d`: the canonical rational text, the same in every record of the file (one recipe); the verdicts
 ///   `NOT_GENERIC_AT_D0` / `D0_SINGULAR_ROWS` only with it;
+/// - `minimise` ([`check_minimise`]), `centre_scan` ([`check_centre_scan`]), `symmetry_rows_used` / `proof.symmetry` ([`check_symmetry_members`]);
 /// - `failure.detail.rank` / `.columns`: unsigned integers when present; `failure.detail.counter`: in a `BUDGET_WORK`
 ///   record one of [`BUDGET_WORK_COUNTERS`] when present, and `m1_work_rows` in no other verdict.
 pub fn check_line7_relation(
@@ -716,6 +893,13 @@ pub fn check_line7_relation(
     if verdict.needs_discovery_d() && dd.is_none() {
         return Err(format!("{} without discovery_d", verdict.name()));
     }
+    if !r["minimise"].is_null() {
+        check_minimise(&r["minimise"])?;
+    }
+    if !r["centre_scan"].is_null() {
+        check_centre_scan(&r["centre_scan"], Some(verdict))?;
+    }
+    check_symmetry_members(r, verdict)?;
     Ok(())
 }
 

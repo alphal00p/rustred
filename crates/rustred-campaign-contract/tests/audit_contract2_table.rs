@@ -14,7 +14,9 @@
 //! states (results tally: accepted 0 / 1 x unsolved 0 / 1, or no tally) and the `solved_records` accept mode.
 //! Extended by lane contract-line7 (2026-11-14; child-job.md "Line 7"): kind node-basis (row 30, exit 0 only), the
 //! solve-recipe PROBE tallies (answered 0 / 1 x unanswered 0 / 1, and a lying tally with an accepted relation; rows
-//! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two.
+//! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two; OUTCOMEs
+//! naming a typed reader error (UNREADABLE_RECORD / UNKNOWN_RECORD_KIND) at exit 41 / 70 (row 13b for proof-instantiate
+//! and proof-instance-span).
 
 mod common;
 use common::*;
@@ -24,7 +26,7 @@ use rustred_campaign_contract::classify::{
     self, Accept, Evidence, KillReason, OutcomeState, ROWS, VerifiedOutputs, WaitStatus,
 };
 use rustred_campaign_contract::outcome::{
-    JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat,
+    ErrorClass, ErrorInfo, JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat,
 };
 use rustred_campaign_contract::resume::ResumeRef;
 use rustred_campaign_contract::spec::JobKind;
@@ -208,11 +210,29 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 _ => {}
             }
         }
+        // line 7: a legacy proof tool's typed reader error (in OUTCOME's error message) is the input refusal 13b
+        if let O::Ok(j) = &o
+            && [41, 70].contains(&c)
+            && matches!(
+                e.kind,
+                JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            )
+            && j.error.as_ref().is_some_and(|x| {
+                x.message.contains("UNREADABLE_RECORD") || x.message.contains("UNKNOWN_RECORD_KIND")
+            })
+        {
+            return (13, "b");
+        }
         match c {
             40 => return (12, ""),
             41 => return (13, ""),
             42 => return (14, ""),
             50 => return (15, ""),
+            // row 15b (lane int5): a host-resource errno named by the OUTCOME error, at 51 / 70
+            51 | 70 if matches!(&o, O::Ok(j) if j.error.as_ref().is_some_and(|x| x.message.contains("Os { code: 11"))) =>
+            {
+                return (15, "b");
+            }
             51 => return (16, ""),
             70 if matches!(o, O::Ok(_)) => return (17, ""),
             _ => {}
@@ -576,6 +596,39 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                 .into_iter()
                 .map(|j| OutcomeState::Valid(Box::new(j))),
         );
+        // line 7: OUTCOMEs naming a typed reader error (row 13b for the legacy proof kinds; 13 / 17 elsewhere)
+        let reader: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [41, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 41 {
+                    ErrorClass::Input
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(class, "UNKNOWN_RECORD_KIND: line 947"));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(reader);
+        // OUTCOMEs naming a host-resource errno at 51 / 70 (row 15b; no full-product case had one before line 7)
+        let errno: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [51, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 51 {
+                    ErrorClass::Io
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(
+                    class,
+                    "failed to spawn thread: Os { code: 11, kind: WouldBlock }",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(errno);
         let verified = if kind == JobKind::SolveRecipe {
             &with_tally
         } else {

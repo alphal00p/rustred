@@ -19,6 +19,29 @@ use std::collections::BTreeSet;
 pub const INSTANTIATE_SCHEMA: &str = "rustred.proof-kernel.instantiate.v1";
 /// `schema` of a closure fact answer line (request form (B)).
 pub const FACT_SCHEMA: &str = "rustred.campaign.fact.v1";
+/// Typed reader errors of rr_proof and the rr_node readers (line 7): the TABLE given to the tool is not readable by it.
+/// An INPUT error of the whole job (the wrapper ends it 41 naming the error; decision row 13b), never a per-key
+/// answer: an answer line carrying one is refused.
+pub const READER_ERRORS: [&str; 2] = ["UNREADABLE_RECORD", "UNKNOWN_RECORD_KIND"];
+
+/// The reader error named in `text`, if any (as a whole word: `UNREADABLE_RECORD` / `UNKNOWN_RECORD_KIND`).
+pub fn reader_error_in(text: &str) -> Option<&'static str> {
+    READER_ERRORS.into_iter().find(|e| {
+        text.match_indices(e).any(|(i, _)| {
+            let word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+            !word(text[..i].chars().next_back()) && !word(text[i + e.len()..].chars().next())
+        })
+    })
+}
+
+fn reader_error_of(v: &Value) -> Option<&'static str> {
+    let e = &v["error"];
+    e.as_str()
+        .or_else(|| e["code"].as_str())
+        .or_else(|| e["kind"].as_str())
+        .and_then(reader_error_in)
+}
+
 /// Values of `elided_cover` (coord-ec2-instantiate.md 2d).
 pub const ELIDED_COVERS: [&str; 3] = ["guards_v2", "excepted", "none"];
 
@@ -50,6 +73,11 @@ pub fn instantiate_answer_use(v: &Value, mode: ElidedLoci) -> Result<AnswerUse, 
         return Err(format!(
             "schema {} is not {INSTANTIATE_SCHEMA}",
             v["schema"]
+        ));
+    }
+    if let Some(e) = reader_error_of(v) {
+        return Err(format!(
+            "reader error {e} as a per-key answer (an input error of the job: exit 41, row 13b)"
         ));
     }
     if elided(v) {
@@ -111,6 +139,11 @@ pub fn answer_uses(lines: &[Vec<u8>], mode: ElidedLoci) -> Result<Vec<AnswerUse>
         let u = if v["schema"] == INSTANTIATE_SCHEMA {
             instantiate_answer_use(v, mode).map_err(at)?
         } else if v["schema"] == FACT_SCHEMA {
+            if let Some(e) = reader_error_of(v) {
+                return Err(at(format!(
+                    "reader error {e} as a per-key answer (an input error of the job: exit 41, row 13b)"
+                )));
+            }
             let about_elided = elided(v)
                 || v["label"]
                     .as_i64()

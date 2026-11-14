@@ -316,6 +316,12 @@ pub enum ArgShape {
     RationalList,
     /// (line 7) A comma-separated list of pairwise distinct unsigned integers in canonical decimal, with an element rule.
     UIntList(UIntElems),
+    /// (line 7, seed minimisation) A centre scan ([`crate::arith::parse_centre_scan`]): comma-separated entries, each
+    /// `recipe`, `floor_of_free`, `each_free_slot` or an explicit offset vector `(a;b;..)` of canonical integers.
+    CentreScan,
+    /// (line 7, seed minimisation target) A case domain as compact JSON ([`crate::arith::parse_case_domain`]):
+    /// `{"fixed": [..], "equations": [..], "bounds": {"min": [..], "max": [..]}}`, at least one member.
+    CaseDomain,
 }
 
 /// The element rule of an [`ArgShape::UIntList`].
@@ -337,6 +343,8 @@ impl ArgShape {
             ArgShape::RationalList => arith::parse_rational_list(v).map(|_| ()),
             ArgShape::UIntList(UIntElems::Any) => arith::parse_uint_list(v).map(|_| ()),
             ArgShape::UIntList(UIntElems::Line7Primes) => arith::parse_prime_list(v).map(|_| ()),
+            ArgShape::CentreScan => arith::parse_centre_scan(v).map(|_| ()),
+            ArgShape::CaseDomain => arith::parse_case_domain(v).map(|_| ()),
             other if other.accepts(v) => Ok(()),
             other => Err(format!("value {v:?} is not of shape {other:?}")),
         }
@@ -387,9 +395,11 @@ impl ArgShape {
             }
             ArgShape::Range => all(|b| b.is_ascii_digit() || b == b',' || b == b'-'),
             ArgShape::Choice(c) => c.contains(&v),
-            ArgShape::Rational | ArgShape::RationalList | ArgShape::UIntList(_) => {
-                self.check(v).is_ok()
-            }
+            ArgShape::Rational
+            | ArgShape::RationalList
+            | ArgShape::UIntList(_)
+            | ArgShape::CentreScan
+            | ArgShape::CaseDomain => self.check(v).is_ok(),
         }
     }
 }
@@ -421,7 +431,7 @@ pub const ON_HEAVY: ArgRule = ArgRule {
     strict_values: Some(&["refuse", "proceed"]),
 };
 
-const GENERATE_ARGS: [ArgRule; 39] = [
+const GENERATE_ARGS: [ArgRule; 43] = [
     a("--order", ArgShape::JsonOrName),
     // lane eng2: return the sub-cases instead of descending into them (node-loop.md 5.2)
     a("--descend", ArgShape::Choice(&["open"])),
@@ -464,6 +474,13 @@ const GENERATE_ARGS: [ArgRule; 39] = [
     a("--case-seed-schedule", ArgShape::Spec),
     a("--case-seed-rung", ArgShape::Spec),
     a("--backend", ArgShape::Name),
+    // line 7, seed minimisation (coord-seed-minimise.md 6 / 7, replacing section 5's `--seed-centre floor_of_free`):
+    // the deterministic centre scan; the minimisation mode; its WORK budget (a count of re-solves, never a clock)
+    a("--centre-scan", ArgShape::CentreScan),
+    a("--minimise-rules", ArgShape::Choice(&["support", "greedy"])),
+    a("--minimise-max-solves", ArgShape::UInt),
+    // coord-seed-minimise.md 7: the target domain a candidate's exception branches must not intersect
+    a("--minimise-target", ArgShape::CaseDomain),
 ];
 const DESCENT_ARGS: [ArgRule; 1] = [a("--order", ArgShape::JsonOrName)];
 /// `solve-recipe` (lane adapters; coord-recipe-solve.md v1.1 job mode): the node order (required), worker threads
@@ -1351,6 +1368,27 @@ impl JobSpec {
                 ));
             }
             k += 2;
+        }
+        // line 7 (seed minimisation): the budget belongs to a mode, and a zero budget is not a limit
+        if self.arg_value("--minimise-target").is_some()
+            && self.arg_value("--minimise-rules").is_none()
+        {
+            return Err(bad("args", "--minimise-target needs --minimise-rules"));
+        }
+        if self.arg_value("--minimise-max-solves").is_some() {
+            if self.arg_value("--minimise-rules").is_none() {
+                return Err(bad("args", "--minimise-max-solves needs --minimise-rules"));
+            }
+            if self
+                .arg_value("--minimise-max-solves")
+                .and_then(|v| v.parse::<u64>().ok())
+                == Some(0)
+            {
+                return Err(bad(
+                    "args",
+                    "--minimise-max-solves 0: a zero limit is not allowed (omit it instead)",
+                ));
+            }
         }
         if self.determinism == Determinism::Strict
             && matches!(self.kind, JobKind::Generate | JobKind::GenerateAuto)
