@@ -544,7 +544,12 @@ mod tests {
             RetireError::FullNodeNeedsProof,
             "no order statement"
         );
-        assert!(retire(proof(&dispatch_proof_method(&DispatchOrderStatement::SameOrder))).is_ok());
+        assert!(
+            retire(proof(&dispatch_proof_method(
+                &DispatchOrderStatement::SameOrder
+            )))
+            .is_ok()
+        );
         let m2 = dispatch_proof_method(&DispatchOrderStatement::NewOrder("abc123".into()));
         assert!(retire(proof(&m2)).is_ok());
         // the record route re-runs the same check

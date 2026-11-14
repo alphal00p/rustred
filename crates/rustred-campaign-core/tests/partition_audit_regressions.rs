@@ -685,18 +685,31 @@ fn m3_economy_requires_a_dispatch_proof() {
     let d = gap_partition(&l, &f, &o, None).unwrap();
     assert!(d.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
     let p = containment_proof(&d, &DispatchOrderStatement::SameOrder, "o", "n").unwrap();
-    assert_eq!(p.method(), dispatch_proof_method(&DispatchOrderStatement::SameOrder));
+    assert_eq!(
+        p.method(),
+        dispatch_proof_method(&DispatchOrderStatement::SameOrder)
+    );
     assert!(retire(Some(p)).is_ok());
-    let p2 = containment_proof(&d, &DispatchOrderStatement::NewOrder("abc123".into()), "o", "n")
-        .unwrap();
+    let p2 = containment_proof(
+        &d,
+        &DispatchOrderStatement::NewOrder("abc123".into()),
+        "o",
+        "n",
+    )
+    .unwrap();
     assert_eq!(
         parse_dispatch_proof_method(p2.method()),
         Some(DispatchOrderStatement::NewOrder("abc123".into()))
     );
     assert!(retire(Some(p2)).is_ok());
     assert!(
-        containment_proof(&d, &DispatchOrderStatement::NewOrder(String::new()), "o", "n")
-            .is_none()
+        containment_proof(
+            &d,
+            &DispatchOrderStatement::NewOrder(String::new()),
+            "o",
+            "n"
+        )
+        .is_none()
     );
     // a dispatch-mode report WITH a gap (blocked pole key) gives none
     let (a, b) = pole_tables();
