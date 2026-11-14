@@ -289,6 +289,79 @@ pub(crate) fn region_shell_seeds<const N: usize>(
     seeds
 }
 
+/// Numerator tube of a demanded integral of `sector` (bit `i` = slot `i`
+/// active): every integral of the sector with at most `max_dots` dots (any
+/// distribution over the lines) whose numerator monomial is `u * y`, where
+/// `u` divides the numerator of `target` and `y` is a monomial of degree at
+/// most `halo` in the sector's inactive slots. Sorted by
+/// `(dots, numerators)` and then lexicographically, without duplicates.
+pub fn tube_seeds<const N: usize>(
+    sector: u32,
+    arity: usize,
+    target: &[i16; N],
+    halo: i16,
+    max_dots: i16,
+) -> Vec<[i16; N]> {
+    use std::collections::BTreeSet;
+    let lines = sector.count_ones() as usize;
+    if lines == 0 || halo < 0 || max_dots < 0 {
+        return Vec::new();
+    }
+    let active: Vec<usize> = (0..arity).filter(|&slot| sector >> slot & 1 == 1).collect();
+    let inactive: Vec<usize> = (0..arity).filter(|&slot| sector >> slot & 1 == 0).collect();
+    let exponents: Vec<i16> = inactive
+        .iter()
+        .map(|&slot| (-target[slot]).max(0))
+        .collect();
+    // Divisors u of N(target), as exponent vectors over the inactive slots.
+    let mut divisors = vec![vec![0i16; inactive.len()]];
+    for (position, &exponent) in exponents.iter().enumerate() {
+        let mut next = Vec::with_capacity(divisors.len() * (exponent as usize + 1));
+        for divisor in &divisors {
+            for power in 0..=exponent {
+                let mut extended = divisor.clone();
+                extended[position] = power;
+                next.push(extended);
+            }
+        }
+        divisors = next;
+    }
+    // Halo monomials y of degree <= halo.
+    let mut halos = Vec::new();
+    let mut parts = vec![0i16; inactive.len()];
+    for degree in 0..=halo {
+        for_each_composition(degree, &mut parts, 0, &mut |parts| {
+            halos.push(parts.to_vec())
+        });
+    }
+    let mut numerators: BTreeSet<Vec<i16>> = BTreeSet::new();
+    for divisor in &divisors {
+        for y in &halos {
+            numerators.insert(divisor.iter().zip(y).map(|(a, b)| a + b).collect());
+        }
+    }
+    let mut seeds = Vec::new();
+    let mut dot_parts = vec![0i16; active.len()];
+    for dots in 0..=max_dots {
+        let mut level: Vec<[i16; N]> = Vec::new();
+        for_each_composition(dots, &mut dot_parts, 0, &mut |dot_parts| {
+            for numerator in &numerators {
+                let mut seed = [0i16; N];
+                for (&slot, &extra) in active.iter().zip(dot_parts.iter()) {
+                    seed[slot] = 1 + extra;
+                }
+                for (&slot, &power) in inactive.iter().zip(numerator.iter()) {
+                    seed[slot] = -power;
+                }
+                level.push(seed);
+            }
+        });
+        level.sort_unstable_by_key(|seed| (box_coordinates(seed).2, *seed));
+        seeds.extend(level);
+    }
+    seeds
+}
+
 /// Visit every weak composition of `total` into `parts.len()` parts, with
 /// the first part largest first (lexicographically decreasing).
 fn for_each_composition(
@@ -383,6 +456,35 @@ mod tests {
         let all = region_shell_seeds::<6>(sector, arity, &larger, None);
         assert_eq!(all.len(), union.len() + outer.len());
         assert_eq!(region.capped(1).max_s(), 1);
+    }
+
+    #[test]
+    fn tubes_are_divisor_times_halo_monomials() {
+        // Sector {0, 1} of arity 5; target numerator x2^2 x3 (rank 3).
+        let target = [1, 1, -2, -1, 0];
+        let tube = tube_seeds::<5>(0b11, 5, &target, 0, 0);
+        // halo 0: the 3 * 2 divisors of x2^2 x3, no dots.
+        assert_eq!(tube.len(), 6);
+        assert!(tube.contains(&target) && tube.contains(&[1, 1, 0, 0, 0]));
+        // halo 1 adds x_j * u for every ISP j; dots <= 1 doubles over the
+        // two-line dot distributions (1 + 2).
+        let wide = tube_seeds::<5>(0b11, 5, &target, 1, 1);
+        let numerators: BTreeSet<[i16; 3]> = wide
+            .iter()
+            .map(|seed| [seed[2], seed[3], seed[4]])
+            .collect();
+        // u * y over u | x2^2 x3, deg y <= 1: exponents (a, b, c) with
+        // a <= 3, b <= 2, c <= 1, at most one exponent above its bound.
+        let expected: BTreeSet<[i16; 3]> = (0..=3)
+            .flat_map(|a| (0..=2).flat_map(move |b| (0..=1).map(move |c| [a, b, c])))
+            .filter(|&[a, b, c]| usize::from(a > 2) + usize::from(b > 1) + usize::from(c > 0) <= 1)
+            .map(|[a, b, c]| [-a, -b, -c])
+            .collect();
+        assert_eq!(numerators, expected);
+        assert_eq!(wide.len(), expected.len() * 3);
+        let (lines, dots, _) = box_coordinates(&wide[0]);
+        assert_eq!((lines, dots), (2, 0));
+        assert!(wide.windows(2).all(|pair| pair[0] != pair[1]));
     }
 
     #[test]

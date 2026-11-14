@@ -21,11 +21,19 @@ use super::seeds::{
 };
 use super::select::{Echelon, Replay, closure, nonzero_masters};
 use super::system::SelectionState;
-use super::{BoxOptions, BoxStats, LimitKind, ModularReport, PhaseStats, SectorReport, Seeding};
+use super::{
+    BoxOptions, BoxStats, LimitKind, MasterCheckMode, ModularReport, PhaseStats, SectorReport,
+    Seeding,
+};
 
 mod growth;
+mod seeding;
+mod stability;
 #[cfg(test)]
 mod tests;
+
+/// Sub-tubes by (sector, halo, extra dots, tube-target fingerprint).
+type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTreeSet<[i16; N]>>>;
 
 /// A sink for one human-readable progress line per phase.
 type Progress = Box<dyn FnMut(&str) + Send>;
@@ -45,6 +53,15 @@ pub struct BoxLaportaSession<const N: usize> {
     seeds: Vec<[i16; N]>,
     /// Seeded region of every seeded sector, by Kira id.
     boxes: BTreeMap<u64, SeedRegion>,
+    /// Tube seeds generated outside the seeded regions, by Kira id.
+    tube_seeds: BTreeMap<u64, BTreeSet<[i16; N]>>,
+    /// Ordinals (into `seeds`) of tube seeds: they carry no automorphism
+    /// rows.
+    tube_ids: std::collections::HashSet<u32>,
+    /// Sub-tubes by (sector, halo, extra dots, tube-target fingerprint).
+    subtubes: std::sync::Mutex<SubtubeCache<N>>,
+    /// Growth steps per sector: `(dots, s)`.
+    growth: BTreeMap<u64, (u8, u8)>,
     demand: BTreeSet<[i16; N]>,
     zero_demand: BTreeSet<[i16; N]>,
     /// Preferred integrals in representative sectors (routed when given in
@@ -54,8 +71,10 @@ pub struct BoxLaportaSession<const N: usize> {
     /// Representative sectors of the down-closure of the demand and the
     /// seeded sectors, through routes (recomputed per seeding round).
     visited: BTreeSet<u64>,
-    /// Truncation parameter `l` in force.
+    /// Truncation parameter `l` in force (staircase growth may lower it).
     truncate: Option<i16>,
+    /// Times growth lowered `l`.
+    truncate_steps: u8,
     /// Terms of every row generated into the current system.
     generated_terms: usize,
     masters: Vec<[i16; N]>,
@@ -213,6 +232,31 @@ impl<const N: usize> BoxLaportaSession<N> {
                 "the sector-box engine does not support cut constraints yet".into(),
             ));
         }
+        if options.tubes.is_some() && !matches!(options.seeding, Seeding::Staircase { .. }) {
+            return Err(SolverError::InvalidInput(
+                "numerator tubes require staircase seeding".into(),
+            ));
+        }
+        if options.tubes.is_some_and(|tubes| tubes.min_rank == 0) {
+            return Err(SolverError::InvalidInput(
+                "numerator tubes need min_rank >= 1".into(),
+            ));
+        }
+        if matches!(options.seeding, Seeding::Staircase { .. })
+            && options.insertion == super::Insertion::TopDownLevels
+        {
+            return Err(SolverError::InvalidInput(
+                "staircase seeding uses bottom-up insertion".into(),
+            ));
+        }
+        if options.settle_on_expected
+            && (options.expected_counts.is_none()
+                || !matches!(options.seeding, Seeding::Staircase { .. }))
+        {
+            return Err(SolverError::InvalidInput(
+                "settle_on_expected needs staircase seeding and expected_counts".into(),
+            ));
+        }
         let truncate = options.truncate;
         let sources = SourceSystem::<N>::from_family_with_capacity(&family, false)?;
         let order = Arc::new(BoxOrder::with_slot_priority(
@@ -265,11 +309,16 @@ impl<const N: usize> BoxLaportaSession<N> {
             modular,
             seeds: Vec::new(),
             boxes: BTreeMap::new(),
+            tube_seeds: BTreeMap::new(),
+            tube_ids: std::collections::HashSet::new(),
+            subtubes: std::sync::Mutex::new(HashMap::new()),
+            growth: BTreeMap::new(),
             demand: BTreeSet::new(),
             zero_demand: BTreeSet::new(),
             preferred_zero: BTreeSet::new(),
             visited: BTreeSet::new(),
             truncate,
+            truncate_steps: 0,
             generated_terms: 0,
             masters: Vec::new(),
             counter,
@@ -417,6 +466,7 @@ impl<const N: usize> BoxLaportaSession<N> {
         // The in-box residual monitor compares with symmetry-free LP counts,
         // so it is only meaningful without symmetry rows.
         let monitored = self.router.is_identity();
+        let rows_before = self.stats.rows;
         let mut selection;
         loop {
             rounds += 1;
@@ -444,6 +494,18 @@ impl<const N: usize> BoxLaportaSession<N> {
             }
             growth_log.push(grown.iter().map(|&bits| bits as u32).collect());
         }
+        let before = selection.masters.clone();
+        // Re-check only when this call seeded anything: an extend that
+        // reuses the existing system keeps the earlier stability verdict.
+        let seeded = self.stats.rows > rows_before;
+        let stable = match self.options.stability {
+            Some(delta) if !self.boxes.is_empty() && seeded => {
+                self.enlarge(delta)?;
+                selection = self.select()?;
+                Some(selection.masters == before)
+            }
+            _ => None,
+        };
         self.masters = selection.masters.clone();
         let reports = self.sector_reports(&selection.masters)?;
         for report in reports.iter().filter(|_| monitored) {
@@ -474,9 +536,19 @@ impl<const N: usize> BoxLaportaSession<N> {
             }
             hasher.finalize().to_hex().to_string()
         };
+        let master_check = self.master_check(&self.masters);
         self.refresh_totals();
         let seeds = reports.iter().map(|report| report.seeds).sum();
         let hull_seeds = reports.iter().map(|report| report.hull_seeds).sum();
+        if self.options.master_check == MasterCheckMode::Strict && !master_check.passed() {
+            return Err(SolverError::MasterCheck(format!(
+                "{} extra masters {:?}, classes below expected {:?}, above expected {:?}",
+                master_check.extra.len(),
+                master_check.extra,
+                master_check.missing,
+                master_check.excess
+            )));
+        }
         let masters: BTreeSet<[i16; N]> = self.masters.iter().copied().collect();
         let preferred_not_masters = self
             .preferred
@@ -501,10 +573,13 @@ impl<const N: usize> BoxLaportaSession<N> {
             masters_second_sample: selection.second,
             rounds,
             growth: growth_log,
+            stable,
+            masters_before_stability: before,
             monitor_violations: monitor
                 .into_iter()
                 .map(|(id, (residuals, lp))| (id, residuals, lp))
                 .collect(),
+            master_check,
             truncate: self.truncate,
             seeds,
             hull_seeds,
@@ -648,8 +723,12 @@ impl<const N: usize> BoxLaportaSession<N> {
         Ok(())
     }
 
-    /// Merge a wanted region into a seeded one: their hull (one box).
+    /// Merge a wanted region into a seeded one: the union for staircase
+    /// seeding, the hull (one box) otherwise.
     fn merge_region(&self, old: Option<&SeedRegion>, wanted: SeedRegion) -> SeedRegion {
+        if matches!(self.options.seeding, Seeding::Staircase { .. }) {
+            return old.map_or(wanted.clone(), |old| old.union(&wanted));
+        }
         let hull = match (old.and_then(SeedRegion::hull), wanted.hull()) {
             (Some(old), Some(wanted)) => old.hull(&wanted),
             (Some(single), None) | (None, Some(single)) => single,
@@ -705,7 +784,9 @@ impl<const N: usize> BoxLaportaSession<N> {
                 continue;
             }
             let desired_started = Instant::now();
-            let desired = self.desired_regions(&level, &demand, self.truncate, delta);
+            let boxes = self.boxes.clone();
+            let desired =
+                self.desired_regions(&level, top_down, &boxes, &demand, self.truncate, delta)?;
             let desired_seconds = desired_started.elapsed().as_secs_f64();
             let mut seeds = Vec::new();
             for (bits, wanted) in desired {
@@ -716,10 +797,34 @@ impl<const N: usize> BoxLaportaSession<N> {
                 }
                 let shell = region_shell_seeds::<N>(bits as u32, self.arity, &new, old.as_ref());
                 for seed in shell {
-                    let id = self.push_seed(seed)?;
+                    // A tube seed the region now covers is already seeded.
+                    if self
+                        .tube_seeds
+                        .get(&bits)
+                        .is_some_and(|known| known.contains(&seed))
+                    {
+                        continue;
+                    }
+                    let id = self.push_seed(seed, false)?;
                     seeds.push((id, seed));
                 }
                 self.boxes.insert(bits, new);
+            }
+            if self.options.tubes.is_some() {
+                for &bits in &level {
+                    let fresh = self.fresh_tube_seeds(
+                        bits,
+                        self.boxes.get(&bits),
+                        self.tube_seeds.get(&bits),
+                        &demand,
+                        delta,
+                    )?;
+                    for seed in fresh {
+                        self.tube_seeds.entry(bits).or_default().insert(seed);
+                        let id = self.push_seed(seed, true)?;
+                        seeds.push((id, seed));
+                    }
+                }
             }
             let planned = seeds.len();
             self.note(|| {
@@ -740,15 +845,19 @@ impl<const N: usize> BoxLaportaSession<N> {
     }
 
     /// Wanted regions of one level, before merging with seeded regions.
-    /// `truncate` is the Kira 3 `l` in force; `delta` enlarges the explicit
-    /// boxes.
+    /// `boxes` are the regions seeded so far (higher levels of this round
+    /// included); `truncate` is the Kira 3 `l` in force; `delta` enlarges the
+    /// explicit boxes of box and staircase seeding (demand seeding ignores
+    /// it). The demand and staircase arms are in `seeding.rs`.
     fn desired_regions(
-        &self,
+        &mut self,
         level: &[u64],
+        use_closure: bool,
+        boxes: &BTreeMap<u64, SeedRegion>,
         demand: &BTreeSet<[i16; N]>,
         truncate: Option<i16>,
         delta: (u8, u8, u8),
-    ) -> Vec<(u64, SeedRegion)> {
+    ) -> Result<Vec<(u64, SeedRegion)>, SolverError> {
         let (delta_r, delta_s, delta_d) =
             (i16::from(delta.0), i16::from(delta.1), i16::from(delta.2));
         let lines_here = level[0].count_ones();
@@ -762,7 +871,7 @@ impl<const N: usize> BoxLaportaSession<N> {
                     .map(integral_bits)
                     .filter(|bits| wanted.contains(bits))
                     .collect();
-                level
+                Ok(level
                     .iter()
                     .map(|&bits| {
                         let s = i16::from(s) + delta_s;
@@ -781,19 +890,37 @@ impl<const N: usize> BoxLaportaSession<N> {
                             }),
                         )
                     })
-                    .collect()
+                    .collect())
+            }
+            Seeding::Demand {
+                extra_r, extra_s, ..
+            } => self.demand_regions(
+                level,
+                use_closure,
+                boxes,
+                demand,
+                truncate,
+                extra_r,
+                extra_s,
+            ),
+            Seeding::Staircase { s_pad, d_pad, .. } => {
+                self.staircase_regions(level, boxes, demand, truncate, delta, s_pad, d_pad)
             }
         }
     }
 
-    /// Append one seed.
-    fn push_seed(&mut self, seed: [i16; N]) -> Result<u32, SolverError> {
+    /// Append one seed; tube seeds are recorded so that they get no
+    /// automorphism rows.
+    fn push_seed(&mut self, seed: [i16; N], tube: bool) -> Result<u32, SolverError> {
         let id = u32::try_from(self.seeds.len()).map_err(|_| SolverError::Limit {
             kind: LimitKind::Rows,
             estimate: self.seeds.len() as u64,
             cap: u32::MAX as u64,
         })?;
         self.seeds.push(seed);
+        if tube {
+            self.tube_ids.insert(id);
+        }
         Ok(id)
     }
 
@@ -811,7 +938,10 @@ impl<const N: usize> BoxLaportaSession<N> {
         }
         let generation = Instant::now();
         let factory = &self.factory;
-        let (rows, empty) = self.pool.install(|| factory.rows_for(seeds, &|_| true))?;
+        let tube_ids = &self.tube_ids;
+        let (rows, empty) = self
+            .pool
+            .install(|| factory.rows_for(seeds, &|id| !tube_ids.contains(&id)))?;
         let generation_seconds = generation.elapsed().as_secs_f64();
         self.check_automorphism_closure(&rows)?;
         self.check_row_sectors(&rows)?;
@@ -1125,10 +1255,24 @@ impl<const N: usize> BoxLaportaSession<N> {
             };
             let region = self.boxes.get(&bits);
             let hull = region.and_then(SeedRegion::hull);
-            let seeds = region.map_or(0, |region| {
-                region_shell_count(bits as u32, self.arity, region, None)
+            let tube_seeds = self.tube_seeds.get(&bits).map_or(0, |tube| {
+                tube.iter()
+                    .filter(|seed| {
+                        let (lines, dots, numerators) = box_coordinates(*seed);
+                        !region.is_some_and(|region| region.contains(lines, dots, numerators))
+                    })
+                    .count()
             });
-            let hull_seeds = hull.map_or(0, |hull| {
+            let seeds = tube_seeds
+                + region.map_or(0, |region| {
+                    region_shell_count(bits as u32, self.arity, region, None)
+                });
+            // The hull also covers the full boxes of tube targets.
+            let mut full = region.cloned().unwrap_or_default();
+            for seed_box in self.tube_pass_down(bits, &self.demand, (0, 0, 0)) {
+                full.insert(seed_box);
+            }
+            let hull_seeds = full.hull().map_or(0, |hull| {
                 region_shell_count(bits as u32, self.arity, &SeedRegion::from_box(hull), None)
             });
             reports.push(SectorReport {
@@ -1138,10 +1282,17 @@ impl<const N: usize> BoxLaportaSession<N> {
                 seed_region: region.map_or_else(Vec::new, |region| region.boxes().to_vec()),
                 seeds,
                 hull_seeds,
+                tube_seeds,
                 masters: per_sector.get(&bits).copied().unwrap_or(0),
                 lp,
                 lp_no_verdict: no_verdict,
                 in_box_residuals: residuals.get(&bits).copied().unwrap_or(0),
+                growth: self.growth.get(&bits).map_or(0, |&(r, s)| r.max(s)),
+                expected: self
+                    .options
+                    .expected_counts
+                    .as_ref()
+                    .and_then(|counts| counts.get(&bits).copied()),
             });
         }
         reports.sort_unstable_by_key(|report| report.id);
