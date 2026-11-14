@@ -189,7 +189,6 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use FinishClass::*;
     match class {
         Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
-        RuleFound => &[A::Canonical],               // rows 2, 5
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -202,6 +201,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Lost => &[A::Nothing],                      // rows 15, 21
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
+        // rows 2, 5; 28 = kind solve-recipe (lane adapters)
+        RuleFound => &[A::Canonical, A::SolvedRecords],
         SealedWithElided => &[A::Nothing], // row 25 (elided witness loci: never used, R-f)
         UnverifiableKind => &[A::Nothing], // row 26 (no sealing rule for the kind)
     }
@@ -211,6 +212,7 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
 pub fn accept_permits_records(a: ContractAccept) -> bool {
     match a {
         ContractAccept::Canonical | ContractAccept::CommittedRules => true,
+        ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         ContractAccept::Nothing => false,
     }
 }
@@ -219,6 +221,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
     match a {
         ContractAccept::Canonical => "canonical",
         ContractAccept::CommittedRules => "committed_rules",
+        ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::Nothing => "nothing",
     }
 }
@@ -4428,9 +4431,10 @@ mod tests {
         }
     }
 
-    const ACCEPTS: [ContractAccept; 3] = [
+    const ACCEPTS: [ContractAccept; 4] = [
         ContractAccept::Canonical,
         ContractAccept::CommittedRules,
+        ContractAccept::SolvedRecords,
         ContractAccept::Nothing,
     ];
 
