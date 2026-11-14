@@ -69,6 +69,12 @@ pub struct CreditPolicy {
     /// Indices of elements whose numerator map (`numerators: Some`) is CERTIFIED a one-term identity by the group
     /// data. A key with a non-zero numerator is never credited through any other element (plan 2.4.6 (iii)).
     pure_numerator_maps: BTreeSet<usize>,
+    /// PER-SLOT numerator purity (lane import3, closure.md 17): per element, per numerator position, the target position
+    /// when that slot's image is certified a one-term identity onto a numerator slot (from the verified action only;
+    /// empty for unverified policies). A key whose non-zero numerators all sit on such slots (distinct targets) is
+    /// imaged exactly by an element whose whole numerator map is not pure: a numerator at power 0 is absent from the
+    /// integrand, so its image is irrelevant.
+    partial_numerators: Vec<Vec<Option<usize>>>,
     basis: GroupBasis,
 }
 
@@ -87,6 +93,7 @@ impl CreditPolicy {
         CreditPolicy {
             group,
             pure_numerator_maps,
+            partial_numerators: vec![],
             basis: GroupBasis::Unverified {
                 source: source.to_string(),
             },
@@ -140,6 +147,7 @@ impl CreditPolicy {
         };
         let mut group = Vec::with_capacity(sg.elements.len());
         let mut pure = BTreeSet::new();
+        let mut partial = Vec::with_capacity(sg.elements.len());
         for (ei, e) in sg.elements.iter().enumerate() {
             let lperm: Vec<usize> = ls
                 .iter()
@@ -153,10 +161,12 @@ impl CreditPolicy {
                         })
                 })
                 .collect::<Result<_, _>>()?;
-            let nperm: Option<Vec<usize>> = os
+            let npart: Vec<Option<usize>> = os
                 .iter()
                 .map(|&s| exact(e.action.get(s)).and_then(|t| pos_o.get(t).copied().flatten()))
                 .collect();
+            let nperm: Option<Vec<usize>> = npart.iter().copied().collect();
+            partial.push(npart);
             let nperm = nperm.filter(|p| {
                 let mut seen = vec![false; p.len()];
                 p.iter().all(|&j| !std::mem::replace(&mut seen[j], true))
@@ -172,6 +182,7 @@ impl CreditPolicy {
         let pol = CreditPolicy {
             group,
             pure_numerator_maps: pure,
+            partial_numerators: partial,
             basis: GroupBasis::Verified {
                 digest: g.digest().to_string(),
                 family_digest: g.family_digest().to_string(),
@@ -186,6 +197,34 @@ impl CreditPolicy {
     }
     pub fn pure_numerator_maps(&self) -> &BTreeSet<usize> {
         &self.pure_numerator_maps
+    }
+    /// The image of `key` under element `ei` when its non-zero numerators all sit on slots with a certified one-term
+    /// image (distinct targets; every other numerator slot of the image is 0); `None` otherwise (per-slot purity).
+    pub fn partial_image(&self, ei: usize, key: &[i32], lines: &[bool]) -> Option<Vec<i32>> {
+        let g = self.group.get(ei)?;
+        let part = self.partial_numerators.get(ei)?;
+        let (ls, os) = slot_lists(lines);
+        if g.lines.len() != ls.len() || part.len() != os.len() || key.len() != lines.len() {
+            return None;
+        }
+        let mut out = key.to_vec();
+        for (i, &j) in g.lines.iter().enumerate() {
+            out[*ls.get(j)?] = key[ls[i]];
+        }
+        for &s in &os {
+            out[s] = 0;
+        }
+        let mut used = vec![false; os.len()];
+        for (i, &s) in os.iter().enumerate() {
+            if key[s] != 0 {
+                let j = part[i]?;
+                if std::mem::replace(used.get_mut(j)?, true) {
+                    return None;
+                }
+                out[os[j]] = key[s];
+            }
+        }
+        Some(out)
     }
     pub fn basis(&self) -> &GroupBasis {
         &self.basis
@@ -366,15 +405,21 @@ pub(crate) fn element_image(
             "line permutation does not fit the line mask".into(),
         ));
     }
-    let Some(image) = apply_framed(g, key, lines) else {
-        return Err(Refusal::NoImage);
+    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
+    let image = if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
+        // per-slot purity: exact when every non-zero numerator sits on a slot with a certified one-term image
+        match pol.partial_image(ei, key, lines) {
+            Some(im) => im,
+            None => return Err(Refusal::NumeratorMapNotPure),
+        }
+    } else {
+        match apply_framed(g, key, lines) {
+            Some(im) => im,
+            None => return Err(Refusal::NoImage),
+        }
     };
     if image == key {
         return Err(Refusal::ImageEqualsKey);
-    }
-    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
-    if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
-        return Err(Refusal::NumeratorMapNotPure);
     }
     if ctx.is_terminal(&image) {
         return Err(Refusal::ImageIsTerminal);

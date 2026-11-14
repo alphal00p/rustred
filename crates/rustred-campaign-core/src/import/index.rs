@@ -405,7 +405,8 @@ fn build(source: &str, path: &Path, work: &Path) -> Result<IndexMeta, ImportErro
         kinds: raw.0,
     };
     let ip = work.join("index.json");
-    std::fs::write(&ip, serde_json::to_string_pretty(&meta).expect("meta")).map_err(|e| io_err(&ip, e))?;
+    std::fs::write(&ip, serde_json::to_string_pretty(&meta).expect("meta"))
+        .map_err(|e| io_err(&ip, e))?;
     Ok(meta)
 }
 
@@ -420,8 +421,14 @@ fn consume(
 ) -> Result<(usize, (BTreeMap<String, usize>, usize)), ImportError> {
     let dp = work.join("domains.jsonl");
     let bp = work.join("bodies.jsonl");
-    let mut dw = BufWriter::with_capacity(1 << 20, std::fs::File::create(&dp).map_err(|e| io_err(&dp, e))?);
-    let mut bw = BufWriter::with_capacity(4 << 20, std::fs::File::create(&bp).map_err(|e| io_err(&bp, e))?);
+    let mut dw = BufWriter::with_capacity(
+        1 << 20,
+        std::fs::File::create(&dp).map_err(|e| io_err(&dp, e))?,
+    );
+    let mut bw = BufWriter::with_capacity(
+        4 << 20,
+        std::fs::File::create(&bp).map_err(|e| io_err(&bp, e))?,
+    );
     let mut sc = LineScanner::new(source, path, RhsMode::KeysOnly, false);
     let (mut offset, mut line_no, mut rules) = (0u64, 0usize, 0usize);
     let wr = |w: &mut BufWriter<std::fs::File>, p: &Path, b: &[u8]| -> Result<(), ImportError> {
@@ -435,7 +442,9 @@ fn consume(
         if body.iter().all(|c| c.is_ascii_whitespace()) {
             continue;
         }
-        let sha = rx_sha.recv().map_err(|_| ImportError::Core("index line-hash thread stopped".into()))?;
+        let sha = rx_sha
+            .recv()
+            .map_err(|_| ImportError::Core("index line-hash thread stopped".into()))?;
         let bytes = body.len() as u64;
         let entry = |k: &str, s: Option<String>| -> String {
             let mut t = serde_json::to_string(&Entry {
@@ -512,7 +521,8 @@ impl TableIndex {
             if rd.read_until(b'\n', &mut eb).map_err(|e| io_err(&dp, e))? == 0 {
                 break;
             }
-            let e: Entry = serde_json::from_slice(line_body(&eb)).map_err(|x| bad(format!("entry: {x}")))?;
+            let e: Entry =
+                serde_json::from_slice(line_body(&eb)).map_err(|x| bad(format!("entry: {x}")))?;
             match e.k.as_str() {
                 "header" | "chart" | "rule" => {
                     pb.clear();
@@ -521,7 +531,9 @@ impl TableIndex {
                     }
                     let fed = sc.feed(line_body(&pb), e.l, e.o, e.b, e.s.clone(), keep)?;
                     let ok = match (e.k.as_str(), fed) {
-                        ("header", Fed::Header) | ("chart", Fed::Chart) | ("rule", Fed::RuleNotKept) => true,
+                        ("header", Fed::Header)
+                        | ("chart", Fed::Chart)
+                        | ("rule", Fed::RuleNotKept) => true,
                         ("rule", Fed::Rule(r)) => {
                             visit(*r)?;
                             true

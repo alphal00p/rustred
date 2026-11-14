@@ -64,8 +64,10 @@ fn data_dir() -> PathBuf {
 }
 
 fn spec_value() -> Value {
-    serde_json::from_str(&std::fs::read_to_string(data_dir().join("t266-jointest9.spec.json")).unwrap())
-        .unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(data_dir().join("t266-jointest9.spec.json")).unwrap(),
+    )
+    .unwrap()
 }
 
 fn kt(t: &str) -> Vec<i32> {
@@ -85,7 +87,10 @@ struct Delivery {
 }
 
 fn ints_rel(line: &str) -> (Vec<i32>, Vec<Vec<i32>>) {
-    let v: Vec<i32> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
+    let v: Vec<i32> = line
+        .split_whitespace()
+        .map(|x| x.parse().unwrap())
+        .collect();
     let key = v[..ARITY].to_vec();
     let n = v[ARITY] as usize;
     let rhs = (0..n)
@@ -115,15 +120,20 @@ fn read_delivery() -> Delivery {
         d0: BTreeMap::new(),
         recipe: BTreeMap::new(),
         terminals: BTreeSet::new(),
-        closure: serde_json::from_str(&std::fs::read_to_string(format!("{RUN}/deliver/closure.json")).unwrap())
-            .unwrap(),
+        closure: serde_json::from_str(
+            &std::fs::read_to_string(format!("{RUN}/deliver/closure.json")).unwrap(),
+        )
+        .unwrap(),
         relations: BTreeMap::new(),
     };
     let taken = |d: &Delivery, k: &Vec<i32>| {
         d.sym_image.contains_key(k) || d.d0.contains_key(k) || d.recipe.contains_key(k)
     };
     for svc in sorted_dirs("svc") {
-        for l in std::fs::read_to_string(svc.join("extra_sym.txt")).unwrap_or_default().lines() {
+        for l in std::fs::read_to_string(svc.join("extra_sym.txt"))
+            .unwrap_or_default()
+            .lines()
+        {
             if l.trim().is_empty() {
                 continue;
             }
@@ -132,11 +142,19 @@ fn read_delivery() -> Delivery {
                 d.sym_image.insert(k, r);
             }
         }
-        for l in std::fs::read_to_string(svc.join("d0.jsonl")).unwrap_or_default().lines() {
+        for l in std::fs::read_to_string(svc.join("d0.jsonl"))
+            .unwrap_or_default()
+            .lines()
+        {
             let v: Value = serde_json::from_str(l).unwrap();
             if v["accepted"] == json!(true) {
                 let k = kt(v["key"].as_str().unwrap());
-                let r = v["top_rhs_keys"].as_array().unwrap().iter().map(|x| kt(x.as_str().unwrap())).collect();
+                let r = v["top_rhs_keys"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| kt(x.as_str().unwrap()))
+                    .collect();
                 if !taken(&d, &k) {
                     d.d0.insert(k, r);
                 }
@@ -147,7 +165,10 @@ fn read_delivery() -> Delivery {
         let mut files: Vec<PathBuf> = std::fs::read_dir(&w)
             .unwrap()
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("walk_")))
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("walk_"))
+            })
             .collect();
         files.sort();
         for f in files {
@@ -155,15 +176,24 @@ fn read_delivery() -> Delivery {
                 let v: Value = serde_json::from_str(l).unwrap();
                 if v["result"] == json!("served") {
                     let k = kt(v["key"].as_str().unwrap());
-                    let r = v["top_rhs_keys"].as_array().unwrap().iter().map(|x| kt(x.as_str().unwrap())).collect();
+                    let r = v["top_rhs_keys"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|x| kt(x.as_str().unwrap()))
+                        .collect();
                     if !taken(&d, &k) {
-                        d.recipe.insert(k, (v["recipe"].as_str().unwrap().to_string(), r));
+                        d.recipe
+                            .insert(k, (v["recipe"].as_str().unwrap().to_string(), r));
                     }
                 }
             }
         }
     }
-    for l in std::fs::read_to_string(format!("{RUN}/deliver/terminals.jsonl")).unwrap().lines() {
+    for l in std::fs::read_to_string(format!("{RUN}/deliver/terminals.jsonl"))
+        .unwrap()
+        .lines()
+    {
         let v: Value = serde_json::from_str(l).unwrap();
         d.terminals.insert(kt(v["key"].as_str().unwrap()));
     }
@@ -171,7 +201,10 @@ fn read_delivery() -> Delivery {
         .rev()
         .find(|i| Path::new(&format!("{RUN}/relations_{i}.txt")).is_file())
         .unwrap();
-    for l in std::fs::read_to_string(format!("{RUN}/relations_{last}.txt")).unwrap().lines() {
+    for l in std::fs::read_to_string(format!("{RUN}/relations_{last}.txt"))
+        .unwrap()
+        .lines()
+    {
         if !l.trim().is_empty() {
             let (k, r) = ints_rel(l);
             d.relations.insert(k, r);
@@ -188,13 +221,25 @@ fn write_points<'a>(
     rels: impl Iterator<Item = (&'a Vec<i32>, &'a Vec<Vec<i32>>)>,
 ) -> usize {
     let mut w = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
-    writeln!(w, "{}", json!({"type":"header","schema":"table_dump.v1","family": family})).unwrap();
+    writeln!(
+        w,
+        "{}",
+        json!({"type":"header","schema":"table_dump.v1","family": family})
+    )
+    .unwrap();
     let mut n = 0;
     for (i, (k, rhs)) in rels.enumerate() {
         let t = import::lines::key_text(k);
-        let r: Vec<Value> = rhs.iter().map(|x| json!([import::lines::key_text(x)])).collect();
-        writeln!(w, "{}", json!({"type":"rule","chart":mask,"index":i,"fixed":k,"equations":[],"target":t,
-            "rhs":r,"exceptions":[],"dispatch":"Partition"}))
+        let r: Vec<Value> = rhs
+            .iter()
+            .map(|x| json!([import::lines::key_text(x)]))
+            .collect();
+        writeln!(
+            w,
+            "{}",
+            json!({"type":"rule","chart":mask,"index":i,"fixed":k,"equations":[],"target":t,
+            "rhs":r,"exceptions":[],"dispatch":"Partition"})
+        )
         .unwrap();
         n += 1;
     }
@@ -208,7 +253,10 @@ fn parse_layers(summary: &str) -> BTreeMap<(i32, i32, bool, i32), u64> {
     let Some(a) = summary.find("[((") else {
         return m;
     };
-    let body = &summary[a..summary[a..].find(")]\n").map(|e| a + e + 2).unwrap_or(summary.len())];
+    let body = &summary[a..summary[a..]
+        .find(")]\n")
+        .map(|e| a + e + 2)
+        .unwrap_or(summary.len())];
     for cell in body.split("((").skip(1) {
         let (inner, rest) = cell.split_once(')').unwrap();
         let p: Vec<&str> = inner.split(',').map(str::trim).collect();
@@ -219,7 +267,15 @@ fn parse_layers(summary: &str) -> BTreeMap<(i32, i32, bool, i32), u64> {
             .trim()
             .parse()
             .unwrap();
-        m.insert((p[0].parse().unwrap(), p[1].parse().unwrap(), p[2] == "True" || p[2] == "true", p[3].parse().unwrap()), n);
+        m.insert(
+            (
+                p[0].parse().unwrap(),
+                p[1].parse().unwrap(),
+                p[2] == "True" || p[2] == "true",
+                p[3].parse().unwrap(),
+            ),
+            n,
+        );
     }
     m
 }
@@ -260,9 +316,18 @@ fn t266_jointest9_index_and_strict_load() {
     let src = &set.report.sources[0];
     let mut big = vec![];
     for label in [29474i64, 30764, 31751, 33573] {
-        let k = set.rules[0].iter().position(|i| i.label == label).expect("big-literal record dispatched");
+        let k = set.rules[0]
+            .iter()
+            .position(|i| i.label == label)
+            .expect("big-literal record dispatched");
         let d = &set.disp.tables()[0].domains[k];
-        let nb = d.exceptions.iter().flatten().chain(&d.equations).filter(|p| p.is_big()).count();
+        let nb = d
+            .exceptions
+            .iter()
+            .flatten()
+            .chain(&d.equations)
+            .filter(|p| p.is_big())
+            .count();
         big.push((label, nb, d.exceptions.len()));
         assert!(nb > 0, "label {label}: a big exact literal");
     }
@@ -275,8 +340,11 @@ fn t266_jointest9_index_and_strict_load() {
     let out = scratch();
     std::fs::create_dir_all(&out).unwrap();
     let how = src.indexes.first().map(|o| o.how).unwrap_or("none");
-    std::fs::write(out.join(format!("t266-load-{how}.json")), serde_json::to_string_pretty(&rep).unwrap())
-        .unwrap();
+    std::fs::write(
+        out.join(format!("t266-load-{how}.json")),
+        serde_json::to_string_pretty(&rep).unwrap(),
+    )
+    .unwrap();
     assert_eq!(src.removed.len(), 0);
     assert_eq!(src.records_dispatched, src.records_in_files);
 }
@@ -354,20 +422,40 @@ fn t266_jointest9_walk_vs_delivery() {
     let pd0 = out.join("delivered-d0.table.jsonl");
     let prc = out.join("delivered-recipe.table.jsonl");
     write_points(&pd0, fhead.family.as_deref(), &mask, del.d0.iter());
-    write_points(&prc, fhead.family.as_deref(), &mask, del.recipe.iter().map(|(k, (_, r))| (k, r)));
+    write_points(
+        &prc,
+        fhead.family.as_deref(),
+        &mask,
+        del.recipe.iter().map(|(k, (_, r))| (k, r)),
+    );
     let mut sv = sv0.clone();
     let srcs = sv["sources"].as_array_mut().unwrap();
     let tail = srcs.split_off(1);
-    srcs.push(json!({"id":"delivered_d0","kind":"supplied_relations","class":"delivered:d0",
-        "path": pd0.display().to_string(),"diagnostic":true}));
-    srcs.push(json!({"id":"delivered_recipe","kind":"supplied_relations","class":"delivered:recipe",
-        "path": prc.display().to_string(),"diagnostic":true}));
+    srcs.push(
+        json!({"id":"delivered_d0","kind":"supplied_relations","class":"delivered:d0",
+        "path": pd0.display().to_string(),"diagnostic":true}),
+    );
+    srcs.push(
+        json!({"id":"delivered_recipe","kind":"supplied_relations","class":"delivered:recipe",
+        "path": prc.display().to_string(),"diagnostic":true}),
+    );
     srcs.extend(tail);
     sv["policies"]["witness_check"] = json!("off_diagnostic");
-    std::fs::write(out.join("spec.json"), serde_json::to_string_pretty(&sv).unwrap()).unwrap();
+    std::fs::write(
+        out.join("spec.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
     let t0 = std::time::Instant::now();
     let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
-    let set = load_with(&spec, &data_dir(), &LoadOptions { index_dir: Some(index_dir()) }).unwrap();
+    let set = load_with(
+        &spec,
+        &data_dir(),
+        &LoadOptions {
+            index_dir: Some(index_dir()),
+        },
+    )
+    .unwrap();
     let t_load = t0.elapsed().as_secs_f64();
     let hwm_load = status_kb("VmHWM:");
     println!(
@@ -377,12 +465,17 @@ fn t266_jointest9_walk_vs_delivery() {
         set.report.sources[0].indexes,
         set.report.records,
         set.strict_domains.len(),
-        set.report.sources.iter().find_map(|s| s.group.clone()).map(|g| (g.elements, g.provenance))
+        set.report
+            .sources
+            .iter()
+            .find_map(|s| s.group.clone())
+            .map(|g| (g.elements, g.provenance))
     );
     let ev = Evidence::from_spec(&set, &data_dir()).unwrap();
     let t1 = std::time::Instant::now();
     let rows_path = out.join("rows.jsonl");
-    let res = import::check::check_streamed(&set, &ev, &CheckOptions::default(), &rows_path).unwrap();
+    let res =
+        import::check::check_streamed(&set, &ev, &CheckOptions::default(), &rows_path).unwrap();
     let t_check = t1.elapsed().as_secs_f64();
     let hwm_check = status_kb("VmHWM:");
     println!(
@@ -398,8 +491,15 @@ fn t266_jointest9_walk_vs_delivery() {
         res.counts()
     );
     let dir = out.join("statement");
-    write_statement(&set, &ev, &res, &dir, Some(json!({"load_s": t_load, "check_s": t_check,
-        "vm_hwm_kb": hwm_check, "index": set.report.sources[0].indexes}))).unwrap();
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &dir,
+        Some(json!({"load_s": t_load, "check_s": t_check,
+        "vm_hwm_kb": hwm_check, "index": set.report.sources[0].indexes})),
+    )
+    .unwrap();
     // ---- key by key over the streamed rows
     let witness_of: HashMap<i64, String> = set.rules[0]
         .iter()
@@ -413,7 +513,10 @@ fn t266_jointest9_walk_vs_delivery() {
     let mut waits: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut by_witness: BTreeMap<String, u64> = BTreeMap::new();
     let (mut n, mut n_box, mut credited_via_relation) = (0u64, 0u64, 0u64);
-    let rd = BufReader::with_capacity(1 << 22, std::fs::File::open(dir.join("statement.jsonl")).unwrap());
+    let rd = BufReader::with_capacity(
+        1 << 22,
+        std::fs::File::open(dir.join("statement.jsonl")).unwrap(),
+    );
     for l in rd.lines() {
         let v: Value = serde_json::from_str(&l.unwrap()).unwrap();
         let k: Vec<i32> = serde_json::from_value(v["key"].clone()).unwrap();
@@ -440,13 +543,19 @@ fn t266_jointest9_walk_vs_delivery() {
                 credited_via_relation += 1;
             }
             ("served", "relation") => {
-                by_rel.entry(v["server"]["class"].as_str().unwrap_or("?").to_string()).or_default().insert(k.clone());
+                by_rel
+                    .entry(v["server"]["class"].as_str().unwrap_or("?").to_string())
+                    .or_default()
+                    .insert(k.clone());
             }
             ("terminal", _) => {
                 terminals.insert(k.clone());
             }
             ("open", _) => {
-                open.insert(k.clone(), v["open"]["status"].as_str().unwrap_or("?").to_string());
+                open.insert(
+                    k.clone(),
+                    v["open"]["status"].as_str().unwrap_or("?").to_string(),
+                );
             }
             _ => {}
         }
@@ -456,24 +565,45 @@ fn t266_jointest9_walk_vs_delivery() {
             let label = v["server"]["label"].as_i64();
             let w = label.and_then(|l| witness_of.get(&l)).map(String::as_str);
             if kind == "rule" {
-                *by_witness.entry(format!("{}:{basis}", w.unwrap_or("?"))).or_default() += 1;
+                *by_witness
+                    .entry(format!("{}:{basis}", w.unwrap_or("?")))
+                    .or_default() += 1;
             }
             let wf = waits_for(kind, &class, basis, if kind == "credit" { w } else { None });
-            *waits.entry(format!("{kind}:{class}")).or_default().entry(wf).or_default() += 1;
+            *waits
+                .entry(format!("{kind}:{class}"))
+                .or_default()
+                .entry(wf)
+                .or_default() += 1;
         }
     }
     // ---- comparison
     let del_layers = parse_layers(del.closure["closure_summary"].as_str().unwrap_or(""));
     let mut layer_diff = vec![];
-    for k in del_layers.keys().chain(layers.keys()).collect::<BTreeSet<_>>() {
-        let (a, b) = (del_layers.get(k).copied().unwrap_or(0), layers.get(k).copied().unwrap_or(0));
+    for k in del_layers
+        .keys()
+        .chain(layers.keys())
+        .collect::<BTreeSet<_>>()
+    {
+        let (a, b) = (
+            del_layers.get(k).copied().unwrap_or(0),
+            layers.get(k).copied().unwrap_or(0),
+        );
         if a != b {
-            layer_diff.push(json!({"D": k.0, "r": k.1, "in_box": k.2, "class": k.3, "delivery": a, "ours": b}));
+            layer_diff.push(
+                json!({"D": k.0, "r": k.1, "in_box": k.2, "class": k.3, "delivery": a, "ours": b}),
+            );
         }
     }
     let set_cmp = |name: &str, ours: &BTreeSet<Vec<i32>>, theirs: &BTreeSet<Vec<i32>>| -> Value {
-        let only_ours: Vec<String> = ours.difference(theirs).map(|k| import::lines::key_text(k)).collect();
-        let only_theirs: Vec<String> = theirs.difference(ours).map(|k| import::lines::key_text(k)).collect();
+        let only_ours: Vec<String> = ours
+            .difference(theirs)
+            .map(|k| import::lines::key_text(k))
+            .collect();
+        let only_theirs: Vec<String> = theirs
+            .difference(ours)
+            .map(|k| import::lines::key_text(k))
+            .collect();
         json!({"class": name, "ours": ours.len(), "delivery": theirs.len(), "equal": only_ours.is_empty() && only_theirs.is_empty(),
                "only_ours": only_ours.len(), "only_delivery": only_theirs.len(),
                "only_ours_keys": only_ours.iter().take(50).collect::<Vec<_>>(),
@@ -521,15 +651,38 @@ fn t266_jointest9_walk_vs_delivery() {
         "seconds": {"load": t_load, "check": t_check, "total": t00.elapsed().as_secs_f64()},
         "vm_hwm_mb": {"after_load": hwm_load / 1024, "after_check": hwm_check / 1024},
     });
-    std::fs::write(out.join("comparison.json"), serde_json::to_string_pretty(&cmp).unwrap()).unwrap();
+    std::fs::write(
+        out.join("comparison.json"),
+        serde_json::to_string_pretty(&cmp).unwrap(),
+    )
+    .unwrap();
     let mut short = cmp.clone();
     for f in ["d0", "recipe", "symmetry_image", "terminals"] {
-        short[f]["only_ours_keys"] = json!(short[f]["only_ours_keys"].as_array().map(|a| a.iter().take(5).cloned().collect::<Vec<_>>()));
-        short[f]["only_delivery_keys"] = json!(short[f]["only_delivery_keys"].as_array().map(|a| a.iter().take(5).cloned().collect::<Vec<_>>()));
+        short[f]["only_ours_keys"] = json!(
+            short[f]["only_ours_keys"].as_array().map(|a| a
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>())
+        );
+        short[f]["only_delivery_keys"] = json!(
+            short[f]["only_delivery_keys"].as_array().map(|a| a
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>())
+        );
     }
-    short["layers"]["diff"] = json!(short["layers"]["diff"].as_array().map(|a| a.iter().take(20).cloned().collect::<Vec<_>>()));
+    short["layers"]["diff"] = json!(
+        short["layers"]["diff"]
+            .as_array()
+            .map(|a| a.iter().take(20).cloned().collect::<Vec<_>>())
+    );
     short["evidence_by_class"] = Value::Null;
-    println!("T266W COMPARISON {}", serde_json::to_string(&short).unwrap());
+    println!(
+        "T266W COMPARISON {}",
+        serde_json::to_string(&short).unwrap()
+    );
 }
 
 /// Item 6: the T266 delivery's per-key recipe steps (solves.jsonl: the serving step of each relation-served key) mapped
@@ -608,7 +761,6 @@ fn t266_recipe_steps_map_onto_explicit_recipes() {
     std::fs::write(out.join("assignment.jsonl"), assignment_lines(&v12)).unwrap();
 }
 
-
 /// Item 4: the recipe requests for the campaign's own child jobs: the delivery's 2,117 recipe-served keys as the 52
 /// v1.2 recipes + assignment side file (import::recipe_steps), CHECKED against the checker's own attempt records
 /// (work*/att/k_<key>__<step>.json: its explicit centre list `recipe.recenter`, depth, floor, measure and the top-key
@@ -617,28 +769,52 @@ fn t266_recipe_steps_map_onto_explicit_recipes() {
 /// `d0` without an IBP seed).
 #[test]
 fn t266_recipe_requests_vs_checker_attempts() {
-    use import::recipe_steps::{RecipeForm, assignment_lines, explicit_seeds, parse_step, recipes_for_steps};
+    use import::recipe_steps::{
+        RecipeForm, assignment_lines, explicit_seeds, parse_step, recipes_for_steps,
+    };
     if !Path::new(RUN).is_dir() {
         println!("SKIP: {RUN} missing");
         return;
     }
     let del = read_delivery();
-    let asg: Vec<(String, Vec<i32>)> = del.recipe.iter().map(|(k, (s, _))| (s.clone(), k.clone())).collect();
+    let asg: Vec<(String, Vec<i32>)> = del
+        .recipe
+        .iter()
+        .map(|(k, (s, _))| (s.clone(), k.clone()))
+        .collect();
     let lines: Vec<bool> = (0..ARITY).map(|i| i < 14).collect();
     let lp: Vec<usize> = (0..14).collect();
     let np: Vec<usize> = (14..ARITY).collect();
-    let rec = recipes_for_steps(&asg, &lines, &lp, &np, RecipeForm::V1_2, "T266/jointest9/").unwrap();
+    let rec =
+        recipes_for_steps(&asg, &lines, &lp, &np, RecipeForm::V1_2, "T266/jointest9/").unwrap();
     // every key against the checker's accepted attempt record for its step
-    let (mut checked, mut centre_eq, mut depth_eq, mut floor_eq, mut meas_eq, mut top_eq, mut missing) =
-        (0, 0, 0, 0, 0, 0, vec![]);
+    let (
+        mut checked,
+        mut centre_eq,
+        mut depth_eq,
+        mut floor_eq,
+        mut meas_eq,
+        mut top_eq,
+        mut missing,
+    ) = (0, 0, 0, 0, 0, 0, vec![]);
     let mut mism: Vec<String> = vec![];
     for (step, key) in &asg {
         let st = parse_step(step).unwrap();
         let name = format!(
             "k_{}__{step}.json",
-            key.iter().map(|x| if *x < 0 { format!("m{}", -x) } else { x.to_string() }).collect::<Vec<_>>().join("_")
+            key.iter()
+                .map(|x| if *x < 0 {
+                    format!("m{}", -x)
+                } else {
+                    x.to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("_")
         );
-        let f = sorted_dirs("work").into_iter().map(|w| w.join("att").join(&name)).find(|p| p.is_file());
+        let f = sorted_dirs("work")
+            .into_iter()
+            .map(|w| w.join("att").join(&name))
+            .find(|p| p.is_file());
         let Some(f) = f else {
             missing.push(name);
             continue;
@@ -656,12 +832,20 @@ fn t266_recipe_requests_vs_checker_attempts() {
         if ours == theirs {
             centre_eq += 1;
         } else if mism.len() < 10 {
-            mism.push(format!("{step} {}: ours {ours:?} checker {theirs:?}", import::lines::key_text(key)));
+            mism.push(format!(
+                "{step} {}: ours {ours:?} checker {theirs:?}",
+                import::lines::key_text(key)
+            ));
         }
         depth_eq += usize::from(v["recipe"]["depth"].as_u64() == Some((shells.len() - 1) as u64));
         floor_eq += usize::from((v["recipe"]["floor"] == json!("on")) == st.floor);
         meas_eq += usize::from(v["recipe"]["meas"].as_str() == st.relation.as_deref());
-        let top: BTreeSet<Vec<i32>> = v["top_rhs_keys"].as_array().into_iter().flatten().map(|x| kt(x.as_str().unwrap())).collect();
+        let top: BTreeSet<Vec<i32>> = v["top_rhs_keys"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|x| kt(x.as_str().unwrap()))
+            .collect();
         top_eq += usize::from(top == del.recipe[key].1.iter().cloned().collect::<BTreeSet<_>>());
     }
     let mut by_step: BTreeMap<String, (usize, usize)> = BTreeMap::new();
@@ -680,19 +864,34 @@ fn t266_recipe_requests_vs_checker_attempts() {
         std::fs::write(&p, &txt).unwrap();
         let sha = import::lines::file_sha256(&p).unwrap();
         for k in &g.keys {
-            req.push_str(&json!({"schema": import::SOLVE_REQUEST_SCHEMA, "source": format!("recipe:{i:05}"),
+            req.push_str(
+                &json!({"schema": import::SOLVE_REQUEST_SCHEMA, "source": format!("recipe:{i:05}"),
                 "recipe_path": p.display().to_string(), "recipe_sha256": sha, "engine_digest": null,
-                "key": k, "reason": "in_domain_uncovered", "in_start": null, "step": g.step}).to_string());
+                "key": k, "reason": "in_domain_uncovered", "in_start": null, "step": g.step})
+                .to_string(),
+            );
             req.push('\n');
         }
     }
     std::fs::write(out.join("assignment.jsonl"), assignment_lines(&rec)).unwrap();
     std::fs::write(out.join("solve-requests.jsonl"), &req).unwrap();
     // v1.3 needs: symmetry rows at the key first (every step with `s`), d0 without an IBP seed
-    let sym_first: Vec<String> = asg.iter().filter(|(s, _)| parse_step(s).unwrap().symmetry_first).map(|(_, k)| import::lines::key_text(k)).collect();
+    let sym_first: Vec<String> = asg
+        .iter()
+        .filter(|(s, _)| parse_step(s).unwrap().symmetry_first)
+        .map(|(_, k)| import::lines::key_text(k))
+        .collect();
     let d0_keys: Vec<String> = del.d0.keys().map(|k| import::lines::key_text(k)).collect();
-    std::fs::write(out.join("v13-symmetry-rows-first.keys.txt"), sym_first.join("\n") + "\n").unwrap();
-    std::fs::write(out.join("v13-d0-no-ibp-seed.keys.txt"), d0_keys.join("\n") + "\n").unwrap();
+    std::fs::write(
+        out.join("v13-symmetry-rows-first.keys.txt"),
+        sym_first.join("\n") + "\n",
+    )
+    .unwrap();
+    std::fs::write(
+        out.join("v13-d0-no-ibp-seed.keys.txt"),
+        d0_keys.join("\n") + "\n",
+    )
+    .unwrap();
     let rep = json!({"recipes": rec.len(), "keys": asg.len(), "by_step": by_step,
         "checked_against_attempts": checked, "missing_attempt_files": missing.len(),
         "centres_equal": centre_eq, "depth_equal": depth_eq, "floor_equal": floor_eq, "measure_equal": meas_eq,
@@ -701,7 +900,11 @@ fn t266_recipe_requests_vs_checker_attempts() {
         "why_no_digest": "the checker's attempt records carry modular relations (2^61-1, 2^31-1) with top-key support and counts, no exact coefficient text or digest",
         "v13_symmetry_rows_first_keys": sym_first.len(), "v13_d0_keys": d0_keys.len(),
         "solve_requests": asg.len()});
-    std::fs::write(out.join("report.json"), serde_json::to_string_pretty(&rep).unwrap()).unwrap();
+    std::fs::write(
+        out.join("report.json"),
+        serde_json::to_string_pretty(&rep).unwrap(),
+    )
+    .unwrap();
     println!("T266 REQUESTS {}", serde_json::to_string(&rep).unwrap());
     assert_eq!((rec.len(), asg.len()), (52, 2117));
     assert_eq!(missing.len(), 0);

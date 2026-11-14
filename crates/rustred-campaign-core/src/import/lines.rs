@@ -268,10 +268,9 @@ impl<'a> LineScanner<'a> {
                     || self.ordinal > 0
                     || !self.charts.is_empty()
                 {
-                    return Err(self.lerr(
-                        line_no,
-                        "a second header or a header after records".into(),
-                    ));
+                    return Err(
+                        self.lerr(line_no, "a second header or a header after records".into())
+                    );
                 }
                 self.header = Some(*h);
                 Ok(Fed::Header)
@@ -319,9 +318,9 @@ impl<'a> LineScanner<'a> {
                 };
                 let domain_bounds = match val("domain_bounds")? {
                     None | Some(Value::Null) => None,
-                    Some(v) => Some(
-                        parse_bounds(&v, rec.fixed.len()).map_err(|m| self.lerr(line_no, m))?,
-                    ),
+                    Some(v) => {
+                        Some(parse_bounds(&v, rec.fixed.len()).map_err(|m| self.lerr(line_no, m))?)
+                    }
                 };
                 let origin = val("origin")?.and_then(|v| match v {
                     Value::String(s) => Some(s),
@@ -356,14 +355,12 @@ impl<'a> LineScanner<'a> {
     }
     /// The scanned table (without records): header required.
     pub fn finish(self, file_sha256: String, file_bytes: u64) -> Result<RawTable, ImportError> {
-        let header = self
-            .header
-            .ok_or_else(|| ImportError::Line {
-                source: self.source.to_string(),
-                path: self.path.display().to_string(),
-                line: 0,
-                msg: "file without header".into(),
-            })?;
+        let header = self.header.ok_or_else(|| ImportError::Line {
+            source: self.source.to_string(),
+            path: self.path.display().to_string(),
+            line: 0,
+            msg: "file without header".into(),
+        })?;
         Ok(RawTable {
             header,
             charts: self.charts,

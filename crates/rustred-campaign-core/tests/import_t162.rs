@@ -715,7 +715,8 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
         return;
     }
     let st: Value =
-        serde_json::from_str(&std::fs::read_to_string(stmt.join("statement.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("statement.json")).unwrap())
+            .unwrap();
     let terms: Vec<Vec<i32>> = st["terminals"]
         .as_array()
         .unwrap()
@@ -759,7 +760,11 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
           {"id":"terminals","kind":"terminals","path": tpath.display().to_string()}],
         "evidence":{"facts":[{"path": large.join("facts-20261114d/facts").display().to_string()}],
                     "proofs":[{"path": large.join("proofs-20261114d/proofs").display().to_string()}]}});
-    std::fs::write(out.join("spec.json"), serde_json::to_string_pretty(&sv).unwrap()).unwrap();
+    std::fs::write(
+        out.join("spec.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
     let hand = read_hand_statement(&stmt.join("keys.jsonl"), &hand_format(), 20).unwrap();
     let t0 = std::time::Instant::now();
     let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
@@ -769,7 +774,11 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
         "T162L load {t_load:.1}s VmHWM {} MB; records {}; group {:?}; removed {}",
         vm_hwm_kb() / 1024,
         set.report.records,
-        set.report.sources.iter().find_map(|s| s.group.clone()).map(|g| (g.elements, g.provenance)),
+        set.report
+            .sources
+            .iter()
+            .find_map(|s| s.group.clone())
+            .map(|g| (g.elements, g.provenance)),
         set.report.sources[1].removed.len()
     );
     // (b) the two exact fact lines
@@ -789,7 +798,12 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
     for (sha, key) in cases {
         let (t, r) = set.find_sha(sha).expect("record of the canonical set");
         let v = import::exact_facts::fact_verdict_line(&set, t, r, &key).unwrap();
-        let nz: Vec<&str> = v["nonzero"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        let nz: Vec<&str> = v["nonzero"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
         println!(
             "T162L FACT {} at {}: verdict {} n_terms {} nonzero {} zero {} unknown {}; the extra key's term listed non-zero: {}",
             set.rule(t, r).hand_name.clone().unwrap_or_default(),
@@ -801,7 +815,10 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
             v["unknown"].as_array().map_or(0, Vec::len),
             nz.contains(&extra_digest.as_str())
         );
-        assert!(!nz.contains(&extra_digest.as_str()), "the extra key's term is identically zero");
+        assert!(
+            !nz.contains(&extra_digest.as_str()),
+            "the extra key's term is identically zero"
+        );
         lines.push_str(&v.to_string());
         lines.push('\n');
     }
@@ -820,7 +837,14 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
     .unwrap();
     let res = check(&set, &ev, &CheckOptions::default()).unwrap();
     let dir = out.join("statement");
-    write_statement(&set, &ev, &res, &dir, Some(json!({"load_s": t_load, "vm_hwm_kb": vm_hwm_kb()}))).unwrap();
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &dir,
+        Some(json!({"load_s": t_load, "vm_hwm_kb": vm_hwm_kb()})),
+    )
+    .unwrap();
     let cmp = compare(&set, &res, &hand);
     cmp.write(&dir).unwrap();
     let credited: Vec<&import::KeyRow> = res
@@ -860,5 +884,8 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
             import::statement::server_hand_name(&set, r)
         );
     }
-    assert!(cmp.key_sets_equal, "key sets equal after the two exact facts");
+    assert!(
+        cmp.key_sets_equal,
+        "key sets equal after the two exact facts"
+    );
 }

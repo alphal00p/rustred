@@ -753,7 +753,12 @@ impl Poly {
     pub fn parse_d_free_exact(s: &str, arity: usize) -> Result<Poly, PolyError> {
         Poly::parse_exact(s, arity, false)
     }
-    fn parse_mode(s: &str, arity: usize, opts: ParseOptions, exact: bool) -> Result<Poly, PolyError> {
+    fn parse_mode(
+        s: &str,
+        arity: usize,
+        opts: ParseOptions,
+        exact: bool,
+    ) -> Result<Poly, PolyError> {
         let mut p = Parser {
             s: s.as_bytes(),
             pos: 0,
@@ -979,7 +984,11 @@ impl Parser<'_> {
         if self.exact { a.mul_exact(b) } else { a.mul(b) }
     }
     fn neg(&self, a: &Poly) -> Result<Poly, PolyError> {
-        if self.exact { Ok(a.neg_exact()) } else { a.neg() }
+        if self.exact {
+            Ok(a.neg_exact())
+        } else {
+            a.neg()
+        }
     }
     fn pow(&self, a: &Poly, e: u64) -> Result<Poly, PolyError> {
         if self.exact { a.pow_exact(e) } else { a.pow(e) }
@@ -1176,8 +1185,14 @@ mod tests {
 
     #[test]
     fn bigint_decimal_and_order() {
-        for t in ["0", "7", "1000000000", "999999999999999999", "170141183460469231731687303715884105728",
-                  "714237321763339320822816811060387425213038592"] {
+        for t in [
+            "0",
+            "7",
+            "1000000000",
+            "999999999999999999",
+            "170141183460469231731687303715884105728",
+            "714237321763339320822816811060387425213038592",
+        ] {
             assert_eq!(BigInt::from_decimal(t).unwrap().to_decimal(), t);
         }
         assert_eq!(BigInt::from_decimal("000123").unwrap().to_decimal(), "123");
@@ -1194,20 +1209,35 @@ mod tests {
     fn exact_literals_beyond_i128() {
         let big = "714237321763339320822816811060387425213038592"; // a T266 exception coefficient (45 digits)
         let lit = format!("{big}*n1^2 - 3*n0 + 1");
-        assert_eq!(Poly::parse(&lit, 2, false), Err(PolyError::CoefficientOverflow));
+        assert_eq!(
+            Poly::parse(&lit, 2, false),
+            Err(PolyError::CoefficientOverflow)
+        );
         let p = Poly::parse_exact(&lit, 2, false).unwrap();
         assert!(p.is_big() && p.small_terms().is_none() && p.nterms() == 3 && p.degree() == 2);
         assert_eq!(p.support(), vec![0, 1]);
         assert_eq!(p.as_constant(), None);
         // exact value at (5, 7): big*49 - 14
-        let want = BigInt::from_decimal(big).unwrap().mul(&BigInt::from_i128(49)).add(&BigInt::from_i128(-14));
+        let want = BigInt::from_decimal(big)
+            .unwrap()
+            .mul(&BigInt::from_i128(49))
+            .add(&BigInt::from_i128(-14));
         assert_eq!(p.eval_big(&[5, 7]).unwrap(), want);
         assert!(matches!(p.eval(&[5, 7]).unwrap(), Value::Big(_)));
         assert_eq!(p.eval_checked_i128(&[5, 7]), Err(EvalError::Overflow));
-        assert_eq!(p.eval_checked_i128(&[5]), Err(EvalError::KeyTooShort { needed: 2, len: 1 }));
+        assert_eq!(
+            p.eval_checked_i128(&[5]),
+            Err(EvalError::KeyTooShort { needed: 2, len: 1 })
+        );
         // the checked arithmetic refuses big operands (typed), the exact text round-trips
-        assert_eq!(p.add(&Poly::constant(1)), Err(PolyError::CoefficientOverflow));
-        assert_eq!(p.mul(&Poly::constant(1)), Err(PolyError::CoefficientOverflow));
+        assert_eq!(
+            p.add(&Poly::constant(1)),
+            Err(PolyError::CoefficientOverflow)
+        );
+        assert_eq!(
+            p.mul(&Poly::constant(1)),
+            Err(PolyError::CoefficientOverflow)
+        );
         assert_eq!(p.neg(), Err(PolyError::CoefficientOverflow));
         assert_eq!(Poly::parse_exact(&p.to_string(), 2, false).unwrap(), p);
         assert_eq!(p.primitive_normal(), p);
@@ -1229,14 +1259,21 @@ mod tests {
         assert_eq!(dc.len(), 3);
         assert!(dc[1].1.is_big() && !dc[0].1.is_big() && !dc[2].1.is_big());
         // grammar errors are unchanged under the exact parser
-        assert_eq!(Poly::parse_exact("n0/2", 2, false), Err(PolyError::Division));
-        assert_eq!(Poly::parse_exact(&format!("{big}*d"), 2, false), Err(PolyError::ContainsD));
+        assert_eq!(
+            Poly::parse_exact("n0/2", 2, false),
+            Err(PolyError::Division)
+        );
+        assert_eq!(
+            Poly::parse_exact(&format!("{big}*d"), 2, false),
+            Err(PolyError::ContainsD)
+        );
     }
 
     #[test]
     #[should_panic(expected = "coefficient beyond i128")]
     fn terms_on_a_big_literal_panics_instead_of_truncating() {
-        let p = Poly::parse_exact("714237321763339320822816811060387425213038592*n0", 1, false).unwrap();
+        let p = Poly::parse_exact("714237321763339320822816811060387425213038592*n0", 1, false)
+            .unwrap();
         let _ = p.terms();
     }
 }

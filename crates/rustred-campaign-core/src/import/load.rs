@@ -479,9 +479,11 @@ pub fn load_with(
                                         ..Default::default()
                                     },
                                 )
-                                .map_err(|e| ImportError::Source {
-                                    source: src.id.clone(),
-                                    msg: format!("strict domain of label {}: {e}", info.label),
+                                .map_err(|e| {
+                                    ImportError::Source {
+                                        source: src.id.clone(),
+                                        msg: format!("strict domain of label {}: {e}", info.label),
+                                    }
                                 })?;
                                 d.bounds = t.domains[k].bounds.clone();
                                 strict_domains.insert((tables.len(), k), d);
@@ -677,9 +679,9 @@ pub fn load_with(
             }
         }
         let src_id = &body_plan[ts[0]].1;
-        let idx = indexes.get(path).ok_or_else(|| {
-            ImportError::Core(format!("no index for {}", path.display()))
-        })?;
+        let idx = indexes
+            .get(path)
+            .ok_or_else(|| ImportError::Core(format!("no index for {}", path.display())))?;
         idx.scan_bodies(&|o| want.contains_key(&o), &mut |o, rsha, rhs| {
             let (sha, places) = &want[&o];
             if *sha != rsha {

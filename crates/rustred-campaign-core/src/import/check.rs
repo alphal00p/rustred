@@ -827,11 +827,7 @@ fn check_inner(
         solve_refusals,
         recipe_binary_unpinned: unpinned,
         witness_unchecked: set.spec.policies.witness_check != super::spec::WitnessCheck::On,
-        keys_only_diagnostic: set
-            .spec
-            .sources
-            .iter()
-            .any(|s| s.diagnostic),
+        keys_only_diagnostic: set.spec.sources.iter().any(|s| s.diagnostic),
         seconds: t0.elapsed().as_secs_f64(),
         key_set_digest,
         required,

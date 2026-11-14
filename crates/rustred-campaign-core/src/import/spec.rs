@@ -267,7 +267,9 @@ impl SourceKind {
                 "domain",
             ],
             SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
-            SourceKind::SuppliedRelations => &["path", "sha256", "verification", "verify", "diagnostic"],
+            SourceKind::SuppliedRelations => {
+                &["path", "sha256", "verification", "verify", "diagnostic"]
+            }
             SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
         }

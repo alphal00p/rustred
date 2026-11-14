@@ -32,7 +32,8 @@ pub fn record_line(set: &ImportedSet, table: usize, record: usize) -> Result<Vec
     let info = set.rule(table, record);
     let p = std::path::Path::new(&info.path);
     let mut f = std::fs::File::open(p).map_err(|e| io_err(p, e))?;
-    f.seek(SeekFrom::Start(info.offset)).map_err(|e| io_err(p, e))?;
+    f.seek(SeekFrom::Start(info.offset))
+        .map_err(|e| io_err(p, e))?;
     let mut buf = vec![0u8; info.bytes as usize];
     f.read_exact(&mut buf).map_err(|e| io_err(p, e))?;
     let mut h = Sha256::new();
@@ -77,9 +78,17 @@ pub fn fact_verdict_line(
     let n = set.arity();
     let nt = set
         .bodies
-        .instantiate(&set.disp, set.disp.rule_ref(table, record), key, &mut ib, &mut cm)
+        .instantiate(
+            &set.disp,
+            set.disp.rule_ref(table, record),
+            key,
+            &mut ib,
+            &mut cm,
+        )
         .map_err(|e| ImportError::Core(format!("instantiate: {e:?}")))?
-        .ok_or_else(|| ImportError::Core(format!("record {}: no rule point at the key", info.label)))?;
+        .ok_or_else(|| {
+            ImportError::Core(format!("record {}: no rule point at the key", info.label))
+        })?;
     if nt != rt.rhs.len() {
         return Err(ImportError::Core(format!(
             "record {}: {nt} instantiated terms, {} in the record text",
@@ -100,7 +109,9 @@ pub fn fact_verdict_line(
     nonzero.dedup();
     unknown.sort();
     unknown.dedup();
-    Ok(json!({"schema": FACT_VERDICT_SCHEMA, "index": rt.index(), "record_sha256": info.record_sha256,
+    Ok(
+        json!({"schema": FACT_VERDICT_SCHEMA, "index": rt.index(), "record_sha256": info.record_sha256,
         "key": key, "verdict": verdict, "n_terms": nt, "nonzero": nonzero, "unknown": unknown,
-        "zero_terms": zero, "producer": "rustred-campaign-core import::exact_facts (exact, record text)"}))
+        "zero_terms": zero, "producer": "rustred-campaign-core import::exact_facts (exact, record text)"}),
+    )
 }

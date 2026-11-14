@@ -206,7 +206,9 @@ fn server_json(set: &ImportedSet, row: &KeyRow) -> Value {
             } else {
                 let s = set.supplied_info.get(name).and_then(|m| m.get(&row.key));
                 // a credit through a relation-served image: the set's class (the entry is the image's)
-                let class = s.map(|s| s.class.clone()).or_else(|| set.classes.get(name).cloned());
+                let class = s
+                    .map(|s| s.class.clone())
+                    .or_else(|| set.classes.get(name).cloned());
                 json!({"kind":"relation","source": name, "class": class,
                        "label": s.and_then(|s| s.label), "ordinal": s.map(|s| s.ordinal),
                        "record_sha256": s.map(|s| s.record_sha256.clone()), "recipe_sha256": null,

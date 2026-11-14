@@ -1548,17 +1548,30 @@ fn big_exception_literals_load_and_dispatch_exactly() {
     assert_eq!(row(&r, [4, 1, 0]).status, RowStatus::Served);
     assert_eq!(row(&r, [3, 1, 0]).status, RowStatus::Served);
     let k2 = row(&r, [2, 1, 0]);
-    assert_eq!(k2.status, RowStatus::Open, "on the big exception: the dispatch falls through");
+    assert_eq!(
+        k2.status,
+        RowStatus::Open,
+        "on the big exception: the dispatch falls through"
+    );
     assert_eq!(k2.open_status.as_deref(), Some("uncovered"));
     // the core domain itself: exact literal, exact verdicts
     use rustred_campaign_core::poly::{Poly, PolyError};
     let lit = format!("{big}*n0 - 2*{big}");
-    assert_eq!(Poly::parse_d_free(&lit, 3), Err(PolyError::CoefficientOverflow));
+    assert_eq!(
+        Poly::parse_d_free(&lit, 3),
+        Err(PolyError::CoefficientOverflow)
+    );
     let p = Poly::parse_d_free_exact(&lit, 3).unwrap();
     assert!(p.is_big() && p.small_terms().is_none());
     assert!(p.is_zero_at(&[2, 1, 0]).unwrap());
     assert!(!p.is_zero_at(&[3, 1, 0]).unwrap());
-    assert_eq!(p.to_string(), format!("-{}+{big}*n0", "246913578024691357802469135780246913578024690"));
+    assert_eq!(
+        p.to_string(),
+        format!(
+            "-{}+{big}*n0",
+            "246913578024691357802469135780246913578024690"
+        )
+    );
 }
 
 /// Lane import3 (item 2): the table index. One pass builds it (domains + digests + rhs keys); the records read back
@@ -1610,7 +1623,10 @@ fn table_index_one_pass_reuse_and_equality() {
             (x.ordinal, x.line_no, x.offset, x.bytes, &x.sha256),
             (y.ordinal, y.line_no, y.offset, y.bytes, &y.sha256)
         );
-        assert_eq!((&x.origin, x.origin_index, &x.domain_bounds), (&y.origin, y.origin_index, &y.domain_bounds));
+        assert_eq!(
+            (&x.origin, x.origin_index, &x.domain_bounds),
+            (&y.origin, y.origin_index, &y.domain_bounds)
+        );
         let mut yr = y.rec.clone();
         yr.rhs_keys = None;
         assert_eq!(x.rec, yr, "domain fields");
@@ -1622,7 +1638,10 @@ fn table_index_one_pass_reuse_and_equality() {
     })
     .unwrap();
     for (b, y) in bodies.iter().zip(&direct.records) {
-        assert_eq!((b.0, &b.1, Some(&b.2)), (y.ordinal, &y.sha256, y.rec.rhs_keys.as_ref()));
+        assert_eq!(
+            (b.0, &b.1, Some(&b.2)),
+            (y.ordinal, &y.sha256, y.rec.rhs_keys.as_ref())
+        );
     }
     drop(ix);
     let (ix2, o2) = open_or_build("A", &a, Some(&cache)).unwrap();

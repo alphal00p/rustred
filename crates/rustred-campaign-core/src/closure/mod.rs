@@ -3886,7 +3886,12 @@ pub(crate) mod internal {
         /// loci not carried, Tier C, `WitnessAbsent::LiftWithRegularFact`) a regularity fact `Regular` at the image.
         /// Returns `Some(true)` when lifted by a per-key proof (the proof implies regularity), `Some(false)` when lifted
         /// by the regularity fact, `None` when not lifted. Default: never (the standalone checker).
-        fn image_lift(&self, _at: RuleRef, _reason: crate::domain::Verdict, _image: &[i32]) -> Option<bool> {
+        fn image_lift(
+            &self,
+            _at: RuleRef,
+            _reason: crate::domain::Verdict,
+            _image: &[i32],
+        ) -> Option<bool> {
             None
         }
     }
@@ -3938,7 +3943,12 @@ pub(crate) mod internal {
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool {
             self.recipe_match(key, d).is_some()
         }
-        fn image_lift(&self, at: RuleRef, reason: crate::domain::Verdict, image: &[i32]) -> Option<bool> {
+        fn image_lift(
+            &self,
+            at: RuleRef,
+            reason: crate::domain::Verdict,
+            image: &[i32],
+        ) -> Option<bool> {
             use crate::domain::Verdict;
             if !matches!(reason, Verdict::WitnessNotCarried | Verdict::Elided)
                 || !self.bodies.has(at.table, at.record)
