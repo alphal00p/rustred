@@ -82,8 +82,46 @@ pub struct Effective {
     pub order: Value,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    /// BLAKE3 of the compact JSON of `{subcommand,args,node_options,order,env}`.
+    /// [`Effective::digest`]: BLAKE3 in the [`CONTEXT_EFFECTIVE`] domain over the canonical JSON of exactly
+    /// `{subcommand,args,node_options,order,env}` (`blake3` itself is not hashed).
     pub blake3: String,
+}
+
+/// BLAKE3 key-derivation context of `job.effective.blake3` (3.2.4; contract owner's ruling 2026-11-14, implemented by
+/// lane engfix4): the same family of contexts as [`crate::spec::CONTEXT_SPEC`] and
+/// [`crate::canon::CONTEXT_CANONICAL_STREAM`].
+pub const CONTEXT_EFFECTIVE: &str = "rustred.child-job.v1 2026-11-14 effective digest";
+
+/// Version of the `effective.blake3` definition. 1 = "BLAKE3 of the compact JSON of the five members" (documented
+/// only, never computed by this crate; the engine routes differed: `generate` hashed the canonical line of the
+/// serialized struct INCLUDING `"blake3":""`, the solve-recipe verb plain BLAKE3 of its own canonical JSON of the five
+/// members). 2 = [`Effective::digest`] (ruling 2026-11-14): BLAKE3 in the [`CONTEXT_EFFECTIVE`] domain over the
+/// canonical line ([`crate::canon::canonical_line`], the contract's ONE canonical-JSON rule; no trailing newline) of
+/// the object with exactly the members subcommand, args, node_options, order, env.
+pub const EFFECTIVE_DIGEST_VERSION: u32 = 2;
+
+impl Effective {
+    /// The digest `blake3` must hold ([`EFFECTIVE_DIGEST_VERSION`] 2).
+    pub fn digest(&self) -> Result<String, crate::canon::CanonError> {
+        let five = serde_json::json!({"subcommand": self.subcommand, "args": self.args,
+            "node_options": self.node_options, "order": self.order, "env": self.env});
+        let line = crate::canon::canonical_line(&serde_json::to_vec(&five).unwrap_or_default())?;
+        let mut h = blake3::Hasher::new_derive_key(CONTEXT_EFFECTIVE);
+        h.update(&line);
+        Ok(h.finalize().to_hex().to_string())
+    }
+
+    /// `self` with `blake3` set to [`Effective::digest`].
+    pub fn sealed(mut self) -> Result<Self, crate::canon::CanonError> {
+        self.blake3 = self.digest()?;
+        Ok(self)
+    }
+
+    /// Whether `blake3` is the digest of the five members (readers that recompute it; OUTCOME readers require
+    /// presence only).
+    pub fn verify(&self) -> bool {
+        self.digest().is_ok_and(|d| d == self.blake3)
+    }
 }
 
 /// Placeholder recorded for the licence variable (presence only, never the value).
