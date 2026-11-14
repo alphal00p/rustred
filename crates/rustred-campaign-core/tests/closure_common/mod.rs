@@ -39,7 +39,10 @@ pub fn key_file(name: &str) -> PathBuf {
 fn key_sums() -> HashMap<String, String> {
     include_str!("../data/closure/t178_keys.sha256")
         .lines()
-        .filter_map(|l| l.split_once("  ").map(|(h, f)| (f.to_string(), h.to_string())))
+        .filter_map(|l| {
+            l.split_once("  ")
+                .map(|(h, f)| (f.to_string(), h.to_string()))
+        })
         .collect()
 }
 
@@ -51,7 +54,11 @@ pub fn t178_bodies(disp: &Dispatcher) -> RuleBodies {
         let p = key_file(&tab.name);
         let bytes = std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
         let fname = p.file_name().unwrap().to_str().unwrap().to_string();
-        assert_eq!(k3_common::sha256_hex(&bytes), sums[&fname], "key file {fname} changed");
+        assert_eq!(
+            k3_common::sha256_hex(&bytes),
+            sums[&fname],
+            "key file {fname} changed"
+        );
         b.load_keys_jsonl(disp, t, BufReader::new(&bytes[..]), 2)
             .unwrap_or_else(|e| panic!("{}: {e:?}", tab.name));
     }
@@ -77,24 +84,40 @@ pub fn t178() -> Option<T178> {
     let bodies = t178_bodies(&disp);
     let cmp = NodeComparator::from_header(&headers()["t178B_table"]).unwrap();
     let box_keys = box_set(&k3_common::t178_box());
-    Some(T178 { names, tables, disp, bodies, cmp, box_keys })
+    Some(T178 {
+        names,
+        tables,
+        disp,
+        bodies,
+        cmp,
+        box_keys,
+    })
 }
 
 /// The 8 automorphisms of T178 as `GroupElement`s in the checker's element order (img(k,p)[i] = k[p[i]], i.e.
 /// `lines` = the inverse permutation of p).
 pub fn t178_group() -> Vec<rustred_campaign_core::symmetry::GroupElement> {
-    let v: serde_json::Value = serde_json::from_str(include_str!("../data/closure/t178_group.json")).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("../data/closure/t178_group.json")).unwrap();
     v["perms"]
         .as_array()
         .unwrap()
         .iter()
         .map(|p| {
-            let p: Vec<usize> = p.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as usize).collect();
+            let p: Vec<usize> = p
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_u64().unwrap() as usize)
+                .collect();
             let mut inv = vec![0; p.len()];
             for (i, &j) in p.iter().enumerate() {
                 inv[j] = i;
             }
-            rustred_campaign_core::symmetry::GroupElement { lines: inv, numerators: None }
+            rustred_campaign_core::symmetry::GroupElement {
+                lines: inv,
+                numerators: None,
+            }
         })
         .collect()
 }

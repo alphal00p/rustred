@@ -50,7 +50,11 @@ fn box_b(codec: KeyCodec) -> rustred_campaign_core::closure::KeySet {
             comps(14, d, &mut vec![], &mut |x| lines.push(x.to_vec()));
             comps(6, r, &mut vec![], &mut |y| {
                 for x in &lines {
-                    let k: Vec<i32> = x.iter().map(|e| e + 1).chain(y.iter().map(|e| -e)).collect();
+                    let k: Vec<i32> = x
+                        .iter()
+                        .map(|e| e + 1)
+                        .chain(y.iter().map(|e| -e))
+                        .collect();
                     b.push(&k).unwrap();
                 }
             });
@@ -66,15 +70,25 @@ fn box_b(codec: KeyCodec) -> rustred_campaign_core::closure::KeySet {
 /// branch holding the literal is replaced by one branch per zero point (the other literals plus `n_v - a` per
 /// variable); no zero point: the branch is dropped (it can never hold). Same verdict on every representable key.
 fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
-    const P: [u64; 8] = [2305843009213693951, 2305843009213693921, 2305843009213693907, 2305843009213693723,
-        2305843009213693693, 2305843009213693669, 2305843009213693613, 2305843009213693561];
+    const P: [u64; 8] = [
+        2305843009213693951,
+        2305843009213693921,
+        2305843009213693907,
+        2305843009213693723,
+        2305843009213693693,
+        2305843009213693669,
+        2305843009213693613,
+        2305843009213693561,
+    ];
     let b = text.as_bytes();
     // terms: (neg, coefficient digits, [(var, exp)])
-    let mut terms: Vec<(bool, String, Vec<(usize, u32)>)> = vec![];
+    type Term = (bool, String, Vec<(usize, u32)>);
+    let mut terms: Vec<Term> = vec![];
     let mut vars: Vec<usize> = vec![];
     let mut start = 0;
     for i in 1..=b.len() {
-        if i == b.len() || ((b[i] == b'+' || b[i] == b'-') && b[i - 1] != b'^' && b[i - 1] != b'*') {
+        if i == b.len() || ((b[i] == b'+' || b[i] == b'-') && b[i - 1] != b'^' && b[i - 1] != b'*')
+        {
             let t = &text[start..i];
             let (neg, t) = match t.as_bytes()[0] {
                 b'-' => (true, &t[1..]),
@@ -82,10 +96,17 @@ fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
                 _ => (false, t),
             };
             let nd = t.bytes().take_while(|c| c.is_ascii_digit()).count();
-            let (c, rest) = if nd == 0 { ("1".to_string(), t) } else { (t[..nd].to_string(), t[nd..].trim_start_matches('*')) };
+            let (c, rest) = if nd == 0 {
+                ("1".to_string(), t)
+            } else {
+                (t[..nd].to_string(), t[nd..].trim_start_matches('*'))
+            };
             let mut mono = vec![];
             for f in rest.split('*').filter(|f| !f.is_empty()) {
-                let (v, e) = f.split_once('^').map(|(v, e)| (v, e.parse::<u32>().ok())).unwrap_or((f, Some(1)));
+                let (v, e) = f
+                    .split_once('^')
+                    .map(|(v, e)| (v, e.parse::<u32>().ok()))
+                    .unwrap_or((f, Some(1)));
                 let v: usize = v.strip_prefix('n')?.parse().ok()?;
                 if !vars.contains(&v) {
                     vars.push(v);
@@ -106,7 +127,9 @@ fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
             let mut r = [0u128; 8];
             for (j, &p) in P.iter().enumerate() {
                 let p = p as u128;
-                let v = c.bytes().fold(0u128, |a, d| (a * 10 + (d - b'0') as u128) % p);
+                let v = c
+                    .bytes()
+                    .fold(0u128, |a, d| (a * 10 + (d - b'0') as u128) % p);
                 r[j] = if *neg { (p - v) % p } else { v };
             }
             r
@@ -116,7 +139,9 @@ fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
     let n = vars.len();
     let total = 64usize.pow(n as u32);
     for idx in 0..total {
-        let x: Vec<i64> = (0..n).map(|q| ((idx / 64usize.pow(q as u32)) % 64) as i64 - 32).collect();
+        let x: Vec<i64> = (0..n)
+            .map(|q| ((idx / 64usize.pow(q as u32)) % 64) as i64 - 32)
+            .collect();
         let zero = P.iter().enumerate().all(|(j, &p)| {
             let p = p as u128;
             let mut sum = 0u128;
@@ -155,7 +180,11 @@ fn t266_tier_k_closure() {
     // coefficients overflow i128 is replaced by its exact zero points (see `zero_points`).
     let mut reduced = 0usize;
     for r in tf.rules.iter_mut() {
-        assert!(r.equations.iter().all(|e| rustred_campaign_core::poly::Poly::parse_d_free(e, 20).is_ok()));
+        assert!(
+            r.equations
+                .iter()
+                .all(|e| rustred_campaign_core::poly::Poly::parse_d_free(e, 20).is_ok())
+        );
         let mut out: Vec<Vec<String>> = vec![];
         for br in &r.exceptions {
             let mut branches: Vec<Vec<String>> = vec![vec![]];
@@ -180,24 +209,44 @@ fn t266_tier_k_closure() {
         }
         r.exceptions = out;
     }
-    println!("T266: {reduced} literal(s) replaced by their exact zero points on the codec range (i128 overflow workaround)");
+    println!(
+        "T266: {reduced} literal(s) replaced by their exact zero points on the codec range (i128 overflow workaround)"
+    );
     let header = tf.header.as_ref().unwrap().raw.clone();
     let table = Table::from_table_file(
         "t266-jointest9",
         cases.display().to_string(),
         &tf,
-        DomainOptions { targets: T266_TARGETS, ..Default::default() },
+        DomainOptions {
+            targets: T266_TARGETS,
+            ..Default::default()
+        },
     )
     .unwrap();
     assert_eq!(table.len(), 33_660);
     drop(tf);
     let disp = Dispatcher::new(vec![table], vec![0]).unwrap();
     let cmp = NodeComparator::from_header(&header).unwrap();
-    println!("T266: {} rules loaded, comparator {:?} ({:.1} s)", disp.tables()[0].len(), cmp.selection(), t0.elapsed().as_secs_f64());
-    let mut child = Command::new("gzip").arg("-dc").arg(&keys).stdout(Stdio::piped()).spawn().expect("gzip");
+    println!(
+        "T266: {} rules loaded, comparator {:?} ({:.1} s)",
+        disp.tables()[0].len(),
+        cmp.selection(),
+        t0.elapsed().as_secs_f64()
+    );
+    let mut child = Command::new("gzip")
+        .arg("-dc")
+        .arg(&keys)
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("gzip");
     let mut bodies = RuleBodies::new(&disp);
     let st = bodies
-        .load_keys_jsonl(&disp, 0, BufReader::with_capacity(1 << 20, child.stdout.take().unwrap()), 2)
+        .load_keys_jsonl(
+            &disp,
+            0,
+            BufReader::with_capacity(1 << 20, child.stdout.take().unwrap()),
+            2,
+        )
         .unwrap();
     assert!(child.wait().unwrap().success());
     println!(
@@ -223,7 +272,11 @@ fn t266_tier_k_closure() {
     };
     let cl = closure(&disp, &bodies, &cmp, &bx, &cfg, &NoFacts).unwrap();
     let s = cl.summary();
-    let nf_out = cl.open_keys().iter().filter(|o| !o.in_start && o.key[14..].iter().all(|&x| x == 0)).count();
+    let nf_out = cl
+        .open_keys()
+        .iter()
+        .filter(|o| !o.in_start && o.key[14..].iter().all(|&x| x == 0))
+        .count();
     println!(
         "T266 closure: rounds {} keys {} (box {} + {}) edges {} open {} = {} + {} (numerator-free outside {nf_out}) \
          used rules {} (box {}) violations {} cycles {:?} chain {:?} terms {:?}",
@@ -255,7 +308,10 @@ fn t266_tier_k_closure() {
     assert_eq!(s.edges, 201_470_598);
     assert_eq!(s.terms.top, 201_470_598);
     assert_eq!(s.terms.positive_numerator_top, 36_133_205);
-    assert_eq!(s.terms.subsector + s.terms.positive_numerator_sub, 1_076_897_813);
+    assert_eq!(
+        s.terms.subsector + s.terms.positive_numerator_sub,
+        1_076_897_813
+    );
     assert_eq!(s.descent_violations, 0);
     assert_eq!(s.open_total, 12_501);
     assert_eq!(s.open_in_start, 1_102);

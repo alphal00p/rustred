@@ -138,9 +138,14 @@ pub struct FactLine {
 #[derive(Debug)]
 pub enum FactError {
     Io(io::Error),
-    Line { line: usize, msg: String },
+    Line {
+        line: usize,
+        msg: String,
+    },
     /// Two answers for one (rule, key, term) disagree (fail closed).
-    Conflict { line: usize },
+    Conflict {
+        line: usize,
+    },
 }
 impl std::fmt::Display for FactError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -196,7 +201,10 @@ impl FileFacts {
     /// Read answers. Methods `exact*` are exact; any other method is provisional: read as `Unknown` unless
     /// `accept_provisional` (then the source reports `exact() == false`).
     pub fn read(r: impl BufRead, accept_provisional: bool) -> Result<FileFacts, FactError> {
-        let mut ff = FileFacts { exact: true, ..Default::default() };
+        let mut ff = FileFacts {
+            exact: true,
+            ..Default::default()
+        };
         let mut sha = super::sha256::Sha256::new();
         for (ln, line) in r.lines().enumerate() {
             let line = line.map_err(FactError::Io)?;
@@ -206,32 +214,51 @@ impl FileFacts {
                 continue;
             }
             let raw: serde_json::Value =
-                serde_json::from_str(&line).map_err(|e| FactError::Line { line: ln, msg: e.to_string() })?;
+                serde_json::from_str(&line).map_err(|e| FactError::Line {
+                    line: ln,
+                    msg: e.to_string(),
+                })?;
             if raw["schema"] != FACT_SCHEMA {
                 // rr_proof instantiate writes its per-(rule, key) lines (`rustred.proof-kernel.instantiate.v1`) into
                 // the same file, and refusal records {"verdict": "ERROR"|"UNSUPPORTED"|.., "error": ..}: kept as
                 // refusals; the facts they would have given stay Unknown (never zero).
                 if let Some(v) = raw["verdict"].as_str() {
-                    ff.refusals.push(format!("{v}: {}", raw["error"].as_str().unwrap_or("")));
+                    ff.refusals
+                        .push(format!("{v}: {}", raw["error"].as_str().unwrap_or("")));
                 } else {
                     ff.n_other_lines += 1;
                 }
                 continue;
             }
-            let f: FactLine =
-                serde_json::from_value(raw).map_err(|e| FactError::Line { line: ln, msg: e.to_string() })?;
+            let f: FactLine = serde_json::from_value(raw).map_err(|e| FactError::Line {
+                line: ln,
+                msg: e.to_string(),
+            })?;
             let exact = f.method.starts_with("exact");
             let (term, val) = match f.kind {
                 FactKind::Coefficient => {
-                    let t = f.term.ok_or(FactError::Line { line: ln, msg: "coefficient without term".into() })?;
+                    let t = f.term.ok_or(FactError::Line {
+                        line: ln,
+                        msg: "coefficient without term".into(),
+                    })?;
                     let v = match f.value.as_str() {
                         "zero" => CoefFact::Zero,
                         "nonzero" => CoefFact::NonZero,
                         "unknown" => {
-                            ff.unknown_reasons.push(f.evidence.as_ref().map(|e| e.to_string()).unwrap_or_default());
+                            ff.unknown_reasons.push(
+                                f.evidence
+                                    .as_ref()
+                                    .map(|e| e.to_string())
+                                    .unwrap_or_default(),
+                            );
                             CoefFact::Unknown
                         }
-                        o => return Err(FactError::Line { line: ln, msg: format!("value {o}") }),
+                        o => {
+                            return Err(FactError::Line {
+                                line: ln,
+                                msg: format!("value {o}"),
+                            });
+                        }
                     };
                     (t as u32, Val::C(v))
                 }
@@ -240,7 +267,12 @@ impl FileFacts {
                         "regular" => RegFact::Regular,
                         "pole" => RegFact::Pole,
                         "unknown" => RegFact::Unknown,
-                        o => return Err(FactError::Line { line: ln, msg: format!("value {o}") }),
+                        o => {
+                            return Err(FactError::Line {
+                                line: ln,
+                                msg: format!("value {o}"),
+                            });
+                        }
                     };
                     (REG_TERM, Val::R(v))
                 }
@@ -257,7 +289,13 @@ impl FileFacts {
                     Val::R(_) => Val::R(RegFact::Unknown),
                 }
             };
-            let k = FactKey { table: f.table, record: f.record, label: f.label, key: f.key, term };
+            let k = FactKey {
+                table: f.table,
+                record: f.record,
+                label: f.label,
+                key: f.key,
+                term,
+            };
             let h = fact_hash(&k.table, k.record, k.label, &k.key, term);
             let bucket = ff.map.entry(h).or_default();
             if let Some((_, old)) = bucket.iter().find(|(kk, _)| *kk == k) {
@@ -276,7 +314,11 @@ impl FileFacts {
     fn get(&self, rule: &RuleId, key: &[i32], term: u32) -> Option<Val> {
         let h = fact_hash(rule.table, rule.record, rule.label, key, term);
         self.map.get(&h)?.iter().find_map(|(k, v)| {
-            (k.table == rule.table && k.record == rule.record && k.label == rule.label && k.key == key && k.term == term)
+            (k.table == rule.table
+                && k.record == rule.record
+                && k.label == rule.label
+                && k.key == key
+                && k.term == term)
                 .then_some(*v)
         })
     }
@@ -312,7 +354,11 @@ mod tests {
 {"schema":"rustred.campaign.fact.v1","table":"t","record":0,"label":5,"key":[1,0],"kind":"regularity","value":"pole","method":"modular-2prime"}
 "#;
         let f = FileFacts::read(txt.as_bytes(), false).unwrap();
-        let r = RuleId { table: "t", record: 0, label: 5 };
+        let r = RuleId {
+            table: "t",
+            record: 0,
+            label: 5,
+        };
         assert_eq!(f.coefficient(&r, &[1, 0], 2), CoefFact::Zero);
         assert_eq!(f.coefficient(&r, &[1, 0], 1), CoefFact::Unknown);
         assert_eq!(f.regularity(&r, &[1, 0]), RegFact::Unknown);
@@ -320,7 +366,16 @@ mod tests {
         let f = FileFacts::read(txt.as_bytes(), true).unwrap();
         assert_eq!(f.regularity(&r, &[1, 0]), RegFact::Pole);
         assert!(!f.exact());
-        let bad = format!("{txt}{}", txt.lines().next().unwrap().replace("\"zero\"", "\"nonzero\""));
-        assert!(matches!(FileFacts::read(bad.as_bytes(), false), Err(FactError::Conflict { .. })));
+        let bad = format!(
+            "{txt}{}",
+            txt.lines()
+                .next()
+                .unwrap()
+                .replace("\"zero\"", "\"nonzero\"")
+        );
+        assert!(matches!(
+            FileFacts::read(bad.as_bytes(), false),
+            Err(FactError::Conflict { .. })
+        ));
     }
 }

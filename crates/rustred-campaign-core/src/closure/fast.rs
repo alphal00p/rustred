@@ -37,7 +37,10 @@ impl<'a> FastDispatch<'a> {
             }
         }
         let n = disp.arity();
-        let mut nodes = vec![Node { wild: NONE, ..Default::default() }];
+        let mut nodes = vec![Node {
+            wild: NONE,
+            ..Default::default()
+        }];
         for (e, &(t, r)) in entries.iter().enumerate() {
             let d = &tables[t as usize].domains[r as usize];
             let mut cur = 0usize;
@@ -47,7 +50,10 @@ impl<'a> FastDispatch<'a> {
                         Some(x) => x.1 as usize,
                         None => {
                             let id = nodes.len();
-                            nodes.push(Node { wild: NONE, ..Default::default() });
+                            nodes.push(Node {
+                                wild: NONE,
+                                ..Default::default()
+                            });
                             nodes[cur].vals.push((v, id as u32));
                             id
                         }
@@ -57,7 +63,10 @@ impl<'a> FastDispatch<'a> {
                             nodes[cur].wild as usize
                         } else {
                             let id = nodes.len();
-                            nodes.push(Node { wild: NONE, ..Default::default() });
+                            nodes.push(Node {
+                                wild: NONE,
+                                ..Default::default()
+                            });
                             nodes[cur].wild = id as u32;
                             id
                         }
@@ -67,7 +76,12 @@ impl<'a> FastDispatch<'a> {
             }
             nodes[cur].leaf.push(e as u32);
         }
-        FastDispatch { disp, entries, offsets, nodes }
+        FastDispatch {
+            disp,
+            entries,
+            offsets,
+            nodes,
+        }
     }
 
     pub fn dispatcher(&self) -> &'a Dispatcher {
@@ -85,7 +99,11 @@ impl<'a> FastDispatch<'a> {
     #[inline]
     pub fn rule(&self, pos: u32) -> RuleRef {
         let (t, r) = self.entries[pos as usize];
-        RuleRef { table: t as usize, record: r as usize, label: self.disp.tables()[t as usize].labels[r as usize] }
+        RuleRef {
+            table: t as usize,
+            record: r as usize,
+            label: self.disp.tables()[t as usize].labels[r as usize],
+        }
     }
 
     /// Candidate positions (records whose fixed slots all match), ascending.
@@ -113,10 +131,17 @@ impl<'a> FastDispatch<'a> {
 
     /// First match; `skip_below(pos)` lets a caller declare positions known to be `NotSelected` (incremental use);
     /// `stop_at` is a known stopping position (its verdict is re-evaluated).
-    pub fn first_match_with(&self, key: &[i32], buf: &mut Vec<u32>, stack: &mut Vec<(u32, u32)>) -> Dispatch {
+    pub fn first_match_with(
+        &self,
+        key: &[i32],
+        buf: &mut Vec<u32>,
+        stack: &mut Vec<(u32, u32)>,
+    ) -> Dispatch {
         if let Some(mask) = self.disp.chart()
-            && let Some(slot) =
-                key.iter().enumerate().position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
+            && let Some(slot) = key
+                .iter()
+                .enumerate()
+                .position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
         {
             return Dispatch::OutsideChart { slot };
         }
@@ -127,8 +152,18 @@ impl<'a> FastDispatch<'a> {
             match v.stage() {
                 Stage::Applies => return Dispatch::Covered(self.rule(e)),
                 Stage::NotSelected => {}
-                Stage::Blocked => return Dispatch::Blocked { at: self.rule(e), reason: v },
-                Stage::Undecided => return Dispatch::Undecided { at: self.rule(e), verdict: v },
+                Stage::Blocked => {
+                    return Dispatch::Blocked {
+                        at: self.rule(e),
+                        reason: v,
+                    };
+                }
+                Stage::Undecided => {
+                    return Dispatch::Undecided {
+                        at: self.rule(e),
+                        verdict: v,
+                    };
+                }
             }
         }
         Dispatch::Uncovered
@@ -145,8 +180,10 @@ impl<'a> FastDispatch<'a> {
         stack: &mut Vec<(u32, u32)>,
     ) -> (Dispatch, usize) {
         if let Some(mask) = self.disp.chart()
-            && let Some(slot) =
-                key.iter().enumerate().position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
+            && let Some(slot) = key
+                .iter()
+                .enumerate()
+                .position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
         {
             return (Dispatch::OutsideChart { slot }, 0);
         }
@@ -162,8 +199,24 @@ impl<'a> FastDispatch<'a> {
             match v.stage() {
                 Stage::Applies => return (Dispatch::Covered(self.rule(e)), evaluated),
                 Stage::NotSelected => {}
-                Stage::Blocked => return (Dispatch::Blocked { at: self.rule(e), reason: v }, evaluated),
-                Stage::Undecided => return (Dispatch::Undecided { at: self.rule(e), verdict: v }, evaluated),
+                Stage::Blocked => {
+                    return (
+                        Dispatch::Blocked {
+                            at: self.rule(e),
+                            reason: v,
+                        },
+                        evaluated,
+                    );
+                }
+                Stage::Undecided => {
+                    return (
+                        Dispatch::Undecided {
+                            at: self.rule(e),
+                            verdict: v,
+                        },
+                        evaluated,
+                    );
+                }
             }
         }
         (Dispatch::Uncovered, evaluated)
@@ -172,6 +225,10 @@ impl<'a> FastDispatch<'a> {
     pub fn memory_bytes(&self) -> usize {
         self.entries.capacity() * 8
             + self.nodes.capacity() * std::mem::size_of::<Node>()
-            + self.nodes.iter().map(|n| n.vals.capacity() * 8 + n.leaf.capacity() * 4).sum::<usize>()
+            + self
+                .nodes
+                .iter()
+                .map(|n| n.vals.capacity() * 8 + n.leaf.capacity() * 4)
+                .sum::<usize>()
     }
 }

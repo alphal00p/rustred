@@ -33,10 +33,12 @@ use crate::cover::{CoverError, Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
 use crate::symmetry::{Credit, CreditPolicy, Refusal};
 
-pub use bodies::{BodyError, BodyLoadStats, RhsSlot, RuleBodies, Sectors, TermClass, parse_rhs_pattern};
+pub use bodies::{
+    BodyError, BodyLoadStats, RhsSlot, RuleBodies, Sectors, TermClass, parse_rhs_pattern,
+};
 pub use facts::{
-    CoefFact, FactError, FactKind, FactRequest, FactSource, FileFacts, NoFacts, RegFact, RequestReason, RuleId,
-    write_fact_requests,
+    CoefFact, FactError, FactKind, FactRequest, FactSource, FileFacts, NoFacts, RegFact,
+    RequestReason, RuleId, write_fact_requests,
 };
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
@@ -167,7 +169,10 @@ impl Default for ClosureConfig {
 /// Errors (caller mistakes and inconsistent inputs; never a silent pass).
 #[derive(Debug)]
 pub enum ClosureError {
-    KeyArity { expected: usize, got: usize },
+    KeyArity {
+        expected: usize,
+        got: usize,
+    },
     KeySet(KeySetError),
     Cover(CoverError),
     Body(BodyError),
@@ -544,7 +549,11 @@ struct Ctx<'a> {
 impl Ctx<'_> {
     fn rid(&self, pos: u32) -> RuleId<'_> {
         let r = &self.rule_names[pos as usize];
-        RuleId { table: &self.fact_tables[pos as usize], record: r.record, label: r.label }
+        RuleId {
+            table: &self.fact_tables[pos as usize],
+            record: r.record,
+            label: r.label,
+        }
     }
 }
 
@@ -572,21 +581,31 @@ fn push_capped(v: &mut Vec<(u32, u32, Witness)>, w: (u32, u32, Witness), cap: us
     } else if let Some(max) = v.iter().map(|x| (x.0, x.1)).max()
         && (w.0, w.1) < max
     {
-        let i = v.iter().position(|x| (x.0, x.1) == max).expect("max present");
+        let i = v
+            .iter()
+            .position(|x| (x.0, x.1) == max)
+            .expect("max present");
         v[i] = w;
     }
 }
 
 fn merge_capped(dst: &mut Vec<(u32, u32, Witness)>, src: Vec<(u32, u32, Witness)>, cap: usize) {
     dst.extend(src);
-    dst.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    dst.sort_by_key(|a| (a.0, a.1));
     dst.truncate(cap);
 }
 
 /// What the expansion of one key produces (shared by the BFS and the depth-first chain pass).
 enum Sink<'s> {
-    Bfs { out: &'s mut ExpandOut, table: &'s KeyTable, key_idx: u32 },
-    Succ { table: &'s KeyTable, succ: &'s mut Vec<u32> },
+    Bfs {
+        out: &'s mut ExpandOut,
+        table: &'s KeyTable,
+        key_idx: u32,
+    },
+    Succ {
+        table: &'s KeyTable,
+        succ: &'s mut Vec<u32>,
+    },
 }
 
 /// Expand one key: `applied` = the key the rule is instantiated at (the image for a credit), `key` = the key itself.
@@ -617,7 +636,11 @@ fn expand_key(
     for j in 0..nt {
         let t = &buf[j * n..(j + 1) * n];
         let class = ctx.sectors.classify_masked(t, cm[j]);
-        let fact = if tier_c { ctx.facts.coefficient(&ctx.rid(pos), applied, j) } else { CoefFact::Unknown };
+        let fact = if tier_c {
+            ctx.facts.coefficient(&ctx.rid(pos), applied, j)
+        } else {
+            CoefFact::Unknown
+        };
         if let Sink::Bfs { out, key_idx, .. } = sink {
             out.terms.total += 1;
             if fact == CoefFact::Zero {
@@ -625,7 +648,11 @@ fn expand_key(
                 continue;
             }
             match class {
-                TermClass::PositiveNumerator { symbolic, subsector, .. } => {
+                TermClass::PositiveNumerator {
+                    symbolic,
+                    subsector,
+                    ..
+                } => {
                     if subsector {
                         out.terms.positive_numerator_sub += 1;
                     } else {
@@ -642,7 +669,11 @@ fn expand_key(
                         out.pos_nonzero += 1;
                         push_capped(
                             &mut out.failure_w,
-                            (*key_idx, j as u32, witness(ctx, pos, key, j, t, "positive_numerator_nonzero")),
+                            (
+                                *key_idx,
+                                j as u32,
+                                witness(ctx, pos, key, j, t, "positive_numerator_nonzero"),
+                            ),
                             cap,
                         );
                     } else {
@@ -669,12 +700,19 @@ fn expand_key(
                         HandDowns::Keys => {
                             *out.hd_terms.entry(dropped).or_default() += 1;
                             if ctx.codec.encode(t, &mut code) {
-                                out.hd_codes.entry(dropped).or_default().extend_from_slice(&code[..w]);
+                                out.hd_codes
+                                    .entry(dropped)
+                                    .or_default()
+                                    .extend_from_slice(&code[..w]);
                             } else {
                                 out.unrepresentable += 1;
                                 push_capped(
                                     &mut out.failure_w,
-                                    (*key_idx, j as u32, witness(ctx, pos, key, j, t, "unrepresentable_hand_down")),
+                                    (
+                                        *key_idx,
+                                        j as u32,
+                                        witness(ctx, pos, key, j, t, "unrepresentable_hand_down"),
+                                    ),
                                     cap,
                                 );
                             }
@@ -689,7 +727,11 @@ fn expand_key(
                             out.violations += 1;
                             push_capped(
                                 &mut out.descent_w,
-                                (*key_idx, j as u32, witness(ctx, pos, key, j, t, "descent_violation")),
+                                (
+                                    *key_idx,
+                                    j as u32,
+                                    witness(ctx, pos, key, j, t, "descent_violation"),
+                                ),
                                 cap,
                             );
                         } else {
@@ -709,7 +751,11 @@ fn expand_key(
                         out.unrepresentable += 1;
                         push_capped(
                             &mut out.failure_w,
-                            (*key_idx, j as u32, witness(ctx, pos, key, j, t, "unrepresentable_key")),
+                            (
+                                *key_idx,
+                                j as u32,
+                                witness(ctx, pos, key, j, t, "unrepresentable_key"),
+                            ),
                             cap,
                         );
                     }
@@ -760,7 +806,10 @@ fn chunks(lo: usize, hi: usize, threads: usize) -> Vec<(usize, usize)> {
     let n = hi - lo;
     let t = threads.max(1).min(n.max(1));
     let c = n.div_ceil(t).max(1);
-    (0..t).map(|i| (lo + i * c, (lo + (i + 1) * c).min(hi))).filter(|(a, b)| a < b).collect()
+    (0..t)
+        .map(|i| (lo + i * c, (lo + (i + 1) * c).min(hi)))
+        .filter(|(a, b)| a < b)
+        .collect()
 }
 
 /// Dispatch result of one key (internal).
@@ -798,13 +847,19 @@ pub fn closure_recheck(
     facts: &dyn FactSource,
 ) -> Result<Closure, ClosureError> {
     if prev.order_digest != dispatch_order_digest(disp) {
-        return Err(ClosureError::NotIncremental("dispatch order differs from the previous closure".into()));
+        return Err(ClosureError::NotIncremental(
+            "dispatch order differs from the previous closure".into(),
+        ));
     }
     if prev.tier != cfg.tier || prev.codec.bits() != cfg.bits {
-        return Err(ClosureError::NotIncremental("tier or codec bits differ".into()));
+        return Err(ClosureError::NotIncremental(
+            "tier or codec bits differ".into(),
+        ));
     }
     if prev.truncated {
-        return Err(ClosureError::NotIncremental("previous closure was truncated".into()));
+        return Err(ClosureError::NotIncremental(
+            "previous closure was truncated".into(),
+        ));
     }
     run(disp, bodies, cmp, extra, cfg, facts, None, Some(prev))
 }
@@ -822,11 +877,15 @@ pub fn closure_incremental(
 ) -> Result<Closure, ClosureError> {
     let tabs = disp.tables();
     if prev.tables.len() > tabs.len() {
-        return Err(ClosureError::NotIncremental("fewer tables than before".into()));
+        return Err(ClosureError::NotIncremental(
+            "fewer tables than before".into(),
+        ));
     }
     for (i, (name, len)) in prev.tables.iter().enumerate() {
         if tabs[i].name != *name || tabs[i].len() != *len {
-            return Err(ClosureError::NotIncremental(format!("table {i} ({name}) differs")));
+            return Err(ClosureError::NotIncremental(format!(
+                "table {i} ({name}) differs"
+            )));
         }
     }
     let new_order: Vec<String> = disp
@@ -836,7 +895,9 @@ pub fn closure_incremental(
         .map(|&t| tabs[t].name.clone())
         .collect();
     if new_order != prev.priority_names {
-        return Err(ClosureError::NotIncremental("relative order of the old tables changed".into()));
+        return Err(ClosureError::NotIncremental(
+            "relative order of the old tables changed".into(),
+        ));
     }
     run(disp, bodies, cmp, start, cfg, facts, Some(prev), None)
 }
@@ -855,10 +916,16 @@ fn run(
     let t0 = Instant::now();
     let arity = disp.arity();
     if start.codec().arity() != arity {
-        return Err(ClosureError::KeyArity { expected: arity, got: start.codec().arity() });
+        return Err(ClosureError::KeyArity {
+            expected: arity,
+            got: start.codec().arity(),
+        });
     }
     if cmp.arity() != arity {
-        return Err(ClosureError::KeyArity { expected: arity, got: cmp.arity() });
+        return Err(ClosureError::KeyArity {
+            expected: arity,
+            got: cmp.arity(),
+        });
     }
     let lines: Vec<bool> = match (disp.chart(), &cfg.lines) {
         (_, Some(l)) => l.clone(),
@@ -866,7 +933,10 @@ fn run(
         (None, None) => return Err(ClosureError::NoLines),
     };
     if lines.len() != arity {
-        return Err(ClosureError::KeyArity { expected: arity, got: lines.len() });
+        return Err(ClosureError::KeyArity {
+            expected: arity,
+            got: lines.len(),
+        });
     }
     let codec = KeyCodec::new(arity, cfg.bits)?;
     let fast = FastDispatch::new(disp);
@@ -874,10 +944,16 @@ fn run(
     let rule_names: Vec<RuleName> = (0..n_entries as u32)
         .map(|p| {
             let r = fast.rule(p);
-            RuleName { table: disp.tables()[r.table].name.clone(), record: r.record, label: r.label }
+            RuleName {
+                table: disp.tables()[r.table].name.clone(),
+                record: r.record,
+                label: r.label,
+            }
         })
         .collect();
-    let entry_table: Vec<u32> = (0..n_entries as u32).map(|p| fast.rule(p).table as u32).collect();
+    let entry_table: Vec<u32> = (0..n_entries as u32)
+        .map(|p| fast.rule(p).table as u32)
+        .collect();
     let ctx = Ctx {
         disp,
         fast: &fast,
@@ -885,21 +961,32 @@ fn run(
         cmp,
         cfg,
         facts,
-        sectors: Sectors { lines: lines.clone(), zero_sectors: cfg.zero_sectors.clone() },
+        sectors: Sectors {
+            lines: lines.clone(),
+            zero_sectors: cfg.zero_sectors.clone(),
+        },
         codec,
         arity,
         fact_tables: rule_names
             .iter()
             .map(|r| {
                 cfg.fact_tables.get(&r.table).cloned().unwrap_or_else(|| {
-                    disp.tables().iter().find(|t| t.name == r.table).map(|t| t.provenance.source.clone()).unwrap_or_default()
+                    disp.tables()
+                        .iter()
+                        .find(|t| t.name == r.table)
+                        .map(|t| t.provenance.source.clone())
+                        .unwrap_or_default()
                 })
             })
             .collect(),
         rule_names,
     };
     // start keys (canonical order)
-    let start = if *start.codec() == codec { start.clone() } else { start.recode(codec)? };
+    let start = if *start.codec() == codec {
+        start.clone()
+    } else {
+        start.recode(codec)?
+    };
     let recode_opt = |k: &Option<KeySet>| -> Result<Option<KeySet>, ClosureError> {
         Ok(match k {
             None => None,
@@ -913,7 +1000,8 @@ fn run(
     };
     // cache translation (incremental)
     let old_n_tables = cache.map(|c| c.tables.len()).unwrap_or(0);
-    let is_new = |p: u32| -> bool { cache.is_some() && entry_table[p as usize] as usize >= old_n_tables };
+    let is_new =
+        |p: u32| -> bool { cache.is_some() && entry_table[p as usize] as usize >= old_n_tables };
 
     let w = codec.words();
     let mut table;
@@ -946,7 +1034,11 @@ fn run(
             open = p.open.clone();
             credits = p.credits.clone();
             terminals = p.terminals.clone();
-            hd_keys = p.hand_down_keys.iter().map(|(&m, k)| (m, k.raw_codes().to_vec())).collect();
+            hd_keys = p
+                .hand_down_keys
+                .iter()
+                .map(|(&m, k)| (m, k.raw_codes().to_vec()))
+                .collect();
             start_mask = p.start_mask.clone();
             rounds = p.rounds;
             inputs = p.inputs.clone();
@@ -989,11 +1081,15 @@ fn run(
         }
         if cfg.max_rounds.is_some_and(|m| rounds >= m) {
             truncated = true;
-            for i in lo..hi {
-                res[i] = OPEN;
+            for (i, r) in res.iter_mut().enumerate().take(hi).skip(lo) {
+                *r = OPEN;
                 open.insert(
                     i as u32,
-                    OpenInfo { status: OpenStatus::Truncated, rule: None, detail: "round limit".into() },
+                    OpenInfo {
+                        status: OpenStatus::Truncated,
+                        rule: None,
+                        detail: "round limit".into(),
+                    },
                 );
             }
             break;
@@ -1022,7 +1118,8 @@ fn run(
                                 None
                             };
                             if let Some(kind) = tk {
-                                let would = match ctx.fast.first_match_with(&key, &mut buf, &mut st) {
+                                let would = match ctx.fast.first_match_with(&key, &mut buf, &mut st)
+                                {
                                     Dispatch::Covered(r) => Some(ctx.fast.position(r)),
                                     _ => None,
                                 };
@@ -1042,7 +1139,11 @@ fn run(
                                             }),
                                         },
                                     };
-                                    ctx.fast.first_match_cached(&key, old_stop, is_new, &mut buf, &mut st).0
+                                    ctx.fast
+                                        .first_match_cached(
+                                            &key, old_stop, is_new, &mut buf, &mut st,
+                                        )
+                                        .0
                                 }
                                 None => ctx.fast.first_match_with(&key, &mut buf, &mut st),
                             };
@@ -1052,7 +1153,9 @@ fn run(
                     })
                 })
                 .collect();
-            hs.into_iter().map(|h| h.join().expect("dispatch worker")).collect()
+            hs.into_iter()
+                .map(|h| h.join().expect("dispatch worker"))
+                .collect()
         });
         let mut i = lo;
         for part in results {
@@ -1106,10 +1209,20 @@ fn run(
                                 p => (p, false),
                             };
                             codec.decode(table.code(i), &mut key);
-                            let applied: Vec<i32> =
-                                if image { credits[&(i as u32)].image.clone() } else { key.clone() };
-                            let mut sink = Sink::Bfs { out: &mut out, table, key_idx: i as u32 };
-                            expand_key(ctx, pos, &applied, &key, image, &mut buf, &mut cm, &mut codes, &mut sink)?;
+                            let applied: Vec<i32> = if image {
+                                credits[&(i as u32)].image.clone()
+                            } else {
+                                key.clone()
+                            };
+                            let mut sink = Sink::Bfs {
+                                out: &mut out,
+                                table,
+                                key_idx: i as u32,
+                            };
+                            expand_key(
+                                ctx, pos, &applied, &key, image, &mut buf, &mut cm, &mut codes,
+                                &mut sink,
+                            )?;
                         }
                         keyset::sort_dedup(w, &mut out.new_codes);
                         for v in out.hd_codes.values_mut() {
@@ -1119,7 +1232,9 @@ fn run(
                     })
                 })
                 .collect();
-            hs.into_iter().map(|h| h.join().expect("expand worker")).collect()
+            hs.into_iter()
+                .map(|h| h.join().expect("expand worker"))
+                .collect()
         });
         let mut new_codes = vec![];
         for o in outs {
@@ -1128,7 +1243,8 @@ fn run(
             acc.edges += o.edges;
             acc.terms.add(&o.terms);
             acc.requires_zero += o.requires_zero;
-            acc.undecided.coef_unknown_positive_numerator += o.undecided.coef_unknown_positive_numerator;
+            acc.undecided.coef_unknown_positive_numerator +=
+                o.undecided.coef_unknown_positive_numerator;
             acc.undecided.coef_unknown_not_lower += o.undecided.coef_unknown_not_lower;
             acc.violations += o.violations;
             acc.pos_nonzero += o.pos_nonzero;
@@ -1188,15 +1304,26 @@ fn run(
         failure_witnesses: acc.failure_w,
         requests: acc.requests,
         hand_down_terms: acc.hd_terms,
-        hand_down_keys: hd_keys.into_iter().map(|(k, v)| (k, KeySet::from_codes(codec, v))).collect(),
+        hand_down_keys: hd_keys
+            .into_iter()
+            .map(|(k, v)| (k, KeySet::from_codes(codec, v)))
+            .collect(),
         cycles: None,
         chain: None,
         rule_names: ctx.rule_names.clone(),
         fact_tables: ctx.fact_tables.clone(),
         table_names: disp.tables().iter().map(|t| t.name.clone()).collect(),
         entry_table,
-        priority_names: disp.priority().iter().map(|&t| disp.tables()[t].name.clone()).collect(),
-        tables_id: disp.tables().iter().map(|t| (t.name.clone(), t.len())).collect(),
+        priority_names: disp
+            .priority()
+            .iter()
+            .map(|&t| disp.tables()[t].name.clone())
+            .collect(),
+        tables_id: disp
+            .tables()
+            .iter()
+            .map(|t| (t.name.clone(), t.len()))
+            .collect(),
         fact_label: facts.label(),
         facts_exact: facts.exact(),
         order_digest: dispatch_order_digest(disp),
@@ -1216,7 +1343,10 @@ fn run(
         + cl.stop.capacity() * 4
         + bodies.memory_bytes()
         + fast.memory_bytes()
-        + cl.hand_down_keys.values().map(|k| k.memory_bytes()).sum::<usize>()
+        + cl.hand_down_keys
+            .values()
+            .map(|k| k.memory_bytes())
+            .sum::<usize>()
         + cl.requests.capacity() * std::mem::size_of::<ReqC>();
     cl.seconds = t0.elapsed().as_secs_f64();
     Ok(cl)
@@ -1229,7 +1359,11 @@ fn dispatch_one(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<(KeyRes, u32), Cl
             let p = ctx.fast.position(r);
             if !ctx.bodies.has(r.table, r.record) {
                 return Ok((
-                    KeyRes::Open(OpenInfo { status: OpenStatus::NoBody, rule: Some(p), detail: String::new() }),
+                    KeyRes::Open(OpenInfo {
+                        status: OpenStatus::NoBody,
+                        rule: Some(p),
+                        detail: String::new(),
+                    }),
                     p,
                 ));
             }
@@ -1245,7 +1379,9 @@ fn dispatch_one(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<(KeyRes, u32), Cl
                             p,
                         ));
                     }
-                    RegFact::Unknown if ctx.cfg.require_regularity => (KeyRes::Pos(p, Some(RegFact::Unknown)), p),
+                    RegFact::Unknown if ctx.cfg.require_regularity => {
+                        (KeyRes::Pos(p, Some(RegFact::Unknown)), p)
+                    }
                     f => (KeyRes::Pos(p, Some(f)), p),
                 }
             } else {
@@ -1259,22 +1395,44 @@ fn dispatch_one(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<(KeyRes, u32), Cl
                     Err(refusals) => {
                         let detail = format!("credit refused by {} element(s)", refusals.len());
                         return Ok((
-                            KeyRes::Open(OpenInfo { status: OpenStatus::Uncovered, rule: None, detail }),
+                            KeyRes::Open(OpenInfo {
+                                status: OpenStatus::Uncovered,
+                                rule: None,
+                                detail,
+                            }),
                             NO_STOP,
                         ));
                     }
                 }
             }
-            (KeyRes::Open(OpenInfo { status: OpenStatus::Uncovered, rule: None, detail: String::new() }), NO_STOP)
+            (
+                KeyRes::Open(OpenInfo {
+                    status: OpenStatus::Uncovered,
+                    rule: None,
+                    detail: String::new(),
+                }),
+                NO_STOP,
+            )
         }
         Dispatch::Blocked { at, reason } => {
             let p = ctx.fast.position(at);
-            (KeyRes::Open(OpenInfo { status: OpenStatus::Blocked, rule: Some(p), detail: format!("{reason:?}") }), p)
+            (
+                KeyRes::Open(OpenInfo {
+                    status: OpenStatus::Blocked,
+                    rule: Some(p),
+                    detail: format!("{reason:?}"),
+                }),
+                p,
+            )
         }
         Dispatch::Undecided { at, verdict } => {
             let p = ctx.fast.position(at);
             (
-                KeyRes::Open(OpenInfo { status: OpenStatus::Undecided, rule: Some(p), detail: format!("{verdict:?}") }),
+                KeyRes::Open(OpenInfo {
+                    status: OpenStatus::Undecided,
+                    rule: Some(p),
+                    detail: format!("{verdict:?}"),
+                }),
                 p,
             )
         }
@@ -1315,8 +1473,15 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
             p => (p, false),
         };
         ctx.codec.decode(cl.table.code(i as usize), key);
-        let applied = if image { cl.credits[&i].image.clone() } else { key.clone() };
-        let mut sink = Sink::Succ { table: &cl.table, succ: &mut succ };
+        let applied = if image {
+            cl.credits[&i].image.clone()
+        } else {
+            key.clone()
+        };
+        let mut sink = Sink::Succ {
+            table: &cl.table,
+            succ: &mut succ,
+        };
         expand_key(ctx, pos, &applied, key, image, buf, cm, codes, &mut sink)?;
         Ok(succ)
     };
@@ -1345,7 +1510,9 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
                 let mut best = 0u32;
                 let mut bn = u32::MAX;
                 for &u in succ {
-                    if state[u as usize] == 2 && (h[u as usize] + 1 > best || (h[u as usize] + 1 == best && u < bn)) {
+                    if state[u as usize] == 2
+                        && (h[u as usize] + 1 > best || (h[u as usize] + 1 == best && u < bn))
+                    {
                         best = h[u as usize] + 1;
                         bn = u;
                     }
@@ -1384,7 +1551,11 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
             edges: h[top] as u64,
             from: cl.table.key(top),
             to: cl.table.key(last),
-            longest_from_start_key: (0..n).filter(|&i| cl.start_mask[i]).map(|i| h[i] as u64).max().unwrap_or(0),
+            longest_from_start_key: (0..n)
+                .filter(|&i| cl.start_mask[i])
+                .map(|i| h[i] as u64)
+                .max()
+                .unwrap_or(0),
             path_digest: format!("sha256:{}", sha.finish_hex()),
         });
     }
@@ -1553,7 +1724,11 @@ impl Closure {
             .into_iter()
             .enumerate()
             .filter(|(_, f)| f.0 > 0)
-            .map(|(p, f)| RuleUse { rule: self.rule_names[p].clone(), fires: f.0, fires_in_start: f.1 })
+            .map(|(p, f)| RuleUse {
+                rule: self.rule_names[p].clone(),
+                fires: f.0,
+                fires_in_start: f.1,
+            })
             .collect()
     }
     pub fn descent_witnesses(&self) -> Vec<Witness> {
@@ -1615,7 +1790,9 @@ impl Closure {
             if in_start {
                 open_in += 1;
             }
-            *by_status.entry(format!("{:?}", o.status).to_lowercase()).or_default() += 1;
+            *by_status
+                .entry(format!("{:?}", o.status).to_lowercase())
+                .or_default() += 1;
             if let Some(f) = face_name(&lines, &self.table.key(i as usize)) {
                 by_face.entry(f).or_default()[if in_start { 0 } else { 1 }] += 1;
             }
@@ -1626,14 +1803,27 @@ impl Closure {
             wins.insert(name.clone(), [0, 0]);
         }
         for (p, f) in fires.iter().enumerate() {
-            let e = wins.get_mut(&self.table_names[self.entry_table[p] as usize]).expect("table");
+            let e = wins
+                .get_mut(&self.table_names[self.entry_table[p] as usize])
+                .expect("table");
             e[0] += f.0;
             e[1] += f.1;
         }
         let hand_downs = self
             .hand_down_terms
             .iter()
-            .map(|(&m, &t)| (m, [t, self.hand_down_keys.get(&m).map(|k| k.len() as u64).unwrap_or(0)]))
+            .map(|(&m, &t)| {
+                (
+                    m,
+                    [
+                        t,
+                        self.hand_down_keys
+                            .get(&m)
+                            .map(|k| k.len() as u64)
+                            .unwrap_or(0),
+                    ],
+                )
+            })
             .collect();
         ClosureSummary {
             tier: self.tier,
@@ -1659,7 +1849,11 @@ impl Closure {
             open_by_status: by_status,
             open_by_face: by_face,
             credited: self.credits.len() as u64,
-            credited_in_start: self.credits.keys().filter(|&&i| self.start_mask[i as usize]).count() as u64,
+            credited_in_start: self
+                .credits
+                .keys()
+                .filter(|&&i| self.start_mask[i as usize])
+                .count() as u64,
             used_rules: fires.iter().filter(|f| f.0 > 0).count() as u64,
             used_rules_in_start: fires.iter().filter(|f| f.1 > 0).count() as u64,
             wins_per_table: wins,
@@ -1667,9 +1861,21 @@ impl Closure {
             fact_requests: self.fact_requests().len() as u64,
             provisional: self.inputs.iter().any(|x| x.provisional_input()),
             inputs: self.inputs.clone(),
-            terminals_preferred: self.terminals.values().filter(|t| t.0 == TerminalKind::Preferred).count() as u64,
-            terminals_other: self.terminals.values().filter(|t| t.0 == TerminalKind::Other).count() as u64,
-            terminals_in_start: self.terminals.keys().filter(|&&i| self.start_mask[i as usize]).count() as u64,
+            terminals_preferred: self
+                .terminals
+                .values()
+                .filter(|t| t.0 == TerminalKind::Preferred)
+                .count() as u64,
+            terminals_other: self
+                .terminals
+                .values()
+                .filter(|t| t.0 == TerminalKind::Other)
+                .count() as u64,
+            terminals_in_start: self
+                .terminals
+                .keys()
+                .filter(|&&i| self.start_mask[i as usize])
+                .count() as u64,
             fact_source: self.fact_label.clone(),
             facts_exact: self.facts_exact,
             dispatch_order_digest: self.order_digest.clone(),
@@ -1704,13 +1910,16 @@ impl Closure {
             open_keys_digest: format!("sha256:{}", sha.finish_hex()),
             credits: self.credits(),
             terminals: self.terminal_records(),
-            hand_down_digests: self.hand_down_keys.iter().map(|(&m, k)| (m, k.digest())).collect(),
+            hand_down_digests: self
+                .hand_down_keys
+                .iter()
+                .map(|(&m, k)| (m, k.digest()))
+                .collect(),
             used_rules: self.used_rules(),
             timing: None,
         }
     }
 }
-
 
 /// Narrow view of the closure context for the symmetry module.
 pub(crate) mod internal {
@@ -1719,7 +1928,13 @@ pub(crate) mod internal {
         fn dispatch(&self, key: &[i32]) -> Dispatch;
         fn position(&self, r: RuleRef) -> u32;
         fn rule_id(&self, pos: u32) -> RuleId<'_>;
-        fn instantiate(&self, pos: u32, at: &[i32], out: &mut Vec<i32>, cm: &mut Vec<u64>) -> Result<Option<usize>, ClosureError>;
+        fn instantiate(
+            &self,
+            pos: u32,
+            at: &[i32],
+            out: &mut Vec<i32>,
+            cm: &mut Vec<u64>,
+        ) -> Result<Option<usize>, ClosureError>;
         fn sectors(&self) -> &Sectors;
         fn cmp(&self) -> &NodeComparator;
         fn facts(&self) -> &dyn FactSource;
@@ -1737,8 +1952,16 @@ pub(crate) mod internal {
         fn rule_id(&self, pos: u32) -> RuleId<'_> {
             self.rid(pos)
         }
-        fn instantiate(&self, pos: u32, at: &[i32], out: &mut Vec<i32>, cm: &mut Vec<u64>) -> Result<Option<usize>, ClosureError> {
-            Ok(self.bodies.instantiate(self.disp, self.fast.rule(pos), at, out, cm)?)
+        fn instantiate(
+            &self,
+            pos: u32,
+            at: &[i32],
+            out: &mut Vec<i32>,
+            cm: &mut Vec<u64>,
+        ) -> Result<Option<usize>, ClosureError> {
+            Ok(self
+                .bodies
+                .instantiate(self.disp, self.fast.rule(pos), at, out, cm)?)
         }
         fn sectors(&self) -> &Sectors {
             &self.sectors
@@ -1778,10 +2001,22 @@ pub(crate) mod internal {
         }
         fn rule_id(&self, pos: u32) -> RuleId<'_> {
             let r = &self.names[pos as usize];
-            RuleId { table: &r.table, record: r.record, label: r.label }
+            RuleId {
+                table: &r.table,
+                record: r.record,
+                label: r.label,
+            }
         }
-        fn instantiate(&self, pos: u32, at: &[i32], out: &mut Vec<i32>, cm: &mut Vec<u64>) -> Result<Option<usize>, ClosureError> {
-            Ok(self.bodies.instantiate(self.disp, self.fast.rule(pos), at, out, cm)?)
+        fn instantiate(
+            &self,
+            pos: u32,
+            at: &[i32],
+            out: &mut Vec<i32>,
+            cm: &mut Vec<u64>,
+        ) -> Result<Option<usize>, ClosureError> {
+            Ok(self
+                .bodies
+                .instantiate(self.disp, self.fast.rule(pos), at, out, cm)?)
         }
         fn sectors(&self) -> &Sectors {
             &self.sectors
@@ -1825,7 +2060,8 @@ pub fn credit_diff(prev: &Closure, new: &Closure) -> (Vec<InvalidatedCredit>, Ve
             Some(i) => {
                 if new.is_credited(i) {
                     let n = now.iter().find(|x| x.key == c.key).expect("credited key");
-                    (n.element != c.element || n.image != c.image || n.rule != c.rule).then_some("credited_differently")
+                    (n.element != c.element || n.image != c.image || n.rule != c.rule)
+                        .then_some("credited_differently")
                 } else if new.is_open(i) {
                     Some("refused")
                 } else if new.is_terminal(i) {
@@ -1836,12 +2072,19 @@ pub fn credit_diff(prev: &Closure, new: &Closure) -> (Vec<InvalidatedCredit>, Ve
             }
         };
         if let Some(r) = reason {
-            inval.push(InvalidatedCredit { credit: c.clone(), reason: r.into() });
+            inval.push(InvalidatedCredit {
+                credit: c.clone(),
+                reason: r.into(),
+            });
         }
     }
     let created = now
         .into_iter()
-        .filter(|n| !old.iter().any(|c| c.key == n.key && c.element == n.element && c.image == n.image && c.rule == n.rule))
+        .filter(|n| {
+            !old.iter().any(|c| {
+                c.key == n.key && c.element == n.element && c.image == n.image && c.rule == n.rule
+            })
+        })
         .collect();
     (inval, created)
 }

@@ -15,7 +15,8 @@
 
 use crate::closure::internal::{CtxView, StandaloneCtx};
 use crate::closure::{
-    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, RuleName, Sectors, TermClass, Tier,
+    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, RuleName, Sectors,
+    TermClass, Tier,
 };
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
@@ -63,9 +64,16 @@ pub enum Refusal {
     /// The dispatch at g k is not `Covered`.
     ImageNotCovered(Dispatch),
     NoBody,
-    TermNotBelow { term: usize, rhs: Vec<i32> },
-    CoefficientNonZero { term: usize },
-    CoefficientUnknown { term: usize },
+    TermNotBelow {
+        term: usize,
+        rhs: Vec<i32>,
+    },
+    CoefficientNonZero {
+        term: usize,
+    },
+    CoefficientUnknown {
+        term: usize,
+    },
     Irregular,
     RegularityUnknown,
 }
@@ -93,11 +101,18 @@ fn apply_inverse(g: &GroupElement, key: &[i32]) -> Option<Vec<i32>> {
 }
 
 /// The adopted condition for one element (see the module documentation).
-fn try_element(key: &[i32], g: &GroupElement, pol: &CreditPolicy, ctx: &dyn CtxView) -> Result<Result<Credit, Refusal>, ClosureError> {
+fn try_element(
+    key: &[i32],
+    g: &GroupElement,
+    pol: &CreditPolicy,
+    ctx: &dyn CtxView,
+) -> Result<Result<Credit, Refusal>, ClosureError> {
     if g.lines.len() > key.len() {
         return Ok(Err(Refusal::NoImage));
     }
-    let Some(image) = g.apply(key) else { return Ok(Err(Refusal::NoImage)) };
+    let Some(image) = g.apply(key) else {
+        return Ok(Err(Refusal::NoImage));
+    };
     if image == key {
         return Ok(Err(Refusal::ImageEqualsKey));
     }
@@ -119,13 +134,19 @@ fn try_element(key: &[i32], g: &GroupElement, pol: &CreditPolicy, ctx: &dyn CtxV
         }
     }
     let (mut buf, mut cm) = (vec![], vec![]);
-    let Some(nt) = ctx.instantiate(pos, &image, &mut buf, &mut cm)? else { return Ok(Err(Refusal::NoBody)) };
+    let Some(nt) = ctx.instantiate(pos, &image, &mut buf, &mut cm)? else {
+        return Ok(Err(Refusal::NoBody));
+    };
     let n = ctx.arity();
     let mut top = vec![];
     let mut zero_required = vec![];
     for j in 0..nt {
         let t = &buf[j * n..(j + 1) * n];
-        let fact = if tier_c { ctx.facts().coefficient(&ctx.rule_id(pos), &image, j) } else { CoefFact::Unknown };
+        let fact = if tier_c {
+            ctx.facts().coefficient(&ctx.rule_id(pos), &image, j)
+        } else {
+            CoefFact::Unknown
+        };
         if fact == CoefFact::Zero {
             continue;
         }
@@ -145,11 +166,19 @@ fn try_element(key: &[i32], g: &GroupElement, pol: &CreditPolicy, ctx: &dyn CtxV
                     CreditFrame::Direct => t.to_vec(),
                     CreditFrame::MappedBack => match apply_inverse(g, t) {
                         Some(x) => x,
-                        None => return Ok(Err(Refusal::TermNotBelow { term: j, rhs: t.to_vec() })),
+                        None => {
+                            return Ok(Err(Refusal::TermNotBelow {
+                                term: j,
+                                rhs: t.to_vec(),
+                            }));
+                        }
                     },
                 };
                 if !ctx.cmp().lower(&cmpd, key) {
-                    return Ok(Err(Refusal::TermNotBelow { term: j, rhs: t.to_vec() }));
+                    return Ok(Err(Refusal::TermNotBelow {
+                        term: j,
+                        rhs: t.to_vec(),
+                    }));
                 }
                 top.push(t.to_vec());
             }
@@ -158,7 +187,14 @@ fn try_element(key: &[i32], g: &GroupElement, pol: &CreditPolicy, ctx: &dyn CtxV
     }
     top.sort();
     top.dedup();
-    Ok(Ok(Credit { element: 0, image, rule, position: pos, top_terms: top, zero_required }))
+    Ok(Ok(Credit {
+        element: 0,
+        image,
+        rule,
+        position: pos,
+        top_terms: top,
+        zero_required,
+    }))
 }
 
 /// Internal entry used by the closure (dispatch through its index).
@@ -194,13 +230,20 @@ pub fn serve_by_image(
     require_regularity: bool,
 ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
     if key.len() != disp.arity() {
-        return Err(ClosureError::KeyArity { expected: disp.arity(), got: key.len() });
+        return Err(ClosureError::KeyArity {
+            expected: disp.arity(),
+            got: key.len(),
+        });
     }
     let fast = FastDispatch::new(disp);
     let names = (0..fast.n_entries() as u32)
         .map(|p| {
             let r = fast.rule(p);
-            RuleName { table: disp.tables()[r.table].provenance.source.clone(), record: r.record, label: r.label }
+            RuleName {
+                table: disp.tables()[r.table].provenance.source.clone(),
+                record: r.record,
+                label: r.label,
+            }
         })
         .collect();
     let ctx = StandaloneCtx {
@@ -234,12 +277,31 @@ impl<'a> CreditChecker<'a> {
         let names = (0..fast.n_entries() as u32)
             .map(|p| {
                 let r = fast.rule(p);
-                RuleName { table: disp.tables()[r.table].provenance.source.clone(), record: r.record, label: r.label }
+                RuleName {
+                    table: disp.tables()[r.table].provenance.source.clone(),
+                    record: r.record,
+                    label: r.label,
+                }
             })
             .collect();
-        CreditChecker { ctx: StandaloneCtx { fast, disp, bodies, cmp, sectors, facts, names, require_regularity } }
+        CreditChecker {
+            ctx: StandaloneCtx {
+                fast,
+                disp,
+                bodies,
+                cmp,
+                sectors,
+                facts,
+                names,
+                require_regularity,
+            },
+        }
     }
-    pub fn serve(&self, key: &[i32], policy: &CreditPolicy) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
+    pub fn serve(
+        &self,
+        key: &[i32],
+        policy: &CreditPolicy,
+    ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
         serve_with(key, policy, &self.ctx)
     }
     /// The first-match dispatch (the same as `Dispatcher::first_match`).

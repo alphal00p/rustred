@@ -48,7 +48,9 @@ pub fn parse_rhs_pattern(text: &str, arity: usize) -> Result<Vec<RhsSlot>, Strin
             if idx.is_empty() || !idx.bytes().all(|b| b.is_ascii_digit()) {
                 return Err(format!("bad pattern argument {a:?}"));
             }
-            let param: usize = idx.parse().map_err(|_| format!("bad pattern argument {a:?}"))?;
+            let param: usize = idx
+                .parse()
+                .map_err(|_| format!("bad pattern argument {a:?}"))?;
             if param >= arity {
                 return Err(format!("pattern parameter n{param} >= arity {arity}"));
             }
@@ -65,7 +67,9 @@ pub fn parse_rhs_pattern(text: &str, arity: usize) -> Result<Vec<RhsSlot>, Strin
             };
             out.push(RhsSlot::Param { param, offset });
         } else {
-            out.push(RhsSlot::Const(int(a).ok_or_else(|| format!("bad pattern argument {a:?}"))?));
+            out.push(RhsSlot::Const(
+                int(a).ok_or_else(|| format!("bad pattern argument {a:?}"))?,
+            ));
         }
     }
     if out.len() != arity {
@@ -86,7 +90,11 @@ pub enum BodyError {
     /// An offset or constant outside `i8`, or a slot >= 64.
     Range(String),
     /// The body's target does not match the record's domain (fixed slots / target map).
-    TargetMismatch { table: usize, record: usize, detail: String },
+    TargetMismatch {
+        table: usize,
+        record: usize,
+        detail: String,
+    },
     /// The rule point could not be formed at the key (target constant differs, overflow).
     RulePoint { table: usize, record: usize },
 }
@@ -144,7 +152,11 @@ pub enum TermClass {
     Top,
     /// Some numerator slot > 0 (any sector): needs a vanishing coefficient. `slots` = bit mask of the positive
     /// numerator slots; `symbolic` = all of them come from a symbolic slot raised past zero (-d < t <= 0).
-    PositiveNumerator { slots: u64, symbolic: bool, subsector: bool },
+    PositiveNumerator {
+        slots: u64,
+        symbolic: bool,
+        subsector: bool,
+    },
     /// A removed line in a declared zero sector (`dropped` = mask of line slots <= 0).
     ZeroSector { dropped: u64 },
     /// A removed line: a hand-down to the child sector `dropped`.
@@ -161,7 +173,10 @@ pub struct Sectors {
 
 impl Sectors {
     pub fn new(lines: Vec<bool>) -> Sectors {
-        Sectors { lines, zero_sectors: None }
+        Sectors {
+            lines,
+            zero_sectors: None,
+        }
     }
     /// Classify `term`; `const_mask` = slots set by a constant in the pattern (see [`RuleBodies`]).
     #[inline]
@@ -185,7 +200,11 @@ impl Sectors {
             };
         }
         if dropped != 0 {
-            if self.zero_sectors.as_ref().is_some_and(|z| z.contains(&dropped)) {
+            if self
+                .zero_sectors
+                .as_ref()
+                .is_some_and(|z| z.contains(&dropped))
+            {
                 return TermClass::ZeroSector { dropped };
             }
             return TermClass::Subsector { dropped };
@@ -222,7 +241,9 @@ pub(crate) fn rule_point(domain: &CaseDomain, key: &[i32], pt: &mut Vec<i32>) ->
                         }
                     }
                     TargetSlot::Param { param, offset } => {
-                        let Some(v) = (key[j] as i64).checked_sub(offset).and_then(|v| i32::try_from(v).ok())
+                        let Some(v) = (key[j] as i64)
+                            .checked_sub(offset)
+                            .and_then(|v| i32::try_from(v).ok())
                         else {
                             return false;
                         };
@@ -266,18 +287,25 @@ impl RuleBodies {
     pub fn extend_to(&mut self, disp: &Dispatcher) -> Result<(), BodyError> {
         let t = disp.tables();
         if t.len() < self.table_names.len() {
-            return Err(BodyError::NoRecord { table: t.len(), detail: "fewer tables".into() });
+            return Err(BodyError::NoRecord {
+                table: t.len(),
+                detail: "fewer tables".into(),
+            });
         }
         for (i, x) in t.iter().enumerate() {
             if i < self.table_names.len() {
                 if x.name != self.table_names[i] || x.len() != self.rule_first[i].len() {
-                    return Err(BodyError::NoRecord { table: i, detail: format!("table {} differs", x.name) });
+                    return Err(BodyError::NoRecord {
+                        table: i,
+                        detail: format!("table {} differs", x.name),
+                    });
                 }
             } else {
                 self.table_names.push(x.name.clone());
                 self.rule_first.push(vec![NONE; x.len()]);
                 self.rule_count.push(vec![0; x.len()]);
-                self.labels.push(x.labels.iter().enumerate().map(|(r, &l)| (l, r)).collect());
+                self.labels
+                    .push(x.labels.iter().enumerate().map(|(r, &l)| (l, r)).collect());
             }
         }
         Ok(())
@@ -300,7 +328,10 @@ impl RuleBodies {
             .tables()
             .get(table)
             .and_then(|t| t.domains.get(record))
-            .ok_or_else(|| BodyError::NoRecord { table, detail: format!("record {record}") })?;
+            .ok_or_else(|| BodyError::NoRecord {
+                table,
+                detail: format!("record {record}"),
+            })?;
         let fixed = skip_fixed(dom);
         self.set_with_fixed(table, record, &fixed, rhs)
     }
@@ -321,7 +352,10 @@ impl RuleBodies {
             .get(table)
             .and_then(|t| t.get(record))
             .copied()
-            .ok_or_else(|| BodyError::NoRecord { table, detail: format!("record {record}") })?;
+            .ok_or_else(|| BodyError::NoRecord {
+                table,
+                detail: format!("record {record}"),
+            })?;
         if first != NONE {
             return Err(BodyError::Duplicate { table, record });
         }
@@ -339,7 +373,8 @@ impl RuleBodies {
                         }
                     }
                     RhsSlot::Param { param, offset } => {
-                        self.ent.push(entry(s, KIND_COPY, i8v(param as i32, "param")?));
+                        self.ent
+                            .push(entry(s, KIND_COPY, i8v(param as i32, "param")?));
                         if offset != 0 {
                             self.ent.push(entry(s, KIND_ADD, i8v(offset, "offset")?));
                         }
@@ -368,14 +403,20 @@ impl RuleBodies {
         for (j, s) in t.iter().enumerate() {
             match (*s, dom.fixed[j]) {
                 (TargetSlot::Const(c), Some(v)) if c == v as i64 => {}
-                (TargetSlot::Const(c), f) => return Err(format!("slot {j}: constant {c}, fixed {f:?}")),
+                (TargetSlot::Const(c), f) => {
+                    return Err(format!("slot {j}: constant {c}, fixed {f:?}"));
+                }
                 (TargetSlot::Param { .. }, Some(v)) => {
                     return Err(format!("slot {j}: symbolic target on fixed slot ({v})"));
                 }
                 (TargetSlot::Param { param, offset }, None) => match &dom.target {
                     TargetMap::Canonical if param == j && offset == 0 => {}
                     TargetMap::Pattern(p) if p[j] == *s => {}
-                    _ => return Err(format!("slot {j}: target n{param}{offset:+} vs domain target")),
+                    _ => {
+                        return Err(format!(
+                            "slot {j}: target n{param}{offset:+} vs domain target"
+                        ));
+                    }
                 },
             }
         }
@@ -402,7 +443,10 @@ impl RuleBodies {
         let tab = disp
             .tables()
             .get(table)
-            .ok_or_else(|| BodyError::NoRecord { table, detail: "no such table".into() })?;
+            .ok_or_else(|| BodyError::NoRecord {
+                table,
+                detail: "no such table".into(),
+            })?;
         let mut st = BodyLoadStats::default();
         let e0 = self.ent.len();
         for (ln, line) in r.lines().enumerate() {
@@ -412,15 +456,23 @@ impl RuleBodies {
                 continue;
             }
             st.lines += 1;
-            let l: Line = serde_json::from_str(t).map_err(|e| BodyError::Pattern(format!("line {ln}: {e}")))?;
+            let l: Line = serde_json::from_str(t)
+                .map_err(|e| BodyError::Pattern(format!("line {ln}: {e}")))?;
             let label = l.i - label_shift;
-            let record = *self.labels[table].get(&label).ok_or_else(|| BodyError::NoRecord {
-                table,
-                detail: format!("line {ln}: no record with label {label}"),
-            })?;
+            let record = *self.labels[table]
+                .get(&label)
+                .ok_or_else(|| BodyError::NoRecord {
+                    table,
+                    detail: format!("line {ln}: no record with label {label}"),
+                })?;
             let dom = &tab.domains[record];
             if let Some(tg) = l.target {
-                self.check_target(dom, tg).map_err(|detail| BodyError::TargetMismatch { table, record, detail })?;
+                self.check_target(dom, tg)
+                    .map_err(|detail| BodyError::TargetMismatch {
+                        table,
+                        record,
+                        detail,
+                    })?;
             }
             let fixed = skip_fixed(dom);
             self.set_with_fixed(table, record, &fixed, &l.rhs)?;
@@ -444,11 +496,20 @@ impl RuleBodies {
         for rec in &tf.rules {
             st.lines += 1;
             let Some(rhs) = &rec.rhs_keys else { continue };
-            let Some(label) = rec.i.or(rec.index) else { continue };
-            let Some(&record) = self.labels.get(table).and_then(|m| m.get(&label)) else { continue };
+            let Some(label) = rec.i.or(rec.index) else {
+                continue;
+            };
+            let Some(&record) = self.labels.get(table).and_then(|m| m.get(&label)) else {
+                continue;
+            };
             let dom = &disp.tables()[table].domains[record];
             if let Some(tg) = &rec.target {
-                self.check_target(dom, tg).map_err(|detail| BodyError::TargetMismatch { table, record, detail })?;
+                self.check_target(dom, tg)
+                    .map_err(|detail| BodyError::TargetMismatch {
+                        table,
+                        record,
+                        detail,
+                    })?;
             }
             let fixed = skip_fixed(dom);
             self.set_with_fixed(table, record, &fixed, rhs)?;
@@ -463,10 +524,16 @@ impl RuleBodies {
     pub fn alias(&mut self, from: (usize, usize), to: (usize, usize)) -> Result<(), BodyError> {
         let f = self.rule_first[from.0][from.1];
         if f == NONE {
-            return Err(BodyError::NoRecord { table: from.0, detail: format!("record {} has no body", from.1) });
+            return Err(BodyError::NoRecord {
+                table: from.0,
+                detail: format!("record {} has no body", from.1),
+            });
         }
         if self.rule_first[to.0][to.1] != NONE {
-            return Err(BodyError::Duplicate { table: to.0, record: to.1 });
+            return Err(BodyError::Duplicate {
+                table: to.0,
+                record: to.1,
+            });
         }
         self.rule_first[to.0][to.1] = f;
         self.rule_count[to.0][to.1] = self.rule_count[from.0][from.1];
@@ -474,14 +541,24 @@ impl RuleBodies {
     }
 
     pub fn has(&self, table: usize, record: usize) -> bool {
-        self.rule_first.get(table).and_then(|t| t.get(record)).is_some_and(|&f| f != NONE)
+        self.rule_first
+            .get(table)
+            .and_then(|t| t.get(record))
+            .is_some_and(|&f| f != NONE)
     }
     pub fn n_terms(&self, table: usize, record: usize) -> usize {
-        if self.has(table, record) { self.rule_count[table][record] as usize } else { 0 }
+        if self.has(table, record) {
+            self.rule_count[table][record] as usize
+        } else {
+            0
+        }
     }
     /// Records of `table` with a body.
     pub fn count_with_body(&self, table: usize) -> usize {
-        self.rule_first[table].iter().filter(|&&f| f != NONE).count()
+        self.rule_first[table]
+            .iter()
+            .filter(|&&f| f != NONE)
+            .count()
     }
 
     /// Entries of pattern `p`.
@@ -526,7 +603,10 @@ impl RuleBodies {
         let dom = &disp.tables()[rule.table].domains[rule.record];
         let mut pt = Vec::with_capacity(self.arity);
         if !rule_point(dom, key, &mut pt) {
-            return Err(BodyError::RulePoint { table: rule.table, record: rule.record });
+            return Err(BodyError::RulePoint {
+                table: rule.table,
+                record: rule.record,
+            });
         }
         let f = self.rule_first[rule.table][rule.record] as usize;
         let c = self.rule_count[rule.table][rule.record] as usize;
@@ -534,7 +614,11 @@ impl RuleBodies {
         let base = out.len();
         out.resize(base + c * n, 0);
         for j in 0..c {
-            let m = Self::apply(self.pattern(f + j), &pt, &mut out[base + j * n..base + (j + 1) * n]);
+            let m = Self::apply(
+                self.pattern(f + j),
+                &pt,
+                &mut out[base + j * n..base + (j + 1) * n],
+            );
             cmask.push(m);
         }
         Ok(Some(c))
@@ -543,7 +627,11 @@ impl RuleBodies {
     pub fn memory_bytes(&self) -> usize {
         self.ent.capacity() * 2
             + self.pat_start.capacity() * 4
-            + self.rule_first.iter().map(|v| v.capacity() * 8).sum::<usize>()
+            + self
+                .rule_first
+                .iter()
+                .map(|v| v.capacity() * 8)
+                .sum::<usize>()
             + self.labels.iter().map(|m| m.capacity() * 24).sum::<usize>()
     }
     pub fn n_patterns(&self) -> usize {
@@ -560,10 +648,19 @@ mod tests {
         assert_eq!(
             p,
             vec![
-                RhsSlot::Param { param: 0, offset: -1 },
+                RhsSlot::Param {
+                    param: 0,
+                    offset: -1
+                },
                 RhsSlot::Const(1),
-                RhsSlot::Param { param: 2, offset: 1 },
-                RhsSlot::Param { param: 1, offset: 0 }
+                RhsSlot::Param {
+                    param: 2,
+                    offset: 1
+                },
+                RhsSlot::Param {
+                    param: 1,
+                    offset: 0
+                }
             ]
         );
         assert!(parse_rhs_pattern("I(n0,1)", 3).is_err());
@@ -572,17 +669,34 @@ mod tests {
     }
     #[test]
     fn classify_order() {
-        let s = Sectors { lines: vec![true, true, false, false], zero_sectors: Some([2u64].into()) };
+        let s = Sectors {
+            lines: vec![true, true, false, false],
+            zero_sectors: Some([2u64].into()),
+        };
         assert_eq!(s.classify_masked(&[1, 2, 0, -1], 0), TermClass::Top);
         assert_eq!(
             s.classify_masked(&[0, 2, 1, -1], 0),
-            TermClass::PositiveNumerator { slots: 4, symbolic: true, subsector: true }
+            TermClass::PositiveNumerator {
+                slots: 4,
+                symbolic: true,
+                subsector: true
+            }
         );
         assert_eq!(
             s.classify_masked(&[1, 2, 1, -1], 4),
-            TermClass::PositiveNumerator { slots: 4, symbolic: false, subsector: false }
+            TermClass::PositiveNumerator {
+                slots: 4,
+                symbolic: false,
+                subsector: false
+            }
         );
-        assert_eq!(s.classify_masked(&[1, 0, 0, -1], 0), TermClass::ZeroSector { dropped: 2 });
-        assert_eq!(s.classify_masked(&[0, 1, 0, -1], 0), TermClass::Subsector { dropped: 1 });
+        assert_eq!(
+            s.classify_masked(&[1, 0, 0, -1], 0),
+            TermClass::ZeroSector { dropped: 2 }
+        );
+        assert_eq!(
+            s.classify_masked(&[0, 1, 0, -1], 0),
+            TermClass::Subsector { dropped: 1 }
+        );
     }
 }

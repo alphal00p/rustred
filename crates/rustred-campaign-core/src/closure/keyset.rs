@@ -20,7 +20,10 @@ pub enum KeySetError {
     /// Codec parameters out of range (bits 4..=16, at most MAX_WORDS words).
     Codec(String),
     /// A key of the wrong length.
-    Arity { expected: usize, got: usize },
+    Arity {
+        expected: usize,
+        got: usize,
+    },
     /// A key outside the codec range.
     Range(Vec<i32>),
     /// Malformed file (header, order, count, digest).
@@ -32,7 +35,9 @@ impl std::fmt::Display for KeySetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             KeySetError::Codec(s) => write!(f, "key codec: {s}"),
-            KeySetError::Arity { expected, got } => write!(f, "key of arity {got}, expected {expected}"),
+            KeySetError::Arity { expected, got } => {
+                write!(f, "key of arity {got}, expected {expected}")
+            }
             KeySetError::Range(k) => write!(f, "key {k:?} outside the codec range"),
             KeySetError::Format(s) => write!(f, "key-set file: {s}"),
             KeySetError::Io(e) => write!(f, "key-set io: {e}"),
@@ -71,7 +76,12 @@ impl KeyCodec {
                 "arity {arity} at {bits} bits needs {words} words (max {MAX_WORDS})"
             )));
         }
-        Ok(KeyCodec { arity, bits, per_word, words })
+        Ok(KeyCodec {
+            arity,
+            bits,
+            per_word,
+            words,
+        })
     }
     pub fn arity(&self) -> usize {
         self.arity
@@ -169,7 +179,10 @@ impl DigestStream {
         h.update(KEYSET_SCHEMA.as_bytes());
         h.update(b"\n");
         h.update(&(arity as u32).to_le_bytes());
-        DigestStream { h, buf: Vec::with_capacity(1 << 16) }
+        DigestStream {
+            h,
+            buf: Vec::with_capacity(1 << 16),
+        }
     }
     pub(crate) fn key(&mut self, k: &[i32]) {
         for v in k {
@@ -196,7 +209,10 @@ pub struct KeySet {
 impl KeySet {
     /// Empty set.
     pub fn empty(codec: KeyCodec) -> KeySet {
-        KeySet { codec, data: vec![] }
+        KeySet {
+            codec,
+            data: vec![],
+        }
     }
     /// Build from keys (any order, duplicates allowed). A key of the wrong length or outside the codec range is an
     /// error (fail closed).
@@ -209,7 +225,10 @@ impl KeySet {
         let mut code = [0u64; MAX_WORDS];
         for k in keys {
             if k.len() != codec.arity {
-                return Err(KeySetError::Arity { expected: codec.arity, got: k.len() });
+                return Err(KeySetError::Arity {
+                    expected: codec.arity,
+                    got: k.len(),
+                });
             }
             if !codec.encode(k, &mut code) {
                 return Err(KeySetError::Range(k.to_vec()));
@@ -279,7 +298,10 @@ impl KeySet {
     /// Re-pack under another codec (error if a key does not fit).
     pub fn recode(&self, codec: KeyCodec) -> Result<KeySet, KeySetError> {
         if codec.arity != self.codec.arity {
-            return Err(KeySetError::Arity { expected: codec.arity, got: self.codec.arity });
+            return Err(KeySetError::Arity {
+                expected: codec.arity,
+                got: self.codec.arity,
+            });
         }
         let keys: Vec<Vec<i32>> = self.iter().collect();
         KeySet::from_keys(codec, keys.iter().map(|k| k.as_slice()))
@@ -303,7 +325,10 @@ impl KeySet {
                 d.extend_from_slice(self.code(i));
             }
         }
-        KeySet { codec: self.codec, data: d }
+        KeySet {
+            codec: self.codec,
+            data: d,
+        }
     }
     /// Write the key-set file; returns the digest.
     pub fn write(&self, mut w: impl Write) -> io::Result<String> {
@@ -340,11 +365,14 @@ impl KeySet {
             return Err(KeySetError::Format(format!("schema {}", h["schema"])));
         }
         let field = |f: &str| {
-            h[f].as_u64().ok_or_else(|| KeySetError::Format(format!("header field {f}")))
+            h[f].as_u64()
+                .ok_or_else(|| KeySetError::Format(format!("header field {f}")))
         };
         let codec = KeyCodec::new(field("arity")? as usize, field("bits")? as u32)?;
         if field("words")? as usize != codec.words {
-            return Err(KeySetError::Format("words do not match arity and bits".into()));
+            return Err(KeySetError::Format(
+                "words do not match arity and bits".into(),
+            ));
         }
         let count = field("count")? as usize;
         let want = h["digest"].as_str().unwrap_or("").to_string();
@@ -361,7 +389,9 @@ impl KeySet {
             }
             let cur = &data[i * w..];
             if i > 0 && data[(i - 1) * w..i * w] >= *cur {
-                return Err(KeySetError::Format(format!("key {i} not strictly increasing")));
+                return Err(KeySetError::Format(format!(
+                    "key {i} not strictly increasing"
+                )));
             }
             codec.decode(cur, &mut k);
             dig.key(&k);
@@ -372,7 +402,9 @@ impl KeySet {
         }
         let got = dig.finish();
         if got != want {
-            return Err(KeySetError::Format(format!("digest {got} != header {want}")));
+            return Err(KeySetError::Format(format!(
+                "digest {got} != header {want}"
+            )));
         }
         Ok(KeySet { codec, data })
     }
@@ -388,12 +420,19 @@ pub struct KeySetBuilder {
 
 impl KeySetBuilder {
     pub fn new(codec: KeyCodec) -> Self {
-        KeySetBuilder { codec, data: vec![], code: [0; MAX_WORDS] }
+        KeySetBuilder {
+            codec,
+            data: vec![],
+            code: [0; MAX_WORDS],
+        }
     }
     /// Add one key (error if it does not fit the codec).
     pub fn push(&mut self, key: &[i32]) -> Result<(), KeySetError> {
         if key.len() != self.codec.arity {
-            return Err(KeySetError::Arity { expected: self.codec.arity, got: key.len() });
+            return Err(KeySetError::Arity {
+                expected: self.codec.arity,
+                got: key.len(),
+            });
         }
         if !self.codec.encode(key, &mut self.code) {
             return Err(KeySetError::Range(key.to_vec()));
@@ -497,7 +536,10 @@ impl KeyTable {
         if (self.len() + 1) * 2 > self.slots.len() {
             self.grow();
         }
-        assert!(self.len() < EMPTY as usize - 1, "key table full (u32 indices)");
+        assert!(
+            self.len() < EMPTY as usize - 1,
+            "key table full (u32 indices)"
+        );
         let i = self.len() as u32;
         self.data.extend_from_slice(code);
         let mut p = hash_code(code) as usize & self.mask;
@@ -517,7 +559,10 @@ impl KeyTable {
     /// The keys with insertion index in `range`, as a [`KeySet`].
     pub fn range_keyset(&self, range: std::ops::Range<usize>) -> KeySet {
         let w = self.codec.words;
-        KeySet::from_codes(self.codec, self.data[range.start * w..range.end * w].to_vec())
+        KeySet::from_codes(
+            self.codec,
+            self.data[range.start * w..range.end * w].to_vec(),
+        )
     }
 }
 
@@ -529,7 +574,9 @@ mod tests {
     fn codec_order_is_lexicographic() {
         let c = KeyCodec::new(20, 6).unwrap();
         assert_eq!(c.words(), 2);
-        let a = [1, 2, 3, 0, -1, -32, 31, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let a = [
+            1, 2, 3, 0, -1, -32, 31, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        ];
         let mut b = a;
         b[11] = 2;
         let (mut ca, mut cb) = ([0u64; MAX_WORDS], [0u64; MAX_WORDS]);
@@ -544,8 +591,16 @@ mod tests {
     #[test]
     fn file_round_trip_and_digest_independent_of_bits() {
         let keys: Vec<Vec<i32>> = (0..500).map(|i| vec![i % 7, -(i % 5), i % 3, 1]).collect();
-        let s6 = KeySet::from_keys(KeyCodec::new(4, 6).unwrap(), keys.iter().map(|k| k.as_slice())).unwrap();
-        let s9 = KeySet::from_keys(KeyCodec::new(4, 9).unwrap(), keys.iter().map(|k| k.as_slice())).unwrap();
+        let s6 = KeySet::from_keys(
+            KeyCodec::new(4, 6).unwrap(),
+            keys.iter().map(|k| k.as_slice()),
+        )
+        .unwrap();
+        let s9 = KeySet::from_keys(
+            KeyCodec::new(4, 9).unwrap(),
+            keys.iter().map(|k| k.as_slice()),
+        )
+        .unwrap();
         assert_eq!(s6.len(), 105);
         assert_eq!(s6.digest(), s9.digest());
         let mut buf = vec![];

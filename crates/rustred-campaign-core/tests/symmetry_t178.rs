@@ -22,14 +22,25 @@ fn numerator_free(k: &[i32]) -> bool {
 fn t178_safe_symmetry_list() {
     let Some(t) = t178() else { return };
     let o = k3_common::oracle().unwrap();
-    let box409: Vec<Vec<i32>> = o.jsonl("T178B/F5_box_uncovered_409.jsonl").iter().map(k3_common::as_key).collect();
+    let box409: Vec<Vec<i32>> = o
+        .jsonl("T178B/F5_box_uncovered_409.jsonl")
+        .iter()
+        .map(k3_common::as_key)
+        .collect();
     assert_eq!(box409.len(), 409);
     let group = t178_group();
     assert_eq!(group.len(), 8);
     let sectors = Sectors::new((0..20).map(|s| s < 10).collect());
     let chk = CreditChecker::new(&t.disp, &t.bodies, &t.cmp, sectors, &NoFacts, true);
-    let pol = CreditPolicy { group: group.clone(), tier: Tier::K, frame: CreditFrame::Direct };
-    let polm = CreditPolicy { frame: CreditFrame::MappedBack, ..pol.clone() };
+    let pol = CreditPolicy {
+        group: group.clone(),
+        tier: Tier::K,
+        frame: CreditFrame::Direct,
+    };
+    let polm = CreditPolicy {
+        frame: CreditFrame::MappedBack,
+        ..pol.clone()
+    };
 
     let count = |keys: &[Vec<i32>]| -> (usize, usize, usize, usize) {
         let (mut with_cov, mut adopted, mut rejected_image_lower, mut mapped_back) = (0, 0, 0, 0);
@@ -38,7 +49,10 @@ fn t178_safe_symmetry_list() {
             let covered_image = match &r {
                 Ok(_) => true,
                 Err(refs) => refs.iter().any(|(_, x)| {
-                    !matches!(x, Refusal::NoImage | Refusal::ImageEqualsKey | Refusal::ImageNotCovered(_))
+                    !matches!(
+                        x,
+                        Refusal::NoImage | Refusal::ImageEqualsKey | Refusal::ImageNotCovered(_)
+                    )
                 }),
             };
             if covered_image {
@@ -50,7 +64,9 @@ fn t178_safe_symmetry_list() {
             // REJECTED condition (test only): some covered image g k with g k lower than k
             if group.iter().any(|g| {
                 g.apply(k).is_some_and(|gk| {
-                    gk != *k && matches!(chk.dispatch(&gk), Dispatch::Covered(_)) && t.cmp.lower(&gk, k)
+                    gk != *k
+                        && matches!(chk.dispatch(&gk), Dispatch::Covered(_))
+                        && t.cmp.lower(&gk, k)
                 })
             }) {
                 rejected_image_lower += 1;
@@ -61,7 +77,11 @@ fn t178_safe_symmetry_list() {
         }
         (with_cov, adopted, rejected_image_lower, mapped_back)
     };
-    let nf: Vec<Vec<i32>> = box409.iter().filter(|k| numerator_free(k)).cloned().collect();
+    let nf: Vec<Vec<i32>> = box409
+        .iter()
+        .filter(|k| numerator_free(k))
+        .cloned()
+        .collect();
     assert_eq!(nf.len(), 189);
     let (wc, ad, rj, mb) = count(&nf);
     println!(
@@ -74,19 +94,40 @@ fn t178_safe_symmetry_list() {
     assert_eq!(409 - ad, 334);
 
     // the typical failure (h13b D2): k = I(1^9, D10=2): its image I(D4=2) goes to a rule producing I(D2=2), higher
-    let k: Vec<i32> = (0..20).map(|s| if s == 9 { 2 } else if s < 10 { 1 } else { 0 }).collect();
+    let k: Vec<i32> = (0..20)
+        .map(|s| {
+            if s == 9 {
+                2
+            } else if s < 10 {
+                1
+            } else {
+                0
+            }
+        })
+        .collect();
     let refs = chk.serve(&k, &pol).unwrap().unwrap_err();
-    assert!(refs.iter().any(|(_, x)| matches!(x, Refusal::TermNotBelow { .. })), "{refs:?}");
+    assert!(
+        refs.iter()
+            .any(|(_, x)| matches!(x, Refusal::TermNotBelow { .. })),
+        "{refs:?}"
+    );
     assert!(refs.iter().all(|(_, x)| !matches!(x, Refusal::NoBody)));
 
     // the checker's envelope and loci point lists (read-only source; SKIP if absent)
     if let Ok(txt) = std::fs::read_to_string(S1) {
         let v: serde_json::Value = serde_json::from_str(&txt).unwrap();
         for (tag, want) in [("env_numfree", (716, 685, 310)), ("loci", (416, 416, 216))] {
-            let keys: Vec<Vec<i32>> =
-                v[tag]["rows"].as_array().unwrap().iter().map(|r| k3_common::as_key(&r["k"])).collect();
+            let keys: Vec<Vec<i32>> = v[tag]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| k3_common::as_key(&r["k"]))
+                .collect();
             let (wc, ad, rj, mb) = count(&keys);
-            println!("T178 {tag}: {} points, with covered image {wc}, credited {ad}, image-lower {rj}, mapped-back {mb}", keys.len());
+            println!(
+                "T178 {tag}: {} points, with covered image {wc}, credited {ad}, image-lower {rj}, mapped-back {mb}",
+                keys.len()
+            );
             assert_eq!((keys.len(), wc, ad), want);
         }
     } else {
@@ -124,8 +165,13 @@ fn t178_safe_symmetry_list() {
     // every credit names element, image and rule, and the image's dispatch winner is that rule
     let credited: HashSet<Vec<i32>> = cl.credits().iter().map(|c| c.key.clone()).collect();
     for c in cl.credits().iter().filter(|c| c.in_start) {
-        let Dispatch::Covered(r) = chk.dispatch(&c.image) else { panic!("credit image not covered") };
-        assert_eq!((t.disp.tables()[r.table].name.clone(), r.label), (c.rule.table.clone(), c.rule.label));
+        let Dispatch::Covered(r) = chk.dispatch(&c.image) else {
+            panic!("credit image not covered")
+        };
+        assert_eq!(
+            (t.disp.tables()[r.table].name.clone(), r.label),
+            (c.rule.table.clone(), c.rule.label)
+        );
         assert_eq!(group[c.element].apply(&c.key).unwrap(), c.image);
     }
     assert_eq!(credited.len() as u64, s.credited);

@@ -79,15 +79,27 @@ impl ExitRouting {
         let mut children = vec![];
         for c in v["children"].as_array().ok_or("no children")? {
             let dropped_pres: Vec<usize> = match &c["presentation_line_dropped"] {
-                serde_json::Value::Array(a) => a.iter().filter_map(|x| x.as_u64().map(|u| u as usize)).collect(),
-                x => x.as_u64().map(|u| vec![u as usize]).ok_or("child without presentation_line_dropped")?,
+                serde_json::Value::Array(a) => a
+                    .iter()
+                    .filter_map(|x| x.as_u64().map(|u| u as usize))
+                    .collect(),
+                x => x
+                    .as_u64()
+                    .map(|u| vec![u as usize])
+                    .ok_or("child without presentation_line_dropped")?,
             };
             let mut dropped_table_slots: Vec<usize> = dropped_pres
                 .iter()
-                .map(|&p| slot_map.iter().position(|&m| m == p).ok_or(format!("presentation slot {p} not mapped")))
+                .map(|&p| {
+                    slot_map
+                        .iter()
+                        .position(|&m| m == p)
+                        .ok_or(format!("presentation slot {p} not mapped"))
+                })
                 .collect::<Result<_, _>>()?;
             dropped_table_slots.sort_unstable();
-            let route_digest = (!c["route_chosen"].is_null()).then(|| sha256_tag(c["route_chosen"].to_string().as_bytes()));
+            let route_digest = (!c["route_chosen"].is_null())
+                .then(|| sha256_tag(c["route_chosen"].to_string().as_bytes()));
             children.push(ExitChild {
                 dropped_table_slots,
                 fate: c["fate"].as_str().unwrap_or("").to_string(),
@@ -108,9 +120,12 @@ impl ExitRouting {
 
     /// The child record for a dropped-line mask, if any.
     pub fn child(&self, dropped: u64) -> Option<&ExitChild> {
-        self.children
-            .iter()
-            .find(|c| c.dropped_table_slots.iter().fold(0u64, |a, &s| a | (1 << s)) == dropped)
+        self.children.iter().find(|c| {
+            c.dropped_table_slots
+                .iter()
+                .fold(0u64, |a, &s| a | (1 << s))
+                == dropped
+        })
     }
 }
 
@@ -127,8 +142,18 @@ pub fn check_exits(cl: &super::Closure, routing: Option<&ExitRouting>) -> Vec<Ex
         let ks = sets.get(&m);
         let (status, class, lane, rd) = match routing.and_then(|r| r.child(m)) {
             None => ("exit_undispatched".to_string(), None, None, None),
-            Some(c) if c.fate == "routed" => ("routed".to_string(), c.class.clone(), c.lane.clone(), c.route_digest.clone()),
-            Some(c) => (format!("not_routed:{}", c.fate), c.class.clone(), c.lane.clone(), c.route_digest.clone()),
+            Some(c) if c.fate == "routed" => (
+                "routed".to_string(),
+                c.class.clone(),
+                c.lane.clone(),
+                c.route_digest.clone(),
+            ),
+            Some(c) => (
+                format!("not_routed:{}", c.fate),
+                c.class.clone(),
+                c.lane.clone(),
+                c.route_digest.clone(),
+            ),
         };
         out.push(ExitStatus {
             dropped: m,
