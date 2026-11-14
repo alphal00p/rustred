@@ -297,6 +297,7 @@ fn invalid_requests_are_input_errors() {
     with("zero denominator", &|s| s["d_list"] = json!(["1/0"]));
     with("not a rational", &|s| s["d_list"] = json!(["x"]));
     with("two slashes", &|s| s["d_list"] = json!(["1/2/3"]));
+    with("one value twice", &|s| s["d_list"] = json!(["1/2", "2/4"]));
     with("derivative slot", &|s| s["derivative_slot"] = json!(6));
     with("top sector", &|s| s["top_sector"] = json!(64));
     with("router", &|s| s["router"] = json!("global"));

@@ -613,11 +613,18 @@ fn run_phases<const N: usize>(
             )));
         }
     }
-    let d_values: Vec<(String, Rational)> = spec
-        .d_list
-        .iter()
-        .map(|value| Ok((value.clone(), parse_rational(value)?)))
-        .collect::<Result<_, AppError>>()?;
+    // Each value by its canonical spelling (it names the file), and once:
+    // `1/2` and `2/4` are one value.
+    let mut d_values: Vec<(String, Rational)> = Vec::with_capacity(spec.d_list.len());
+    for text in &spec.d_list {
+        let value = parse_rational(text)?;
+        if d_values.iter().any(|(_, seen)| *seen == value) {
+            return Err(AppError::input(format!(
+                "d_list gives the value {value} twice ({text:?})"
+            )));
+        }
+        d_values.push((value.to_string(), value));
+    }
     let top = spec
         .top_sector
         .unwrap_or_else(|| sector_id(&targets[0][..arity]));
