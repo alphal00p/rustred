@@ -11,11 +11,13 @@
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
 | 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
 | 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
-| 25 | c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci | crashed | nothing | rerun_without_elision |
-| 26 | c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto) | crashed | nothing | unverifiable_kind |
+| 25 | c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci | sealed_with_elided | nothing | rerun_without_elision |
+| 26 | c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto) | unverifiable_kind | nothing | unverifiable_kind |
 | 9 | c=21, O | killed_time | nothing | ladder_decides |
 | 10 | c=22, O | killed_memory | nothing | next_memory_class_or_rung |
-| 11 | c=30, O | interrupted | nothing | resume_on_campaign_resume |
+| 11b | c=30, O, K=time or unresponsive (the supervisor stopped the child for time or silence) | killed_time | nothing | ladder_decides |
+| 11c | c=30, O, K=memory (the supervisor stopped the child for memory) | killed_memory | nothing | next_memory_class_or_rung |
+| 11 | c=30, O, K=none or stop | interrupted | nothing | resume_on_campaign_resume |
 | 12 | c=40 | usage_error | nothing | stop_launching_kind |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |

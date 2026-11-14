@@ -167,7 +167,9 @@
         "setup_error",
         "lost",
         "decided_negative",
-        "undecided"
+        "undecided",
+        "sealed_with_elided",
+        "unverifiable_kind"
       ],
       "description": "as-built contract classify::OutcomeKind (= ledger FinishClass)"
     },
