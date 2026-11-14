@@ -1,7 +1,8 @@
 //! WP-0b (lane int): the contract crate's structs round-trip the WP-0a examples of their formats byte for byte after
 //! canonicalisation (schemas in `crates/rustred-campaign-core/schemas/`), and the contract's RECORD canonical form
-//! (`canon::canonical_line`) is compared with the shared vectors `schemas/canon-vectors.json` (`record_rule`; rows with
-//! `agree: false` are where it differs from the plan's DOCUMENT rule of 3.3.0, listed as a disagreement).
+//! (`canon::canonical_line`) is compared with the shared vectors `schemas/canon-vectors.json`: since lane contractfix
+//! it IS the plan's 3.3.0 rule (plus removal of volatile keys), so `record_rule` must equal `document_rule` on every
+//! vector.
 
 use rustred_campaign_contract::events::EventLine;
 use rustred_campaign_contract::fake::FakeScript;
@@ -60,19 +61,14 @@ fn record_canonical_form_on_shared_vectors() {
     let v: Value =
         serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap())
             .unwrap();
-    let mut differ = Vec::new();
+    let mut n = 0;
     for x in v["vectors"].as_array().unwrap() {
         let input = x["input"].as_str().unwrap();
         let got = String::from_utf8(canonical_line(input.as_bytes()).unwrap()).unwrap();
-        assert_eq!(
-            got,
-            x["record_rule"].as_str().unwrap(),
-            "vector {}",
-            x["name"]
-        );
-        if !x["agree"].as_bool().unwrap() {
-            differ.push(x["name"].as_str().unwrap().to_string());
-        }
+        assert_eq!(got, x["record_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        assert_eq!(got, x["document_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        assert!(x["agree"].as_bool().unwrap(), "vector {}", x["name"]);
+        n += 1;
     }
-    println!("record rule differs from the document rule (3.3.0) on: {differ:?}");
+    println!("record rule == document rule (3.3.0) on all {n} vectors");
 }

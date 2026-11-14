@@ -10,12 +10,14 @@
 //!    with the same decoded key are an error ([`CanonError::DuplicateKey`]);
 //! 3. the top-level keys that are volatile for the record's `type` are removed ([`is_volatile_with`]);
 //! 4. all insignificant whitespace is removed;
-//! 5. numbers are copied verbatim, and in every NON-volatile position a number must have the canonical spelling
-//!    `-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?` other than `-0` (no exponent, no trailing zero in the fraction, no `.0`,
-//!    no negative zero): every terminating decimal value has exactly one such spelling, so two spellings of one
-//!    value can never give two digests of one record, nor one spelling two values. A non-canonical number in a
-//!    kept position is [`CanonError::NonCanonicalNumber`] (a contract violation); writers produce the spelling of
-//!    an `f64` with [`decimal_f64`]. Numbers inside volatile members only have to be valid JSON.
+//! 5. numbers are DECODED to their value and re-encoded (plan 3.3.0, coordinator addendum 2): an integer token (no
+//!    fraction, no exponent) is kept exactly whatever its size, `-0` becomes `0`; a token with a fraction or an
+//!    exponent is its IEEE f64 value written as serde_json (ryu) writes it (`1e2` -> `100.0`, `1.0` -> `1.0`); a value
+//!    outside the f64 range is [`CanonError::NumberOutOfRange`] (readers reject it). Two spellings of one value give
+//!    one form; distinct forms are distinct values for every reader.
+//!
+//! This is ONE canonical-JSON rule for the whole campaign: the plan's 3.3.0 rule (`validate.py`, `schema::canon` of
+//! rustred-campaign-core, floats allowed); the RECORD digest is that form with the volatile top-level keys removed.
 //!
 //! The canonical digest of a stream is the BLAKE3 over the canonical lines, each followed by "\n", in file order.
 //! The scanner works over the line's bytes in one pass: memory is a small multiple of the line (each object level
@@ -109,10 +111,6 @@ pub enum CanonError {
     NumberOutOfRange {
         offset: usize,
     },
-    /// A number outside the canonical spelling in a non-volatile position.
-    NonCanonicalNumber {
-        offset: usize,
-    },
     /// A stream ends with bytes after its last "\n".
     TornLine {
         line: u64,
@@ -137,10 +135,6 @@ impl fmt::Display for CanonError {
             CanonError::NumberOutOfRange { offset } => {
                 write!(f, "number at byte {offset} is outside the f64 range")
             }
-            CanonError::NonCanonicalNumber { offset } => write!(
-                f,
-                "number at byte {offset} is not in canonical spelling (non-volatile position)"
-            ),
             CanonError::TornLine { line } => {
                 write!(f, "torn last line (line {line} has no newline)")
             }
@@ -160,49 +154,6 @@ impl From<io::Error> for CanonError {
 pub const MAX_DEPTH: usize = 128;
 
 type R<T> = Result<T, CanonError>;
-
-/// The canonical spelling of a finite `f64` (`None` for NaN / infinities): the shortest round-trip decimal without
-/// exponent, `1.0` -> `1`, `-0.0` -> `0`. This is what a conforming writer puts in a non-volatile position.
-pub fn decimal_f64(x: f64) -> Option<String> {
-    if !x.is_finite() {
-        return None;
-    }
-    let s = format!("{x}");
-    Some(if s == "-0" { "0".to_string() } else { s })
-}
-
-/// Whether a JSON number token has the canonical spelling (see the module docs).
-pub fn is_canonical_number(tok: &str) -> bool {
-    let b = tok.as_bytes();
-    let mut i = 0;
-    let neg = b.first() == Some(&b'-');
-    if neg {
-        i = 1;
-    }
-    let int_start = i;
-    match b.get(i) {
-        Some(b'0') => i += 1,
-        Some(b'1'..=b'9') => {
-            while b.get(i).is_some_and(u8::is_ascii_digit) {
-                i += 1;
-            }
-        }
-        _ => return false,
-    }
-    let int_zero = &b[int_start..i] == b"0";
-    if i == b.len() {
-        return !(neg && int_zero);
-    }
-    if b[i] != b'.' {
-        return false;
-    }
-    i += 1;
-    let fs = i;
-    while b.get(i).is_some_and(u8::is_ascii_digit) {
-        i += 1;
-    }
-    i == b.len() && i > fs && b[i - 1] != b'0'
-}
 
 const NONE: usize = usize::MAX;
 
@@ -286,8 +237,6 @@ struct Member {
     key: Vec<u8>,
     key_enc: List,
     val: List,
-    /// Offset (in the line) of the first non-canonical number inside the value.
-    noncanon: Option<usize>,
     /// Decoded value when it is a string and the caller asked for it.
     str_val: Option<String>,
 }
@@ -452,9 +401,9 @@ impl<'a> P<'a> {
         }
     }
 
-    /// A number, copied verbatim; returns whether its spelling is canonical. A number whose value is outside the
-    /// f64 range (e.g. `1e999999`) is refused anywhere: readers (serde_json) reject it (audit B F9).
-    fn number(&mut self, out: &mut List) -> R<bool> {
+    /// A number, decoded and re-encoded (module docs, point 5). A number whose value is outside the f64 range (e.g.
+    /// `1e999999`) is refused anywhere: readers (serde_json) reject it (audit B F9).
+    fn number(&mut self, out: &mut List) -> R<()> {
         let s = self.i;
         let digits = |p: &mut P| {
             let st = p.i;
@@ -492,14 +441,29 @@ impl<'a> P<'a> {
         }
         // the token is ASCII by construction
         let tok = std::str::from_utf8(&self.b[s..self.i]).unwrap_or("");
-        if !plain && tok.parse::<f64>().map_or(true, |x| x.is_infinite()) {
+        if plain && !tok.contains('.') {
+            // an integer: exact, any size; `-0` is `0`
+            if tok == "-0" {
+                let k = self.ar.owned.len();
+                self.ar.owned.push(b"0".to_vec());
+                self.ar.push(out, Piece::Own(k));
+            } else {
+                self.ar.push(out, Piece::Line(s, self.i));
+            }
+            return Ok(());
+        }
+        // a fraction or an exponent: its f64 value, written as serde_json (ryu) writes it
+        let x: f64 = tok
+            .parse()
+            .map_err(|_| CanonError::NumberOutOfRange { offset: s })?;
+        if !x.is_finite() {
             return Err(CanonError::NumberOutOfRange { offset: s });
         }
-        if plain && tok.len() > 309 && tok.parse::<f64>().map_or(true, |x| x.is_infinite()) {
-            return Err(CanonError::NumberOutOfRange { offset: s });
-        }
-        self.ar.push(out, Piece::Line(s, self.i));
-        Ok(is_canonical_number(tok))
+        let f = serde_json::to_string(&x).map_err(|_| CanonError::NumberOutOfRange { offset: s })?;
+        let k = self.ar.owned.len();
+        self.ar.owned.push(f.into_bytes());
+        self.ar.push(out, Piece::Own(k));
+        Ok(())
     }
 
     fn literal(&mut self, lit: &'static [u8], out: &mut List) -> R<()> {
@@ -512,15 +476,16 @@ impl<'a> P<'a> {
         }
     }
 
-    /// One value, canonicalised into `out`; returns the offset of its first non-canonical number.
-    fn value(&mut self, out: &mut List, depth: usize) -> R<Option<usize>> {
+    /// One value, canonicalised into `out`.
+    fn value(&mut self, out: &mut List, depth: usize) -> R<()> {
         if depth > MAX_DEPTH {
             return Err(CanonError::TooDeep);
         }
         match self.peek() {
             Some(b'{') => {
                 let m = self.members(depth, &[])?;
-                Ok(self.join_members(out, m))
+                self.join_members(out, m);
+                Ok(())
             }
             Some(b'[') => {
                 self.i += 1;
@@ -529,9 +494,8 @@ impl<'a> P<'a> {
                 if self.peek() == Some(b']') {
                     self.i += 1;
                     self.ar.push(out, Piece::Lit(b"]"));
-                    return Ok(None);
+                    return Ok(());
                 }
-                let mut nc = None;
                 let mut first = true;
                 loop {
                     self.ws();
@@ -539,29 +503,24 @@ impl<'a> P<'a> {
                         self.ar.push(out, Piece::Lit(b","));
                     }
                     first = false;
-                    let v = self.value(out, depth + 1)?;
-                    nc = nc.or(v);
+                    self.value(out, depth + 1)?;
                     self.ws();
                     match self.peek() {
                         Some(b',') => self.i += 1,
                         Some(b']') => {
                             self.i += 1;
                             self.ar.push(out, Piece::Lit(b"]"));
-                            return Ok(nc);
+                            return Ok(());
                         }
                         _ => return Err(self.err("expected ',' or ']'")),
                     }
                 }
             }
-            Some(b'"') => self.string(out, None).map(|_| None),
-            Some(b't') => self.literal(b"true", out).map(|_| None),
-            Some(b'f') => self.literal(b"false", out).map(|_| None),
-            Some(b'n') => self.literal(b"null", out).map(|_| None),
-            Some(b'-' | b'0'..=b'9') => {
-                let at = self.i;
-                let canon = self.number(out)?;
-                Ok((!canon).then_some(at))
-            }
+            Some(b'"') => self.string(out, None),
+            Some(b't') => self.literal(b"true", out),
+            Some(b'f') => self.literal(b"false", out),
+            Some(b'n') => self.literal(b"null", out),
+            Some(b'-' | b'0'..=b'9') => self.number(out),
             _ => Err(self.err("expected a value")),
         }
     }
@@ -589,21 +548,19 @@ impl<'a> P<'a> {
             self.ws();
             let mut val = List::EMPTY;
             let mut str_val = None;
-            let noncanon = if self.peek() == Some(b'"')
+            if self.peek() == Some(b'"')
                 && want_str.iter().any(|w| w.as_bytes() == key.as_slice())
             {
                 let mut d = Vec::new();
                 self.string(&mut val, Some(&mut d))?;
                 str_val = Some(String::from_utf8(d).expect("decoded from UTF-8"));
-                None
             } else {
-                self.value(&mut val, depth + 1)?
-            };
+                self.value(&mut val, depth + 1)?;
+            }
             m.push(Member {
                 key,
                 key_enc,
                 val,
-                noncanon,
                 str_val,
             });
             self.ws();
@@ -627,10 +584,9 @@ impl<'a> P<'a> {
         Ok(m)
     }
 
-    /// `{` members `}` (already sorted) appended to `out`; returns the first non-canonical number offset.
-    fn join_members(&mut self, out: &mut List, m: Vec<Member>) -> Option<usize> {
+    /// `{` members `}` (already sorted) appended to `out`.
+    fn join_members(&mut self, out: &mut List, m: Vec<Member>) {
         self.ar.push(out, Piece::Lit(b"{"));
-        let mut nc = None;
         for (k, mm) in m.into_iter().enumerate() {
             if k > 0 {
                 self.ar.push(out, Piece::Lit(b","));
@@ -638,10 +594,8 @@ impl<'a> P<'a> {
             self.ar.cat(out, mm.key_enc);
             self.ar.push(out, Piece::Lit(b":"));
             self.ar.cat(out, mm.val);
-            nc = nc.or(mm.noncanon);
         }
         self.ar.push(out, Piece::Lit(b"}"));
-        nc
     }
 }
 
@@ -719,9 +673,6 @@ pub fn canonical_record(line: &[u8]) -> Result<CanonRecord, CanonError> {
         let key = String::from_utf8(mm.key).expect("decoded from UTF-8");
         if is_volatile_with(ty.as_deref(), &key, family_digest) {
             continue;
-        }
-        if let Some(offset) = mm.noncanon {
-            return Err(CanonError::NonCanonicalNumber { offset });
         }
         if !first {
             bytes.push(b',');
@@ -818,7 +769,8 @@ pub fn top_level_float_keys(line: &[u8]) -> Result<Vec<String>, CanonError> {
         .iter()
         .filter(|(_, r)| {
             let v = &c.bytes[r.clone()];
-            matches!(v.first(), Some(b'-' | b'0'..=b'9')) && v.contains(&b'.')
+            matches!(v.first(), Some(b'-' | b'0'..=b'9'))
+                && v.iter().any(|b| matches!(b, b'.' | b'e'))
         })
         .map(|(k, _)| k.clone())
         .collect())
@@ -938,10 +890,6 @@ mod tests {
             r#"{"a":1.}"#,
             r#"{"a":"\ud800"}"#,
             r#"{"a":"\udc00x"}"#,
-            r#"{"a":1.0}"#,
-            r#"{"a":1e0}"#,
-            r#"{"a":-0}"#,
-            r#"{"a":0.50}"#,
             r#"{"type":"rule","seconds_search":1e999999}"#,
             "{\"a\":\"\t\"}",
         ] {
@@ -955,29 +903,19 @@ mod tests {
         ));
         // a pair is fine
         assert_eq!(c(r#"{"a":"😀"}"#), "{\"a\":\"\u{1f600}\"}");
-        // non-canonical numbers are fine inside volatile members only
-        assert_eq!(
-            c(r#"{"type":"rule","seconds_search":1.0e3,"x":0.5}"#),
-            r#"{"type":"rule","x":0.5}"#
-        );
+
     }
 
     #[test]
     fn numbers() {
-        for ok in ["0", "-1", "10", "0.5", "-0.25", "123.456"] {
-            assert!(is_canonical_number(ok), "{ok}");
-        }
-        for bad in ["-0", "1.0", "1e0", "0.50", "01", "1.", "-0.0", "1E2"] {
-            assert!(!is_canonical_number(bad), "{bad}");
-        }
-        assert_eq!(decimal_f64(1.0).unwrap(), "1");
-        assert_eq!(decimal_f64(-0.0).unwrap(), "0");
-        assert_eq!(decimal_f64(1e-7).unwrap(), "0.0000001");
-        assert_eq!(decimal_f64(0.1).unwrap(), "0.1");
-        assert!(decimal_f64(f64::NAN).is_none());
-        for x in [1.0, 0.5, 1e-7, 1e20, -3.25, 123456.789] {
-            assert!(is_canonical_number(&decimal_f64(x).unwrap()));
-        }
+        // plan 3.3.0: integers exact, -0 -> 0, fractions / exponents as serde_json writes the f64
+        assert_eq!(c(r#"{"a":-0,"b":18446744073709551616}"#), r#"{"a":0,"b":18446744073709551616}"#);
+        assert_eq!(c(r#"{"x":1e2,"y":1.0,"z":0.50,"w":1E-7}"#), r#"{"w":1e-7,"x":100.0,"y":1.0,"z":0.5}"#);
+        assert_eq!(c(r#"{"x":1e2}"#), c(r#"{"x":100.0}"#));
+        assert!(matches!(
+            canonical_line(br#"{"x":1e999}"#),
+            Err(CanonError::NumberOutOfRange { .. })
+        ));
     }
 
     #[test]
