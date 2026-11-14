@@ -40,5 +40,6 @@ pub mod records;
 pub mod registry;
 pub mod replay;
 pub mod screen;
+pub mod symface;
 pub mod symmasters;
 pub mod symmetry;
