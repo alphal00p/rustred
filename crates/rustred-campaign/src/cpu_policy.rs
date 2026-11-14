@@ -270,31 +270,65 @@ impl CpuLease {
         self.locks.iter().map(AsRawFd::as_raw_fd).collect()
     }
 
-    /// [`Self::release`], then a probe of every lock file: a CPU whose flock is still held by another process is
-    /// returned with the holders found (never signalled).
-    pub fn release_checked(self) -> (io::Result<()>, Vec<HeldAfterRelease>) {
-        let pairs: Vec<(usize, PathBuf)> = self
-            .cpus
-            .iter()
-            .copied()
-            .zip(self.lock_paths.iter().cloned())
-            .collect();
-        let r = self.release();
-        let mut held = Vec::new();
-        if r.is_ok() {
-            for (cpu, path) in pairs {
-                let Ok(f) = OpenOptions::new().read(true).write(true).open(&path) else {
-                    continue;
-                };
-                if let Err(std::fs::TryLockError::WouldBlock) = f.try_lock() {
-                    held.push(HeldAfterRelease {
-                        cpu,
-                        holders: lock_holders(&path),
-                    });
-                }
+    /// Release with a CHECK of every lock (gate re-audit B m2): our flocks are dropped first, then each CPU's lock is
+    /// probed. A CPU whose flock is STILL held by another process (an unmarked survivor of the job that inherited the
+    /// descriptor) keeps its claim: no RELEASED line is written for it (pickers keep excluding it, and the restart's
+    /// `reconcile_own_claims` lists it in `held_by` with the holders), and it is returned with the holders found. Free
+    /// CPUs get the RELEASED line. Nothing is ever signalled. Bounded by [`DEFAULT_IO_TIMEOUT`].
+    pub fn release_checked(mut self) -> (io::Result<()>, Vec<HeldAfterRelease>) {
+        if self.released {
+            return (Ok(()), Vec::new());
+        }
+        self.released = true;
+        {
+            let mut b = lock(&self.book);
+            for c in &self.cpus {
+                b.in_use.remove(c);
             }
         }
-        (r, held)
+        let locks = std::mem::take(&mut self.locks);
+        let cpus = self.cpus.clone();
+        let paths = self.lock_paths.clone();
+        let ledger = self.ledger.clone();
+        let label = self.label.clone();
+        let work = move || {
+            drop(locks);
+            let mut free = Vec::new();
+            let mut held = Vec::new();
+            if paths.is_empty() {
+                free = cpus.clone();
+            }
+            for (&cpu, path) in cpus.iter().zip(paths.iter()) {
+                let busy = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(path)
+                    .is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+                if busy {
+                    held.push(HeldAfterRelease {
+                        cpu,
+                        holders: lock_holders(path),
+                    });
+                } else {
+                    free.push(cpu);
+                }
+            }
+            let r = match &ledger {
+                Some(w) if !free.is_empty() => append_line(&w.path, &w.release_line(&free, &label)),
+                _ => Ok(()),
+            };
+            (r, held)
+        };
+        match run_bounded(DEFAULT_IO_TIMEOUT, work).done() {
+            Some(x) => x,
+            None => (
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "lease release still in progress (background)",
+                )),
+                Vec::new(),
+            ),
+        }
     }
 
     /// Release now: RELEASED line, then the flocks, on a helper thread; waits at most [`DEFAULT_IO_TIMEOUT`] for the

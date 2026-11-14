@@ -193,6 +193,8 @@ fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> 
         };
         let f = format!("{task}/{tid}/stat");
         match fs::read(&f) {
+            // A task being released reads as empty: it is gone.
+            Ok(b) if b.is_empty() => {}
             Ok(b) => {
                 let st = parse_stat(pid, &String::from_utf8_lossy(&b), page_size())
                     .ok_or_else(|| format!("{f}: unparsable"))?;
@@ -215,6 +217,7 @@ fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> 
 pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
     let sp = format!("/proc/{pid}/stat");
     let stat = match fs::read(&sp) {
+        Ok(b) if b.is_empty() => return FactRead::Gone,
         Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
             Some(s) => s,
             None => return FactRead::Failed(format!("{sp}: unparsable")),
@@ -228,6 +231,16 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
         Err(e) => return FactRead::Failed(e),
     };
     let dead = stat.is_dead() && !any_live;
+    if dead {
+        // A zombie without live threads: no survivor; nothing more to read (fast path for re-parented zombies).
+        return FactRead::Facts(ProcFacts {
+            stat,
+            dead,
+            real_uid: u32::MAX,
+            marker: MarkerFact::Absent,
+            all_stopped: false,
+        });
+    }
     let real_uid = match read_status_ruid(pid) {
         Ok(Some(u)) => u,
         Ok(None) => return FactRead::Gone,
@@ -239,7 +252,9 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
             _ => format!("/proc/{pid}/environ"),
         };
         match fs::read(&path) {
-            Ok(b) if b.is_empty() => MarkerFact::Unreadable("environ empty".into()),
+            // An empty environ of a LIVE process (not dead, pidfd not exited: checked by the caller) is `env -i`: no
+            // marker. (A process without mm is a kernel thread, never of our uid, or an exiting one, which cannot fork.)
+            Ok(b) if b.is_empty() => MarkerFact::Absent,
             Ok(b) => match super::marker_in_environ(&b) {
                 Some(v) => MarkerFact::Value(v),
                 None => MarkerFact::Absent,

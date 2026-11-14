@@ -109,6 +109,14 @@ fn me() -> u32 {
     std::process::id()
 }
 
+/// Opt-in trace of the hunt's decisions to stderr (`RR_HUNT_TRACE=1`; diagnostics, no secrets: pids, states, ids).
+fn trace(msg: impl FnOnce() -> String) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
+        eprintln!("HUNT {}", msg());
+    }
+}
+
 fn own_session() -> u32 {
     // SAFETY: getsid(0) reads the caller's session id.
     unsafe { libc::getsid(0) }.max(0) as u32
@@ -282,13 +290,60 @@ impl Hunt<'_> {
         self.cancel.load(Ordering::SeqCst) || Instant::now() >= self.deadline
     }
 
+    /// Our direct children with their start times (registered leaders excluded: other jobs' live leaders and J's own
+    /// zombie). Strict: a failed enumeration or stat read is an error; a child that vanished is left out.
+    fn snapshot_tops(&self) -> Result<BTreeMap<u32, u64>, String> {
+        let kids = own_children().map_err(|e| format!("own children: {e}"))?;
+        let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
+        let mut out = BTreeMap::new();
+        for pid in kids {
+            if reg.contains(&pid) {
+                continue;
+            }
+            match crate::resources::read_stat(pid) {
+                Ok(Some(st)) => {
+                    out.insert(pid, st.start_ticks);
+                }
+                Ok(None) => {}
+                Err(e) => return Err(format!("stat of child {pid}: {e}")),
+            }
+        }
+        Ok(out)
+    }
+
+    fn trace_class(&self, pid: u32, parent: Option<u32>, class: &Class) {
+        trace(|| {
+            format!(
+                "sid {} pid {pid} parent {parent:?}: {}",
+                self.s.sid,
+                match class {
+                    Class::Ours(p, f) => format!("OURS {p:?} state {}", f.stat.state),
+                    Class::NotOurs { unattributed, facts } => format!(
+                        "not ours (unattributed {unattributed}) {:?}",
+                        facts.as_ref().map(|f| (f.stat.session, f.marker.clone()))
+                    ),
+                    Class::Dead => "dead".into(),
+                    Class::Inconclusive(e) => format!("INCONCLUSIVE {e}"),
+                }
+            )
+        });
+    }
+
     /// Step 2: stop every member until a fixed point. Ok(members) at the fixed point; Err(reason) when the bound is hit.
+    ///
+    /// Why a fixed point needs a STABLE set of our children (and not just "every candidate examined was dead or not
+    /// ours"): a candidate alive when the children list was read but dead when examined may have handed off to a child
+    /// born after that read (the relay of re-audit B); that child is re-parented to us when the candidate dies. So every
+    /// round ends with a fresh snapshot of our children (pid AND start time): any entry not examined yet sends the loop
+    /// round again; the newest children are examined first.
     fn freeze_fixed_point(&mut self) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
         let mut known: BTreeMap<u32, Member> = BTreeMap::new();
         if self.s.pinned {
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
         }
         let me = me();
+        // Direct children already examined in this hunt, by (pid, start).
+        let mut tops_seen: BTreeMap<u32, u64> = BTreeMap::new();
         let mut last_reason = String::from("no round completed");
         for round in 0..self.s.max_rounds {
             if self.out_of_time() {
@@ -301,9 +356,16 @@ impl Hunt<'_> {
             let mut inconclusive: Option<String> = None;
             let mut queue: Vec<(u32, Option<u32>)> = Vec::new();
             match self.s.enumeration {
-                Enumeration::SubreaperTree => match own_children() {
-                    Ok(k) => queue.extend(k.into_iter().map(|p| (p, Some(me)))),
-                    Err(e) => inconclusive = Some(format!("own children: {e}")),
+                Enumeration::SubreaperTree => match self.snapshot_tops() {
+                    Ok(t) => {
+                        for (pid, start) in t {
+                            if tops_seen.get(&pid) != Some(&start) {
+                                tops_seen.insert(pid, start);
+                                queue.push((pid, Some(me)));
+                            }
+                        }
+                    }
+                    Err(e) => inconclusive = Some(e),
                 },
                 Enumeration::FullProc => match strict_listing_counted() {
                     Ok((all, _)) => queue.extend(
@@ -324,16 +386,21 @@ impl Hunt<'_> {
                 }
             }
             let mut seen: BTreeSet<u32> = BTreeSet::new();
+            trace(|| format!("sid {} round {round} queue {queue:?} known {:?}", self.s.sid, known.keys().collect::<Vec<_>>()));
+            // pop() takes the highest pid first: the newest child (a re-forking process's current member).
+            queue.sort_unstable();
             while let Some((pid, parent)) = queue.pop() {
                 if known.contains_key(&pid) || !seen.insert(pid) {
                     continue;
                 }
                 let (class, fd) = self.classify(pid, parent);
+                self.trace_class(pid, parent, &class);
                 match class {
                     Class::Ours(proof, facts) => {
                         let Some(fd) = fd else { continue };
                         match self.stop(&fd, &facts, &proof) {
                             Stop::Stopped => {
+                                trace(|| format!("sid {} stopped {pid}; children {:?}", self.s.sid, children_of(pid)));
                                 changed = true;
                                 if self.s.enumeration == Enumeration::SubreaperTree {
                                     match children_of(pid) {
@@ -352,7 +419,13 @@ impl Hunt<'_> {
                     }
                     Class::NotOurs { unattributed: true, facts: Some(f) } => self.note_unattributed(&f),
                     Class::NotOurs { .. } | Class::Dead => {}
-                    Class::Inconclusive(e) => inconclusive = Some(e),
+                    Class::Inconclusive(e) => {
+                        // Examine it again next round.
+                        if parent == Some(me) {
+                            tops_seen.remove(&pid);
+                        }
+                        inconclusive = Some(e);
+                    }
                 }
             }
             // Every member still stopped? (a member could be continued by a SIGCONT sent before it was found.)
@@ -381,14 +454,30 @@ impl Hunt<'_> {
                 }
             }
             request_reap();
-            match inconclusive {
-                None if !changed => return Ok(known),
-                Some(e) => {
-                    last_reason = e;
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-                None => last_reason = "new members in the last round".into(),
+            if let Some(e) = inconclusive {
+                last_reason = e;
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
             }
+            if changed {
+                last_reason = "new members in the last round".into();
+                continue;
+            }
+            // Stability: no child of ours appeared since the round's snapshot.
+            if self.s.enumeration == Enumeration::SubreaperTree {
+                match self.snapshot_tops() {
+                    Ok(t) if t.iter().all(|(p, st)| tops_seen.get(p) == Some(st)) => {}
+                    Ok(_) => {
+                        last_reason = "children appeared during the round (hand-off?)".into();
+                        continue;
+                    }
+                    Err(e) => {
+                        last_reason = e;
+                        continue;
+                    }
+                }
+            }
+            return Ok(known);
         }
         Err((
             format!(
@@ -410,7 +499,9 @@ impl Hunt<'_> {
         let mut pending: Vec<Member> = Vec::new();
         for (_, m) in known {
             let t = self.target(&m.facts, m.proof.clone());
-            match guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders)) {
+            let v = guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders));
+            trace(|| format!("sid {} SIGKILL pid {}: {v:?}", self.s.sid, m.facts.stat.pid));
+            match v {
                 Verdict::Delivered | Verdict::Gone => {
                     self.killed.push(record(&m.facts));
                     pending.push(m);
@@ -437,7 +528,9 @@ impl Hunt<'_> {
         left
     }
 
-    /// One proof pass. Ok(survivors) when conclusive; Err(reason) when not.
+    /// One proof pass. Ok(survivors) when conclusive; Err(reason) when not. In tree mode the pass is bracketed by two
+    /// snapshots of our children: a child that appears in between and is ours (or cannot be classified) makes the pass
+    /// inconclusive (a candidate that died while the pass ran may have handed off to it).
     fn pass(&mut self) -> Result<Vec<LeftoverRecord>, String> {
         let me = me();
         let mut survivors = Vec::new();
@@ -446,14 +539,39 @@ impl Hunt<'_> {
         }
         match self.s.enumeration {
             Enumeration::SubreaperTree => {
-                let mut tops = own_children().map_err(|e| format!("own children: {e}"))?;
-                tops.extend(own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))?);
+                let mut t0 = self.snapshot_tops()?;
+                let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
+                for pid in own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))? {
+                    if !t0.contains_key(&pid)
+                        && !reg.contains(&pid)
+                        && let Ok(Some(st)) = crate::resources::read_stat(pid)
+                    {
+                        t0.insert(pid, st.start_ticks);
+                    }
+                }
+                let mut tops: Vec<u32> = t0.keys().copied().collect();
+                tops.sort_unstable_by(|a, b| b.cmp(a));
                 for pid in tops {
-                    match self.classify(pid, Some(me)) {
-                        (Class::Ours(_, f), _) => survivors.push(record(&f)),
-                        (Class::Inconclusive(e), _) => return Err(e),
-                        (Class::NotOurs { unattributed: true, facts: Some(f) }, _) => {
-                            self.note_unattributed(&f)
+                    let (class, _) = self.classify(pid, Some(me));
+                    match class {
+                        Class::Ours(_, f) => survivors.push(record(&f)),
+                        Class::Inconclusive(e) => return Err(e),
+                        Class::NotOurs {
+                            unattributed: true,
+                            facts: Some(f),
+                        } => self.note_unattributed(&f),
+                        _ => {}
+                    }
+                }
+                let t1 = self.snapshot_tops()?;
+                for (pid, start) in t1 {
+                    if t0.get(&pid) == Some(&start) {
+                        continue;
+                    }
+                    match self.classify(pid, Some(me)).0 {
+                        Class::Ours(_, f) => survivors.push(record(&f)),
+                        Class::Inconclusive(e) => {
+                            return Err(format!("child appeared during the pass: {e}"));
                         }
                         _ => {}
                     }
@@ -507,7 +625,9 @@ impl Hunt<'_> {
     }
 
     fn two_passes(&mut self) -> Result<Vec<LeftoverRecord>, String> {
-        let a = self.pass()?;
+        let a = self.pass();
+        trace(|| format!("sid {} pass 1: {a:?}", self.s.sid));
+        let a = a?;
         if !a.is_empty() {
             return Ok(a);
         }

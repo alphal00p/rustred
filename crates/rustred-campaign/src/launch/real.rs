@@ -513,7 +513,7 @@ fn release_lease(lease: CpuLease) -> Option<String> {
     }
     for h in held {
         notes.push(format!(
-            "CPU {} still held after release by {} (unmarked survivor? not signalled)",
+            "CPU {} still held after release by {} (unmarked survivor? not signalled; its claim stays in the ledger)",
             h.cpu,
             if h.holders.is_empty() {
                 "an unknown process".to_string()
