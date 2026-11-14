@@ -17,12 +17,25 @@
 //!
 //! No floating point anywhere (test `partition_nofloat`). Every exact step is checked integer arithmetic; an overflow
 //! or a work cap makes the affected literal test conservative (counted in `stats.unknown_literal_tests`), never a
-//! decided verdict.
+//! decided verdict. Clippy refuses unchecked operators and truncating casts in every file of `partition` and `loci`
+//! (`#![deny(clippy::arithmetic_side_effects, ...)]`, re-audit RA2-C1).
+//!
+//! ONE work budget per call (re-audit RA2-M5): [`Budget::max_nodes`] / [`Budget::wall`] bound the main recursion,
+//! every blocked sub-partition and every locus resolution TOGETHER ([`WorkMeter`]); once exhausted nothing restarts
+//! with a fresh budget (the remaining blocked sub-partitions are skipped and reported, the outcome is `Partial`).
+
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 
 pub mod classes;
 pub mod exact;
 pub mod nf;
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -57,6 +70,9 @@ pub enum PartitionError {
     /// A key outside the top-sector chart orthant was given to the oracle or the census.
     NotChartKey(Key),
     Io(String),
+    /// A resumable checkpoint was written for OTHER inputs (tables, frame, options, order) or by an older format:
+    /// refused (re-audit RA2-M4); delete it to start over.
+    StaleCheckpoint(String),
 }
 
 impl std::fmt::Display for PartitionError {
@@ -244,15 +260,100 @@ pub enum LiteralTests {
     ReferenceCompatible,
 }
 
-/// Work limits.
+/// Work limits of ONE partition call (re-audit RA2-M5): they bound the main recursion, every blocked sub-partition
+/// and every locus resolution together (one [`WorkMeter`]).
 #[derive(Clone, Debug, Default)]
 pub struct Budget {
+    /// Work units of the whole call: one per recursion node (main and blocked sub-partitions) and one per locus
+    /// resolution node / emptiness split node. Checked at every unit; deterministic.
     pub max_nodes: Option<u64>,
+    /// Wall clock of the whole call (checked every [`WorkMeter::WALL_EVERY`] units; not deterministic).
     pub wall: Option<Duration>,
     /// Memo entries kept at most (memory bound; exactness unaffected).
     pub max_memo: Option<usize>,
     /// Face cells expanded at most (beyond: the face list stops, outcome `Incomplete`; audit-part-B M3).
     pub max_faces: Option<usize>,
+}
+
+/// The ONE deterministic work budget of a partition call (re-audit RA2-M5), shared by the main recursion, the
+/// blocked sub-partitions and the locus resolution. Exhaustion is sticky: after it every consumer stops and reports
+/// what it did not do (Unexplored classes, skipped sub-partitions, open regions); nothing restarts with a fresh
+/// budget. The node budget is checked at every unit (exact, deterministic); the wall clock every
+/// [`WorkMeter::WALL_EVERY`] units.
+#[derive(Debug)]
+pub struct WorkMeter {
+    used: Cell<u64>,
+    max: Option<u64>,
+    deadline: Option<Instant>,
+    exhausted: Cell<bool>,
+    why: RefCell<Option<String>>,
+}
+
+impl WorkMeter {
+    /// Granularity of the wall-clock check, in work units.
+    pub const WALL_EVERY: u64 = 256;
+
+    pub fn new(max: Option<u64>, deadline: Option<Instant>) -> Self {
+        WorkMeter {
+            used: Cell::new(0),
+            max,
+            deadline,
+            exhausted: Cell::new(false),
+            why: RefCell::new(None),
+        }
+    }
+    pub fn unlimited() -> Self {
+        WorkMeter::new(None, None)
+    }
+    /// The meter of a [`Budget`] started at `t0`.
+    pub fn of_budget(b: &Budget, t0: Instant) -> Self {
+        WorkMeter::new(b.max_nodes, b.wall.and_then(|w| t0.checked_add(w)))
+    }
+    fn exhaust(&self, why: String) {
+        self.exhausted.set(true);
+        let mut w = self.why.borrow_mut();
+        if w.is_none() {
+            *w = Some(why);
+        }
+    }
+    /// Count `n` units; `false` = the budget is exhausted (now or before).
+    pub fn tick(&self, n: u64) -> bool {
+        if self.exhausted.get() {
+            return false;
+        }
+        let before = self.used.get();
+        let u = before.saturating_add(n);
+        self.used.set(u);
+        if let Some(m) = self.max
+            && u > m
+        {
+            self.exhaust(format!(
+                "work budget of {m} units exhausted (recursion nodes of the partition and its blocked sub-partitions, locus resolution nodes)"
+            ));
+            return false;
+        }
+        if let Some(d) = self.deadline
+            && before.checked_div(Self::WALL_EVERY) != u.checked_div(Self::WALL_EVERY)
+            && Instant::now() > d
+        {
+            self.exhaust("wall-clock budget exhausted".into());
+            return false;
+        }
+        true
+    }
+    pub fn exhausted(&self) -> bool {
+        self.exhausted.get()
+    }
+    pub fn used(&self) -> u64 {
+        self.used.get()
+    }
+    pub fn reason(&self) -> Option<String> {
+        self.why.borrow().clone()
+    }
+    /// The wall deadline (passed to the locus resolution for its own early stop).
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
 }
 
 /// Progress report (no floating point: milliseconds).
@@ -378,6 +479,10 @@ pub struct GapFace {
     /// For faces derived from a finite key set (fallback): the label of that key range; `None` for partition faces
     /// (valid for all powers).
     pub key_range: Option<KeyRange>,
+    /// U cells of BLOCKED sub-partitions (dispatch / FailClosed): (blocking source, cell) with the cell in the state
+    /// indices of THAT sub-report (`PartitionReport::blocked`), never mixed into `generic_cells`, which use this
+    /// report's states (re-audit RA2-m1).
+    pub blocked_cells: Vec<(usize, Vec<CellState>)>,
 }
 
 impl GapFace {
@@ -510,6 +615,12 @@ pub struct PartitionReport {
     /// outcome are not kept (counted in `blocked_empty`).
     blocked: Vec<(usize, PartitionReport)>,
     blocked_empty: usize,
+    /// Blocked sub-partitions NOT computed because the call's work budget was exhausted (re-audit RA2-M5): (source,
+    /// dispatch position). Their regions are open: the point oracle stays exact (`uncovered`), `class_of` answers
+    /// `Unexplored` there, the outcome is `Partial` (aborted).
+    blocked_skipped: Vec<(usize, usize)>,
+    /// Why the call's work budget was exhausted (main recursion, a sub-partition or the loci), if it was.
+    budget_exhausted: Option<String>,
     /// Main report: per rule the smallest dispatch position of its sources (for the blocked regions' oracle).
     rule_min_pos: Vec<usize>,
     /// Blocked sub-report: dispatch position of its blocking record; its `nf.rules` keep only the complement of
@@ -629,29 +740,64 @@ pub fn gap_partition(
                 .unwrap_or(usize::MAX)
         })
         .collect();
-    let mut rep = partition_nf(nf, opts, progress, t0)?;
+    let meter = Rc::new(WorkMeter::of_budget(&opts.budget, t0));
+    let mut rep = partition_nf(nf, opts, progress, &meter)?;
     rep.elided = elided_policy;
     rep.coverage = opts.coverage;
     rep.rule_min_pos = rule_min_pos;
     // one sub-problem at a time (memory): built, partitioned, then COMPACTED to its complement variants (the rules
-    // of the earlier records are answered by the main normal form, see `uncovered`)
+    // of the earlier records are answered by the main normal form, see `uncovered`). The SAME meter: after an
+    // exhaustion no sub-partition starts (re-audit RA2-M5).
     for &e in &blockers {
-        let sub = rep.nf.blocked_subproblem(e, &pos)?;
-        let nvar = sub.stats.blocked_variants;
-        let mut b = partition_nf(sub, opts, None, Instant::now())?;
-        b.coverage = opts.coverage;
-        if b.classes.is_empty() && b.outcome.is_complete() {
-            rep.blocked_empty += 1;
+        let pe = pos.get(&e).copied().ok_or_else(|| {
+            PartitionError::Unsupported(format!("blocker {e} has no dispatch position"))
+        })?;
+        if meter.exhausted() {
+            rep.blocked_skipped.push((e, pe));
             continue;
         }
-        b.blocked_pos = pos[&e];
-        let keep = b.nf.rules.len() - nvar;
+        let sub = rep.nf.blocked_subproblem(e, &pos)?;
+        let nvar = sub.stats.blocked_variants;
+        let inexact: Vec<String> = sub
+            .notes
+            .iter()
+            .filter_map(|n| match &n.note {
+                nf::NfNote::Weakened(w) => Some(format!("blocked region of source {e}: {w}")),
+                _ => None,
+            })
+            .collect();
+        let mut b = partition_nf(sub, opts, None, &meter)?;
+        b.coverage = opts.coverage;
+        if !inexact.is_empty() {
+            // the sub-partition describes a SUPERSET of the blocked region: never a complete description
+            b.outcome = match std::mem::replace(&mut b.outcome, Outcome::Complete) {
+                Outcome::Complete => Outcome::Incomplete { reasons: inexact },
+                Outcome::Incomplete { mut reasons } => {
+                    reasons.extend(inexact);
+                    Outcome::Incomplete { reasons }
+                }
+                Outcome::Partial {
+                    explored,
+                    mut reasons,
+                } => {
+                    reasons.extend(inexact);
+                    Outcome::Partial { explored, reasons }
+                }
+            };
+        }
+        if b.classes.is_empty() && b.outcome.is_complete() {
+            rep.blocked_empty = rep.blocked_empty.saturating_add(1);
+            continue;
+        }
+        b.blocked_pos = pe;
+        let keep = b.nf.rules.len().saturating_sub(nvar);
         b.nf.rules.drain(..keep);
         b.nf.sources.drain(..keep);
         b.nf.quick.drain(..keep);
         b.compacted = true;
         rep.blocked.push((e, b));
     }
+    rep.budget_exhausted = meter.reason();
     if !rep.blocked.is_empty() {
         rep.merge_blocked_faces();
     }
@@ -672,26 +818,30 @@ pub fn gap_partition(
         }
     }
     rep.finish_outcome(opts);
-    rep.millis = t0.elapsed().as_millis() as u64;
+    rep.millis = millis_since(t0);
     Ok(rep)
 }
 
-/// The partition of an already built normal form (module-private: a caller-built normal form never yields a public
-/// report, int4).
+fn millis_since(t0: Instant) -> u64 {
+    u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The partition of an already built normal form, charged to `meter` (the call's ONE work budget; re-audit RA2-M5).
+/// Module-private: a caller-built normal form never yields a public report (int4).
 fn partition_nf(
     nf: NfRules,
     opts: &PartitionOptions,
     progress: Option<&dyn Fn(&Progress)>,
-    t0: Instant,
+    meter: &Rc<WorkMeter>,
 ) -> Result<PartitionReport, PartitionError> {
+    let t0 = Instant::now();
     let (states, state_unknown) = classes::slot_states(&nf, opts.extra_critical.as_deref())?;
     let (root, stats) = {
         let mut eng = classes::Engine::new(&nf, states.clone(), opts.literal_tests)?;
         eng.use_memo = opts.memo;
         eng.cap = opts.max_off_floor;
-        eng.max_nodes = opts.budget.max_nodes;
+        eng.meter = meter.clone();
         eng.max_memo = opts.budget.max_memo;
-        eng.deadline = opts.budget.wall.map(|w| t0 + w);
         let root = eng.run(progress);
         (root, eng.stats.clone())
     };
@@ -728,18 +878,22 @@ fn partition_nf(
         state_unknown,
         blocked: vec![],
         blocked_empty: 0,
+        blocked_skipped: vec![],
+        budget_exhausted: None,
         rule_min_pos: vec![],
         blocked_pos: 0,
         compacted: false,
     };
     if !rep.stats.aborted && opts.resolve_loci {
-        // the wall budget reaches the locus resolution (audit-part-B M3): regions left at the deadline are OPEN
+        // the call's budget reaches the locus resolution (audit-part-B M3, re-audit RA2-M5): regions left when it is
+        // exhausted are OPEN (a bounded summary per class, never one region per pending call)
         let mut lo = opts.loci.clone();
         if lo.deadline.is_none() {
-            lo.deadline = opts.budget.wall.map(|w| t0 + w);
+            lo.deadline = meter.deadline();
         }
-        rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &lo)?);
+        rep.resolution = Some(crate::loci::resolve_fragile_classes_with(&rep, &lo, meter)?);
     }
+    rep.budget_exhausted = meter.reason();
     let (faces, truncated) = rep.build_faces(opts.budget.max_faces);
     rep.faces = faces;
     rep.faces_truncated = truncated;
@@ -750,7 +904,7 @@ fn partition_nf(
         .filter_map(|c| rep.family_of(c))
         .collect();
     rep.finish_outcome(opts);
-    rep.millis = t0.elapsed().as_millis() as u64;
+    rep.millis = millis_since(t0);
     Ok(rep)
 }
 
@@ -777,13 +931,20 @@ pub fn faces_from_uncovered_keys(frame: &NodeFrame, keys: &[Key], range: KeyRang
                 loci: vec![],
                 proof: Proof::ClosureLowerBound,
                 key_range: Some(range),
+                blocked_cells: vec![],
                 kind: FaceKind::Generic,
                 sd,
                 sn,
             }
         })
         .collect();
-    out.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
+    out.sort_by_key(|f| {
+        (
+            f.sd.len().saturating_add(f.sn.len()),
+            f.sd.clone(),
+            f.sn.clone(),
+        )
+    });
     out
 }
 
@@ -866,6 +1027,15 @@ impl PartitionReport {
     pub fn compacted(&self) -> bool {
         self.compacted
     }
+    /// Blocked sub-partitions not computed because the call's work budget was exhausted: (source, dispatch position)
+    /// (partfix2, re-audit RA2-M5).
+    pub fn blocked_skipped(&self) -> &[(usize, usize)] {
+        &self.blocked_skipped
+    }
+    /// Why the call's work budget was exhausted, if it was (partfix2).
+    pub fn budget_exhausted(&self) -> Option<&str> {
+        self.budget_exhausted.as_deref()
+    }
 
     pub fn arity(&self) -> usize {
         self.nf.arity
@@ -876,7 +1046,7 @@ impl PartitionReport {
         self.states[slot]
             .iter()
             .position(|r| r.contains(v))
-            .map(|i| i as u16)
+            .and_then(|i| u16::try_from(i).ok())
     }
 
     fn check_chart(&self, key: &[i32]) -> Result<(), PartitionError> {
@@ -900,10 +1070,28 @@ impl PartitionReport {
         if !self.nf.covered(key)? {
             return Ok(true);
         }
-        if self.blocked.is_empty() {
+        if self.blocked.is_empty() && self.blocked_skipped.is_empty() {
             return Ok(false);
         }
-        // the smallest dispatch position of a record that applies at the key
+        let first = self.first_applying_pos(key)?;
+        for (e, b) in &self.blocked {
+            // blocked region of b: selected(e) minus applies(s <= e), read from the selected set itself (exact, even
+            // when the sub-partition's complement had to be over-approximated)
+            if first > b.blocked_pos && self.selected_at(*e, key)? {
+                return Ok(true);
+            }
+        }
+        // skipped sub-partitions (budget): the same membership
+        for &(e, pe) in &self.blocked_skipped {
+            if first > pe && self.selected_at(e, key)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// The smallest dispatch position of a record that applies at the key (`usize::MAX` if none).
+    fn first_applying_pos(&self, key: &[i32]) -> Result<usize, PartitionError> {
         let mut first = usize::MAX;
         for r in 0..self.nf.rules.len() {
             let p = self.rule_min_pos.get(r).copied().unwrap_or(usize::MAX);
@@ -911,13 +1099,15 @@ impl PartitionReport {
                 first = p;
             }
         }
-        for (_, b) in &self.blocked {
-            // blocked region of b: selected(e) minus applies(s <= e); compacted rules = complement of selected(e)
-            if first > b.blocked_pos && !b.nf.covered(key)? {
-                return Ok(true);
-            }
+        Ok(first)
+    }
+
+    /// Is blocker `e` SELECTED at the key (its selected set, exact)?
+    fn selected_at(&self, e: usize, key: &[i32]) -> Result<bool, PartitionError> {
+        match self.nf.selected.get(&e) {
+            Some(sel) => self.nf.nf_rule_covers(sel, key),
+            None => Ok(true), // unknown selected set: conservatively selected (the key reads open)
         }
-        Ok(false)
     }
 
     /// The class of a chart key.
@@ -927,10 +1117,11 @@ impl PartitionReport {
             .iter()
             .enumerate()
             .map(|(i, &x)| {
-                self.state_index(i, x as i64)
-                    .expect("states cover the chart")
+                self.state_index(i, i64::from(x)).ok_or_else(|| {
+                    PartitionError::Unsupported(format!("no state of slot {i} contains {x}"))
+                })
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
         let main = match classes::lookup(&self.root, &idx) {
             None => ClassHit::Covered,
             Some(Node::Leaf(Label::Uncovered)) => ClassHit::Uncovered,
@@ -957,36 +1148,59 @@ impl PartitionReport {
                 best = h;
             }
         }
+        if !self.blocked_skipped.is_empty() && rank(&best) < rank(&ClassHit::Unexplored) {
+            let first = self.first_applying_pos(key)?;
+            for &(e, pe) in &self.blocked_skipped {
+                if first > pe && self.selected_at(e, key)? {
+                    best = ClassHit::Unexplored; // in a blocked region whose sub-partition was not computed
+                    break;
+                }
+            }
+        }
         Ok(best)
     }
 
     /// Add the faces of the blocked regions (FailClosed) to the face list.
     fn merge_blocked_faces(&mut self) {
         let mut faces = std::mem::take(&mut self.faces);
-        for (_, b) in &self.blocked {
+        for (e, b) in &self.blocked {
             self.families.extend(b.families.iter().cloned());
             for f in &b.faces {
+                // the sub-report's cells are in ITS state indices: kept apart, tagged with the blocker (RA2-m1)
+                let cells: Vec<(usize, Vec<CellState>)> =
+                    f.generic_cells.iter().map(|c| (*e, c.clone())).collect();
                 match faces.iter_mut().find(|g| g.key() == f.key()) {
                     Some(g) => {
                         if f.kind == FaceKind::Generic && g.kind == FaceKind::LocusOnly {
                             g.kind = FaceKind::Generic;
                             g.proof = Proof::ExactPartition;
                         }
-                        g.n_u_classes += f.n_u_classes;
-                        g.generic_cells.extend(f.generic_cells.iter().cloned());
-                        g.generic_cells.sort();
-                        g.generic_cells.dedup();
+                        g.n_u_classes = g.n_u_classes.saturating_add(f.n_u_classes);
+                        g.blocked_cells.extend(cells);
+                        g.blocked_cells.sort();
+                        g.blocked_cells.dedup();
                         g.unbounded_in_dots |= f.unbounded_in_dots;
                         g.unbounded_in_rank |= f.unbounded_in_rank;
                         if g.witness.is_none() {
                             g.witness = f.witness.clone();
                         }
                     }
-                    None => faces.push(f.clone()),
+                    None => {
+                        let mut g = f.clone();
+                        g.generic_cells.clear();
+                        g.blocked_cells = cells;
+                        faces.push(g);
+                    }
                 }
             }
         }
-        faces.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
+        faces.sort_by_key(|f| {
+            (
+                f.sd.len().saturating_add(f.sn.len()),
+                f.sd.clone(),
+                f.sn.clone(),
+            )
+        });
         self.faces = faces;
     }
 
@@ -1121,9 +1335,10 @@ impl PartitionReport {
             if left == 0 {
                 return;
             }
+            let left1 = left.saturating_sub(1); // left > 0 here
             for j in from..stars.len() {
                 pick.push(stars[j]);
-                rec(rep, c, stars, j + 1, left - 1, pick, out);
+                rec(rep, c, stars, j.saturating_add(1), left1, pick, out);
                 pick.pop();
             }
         }
@@ -1138,9 +1353,18 @@ impl PartitionReport {
         let mut explored: Option<Explored> = None;
         if self.stats.aborted {
             explored = Some(Explored::Aborted(format!(
-                "work budget (nodes {:?}, wall {:?}) exceeded after {} nodes",
-                opts.budget.max_nodes, opts.budget.wall, self.stats.nodes
+                "work budget (units {:?}, wall {:?}) exceeded after {} recursion nodes{}",
+                opts.budget.max_nodes,
+                opts.budget.wall,
+                self.stats.nodes,
+                self.budget_exhausted
+                    .as_ref()
+                    .map(|w| format!(": {w}"))
+                    .unwrap_or_default()
             )));
+        } else if let Some(w) = &self.budget_exhausted {
+            // exhausted after the recursion (locus resolution or a blocked sub-partition): nothing is proved
+            explored = Some(Explored::Aborted(w.clone()));
         } else if self.stats.pruned_off_floor > 0
             && let Some(c) = opts.max_off_floor
         {
@@ -1170,6 +1394,23 @@ impl PartitionReport {
                 r.unresolved_reasons().join("; ")
             )),
             _ => {}
+        }
+        if let Some(r) = &self.resolution {
+            // a flagged piece is a SUPERSET of its uncovered set (re-audit RA2-m4 / M3): not an exact description
+            let flagged = r.n_flagged_pieces();
+            if flagged > 0 {
+                reasons.push(format!(
+                    "{flagged} locus piece(s) flagged covered_part_unresolved (a superset of the uncovered set: a covered sub-locus not subtracted, a rule left undecided, or integer emptiness undecided)"
+                ));
+            }
+        }
+        if !self.blocked_skipped.is_empty() {
+            let w = format!(
+                "{} blocked sub-partition(s) not computed (work budget exhausted)",
+                self.blocked_skipped.len()
+            );
+            reasons.push(w.clone());
+            explored = Some(Explored::Aborted(w));
         }
         for (e, b) in &self.blocked {
             match &b.outcome {
@@ -1246,6 +1487,9 @@ impl PartitionReport {
                 self.blocked.len()
             ));
         }
+        if !self.blocked_skipped.is_empty() || self.budget_exhausted.is_some() {
+            return Err("the work budget was exhausted: blocked regions not partitioned".into());
+        }
         Ok(format!(
             "exact partition ({}): {} nodes, 0 U, {} F all resolved without gap, {} blocked sub-partitions empty, outcome complete",
             notion.tag(),
@@ -1277,7 +1521,7 @@ impl PartitionReport {
             let Some(cells) = self.expand(c) else {
                 continue; // listed in `families` (see `partition_nf`)
             };
-            n_cells += cells.len();
+            n_cells = n_cells.saturating_add(cells.len());
             if max_faces.is_some_and(|m| n_cells > m) {
                 truncated = true;
                 break;
@@ -1288,9 +1532,9 @@ impl PartitionReport {
                 match c.label {
                     Label::Uncovered => {
                         a.u.insert(fc);
-                        a.nu += 1;
+                        a.nu = a.nu.saturating_add(1);
                     }
-                    Label::Fragile => a.nf += 1,
+                    Label::Fragile => a.nf = a.nf.saturating_add(1),
                     Label::Unexplored => {}
                 }
             }
@@ -1298,7 +1542,7 @@ impl PartitionReport {
         if let Some(res) = &self.resolution {
             for l in &res.loci {
                 let a = by.entry(l.face.clone()).or_default();
-                a.nfg += l.n_classes;
+                a.nfg = a.nfg.saturating_add(l.n_classes);
                 a.loci.insert(l.id.clone());
                 match &l.proof {
                     Proof::ExactPartition => {}
@@ -1317,7 +1561,8 @@ impl PartitionReport {
             let unb = |range: std::ops::Range<usize>| {
                 a.u.iter().any(|c| {
                     range.clone().any(|j| {
-                        c[j] == ANY_OFF || c[j] as usize + 1 == self.states[slots[j]].len()
+                        c[j] == ANY_OFF
+                            || usize::from(c[j]).saturating_add(1) == self.states[slots[j]].len()
                     })
                 })
             };
@@ -1353,6 +1598,7 @@ impl PartitionReport {
                 witness: None,
                 loci: a.loci.iter().cloned().collect(),
                 key_range: None,
+                blocked_cells: vec![],
                 proof: if kind == FaceKind::Generic {
                     Proof::ExactPartition
                 } else if a.unresolved {
@@ -1370,7 +1616,13 @@ impl PartitionReport {
             face.witness = self.face_witness(&face);
             out.push(face);
         }
-        out.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
+        out.sort_by_key(|f| {
+            (
+                f.sd.len().saturating_add(f.sn.len()),
+                f.sd.clone(),
+                f.sn.clone(),
+            )
+        });
         (out, truncated)
     }
 
@@ -1382,7 +1634,7 @@ impl PartitionReport {
             let mut acc: Vec<Vec<u16>> = vec![vec![]];
             for (j, &s) in c.iter().enumerate() {
                 let opts: Vec<u16> = if s == ANY_OFF {
-                    (1..self.states[slots[j]].len() as u16).collect()
+                    (1..u16::try_from(self.states[slots[j]].len()).unwrap_or(u16::MAX)).collect()
                 } else {
                     vec![s]
                 };
@@ -1401,8 +1653,9 @@ impl PartitionReport {
         }
         let mut out = vec![];
         for (j, &s) in slots.iter().enumerate() {
-            let m = self.states[s].len() as u16;
-            let mut t_found = m - 1;
+            // state counts are < u16::MAX (checked by `slot_states`) and >= 1
+            let m = u16::try_from(self.states[s].len()).unwrap_or(u16::MAX);
+            let mut t_found = m.saturating_sub(1);
             'm: for t in 1..m {
                 // all other cells (from the cell set's projections) must have one verdict for states t..m-1 of slot j
                 let others: BTreeSet<Vec<u16>> = full
@@ -1427,13 +1680,14 @@ impl PartitionReport {
                 t_found = t;
                 break;
             }
-            let r = self.states[s][t_found as usize];
+            let r = self.states[s][usize::from(t_found)];
+            // a line state has a lower end, a numerator state an upper end (states are built that way)
             out.push((
                 s,
                 if self.nf.lines[s] {
-                    r.lo.expect("line state")
+                    r.lo.unwrap_or(1)
                 } else {
-                    r.hi.expect("numerator state")
+                    r.hi.unwrap_or(0)
                 },
             ));
         }
@@ -1444,20 +1698,24 @@ impl PartitionReport {
     fn reps(&self, slot: usize, st: CellState) -> Vec<i64> {
         let line = self.nf.lines[slot];
         let ranges: Vec<Range> = if st == ANY_OFF {
-            self.states[slot][1..].to_vec()
+            self.states[slot].get(1..).unwrap_or(&[]).to_vec()
         } else {
-            vec![self.states[slot][st as usize]]
+            vec![self.states[slot][usize::from(st)]]
         };
         let mut v = vec![];
         for r in ranges {
-            let base = if line {
-                r.lo.expect("line")
-            } else {
-                r.hi.expect("num")
+            let Some(base) = (if line { r.lo } else { r.hi }) else {
+                continue;
             };
-            for d in 0..3 {
-                let x = if line { base + d } else { base - d };
-                if r.contains(x) {
+            for d in 0..3i64 {
+                let x = if line {
+                    base.checked_add(d)
+                } else {
+                    base.checked_sub(d)
+                };
+                if let Some(x) = x
+                    && r.contains(x)
+                {
                     v.push(x);
                 }
             }
@@ -1480,14 +1738,21 @@ impl PartitionReport {
                 .collect();
             // walk a few combinations
             let mut idx = vec![0usize; per.len()];
+            if per.iter().any(|p| p.is_empty()) {
+                continue;
+            }
             for _ in 0..64 {
                 let mut key: Key = (0..self.nf.arity)
-                    .map(|i| self.nf.floor(i) as i32)
+                    .map(|i| if self.nf.lines[i] { 1 } else { 0 })
                     .collect();
+                let mut fits = true;
                 for (j, &s) in slots.iter().enumerate() {
-                    key[s] = per[j][idx[j]] as i32;
+                    match i32::try_from(per[j][idx[j]]) {
+                        Ok(x) => key[s] = x,
+                        Err(_) => fits = false,
+                    }
                 }
-                if self.uncovered(&key).ok() == Some(true) {
+                if fits && self.uncovered(&key).ok() == Some(true) {
                     return Some(key);
                 }
                 // next combination (odometer)
@@ -1496,12 +1761,12 @@ impl PartitionReport {
                     if j == idx.len() {
                         break;
                     }
-                    idx[j] += 1;
+                    idx[j] = idx[j].saturating_add(1);
                     if idx[j] < per[j].len() {
                         break;
                     }
                     idx[j] = 0;
-                    j += 1;
+                    j = j.saturating_add(1);
                 }
                 if j == idx.len() {
                     break;
@@ -1531,7 +1796,7 @@ impl PartitionReport {
                 "<=-1".into()
             };
         }
-        let r = self.states[slot][st as usize];
+        let r = self.states[slot][usize::from(st)];
         match (r.lo, r.hi) {
             (Some(a), Some(b)) if a == b => a.to_string(),
             (Some(a), Some(b)) => format!("{a}..{b}"),
@@ -1559,6 +1824,13 @@ impl PartitionReport {
                     "thresholds": f.thresholds.iter().map(|(s, t)| (format!("n{s}"), json!(t))).collect::<serde_json::Map<_, _>>(),
                     "unbounded_in_dots": f.unbounded_in_dots, "unbounded_in_rank": f.unbounded_in_rank,
                     "generic_cells": f.generic_cells.iter().map(|c| c.iter().zip(&slots).map(|(&st, &s)| self.cell_label(s, st)).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                    "blocked_cells": f.blocked_cells.iter().map(|(e, c)| {
+                        let sub = self.blocked.iter().find(|(x, _)| x == e).map(|(_, b)| b);
+                        json!({"source": e, "cell": c.iter().zip(&slots).map(|(&st, &s)| match sub {
+                            Some(b) => b.cell_label(s, st),
+                            None => format!("state {st}"),
+                        }).collect::<Vec<_>>()})
+                    }).collect::<Vec<_>>(),
                     "n_U_classes": f.n_u_classes, "n_F_classes": f.n_f_classes, "n_F_with_gaps": f.n_f_with_gaps,
                     "witness": f.witness, "loci": f.loci, "proof": f.proof.tag(),
                 })
@@ -1596,7 +1868,8 @@ impl PartitionReport {
             "states": states,
             "stats": {"nodes": self.stats.nodes, "memo_hits": self.stats.memo_hits, "memo_size": self.stats.memo_size,
                       "U": self.n_u(), "F": self.n_f(), "unexplored": self.n_unexplored(), "pruned_off_floor": self.stats.pruned_off_floor,
-                      "unknown_literal_tests": self.stats.unknown_literal_tests + self.state_unknown, "millis": self.millis},
+                      "unknown_literal_tests": self.stats.unknown_literal_tests.saturating_add(self.state_unknown), "millis": self.millis,
+                      "soft_fragile": self.stats.soft_fragile},
             "outcome": self.outcome.tag(),
             "outcome_reasons": self.outcome.reasons(),
             "face_families": self.families,
@@ -1606,6 +1879,8 @@ impl PartitionReport {
             "blocked": self.blocked.iter().map(|(e, b)| json!({"source": e, "U": b.n_u(), "F": b.n_f(),
                 "nodes": b.stats.nodes, "faces": b.faces.len(), "outcome": b.outcome.tag()})).collect::<Vec<_>>(),
             "blocked_empty": self.blocked_empty,
+            "blocked_skipped": self.blocked_skipped.iter().map(|(e, _)| e).collect::<Vec<_>>(),
+            "budget_exhausted": self.budget_exhausted,
         })
     }
 }
@@ -1628,11 +1903,74 @@ pub struct LevelResult {
     pub millis: u64,
 }
 
+/// Format tag of a levels-checkpoint line (a version constant; re-audit RA2-M4).
+pub const LEVELS_CHECKPOINT_FORMAT: &str = "rustred.campaign.partition-levels.v2";
+
+/// Digest of every input a partition result depends on (re-audit RA2-M4): the domains IN DISPATCH ORDER (canonical
+/// text of each domain and its witness-status block, restricted to `rule_subset` in its order), the frame (arity,
+/// line mask) and every option that changes the result (coverage, elided policy, literal tests, dedup, factored
+/// exceptions, loci resolution and its caps, extra critical values, face limits). Work limits (`max_nodes`, `wall`,
+/// `max_memo`) and the per-level off-floor cap are not part of it (an aborted level is never recorded).
+pub fn partition_inputs_digest(
+    src: &dyn DomainSource,
+    frame: &NodeFrame,
+    opts: &PartitionOptions,
+) -> String {
+    let mut h = crate::replay_base::sha256::Sha256::new();
+    h.update(
+        format!(
+            "{LEVELS_CHECKPOINT_FORMAT};arity={};mask={};n={}\n",
+            frame.arity(),
+            frame.mask_string(),
+            src.len()
+        )
+        .as_bytes(),
+    );
+    let l = &opts.loci;
+    h.update(
+        format!(
+            "coverage={:?};elided={:?};literal_tests={:?};dedup={};factor_exceptions={};resolve_loci={};max_any_slots={};max_faces={:?};extra_critical={:?};rule_subset={:?};loci=({},{},{},{:?},{},{},{},{})\n",
+            opts.coverage,
+            opts.elided,
+            opts.literal_tests,
+            opts.dedup,
+            opts.factor_exceptions,
+            opts.resolve_loci,
+            opts.max_any_slots,
+            opts.budget.max_faces,
+            opts.extra_critical,
+            opts.rule_subset,
+            l.max_nodes,
+            l.max_depth,
+            l.max_split_nodes,
+            l.window_radius,
+            l.tries,
+            l.witnesses,
+            l.max_open_regions,
+            l.max_enumeration,
+        )
+        .as_bytes(),
+    );
+    let order: Vec<usize> = opts
+        .rule_subset
+        .clone()
+        .unwrap_or_else(|| (0..src.len()).collect());
+    for i in order {
+        if i < src.len() {
+            h.update(format!("{i}:{:?};wb={:?}\n", src.domain(i), src.witness_block(i)).as_bytes());
+        }
+    }
+    format!("sha256:{}", h.hex())
+}
+
 /// SCALING (R30 (2), (4)): the partition per face-lattice level. Level L runs the exact recursion capped at L
 /// off-floor slots, so its result is complete for every face with at most L off-floor slots. Levels are run in
 /// ascending order until `max_level`, the arity or the wall budget; each finished level is appended to the
 /// `checkpoint` file (JSON lines) and a resumed call skips the levels already there. Faces of the last finished level
 /// are proved complete up to that level; beyond it the caller falls back to [`faces_from_uncovered_keys`].
+/// Every checkpoint line carries [`LEVELS_CHECKPOINT_FORMAT`] and the [`partition_inputs_digest`] of its run; a
+/// resume with other inputs (or an older line format) is REFUSED with `PartitionError::StaleCheckpoint` (re-audit
+/// RA2-M4).
 pub fn gap_partition_levels(
     src: &dyn DomainSource,
     frame: &NodeFrame,
@@ -1642,24 +1980,35 @@ pub fn gap_partition_levels(
     progress: Option<&dyn Fn(&Progress)>,
 ) -> Result<Vec<LevelResult>, PartitionError> {
     let t0 = Instant::now();
+    let inputs = partition_inputs_digest(src, frame, opts);
     let mut done: Vec<LevelResult> = vec![];
     if let Some(cp) = checkpoint
         && let Ok(text) = std::fs::read_to_string(cp)
     {
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
         for (li, line) in lines.iter().enumerate() {
+            let lineno = li.saturating_add(1);
             let v: Json = match serde_json::from_str(line) {
                 Ok(v) => v,
                 // a torn LAST line (a kill during an old non-atomic append): that level is not done (audit-part-B
                 // M2); a bad line before the last is an error
-                Err(_) if li + 1 == lines.len() => break,
+                Err(_) if lineno == lines.len() => break,
                 Err(e) => {
-                    return Err(PartitionError::Io(format!(
-                        "checkpoint line {}: {e}",
-                        li + 1
-                    )));
+                    return Err(PartitionError::Io(format!("checkpoint line {lineno}: {e}")));
                 }
             };
+            if v["format"].as_str() != Some(LEVELS_CHECKPOINT_FORMAT) {
+                return Err(PartitionError::StaleCheckpoint(format!(
+                    "checkpoint line {lineno}: format {:?}, expected {LEVELS_CHECKPOINT_FORMAT}",
+                    v["format"]
+                )));
+            }
+            if v["inputs"].as_str() != Some(inputs.as_str()) {
+                return Err(PartitionError::StaleCheckpoint(format!(
+                    "checkpoint line {lineno} was written for other inputs ({:?}; this run: {inputs})",
+                    v["inputs"]
+                )));
+            }
             let fk = |x: &Json| -> Vec<FaceKey> {
                 x.as_array()
                     .map(|a| {
@@ -1670,7 +2019,7 @@ pub fn gap_partition_levels(
                                         .map(|a| {
                                             a.iter()
                                                 .filter_map(|y| y.as_u64())
-                                                .map(|y| y as usize)
+                                                .filter_map(|y| usize::try_from(y).ok())
                                                 .collect()
                                         })
                                         .unwrap_or_default()
@@ -1682,12 +2031,15 @@ pub fn gap_partition_levels(
                     .unwrap_or_default()
             };
             done.push(LevelResult {
-                level: v["level"].as_u64().unwrap_or(0) as usize,
+                level: v["level"]
+                    .as_u64()
+                    .and_then(|x| usize::try_from(x).ok())
+                    .unwrap_or(0),
                 faces: fk(&v["faces"]),
                 generic: fk(&v["generic"]),
                 nodes: v["nodes"].as_u64().unwrap_or(0),
                 millis: v["millis"].as_u64().unwrap_or(0),
-                // a checkpoint line without the flag (older format) is not trusted as a proof
+                // a checkpoint line without the flag is not trusted as a proof
                 proved: v["proved"].as_bool().unwrap_or(false),
                 incomplete: v["incomplete"]
                     .as_array()
@@ -1700,7 +2052,7 @@ pub fn gap_partition_levels(
             });
         }
     }
-    let start = done.last().map_or(0, |l| l.level + 1);
+    let start = done.last().map_or(0, |l| l.level.saturating_add(1));
     for level in start..=max_level.min(frame.arity()) {
         let mut o = opts.clone();
         o.max_off_floor = Some(level);
@@ -1719,7 +2071,7 @@ pub fn gap_partition_levels(
             Outcome::Partial { reasons, .. } | Outcome::Incomplete { reasons } => reasons.clone(),
             Outcome::Complete => vec![],
         };
-        let off = |f: &GapFace| f.sd.len() + f.sn.len();
+        let off = |f: &GapFace| f.sd.len().saturating_add(f.sn.len());
         let lr = LevelResult {
             level,
             faces: rep
@@ -1746,8 +2098,12 @@ pub fn gap_partition_levels(
             let io = |e: std::io::Error| PartitionError::Io(format!("{e}"));
             let mut text = String::new();
             for d in &done {
-                text.push_str(&json!({"level": d.level, "faces": d.faces, "generic": d.generic, "nodes": d.nodes,
-                    "millis": d.millis, "proved": d.proved, "incomplete": d.incomplete}).to_string());
+                text.push_str(
+                    &json!({"format": LEVELS_CHECKPOINT_FORMAT, "inputs": inputs, "level": d.level,
+                    "faces": d.faces, "generic": d.generic, "nodes": d.nodes,
+                    "millis": d.millis, "proved": d.proved, "incomplete": d.incomplete})
+                    .to_string(),
+                );
                 text.push('\n');
             }
             let tmp = cp.with_extension("tmp");
