@@ -793,42 +793,13 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
 /// dispatcher and are not part of the engine's first match; the engine's modular REDUCTION at huge keys is a separate
 /// matter, interfaces/partition.md 14.)
 pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
-    let n = d.arity;
-    let base: u128 = 1u128 << 31;
-    let m: Vec<u128> = match &d.target {
-        TargetMap::Canonical => vec![base; n],
-        TargetMap::Pattern(t) => {
-            let mut m: Vec<u128> = (0..n)
-                .map(|a| {
-                    u128::from(
-                        d.fixed
-                            .get(a)
-                            .copied()
-                            .flatten()
-                            .unwrap_or(0)
-                            .unsigned_abs(),
-                    )
-                })
-                .collect();
-            for s in t {
-                if let TargetSlot::Param { param, offset } = *s {
-                    let o = u128::from(offset.unsigned_abs());
-                    if o >= 1u128 << 60 {
-                        return Some(ModularRisk::Anywhere(format!(
-                            "target offset {offset}: rule points may reach the engine primes"
-                        )));
-                    }
-                    if let Some(x) = m.get_mut(param) {
-                        *x = base.saturating_add(o);
-                    }
-                }
-            }
-            m
-        }
+    let m = match rule_point_bounds(d) {
+        Ok(m) => m,
+        Err(why) => return Some(ModularRisk::Anywhere(why)),
     };
     let mut points: Vec<(usize, i128)> = vec![];
     let mut far: Vec<(usize, i128)> = vec![];
-    for f in d.equations.iter().chain(d.exceptions.iter().flatten()) {
+    for (_, f) in reached_literals(d) {
         match literal_modular_risk(f, &m) {
             Ok(LitRisk::Points(p)) => points.extend(p),
             Ok(LitRisk::Far(p)) => far.extend(p),
@@ -856,6 +827,86 @@ pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
     points.sort_unstable();
     points.dedup();
     (!points.is_empty()).then_some(ModularRisk::Points(points))
+}
+
+/// The largest `|pt[a]|` the dispatcher (i32) or the engine (i64: `key - offset`) evaluates a record's literals at:
+/// `2^31` on the chart for a canonical target; `2^31 + |o|` for a mapped parameter of a target pattern, the fixed value
+/// (else 0) for an unmapped one. `Err` for an offset `>= 2^60` (rule points could reach the engine primes).
+fn rule_point_bounds(d: &CaseDomain) -> Result<Vec<u128>, String> {
+    let n = d.arity;
+    let base: u128 = 1u128 << 31;
+    match &d.target {
+        TargetMap::Canonical => Ok(vec![base; n]),
+        TargetMap::Pattern(t) => {
+            let mut m: Vec<u128> = (0..n)
+                .map(|a| {
+                    u128::from(
+                        d.fixed
+                            .get(a)
+                            .copied()
+                            .flatten()
+                            .unwrap_or(0)
+                            .unsigned_abs(),
+                    )
+                })
+                .collect();
+            for s in t {
+                if let TargetSlot::Param { param, offset } = *s {
+                    let o = u128::from(offset.unsigned_abs());
+                    if o >= 1u128 << 60 {
+                        return Err(format!(
+                            "target offset {offset}: rule points may reach the engine primes"
+                        ));
+                    }
+                    if let Some(x) = m.get_mut(param) {
+                        *x = base.saturating_add(o);
+                    }
+                }
+            }
+            Ok(m)
+        }
+    }
+}
+
+/// Where a literal sits in the dispatcher's evaluation order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LitPos {
+    Equation(usize),
+    Member(usize, usize),
+}
+
+/// The literals the dispatcher can EVALUATE with its modular zero test, in its order (`at_rule_point`): the
+/// equations up to the first nonzero constant one (it deselects everywhere: nothing after it is evaluated), then, if no
+/// bound is a negative constant, the exception members branch by branch up to the first nonzero constant member of
+/// each branch.
+fn reached_literals(d: &CaseDomain) -> Vec<(LitPos, &Poly)> {
+    let constant = |p: &Poly| -> Option<i128> {
+        let t = p.small_terms()?;
+        match t {
+            [] => Some(0),
+            [(mo, c)] if mo.is_empty() => Some(*c),
+            _ => None,
+        }
+    };
+    let mut out = vec![];
+    for (j, e) in d.equations.iter().enumerate() {
+        out.push((LitPos::Equation(j), e));
+        if constant(e).is_some_and(|c| c != 0) {
+            return out;
+        }
+    }
+    if d.bounds.iter().any(|g| constant(g).is_some_and(|c| c < 0)) {
+        return out;
+    }
+    for (bi, br) in d.exceptions.iter().enumerate() {
+        for (mi, f) in br.iter().enumerate() {
+            out.push((LitPos::Member(bi, mi), f));
+            if constant(f).is_some_and(|c| c != 0) {
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// [`modular_risk`] as a reason (`Some` for any risk, points or anywhere).
@@ -1042,82 +1093,139 @@ pub fn build(
                 }
             }
         }
-        match modular_risk(d) {
-            None => {}
-            Some(ModularRisk::Anywhere(why)) => {
-                note(&mut notes, NfNote::ModularZeroRisk(why.clone()));
-                extra.push(StopPiece {
-                    rule: fc.clone(),
-                    why: StopWhy::ModularZeroRisk(why),
-                });
-            }
-            Some(ModularRisk::Far(radii)) => {
-                note(
-                    &mut notes,
-                    NfNote::ModularZeroRisk(format!("far radii {radii:?}")),
-                );
-                for (v, r) in radii {
-                    let why = StopWhy::ModularZeroRisk(format!("|rule point n{v}| >= {r}"));
-                    for sign in [1i128, -1] {
-                        // sign * pt_v - r >= 0, in the key's variables
-                        let lit = MPoly::var(arity, v)
-                            .scale(sign)
-                            .and_then(|p| p.sub(&MPoly::constant(arity, r)))
-                            .and_then(|p| match &map {
-                                None => Ok(p),
-                                Some(mm) => p.compose(mm, arity),
-                            });
-                        match lit.map(|p| b.try_intern(&p, true)) {
-                            Ok(Ok(Ok(Norm::Lit(l)))) => {
-                                let mut piece = fc.clone();
-                                piece.ge.push(l);
-                                extra.push(StopPiece {
-                                    rule: piece,
-                                    why: why.clone(),
-                                });
-                            }
-                            Ok(Ok(Ok(Norm::NonZeroConst))) => {} // never that far
-                            Ok(Err(e)) => return Err(e),
-                            _ => extra.push(StopPiece {
-                                rule: fc.clone(),
-                                why: why.clone(),
-                            }),
-                        }
-                    }
-                }
-            }
-            Some(ModularRisk::Points(pts)) => {
-                note(
-                    &mut notes,
-                    NfNote::ModularZeroRisk(format!("exact rule points {pts:?}")),
-                );
-                for (v, x) in pts {
-                    // the rule point's variable v equals x, in the key's variables (composed with the target map)
-                    let lit = MPoly::var(arity, v)
-                        .sub(&MPoly::constant(arity, x))
-                        .and_then(|p| match &map {
-                            None => Ok(p),
-                            Some(mm) => p.compose(mm, arity),
-                        });
-                    let why = StopWhy::ModularZeroRisk(format!("rule point n{v} = {x}"));
-                    match lit.map(|p| b.try_intern(&p, false)) {
+        // modular zero test (audit-part3 C2), per reached literal in the dispatcher's order: the piece is `fc` AND the
+        // literals evaluated before it hold (earlier equations zero; for a member: every equation zero, every bound
+        // >= 0, the earlier members of its branch zero) AND the literal's risk region (exact residue points, far
+        // radius, or everything); a condition that cannot be represented is left out (a larger piece: sound)
+        let reached = reached_literals(d);
+        let risks: Vec<(LitPos, Result<LitRisk, String>)> = match rule_point_bounds(d) {
+            Ok(mb) => reached
+                .iter()
+                .map(|(pos, f)| (*pos, literal_modular_risk(f, &mb)))
+                .collect(),
+            Err(why) => reached
+                .iter()
+                .map(|(pos, _)| (*pos, Err(why.clone())))
+                .collect(),
+        };
+        let mut risk_notes: Vec<String> = vec![];
+        for (pos, risk) in risks {
+            let region: Vec<(bool, MPoly, String)> = match &risk {
+                Ok(LitRisk::Points(p)) if p.is_empty() => continue,
+                Ok(LitRisk::Far(p)) if p.is_empty() => continue,
+                Ok(LitRisk::Points(p)) => p
+                    .iter()
+                    .filter_map(|&(v, x)| {
+                        MPoly::var(arity, v)
+                            .sub(&MPoly::constant(arity, x))
+                            .ok()
+                            .map(|q| (false, q, format!("rule point n{v} = {x}")))
+                    })
+                    .collect(),
+                Ok(LitRisk::Far(p)) => p
+                    .iter()
+                    .flat_map(|&(v, r)| {
+                        [1i128, -1].into_iter().filter_map(move |sign| {
+                            MPoly::var(arity, v)
+                                .scale(sign)
+                                .and_then(|q| q.sub(&MPoly::constant(arity, r)))
+                                .ok()
+                                .map(|q| (true, q, format!("|rule point n{v}| >= {r}")))
+                        })
+                    })
+                    .collect(),
+                Err(_) => vec![],
+            };
+            risk_notes.push(match &risk {
+                Ok(LitRisk::Points(p)) => format!("{pos:?}: exact rule points {p:?}"),
+                Ok(LitRisk::Far(p)) => format!("{pos:?}: far radii {p:?}"),
+                Err(w) => format!("{pos:?}: anywhere ({w})"),
+            });
+            // the prefix conditions
+            let mut base = fc.clone();
+            let mut possible = true;
+            let mut add_cond =
+                |p: &Poly, is_ge: bool, base: &mut NfRule| -> Result<(), PartitionError> {
+                    match lit_of(p).map(|q| b.try_intern(&q, is_ge)) {
                         Ok(Ok(Ok(Norm::Lit(l)))) => {
-                            let mut r = fc.clone();
-                            r.eq.push(l);
-                            r.eq.sort_unstable();
-                            r.eq.dedup();
-                            extra.push(StopPiece { rule: r, why });
+                            if is_ge {
+                                base.ge.push(l);
+                            } else {
+                                base.eq.push(l);
+                            }
                         }
-                        Ok(Ok(Ok(Norm::NonZeroConst))) => {} // the point is never a rule point here
+                        Ok(Ok(Ok(Norm::NonZeroConst))) => possible = false,
                         Ok(Err(e)) => return Err(e),
-                        // always the point, or not representable: the whole set (over-approximation)
-                        _ => extra.push(StopPiece {
-                            rule: fc.clone(),
-                            why,
-                        }),
+                        _ => {} // always true, or not representable: left out (a larger piece)
+                    }
+                    Ok(())
+                };
+            match pos {
+                LitPos::Equation(j) => {
+                    for e in d.equations.iter().take(j) {
+                        add_cond(e, false, &mut base)?;
+                    }
+                }
+                LitPos::Member(bi, mi) => {
+                    for e in &d.equations {
+                        add_cond(e, false, &mut base)?;
+                    }
+                    for g in &d.bounds {
+                        add_cond(g, true, &mut base)?;
+                    }
+                    for f in d.exceptions[bi].iter().take(mi) {
+                        add_cond(f, false, &mut base)?;
                     }
                 }
             }
+            if !possible {
+                continue; // a prefix condition never holds: the literal is never evaluated
+            }
+            let why = |w: &str| StopWhy::ModularZeroRisk(format!("{pos:?}: {w}"));
+            if region.is_empty() {
+                // anywhere: the prefix set
+                extra.push(StopPiece {
+                    rule: base.clone(),
+                    why: why("anywhere"),
+                });
+                continue;
+            }
+            for (is_ge, q, label) in region {
+                let lit = match &map {
+                    None => Ok(q),
+                    Some(mm) => q.compose(mm, arity),
+                };
+                match lit.map(|p| b.try_intern(&p, is_ge)) {
+                    Ok(Ok(Ok(Norm::Lit(l)))) => {
+                        let mut r = base.clone();
+                        if is_ge {
+                            r.ge.push(l);
+                        } else {
+                            r.eq.push(l);
+                        }
+                        extra.push(StopPiece {
+                            rule: r,
+                            why: why(&label),
+                        });
+                    }
+                    Ok(Ok(Ok(Norm::NonZeroConst))) => {} // the region is never reached here
+                    Ok(Err(e)) => return Err(e),
+                    // always in the region, or not representable: the prefix set
+                    _ => extra.push(StopPiece {
+                        rule: base.clone(),
+                        why: why(&label),
+                    }),
+                }
+            }
+        }
+        if !risk_notes.is_empty() {
+            note(&mut notes, NfNote::ModularZeroRisk(risk_notes.join("; ")));
+        }
+        for piece in &mut extra {
+            piece.rule.eq.sort_unstable();
+            piece.rule.eq.dedup();
+            piece.rule.ge.sort_unstable();
+            piece.rule.ge.dedup();
         }
         let pre_blocker = !extra.is_empty();
         if pre_blocker {

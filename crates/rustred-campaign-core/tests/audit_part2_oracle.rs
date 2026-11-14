@@ -1076,13 +1076,7 @@ fn check_tables(
         });
         let unc_fc = first_applies.is_none() || blocked_by_elided;
         let risky_elided = ds.iter().any(|d| {
-            d.witness_elided
-                && matches!(
-                    rustred_campaign_core::partition::nf::modular_risk(d),
-                    Some(rustred_campaign_core::partition::nf::ModularRisk::Anywhere(
-                        _
-                    ))
-                )
+            d.witness_elided && rustred_campaign_core::partition::nf::modular_risk(d).is_some()
         });
         if risky_elided {
             // an over-approximated stop set (partfix3): conservative only
@@ -1150,17 +1144,12 @@ fn check_tables(
     let drep = gap_partition(&l, &f, &dispatch(), None)
         .unwrap_or_else(|e| panic!("{}: {e:?}", what("dispatch")));
     let mut any_open = false;
-    // partfix3 (audit-part3 C2): a record whose literal may meet the engine's modular zero test somewhere STOPS dispatch
-    // on an over-approximated set (its fixed / constant set): the oracle is then conservative (over-report only),
-    // exact otherwise
-    let risky = ds.iter().any(|d| {
-        matches!(
-            rustred_campaign_core::partition::nf::modular_risk(d),
-            Some(rustred_campaign_core::partition::nf::ModularRisk::Anywhere(
-                _
-            ))
-        )
-    });
+    // partfix3 (audit-part3 C2): a record whose literal may meet the engine's modular zero test STOPS dispatch on a
+    // possibly over-approximated set (exact points / far radius / its prefix set): the oracle is then conservative
+    // (over-report only), exact otherwise
+    let risky = ds
+        .iter()
+        .any(|d| rustred_campaign_core::partition::nf::modular_risk(d).is_some());
     for k in &keys {
         let fm = disp.first_match(k).unwrap();
         let open = fm.is_open();

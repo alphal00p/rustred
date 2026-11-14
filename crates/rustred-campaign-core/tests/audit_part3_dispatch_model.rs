@@ -388,3 +388,38 @@ fn p3_minting_preconditions_strict_basis_and_engine_readable_bounds() {
     let d = disp(&[u, CaseDomain::free(n, chart(n, 1))], n);
     assert!(mint(&d, &f).is_err());
 }
+
+/// partfix3: a NON-linear literal whose values can reach the engine prime product only far out is confined to
+/// `|rule point| >= r`: the member `2^100 n0^2 + n0 + 1` (never zero on the chart) stays below p1*p2 for n0 < r ~ 2048,
+/// so the record serves every key there (exact oracle), and beyond the radius it STOPS (a possible dispatcher stop the
+/// partition cannot exclude without modular root finding: an over-report, never a proof).
+#[test]
+fn p3_c2_nonlinear_risk_is_confined_far_out() {
+    use rustred_campaign_core::partition::nf::{ModularRisk, modular_risk};
+    let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 1);
+    let mut r = CaseDomain::free(n, chart(n, 1));
+    r.exceptions = vec![vec![
+        Poly::parse("1267650600228229401496703205376*n0^2+n0+1", n, false).unwrap(),
+    ]];
+    let radius = match modular_risk(&r) {
+        Some(ModularRisk::Far(v)) => {
+            assert_eq!(v.len(), 1);
+            v[0].1
+        }
+        other => panic!("expected a far risk, got {other:?}"),
+    };
+    assert!((1_000..5_000).contains(&radius), "{radius}");
+    let d = disp(std::slice::from_ref(&r), n);
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    let near = i32::try_from(radius - 1).unwrap();
+    for k in [[1, 0], [100, -3], [near, -7]] {
+        assert!(!open(&d, &k) && !rep.uncovered(&k).unwrap(), "{k:?}");
+    }
+    let far = i32::try_from(radius).unwrap();
+    assert!(
+        rep.uncovered(&[far, 0]).unwrap(),
+        "beyond the radius the record stops"
+    );
+    assert!(mint(&d, &f).is_err());
+}
