@@ -232,6 +232,14 @@ impl Proof {
     }
 }
 
+/// Whether a finite key range a statement was computed against is a measured envelope or a proved bound
+/// (carried through every coverage statement that involves a range).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum KeyRange {
+    Measured,
+    Proved,
+}
+
 /// Generic (some U class) or locus-only (gaps only on coupled loci).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 pub enum FaceKind {
@@ -262,6 +270,9 @@ pub struct GapFace {
     pub witness: Option<Key>,
     pub loci: Vec<String>,
     pub proof: Proof,
+    /// For faces derived from a finite key set (fallback): the label of that key range; `None` for partition faces
+    /// (valid for all powers).
+    pub key_range: Option<KeyRange>,
 }
 
 impl GapFace {
@@ -323,6 +334,8 @@ pub struct KeyCensus {
     pub covered_in_u: Vec<Key>,
     /// Uncovered keys in C classes: must be empty (a soundness check).
     pub uncovered_in_c: Vec<Key>,
+    /// Label of the key range (set by [`PartitionReport::census_in`]).
+    pub range: Option<KeyRange>,
 }
 
 impl KeyCensus {
@@ -453,7 +466,7 @@ pub fn partition_nf(
 }
 
 /// Fallback face list from uncovered keys (R30): a LOWER BOUND, every face labelled `closure_lower_bound`.
-pub fn faces_from_uncovered_keys(frame: &NodeFrame, keys: &[Key]) -> Vec<GapFace> {
+pub fn faces_from_uncovered_keys(frame: &NodeFrame, keys: &[Key], range: KeyRange) -> Vec<GapFace> {
     let lines: Vec<bool> = (0..frame.arity()).map(|i| frame.is_line(i)).collect();
     let mut by: BTreeMap<(Vec<usize>, Vec<usize>), Vec<&Key>> = BTreeMap::new();
     for k in keys {
@@ -474,6 +487,7 @@ pub fn faces_from_uncovered_keys(frame: &NodeFrame, keys: &[Key]) -> Vec<GapFace
                 witness: ks.iter().min().map(|k| (*k).clone()),
                 loci: vec![],
                 proof: Proof::ClosureLowerBound,
+                key_range: Some(range),
                 kind: FaceKind::Generic,
                 sd,
                 sn,
@@ -577,6 +591,13 @@ impl PartitionReport {
         }
         faces.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
         self.faces = faces;
+    }
+
+    /// [`PartitionReport::census`] with the key range's label carried.
+    pub fn census_in(&self, keys: &[Key], range: KeyRange) -> Result<KeyCensus, PartitionError> {
+        let mut c = self.census(keys)?;
+        c.range = Some(range);
+        Ok(c)
     }
 
     /// Exact census of a finite key set (box, envelope, closure keys): every key evaluated by the oracle and placed.
@@ -696,6 +717,7 @@ impl PartitionReport {
                 n_f_with_gaps: a.nfg,
                 witness: None,
                 loci: a.loci.iter().cloned().collect(),
+                key_range: None,
                 proof: if kind == FaceKind::Generic || !a.tested {
                     Proof::ExactPartition
                 } else {
