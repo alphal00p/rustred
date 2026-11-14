@@ -53,6 +53,9 @@ pub struct LociOptions {
     pub tries: usize,
     /// Witness points per piece.
     pub witnesses: usize,
+    /// Wall-clock deadline (set from the partition's `Budget::wall`): regions reached after it are reported as
+    /// OPEN unresolved regions (audit-part-B M3).
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl Default for LociOptions {
@@ -64,6 +67,7 @@ impl Default for LociOptions {
             window_radius: [0, 40, 40, 40, 24, 12],
             tries: 8,
             witnesses: 3,
+            deadline: None,
         }
     }
 }
@@ -376,9 +380,15 @@ impl<'a> Resolver<'a> {
     /// Resolve the uncovered set of `region` w.r.t. the rules `among` (indices into nf.rules).
     pub fn resolve(&mut self, region: Region, among: &[usize], trail: Vec<String>, depth: usize) {
         self.nodes += 1;
-        if self.nodes > self.opts.max_nodes || depth > self.opts.max_depth {
+        let late = self
+            .opts
+            .deadline
+            .is_some_and(|d| std::time::Instant::now() > d);
+        if self.nodes > self.opts.max_nodes || depth > self.opts.max_depth || late {
             self.capped = true;
-            let why = if depth > self.opts.max_depth {
+            let why = if late {
+                "wall budget reached before this region was resolved".to_string()
+            } else if depth > self.opts.max_depth {
                 format!("locus recursion depth cap {} reached", self.opts.max_depth)
             } else {
                 format!("locus recursion node cap {} reached", self.opts.max_nodes)

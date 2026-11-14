@@ -244,6 +244,54 @@ pub fn find_point(
     Ok(None)
 }
 
+/// EXHAUSTIVE integer search of `cons >= 0` (audit-part-B M1): every value of each variable inside its projected
+/// bounds (Fourier-Motzkin with rounding keeps every integer point, so the range is a superset). `Some(Some(t))` = a
+/// point, `Some(None)` = PROVED integer-empty, `None` = undecided (an unbounded projection or the `budget` of tried
+/// values exhausted).
+pub fn exhaustive_point(
+    cons: &[Affine],
+    k: usize,
+    budget: &mut u64,
+) -> XResult<Option<Option<Vec<i128>>>> {
+    if k == 0 {
+        return Ok(Some(if cons.iter().all(|c| c.c >= 0) {
+            Some(vec![])
+        } else {
+            None
+        }));
+    }
+    let proj = project0(cons, k)?;
+    let (lo, hi, ok) = bounds0(&proj);
+    if !ok {
+        return Ok(Some(None));
+    }
+    let (Some(l), Some(h)) = (lo, hi) else {
+        return Ok(None);
+    };
+    if l > h {
+        return Ok(Some(None));
+    }
+    let mut unknown = false;
+    let mut v = l;
+    while v <= h {
+        if *budget == 0 {
+            return Ok(None);
+        }
+        *budget -= 1;
+        let sub = fix0(cons, v)?;
+        match exhaustive_point(&sub, k - 1, budget)? {
+            Some(Some(mut r)) => {
+                r.insert(0, v);
+                return Ok(Some(Some(r)));
+            }
+            Some(None) => {}
+            None => unknown = true,
+        }
+        v += 1;
+    }
+    Ok(if unknown { None } else { Some(None) })
+}
+
 impl Region {
     /// The point of the region at parameter values `t`.
     pub fn at(&self, t: &[i128]) -> XResult<Vec<i128>> {
