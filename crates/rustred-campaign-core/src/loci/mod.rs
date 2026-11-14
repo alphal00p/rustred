@@ -483,7 +483,8 @@ impl<'a> Resolver<'a> {
             self.pending = self.pending.saturating_add(1);
             return;
         }
-        if !self.meter.tick(1) {
+        // one unit per node plus the Fourier-Motzkin / point-search work done since the last node (audit-part3 m4)
+        if !self.meter.tick(1u64.saturating_add(region::take_work())) {
             let why = self
                 .meter
                 .reason()
@@ -1041,7 +1042,7 @@ impl<'a> Resolver<'a> {
         }
         fn split(r: &Region, hs: &[Hyper], sp: &mut Split<'_>) -> Minus {
             sp.nodes = sp.nodes.saturating_add(1);
-            if sp.nodes > sp.cap || !sp.meter.tick(1) {
+            if sp.nodes > sp.cap || !sp.meter.tick(1u64.saturating_add(region::take_work())) {
                 return Minus::Unknown;
             }
             match r.feasible() {
@@ -1194,9 +1195,18 @@ pub fn resolve_fragile_classes_with(
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
     let all: Vec<usize> = (0..rep.nf().rules.len()).collect();
     let mut budget_cells: Vec<(FaceKey, Unresolved)> = vec![];
+    let _ = region::take_work(); // leftovers of earlier calls on this thread are not this call's work
     for c in rep.classes().iter().filter(|c| c.label == Label::Fragile) {
-        // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded
-        let Some(cells) = rep.expand(c) else { continue };
+        if meter.exhausted() {
+            // count the class's cells as unresolved without expanding them (the run is aborted anyway)
+            out.cells_unresolved_budget = out.cells_unresolved_budget.saturating_add(1);
+            continue;
+        }
+        // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded; the
+        // expansion is charged to the meter (audit-part3 M2)
+        let Some(cells) = rep.expand_with(c, meter) else {
+            continue;
+        };
         for (face, cell) in cells {
             let region = cell_region(rep, &cell);
             if meter.exhausted() {

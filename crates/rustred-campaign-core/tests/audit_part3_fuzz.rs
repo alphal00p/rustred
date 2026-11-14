@@ -23,12 +23,12 @@ use rustred_campaign_core::cover::{
 use rustred_campaign_core::domain::{
     CaseDomain, PoleKind, PoleLocus, Stage, TargetMap, TargetSlot, Verdict,
 };
-use rustred_campaign_core::economy::prove_coverage_preserved;
+use rustred_campaign_core::economy::{ProofWork, prove_coverage_preserved};
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::loci::contain::ProofBudget;
 use rustred_campaign_core::partition::{
     Budget, Containment, CoverageNotion, DispatchOrderStatement, DispatcherSource, DomainList,
-    Emptiness, LiteralTests, PartitionOptions, contained_in_with, gap_partition, is_empty_with,
+    Emptiness, PartitionOptions, contained_in_with, gap_partition, is_empty_with,
     shadowed_with,
 };
 use rustred_campaign_core::poly::{EvalError, Poly};
@@ -673,26 +673,19 @@ fn run_one(seed: u64, t: &mut Tally, heavy: bool) {
         Err(_) => t.partition_errors += 1,
     }
     stage("minted proofs");
-    // ---- minted proofs under option variants
-    let variants: Vec<PartitionOptions> = if heavy {
+    // ---- minted proofs (partfix3, audit-part3 C1: the minting function takes a WORK BUDGET only and builds its own
+    // options; the former option variants are gone): the default budget and, for heavy sets, a small one
+    let variants: Vec<ProofWork> = if heavy {
         vec![
-            opts(s.n, CoverageNotion::UnionCoverage),
-            PartitionOptions {
-                memo: false,
-                ..opts(s.n, CoverageNotion::DispatchCoverage)
-            },
-            PartitionOptions {
-                literal_tests: LiteralTests::ReferenceCompatible,
-                ..opts(s.n, CoverageNotion::DispatchCoverage)
-            },
-            PartitionOptions {
-                dedup: false,
-                factor_exceptions: true,
-                ..opts(s.n, CoverageNotion::DispatchCoverage)
+            ProofWork::default(),
+            ProofWork {
+                max_units: 200_000,
+                wall: None,
+                max_memo: Some(10_000),
             },
         ]
     } else {
-        vec![opts(s.n, CoverageNotion::UnionCoverage)]
+        vec![ProofWork::default()]
     };
     for (vi, o) in variants.iter().enumerate() {
         if let Ok(p) =
@@ -951,10 +944,21 @@ fn p3_budget_sweep_never_proves_more_and_never_completes_after_exhaustion() {
             let rep = gap_partition(&src, &f, &o, None).unwrap();
             runs += 1;
             let ok = rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok();
+            // partfix3: the minting function runs its own prove-mode partition (no faces) plus the cross-check under
+            // the SAME number of units: it may prove with fewer / need more units than the describe run, but it never
+            // proves more than the unlimited run
+            let w = ProofWork {
+                max_units: b,
+                wall: None,
+                max_memo: None,
+            };
             let minted =
-                prove_coverage_preserved(&src, &src, &f, &o, &DispatchOrderStatement::SameOrder)
+                prove_coverage_preserved(&src, &src, &f, &w, &DispatchOrderStatement::SameOrder)
                     .is_ok();
-            assert_eq!(ok, minted, "seed {seed:#x} budget {b}");
+            assert!(
+                !minted || full_sig.6,
+                "seed {seed:#x} budget {b}: minted more than the unlimited run proves"
+            );
             assert!(
                 !ok || full_sig.6,
                 "seed {seed:#x} budget {b}: proves more than the unlimited run"

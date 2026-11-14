@@ -1102,7 +1102,11 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                 &header,
                 &scans[0].charts,
             )?;
-            r.check_tables(&DispatcherSource::new(&before), &DispatcherSource::new(&after))
+            r.check_tables(
+                &DispatcherSource::new(&before),
+                &DispatcherSource::new(&after),
+                &frame,
+            )
                 .map_err(|e| {
                     AssembleError::Retire(format!(
                         "{e:?}: the containment proof is not about this assembly's table sets in force before / \

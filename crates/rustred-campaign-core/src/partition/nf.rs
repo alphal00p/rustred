@@ -19,7 +19,7 @@ use super::exact::{Affine, ExactError, MPoly, linear_factors, slot_names};
 use super::{DomainSource, ElidedPolicy, PartitionError};
 use crate::domain::{CaseDomain, TargetMap, TargetSlot};
 use crate::key::NodeFrame;
-use crate::poly::Poly;
+use crate::poly::{D_VAR, ENGINE_PRIMES, Poly};
 
 /// One interned literal.
 #[derive(Clone, Debug)]
@@ -66,6 +66,10 @@ pub struct NfStats {
     /// FailClosed / dispatch sub-problem: number of rules making up the complement of the blocking record's
     /// SELECTED set.
     pub blocked_variants: usize,
+    /// Stop pieces evaluated before the equations (rule-point overflow, modular zero risk; audit-part3 M1 / C2).
+    pub extra_stop_pieces: usize,
+    /// Rule-point overflow pieces over-approximated by the whole fixed / constant set (literal not representable).
+    pub stop_pieces_over_approximated: usize,
 }
 
 /// How one source domain entered the normal form, when not simply "represented exactly" (audit-part-A C2: every
@@ -88,6 +92,12 @@ pub enum NfNote {
     /// Witness status not Complete, CREDITED as an ordinary domain (`ElidedPolicy::Ordinary`: a regression reference, never
     /// a proof: the engine never serves an elided record).
     ElidedCredited,
+    /// The engine's MODULAR zero test may disagree with the exact one somewhere on the record's reachable rule points
+    /// (an equation, exception member or pole coefficient can take a nonzero value divisible by both engine primes:
+    /// [`modular_zero_risk`]; audit-part3 C2). Dispatch mode: the record STOPS dispatch (Undecided) on its whole
+    /// fixed-slot / target-constant set, a stop piece that over-approximates the true one (sound for a no-gap
+    /// proof). Union mode: a caveat (union coverage cannot model an undecided record).
+    ModularZeroRisk(String),
 }
 
 impl NfNote {
@@ -102,6 +112,38 @@ impl NfNote {
 pub struct SourceNote {
     pub source: usize,
     pub note: NfNote,
+}
+
+/// Why a record STOPS first-match dispatch at keys where it does not apply, beyond its blocked set (the latter is
+/// `selected minus applies`, see [`NfRules::selected`]). Both are evaluated by the dispatcher BEFORE the equations
+/// (audit-part3 M1 / C2), so they also stop dispatch at keys where an equation fails, and for records the normal form
+/// drops as never applying.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum StopWhy {
+    /// `CaseDomain::rule_point`: the rule point leaves the `i32` range at target slot `slot` (`n_slot - offset`):
+    /// `Verdict::Error(Overflow)`, Undecided. Exact.
+    RulePointOverflow { slot: usize },
+    /// The engine's modular zero test may read a nonzero literal value as zero ([`modular_zero_risk`]): the stop set
+    /// is over-approximated by the record's fixed-slot / target-constant set.
+    ModularZeroRisk(String),
+}
+
+/// One piece of a record's STOP set outside its selected-minus-applies set: the keys of `rule` (exact, or an
+/// over-approximation for [`StopWhy::ModularZeroRisk`]) stop dispatch at the record whatever its own verdict there,
+/// so the record's own APPLIES set is NOT subtracted from it (unlike the blocked set).
+#[derive(Clone, Debug)]
+pub struct StopPiece {
+    pub rule: NfRule,
+    pub why: StopWhy,
+}
+
+/// Which stop piece of a blocker a blocked sub-problem describes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+pub enum StopRef {
+    /// `selected(e) minus applies(e)` (pole loci, recenter / range bounds, elision, witness status).
+    Selected,
+    /// `extra_stops[e][j]` (rule-point overflow, modular zero risk).
+    Extra(usize),
 }
 
 /// The rules of a partition run.
@@ -128,26 +170,51 @@ pub struct NfRules {
     /// Per blocker source its SELECTED set (the engine's selection: fixed slots, target constants, equations,
     /// bounds, exceptions; without pole loci, recenter / range bounds, elision).
     pub selected: BTreeMap<usize, NfRule>,
+    /// Per source the stop pieces evaluated BEFORE the equations (rule-point overflow, modular zero risk;
+    /// audit-part3 M1 / C2); such a source is a blocker even when it never applies.
+    pub extra_stops: BTreeMap<usize, Vec<StopPiece>>,
 }
 
 impl NfRules {
-    /// The BLOCKED sub-problem of blocker source `e` (FailClosed / dispatch mode, audit-part-A M3): the rules of
-    /// every source at or before `e` in dispatch order (`pos`: source -> position) plus the COMPLEMENT of `e`'s
-    /// SELECTED set. Its uncovered set is exactly `selected(e) \ applies(e) \ U_{s < e} applies(s)`: the keys where
-    /// `e` is selected but blocked and no earlier record serves, i.e. where first-match dispatch stops at a blocked
-    /// record (either `e` or an earlier blocked one). The union of these sets over all blockers together with the
-    /// union-uncovered set is exactly the dispatch-uncovered set.
+    /// The BLOCKED sub-problem of blocker source `e`, stop piece `which` (FailClosed / dispatch mode, audit-part-A M3,
+    /// audit-part3 M1 / C2). `StopRef::Selected`: the rules of every source at or before `e` in dispatch order (`pos`:
+    /// source -> position) plus the COMPLEMENT of `e`'s SELECTED set; its uncovered set is exactly
+    /// `selected(e) \ applies(e) \ U_{s < e} applies(s)`. `StopRef::Extra(j)`: the rules of every source STRICTLY
+    /// before `e` plus the complement of the stop piece `extra_stops[e][j]`; its uncovered set is
+    /// `piece \ U_{s < e} applies(s)` (the record's own verdict there is Undecided: its applies set is not
+    /// subtracted). The union of these sets over all blockers and pieces together with the union-uncovered set is the
+    /// dispatch-uncovered set (bridge: interfaces/partition.md 14).
     pub fn blocked_subproblem(
         &self,
         e: usize,
+        which: StopRef,
         pos: &HashMap<usize, usize>,
     ) -> Result<NfRules, PartitionError> {
-        let pe = pos[&e];
-        let sel = self
-            .selected
+        let pe = *pos
             .get(&e)
-            .ok_or_else(|| PartitionError::Unsupported(format!("source {e} is not a blocker")))?
-            .clone();
+            .ok_or_else(|| PartitionError::Unsupported(format!("blocker {e} has no position")))?;
+        let (sel, own) = match which {
+            StopRef::Selected => (
+                self.selected
+                    .get(&e)
+                    .ok_or_else(|| {
+                        PartitionError::Unsupported(format!("source {e} has no selected set"))
+                    })?
+                    .clone(),
+                true,
+            ),
+            StopRef::Extra(j) => (
+                self.extra_stops
+                    .get(&e)
+                    .and_then(|v| v.get(j))
+                    .ok_or_else(|| {
+                        PartitionError::Unsupported(format!("source {e} has no stop piece {j}"))
+                    })?
+                    .rule
+                    .clone(),
+                false,
+            ),
+        };
         let mut b = Builder {
             arity: self.arity,
             lits: self.lits.clone(),
@@ -164,7 +231,7 @@ impl NfRules {
             let before: Vec<usize> = self.sources[k]
                 .iter()
                 .copied()
-                .filter(|s| pos.get(s).is_some_and(|&p| p <= pe))
+                .filter(|s| pos.get(s).is_some_and(|&p| p < pe || (own && p == pe)))
                 .collect();
             if !before.is_empty() {
                 rules.push(r.clone());
@@ -203,6 +270,7 @@ impl NfRules {
             quick,
             elided: vec![],
             blockers: vec![],
+            extra_stops: BTreeMap::new(),
             notes: if inexact {
                 vec![SourceNote {
                     source: e,
@@ -216,6 +284,18 @@ impl NfRules {
             },
             selected: BTreeMap::new(),
         })
+    }
+
+    /// The stop pieces of a blocker: its blocked set (if it has a selected set) and its extra pieces.
+    pub fn stop_refs(&self, e: usize) -> Vec<StopRef> {
+        let mut v = vec![];
+        if self.selected.contains_key(&e) {
+            v.push(StopRef::Selected);
+        }
+        if let Some(x) = self.extra_stops.get(&e) {
+            v.extend((0..x.len()).map(StopRef::Extra));
+        }
+        v
     }
 
     /// The notes of one source.
@@ -413,14 +493,15 @@ fn split_products(members: &[MPoly]) -> Result<Vec<Vec<MPoly>>, PartitionError> 
 
 /// The affine rule-point map of a target pattern, in the KEY's slot variables (the engine's `find_rule`):
 /// `pt[a] = n_j - o` for `n<a>+o` at slot j, the fixed value of slot a (else 0) for a parameter no slot maps. Also
-/// returns the target constants (slot, value) and the rule-point RANGE bounds (GE literals in the key): the engine
-/// computes `pt[a]` in `i32` and reports an evaluation error (the search stops: a block) where `n_j - o` leaves it.
+/// returns the target constants (slot, value) and the rule-point RANGE bounds (target slot j, GE literal in the key
+/// that holds where `n_j - o` fits `i32`): the dispatcher computes `pt[a]` in `i32` right after the fixed slots and
+/// the constants, BEFORE the equations, and stops (Undecided) where `n_j - o` leaves it (audit-part3 M1).
 #[allow(clippy::type_complexity)]
 fn pattern_map(
     t: &[TargetSlot],
     fixed: &[Option<i32>],
     arity: usize,
-) -> Result<(Vec<Affine>, Vec<(usize, i64)>, Vec<MPoly>), String> {
+) -> Result<(Vec<Affine>, Vec<(usize, i64)>, Vec<(usize, MPoly)>), String> {
     if t.len() != arity || fixed.len() != arity {
         return Err(format!(
             "target pattern of length {} for arity {arity}",
@@ -459,11 +540,108 @@ fn pattern_map(
                 } else {
                     continue;
                 };
-                range.push(bound.map_err(|e| format!("{e}"))?);
+                range.push((j, bound.map_err(|e| format!("{e}"))?));
             }
         }
     }
     Ok((map, consts, range))
+}
+
+/// The product of the engine's two zero-test primes (`ENGINE_PRIMES`): a value is "zero" for the engine iff it vanishes
+/// modulo both, so an exact value `v` with `0 < |v| < ENGINE_PRIME_PRODUCT` is never read as zero.
+pub fn engine_prime_product() -> u128 {
+    u128::from(ENGINE_PRIMES[0]).saturating_mul(u128::from(ENGINE_PRIMES[1]))
+}
+
+/// Largest `|f(pt)|` over rule points with `|pt[v]| <= m[v]`: `sum |c| prod m[v]^e`, checked (`None` on overflow).
+fn max_abs_value(f: &Poly, m: &[u128]) -> Option<u128> {
+    let mut acc: u128 = 0;
+    for (mono, c) in f.terms() {
+        let mut t = c.unsigned_abs();
+        for &(v, e) in mono {
+            if v == D_VAR {
+                return None; // d-free literals only (pole coefficients are d-free)
+            }
+            let mv = *m.get(usize::from(v))?;
+            t = t.checked_mul(mv.checked_pow(e)?)?;
+        }
+        acc = acc.checked_add(t)?;
+    }
+    Some(acc)
+}
+
+/// Can the ENGINE's modular zero test (a value is zero iff it vanishes modulo both `ENGINE_PRIMES`) disagree with the
+/// exact one on a literal of this record at a rule point that the dispatcher or the engine evaluates (audit-part3 C2)?
+/// The dispatcher stops there (`Verdict::Error(EngineZeroTest)`, Undecided) for equations and exception members; the
+/// engine may read a pole coefficient as zero. Checked literals: equations, exception members, pole coefficients
+/// (bounds and recenter bounds are sign tests). Rule points: a canonical target evaluates at the key (`|n| <= 2^31`
+/// on the chart); a target pattern at `pt[a] = n_j - o` (the dispatcher only inside `i32`, the engine in `i64`:
+/// `|pt[a]| <= 2^31 + |o|`; an offset with `|o| >= 2^62` may leave `i64`: risk), unmapped parameters at their fixed
+/// value or 0. A literal whose bound `sum |c| prod |pt|^e` stays below the prime product can only be read as zero when
+/// it IS zero. `Some(reason)` = the disagreement cannot be excluded (a dispatch stop is then modelled; never a guess).
+pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
+    let n = d.arity;
+    let base: u128 = 1u128 << 31;
+    let m: Vec<u128> = match &d.target {
+        TargetMap::Canonical => vec![base; n],
+        TargetMap::Pattern(t) => {
+            let mut m: Vec<u128> = (0..n)
+                .map(|a| {
+                    u128::from(
+                        d.fixed
+                            .get(a)
+                            .copied()
+                            .flatten()
+                            .unwrap_or(0)
+                            .unsigned_abs(),
+                    )
+                })
+                .collect();
+            for s in t {
+                if let TargetSlot::Param { param, offset } = *s {
+                    let o = u128::from(offset.unsigned_abs());
+                    if o >= 1u128 << 62 {
+                        return Some(format!(
+                            "target offset {offset}: the engine's i64 rule point may overflow"
+                        ));
+                    }
+                    if let Some(x) = m.get_mut(param) {
+                        *x = base.saturating_add(o);
+                    }
+                }
+            }
+            m
+        }
+    };
+    let p = engine_prime_product();
+    let lits = d
+        .equations
+        .iter()
+        .map(|f| ("equation", f))
+        .chain(
+            d.exceptions
+                .iter()
+                .flatten()
+                .map(|f| ("exception member", f)),
+        )
+        .chain(
+            d.poles
+                .iter()
+                .flat_map(|pl| pl.coeffs.iter())
+                .map(|f| ("pole coefficient", f)),
+        );
+    for (what, f) in lits {
+        match max_abs_value(f, &m) {
+            Some(b) if b < p => {}
+            Some(_) => {
+                return Some(format!(
+                    "{what} {f} can reach a nonzero multiple of the engine prime product"
+                ));
+            }
+            None => return Some(format!("{what} {f}: value bound overflows u128")),
+        }
+    }
+    None
 }
 
 /// Build the normal form of the selected domains of `src`.
@@ -493,6 +671,7 @@ pub fn build(
     let mut blockers: Vec<usize> = vec![];
     let mut notes: Vec<SourceNote> = vec![];
     let mut selected: BTreeMap<usize, NfRule> = BTreeMap::new();
+    let mut extra_stops: BTreeMap<usize, Vec<StopPiece>> = BTreeMap::new();
     type PoleKey = (Vec<Poly>, Option<Vec<Affine>>);
     let mut pole_cache: HashMap<PoleKey, (Vec<Vec<MPoly>>, bool)> = HashMap::new();
     let idx: Vec<usize> = match &opts.subset {
@@ -591,6 +770,62 @@ pub fn build(
                     ));
                 }
             }
+        }
+        // STOP pieces the dispatcher evaluates BEFORE the equations (audit-part3 M1 / C2), registered now: a record
+        // dropped below as never applying still STOPS dispatch there. (A fixed value / target constant outside the
+        // chart was handled above: such a record is never reached on a chart key.)
+        sel.eq.sort_unstable();
+        sel.eq.dedup();
+        let fc = NfRule {
+            eq: sel.eq.clone(),
+            ge: vec![],
+            bad: vec![],
+        };
+        let mut extra: Vec<StopPiece> = vec![];
+        for (j, ok) in &range {
+            // violated: -ok - 1 >= 0 (n_j - o outside i32)
+            let viol = ok
+                .scale(-1)
+                .and_then(|p| p.sub(&MPoly::constant(arity, 1)));
+            match viol.map_err(|e| format!("{e}")).map(|v| b.try_intern(&v, true)) {
+                Ok(Ok(Ok(Norm::Lit(l)))) => {
+                    let mut r = fc.clone();
+                    r.ge.push(l);
+                    extra.push(StopPiece {
+                        rule: r,
+                        why: StopWhy::RulePointOverflow { slot: *j },
+                    });
+                }
+                Ok(Ok(Ok(Norm::NonZeroConst))) => {} // never violated
+                Ok(Ok(Ok(Norm::Zero))) => extra.push(StopPiece {
+                    rule: fc.clone(),
+                    why: StopWhy::RulePointOverflow { slot: *j },
+                }),
+                Ok(Err(e)) => return Err(e),
+                Ok(Ok(Err(_))) | Err(_) => {
+                    // not representable: over-approximated by the whole fixed / constant set (a larger stop set is
+                    // sound for a no-gap proof: it can only add gaps)
+                    stats.stop_pieces_over_approximated =
+                        stats.stop_pieces_over_approximated.saturating_add(1);
+                    extra.push(StopPiece {
+                        rule: fc.clone(),
+                        why: StopWhy::RulePointOverflow { slot: *j },
+                    });
+                }
+            }
+        }
+        if let Some(why) = modular_zero_risk(d) {
+            note(&mut notes, NfNote::ModularZeroRisk(why.clone()));
+            extra.push(StopPiece {
+                rule: fc.clone(),
+                why: StopWhy::ModularZeroRisk(why),
+            });
+        }
+        let pre_blocker = !extra.is_empty();
+        if pre_blocker {
+            stats.extra_stop_pieces = stats.extra_stop_pieces.saturating_add(extra.len());
+            extra_stops.insert(i, extra);
+            blockers.push(i);
         }
         for e in &d.equations {
             let q = match lit_of(e) {
@@ -717,8 +952,8 @@ pub fn build(
                 }
             }
         }
-        for q in range {
-            ge_blockers.push(("rule-point range bound".into(), q));
+        for (_, q) in &range {
+            ge_blockers.push(("rule-point range bound".into(), q.clone()));
         }
         for (what, q) in ge_blockers {
             match b.try_intern(&q, true)? {
@@ -793,7 +1028,7 @@ pub fn build(
         sel.bad.sort();
         sel.bad.dedup();
         let has_blocker = never_applies.is_some() || !blk_ge.is_empty() || !blk_bad.is_empty();
-        if has_blocker {
+        if has_blocker && !pre_blocker {
             blockers.push(i);
         }
         // APPLIES set = selected set minus the blockers
@@ -861,6 +1096,7 @@ pub fn build(
         blockers,
         notes,
         selected,
+        extra_stops,
     })
 }
 

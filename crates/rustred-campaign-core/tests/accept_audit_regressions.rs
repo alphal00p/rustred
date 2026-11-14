@@ -35,13 +35,13 @@ use rustred_campaign_core::closure::facts::CoefFact;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::DomainOptions;
 use rustred_campaign_core::economy::{
-    CoverageState, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
+    CoverageState, ProofWork, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
     table_set_digest,
 };
 use rustred_campaign_core::ibp_rows::TableBinding;
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::partition::{
-    DispatchOrderStatement, DispatcherSource, DomainSource, PartitionOptions,
+    DispatchOrderStatement, DispatcherSource, DomainSource,
 };
 use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
 use serde_json::{Value, json};
@@ -1122,7 +1122,8 @@ fn full_retirement_refused_unless_bound() {
         sha256: None,
     };
     let mut inp = assembly(&t, vec![whole.clone(), copy], vec![], NodeTarget::Full);
-    let o = PartitionOptions::default();
+    // partfix3 (audit-part3 C1): the minting function takes a work budget only
+    let o = ProofWork::default();
     let same = DispatchOrderStatement::SameOrder;
     let before = tables_in_force(&inp, &[]).unwrap();
     let after = tables_in_force(&inp, std::slice::from_ref(&victim)).unwrap();
@@ -1136,8 +1137,14 @@ fn full_retirement_refused_unless_bound() {
     );
     let proof = prove_coverage_preserved(&bs, &asrc, &t.node.frame, &o, &same)
         .expect("the copy never serves: dispatch coverage preserved");
-    assert_eq!(proof.old_tables_digest(), table_set_digest(&bs));
-    assert_eq!(proof.new_tables_digest(), table_set_digest(&asrc));
+    assert_eq!(
+        proof.old_tables_digest(),
+        table_set_digest(&bs, &t.node.frame)
+    );
+    assert_eq!(
+        proof.new_tables_digest(),
+        table_set_digest(&asrc, &t.node.frame)
+    );
     let m = |terms: u64| RuleMeasure {
         cases: 1,
         rhs_terms: terms,
@@ -1175,7 +1182,7 @@ fn full_retirement_refused_unless_bound() {
     )
     .unwrap();
     assert_eq!(
-        table_set_digest(&DispatcherSource::new(&shipped)),
+        table_set_digest(&DispatcherSource::new(&shipped), &t.node.frame),
         proof.new_tables_digest()
     );
     // (a) a proof for OTHER tables: the whole table alone (a valid proof, but not of this assembly's sets)

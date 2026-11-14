@@ -1,14 +1,15 @@
-//! Re-audit part 3 (lane audit-part3): the PROOF OBJECT (`economy::ContainmentProof`, `table_set_digest` v2,
+//! Re-audit part 3 (lane audit-part3): the PROOF OBJECT (`economy::ContainmentProof`, `table_set_digest`,
 //! `Retirement::check_tables`), extreme coefficients in every literal role against brute force, and the unfixed M2
-//! (varying case equations keep the U semantics: over-report only). Tests named `p3_*_defect` ASSERT a defect found on
-//! campaign ebe48378; a fix must invert the marked assertions. Synthetic tables only (lane rule L8).
+//! (varying case equations keep the U semantics: over-report only). The auditor's `p3_*_defect` tests asserted the
+//! defects found on campaign ebe48378; lane partfix3 INVERTED them (names without `_defect`) and added the arity-20
+//! budget / liveness tests and the error-injection test of mutation survivor 47. Synthetic tables only (rule L8).
 
 use std::cell::Cell;
 
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, RuleRef, Table};
 use rustred_campaign_core::domain::{CaseDomain, PoleKind, PoleLocus};
 use rustred_campaign_core::economy::{
-    CoverageState, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
+    CoverageState, ProofWork, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
     table_set_digest,
 };
 use rustred_campaign_core::key::{Key, NodeFrame};
@@ -75,15 +76,12 @@ fn measure(t: u64) -> RuleMeasure {
     }
 }
 
-/// P3-m1 (minor): `table_set_digest` v2 binds the domains and witness blocks but NOT the frame (only the arity).
-/// For domains without a chart (`chart: None`, which the dispatcher accepts) a proof minted on one line mask passes
-/// `Retirement::check_tables` for the same tables used on another mask, where every key is uncovered. (Assembly's
-/// tables carry the header chart, so `gap_partition` would refuse the wrong frame there: `ChartNotFrame`.)
+/// P3-m1 (minor), INVERTED by partfix3: `table_set_digest` v3 binds the FRAME (arity and line mask): a proof minted
+/// on one mask for chart-less domains no longer checks for the same tables on another mask.
 #[test]
-fn p3_m1_frame_not_bound_by_the_digest_defect() {
+fn p3_m1_frame_is_bound_by_the_digest() {
     let n = 1;
-    let mut d = CaseDomain::free(n, None);
-    d.bounds = vec![Poly::parse("n0-1", n, false).unwrap()]; // n0 >= 1: every LINE key, no numerator key
+    let d = CaseDomain::free(n, None); // no chart: every key of either frame
     let l = list(&[d], n);
     let as_line = NodeFrame::without_header_lines_first(n, 1);
     let as_num = NodeFrame::without_header_lines_first(n, 0);
@@ -91,10 +89,12 @@ fn p3_m1_frame_not_bound_by_the_digest_defect() {
         &l,
         &l,
         &as_line,
-        &dispatch_opts(),
+        &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     )
     .expect("no gap on the line frame");
+    assert_eq!(p.new_tables_digest(), table_set_digest(&l, &as_line));
+    assert_ne!(p.new_tables_digest(), table_set_digest(&l, &as_num));
     let r = Retirement::new(
         "N",
         CoverageState::Full,
@@ -104,11 +104,11 @@ fn p3_m1_frame_not_bound_by_the_digest_defect() {
         Some(p),
     )
     .unwrap();
-    // DEFECT: the same tables on the numerator frame have no covered key at all, and the proof still checks
-    let rep = gap_partition(&l, &as_num, &dispatch_opts(), None).unwrap();
-    assert!(rep.uncovered(&[0]).unwrap() && rep.uncovered(&[-5]).unwrap());
-    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
-    assert!(r.check_tables(&l, &l).is_ok());
+    assert!(r.check_tables(&l, &l, &as_line).is_ok());
+    assert!(
+        r.check_tables(&l, &l, &as_num).is_err(),
+        "a proof of the line frame is not a proof of the numerator frame"
+    );
 }
 
 /// A `DomainSource` whose `domain(i)` answers differ between calls (any caller can implement the public trait).
@@ -140,13 +140,12 @@ impl DomainSource for Shifty {
     }
 }
 
-/// P3-m2 (minor, hardening): `prove_coverage_preserved` runs the partition on `new_tables` FIRST and digests it
-/// AFTERWARDS, calling `domain(i)` again; a source whose answers change between the calls gets a proof bound to the
-/// digest of domains the partition never saw (here: the real record covers one key, the partition saw a free
-/// domain). Smallest fix: snapshot both sources once into a `DomainList` (domains + witness blocks), then digest and
-/// partition the snapshot.
+/// P3-m2 (minor, hardening), INVERTED by partfix3: `prove_coverage_preserved` SNAPSHOTS both sources once and runs
+/// the partition, the digest and the cross-check on the snapshot: a source whose answers change between calls gets
+/// (at most) a proof bound to the digest of the domains the partition DID see, which never checks against the real
+/// table set.
 #[test]
-fn p3_m2_source_answers_are_not_snapshotted_defect() {
+fn p3_m2_source_answers_are_snapshotted() {
     let n = 1;
     let f = NodeFrame::without_header_lines_first(n, 1);
     let mut one = CaseDomain::free(n, Some(vec![true]));
@@ -156,36 +155,39 @@ fn p3_m2_source_answers_are_not_snapshotted_defect() {
         &real,
         &real,
         &f,
-        &dispatch_opts(),
+        &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     );
     assert!(honest.is_err(), "n0 >= 2 is a gap");
+    let fake = CaseDomain::free(n, Some(vec![true]));
     let shifty = Shifty {
         real: real.clone(),
-        fake: CaseDomain::free(n, Some(vec![true])),
+        fake: fake.clone(),
         calls: Cell::new(0),
-        lie_for: 1, // nf::build reads each domain once
+        lie_for: 1, // the snapshot reads each domain once
     };
     let p = prove_coverage_preserved(
         &real,
         &shifty,
         &f,
-        &dispatch_opts(),
+        &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     );
-    // DEFECT: a proof whose new-table digest is the REAL table set's
-    let p = p.expect("the defect: a proof minted");
-    assert_eq!(p.new_tables_digest(), table_set_digest(&real));
-    let r = Retirement::new(
-        "N",
-        CoverageState::Full,
-        &[("a".into(), measure(100))],
-        ("b", &measure(10)),
-        SupersedeReason::CheaperSameOrLargerDomain,
-        Some(p),
-    )
-    .unwrap();
-    assert!(r.check_tables(&real, &real).is_ok());
+    if let Ok(p) = p {
+        // the proof is about what the partition saw (the fake free domain), never about the real set
+        assert_eq!(p.new_tables_digest(), table_set_digest(&list(&[fake], n), &f));
+        assert_ne!(p.new_tables_digest(), table_set_digest(&real, &f));
+        let r = Retirement::new(
+            "N",
+            CoverageState::Full,
+            &[("a".into(), measure(100))],
+            ("b", &measure(10)),
+            SupersedeReason::CheaperSameOrLargerDomain,
+            Some(p),
+        )
+        .unwrap();
+        assert!(r.check_tables(&real, &real, &f).is_err());
+    }
 }
 
 /// Extreme coefficients in EVERY literal role (equation, bound, exception member, pole coefficient, recenter bound) of
@@ -272,11 +274,12 @@ fn p3_extreme_coefficients_in_every_role_vs_brute_force() {
                             &src,
                             &src,
                             &f,
-                            &dispatch_opts(),
+                            &ProofWork::default(),
                             &DispatchOrderStatement::SameOrder,
                         )
                         .is_ok();
-                        assert_eq!(ok, minted);
+                        // partfix3: the minting function adds preconditions (no bounds: role 1) and the cross-check
+                        assert!(!minted || ok, "minted without a no-gap report");
                         proved += u64::from(ok);
                         for k in &keys {
                             let open = !matches!(d.first_match(k).unwrap(), Dispatch::Covered(_));
@@ -361,22 +364,19 @@ fn p3_arity_above_64_is_refused() {
             &l,
             &l,
             &f,
-            &dispatch_opts(),
+            &ProofWork::default(),
             &DispatchOrderStatement::SameOrder
         )
         .is_err()
     );
 }
 
-/// P3-M2 (major, budget / memory): the face expansion of a class with k `any` slots is 2^k cells (up to
-/// `max_any_slots` = 24 by default: 16.7 M cells) and is NOT charged to the call's work budget (`Budget::max_nodes`
-/// counts recursion / locus / split nodes only; `Budget::max_faces` defaults to unlimited). A one-record table on
-/// arity 16 that leaves `n0 >= 2` open: 2 recursion nodes, 2^15 faces, outcome Complete under a budget of 10 units.
-/// At arity 20 (the five-loop arity) this is 2^19 faces per such class; the auditor's fuzz set 0x7e8eed9fd121babb
-/// (arity 20, three records) grew past 1.4 GB inside `gap_partition` and was OOM-killed at the 4 GB scope, also
-/// through `economy::prove_coverage_preserved`, which needs no face list at all.
+/// P3-M2 (major, budget / memory), INVERTED by partfix3: the face expansion (2^k cells for k `any` slots), the
+/// thresholds and the face witnesses are charged to the call's ONE work budget: a one-record table on arity 16 that
+/// leaves `n0 >= 2` open stops at a budget of 10 units (aborted, never Complete, never a proof) instead of listing
+/// 2^15 faces.
 #[test]
-fn p3_m2_face_expansion_is_not_charged_to_the_work_budget_defect() {
+fn p3_m2_face_expansion_is_charged_to_the_work_budget() {
     let n = 16;
     let f = NodeFrame::without_header_lines_first(n, n);
     let mut d = CaseDomain::free(n, Some(vec![true; n]));
@@ -390,21 +390,17 @@ fn p3_m2_face_expansion_is_not_charged_to_the_work_budget_defect() {
         ..dispatch_opts()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(rep.stats().nodes <= 10);
-    assert!(rep.budget_exhausted().is_none());
-    // DEFECT: 2^15 faces materialised within a 10-unit budget
-    assert_eq!(rep.faces().len(), 1 << 15);
-    assert!(rep.outcome().is_complete());
+    assert!(rep.budget_exhausted().is_some(), "the expansion exhausts the budget");
+    assert!(rep.faces().len() < 1 << 15);
+    assert!(rep.outcome().is_aborted(), "{:?}", rep.outcome());
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
 }
 
-/// P3-M2 (second shape): one record coupling an early and a late slot (exception {n0 - n1 = 0, n10 - 2 = 0}) makes the
-/// class recursion split every intermediate slot (no rule completes before slot 11); the memo keeps the recursion
-/// small, but `collect_classes` lists one class per PATH of the memo DAG (2^8 paths through slots 2..9, per leaf
-/// kind), each Fragile class is expanded into cells and resolved. None of this is bounded by the node budget. The
-/// auditor's arity-20 fuzz set 0x38ecb4765e420c4c (same shape, coupled slots 0, 1, 16) grew past 0.5 GB at ~13 MB/s.
+/// P3-M2 (second shape), INVERTED by partfix3: listing the classes walks every PATH of the memo DAG (2^8 paths
+/// here); it is charged to the budget, so a 300-unit budget stops it (aborted, no proof) instead of listing every
+/// path outside the budget.
 #[test]
-fn p3_m2_classes_are_memo_dag_paths_not_charged_to_the_budget_defect() {
+fn p3_m2_class_paths_are_charged_to_the_budget() {
     let n = 14;
     let f = NodeFrame::without_header_lines_first(n, n);
     let mut d = CaseDomain::free(n, Some(vec![true; n]));
@@ -423,30 +419,71 @@ fn p3_m2_classes_are_memo_dag_paths_not_charged_to_the_budget_defect() {
         ..dispatch_opts()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(
-        rep.budget_exhausted().is_none(),
-        "the recursion fits 300 units"
-    );
-    assert!(rep.stats().nodes <= 300);
-    // DEFECT (robustness): the listed classes grow as 2^(intermediate slots), outside the budget
-    assert!(
-        rep.classes().len() >= 1 << 8,
-        "{} classes",
-        rep.classes().len()
-    );
+    assert!(rep.budget_exhausted().is_some());
+    assert!(rep.outcome().is_aborted());
+    assert!(rep.classes().len() < 1 << 8, "{} classes", rep.classes().len());
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
 }
 
-/// P3-M3 (major, liveness of `shadowed` / `contained_in` / `is_empty`): when the sign split ends on a leaf with only
-/// NONLINEAR literals, its candidate point is verified against the domains; if that fails, `verified_witness`
-/// (loci/contain.rs) walks EVERY point of the L1 ball of radius 1..=12 around a base point in all k parameters with no
-/// node, work or wall check: about D(k, 12) points per radius (k = 6: ~3.7e5, k = 20: ~6e10). Shape: subject free;
-/// earlier records A (free except on n0*n1 = 4) and C (exactly n0*n1 = 4) match every key, so the true answer is
-/// "shadowed", and the walk never finds a witness. The auditor's arity-20 fuzz set 0x73e0f4246dfa99d0 (4 records, one
-/// quadratic member) spent > 10 min in this walk (gdb backtrace) inside `shadowed_with` with a 1 s wall budget;
-/// acceptance calls `partition::shadowed` on every FULL-node candidate. Here: arity 8, a 10 ms wall budget (arity 6 took 56 ms, arity 8 ~10x more).
+/// P3-M2 at the REAL arity (20, lane rule L8: arity is a parameter): the auditor's two OOM shapes (a record leaving
+/// `n0 >= 2` open: 2^19 faces per class; a record coupling slots 0, 1 and 16: one class per memo-DAG path) and the
+/// minting function on both stop at the work budget, quickly (this test binary runs under the 2 GB scope of
+/// light_build), never a proof.
 #[test]
-fn p3_m3_verified_witness_walk_ignores_the_proof_budget_defect() {
+fn p3_m2_arity_20_shapes_stop_at_the_budget() {
+    let n = 20;
+    let f = NodeFrame::without_header_lines_first(n, 10);
+    let c: Vec<bool> = (0..n).map(|i| i < 10).collect();
+    let mut a = CaseDomain::free(n, Some(c.clone()));
+    a.fixed[0] = Some(1);
+    let mut b = CaseDomain::free(n, Some(c.clone()));
+    b.exceptions = vec![vec![
+        Poly::parse("3-2*n0+3*n1", n, false).unwrap(),
+        Poly::parse("n16^2-4", n, false).unwrap(),
+    ]];
+    for (name, ds) in [("face expansion", vec![a]), ("class paths", vec![b])] {
+        let l = list(&ds, n);
+        let o = PartitionOptions {
+            budget: rustred_campaign_core::partition::Budget {
+                max_nodes: Some(200_000),
+                ..Default::default()
+            },
+            ..dispatch_opts()
+        };
+        let t0 = std::time::Instant::now();
+        let rep = gap_partition(&l, &f, &o, None).unwrap();
+        let ms_rep = t0.elapsed().as_millis();
+        let t1 = std::time::Instant::now();
+        let minted = prove_coverage_preserved(
+            &l,
+            &l,
+            &f,
+            &ProofWork {
+                max_units: 200_000,
+                wall: None,
+                max_memo: Some(10_000),
+            },
+            &DispatchOrderStatement::SameOrder,
+        );
+        let ms_mint = t1.elapsed().as_millis();
+        eprintln!(
+            "arity 20 {name}: outcome {} ({} classes, {} faces) in {ms_rep} ms; minting {:?} in {ms_mint} ms",
+            rep.outcome().tag(),
+            rep.classes().len(),
+            rep.faces().len(),
+            minted.as_ref().map(|_| ()).map_err(|e| e.chars().take(120).collect::<String>())
+        );
+        assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+        assert!(minted.is_err(), "{name}: the set has a gap");
+        assert!(ms_rep < 60_000 && ms_mint < 60_000, "{name}: {ms_rep} / {ms_mint} ms");
+    }
+}
+
+/// P3-M3 (major, liveness), INVERTED by partfix3: `verified_witness` (loci/contain.rs) is charged to the proof
+/// budget (one work unit per point, the wall read every 256 points, at most 20,000 points): arity 8 with a 10 ms wall
+/// returns promptly, and the answer is never `NotContained` (every key is matched by an earlier record).
+#[test]
+fn p3_m3_verified_witness_walk_honours_the_proof_budget() {
     use rustred_campaign_core::loci::contain::ProofBudget;
     use rustred_campaign_core::partition::{Containment, shadowed_with};
     let n = 8;
@@ -471,8 +508,71 @@ fn p3_m3_verified_witness_walk_ignores_the_proof_budget_defect() {
         !matches!(v, Containment::NotContained { .. }),
         "every key is matched"
     );
-    // DEFECT: the walk runs far beyond the 10 ms wall budget (grows as D(k, 12): a hang at arity 20)
-    assert!(ms >= 150, "{ms} ms");
+    assert!(ms < 2_000, "{ms} ms");
+}
+
+/// P3-M3 at the REAL arity 20 (the auditor's hang: > 10 min in `verified_witness` despite a 1 s wall): the same
+/// shape on 20 slots, and the default proof budget with a 1 s wall: `shadowed_with` returns within a few seconds
+/// (Unknown or Proved, never NotContained).
+#[test]
+fn p3_m3_shadowed_at_arity_20_returns_within_the_budget() {
+    use rustred_campaign_core::loci::contain::ProofBudget;
+    use rustred_campaign_core::partition::{Containment, shadowed_with};
+    let n = 20;
+    let f = NodeFrame::without_header_lines_first(n, 12);
+    let c: Vec<bool> = (0..n).map(|i| i < 12).collect();
+    let mut a = CaseDomain::free(n, Some(c.clone()));
+    a.exceptions = vec![vec![Poly::parse("n0*n2-4", n, false).unwrap()]];
+    let mut on = CaseDomain::free(n, Some(c.clone()));
+    on.equations = vec![Poly::parse("n0*n2-4", n, false).unwrap()];
+    let mut mid = CaseDomain::free(n, Some(c.clone()));
+    mid.fixed[5] = Some(2);
+    let subject = CaseDomain::free(n, Some(c));
+    let l = list(&[a, on, mid, subject], n);
+    let budget = ProofBudget {
+        wall: Some(std::time::Duration::from_secs(1)),
+        ..Default::default()
+    };
+    let t0 = std::time::Instant::now();
+    let v = shadowed_with(&l, 3, &f, &budget);
+    let ms = t0.elapsed().as_millis();
+    eprintln!("shadowed_with on arity {n}: {v:?} after {ms} ms (wall budget 1 s)");
+    assert!(!matches!(v, Containment::NotContained { .. }));
+    assert!(ms < 10_000, "{ms} ms");
+}
+
+/// Mutation survivor 47 (loci::lit_status: a Fourier-Motzkin ERROR on the cut region read as "never zero") is now
+/// killed: error injection. The region's constraints have coprime coefficients near 2^100, so eliminating a variable
+/// overflows i128 (`fm_feasible` = Err): a linear member's status must stay V (varies) with the error flag, never NZ
+/// (which would let a branch member read "never zero" and credit coverage).
+#[test]
+fn p3_mutant47_lit_status_fm_error_stays_varies() {
+    use rustred_campaign_core::loci::{Region, lit_status, region::fm_feasible};
+    use rustred_campaign_core::partition::classes::Status;
+    use rustred_campaign_core::partition::exact::{Affine, MPoly};
+    let big = 1i128 << 100;
+    let cons = vec![
+        Affine {
+            coef: vec![big + 1, big + 3, 0],
+            c: 0,
+        },
+        Affine {
+            coef: vec![-(big + 5), -(big + 7), 0],
+            c: 10,
+        },
+    ];
+    let r = Region {
+        k: 3,
+        x: (0..3).map(|j| Affine::var(3, j)).collect(),
+        cons: cons.clone(),
+        names: vec!["a".into(), "b".into(), "c".into()],
+    };
+    assert!(fm_feasible(&cons, 3).is_err(), "the injected error");
+    // the literal t2 (linear): its cut keeps the overflowing constraints in (t0, t1)
+    let q = MPoly::var(3, 2);
+    let (st, err) = lit_status(&r, &q);
+    assert_eq!(st, Status::V, "an FM error is undecided, never NZ");
+    assert!(err);
 }
 
 /// Mutation survivor 36 (region::combine with swapped multipliers, correct only for equal pivot coefficients) is

@@ -968,11 +968,21 @@ pub struct Class {
     pub states: Vec<Option<u16>>,
 }
 
-/// Every root-to-leaf path of the tree, as classes.
+/// Every root-to-leaf path of the tree, as classes (unlimited work; see [`collect_classes_with`]).
 pub fn collect_classes(root: &Option<Rc<Node>>, arity: usize) -> Vec<Class> {
+    collect_classes_with(root, arity, &WorkMeter::unlimited())
+}
+
+/// [`collect_classes`] charged to `meter`, one unit per visited tree node (audit-part3 M2: the memo makes the tree a
+/// DAG whose PATHS can be exponentially many). When the meter is exhausted the listing stops; the caller's run is
+/// then aborted (the meter is sticky and every outcome reads it), so a truncated list never supports a verdict.
+pub fn collect_classes_with(root: &Option<Rc<Node>>, arity: usize, meter: &WorkMeter) -> Vec<Class> {
     let mut out = vec![];
     let mut prefix: Vec<Option<u16>> = vec![None; arity];
-    fn walk(n: &Node, prefix: &mut Vec<Option<u16>>, out: &mut Vec<Class>) {
+    fn walk(n: &Node, prefix: &mut Vec<Option<u16>>, out: &mut Vec<Class>, meter: &WorkMeter) {
+        if !meter.tick(1) {
+            return;
+        }
         match n {
             Node::Leaf(l) => out.push(Class {
                 label: *l,
@@ -980,15 +990,18 @@ pub fn collect_classes(root: &Option<Rc<Node>>, arity: usize) -> Vec<Class> {
             }),
             Node::Split { slot, children } => {
                 for (v, c) in children {
+                    if meter.exhausted() {
+                        break;
+                    }
                     prefix[*slot] = Some(*v);
-                    walk(c, prefix, out);
+                    walk(c, prefix, out, meter);
                 }
                 prefix[*slot] = None;
             }
         }
     }
     if let Some(r) = root {
-        walk(r, &mut prefix, &mut out);
+        walk(r, &mut prefix, &mut out, meter);
     }
     out
 }

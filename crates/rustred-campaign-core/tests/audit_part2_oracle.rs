@@ -1774,8 +1774,14 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
             );
             assert_eq!(json_without_time(&r1, &f), json_without_time(&r2, &f));
             assert!(r1.proves_no_gap(cov).is_err());
+            // partfix3 (audit-part3 C1): the minting function takes a work budget only (the same 5,000 units)
+            let w = rustred_campaign_core::economy::ProofWork {
+                max_units: 5_000,
+                wall: None,
+                max_memo: None,
+            };
             assert!(
-                prove_coverage_preserved(&l, &l, &f, &o(cov), &DispatchOrderStatement::SameOrder)
+                prove_coverage_preserved(&l, &l, &f, &w, &DispatchOrderStatement::SameOrder)
                     .is_err()
             );
             for k in window(n, e, 2) {
@@ -1878,8 +1884,13 @@ fn t266_node_budget_is_honest_and_deterministic() {
     ] {
         assert!(r1.proves_no_gap(cov).is_err());
     }
+    let w = rustred_campaign_core::economy::ProofWork {
+        max_units: 1_000_000,
+        wall: None,
+        max_memo: Some(25_000),
+    };
     assert!(
-        prove_coverage_preserved(&l, &l, &frame, &o, &DispatchOrderStatement::SameOrder).is_err()
+        prove_coverage_preserved(&l, &l, &frame, &w, &DispatchOrderStatement::SameOrder).is_err()
     );
     // the 12,501 closure gaps: uncovered by the oracle, never in a Covered class
     let dir = std::path::PathBuf::from(
@@ -2610,7 +2621,7 @@ fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
         &list(&ds, n),
         &list(&ds, n),
         &f,
-        &absent(),
+        &Default::default(),
         &DispatchOrderStatement::SameOrder,
     )
     .ok();

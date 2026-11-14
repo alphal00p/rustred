@@ -1,16 +1,18 @@
 //! Re-audit part 3 (lane audit-part3): the DISPATCH-mode partition vs the crate's own first-match dispatcher
 //! (`cover::Dispatcher::first_match`), and the one minting point of a FULL-node containment proof
-//! (`economy::prove_coverage_preserved`). Every test here ASSERTS THE DEFECT as found on campaign ebe48378 (a minted
-//! proof / `Proved` verdict next to a key the dispatcher reports open); a fix must invert the marked assertions.
-//! Synthetic tables only (lane rule L8).
+//! (`economy::prove_coverage_preserved`). The auditor's tests asserted the defects found on campaign ebe48378; lane
+//! partfix3 INVERTED each of them (they now assert the correct behaviour: no proof, the oracle reports the key open)
+//! and added the cases the stop-set model must also cover (a record dropped as never applying still stops dispatch;
+//! a risky record that is never reached does not block a proof; the cross-check's probe keys hit every open key of
+//! the three audit tables). Synthetic tables only (lane rule L8).
 
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, RuleRef, Table};
 use rustred_campaign_core::domain::{CaseDomain, TargetMap, TargetSlot};
-use rustred_campaign_core::economy::{prove_coverage_preserved, table_set_digest};
+use rustred_campaign_core::economy::{ProofWork, prove_coverage_preserved, table_set_digest};
 use rustred_campaign_core::key::NodeFrame;
 use rustred_campaign_core::partition::{
-    CoverageNotion, DispatchOrderStatement, DispatcherSource, DomainList, PartitionOptions,
-    gap_partition,
+    CoverageNotion, DispatchOrderStatement, DispatcherSource, DomainList, Explored, Outcome,
+    PartitionOptions, gap_partition,
 };
 use rustred_campaign_core::poly::{ENGINE_PRIMES, Poly};
 
@@ -45,12 +47,31 @@ fn open(d: &Dispatcher, k: &[i32]) -> bool {
     !matches!(d.first_match(k).unwrap(), Dispatch::Covered(_))
 }
 
-/// P3-C1 (CRITICAL): `prove_coverage_preserved` forces `coverage = DispatchCoverage` but honours every other option,
-/// including `rule_subset`, which the normal form uses as the list AND ORDER of dispatched records. The proof's
-/// digest is over the FULL `new_tables`. A blocker left out of (or moved behind) the subset is not modelled, so a
-/// proof is minted for a table set in which EVERY key is blocked by the first record.
+fn mint(d: &Dispatcher, f: &NodeFrame) -> Result<(), String> {
+    let src = DispatcherSource::new(d);
+    prove_coverage_preserved(
+        &src,
+        &src,
+        f,
+        &ProofWork::default(),
+        &DispatchOrderStatement::SameOrder,
+    )
+    .map(|_| ())
+}
+
+/// The cross-check's probe keys (built from the dispatch-mode report) contain a key the dispatcher reports open.
+fn probes_hit_open(d: &Dispatcher, f: &NodeFrame) -> bool {
+    let src = DispatcherSource::new(d);
+    let rep = gap_partition(&src, f, &dispatch_opts(), None).unwrap();
+    let meter = rustred_campaign_core::partition::WorkMeter::unlimited();
+    rep.dispatch_probes(&meter).iter().any(|k| open(d, k))
+}
+
+/// P3-C1 (CRITICAL), INVERTED by partfix3: the minting function takes NO partition options (a work budget only) and
+/// builds its own, so a caller cannot narrow or reorder what is proved; and `proves_no_gap` refuses a SUBSET run by
+/// construction (no `CompleteRun` token), whatever the dispatch order of the subset.
 #[test]
-fn p3_c1_rule_subset_mints_a_proof_for_a_fully_blocked_table_set() {
+fn p3_c1_rule_subset_never_mints_and_never_proves() {
     let n = 2;
     let f = NodeFrame::without_header_lines_first(n, 1);
     let mut blocker = CaseDomain::free(n, chart(n, 1));
@@ -65,41 +86,32 @@ fn p3_c1_rule_subset_mints_a_proof_for_a_fully_blocked_table_set() {
             "every key is blocked by record 0"
         );
     }
-    // the honest call refuses
-    assert!(
-        prove_coverage_preserved(
-            &src,
-            &src,
-            &f,
-            &dispatch_opts(),
-            &DispatchOrderStatement::SameOrder
-        )
-        .is_err()
-    );
-    // DEFECT: a subset that omits the blocker, or puts it last, yields a proof bound to the full table set
+    assert!(mint(&d, &f).is_err(), "the honest call refuses");
     for subset in [vec![1], vec![1, 0]] {
         let o = PartitionOptions {
             rule_subset: Some(subset.clone()),
-            ..Default::default()
+            ..dispatch_opts()
         };
-        let p = prove_coverage_preserved(&src, &src, &f, &o, &DispatchOrderStatement::SameOrder);
-        let p = p.unwrap_or_else(|e| {
-            panic!("subset {subset:?}: expected the defect (a proof), got {e}")
-        });
-        assert_eq!(p.new_tables_digest(), table_set_digest(&src));
+        let rep = gap_partition(&src, &f, &o, None).unwrap();
+        let why = rep
+            .proves_no_gap(CoverageNotion::DispatchCoverage)
+            .expect_err("a subset run never proves no gap");
+        assert!(why.contains("subset"), "{why}");
+        assert!(rep.complete_run().is_err());
     }
+    assert!(probes_hit_open(&d, &f));
 }
 
-/// P3-C2 (CRITICAL): the engine's modular zero test (`domain::Verdict::Error(EngineZeroTest)`, Stage::Undecided: the
-/// dispatcher stops and the key is OPEN) is not modelled by the partition (interfaces/partition.md 10.1 calls it
-/// "unreachable for practical key ranges"). One coefficient equal to p1*p2 (fits i128) makes it reachable at EVERY
-/// key: an exception member `p1*p2*n0` is nonzero at every chart key but vanishes modulo both engine primes.
+/// P3-C2 (CRITICAL), INVERTED by partfix3: the engine's modular zero test (dispatcher `Undecided`) is modelled: a
+/// record whose equation / exception member / pole coefficient can reach a nonzero multiple of p1*p2 STOPS dispatch
+/// on its fixed-slot / target-constant set (an over-approximation, sound for a proof). No proof, the oracle reports
+/// the keys open.
 #[test]
-fn p3_c2_engine_zero_test_reachable_at_every_key_and_proof_minted() {
+fn p3_c2_engine_zero_test_is_a_stop_and_never_proved() {
     let n = 2;
     let f = NodeFrame::without_header_lines_first(n, 1);
     let pp = i128::from(ENGINE_PRIMES[0]) * i128::from(ENGINE_PRIMES[1]);
-    // (a) one record, exception member p1*p2*n0 (exactly: never zero on n0 >= 1, so the record applies everywhere)
+    // (a) one record, exception member p1*p2*n0
     let mut r = CaseDomain::free(n, chart(n, 1));
     r.exceptions = vec![vec![Poly::parse(&format!("{pp}*n0"), n, false).unwrap()]];
     let ds = vec![r];
@@ -112,52 +124,58 @@ fn p3_c2_engine_zero_test_reachable_at_every_key_and_proof_minted() {
     }
     let src = DispatcherSource::new(&d);
     let rep = gap_partition(&src, &f, &dispatch_opts(), None).unwrap();
-    // DEFECT: the dispatch-mode report proves no gap and the oracle calls the open keys covered
-    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
-    assert!(!rep.uncovered(&[1, 0]).unwrap());
-    assert!(
-        prove_coverage_preserved(
-            &src,
-            &src,
-            &f,
-            &dispatch_opts(),
-            &DispatchOrderStatement::SameOrder
-        )
-        .is_ok()
-    );
-    // (b) an EQUATION p1*p2*n0 = 0 on an earlier record: never selected exactly, but undecided for the dispatcher at
-    // every key, so the later full record never serves
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(rep.uncovered(&[1, 0]).unwrap());
+    assert!(rep.uncovered(&[1000, -1000]).unwrap());
+    assert!(mint(&d, &f).is_err());
+    assert!(probes_hit_open(&d, &f));
+    // (b) an EQUATION p1*p2*n0 = 0 on an earlier record: undecided for the dispatcher at every key
     let mut e = CaseDomain::free(n, chart(n, 1));
     e.equations = vec![Poly::parse(&format!("{pp}*n0"), n, false).unwrap()];
     let ds = vec![e, CaseDomain::free(n, chart(n, 1))];
     let d = disp(&ds, n);
     assert!(open(&d, &[3, -1]));
-    let src = DispatcherSource::new(&d);
-    assert!(
-        prove_coverage_preserved(
-            &src,
-            &src,
-            &f,
-            &dispatch_opts(),
-            &DispatchOrderStatement::SameOrder
-        )
-        .is_ok(),
-        "DEFECT: proof minted while every key is undecided"
-    );
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    assert!(rep.uncovered(&[3, -1]).unwrap());
+    assert!(mint(&d, &f).is_err(), "no proof while every key is undecided");
+    // (c) an equation that IS the constant p1*p2: the normal form drops the record as never applying, but the
+    // dispatcher stops at it on every key (the stop piece is registered before any drop)
+    let mut c = CaseDomain::free(n, chart(n, 1));
+    c.equations = vec![Poly::constant(pp)];
+    let ds = vec![c, CaseDomain::free(n, chart(n, 1))];
+    let d = disp(&ds, n);
+    assert!(open(&d, &[2, 0]));
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    assert!(rep.uncovered(&[2, 0]).unwrap());
+    assert!(mint(&d, &f).is_err());
+    // (d) exception branches in ORDER: branch 0 holds the risky member, branch 1 always vanishes (the record never
+    // applies), the dispatcher stops at branch 0 first
+    let mut o = CaseDomain::free(n, chart(n, 1));
+    o.exceptions = vec![
+        vec![Poly::parse(&format!("{pp}*n0"), n, false).unwrap()],
+        vec![],
+    ];
+    let ds = vec![o, CaseDomain::free(n, chart(n, 1))];
+    let d = disp(&ds, n);
+    assert!(open(&d, &[5, -5]));
+    assert!(mint(&d, &f).is_err());
+    // (e) a risky record that is NEVER reached (an earlier record serves every key): the proof stands
+    let mut late = CaseDomain::free(n, chart(n, 1));
+    late.exceptions = vec![vec![Poly::parse(&format!("{pp}*n0"), n, false).unwrap()]];
+    let ds = vec![CaseDomain::free(n, chart(n, 1)), late];
+    let d = disp(&ds, n);
+    assert!(!open(&d, &[5, -5]));
+    mint(&d, &f).expect("the risky record is never reached: dispatch coverage is proved");
 }
 
-/// P3-M1 (MAJOR): the rule point of a target pattern is computed BEFORE the equations (`CaseDomain::rule_point`: an
-/// `i32` overflow is `Error(Overflow)` = Undecided, the search stops), but the normal form puts the rule-point range
-/// bound on the SELECTED set (equations, bounds, exceptions included). Keys where the rule point overflows and an
-/// equation fails are open for the dispatcher and "not selected" for the partition. Offsets are `i64`, so this is
-/// reached at small keys.
+/// P3-M1 (MAJOR), INVERTED by partfix3: the rule point of a target pattern is computed BEFORE the equations; the
+/// normal form now carries the rule-point overflow as an exact stop piece `fixed & constants & (n_j - o outside
+/// i32)`, so keys where the rule point overflows and an equation fails are open for the partition too.
 #[test]
-fn p3_m1_rule_point_overflow_is_checked_before_the_equations() {
+fn p3_m1_rule_point_overflow_before_the_equations_is_modelled() {
     let n = 2;
     let f = NodeFrame::without_header_lines_first(n, 1);
-    let mut r0 = CaseDomain::free(n, chart(n, 1));
-    // pt0 = k0 + 2147483000: overflows i32 from k0 = 648 on
-    r0.target = TargetMap::Pattern(vec![
+    let target = TargetMap::Pattern(vec![
         TargetSlot::Param {
             param: 0,
             offset: -2_147_483_000,
@@ -167,6 +185,9 @@ fn p3_m1_rule_point_overflow_is_checked_before_the_equations() {
             offset: 0,
         },
     ]);
+    let mut r0 = CaseDomain::free(n, chart(n, 1));
+    // pt0 = k0 + 2147483000: overflows i32 from k0 = 648 on
+    r0.target = target.clone();
     // equation at the rule point: pt0 = 0, never true on the chart
     r0.equations = vec![Poly::parse("n0", n, false).unwrap()];
     let ds = vec![r0, CaseDomain::free(n, chart(n, 1))];
@@ -178,42 +199,54 @@ fn p3_m1_rule_point_overflow_is_checked_before_the_equations() {
     ));
     let src = DispatcherSource::new(&d);
     let rep = gap_partition(&src, &f, &dispatch_opts(), None).unwrap();
-    // DEFECT: the partition calls [648, 0] covered and proves no gap
-    assert!(!rep.uncovered(&[648, 0]).unwrap());
-    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
-    assert!(
-        prove_coverage_preserved(
-            &src,
-            &src,
-            &f,
-            &dispatch_opts(),
-            &DispatchOrderStatement::SameOrder
-        )
-        .is_ok()
-    );
+    assert!(rep.uncovered(&[648, 0]).unwrap());
+    assert!(!rep.uncovered(&[647, 0]).unwrap(), "the stop piece is exact");
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(mint(&d, &f).is_err());
+    assert!(probes_hit_open(&d, &f));
+    // a record the normal form drops (equation = the constant 1, never selected) still overflows first
+    let mut dropped = CaseDomain::free(n, chart(n, 1));
+    dropped.target = target;
+    dropped.equations = vec![Poly::constant(1)];
+    let ds = vec![dropped, CaseDomain::free(n, chart(n, 1))];
+    let d = disp(&ds, n);
+    assert!(open(&d, &[700, 0]) && !open(&d, &[1, 0]));
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    assert!(rep.uncovered(&[700, 0]).unwrap() && !rep.uncovered(&[1, 0]).unwrap());
+    assert!(mint(&d, &f).is_err());
 }
 
-/// Control: list vs dispatcher source give the same digest only when the witness blocks agree (digest v2).
+/// Control: list vs dispatcher source give the same digest only when the witness blocks agree (digest v3 also binds
+/// the frame).
 #[test]
-fn p3_digest_v2_sees_the_witness_block_of_a_dispatcher_source() {
+fn p3_digest_v3_sees_the_witness_block_and_the_frame() {
     let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 1);
+    let g = NodeFrame::without_header_lines_first(n, 2);
     let ds = vec![CaseDomain::free(n, chart(n, 1))];
     let d = disp(&ds, n);
     assert_eq!(
-        table_set_digest(&DispatcherSource::new(&d)),
-        table_set_digest(&list(&ds, n))
+        table_set_digest(&DispatcherSource::new(&d), &f),
+        table_set_digest(&list(&ds, n), &f)
+    );
+    assert_ne!(
+        table_set_digest(&list(&ds, n), &f),
+        table_set_digest(&list(&ds, n), &g)
+    );
+    let mut el = ds.clone();
+    el[0].witness_elided = true;
+    let de = disp(&el, n);
+    assert_ne!(
+        table_set_digest(&DispatcherSource::new(&de), &f),
+        table_set_digest(&DispatcherSource::new(&d), &f)
     );
 }
 
-/// P3-C3 (CRITICAL): `max_off_floor = Some(L)` prunes classes in the RECURSION (counted, outcome Partial), but the
-/// face / locus EXPANSION of a class decided earlier also drops every cell with more than L off-floor slots
-/// (`PartitionReport::expand`) without counting it: such cells of a Fragile class are never resolved, the outcome
-/// stays Complete and `proves_no_gap` succeeds. `prove_coverage_preserved` passes the caller's `max_off_floor`
-/// through. Table (arity 3, lines): r0 fixes n2 = 1; r1 free except on the diagonal n0 = n1 (fragile, complete at
-/// depth 2); r2 fixes n0 = n1 = 1. Key (2, 2, 2) is uncovered; with L = 2 the class (n0 >= 2, n1 >= 2, any) is
-/// Fragile at depth 2 with 2 off-floor slots, so its cells with n2 >= 2 are dropped.
+/// P3-C3 (CRITICAL), INVERTED by partfix3: an off-floor cap that truncates the expansion of a listed class makes the
+/// outcome `Partial(OffFloorUpTo)` (it used to stay Complete), and a capped run never proves (no `CompleteRun`);
+/// the minting function has no cap at all.
 #[test]
-fn p3_c3_max_off_floor_drops_fragile_cells_and_proves_no_gap() {
+fn p3_c3_capped_expansion_is_partial_and_never_proves() {
     let n = 3;
     let f = NodeFrame::without_header_lines_first(n, 3);
     let c = chart(n, 3);
@@ -228,22 +261,51 @@ fn p3_c3_max_off_floor_drops_fragile_cells_and_proves_no_gap() {
     let d = disp(&ds, n);
     assert!(open(&d, &[2, 2, 2]), "(2,2,2) is uncovered");
     let src = DispatcherSource::new(&d);
-    // the honest run: a gap locus
     let full = gap_partition(&src, &f, &dispatch_opts(), None).unwrap();
     assert!(
         full.proves_no_gap(CoverageNotion::DispatchCoverage)
             .is_err()
     );
     assert!(full.uncovered(&[2, 2, 2]).unwrap());
-    // DEFECT: the capped run is Complete and proves no gap
     let capped = PartitionOptions {
         max_off_floor: Some(2),
         ..dispatch_opts()
     };
     let rep = gap_partition(&src, &f, &capped, None).unwrap();
     assert_eq!(rep.stats().pruned_off_floor, 0);
-    assert!(rep.outcome().is_complete(), "{:?}", rep.outcome());
-    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
-    let p = prove_coverage_preserved(&src, &src, &f, &capped, &DispatchOrderStatement::SameOrder);
-    assert!(p.is_ok(), "a FULL-node proof is minted");
+    assert!(rep.cap_truncated() > 0, "the cap truncated an expansion");
+    assert!(
+        matches!(
+            rep.outcome(),
+            Outcome::Partial {
+                explored: Explored::OffFloorUpTo(2),
+                ..
+            }
+        ),
+        "{:?}",
+        rep.outcome()
+    );
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(rep.complete_run().is_err());
+    assert!(mint(&d, &f).is_err(), "no FULL-node proof");
+    assert!(probes_hit_open(&d, &f));
+}
+
+/// A dispatcher whose chart differs from the frame mask: keys of the frame's chart outside it are OutsideChart (never
+/// served); the report carries a caveat and the minting function refuses (precondition).
+#[test]
+fn p3_dispatch_chart_other_than_the_frame_is_never_proved() {
+    let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 1);
+    let ds = vec![CaseDomain::free(n, None)];
+    let d = disp(&ds, n)
+        .with_chart(vec![true, true])
+        .unwrap();
+    assert!(matches!(
+        d.first_match(&[1, 0]).unwrap(),
+        Dispatch::OutsideChart { .. }
+    ));
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(mint(&d, &f).is_err());
 }
