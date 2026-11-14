@@ -1,0 +1,143 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 0,
+    "identity_proved": 3,
+    "identity_tested": 0
+  },
+  "attempt": {
+    "cpu_ms_on_target": 0,
+    "fixer_rounds_on_target": 0
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "toy-optimise",
+  "certification": {
+    "asked": "per-key",
+    "boxed": "per-key",
+    "full": "per-key",
+    "reached": "per-key"
+  },
+  "certified": false,
+  "closure": {
+    "binding": null,
+    "closure_keys": null,
+    "defect_keys": null,
+    "dispatch_order": null,
+    "keyset": null,
+    "provisional": false,
+    "rounds": 0,
+    "rule_set_digest": "6e0fe4edcdc38bbfc53bacdc56e762c44235294116f26448b5932ae5e9a3be8b",
+    "rules_total": null,
+    "rules_used": null,
+    "used_share": null
+  },
+  "closure_kind": "open",
+  "cpu_seconds": 0.0,
+  "economy": {
+    "after": {
+      "bytes": 2700,
+      "cases": 3,
+      "coefficient_degree": 3,
+      "monomials": 300,
+      "rhs_terms": 120,
+      "rules": 3
+    },
+    "before": {
+      "bytes": 2700,
+      "cases": 3,
+      "coefficient_degree": 3,
+      "monomials": 300,
+      "rhs_terms": 120,
+      "rules": 3
+    },
+    "rules_after": 3,
+    "rules_before": 3,
+    "superseded": 0,
+    "unmeasured": 0
+  },
+  "faces_summary": null,
+  "file": "node",
+  "inputs": [
+    "toy.family"
+  ],
+  "items": {
+    "by_kind": {
+      "piece": {
+        "done": 3,
+        "total": 3
+      }
+    },
+    "by_level": {
+      "L0": {
+        "accepted": 3,
+        "attention": 0,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "skipped": 0,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      }
+    },
+    "by_phase": {
+      "accepted": 3,
+      "attention": 0,
+      "escalated": 0,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "skipped": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 0
+    },
+    "open": 0
+  },
+  "ledger": {
+    "head": "29efad388ab3d6cb56f6cdc2afb6d64838a9d90ba2e2ad8e0484497dfd8d75b1",
+    "last_utc": "2026-11-13T23:00:04.000Z",
+    "seq": 17
+  },
+  "node": "toy-sunset-3",
+  "paused": false,
+  "phase": "running",
+  "provisional": false,
+  "reference": null,
+  "reopen_cause": null,
+  "reopens": 0,
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 5,
+    "preferred_terminals": null,
+    "terminal_rung": "L2"
+  },
+  "spec_box": null,
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 4,
+    "candidates": 0,
+    "counted": 0,
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    }
+  },
+  "written_utc": "2026-11-13T23:00:00Z"
+}

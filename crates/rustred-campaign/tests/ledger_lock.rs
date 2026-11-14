@@ -173,15 +173,21 @@ fn stale_owner_records_are_taken_over() {
         }
     ));
     drop(lk);
-    // another host: refuse
+    // a renamed host (audit A m6): judged by boot id + pid + start ticks, never refused forever
     write_owner(lock::ProcessIdentity {
         host: "elsewhere.invalid".into(),
+        pid: u32::MAX - 3,
         ..me
     });
+    let (lk, out) = lock::acquire(&d, &clk, &["new".into()]).unwrap();
     assert!(matches!(
-        lock::acquire(&d, &clk, &["new".into()]),
-        Err(LockError::OtherHost { .. })
+        out,
+        LockOutcome::TookOver {
+            reason: DeadReason::PidAbsent,
+            ..
+        }
     ));
+    drop(lk);
 }
 
 #[test]
@@ -226,7 +232,14 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     );
     // the takeover goes into the ledger
     let ck: Arc<dyn Clock> = clock();
-    let mut l = new_ledger(&d, ck, LedgerConfig::default());
+    let mut l = rustred_campaign::ledger::Ledger::create(
+        &d,
+        &lk,
+        ck,
+        LedgerConfig::default(),
+        genesis(),
+    )
+    .unwrap();
     l.append(Event::LockTakeover {
         previous,
         reason,
@@ -234,6 +247,7 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     })
     .unwrap();
     assert_eq!(l.state().takeovers, 1);
+    drop(l);
     drop(lk);
     kill(child_pid, libc::SIGKILL);
     for _ in 0..100 {

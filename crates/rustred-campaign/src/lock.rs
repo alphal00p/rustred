@@ -17,14 +17,14 @@
 //! | flock | owner record | owner liveness | result |
 //! |---|---|---|---|
 //! | taken | none | - | `Fresh` |
-//! | taken | other host | - | refuse `OtherHost` (cannot judge liveness; shared file system) |
-//! | taken | same host | alive (pid present, same start ticks, same boot id) | refuse `OwnerAliveWithoutLock` |
-//! | taken | same host | provably dead | `TookOver { previous, reason }` (caller appends a ledger record) |
+//! | taken | any host name | alive (pid present, same start ticks, same boot id) | refuse `OwnerAliveWithoutLock` |
+//! | taken | any host name | provably dead | `TookOver { previous, reason }` (caller appends a ledger record) |
 //! | busy  | same host | alive | refuse `HeldByLiveOwner` |
 //! | busy  | same host | dead  | refuse `HeldByForeignDescriptor` with the pids holding the file (never happens with this code; an fd leaked by other code) |
 //! | busy  | other host / none | - | refuse `Busy` |
 //!
-//! "Provably dead" = pid absent, or pid present with a different start time, or a different boot id.
+//! "Provably dead" = pid absent, or pid present with a different start time, or a different boot id. Host names
+//! are informational only (audit A m6); the CDIR must live on a local file system (flock).
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -71,6 +71,8 @@ pub enum DeadReason {
     PidAbsent,
     StartTimeDiffers { now: u64 },
     BootIdDiffers { now: String },
+    /// The record names this very process (left by an earlier lock of the same process).
+    OwnRecord,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,6 +178,10 @@ impl CampaignLock {
     pub fn token(&self) -> &str {
         &self.owner.token
     }
+    /// The campaign directory this lock guards (a ledger write handle requires the lock of its own CDIR).
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
     /// Releases explicitly (also done on drop): removes LOCK.json first, then unlocks.
     pub fn release(mut self) -> io::Result<()> {
         self.release_inner()
@@ -240,7 +246,7 @@ pub fn acquire(
     })?;
     if !got {
         return Err(match previous {
-            Some(owner) if owner.identity.host == me.host => match liveness(&owner.identity) {
+            Some(owner) if owner.identity.boot_id == me.boot_id => match liveness(&owner.identity) {
                 Liveness::Alive => LockError::HeldByLiveOwner { owner },
                 _ => {
                     let holders = holders_of(&lock_path);
@@ -253,9 +259,8 @@ pub fn acquire(
     let outcome = match previous {
         None => LockOutcome::Fresh,
         Some(owner) => {
-            if owner.identity.host != me.host {
-                return Err(LockError::OtherHost { owner });
-            }
+            // Host names are informational (audit A m6): liveness is judged by boot id + pid + start ticks, so a
+            // renamed host does not refuse forever (the CDIR must be on a local file system: flock semantics).
             match liveness(&owner.identity) {
                 Liveness::Alive if owner.identity.pid != me.pid => {
                     return Err(LockError::OwnerAliveWithoutLock { owner });
@@ -265,7 +270,7 @@ pub fn acquire(
                 Liveness::Alive => LockOutcome::TookOver {
                     orphans: Vec::new(),
                     previous: owner,
-                    reason: DeadReason::PidAbsent,
+                    reason: DeadReason::OwnRecord,
                 },
                 Liveness::OtherHost => return Err(LockError::OtherHost { owner }),
                 Liveness::Dead(reason) => {
@@ -334,12 +339,10 @@ fn try_flock(file: &File) -> io::Result<bool> {
     }
 }
 
-/// Liveness of a recorded identity, judged on this host.
+/// Liveness of a recorded identity, judged on this machine by boot id, pid and start ticks (the host name is
+/// informational: a renamed host is the same machine when the boot id is the same, and a different boot id means
+/// the process cannot hold anything on this local file system). `OtherHost` is no longer produced.
 pub fn liveness(id: &ProcessIdentity) -> Liveness {
-    let host = hostname().unwrap_or_default();
-    if id.host != host {
-        return Liveness::OtherHost;
-    }
     let boot = boot_id().unwrap_or_default();
     if id.boot_id != boot {
         return Liveness::Dead(DeadReason::BootIdDiffers { now: boot });
@@ -472,6 +475,7 @@ mod tests {
         assert_eq!(liveness(&gone), Liveness::Dead(DeadReason::PidAbsent));
         let mut far = me;
         far.host = "elsewhere.invalid".into();
-        assert_eq!(liveness(&far), Liveness::OtherHost);
+        // a renamed host with the same boot id is this machine (audit A m6)
+        assert_eq!(liveness(&far), Liveness::Alive);
     }
 }

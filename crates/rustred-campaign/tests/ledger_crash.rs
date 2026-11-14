@@ -14,6 +14,7 @@ use std::time::Duration;
 use ledger_support::*;
 use rustred_campaign::clock::{Clock, SystemClock};
 use rustred_campaign::ledger::{self, Event, ItemEvent, JobEvent, Ledger, LedgerConfig};
+use rustred_campaign::lock;
 use rustred_campaign::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase};
 
 fn cfg() -> LedgerConfig {
@@ -69,7 +70,9 @@ fn zz_crash_writer_process() {
     };
     let cdir = std::path::PathBuf::from(dir);
     let clk: std::sync::Arc<dyn Clock> = std::sync::Arc::new(SystemClock::new());
-    let (mut l, _) = Ledger::open(&cdir, clk, cfg()).expect("writer opens");
+    // the writer process takes the campaign lock itself (a killed predecessor is taken over)
+    let (lk, _) = lock::acquire(&cdir, &SystemClock::new(), &["writer".into()]).expect("writer locks");
+    let (mut l, _) = Ledger::open(&cdir, &lk, clk, cfg()).expect("writer opens");
     let out = std::io::stdout();
     let start = l.state().items.len();
     // the last item may be half done: finish it first (resume from the reduced state)
@@ -106,9 +109,17 @@ fn zz_crash_writer_process() {
 fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
     let d = scratch("crash");
     let _c = Cleanup(d.clone());
-    {
+    // the parent holds the lock only while it opens the ledger (the writer child takes it in between)
+    let parent_open = |d: &std::path::Path| {
+        let (lk, _) = lock::acquire(d, &SystemClock::new(), &["parent".into()]).unwrap();
         let clk = clock();
-        let mut l = new_ledger(&d, as_dyn(&clk), cfg());
+        let r = Ledger::open(d, &lk, as_dyn(&clk), cfg());
+        (r, lk)
+    };
+    {
+        let (lk, _) = lock::acquire(&d, &SystemClock::new(), &["parent".into()]).unwrap();
+        let clk = clock();
+        let mut l = Ledger::create(&d, &lk, as_dyn(&clk), cfg(), genesis()).unwrap();
         l.append_all(setup_events("T162")).unwrap();
     }
     let exe = std::env::current_exe().unwrap();
@@ -163,9 +174,8 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
         acked.extend(rx.try_iter());
 
         // after the kill: open (recovering a torn tail if any), verify, check acknowledgements
-        let clk = clock();
-        let (l, rep) = Ledger::open(&d, as_dyn(&clk), cfg())
-            .unwrap_or_else(|e| panic!("round {round}: open failed: {e}"));
+        let (r, lk) = parent_open(&d);
+        let (l, rep) = r.unwrap_or_else(|e| panic!("round {round}: open failed: {e}"));
         if rep.recovery.is_some() {
             recoveries += 1;
         }
@@ -190,6 +200,7 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
             "round {round}: each acceptance counted once"
         );
         drop(l);
+        drop(lk);
         let chain =
             ledger::verify_chain(&d).unwrap_or_else(|e| panic!("round {round}: chain: {e}"));
         assert_eq!(chain.torn_tail_bytes, 0);
@@ -214,13 +225,8 @@ fn sigkill_at_random_points_loses_no_acknowledged_acceptance() {
         "crash test: {kills} kills, {} acknowledged acceptances, {} accepted in total, {recoveries} torn-tail recoveries, {rotations_seen} sealed segments",
         acked.len(),
         {
-            let clk = clock();
-            Ledger::open(&d, as_dyn(&clk), cfg())
-                .unwrap()
-                .0
-                .state()
-                .rules
-                .accepted
+            let (r, _lk) = parent_open(&d);
+            r.unwrap().0.state().rules.accepted
         }
     );
     assert!(rotations_seen >= 2, "rotation exercised under kills");

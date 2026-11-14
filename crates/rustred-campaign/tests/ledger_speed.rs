@@ -10,11 +10,7 @@ use rustred_campaign::state::{CampaignState, EvidenceLevel, reduce};
 
 /// Builds `n_items` item lives (10 records each) as serialised, hash-chained lines.
 fn build_lines(n_items: usize) -> Vec<u8> {
-    let mut events: Vec<Event> = vec![Event::CampaignCreated {
-        campaign_id: "speed".into(),
-        spec_blake3: digest("spec"),
-        terminal_bound: 100,
-    }];
+    let mut events: Vec<Event> = vec![genesis_event()];
     events.extend(setup_events("T162"));
     let mut out = Vec::new();
     let mut prev = ledger::GENESIS.to_string();
@@ -28,8 +24,8 @@ fn build_lines(n_items: usize) -> Vec<u8> {
             prev: prev.clone(),
             event: e,
         };
-        let line = serde_json::to_vec(&r).unwrap();
-        prev = ledger::line_hash(&line);
+        let (line, h) = ledger::encode_record(&r);
+        prev = h;
         out.extend_from_slice(&line);
         out.push(b'\n');
     };
@@ -50,16 +46,16 @@ fn build_lines(n_items: usize) -> Vec<u8> {
     out
 }
 
-/// Parse + chain check + reduce, exactly what `Ledger::open` does per line.
+/// Framing + digest + canonical check + chain check + reduce, exactly what `Ledger::open` does per line.
 fn parse_and_reduce(bytes: &[u8]) -> (CampaignState, u64) {
     let mut st = CampaignState::default();
     let mut prev = ledger::GENESIS.to_string();
     let mut n = 0;
     for line in bytes.split(|&b| b == b'\n').filter(|l| !l.is_empty()) {
-        let r: Record = serde_json::from_slice(line).unwrap();
+        let (r, h) = ledger::decode_record(line).unwrap();
         assert_eq!(r.prev, prev);
         st.apply_record(&r).unwrap();
-        prev = ledger::line_hash(line);
+        prev = h;
         n += 1;
     }
     (st, n)

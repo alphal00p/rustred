@@ -3,7 +3,7 @@
 mod ledger_support;
 
 use ledger_support::*;
-use rustred_campaign::ledger::{self, Event, ItemEvent, JobEvent, LedgerConfig, Record};
+use rustred_campaign::ledger::{self, EnvelopeKind, Event, ItemEvent, JobEvent, LedgerConfig, Record};
 use rustred_campaign::state::{
     CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, reduce,
 };
@@ -95,7 +95,7 @@ fn duplicated_records_reduce_to_the_same_state() {
 }
 
 #[test]
-fn job_events_of_older_attempts_are_ignored() {
+fn job_events_of_older_attempts_are_refused() {
     let d = scratch("attempts");
     let _c = Cleanup(d.clone());
     let clk = clock();
@@ -120,8 +120,8 @@ fn job_events_of_older_attempts_are_ignored() {
         },
     })
     .unwrap();
-    // a late duplicate of attempt 1's launch: ignored
-    l.append(life[3].clone()).unwrap();
+    // a late record of attempt 1 is refused, never written (audit A m1)
+    assert!(l.append(life[3].clone()).is_err());
     assert_eq!(l.state().jobs[&j].attempt, 2);
     // skipping an attempt number is refused
     assert!(
@@ -156,8 +156,8 @@ fn changed_input_marks_dependents_stale_never_deletes() {
     l.append_all(scenario()).unwrap();
     let items_before = l.state().items.len();
     let jobs_before = l.state().jobs.len();
-    assert_eq!(l.state().terminals_total, 2);
-    // M1: a new binary digest -> every item accepted from a job of that binary becomes stale
+    assert_eq!(l.state().terminals_total, 3);
+    // M1 / C1: a new binary digest -> every item whose result came from a job of that binary becomes stale
     l.append(Event::InputRegistered {
         input: "rr_node".into(),
         role: "binary".into(),
@@ -175,8 +175,12 @@ fn changed_input_marks_dependents_stale_never_deletes() {
         .collect();
     assert_eq!(
         stale,
-        (0..4).map(|k| item_id("T162", k)).collect::<Vec<_>>()
+        [0, 1, 2, 3, 6]
+            .iter()
+            .map(|k| item_id("T162", *k))
+            .collect::<Vec<_>>()
     );
+    assert!(st.jobs.values().all(|j| j.stale.as_deref() == Some("rr_node")));
     assert_eq!(
         st.items[&item_id("T162", 0)].stale_from.as_deref(),
         Some("accepted")
@@ -275,36 +279,22 @@ fn node_verdicts_need_their_evidence() {
         node: "T162".into(),
         ev,
     };
-    l.append(n(NodeEvent::ClosureResult {
-        round: 1,
-        defect_keys: 4,
-        closure_keys: 900,
-        rules_used: Some(3),
-        rules_total: Some(2_440),
-        keyset: None,
-    }))
-    .unwrap();
+    let st = l.state().clone();
+    l.append_all(closure_events(&st, "T162", 1, 4)).unwrap();
     assert!(l.append(n(NodeEvent::DeclareClosed)).is_err(), "defect 4");
-    l.append(n(NodeEvent::ClosureResult {
-        round: 2,
-        defect_keys: 0,
-        closure_keys: 880,
-        rules_used: Some(3),
-        rules_total: Some(2_440),
-        keyset: None,
-    }))
-    .unwrap();
+    l.append(closure_event(&st, "T162", 2, 0, EnvelopeKind::Proved))
+        .unwrap();
     l.append(n(NodeEvent::DeclareClosed)).unwrap();
     assert_eq!(l.state().nodes["T162"].state.phase, NodePhase::Closed);
     assert!(
         l.append(n(NodeEvent::DeclareCertified)).is_err(),
-        "item 2 only geometry-accepted"
+        "item 2 only geometry-accepted (FULL asks replay = identity_tested)"
     );
     l.append(Event::Item {
         item: item_id("T162", 2),
         ev: ItemEvent::Upgrade {
-            level: EvidenceLevel::IdentityProved,
-            evidence: fref("cert/2.json"),
+            level: EvidenceLevel::IdentityTested,
+            evidence: level_evidence(EvidenceLevel::IdentityTested, "2").unwrap(),
         },
     })
     .unwrap();

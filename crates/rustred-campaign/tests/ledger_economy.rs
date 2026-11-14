@@ -5,11 +5,12 @@ mod ledger_support;
 
 use ledger_support::*;
 use rustred_campaign::ledger::{
-    Event, ItemEvent, Ledger, LedgerConfig, LedgerError, RetirementProof, RuleEconomy,
+    EnvelopeKind, Event, ItemEvent, Ledger, LedgerConfig, LedgerError, RetirementProof, RuleEconomy,
 };
 use rustred_campaign::progress;
 use rustred_campaign::state::{
-    Blockers, ClosureTarget, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, ReduceError,
+    AttemptEndCause, Blockers, ClosureTarget, EvidenceLevel, ItemPhase, NodeEvent, NodePhase,
+    ReduceError,
 };
 
 fn node(ev: NodeEvent) -> Event {
@@ -42,6 +43,16 @@ fn ledger_with_accepted(tag: &str, n: usize) -> (Ledger, Cleanup) {
         .unwrap();
     }
     (l, c)
+}
+
+/// The full attempt runs (assembled, closure result with a defect, the spec's 2 fixer rounds).
+fn run_full_attempt(l: &mut Ledger) {
+    l.append(assembled("T162", 1)).unwrap();
+    let st = l.state().clone();
+    l.append(closure_event(&st, "T162", 1, 12, EnvelopeKind::Proved))
+        .unwrap();
+    l.append(fixer_round("T162", 1)).unwrap();
+    l.append(fixer_round("T162", 2)).unwrap();
 }
 
 fn retire(k: usize, proof: RetirementProof, by: Option<usize>) -> Event {
@@ -181,9 +192,11 @@ fn boxed_only_after_the_full_attempt_and_only_with_the_spec_box() {
         .is_err(),
         "full attempt first"
     );
+    run_full_attempt(&mut l);
     l.append(node(NodeEvent::AttemptEnded {
         blockers: blk.clone(),
         reason: "full ladder ended within budgets".into(),
+        cause: AttemptEndCause::FixerRounds,
     }))
     .unwrap();
     assert!(
@@ -202,15 +215,6 @@ fn boxed_only_after_the_full_attempt_and_only_with_the_spec_box() {
         box_id: "T162.box".into(),
     }))
     .unwrap();
-    l.append(node(NodeEvent::ClosureResult {
-        round: 1,
-        defect_keys: 0,
-        closure_keys: 154_783,
-        rules_used: Some(1),
-        rules_total: Some(2_440),
-        keyset: None,
-    }))
-    .unwrap();
     // box pruning is legal now
     l.append(retire(
         0,
@@ -220,6 +224,9 @@ fn boxed_only_after_the_full_attempt_and_only_with_the_spec_box() {
         None,
     ))
     .unwrap();
+    let st = l.state().clone();
+    l.append(closure_event(&st, "T162", 2, 0, EnvelopeKind::Proved))
+        .unwrap();
     l.append(node(NodeEvent::DeclareClosed)).unwrap();
     l.append(node(NodeEvent::DeclareCertified)).unwrap();
     let n = &l.state().nodes["T162"];
@@ -252,12 +259,14 @@ fn node_without_spec_box_ends_open_never_boxed() {
         }
     }
     l.append_all(setup).unwrap();
+    run_full_attempt(&mut l);
     l.append(node(NodeEvent::AttemptEnded {
         blockers: Blockers {
             keys: 9,
             ..Default::default()
         },
         reason: "budget".into(),
+        cause: AttemptEndCause::FixerRounds,
     }))
     .unwrap();
     assert!(
@@ -273,7 +282,9 @@ fn node_without_spec_box_ends_open_never_boxed() {
     .unwrap();
     assert_eq!(l.state().nodes["T162"].state.closure_kind(), "open");
     // a spec box must be an input of role "box"
-    let mut l2 = new_ledger(&scratch("econ-role"), as_dyn(&clk), LedgerConfig::default());
+    let d2 = scratch("econ-role");
+    let _c2 = Cleanup(d2.clone());
+    let mut l2 = new_ledger(&d2, as_dyn(&clk), LedgerConfig::default());
     let mut setup = setup_events("T178");
     for e in setup.iter_mut() {
         if let Event::NodeRegistered { spec_box, .. } = e {
