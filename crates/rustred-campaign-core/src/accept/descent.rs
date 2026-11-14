@@ -11,7 +11,7 @@ use super::facts::CoefficientFacts;
 use super::rule::RuleText;
 use crate::closure::bodies::{RuleBodies, Sectors, TermClass};
 use crate::closure::facts::CoefFact;
-use crate::cover::{Dispatcher, RuleRef, Table};
+use crate::cover::{Dispatcher, Table};
 use crate::order::{NodeComparator, PatternSlot, parse_pattern};
 
 /// The candidate alone in a one-record dispatcher, with its body: the closure's `RuleBodies::instantiate` applies
@@ -39,11 +39,7 @@ impl Instantiator {
     pub fn terms(&self, key: &[i32]) -> Result<Vec<(Vec<i32>, u64)>, String> {
         let mut out = Vec::new();
         let mut cm = Vec::new();
-        let r = RuleRef {
-            table: 0,
-            record: 0,
-            label: self.disp.tables()[0].labels[0],
-        };
+        let r = self.disp.rule_ref(0, 0);
         let n = self
             .bodies
             .instantiate(&self.disp, r, key, &mut out, &mut cm)

@@ -276,6 +276,9 @@ impl<R: Regularity, C> Regularity for FactPair<R, C> {
     fn regular(&mut self, rule: &RuleText, key: &[i32]) -> RegVerdict {
         self.regularity.regular(rule, key)
     }
+    fn engine_fact_digest(&self) -> Option<String> {
+        self.regularity.engine_fact_digest()
+    }
 }
 impl<R, C: CoefficientFacts> CoefficientFacts for FactPair<R, C> {
     fn coefficient(&mut self, rule: &RuleText, key: &[i32], term: usize) -> crate::closure::facts::CoefFact {
@@ -518,30 +521,30 @@ pub fn accept_candidate(
     if rule.empty_exception_branch {
         return rejected(Check::Record, Witness::Structural("empty exception AND-list".into()));
     }
-    match rule.witness_status() {
-        WitnessStatus::Elided => {
+    // witness loci (R24 (6)) and guard version: a record without its loci (or pre-guard-fix) may credit a key ONLY
+    // with per-key exact engine facts (coordinator ruling, addendum 3); elided loci are never liftable
+    let fact_digest = facts.engine_fact_digest();
+    let credit_basis = match (rule.witness_status(), rule.guard_version.unwrap_or(0) >= 2) {
+        (WitnessStatus::Elided, _) => {
             return rejected(Check::Record, Witness::Structural("witness loci elided (R24 (6))".into()));
         }
-        WitnessStatus::Absent => {
-            return Ok(AcceptVerdict::Undecided {
-                check: Check::Record,
-                missing: vec![Missing {
-                    key: None,
-                    what: "witness loci absent (incomplete record: re-lift)".into(),
-                }],
-            });
-        }
-        WitnessStatus::Present { .. } => {}
-    }
-    if rule.guard_version.unwrap_or(0) < 2 {
-        return Ok(AcceptVerdict::Undecided {
-            check: Check::Record,
-            missing: vec![Missing {
-                key: None,
-                what: format!("guard version {:?} < 2: d2 unknown until re-lifted", rule.guard_version),
-            }],
-        });
-    }
+        (WitnessStatus::Present { .. }, true) => "witness_loci".to_string(),
+        (status, _) => match &fact_digest {
+            Some(d) => format!("regularity_fact:{d}"),
+            None => {
+                return Ok(AcceptVerdict::Undecided {
+                    check: Check::Record,
+                    missing: vec![Missing {
+                        key: None,
+                        what: format!(
+                            "witness {status:?}, guard version {:?}: credit needs per-key exact engine facts (instantiate)",
+                            rule.guard_version
+                        ),
+                    }],
+                });
+            }
+        },
+    };
     checks.push(outcome(Check::Record, "pass", &[]));
 
     // ---- 1 Served (winner diff over the working range)
@@ -874,6 +877,7 @@ pub fn accept_candidate(
         scope: &scope,
         shadowed: shadow.as_ref().map(|c| format!("{c:?}")),
         pattern_not_proved: not_proved.iter().copied().collect(),
+        credit_basis,
     });
     Ok(AcceptVerdict::Accepted {
         position: input.candidate.position.clone(),

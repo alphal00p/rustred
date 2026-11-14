@@ -40,6 +40,8 @@ pub(crate) struct RecordParts<'a, 'b> {
     pub scope: &'a Scope,
     pub shadowed: Option<String>,
     pub pattern_not_proved: Vec<usize>,
+    /// "witness_loci" or "regularity_fact:<fact file digest>" (addendum 3)
+    pub credit_basis: String,
 }
 
 impl AcceptanceRecord {
@@ -80,6 +82,7 @@ impl AcceptanceRecord {
                 "artefact": p.artefact,
             },
             "scope": p.scope,
+            "credit_basis": p.credit_basis,
             "symbolic": {"shadowed": p.shadowed, "pattern_descent_not_proved": p.pattern_not_proved},
             "verdict": "accepted",
         });

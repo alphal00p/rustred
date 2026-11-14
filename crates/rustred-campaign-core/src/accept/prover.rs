@@ -22,6 +22,9 @@ use crate::replay_base::family::Family;
 pub enum Evidence {
     /// A1: d1-d4 at the served keys (computed by the chain itself; never enough to accept).
     Geometry,
+    /// IMPORTED evidence (a `rustred.campaign.accept.v1` provenance line of an imported table, producer unknown or
+    /// known): never above this, whatever label it carries; satisfies no required level (addendum 3).
+    Imported,
     /// A2 `identity_tested`: identity replay (ReplayRecord Established on exactly the served set).
     Replay,
     /// A3 `identity_proved`: exact per-key proof at exactly the served keys.
@@ -33,6 +36,7 @@ impl Evidence {
     pub fn ledger_word(self) -> &'static str {
         match self {
             Evidence::Geometry => "geometry_accepted",
+            Evidence::Imported => "imported",
             Evidence::Replay => "identity_tested",
             Evidence::PerKey => "identity_proved",
         }
@@ -41,6 +45,7 @@ impl Evidence {
     pub fn plan_level(self) -> &'static str {
         match self {
             Evidence::Geometry => "A1",
+            Evidence::Imported => "A0-imported",
             Evidence::Replay => "A2",
             Evidence::PerKey => "A3",
         }
@@ -575,6 +580,97 @@ impl EvidenceProver for FilePerKeyProver {
                 digest: ans.digest.clone(),
                 keys_digest: keys_digest(arity, served),
                 tool: "rr_proof --mode instance-span".into(),
+                body: None,
+            }),
+            rule_level: None,
+        }
+    }
+}
+
+/// One imported provenance record (`rustred.campaign.accept.v1`, e.g. the bank converter's lines).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ImportedInfo {
+    pub rule_id: String,
+    pub label: String,
+    pub original_verdict: String,
+    pub producer_known: bool,
+    pub level_after: String,
+    /// `sha256:` of the canonical import line (the artefact the evidence cites).
+    pub line_digest: String,
+}
+
+/// Imported evidence keyed by the rule line's sha256 (hex, of the line with AND without its LF: the bank converter
+/// records the LF-terminated digest).
+#[derive(Clone, Debug, Default)]
+pub struct ImportedEvidence {
+    by_line: HashMap<String, ImportedInfo>,
+}
+
+impl ImportedEvidence {
+    /// Read accept.v1 lines; lines of other schemas are skipped. The line digest is taken from the extension
+    /// `bank.rule_line_sha256` (LF-terminated line) or `rule.rule_line_sha256` when present.
+    pub fn read(text: &str) -> Result<ImportedEvidence, String> {
+        let mut e = ImportedEvidence::default();
+        for (no, l) in text.lines().enumerate() {
+            if l.trim().is_empty() {
+                continue;
+            }
+            let v: Value = serde_json::from_str(l).map_err(|x| format!("line {}: {x}", no + 1))?;
+            if v["schema"] != crate::schema::ACCEPT_SCHEMA {
+                continue;
+            }
+            let Some(d) = v["bank"]["rule_line_sha256"].as_str().or(v["rule"]["rule_line_sha256"].as_str()) else {
+                continue;
+            };
+            let info = ImportedInfo {
+                rule_id: v["rule"]["id"].as_str().unwrap_or("").into(),
+                label: v["imported_from"]["label"].as_str().unwrap_or("").into(),
+                original_verdict: v["imported_from"]["original_verdict"].as_str().unwrap_or("").into(),
+                producer_known: v["rule"]["producer"]["bin_blake3"].as_str().is_some(),
+                level_after: v["level_after"].as_str().unwrap_or("").into(),
+                line_digest: sha256_tag(crate::schema::canon::canonical_json(&v, true).unwrap_or_default().as_bytes()),
+            };
+            e.by_line.insert(d.to_string(), info);
+        }
+        Ok(e)
+    }
+    pub fn len(&self) -> usize {
+        self.by_line.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.by_line.is_empty()
+    }
+    /// The import record of a rule (by its line, with or without the LF).
+    pub fn get(&self, rule: &RuleText) -> Option<&ImportedInfo> {
+        let bare = rule.line_sha256.trim_start_matches("sha256:");
+        let mut with_lf = rule.line.clone();
+        with_lf.push(b'\n');
+        let lf = sha256_tag(&with_lf);
+        self.by_line.get(bare).or_else(|| self.by_line.get(lf.trim_start_matches("sha256:")))
+    }
+}
+
+/// Evidence from imports only: every served key of a rule with an import record reaches [`Evidence::Imported`]
+/// (never more: an imported label never substitutes for a replay record or a per-key proof).
+pub struct ImportedProver {
+    pub imports: ImportedEvidence,
+}
+
+impl EvidenceProver for ImportedProver {
+    fn level(&self) -> Evidence {
+        Evidence::Imported
+    }
+    fn prove(&mut self, rule: &RuleText, _source: &RuleSource, served: &[Key]) -> ProverAnswer {
+        let Some(info) = self.imports.get(rule) else {
+            return ProverAnswer::Unavailable("no import record for this rule line".into());
+        };
+        ProverAnswer::PerKey {
+            keys: served.iter().map(|k| (k.clone(), KeyStatus::Reached(Evidence::Imported))).collect(),
+            artefact: Some(EvidenceArtefact {
+                schema: crate::schema::ACCEPT_SCHEMA.into(),
+                digest: info.line_digest.clone(),
+                keys_digest: keys_digest(rule.record.fixed.len(), served),
+                tool: format!("imported:{}:{}", info.rule_id, info.label),
                 body: None,
             }),
             rule_level: None,

@@ -185,6 +185,7 @@ impl<P: EvidenceProver> ChainProver<P> {
 fn level_of(e: Evidence) -> EvidenceLevel {
     match e {
         Evidence::Geometry => EvidenceLevel::A1,
+        Evidence::Imported => EvidenceLevel::A0,
         Evidence::Replay => EvidenceLevel::A2,
         Evidence::PerKey => EvidenceLevel::A3,
     }

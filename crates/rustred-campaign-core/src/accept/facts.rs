@@ -31,6 +31,12 @@ pub enum RegVerdict {
 /// Regularity of a rule at a key (the key, not the rule point: the back-end applies the rule's point map).
 pub trait Regularity {
     fn regular(&mut self, rule: &RuleText, key: &[i32]) -> RegVerdict;
+    /// `Some(digest of the fact file)` iff the verdicts are PER-KEY EXACT FACTS from the ENGINE (`rr_proof
+    /// instantiate`): only such facts let a rule WITHOUT witness loci credit a key (coordinator ruling, addendum 3).
+    /// Facts computed from the record (which cannot see hidden weight poles without the loci) give `None`.
+    fn engine_fact_digest(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Whether the coefficient of RHS term `term` vanishes identically in d at the key.
@@ -193,13 +199,17 @@ struct InstAnswer {
 #[derive(Default, Debug)]
 pub struct InstantiateFacts {
     answers: HashMap<(i64, Vec<i32>), InstAnswer>,
+    digest: String,
 }
 
 impl InstantiateFacts {
     /// Read an OUT.jsonl text; lines of other schemas (closure fact answers) are skipped. Conflicting answers for
     /// one (rule, key) are an error (fail closed).
     pub fn read(text: &str) -> Result<InstantiateFacts, String> {
-        let mut f = InstantiateFacts::default();
+        let mut f = InstantiateFacts {
+            digest: super::rule::sha256_tag(text.as_bytes()),
+            ..Default::default()
+        };
         for (no, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
@@ -277,6 +287,9 @@ impl CoefficientFacts for InstantiateFacts {
 }
 
 impl Regularity for InstantiateFacts {
+    fn engine_fact_digest(&self) -> Option<String> {
+        Some(self.digest.clone())
+    }
     fn regular(&mut self, rule: &RuleText, key: &[i32]) -> RegVerdict {
         match self.get(rule, key) {
             None => RegVerdict::Unknown("no instantiate answer".into()),
