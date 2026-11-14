@@ -724,6 +724,8 @@ pub enum AttentionReason {
     UnplacedPoints { keys: Vec<Key> },
     /// The seed space of the case is empty (a policy that offers nothing for this case).
     EmptySeedSpace,
+    /// A point case with several gap points left (malformed case; audit B m1).
+    MalformedPointCase { keys: Vec<Key> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -886,7 +888,13 @@ impl ItemState {
         if r.answer.is_some() {
             return; // never re-run, never overwritten
         }
-        r.cpu_ms_total = r.cpu_ms_total.saturating_add(answer.cpu_ms);
+        // interrupt CPU is not attempt CPU: it never feeds the economy extra budget (audit B M2, D-35)
+        if !matches!(
+            answer.outcome.class(),
+            OutcomeClass::Operator | OutcomeClass::Infra
+        ) {
+            r.cpu_ms_total = r.cpu_ms_total.saturating_add(answer.cpu_ms);
+        }
         match answer.outcome.class() {
             OutcomeClass::Operator => {
                 r.operator_interrupts = r.operator_interrupts.saturating_add(1)
@@ -1316,31 +1324,14 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             Ok(o) => o,
             Err(req) => return Next::NeedEvidence(req),
         };
+        // WAVE SEMANTICS (audit B M3, addendum 4): a wave is the set of its settings fixed when it is issued; it is
+        // ALWAYS run to the end, so the choice is a function of the SET of verdict results of the wave and a
+        // sequential driver and a parallel batch driver reach the same disposition. The next wave runs only if this
+        // one gave no one-case cover. Only a wave-0 candidate (offered / inherited, no solver CPU) that covers every
+        // gap point before the first wave starts ends the search.
         let offer = match one {
             None => !pending.is_empty(),
-            Some(_) if pending.is_empty() => false,
-            Some(_) => {
-                // economy extra budget (R31 (b), U-13): c0 = CPU of the first acceptable one-case answer in
-                // enumeration order; the remaining settings of the wave are offered while the CPU spent on
-                // settings after it is <= factor x c0
-                let first_ok = acc
-                    .iter()
-                    .filter(|a| a.credited.len() == n_points && a.lacking.is_empty())
-                    .map(|a| a.order)
-                    .min()
-                    .unwrap_or(0);
-                let cpu = |e: &(usize, SeedSetting, String)| {
-                    state.records.get(&e.2).map_or(0, |r| r.cpu_ms_total)
-                };
-                let c0 = entries.iter().find(|e| e.0 == first_ok).map_or(0, cpu);
-                let spent: u64 = entries
-                    .iter()
-                    .filter(|e| e.0 > first_ok)
-                    .map(cpu)
-                    .fold(0u64, |a, x| a.saturating_add(x));
-                // a wave-0 offer (no solver CPU) that covers everything ends the search (extra-rules.md 5.2)
-                c0 > 0 && (spent as f64) <= b.economy_extra_factor * (c0 as f64)
-            }
+            Some(bi) => !pending.is_empty() && !(acc[bi].order == 0 && w == 0 && finished.is_empty()),
         };
         if offer {
             let heavy = state
@@ -1479,6 +1470,13 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         .collect();
     if leftover.is_empty() {
         return Next::Done(Disposition::Covered { cover });
+    }
+    if point && leftover.len() > 1 {
+        // a point case holds ONE key; several left-over keys mean a malformed case (audit B m1): never one token
+        // for several keys
+        return Next::Done(Disposition::attention(
+            AttentionReason::MalformedPointCase { keys: leftover },
+        ));
     }
     if point {
         // C3: a terminal proposal only when EVERY setting of the space has a verdict outcome

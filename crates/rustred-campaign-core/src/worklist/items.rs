@@ -144,8 +144,16 @@ impl CaseSpec {
     }
 
     /// Free dimension: free slots minus the rank of the (canonical, hence independent) equations.
+    /// Equations count only when they involve a free slot (an equation over slots outside the face constrains no
+    /// free slot; audit B m1).
     pub fn dim(&self) -> u32 {
-        (self.free().len().saturating_sub(self.equations.len())) as u32
+        let free: BTreeSet<usize> = self.free().into_iter().collect();
+        let rank = self
+            .equations
+            .iter()
+            .filter(|e| e.slots().iter().any(|s| free.contains(s)))
+            .count();
+        (free.len().saturating_sub(rank)) as u32
     }
 
     pub fn is_point(&self) -> bool {
@@ -161,7 +169,13 @@ impl CaseSpec {
         let face: BTreeSet<usize> = self.face.slots().into_iter().collect();
         for (i, &v) in key.iter().enumerate() {
             if let Some(&f) = self.fixed.get(&i) {
-                if v != f {
+                // a case contains CHART keys only (also at fixed slots: a free face slot fixed by an equation stays in
+                // the orthant), and a slot outside the face stays at its floor (audit B m1)
+                if v != f
+                    || (lines[i] && v < 1)
+                    || (!lines[i] && v > 0)
+                    || (!face.contains(&i) && v != floor_of(lines[i]))
+                {
                     return false;
                 }
             } else if face.contains(&i) {
@@ -457,7 +471,8 @@ pub struct Budgets {
     pub point_mem_mb: u64,
     pub oversized_seconds: u64,
     pub oversized_mem_mb: u64,
-    /// Extra CPU allowed after the first acceptable one-case answer, as a factor of its CPU (R31 (b)).
+    /// Superseded (kept for schema compatibility, not read): every wave is run to the end and the choice is a
+    /// function of the wave's results (audit B M3); the economy search budget is the wave.
     pub economy_extra_factor: f64,
     /// Superseded (kept for schema compatibility, not read): every budget stop is a NON-VERDICT outcome and follows
     /// `nonverdict_retries` (C3 of audit ladder-A).

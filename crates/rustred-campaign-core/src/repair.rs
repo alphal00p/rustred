@@ -4,7 +4,7 @@
 //! No clock, no files, no global state: budgets are arguments; CPU is what the solver reports.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cover::{Dispatch, Dispatcher};
 use crate::domain::Stage;
@@ -382,6 +382,7 @@ pub fn drive_tree(
         report: TreeReport::default(),
         served: BTreeSet::new(),
         attempts: 0,
+        seen: BTreeMap::new(),
     };
     for r in roots {
         if d.report.stopped.is_some() {
@@ -413,6 +414,9 @@ struct Driver<'a, 'b, 's, 'f, 'p, 'c, 'q> {
     report: TreeReport,
     served: BTreeSet<Key>,
     attempts: u32,
+    /// Report index of the first item with each id: an item reached again (same case through two planes) reuses the
+    /// solver answers already recorded, so no attempt key is run twice in one tree (audit B M1).
+    seen: BTreeMap<ItemId, usize>,
 }
 
 impl Driver<'_, '_, '_, '_, '_, '_, '_> {
@@ -429,11 +433,21 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
             self.report.stopped = Some(format!("item limit {}", self.limits.max_items));
             return;
         }
+        let id = item.id.clone();
+        let mut state = ItemState::new(item);
+        if let Some(&j) = self.seen.get(&id) {
+            for (k, r) in &self.report.items[j].state.records {
+                if r.is_verdict() || !r.non_verdict.is_empty() {
+                    state.records.entry(k.clone()).or_insert_with(|| r.clone());
+                }
+            }
+        }
         self.report.items.push(ItemReport {
-            state: ItemState::new(item),
+            state,
             disposition: None,
         });
         let idx = self.report.items.len() - 1;
+        self.seen.insert(id, idx); // the latest instance holds every answer so far
         loop {
             if self.report.steps >= self.limits.max_steps {
                 self.report.stopped = Some(format!("step limit {}", self.limits.max_steps));

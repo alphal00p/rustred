@@ -107,8 +107,9 @@ impl AffineEq {
     /// `Some((slot, value))` if this is `n_slot = value`.
     pub fn as_fixed(&self) -> Option<(usize, i32)> {
         if self.coeffs.len() == 1 && self.coeffs[0].1 == 1 {
-            i32::try_from(-self.constant)
-                .ok()
+            self.constant
+                .checked_neg()
+                .and_then(|c| i32::try_from(c).ok())
                 .map(|v| (self.coeffs[0].0, v))
         } else {
             None
@@ -216,7 +217,12 @@ pub fn canonical_system(
                 if r.constant % c != 0 {
                     return Err(AffineError::NoIntegerPoint);
                 }
-                let v = i32::try_from(-r.constant / c).map_err(|_| AffineError::Overflow)?;
+                let v = r
+                    .constant
+                    .checked_neg()
+                    .map(|x| x / c)
+                    .and_then(|x| i32::try_from(x).ok())
+                    .ok_or(AffineError::Overflow)?;
                 fixed.insert(s, v);
                 changed = true;
             } else {
