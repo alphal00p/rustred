@@ -178,6 +178,8 @@ pub struct RefOut {
     pub credit_valid: BTreeMap<Vec<i32>, Vec<usize>>,
     pub has_cycle: bool,
     pub longest: Option<u64>,
+    /// Tier K credits: followed top terms of an element that are not below the key (re-audit F1a)
+    pub credit_rz: u64,
     pub top_terms: u64,
     pub pn_top: u64,
     pub pn_sub: u64,
@@ -280,6 +282,32 @@ fn credit_try(
     valid
 }
 
+/// Tier K (lane closurefix, re-audit F1a): every element not refused for a STRUCTURAL reason (image exists, differs,
+/// not a terminal, its dispatch covers it with a rule that has a body): the superset follows all of them.
+fn credit_candidates(
+    sp: &NodeSpec,
+    k: &[i32],
+    terminal: &dyn Fn(&[i32]) -> bool,
+) -> Vec<(usize, Vec<i32>, usize, usize, Vec<i32>)> {
+    let mut v = vec![];
+    for (gi, g) in sp.group.iter().enumerate() {
+        let Some(img) = apply_g(sp, g, k) else {
+            continue;
+        };
+        if img == k || terminal(&img) {
+            continue;
+        }
+        let RD::Covered { t, r, pt } = dispatch(sp, &img) else {
+            continue;
+        };
+        if sp.tables[t].rules[r].body.is_none() {
+            continue;
+        }
+        v.push((gi, img, t, r, pt));
+    }
+    v
+}
+
 pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
     let mut o = RefOut::default();
     let start: BTreeSet<Vec<i32>> = sp.start.iter().cloned().collect();
@@ -315,8 +343,9 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                 continue;
             }
             let d = dispatch(sp, k);
-            // (table, record, point, image key used for facts)
-            let (t, r, pt, fkey) = match d {
+            // the servers followed at k: (table, record, point, key the rule is applied at); one, except for a Tier K
+            // credit (the union of its candidates)
+            let servers: Vec<(usize, usize, Vec<i32>, Vec<i32>)> = match d {
                 RD::Outside => {
                     o.open.insert(k.clone(), ("outside_chart".into(), None));
                     continue;
@@ -336,7 +365,7 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                         );
                         continue;
                     }
-                    (t, r, pt, k.clone())
+                    vec![(t, r, pt, k.clone())]
                 }
                 RD::Uncovered => {
                     let is_term = |x: &[i32]| tp.contains(x) || to.contains(x);
@@ -345,19 +374,41 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                     } else {
                         vec![]
                     };
+                    let cands = if cfg.credits && !cfg.tier_c {
+                        credit_candidates(sp, k, &is_term)
+                    } else {
+                        vec![]
+                    };
                     if v.is_empty() {
                         o.open.insert(k.clone(), ("uncovered".into(), None));
-                        continue;
+                        if cands.is_empty() {
+                            continue;
+                        }
+                        // Tier K: open, its candidates followed all the same
+                        cands
+                            .into_iter()
+                            .map(|(_, img, t, r, pt)| (t, r, pt, img))
+                            .collect()
+                    } else {
+                        let first = &v[0];
+                        let (gi, img, t, r, pt, _) = first.clone();
+                        o.credits
+                            .insert(k.clone(), (gi, img.clone(), (sp.tables[t].name.clone(), r)));
+                        o.credit_valid
+                            .insert(k.clone(), v.iter().map(|x| x.0).collect());
+                        let mut sv = vec![(t, r, pt, img)];
+                        for (g2, img2, t2, r2, pt2) in cands {
+                            if g2 != gi {
+                                sv.push((t2, r2, pt2, img2));
+                            }
+                        }
+                        sv
                     }
-                    let first = &v[0];
-                    let (gi, img, t, r, pt, _) = first.clone();
-                    o.credits
-                        .insert(k.clone(), (gi, img.clone(), (sp.tables[t].name.clone(), r)));
-                    o.credit_valid
-                        .insert(k.clone(), v.iter().map(|x| x.0).collect());
-                    (t, r, pt, img)
                 }
             };
+            let mut dist: BTreeSet<Vec<i32>> = BTreeSet::new();
+            let mut used_here: BTreeSet<(String, usize)> = BTreeSet::new();
+            for (t, r, pt, fkey) in servers {
             let rule = &sp.tables[t].rules[r];
             let tname = sp.tables[t].name.clone();
             let credited = fkey != *k;
@@ -383,13 +434,14 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                     Rf::Regular => {}
                 }
             }
-            let e = o.used.entry((tname.clone(), r)).or_default();
-            e.0 += 1;
-            if ins {
-                e.1 += 1;
+            if used_here.insert((tname.clone(), r)) {
+                let e = o.used.entry((tname.clone(), r)).or_default();
+                e.0 += 1;
+                if ins {
+                    e.1 += 1;
+                }
             }
             let terms = instantiate(rule.body.as_ref().unwrap(), &pt);
-            let mut dist: BTreeSet<Vec<i32>> = BTreeSet::new();
             for (j, tm) in terms.iter().enumerate() {
                 let cls = classify(sp, tm);
                 let f = if cfg.tier_c {
@@ -406,7 +458,9 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                     if cls == Cls::Top {
                         o.top_terms += 1;
                         if !cmp.lower(tm, k) {
-                            if !cfg.tier_c || f == Cf::NonZero {
+                            if credited && !cfg.tier_c {
+                                o.credit_rz += 1;
+                            } else if !cfg.tier_c || f == Cf::NonZero {
                                 o.nondesc
                                     .insert((k.clone(), tname.clone(), r, j, tm.clone()));
                             } else {
@@ -454,8 +508,10 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                     Cls::Top => {
                         o.top_terms += 1;
                         dist.insert(tm.clone());
-                        if !cmp.lower(tm, k) || (mutant() == 3 && tm == k) && false {
-                            if !cfg.tier_c || f == Cf::NonZero {
+                        if !cmp.lower(tm, k) {
+                            if credited && !cfg.tier_c {
+                                o.credit_rz += 1;
+                            } else if !cfg.tier_c || f == Cf::NonZero {
                                 o.nondesc
                                     .insert((k.clone(), tname.clone(), r, j, tm.clone()));
                             } else {
@@ -475,6 +531,7 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                         }
                     }
                 }
+            }
             }
             o.edges += dist.len() as u64
                 + if mutant() == 3 && dist.len() > 2 {
@@ -533,7 +590,8 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
     } else {
         Some(depth.iter().copied().max().unwrap_or(0))
     };
-    let failed = !o.nondesc.is_empty() || o.pos_nonzero > 0 || cyc || o.unrep > 0;
+    // a cycle needs a followed non-lower edge, already counted (lane closurefix, re-audit F3): never a failure by itself
+    let failed = !o.nondesc.is_empty() || o.pos_nonzero > 0 || o.unrep > 0;
     o.verdict = if failed {
         "failed"
     } else if !o.open.is_empty() {

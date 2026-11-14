@@ -154,7 +154,7 @@ fn keyset_vec(s: &KeySet) -> Vec<Vec<i32>> {
 /// Tier C refuses g1 (that coefficient is NonZero, exact) and credits through g2. The key reached through g2 in the
 /// true (Tier C) closure is absent from the Tier K "superset".
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F1a: fails on b5ba6b33 (Tier K not a superset with credits)"]
+
 fn f1a_tier_k_is_a_superset_of_tier_c_with_credits() {
     let (n, nl) = (4, 3);
     let k = [1, 2, 3, 0];
@@ -215,7 +215,7 @@ fn f1a_tier_k_is_a_superset_of_tier_c_with_credits() {
 /// F1b (MAJOR): the same with a witness-absent record: Tier C lifts it with the exact per-key fact (closure.md 11.6a)
 /// and follows its body; Tier K always blocks (no expansion), so the Tier K key set misses the lifted key's descendants.
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F1b: fails on b5ba6b33 (Tier K not a superset with witness lifts)"]
+
 fn f1b_tier_k_is_a_superset_of_tier_c_with_witness_lift() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
@@ -247,7 +247,7 @@ fn f1b_tier_k_is_a_superset_of_tier_c_with_witness_lift() {
 /// dispatcher without a chart are likewise non-strict (`Dispatcher::summary().is_strict() == false`). The Tier C
 /// verdict ignores all three: it is `closed` with the elided rule firing.
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F2: fails on b5ba6b33 (closed with an elided-witness rule)"]
+
 fn f2_weakened_dispatch_checks_never_give_closed() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
@@ -308,7 +308,7 @@ fn f2_weakened_dispatch_checks_never_give_closed() {
 /// changes the VERDICT: a Tier C rule whose right-hand side contains its own key with an UNKNOWN coefficient is
 /// `undecided` without the chain pass and `failed` (cycles: 1) with it, under the same config digest.
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F3: fails on b5ba6b33 (verdict depends on longest_chain)"]
+
 fn f3_longest_chain_never_changes_the_verdict() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
@@ -345,7 +345,7 @@ fn f3_longest_chain_never_changes_the_verdict() {
 /// child sector to line 1 and, with sector "line 1 removed" declared zero, DROPS the term as zero. Expected: a typed
 /// error for arity > 64, or a correct classification (subsector, never zero_sector).
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F4: fails on b5ba6b33 (arity > 64 masks)"]
+
 fn f4_arity_above_64_is_refused_or_classified_correctly() {
     let (n, nl) = (70usize, 66usize);
     let lines = chart(n, nl);
@@ -403,7 +403,7 @@ fn f4_arity_above_64_is_refused_or_classified_correctly() {
 /// by ~P x (in-run request + transient FactRequest). Measured here per request; the assertion encodes a budget of
 /// 64 bytes per request for the transient of `summary()` (the count needs no allocation at all).
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F5: fails on b5ba6b33 (summary materialises every fact request)"]
+
 fn f5_summary_does_not_materialise_the_fact_requests() {
     // arity 12: 8 lines, 4 numerators; one free rule: each of lines 0..3 down by one (4 top terms) and each numerator
     // raised by one (4 positive-numerator terms, Unknown coefficient -> 4 requests per key)
@@ -813,7 +813,7 @@ fn ok_arity_parameter_and_thread_independence() {
 /// while the closure of the union under the new dispatcher has that key blocked by `Elided` (`open`).
 /// (`closure_incremental` is not affected: it re-evaluates the stopping record; checked here as the control.)
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F7: fails on b5ba6b33 (recheck stale after a witness-status swap)"]
+
 fn f7_recheck_refuses_or_matches_after_a_witness_status_change() {
     use rustred_campaign_core::closure::{closure_incremental, closure_recheck};
     let (n, nl) = (4, 3);
@@ -899,9 +899,11 @@ fn ok_audit_a_c2_c3_closed() {
     let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &unknown)
         .unwrap()
         .summary();
+    // a hand-built credit group stamps the run diagnostic (lane closurefix); underneath: undecided (pending credit)
+    assert_eq!(s.verdict, Verdict::Diagnostic);
     assert_eq!(
-        s.verdict,
-        Verdict::Undecided,
+        s.verdict_if_not_diagnostic,
+        Some(Verdict::Undecided),
         "pending credit: {:?}",
         s.blocking
     );
@@ -924,7 +926,7 @@ fn ok_audit_a_c2_c3_closed() {
 /// "recipeunverified") while `OpenKey.status` serialises snake_case ("outside_chart", "no_body", "recipe_unverified"):
 /// a consumer joining the two misses every multi-word status.
 #[test]
-#[ignore = "AUDIT-CLOSURE2 N1: fails on b5ba6b33 (status spellings differ)"]
+
 fn n1_open_by_status_uses_the_serde_names() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
@@ -941,7 +943,7 @@ fn n1_open_by_status_uses_the_serde_names() {
 /// fixed n3 = -1, body `n3+2`) is counted `positive_numerator_symbolic`, although the slot is fixed (a constant of the
 /// rule), not "a symbolic slot raised past zero" (closure.md 1, term class 1).
 #[test]
-#[ignore = "AUDIT-CLOSURE2 N2: fails on b5ba6b33 (fixed-slot offset counted symbolic)"]
+
 fn n2_fixed_slot_offset_is_not_symbolic() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, -1];
@@ -965,7 +967,7 @@ fn n2_fixed_slot_offset_is_not_symbolic() {
 /// against closure.md 12 "NOT YET ... REFUSED". A key whose image is served by a CERTIFIED relation set whose recorded
 /// right-hand side lies strictly below the ORIGINAL key is refused (`ImageServedByRecipe`) and stays open.
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F8: fails on b5ba6b33 (no credit through a recipe-served image)"]
+
 fn f8_credit_through_a_recipe_served_image() {
     let (n, nl) = (4, 3);
     let k = [1, 2, 1, 0];

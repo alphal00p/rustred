@@ -346,18 +346,21 @@ fn config(st: &St, threads: usize) -> ClosureConfig {
             other: kset(st, &st.other),
         }),
         exclusions,
-        credits: st.credits.then(|| CreditPolicy {
-            group: vec![
-                GroupElement {
-                    lines: swap.clone(),
-                    numerators: None,
-                },
-                GroupElement {
-                    lines: rot.clone(),
-                    numerators: Some(nrev.clone()),
-                },
-            ],
-            pure_numerator_maps: BTreeSet::from([1]),
+        credits: st.credits.then(|| {
+            CreditPolicy::unverified(
+                vec![
+                    GroupElement {
+                        lines: swap.clone(),
+                        numerators: None,
+                    },
+                    GroupElement {
+                        lines: rot.clone(),
+                        numerators: Some(nrev.clone()),
+                    },
+                ],
+                BTreeSet::from([1]),
+                "audit-closure2 property test",
+            )
         }),
         relation_sets,
         table_digests: st
@@ -679,7 +682,7 @@ fn audit_incremental_equals_scratch_under_random_edit_sequences() {
 /// cases); (b) the recheck counts the previous run's rounds against `max_rounds`, so it is truncated (open keys) where
 /// the closure of the union completes (release sweep: case 208 step 7 of 1,500).
 #[test]
-#[ignore = "AUDIT-CLOSURE2 F6: fails on b5ba6b33 (cycles / chain depend on reach order)"]
+
 fn f6_recheck_equals_union_strictly() {
     run_sequences(true, Some(60));
 }
@@ -798,7 +801,7 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
                 s.open_by_status.get("undecided").copied().unwrap_or(0),
                 s.descent_violations,
                 s.open_by_status
-                    .get("recipeunverified")
+                    .get("recipe_unverified")
                     .copied()
                     .unwrap_or(0),
             ]
@@ -807,9 +810,9 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
             {
                 agg[i] += x;
             }
-            // non-strict: skip the recheck comparison under a round limit (F6b: the recheck counts the previous run's
-            // rounds against `max_rounds` and can be truncated where the closure of the union is not)
-            if !s.truncated && (strict || st.max_rounds.is_none()) {
+            // F6b fixed (lane closurefix): the recheck counts its own rounds against `max_rounds`, so the comparison
+            // runs under a round limit too
+            if !s.truncated {
                 let extra = kset(&st, &[rkey(&mut r, &st), rkey(&mut r, &st)]).unwrap();
                 let re = closure_recheck(&scr, &d, &b, &cmp, &extra, &cfg, &facts).unwrap();
                 let un = closure(&d, &b, &cmp, &start.union(&extra), &cfg, &facts).unwrap();

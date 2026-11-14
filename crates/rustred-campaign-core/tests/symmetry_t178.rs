@@ -127,7 +127,7 @@ fn t178_safe_symmetry_list() {
         println!("SKIP envelope/loci lists: {S1} not readable");
     }
 
-    // the closure with credits as a dispatch fallback: the box's 75 credited, 334 box keys open
+    // the closure with credits as a dispatch fallback: the box's 75 credited, 334 box keys open (keys-only status)
     let cfg = ClosureConfig {
         tier: Tier::K,
         threads: 4,
@@ -154,7 +154,17 @@ fn t178_safe_symmetry_list() {
     assert_eq!(s.credited_in_start, 75);
     assert_eq!(s.open_in_start, 334);
     assert_eq!(s.descent_violations, 0);
-    assert_eq!(s.cycles, Some(0));
+    // since lane closurefix (re-audit F1a) the Tier K walk also follows every structurally admissible element (the
+    // superset of every Tier C run), incl. top terms NOT below the key that a Tier C run drops only on a zero
+    // coefficient: those are counted (credit_requires_zero) and close 14 cycles; the credited / open STATUS is the
+    // keys-only adopted check as before (75 credited, 334 open box keys) [computed 2026-11-14]
+    assert_eq!(
+        (s.keys_total, s.credited, s.open_total, s.open_followed),
+        (340_809, 295, 677, s.open_followed)
+    );
+    assert_eq!(s.cycles, Some(14));
+    assert!(s.credit_requires_zero > 0, "the cycles need counted non-lower edges");
+    assert_eq!(s.verdict_if_not_diagnostic, Some(rustred_campaign_core::closure::Verdict::Open));
     // every credit names element, image and rule, and the image's dispatch winner is that rule
     let credited: HashSet<Vec<i32>> = cl.credits().iter().map(|c| c.key.clone()).collect();
     for c in cl.credits().iter().filter(|c| c.in_start) {

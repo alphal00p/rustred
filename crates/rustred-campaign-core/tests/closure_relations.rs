@@ -223,7 +223,9 @@ fn recipe_candidates_terminals_exclusions_credits() {
             .verdict,
         Verdict::SupersetClean
     );
-    // a credit whose image is recipe-served is refused (not implemented: fail closed)
+    // a credit whose image is served by a CERTIFIED recipe entry (R44, re-audit F8, lane closurefix): the recorded right
+    // side at the image, (2,1,0,0) and the subsector (0,1,0,0), lies below the ORIGINAL key (1,3,0,0): credited; the
+    // recorded top key (2,1,0,0) is then reached (uncovered: open)
     let c3 = ClosureConfig {
         credits: Some(CreditPolicy::new(vec![GroupElement {
             lines: vec![1, 0],
@@ -232,7 +234,64 @@ fn recipe_candidates_terminals_exclusions_credits() {
         ..cfg(Tier::K, vec![r.clone()])
     };
     let c = closure(&d, &b, &cmp(), &ks(&[[1, 3, 0, 0]]), &c3, &NoFacts).unwrap();
-    assert_eq!((c.summary().credited, c.summary().open_total), (0, 1));
+    assert_eq!((c.summary().credited, c.summary().open_total), (1, 1));
+    let cr = &c.credits()[0];
+    assert_eq!(
+        (cr.image.clone(), cr.rule.table.clone(), cr.rule.label),
+        (vec![3, 1, 0, 0], "rec".to_string(), -1)
+    );
+    assert_eq!(c.used_relations()[0].credit_images, 1);
+    assert_eq!(c.open_keys()[0].key, vec![2, 1, 0, 0]);
+    // the same in Tier C: exact, no fact needed for the recipe image
+    let c3c = ClosureConfig {
+        tier: Tier::C,
+        ..c3.clone()
+    };
+    let c = closure(&d, &b, &cmp(), &ks(&[[1, 3, 0, 0]]), &c3c, &NoFacts).unwrap();
+    assert_eq!((c.summary().credited, c.summary().fact_requests), (1, 0));
+    // an unverified recipe entry at the image refuses the element (open, nothing followed)
+    let ru = recipe(&[[3, 1, 0, 0]], DispatchSlot::Last, VERDICT_REGULAR);
+    let c = closure(
+        &d,
+        &b,
+        &cmp(),
+        &ks(&[[1, 3, 0, 0]]),
+        &ClosureConfig {
+            relation_sets: vec![ru],
+            ..c3.clone()
+        },
+        &NoFacts,
+    )
+    .unwrap();
+    assert_eq!((c.summary().credited, c.summary().keys_total), (0, 1));
+    // a recorded key NOT below the original key refuses the element in both tiers (recorded terms are non-zero)
+    let mut hb = RelationStoreBuilder::new(KeyCodec::new(4, 6).unwrap());
+    hb.push(&[3, 1, 0, 0], &[vec![1, 4, 0, 0]], [7; 32], VERDICT_CERTIFIED)
+        .unwrap();
+    let rhigh = Arc::new(RelationSet {
+        relations: hb.finish().unwrap(),
+        ..(*r).clone()
+    });
+    for tier in [Tier::K, Tier::C] {
+        let c = closure(
+            &d,
+            &b,
+            &cmp(),
+            &ks(&[[1, 3, 0, 0]]),
+            &ClosureConfig {
+                tier,
+                relation_sets: vec![rhigh.clone()],
+                ..c3.clone()
+            },
+            &NoFacts,
+        )
+        .unwrap();
+        assert_eq!(
+            (c.summary().credited, c.summary().keys_total, c.summary().open_followed),
+            (0, 1, 0),
+            "{tier:?}"
+        );
+    }
 }
 
 #[test]

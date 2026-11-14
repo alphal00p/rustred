@@ -68,6 +68,12 @@ fn swap() -> GroupElement {
         numerators: None,
     }
 }
+/// The verdict a run would have without its diagnostic stamp: these toy credit tests use a hand-built (unverified)
+/// group, which stamps every run `diagnostic` (lane closurefix; credits rest on a verified group only).
+fn eff(s: &rustred_campaign_core::closure::ClosureSummary) -> Verdict {
+    s.verdict_if_not_diagnostic.unwrap_or(s.verdict)
+}
+
 fn swap_policy() -> CreditPolicy {
     CreditPolicy::new(vec![swap()])
 }
@@ -113,7 +119,7 @@ fn c1_incremental_after_dropped_terminal_equals_scratch() {
     let prev = closure(&d, &b, &cmp(), &st, &prev_cfg, &NoFacts).unwrap();
     assert!(prev.is_terminal(0));
     // the terminal is in R0's domain without an exclusion (M1)
-    assert_eq!(prev.summary().verdict, Verdict::TerminalInRuleDomain);
+    assert_eq!(eff(&prev.summary()), Verdict::TerminalInRuleDomain);
     let cfg = ClosureConfig {
         credits: Some(swap_policy()),
         ..base(Tier::K)
@@ -171,7 +177,7 @@ fn c2_tier_c_credit_needs_regularity_at_the_image() {
     )
     .unwrap()
     .summary();
-    assert_eq!((s.verdict, s.credited, s.open_total), (Verdict::Open, 0, 1));
+    assert_eq!((eff(&s), s.credited, s.open_total), (Verdict::Open, 0, 1));
     // regular by fact: credited and closed
     let s = closure(
         &d,
@@ -183,12 +189,12 @@ fn c2_tier_c_credit_needs_regularity_at_the_image() {
     )
     .unwrap()
     .summary();
-    assert_eq!((s.verdict, s.credited), (Verdict::Closed, 1));
+    assert_eq!((eff(&s), s.credited), (Verdict::Closed, 1));
     // unknown regularity at the image: a PENDING credit, undecided with a request, never closed
     let c = closure(&d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     let s = c.summary();
     assert_eq!(
-        (s.verdict, s.credited, s.undecided.regularity_unknown),
+        (eff(&s), s.credited, s.undecided.regularity_unknown),
         (Verdict::Undecided, 1, 1)
     );
     let r = &c.fact_requests()[0];
@@ -211,7 +217,7 @@ fn c2_tier_c_credit_dropped_terms_need_zero_facts() {
     };
     let c = closure(&d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     let s = c.summary();
-    assert_eq!(s.verdict, Verdict::Undecided);
+    assert_eq!(eff(&s), Verdict::Undecided);
     assert_eq!(s.undecided.coef_unknown_positive_numerator, 1);
     let reqs = c.fact_requests();
     let f = answer_facts(
@@ -225,7 +231,7 @@ fn c2_tier_c_credit_dropped_terms_need_zero_facts() {
     );
     let s = closure(&d, &b, &cmp(), &st, &cfg, &f).unwrap().summary();
     assert_eq!(
-        (s.verdict, s.credited, s.terms.dropped_zero),
+        (eff(&s), s.credited, s.terms.dropped_zero),
         (Verdict::Closed, 1, 1)
     );
     let f = answer_facts(
@@ -238,7 +244,7 @@ fn c2_tier_c_credit_dropped_terms_need_zero_facts() {
         false,
     );
     let s = closure(&d, &b, &cmp(), &st, &cfg, &f).unwrap().summary();
-    assert_eq!((s.verdict, s.credited), (Verdict::Open, 0));
+    assert_eq!((eff(&s), s.credited), (Verdict::Open, 0));
 }
 
 /// C3: relaxing the regularity check is a DIAGNOSTIC run: verdict `diagnostic` (never `closed`), relaxed check
@@ -283,7 +289,7 @@ fn c3_relaxed_regularity_is_diagnostic() {
     assert_eq!(r.summary.verdict, Verdict::Diagnostic);
     assert_eq!(r.summary.verdict_if_not_diagnostic, Some(Verdict::Closed));
     assert!(r.summary.diagnostic);
-    assert_eq!(r.config["diagnostic"], "allow_unknown_regularity");
+    assert_eq!(r.config["diagnostic"], "allow_unknown_regularity,credits_group_unverified");
     // the same run without the relaxation: undecided (pending credit)
     let s = closure(
         &d2,
@@ -298,7 +304,7 @@ fn c3_relaxed_regularity_is_diagnostic() {
     )
     .unwrap()
     .summary();
-    assert_eq!(s.verdict, Verdict::Undecided);
+    assert_eq!(eff(&s), Verdict::Undecided);
 }
 
 // ------------------------------------------------------------------------------------------------ MAJOR
@@ -652,7 +658,7 @@ fn m2_numerator_keys_need_a_certified_pure_map() {
         numerators: Some(vec![0, 1]),
     };
     let st = start(&[[1, 3, -1, 0]]);
-    let mut pol = CreditPolicy::new(vec![g]);
+    let pol = CreditPolicy::new(vec![g]);
     let cfg = |p: &CreditPolicy| ClosureConfig {
         credits: Some(p.clone()),
         ..base(Tier::K)
@@ -661,7 +667,7 @@ fn m2_numerator_keys_need_a_certified_pure_map() {
         .unwrap()
         .summary();
     assert_eq!((s.credited, s.open_total), (0, 1));
-    pol.pure_numerator_maps.insert(0);
+    let pol = pol.with_pure_numerator_maps([0].into());
     let s = closure(&d, &b, &cmp(), &st, &cfg(&pol), &NoFacts)
         .unwrap()
         .summary();
@@ -676,7 +682,7 @@ fn m2_numerator_keys_need_a_certified_pure_map() {
         Tier::K,
     );
     let r = chk
-        .serve(&[1, 3, -1, 0], &CreditPolicy::new(pol.group.clone()))
+        .serve(&[1, 3, -1, 0], &CreditPolicy::new(pol.group().to_vec()))
         .unwrap()
         .unwrap_err();
     assert_eq!(r, vec![(0, Refusal::NumeratorMapNotPure)]);
