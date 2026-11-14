@@ -14,14 +14,19 @@
 //!   (multi-term numerator maps, the checker's superset) mode, exact rational coefficients, bounded expansion.
 //!
 //! Nothing here is specific to a family: loops, arity, chart and group order are all read from the input.
+//!
+//! rows3 (DEV-17 REVISED): DOMAIN LOGIC only; determinants, inverses, ranks and every rational operation go through
+//! `CheckAlgebra` (`*_with(alg, ..)`; the plain functions run the certificate backend `Independent`). Group DATA
+//! (JSON) is read with the certificate backend's rational normaliser (input parsing, not a compared stage).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::arith::Q;
+use super::algebra::{CheckAlgebra, Q, Stage};
 use super::family::Family;
+use crate::independent_algebra::Independent;
 
 /// Schema of the group data file.
 pub const SYMGROUP_SCHEMA: &str = "rustred.campaign.symgroup.v1";
@@ -88,7 +93,7 @@ fn q_text(q: &Q) -> String {
 
 fn q_from(v: &Value) -> Result<Q, String> {
     match v {
-        Value::String(s) => Q::parse(s),
+        Value::String(s) => Independent.q_parse(s),
         Value::Number(n) => n
             .as_i64()
             .map(|x| Q::int(x as i128))
@@ -133,7 +138,7 @@ fn slot_from(v: &Value, arity: usize) -> Result<SlotImage, String> {
                 }
                 let c = q_from(&pair[1])?;
                 let e = terms.entry(m).or_insert(Q::ZERO);
-                *e = e.add(c)?;
+                *e = Independent.q_add(*e, c)?;
             }
             let constant = match o.get("constant") {
                 None | Some(Value::Null) => Q::ZERO,
@@ -271,8 +276,8 @@ impl SymGroup {
             .map(|x| x.as_str().map(str::to_string).ok_or("slot name"))
             .collect::<Result<_, _>>()?;
         let n = slots.len();
-        if n != family.n {
-            return Err(format!("group file has {n} slots, family {}", family.n));
+        if n != family.n() {
+            return Err(format!("group file has {n} slots, family {}", family.n()));
         }
         for (i, s) in slots.iter().enumerate() {
             if *s != format!("D{}", i + 1) {
@@ -293,14 +298,14 @@ impl SymGroup {
         {
             chart[slot(l.as_str().ok_or("line name")?)?] = true;
         }
-        let l = family.loops;
+        let l = family.loops();
         let w = l + 1;
         let var = |name: &str| -> Result<usize, String> {
             if name == "q" {
                 return Ok(l);
             }
             family
-                .loop_names
+                .loop_names()
                 .iter()
                 .position(|s| s == name)
                 .ok_or_else(|| format!("unknown loop momentum {name}"))
@@ -332,10 +337,10 @@ impl SymGroup {
                     for (m, c) in form.as_object().ok_or("numerator image is not an object")? {
                         let c = q_from(c)?;
                         if m == "1" {
-                            constant = constant.add(c)?;
+                            constant = Independent.q_add(constant, c)?;
                         } else {
                             let e2 = terms.entry(slot(m)?).or_insert(Q::ZERO);
-                            *e2 = e2.add(c)?;
+                            *e2 = Independent.q_add(*e2, c)?;
                         }
                     }
                     let terms: Vec<(usize, Q)> =
@@ -432,73 +437,6 @@ impl SymGroup {
     }
 }
 
-// ------------------------------------------------------------------ exact linear algebra ---------------------------
-
-fn det_i128(mut a: Vec<Vec<i128>>) -> Option<i128> {
-    // Bareiss fraction-free elimination, checked
-    let n = a.len();
-    if n == 0 {
-        return Some(1);
-    }
-    let mut sign = 1i128;
-    let mut prev = 1i128;
-    for k in 0..n {
-        if a[k][k] == 0 {
-            match (k + 1..n).find(|&r| a[r][k] != 0) {
-                Some(r) => {
-                    a.swap(k, r);
-                    sign = -sign;
-                }
-                None => return Some(0),
-            }
-        }
-        for i in k + 1..n {
-            for j in k + 1..n {
-                let v = a[i][j]
-                    .checked_mul(a[k][k])?
-                    .checked_sub(a[i][k].checked_mul(a[k][j])?)?;
-                a[i][j] = v / prev;
-            }
-        }
-        prev = a[k][k];
-    }
-    a[n - 1][n - 1].checked_mul(sign)
-}
-
-fn inverse_q(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, String> {
-    let n = m.len();
-    let mut a: Vec<Vec<Q>> = m
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            row.iter()
-                .copied()
-                .chain((0..n).map(|j| if i == j { Q::ONE } else { Q::ZERO }))
-                .collect()
-        })
-        .collect();
-    for c in 0..n {
-        let p = (c..n)
-            .find(|&r| !a[r][c].is_zero())
-            .ok_or("singular matrix")?;
-        a.swap(c, p);
-        let f = a[c][c];
-        a[c] = a[c].iter().map(|x| x.div(f)).collect::<Result<_, _>>()?;
-        for r in 0..n {
-            if r != c && !a[r][c].is_zero() {
-                let g = a[r][c];
-                let pivot = a[c].clone();
-                a[r] = a[r]
-                    .iter()
-                    .zip(&pivot)
-                    .map(|(x, y)| x.sub(g.mul(*y)?))
-                    .collect::<Result<_, _>>()?;
-            }
-        }
-    }
-    Ok(a.into_iter().map(|row| row[n..].to_vec()).collect())
-}
-
 /// Momentum vector up to sign: first nonzero entry positive.
 fn canon(v: &[i64]) -> Vec<i64> {
     match v.iter().find(|&&x| x != 0) {
@@ -527,10 +465,10 @@ struct QuadBasis {
 }
 
 impl QuadBasis {
-    fn new(family: &Family) -> Result<QuadBasis, String> {
-        let l = family.loops;
+    fn new<A: CheckAlgebra>(alg: &A, family: &Family) -> Result<QuadBasis, String> {
+        let l = family.loops();
         let c = family.momenta();
-        let n = family.n;
+        let n = family.n();
         let pairs: Vec<(usize, usize)> = (0..=l)
             .flat_map(|a| (a..=l).map(move |b| (a, b)))
             .filter(|&(a, b)| !(a == l && b == l))
@@ -550,7 +488,7 @@ impl QuadBasis {
             }
             c0[i] = Q::int(c[i][l] as i128 * c[i][l] as i128);
         }
-        let mi = inverse_q(&m)?; // mi[pair][i]
+        let mi = alg.q_inverse(&m)?; // mi[pair][i]
         Ok(QuadBasis {
             loops: l,
             pairs,
@@ -560,7 +498,11 @@ impl QuadBasis {
     }
 
     /// `(w . (k, q))^2 = sum_i x_i D_i + constant q^2`
-    fn decompose(&self, w: &[i64]) -> Result<(Vec<(usize, Q)>, Q), String> {
+    fn decompose<A: CheckAlgebra>(
+        &self,
+        alg: &A,
+        w: &[i64],
+    ) -> Result<(Vec<(usize, Q)>, Q), String> {
         let l = self.loops;
         let n = self.c0.len();
         let mut x = vec![Q::ZERO; n];
@@ -573,14 +515,14 @@ impl QuadBasis {
             for (i, xi) in x.iter_mut().enumerate() {
                 let mm = self.minv[k][i];
                 if !mm.is_zero() {
-                    *xi = xi.add(vq.mul(mm)?)?;
+                    *xi = alg.q_add(*xi, alg.q_mul(vq, mm)?)?;
                 }
             }
         }
         let mut constant = Q::int(w[l] as i128 * w[l] as i128);
         for (i, xi) in x.iter().enumerate() {
             if !xi.is_zero() && !self.c0[i].is_zero() {
-                constant = constant.sub(xi.mul(self.c0[i])?)?;
+                constant = alg.q_sub(constant, alg.q_mul(*xi, self.c0[i])?)?;
             }
         }
         Ok((
@@ -594,7 +536,8 @@ impl QuadBasis {
 }
 
 /// Context of one family + chart: momenta, eps shifts, line basis, lookups.
-struct Geometry<'f> {
+struct Geometry<'f, A: CheckAlgebra> {
+    alg: &'f A,
     family: &'f Family,
     chart: Vec<bool>,
     w: usize,
@@ -609,16 +552,20 @@ struct Geometry<'f> {
     quad: QuadBasis,
 }
 
-impl<'f> Geometry<'f> {
-    fn new(family: &'f Family, chart: &[bool]) -> Result<Geometry<'f>, GroupNotDerived> {
-        let n = family.n;
+impl<'f, A: CheckAlgebra> Geometry<'f, A> {
+    fn new(
+        alg: &'f A,
+        family: &'f Family,
+        chart: &[bool],
+    ) -> Result<Geometry<'f, A>, GroupNotDerived> {
+        let n = family.n();
         if chart.len() != n {
             return Err(GroupNotDerived::Family(format!(
                 "chart of length {} for arity {n}",
                 chart.len()
             )));
         }
-        let l = family.loops;
+        let l = family.loops();
         let w = l + 1;
         let c = family.momenta();
         if c.iter().any(|v| v.len() != w) {
@@ -656,7 +603,7 @@ impl<'f> Geometry<'f> {
             }
             let mut cand = rows.clone();
             cand.push(c[i][..l].iter().map(|&x| Q::int(x as i128)).collect());
-            if rank_q(&cand) == cand.len() {
+            if alg.q_rank(&cand).is_ok_and(|r| r == cand.len()) {
                 rows = cand;
                 basis.push(i);
             }
@@ -671,18 +618,19 @@ impl<'f> Geometry<'f> {
                 (0..w).map(|j| i128::from(j == l)).collect(),
             ))
             .collect();
-        let det_b =
-            det_i128(b.clone()).ok_or_else(|| GroupNotDerived::Overflow("det(B)".into()))?;
+        let det_b = alg
+            .det_i128(&b)
+            .ok_or_else(|| GroupNotDerived::Overflow("det(B)".into()))?;
         let bq: Vec<Vec<Q>> = b
             .iter()
             .map(|r| r.iter().map(|&x| Q::int(x)).collect())
             .collect();
-        let inv = inverse_q(&bq).map_err(GroupNotDerived::Overflow)?;
+        let inv = alg.q_inverse(&bq).map_err(GroupNotDerived::Overflow)?;
         let mut adj = vec![0i128; w * w];
         for r in 0..w {
             for s in 0..w {
-                let v = inv[r][s]
-                    .mul(Q::int(det_b))
+                let v = alg
+                    .q_mul(inv[r][s], Q::int(det_b))
                     .map_err(GroupNotDerived::Overflow)?;
                 if v.d != 1 {
                     return Err(GroupNotDerived::Overflow("adjugate not integer".into()));
@@ -690,8 +638,9 @@ impl<'f> Geometry<'f> {
                 adj[r * w + s] = v.n;
             }
         }
-        let quad = QuadBasis::new(family).map_err(GroupNotDerived::Family)?;
+        let quad = QuadBasis::new(alg, family).map_err(GroupNotDerived::Family)?;
         Ok(Geometry {
+            alg,
             family,
             chart: chart.to_vec(),
             w,
@@ -734,7 +683,7 @@ impl<'f> Geometry<'f> {
         let a: Vec<Vec<i128>> = (0..l)
             .map(|i| (0..l).map(|j| t[i * w + j] as i128).collect())
             .collect();
-        match det_i128(a) {
+        match self.alg.det_i128(&a) {
             Some(d) if d.abs() == 1 => Ok(()),
             Some(d) => Err(format!("loop part has determinant {d}")),
             None => Err("determinant overflow".into()),
@@ -744,8 +693,8 @@ impl<'f> Geometry<'f> {
     /// The full slot action of T, or the reason it is not a chart automorphism.
     fn action_of(&self, t: &[i64]) -> Result<Vec<SlotImage>, String> {
         let c = self.family.momenta();
-        let ks = &self.family.kshift;
-        let n = self.family.n;
+        let ks = self.family.kshift();
+        let n = self.family.n();
         let mut out = Vec::with_capacity(n);
         let mut hit = vec![false; n];
         for i in 0..n {
@@ -776,42 +725,13 @@ impl<'f> Geometry<'f> {
                     if ks[i] != 0 {
                         return Err(format!("slot {i} with an eps shift goes to a combination"));
                     }
-                    let (terms, constant) = self.quad.decompose(&img)?;
+                    let (terms, constant) = self.quad.decompose(self.alg, &img)?;
                     out.push(SlotImage::Linear { terms, constant });
                 }
             }
         }
         Ok(out)
     }
-}
-
-fn rank_q(rows: &[Vec<Q>]) -> usize {
-    let mut a: Vec<Vec<Q>> = rows.to_vec();
-    let m = a.first().map_or(0, Vec::len);
-    let mut r = 0;
-    for c in 0..m {
-        let Some(p) = (r..a.len()).find(|&i| !a[i][c].is_zero()) else {
-            continue;
-        };
-        a.swap(r, p);
-        for i in r + 1..a.len() {
-            if a[i][c].is_zero() {
-                continue;
-            }
-            let Ok(f) = a[i][c].div(a[r][c]) else {
-                return 0;
-            };
-            let pivot = a[r].clone();
-            for (x, y) in a[i].iter_mut().zip(&pivot) {
-                let Ok(v) = f.mul(*y).and_then(|z| x.sub(z)) else {
-                    return 0;
-                };
-                *x = v;
-            }
-        }
-        r += 1;
-    }
-    r
 }
 
 // ------------------------------------------------------------------ derivation --------------------------------------
@@ -862,8 +782,18 @@ pub fn derive_group(
     chart: &[bool],
     opts: &DeriveOptions,
 ) -> Result<(SymGroup, DeriveStats), GroupNotDerived> {
-    let g = Geometry::new(family, chart)?;
-    let l = family.loops;
+    derive_group_with(&Independent, family, chart, opts)
+}
+
+/// [`derive_group`] with the algebra of `alg`.
+pub fn derive_group_with<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    chart: &[bool],
+    opts: &DeriveOptions,
+) -> Result<(SymGroup, DeriveStats), GroupNotDerived> {
+    let g = Geometry::new(alg, family, chart)?;
+    let l = family.loops();
     let nl = g.lines.len() as u128;
     let mut candidates: u128 = 1;
     for j in 0..l as u128 {
@@ -877,7 +807,7 @@ pub fn derive_group(
         });
     }
     let c = family.momenta();
-    let ks = &family.kshift;
+    let ks = family.kshift();
     let mut stats = DeriveStats {
         candidates,
         ..DeriveStats::default()
@@ -886,7 +816,7 @@ pub fn derive_group(
     let mut elements: Vec<SymElement> = Vec::new();
     // iterative DFS over (target, sign) of each basis line
     let mut chosen: Vec<(usize, i64)> = Vec::with_capacity(l);
-    let mut used = vec![false; family.n];
+    let mut used = vec![false; family.n()];
     let mut stack: Vec<usize> = vec![0]; // per depth: next option index (target position * 2 + sign)
     let opts_per_depth = g.lines.len() * 2;
     while let Some(top) = stack.last_mut() {
@@ -945,7 +875,7 @@ pub fn derive_group(
     }
     Ok((
         SymGroup {
-            arity: family.n,
+            arity: family.n(),
             loops: l,
             chart: chart.to_vec(),
             elements,
@@ -980,15 +910,36 @@ pub struct ElementProof {
 }
 
 /// A group every element of which passed the exact momentum proof. The only form [`rows_at`] and the identity test
-/// accept.
+/// accept. Re-audit A NEW-M3 / NEW-m2: every field is PRIVATE and there is no public constructor and no
+/// deserialisation: a `VerifiedGroup` can only come out of [`verify_group`], [`verify_derived`] or
+/// [`verify_cross_checked`], and its provenance label is COMPUTED by the function that produced it.
 #[derive(Clone, Debug)]
 pub struct VerifiedGroup {
-    pub group: SymGroup,
+    group: SymGroup,
     /// sha256 of the family text the proofs were made on (the identity test refuses the group on another family)
-    pub family_digest: String,
-    pub provenance: Provenance,
-    pub digest: String,
-    pub proofs: Vec<ElementProof>,
+    family_digest: String,
+    provenance: Provenance,
+    digest: String,
+    proofs: Vec<ElementProof>,
+}
+
+impl VerifiedGroup {
+    pub fn group(&self) -> &SymGroup {
+        &self.group
+    }
+    pub fn family_digest(&self) -> &str {
+        &self.family_digest
+    }
+    pub fn provenance(&self) -> &Provenance {
+        &self.provenance
+    }
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    /// one proof per element, in element order
+    pub fn proofs(&self) -> &[ElementProof] {
+        &self.proofs
+    }
 }
 
 /// A refused group: the first element that failed and why.
@@ -998,7 +949,11 @@ pub struct GroupRefused {
     pub reason: String,
 }
 
-fn check_against(g: &Geometry, el: &SymElement, t: &[i64]) -> Result<ElementProof, String> {
+fn check_against<A: CheckAlgebra>(
+    g: &Geometry<'_, A>,
+    el: &SymElement,
+    t: &[i64],
+) -> Result<ElementProof, String> {
     g.unimodular(t)?;
     let computed = g.action_of(t)?;
     let (mut exact_slots, mut linear_slots, mut unknown_slots) = (0, 0, 0);
@@ -1050,35 +1005,104 @@ fn check_against(g: &Geometry, el: &SymElement, t: &[i64]) -> Result<ElementProo
     })
 }
 
-/// The exact momentum proof of every element of `group` on `family` (interfaces/ibp-rows.md 10.3): a T (given, or
+/// The exact momentum proof of every element of a SUPPLIED `group` on `family` (interfaces/ibp-rows.md 10.3); the
+/// provenance is `Supplied { source }` (`source` names the data: file, table record, checker map). A T (given, or
 /// reconstructed from the line action over all sign choices on a line basis) with q -> +-q, |det A| = 1, every chart
 /// line onto its stated chart line, every stated slot image equal to the geometric one, no flip. Any failure refuses
 /// the WHOLE group (a wrong element must never reach a span test).
 pub fn verify_group(
     family: &Family,
     group: SymGroup,
+    source: &str,
+) -> Result<VerifiedGroup, GroupRefused> {
+    verify_group_with(&Independent, family, group, source)
+}
+
+/// [`verify_group`] with the algebra of `alg` (a group verified by a diagnostic backend is diagnostic too: the
+/// identity test records the backend of every run).
+pub fn verify_group_with<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    group: SymGroup,
+    source: &str,
+) -> Result<VerifiedGroup, GroupRefused> {
+    verify_as(
+        alg,
+        family,
+        group,
+        Provenance::Supplied {
+            source: source.to_string(),
+        },
+    )
+}
+
+/// Derive the chart's group from the family text ([`derive_group`]) and verify it: provenance `Derived`.
+pub fn verify_derived(
+    family: &Family,
+    chart: &[bool],
+    opts: &DeriveOptions,
+) -> Result<VerifiedGroup, GroupRefused> {
+    let (g, _) = derive_group(family, chart, opts).map_err(|e| GroupRefused {
+        element: None,
+        reason: format!("not derived: {e:?}"),
+    })?;
+    verify_as(&Independent, family, g, Provenance::Derived)
+}
+
+/// Derive the group of `supplied`'s chart, require it EQUAL to `supplied` on the key action ([`cross_check`]), and
+/// verify the derived group: provenance `CrossChecked { sources: [source] }` (computed, never passed in).
+pub fn verify_cross_checked(
+    family: &Family,
+    supplied: &SymGroup,
+    source: &str,
+    opts: &DeriveOptions,
+) -> Result<VerifiedGroup, GroupRefused> {
+    let (g, _) = derive_group(family, &supplied.chart, opts).map_err(|e| GroupRefused {
+        element: None,
+        reason: format!("not derived: {e:?}"),
+    })?;
+    match cross_check(&g, supplied) {
+        GroupCheck::Equal { .. } => verify_as(
+            &Independent,
+            family,
+            g,
+            Provenance::CrossChecked {
+                sources: vec![source.to_string()],
+            },
+        ),
+        m => Err(GroupRefused {
+            element: None,
+            reason: format!("derived group differs from {source}: {m:?}"),
+        }),
+    }
+}
+
+fn verify_as<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    group: SymGroup,
     provenance: Provenance,
 ) -> Result<VerifiedGroup, GroupRefused> {
     let refuse = |element: Option<usize>, reason: String| GroupRefused { element, reason };
-    if group.arity != family.n {
+    if group.arity != family.n() {
         return Err(refuse(
             None,
-            format!("group arity {} != family {}", group.arity, family.n),
+            format!("group arity {} != family {}", group.arity, family.n()),
         ));
     }
-    if group.loops != 0 && group.loops != family.loops {
+    if group.loops != 0 && group.loops != family.loops() {
         return Err(refuse(
             None,
-            format!("group loops {} != family {}", group.loops, family.loops),
+            format!("group loops {} != family {}", group.loops, family.loops()),
         ));
     }
-    let g = Geometry::new(family, &group.chart).map_err(|e| refuse(None, format!("{e:?}")))?;
-    let l = family.loops;
+    let g = Geometry::new(alg, family, &group.chart).map_err(|e| refuse(None, format!("{e:?}")))?;
+    let l = family.loops();
     let w = l + 1;
     let c = family.momenta();
     let mut proofs = Vec::with_capacity(group.elements.len());
     for (k, el) in group.elements.iter().enumerate() {
-        if el.action.len() != family.n {
+        if el.action.len() != family.n() {
             return Err(refuse(Some(k), "action length".into()));
         }
         let Some(perm) = el.line_perm(&group.chart) else {
@@ -1133,12 +1157,18 @@ pub fn verify_group(
                 found.ok_or_else(|| refuse(Some(k), last))?
             }
         };
+        alg.observe(Stage::Symmetry, &|| format!("group element {k}"), &|| {
+            format!(
+                "T {:?} exact {} linear {} unknown {}",
+                proof.matrix, proof.exact_slots, proof.linear_slots, proof.unknown_slots
+            )
+        });
         proofs.push(proof);
     }
     let digest = group.digest();
     Ok(VerifiedGroup {
         group,
-        family_digest: family.source_digest.clone(),
+        family_digest: family.source_digest().to_string(),
         provenance,
         digest,
         proofs,
@@ -1312,7 +1342,21 @@ pub fn rows_at(
     mode: SymRowMode,
     max_terms: usize,
 ) -> Result<Vec<SymRow>, String> {
+    rows_at_with(&Independent, group, seed, mode, max_terms)
+}
+
+/// [`rows_at`] with the rational arithmetic of `alg`.
+pub fn rows_at_with<A: CheckAlgebra>(
+    alg: &A,
+    group: &VerifiedGroup,
+    seed: &PatKey,
+    mode: SymRowMode,
+    max_terms: usize,
+) -> Result<Vec<SymRow>, String> {
     let g = &group.group;
+    if group.proofs.len() != g.elements.len() {
+        return Err("symmetry group without one proof per element".into());
+    }
     let (mask, vals) = seed;
     let n = g.arity;
     if vals.len() != n {
@@ -1373,16 +1417,16 @@ pub fn rows_at(
                 let mut next: BTreeMap<Vec<i64>, Q> = BTreeMap::new();
                 for (dec, c) in &terms {
                     if !constant.is_zero() {
-                        let v = c.mul(*constant)?;
+                        let v = alg.q_mul(*c, *constant)?;
                         let en = next.entry(dec.clone()).or_insert(Q::ZERO);
-                        *en = en.add(v)?;
+                        *en = alg.q_add(*en, v)?;
                     }
                     for (m, a) in lin {
                         let mut d2 = dec.clone();
                         d2[*m] += 1;
-                        let v = c.mul(*a)?;
+                        let v = alg.q_mul(*c, *a)?;
                         let en = next.entry(d2).or_insert(Q::ZERO);
-                        *en = en.add(v)?;
+                        *en = alg.q_add(*en, v)?;
                     }
                 }
                 next.retain(|_, c| !c.is_zero());
@@ -1398,9 +1442,9 @@ pub fn rows_at(
         row.insert(vals.clone(), Q::ONE);
         for (dec, c) in terms {
             let key: Vec<i64> = base.iter().zip(&dec).map(|(b, d)| b - d).collect();
-            let v = if neg { c } else { c.neg() };
+            let v = if neg { c } else { alg.q_neg(c)? };
             let en = row.entry(key).or_insert(Q::ZERO);
-            *en = en.add(v)?;
+            *en = alg.q_add(*en, v)?;
         }
         row.retain(|_, c| !c.is_zero());
         if row.is_empty() {
@@ -1449,8 +1493,8 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, SlotImage::Linear { .. }))
         }));
-        let v = verify_group(&f, g.clone(), Provenance::Derived).unwrap();
-        assert_eq!(v.proofs.len(), 5);
+        let v = verify_group(&f, g.clone(), "derived in test").unwrap();
+        assert_eq!(v.proofs().len(), 5);
         // round trip through JSON and through a matrix-free copy (reconstruction)
         let back = SymGroup::from_json(&g.to_json()).unwrap();
         assert_eq!(back, g);
@@ -1458,16 +1502,9 @@ mod tests {
         for e in &mut nomat.elements {
             e.matrix = None;
         }
-        let v2 = verify_group(
-            &f,
-            nomat,
-            Provenance::Supplied {
-                source: "test".into(),
-            },
-        )
-        .unwrap();
-        assert!(v2.proofs.iter().all(|p| p.reconstructed));
-        assert_eq!(v2.digest, v.digest);
+        let v2 = verify_group(&f, nomat, "test").unwrap();
+        assert!(v2.proofs().iter().all(|p| p.reconstructed));
+        assert_eq!(v2.digest(), v.digest());
         assert!(matches!(cross_check(&g, &back), GroupCheck::Equal { .. }));
     }
 
@@ -1506,13 +1543,7 @@ mod tests {
                 ],
             }],
         };
-        let r = verify_group(
-            &f,
-            bad,
-            Provenance::Supplied {
-                source: "planted".into(),
-            },
-        );
+        let r = verify_group(&f, bad, "planted");
         assert!(r.is_err(), "{r:?}");
         // a flip is refused
         let flip = SymGroup {
@@ -1545,7 +1576,7 @@ mod tests {
                 ],
             }],
         };
-        assert!(verify_group(&f, flip, Provenance::Derived).is_err());
+        assert!(verify_group(&f, flip, "planted flip").is_err());
     }
 
     #[test]
@@ -1553,7 +1584,7 @@ mod tests {
         let f = Family::parse(SUNSET).unwrap();
         let chart = [true, true, true, false, false];
         let (g, _) = derive_group(&f, &chart, &DeriveOptions::default()).unwrap();
-        let v = verify_group(&f, g, Provenance::Derived).unwrap();
+        let v = verify_as(&Independent, &f, g, Provenance::Derived).unwrap();
         // numerator-free dotted key: every element exact, images distinct from the key except the stabiliser
         let r = rows_at(&v, &(0, vec![2, 1, 1, 0, 0]), SymRowMode::Engine, 1000).unwrap();
         assert!(!r.is_empty());
@@ -1562,7 +1593,7 @@ mod tests {
                 && x.terms
                     .iter()
                     .any(|t| t.0 == (0, vec![2, 1, 1, 0, 0]) && t.1 == Q::ONE)
-                && x.terms.iter().any(|t| t.1 == Q::ONE.neg())
+                && x.terms.iter().any(|t| t.1 == Q::int(-1))
         }));
         // with a numerator on D4: engine rows only from elements exact on D4; expanded rows from all
         let y = (0, vec![1, 1, 1, -1, 0]);
@@ -1582,7 +1613,7 @@ mod tests {
         // generic seed with a symbolic line: only elements fixing slot 0 pointwise
         let gs = (0b1, vec![0, 1, 1, 0, 0]);
         let rg = rows_at(&v, &gs, SymRowMode::Engine, 1000).unwrap();
-        assert!(rg.iter().all(|x| v.group.elements[x.element].action[0]
+        assert!(rg.iter().all(|x| v.group().elements[x.element].action[0]
             == SlotImage::Exact {
                 target: 0,
                 flip: false

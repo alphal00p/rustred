@@ -13,7 +13,7 @@ use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
     PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test,
 };
-use rustred_campaign_core::replay_base::arith::Q;
+use rustred_campaign_core::replay_base::algebra::Q;
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::json;
 
@@ -75,7 +75,7 @@ fn pat(shift: &[i64]) -> String {
 
 /// A symbolic rule built from operator `op` of the family at the seed I(n0, ..., n{N-1}).
 fn built_rule(fam: &Family, lines: &[bool], op: usize) -> serde_json::Value {
-    let n = fam.n;
+    let n = fam.n();
     let row = fam.exact_row(op).unwrap();
     // target: the shift whose form has an index variable (generic nonzero), preferring a raising shift
     let (tshift, tform) = row
@@ -144,12 +144,12 @@ fn check_family(file: &str, loops: usize, arity: usize, eps_lines: usize) {
     let fam = Family::parse(&src).unwrap();
     let lines = line_flags(&src);
     assert_eq!(
-        (fam.loops, fam.n, lines.len()),
+        (fam.loops(), fam.n(), lines.len()),
         (loops, arity, arity),
         "{file}"
     );
     assert_eq!(fam.n_ops(), loops * (loops + 1), "{file}: L(L+1) operators");
-    assert_eq!(fam.eps_axes.len(), eps_lines, "{file}: eps lines");
+    assert_eq!(fam.eps_axes().len(), eps_lines, "{file}: eps lines");
     assert!(
         !fam.zero_mask(&lines),
         "{file}: the top sector is not scaleless"

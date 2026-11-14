@@ -1,3 +1,7 @@
+//! INDEPENDENT ALGEBRA (see mod.rs for why this exists). Duplicates Symbolica's `Token::parse_polynomial`
+//! (src/parser.rs:1909) + `MultivariatePolynomial::replace_all` (src/poly/polynomial.rs:2966) over `Zp64`, except that
+//! Symbolica has no one-pass multi-prime streaming evaluator (symbolica-usage.md 2.3).
+//!
 //! NEW (campaign, re-implemented, not copied): streaming evaluator of rule coefficients modulo several primes at once.
 //!
 //! The engine's `expr.rs` builds a tree; a 123 MB coefficient line (T162 fs-c130, 5.82 M monomials) must not. This
@@ -16,52 +20,10 @@
 //! Whitespace (space, tab, newline, CR) is allowed between tokens. The value of a coefficient at a context is
 //! (num, den) with den = 1 when there is no '/'; a zero den is reported to the caller (pole), never inverted here.
 
-use std::fmt;
-
 /// Largest accepted exponent (as `expr.rs`, which refuses |e| >= 100_000; here 10_000).
 pub const MAX_EXPONENT: u64 = 10_000;
 
-/// One evaluation context: a prime and the values of n0..n{N-1} followed by d (length arity + 1), all reduced mod p.
-#[derive(Clone, Debug)]
-pub struct Ctx {
-    pub p: u64,
-    pub vals: Vec<u64>,
-}
-
-/// Syntactic size and degrees of one side (numerator or denominator).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
-pub struct SideStats {
-    pub terms: usize,
-    /// max total degree of a monomial (n and d)
-    pub deg: u32,
-    /// max degree in d of a monomial
-    pub degd: u32,
-    /// max degree in the n variables of a monomial
-    pub degn: u32,
-    /// max number of factors of a monomial (audit M1: a bare denominator must have exactly one)
-    pub factors: u32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
-pub struct CoeffStats {
-    pub num: SideStats,
-    pub den: SideStats,
-    pub has_den: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CoeffError {
-    pub pos: usize,
-    pub msg: String,
-}
-
-impl fmt::Display for CoeffError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "coefficient syntax at byte {}: {}", self.pos, self.msg)
-    }
-}
-
-impl std::error::Error for CoeffError {}
+pub use crate::replay_base::algebra::{CoeffError, CoeffStats, Ctx, SideStats};
 
 #[inline]
 fn mulmod(a: u64, b: u64, p: u64) -> u64 {
@@ -408,8 +370,8 @@ pub fn cross_check_engine(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::replay_base::arith::{self, P, Q};
-    use crate::replay_base::expr::Expr;
+    use crate::independent_algebra::arith::{self, P, Q};
+    use crate::independent_algebra::expr::Expr;
 
     fn ctx(p: u64, vals: &[i64], d: i64) -> Ctx {
         Ctx {

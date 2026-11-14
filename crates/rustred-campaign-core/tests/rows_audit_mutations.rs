@@ -9,7 +9,8 @@ mod rows_common;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{PointSpec, RowsOptions, RowsRule, Verdict, identity_test};
-use rustred_campaign_core::replay_base::arith::Q;
+use rustred_campaign_core::independent_algebra::Independent;
+use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Q};
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::{Value, json};
 
@@ -55,7 +56,7 @@ fn form_text(form: &[Q], m: i128, n: usize) -> String {
 /// A true rule from IBP operator `op` at the seed I(n): its top term solved for.
 fn built(text: &str, op: usize) -> (Family, Value) {
     let fam = Family::parse(text).unwrap();
-    let n = fam.n;
+    let n = fam.n();
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     let chart: String = compact
         .split("prop(")
@@ -86,7 +87,7 @@ fn built(text: &str, op: usize) -> (Family, Value) {
         .iter()
         .filter(|(sh, _)| **sh != tshift)
         .map(|(sh, f)| {
-            let neg: Vec<Q> = f.iter().map(|q| q.neg()).collect();
+            let neg: Vec<Q> = f.iter().map(|q| Independent.q_neg(*q).unwrap()).collect();
             json!([pat(sh), format!("({})/({den})", form_text(&neg, mm, n))])
         })
         .collect();
@@ -208,7 +209,7 @@ fn rows_mutation_baseline() {
     let (mut applied, mut fail, mut refused, mut undetected) = (0, 0, 0, Vec::new());
     let mut true_pass = 0;
     for (id, fam, r, keys) in &rules {
-        let n = fam.n;
+        let n = fam.n();
         let rule = RowsRule::from_value(r.clone(), n).unwrap();
         let mut pts: Vec<PointSpec> = Vec::new();
         if rule.fixed.iter().any(Option::is_none) {

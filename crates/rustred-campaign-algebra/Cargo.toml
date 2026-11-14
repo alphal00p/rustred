@@ -1,0 +1,22 @@
+[package]
+name = "rustred-campaign-algebra"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Symbolica-backed algebra of the campaign's identity test (alternative / triage modes, DEV-17 REVISED)"
+license = "MIT"
+
+[lib]
+name = "rustred_campaign_algebra"
+path = "src/lib.rs"
+
+# The ONLY campaign crate that links Symbolica (rustred-campaign-core must stay Symbolica-free: tests/schema_deps.rs
+# there). Same Symbolica feature set as the engine (crates/rustred-core `native`: integer-gmp, float-mpfr).
+# Every binary / test linking this crate needs the Symbolica licence in the environment (source WS/ops/env.sh);
+# without it the backend refuses to start (SymbolicaAlgebra::new) and the tests SKIP.
+[dependencies]
+rustred-campaign-core = { path = "../rustred-campaign-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+symbolica = { workspace = true, features = ["integer-gmp", "float-mpfr"] }

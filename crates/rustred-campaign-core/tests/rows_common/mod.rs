@@ -3,6 +3,7 @@
 //! read-only handoff copy, sha256-checked against the case's `line_sha256`), and small result printers.
 #![allow(dead_code)]
 
+pub mod face;
 #[path = "../k3_common/mod.rs"]
 pub mod k3_common;
 pub mod sym_t162;
@@ -93,4 +94,17 @@ pub fn summary(id: &str, v: &RowsVerdict) -> String {
         v.cost.seconds,
         cells.join(" | ")
     )
+}
+
+/// Options with the family identity BOUND (re-audit A NEW-M1: the `replay` level needs a binding): the spec-digest
+/// form of `TableBinding` on the family's own text.
+pub fn bound(fam: &Family) -> rustred_campaign_core::ibp_rows::RowsOptions {
+    rustred_campaign_core::ibp_rows::RowsOptions {
+        table: Some(
+            rustred_campaign_core::ibp_rows::TableBinding::from_family_digest(
+                fam.squashed_digest(),
+            ),
+        ),
+        ..rustred_campaign_core::ibp_rows::RowsOptions::default()
+    }
 }

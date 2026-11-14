@@ -8,8 +8,8 @@ mod rows_common;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
-    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, Verdict,
-    identity_test, replay_evidence, rule_digest,
+    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsRule, Verdict, identity_test,
+    replay_evidence, rule_digest,
 };
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;
@@ -51,7 +51,7 @@ fn f6_rule(id: &str) -> Option<(Value, Vec<Vec<i64>>)> {
 #[test]
 fn rows_replay_record_fc000_and_fd006() {
     let fam = t162_family();
-    let opts = RowsOptions::default();
+    let opts = bound(&fam);
     for id in ["f000", "fd006", "f111"] {
         let Some((r, keys)) = f6_rule(id) else { return };
         let rule = RowsRule::from_value(r, 20).unwrap();
@@ -92,7 +92,7 @@ fn rows_replay_record_fc000_and_fd006() {
 #[test]
 fn rows_replay_planted_controls() {
     let fam = t162_family();
-    let opts = RowsOptions::default();
+    let opts = bound(&fam);
     let Some((r, keys)) = f6_rule("f111") else {
         return;
     };
@@ -156,9 +156,9 @@ fn rows_replay_engine_locus_rule_with_affine_equations() {
     let fam = Family::parse(header["family_source"].as_str().unwrap()).unwrap();
     let mut n = 0;
     for l in lines {
-        for rule in RowsRule::from_json_line(l, fam.n).unwrap() {
+        for rule in RowsRule::from_json_line(l, fam.n()).unwrap() {
             assert!(!rule.equations.is_empty());
-            let opts = RowsOptions::default();
+            let opts = bound(&fam);
             let v = identity_test(
                 &fam,
                 &rule,

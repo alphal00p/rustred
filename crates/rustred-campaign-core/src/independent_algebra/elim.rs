@@ -1,24 +1,12 @@
+//! INDEPENDENT ALGEBRA (see mod.rs for why this exists). Duplicates numerica's sparse elimination
+//! (`SparseRowReducer`, lib/numerica/src/tensors/sparse.rs:1791) and `SparseMatrix::solve` (sparse.rs:1040).
+//!
 //! COPY (not a move) of pieces of rustred-core/src/node/replay/mod.rs at engine commit b9f06de7 (`Span`, `sparse_subtract`, `Elim`, `ElimPivot`, `span`) for the
 //! campaign's independent A2 row check (plan 3.1 (e)); changes: items made `pub` (and the ones marked "campaign copy").
 
-use std::collections::BTreeMap;
-
 use super::arith;
-use super::expr::Unknown;
 
-/// campaign copy, ADDED: prefix of the error returned by [`Elim::new_guarded`] when the entry cap is hit.
-pub const MEMORY_GUARD: &str = "memory guard";
-
-/// Sparse elimination mod P (the independent witness solver): weights `w` with `desired - sum w_i rows_i` reduced to
-/// its remainder; status IN_SPAN iff the remainder is empty.
-pub struct Span {
-    pub in_span: bool,
-    pub rank: usize,
-    pub weights: BTreeMap<usize, u64>,
-    pub remainder: Vec<(usize, u64)>,
-    /// source row index of every pivot, in elimination order (guard-fix --dump-weights)
-    pub pivot_rows: Vec<usize>,
-}
+pub use crate::replay_base::algebra::{MEMORY_GUARD, Span, Unknown};
 
 pub fn sparse_subtract(
     p: u64,
@@ -118,6 +106,11 @@ impl<'r> Elim<'r> {
 
     pub fn rank(&self) -> usize {
         self.ps.len()
+    }
+
+    /// campaign copy, ADDED (rows3): the pivot column of every pivot row, in elimination order.
+    pub fn pivot_columns(&self) -> Vec<usize> {
+        self.ps.iter().map(|q| q.row[0].0).collect()
     }
 
     /// campaign copy, ADDED: stored entries (pivot rows + dependency lists).

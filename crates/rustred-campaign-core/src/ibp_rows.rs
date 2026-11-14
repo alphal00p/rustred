@@ -12,6 +12,11 @@
 //! points (random field values on the symbolic slots, the checker's C1) besides integer keys, and verdicts typed
 //! for the ledger (interfaces/ibp-rows.md section 2). "Fail" = not in the span of the rows of its recorded seeds at
 //! that point at both primes (not derived from its seeds there); never "the rule is false".
+//!
+//! rows3 (DEV-17 REVISED): this file is DOMAIN LOGIC. Every algebraic step goes through the trait
+//! [`CheckAlgebra`] (`*_with(alg, ..)` entry points, static dispatch); the plain entry points ([`identity_test`],
+//! [`replay_evidence`], [`identity_test_batch`]) run the certificate backend `crate::independent_algebra::Independent`.
+//! Only that backend grants the `replay` level (`ReplayRecord.algebra`); a Symbolica-backed run is diagnostic.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, Write};
@@ -20,15 +25,12 @@ use std::time::Instant;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::poly::Poly;
-use crate::replay_base::arith::{self, Q};
-use crate::replay_base::coeff::{self, Ctx};
-use crate::replay_base::expr::Expr;
+use crate::independent_algebra::Independent;
+use crate::replay_base::algebra::{CheckAlgebra, Ctx, Eliminator, MEMORY_GUARD, Q, Stage};
 use crate::replay_base::family::{Family, family_header_check};
 use crate::replay_base::primes::{self, SplitMix64};
 use crate::replay_base::record::{self, Pat};
 use crate::replay_base::rows::{self, Support};
-use crate::replay_base::span::{Elim, MEMORY_GUARD};
 use crate::replay_base::symrows::{self, Provenance, SymRowMode, VerifiedGroup};
 
 /// Version of the row convention and verdict semantics (bump on any change of either).
@@ -346,13 +348,18 @@ pub enum PointSpec {
     Generic,
 }
 
-/// The table a rule comes from (audit C2): its header binds the family (engine `family_check`) and states the guard
-/// version. `from_header` recognises a `table_dump.v1` header (`"type":"header"`) and an export `cert_header`.
+/// The table a rule comes from (audit C2; re-audit A NEW-M1): its header binds the family (engine `family_check`) and
+/// states the guard version. `from_header` recognises a `table_dump.v1` header (`"type":"header"`) and an export
+/// `cert_header`; `from_family_digest` binds the family to the campaign spec's family identity instead (sha256 of the
+/// family text with all whitespace removed). The family counts as BOUND only when its TEXT was compared (header
+/// `family_source` or the spec digest): the `replay` level requires it (`ReplayLevel::Unbound` otherwise).
 #[derive(Clone, Debug)]
 pub struct TableBinding {
     pub header: Value,
     /// header `guard_version` (absent = 1 in the engine's semantics)
     pub guard_version: Option<u64>,
+    /// the spec's family identity: sha256 of the whitespace-free family text
+    pub family_digest: Option<String>,
 }
 
 impl TableBinding {
@@ -361,10 +368,47 @@ impl TableBinding {
             Some("header") | Some("cert_header") => Some(TableBinding {
                 header: v.clone(),
                 guard_version: v.get("guard_version").and_then(Value::as_u64),
+                family_digest: None,
             }),
             _ => None,
         }
     }
+
+    /// A binding to the campaign spec's family identity (sha256 hex of the whitespace-free family text).
+    pub fn from_family_digest(squashed_sha256: &str) -> TableBinding {
+        TableBinding {
+            header: Value::Null,
+            guard_version: None,
+            family_digest: Some(squashed_sha256.to_ascii_lowercase()),
+        }
+    }
+
+    /// Compare the family with this binding: `Ok(fields compared)`; the family text was compared iff the list holds
+    /// `family_source` or `spec_family_digest`.
+    pub fn bind(&self, family: &Family) -> Result<Vec<String>, String> {
+        let mut fields: Vec<String> = Vec::new();
+        if self.header.is_object() {
+            fields.extend(
+                family_header_check(&self.header, family)?
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+        if let Some(d) = &self.family_digest {
+            if d != family.squashed_digest() {
+                return Err("family differs from the spec's family digest".into());
+            }
+            fields.push("spec_family_digest".into());
+        }
+        Ok(fields)
+    }
+}
+
+/// The family text itself was compared by a binding (see [`TableBinding::bind`]).
+pub fn binds_family_text(fields: &[String]) -> bool {
+    fields
+        .iter()
+        .any(|f| f == "family_source" || f == "spec_family_digest")
 }
 
 /// Which rules get symmetry rows (interfaces/ibp-rows.md 10.4).
@@ -621,8 +665,11 @@ pub struct RowsVerdict {
     /// sha256 of the family text used and its name (audit C2 / M4)
     pub family_digest: String,
     pub family_name: Option<String>,
-    /// the table header was given and matched (`false` = no binding known)
+    /// the family TEXT was compared with the rule's table header (`family_source`) or the spec's family digest and
+    /// matched (re-audit A NEW-M1: `false` when no comparison happened, e.g. no header or a header without it)
     pub family_bound_to_table: bool,
+    /// the binding fields actually compared (header fields, `spec_family_digest`)
+    pub family_binding: Vec<String>,
     pub verdict: Verdict,
     pub rule_index: Option<i64>,
     pub target: String,
@@ -712,7 +759,12 @@ struct CoeffEval {
     deg: DegStats,
 }
 
-fn eval_coeffs(rule: &RowsRule, ctxs: &[Ctx]) -> Result<CoeffEval, String> {
+fn eval_coeffs<A: CheckAlgebra>(
+    alg: &A,
+    rule: &RowsRule,
+    ctxs: &[Ctx],
+    at: &str,
+) -> Result<CoeffEval, String> {
     let m = ctxs.len();
     let mut vals: Vec<Result<Vec<u64>, usize>> = (0..m)
         .map(|_| Ok(Vec::with_capacity(rule.rhs.len())))
@@ -720,22 +772,36 @@ fn eval_coeffs(rule: &RowsRule, ctxs: &[Ctx]) -> Result<CoeffEval, String> {
     let mut deg = DegStats::default();
     let (mut num, mut den) = (vec![0u64; m], vec![0u64; m]);
     for (k, (_, text)) in rule.rhs.iter().enumerate() {
-        let st = coeff::eval_ratio(text, rule.arity, ctxs, &mut num, &mut den)
+        let st = alg
+            .eval_ratio(text, rule.arity, ctxs, &mut num, &mut den)
             .map_err(|e| format!("rhs[{k}] coefficient: {e}"))?;
+        for j in 0..m {
+            // the VALUE num/den mod p (backends may scale or cancel numerator and denominator differently)
+            alg.observe(
+                Stage::Coefficient,
+                &|| format!("{at} context {j} rhs[{k}]"),
+                &|| match alg.inv(ctxs[j].p, den[j]) {
+                    Some(iv) => format!("{}", alg.mul(ctxs[j].p, num[j], iv)),
+                    None => "pole (denominator 0)".to_string(),
+                },
+            );
+        }
         deg.max_num_deg = deg.max_num_deg.max(st.num.deg as u64);
         deg.max_num_degd = deg.max_num_degd.max(st.num.degd as u64);
         deg.sum_den_deg += st.den.deg as u64;
         deg.sum_den_degd += st.den.degd as u64;
         deg.monomials += st.num.terms + st.den.terms;
         // audit M1: the copied engine expression reader must agree (first context; texts up to CROSS_CHECK_BYTES)
-        if let Some(c0) = ctxs.first() {
-            coeff::cross_check_engine(text, rule.arity, c0, num[0], den[0])
+        if let Some(c0) = ctxs.first()
+            && den[0] != 0
+        {
+            alg.cross_check_coefficient(text, rule.arity, c0, num[0], den[0])
                 .map_err(|e| format!("rhs[{k}] coefficient: {e}"))?;
         }
         for (j, c) in ctxs.iter().enumerate() {
             if let Ok(v) = &mut vals[j] {
-                match arith::inv(c.p, den[j]) {
-                    Some(iv) => v.push(arith::mul(c.p, num[j], iv)),
+                match alg.inv(c.p, den[j]) {
+                    Some(iv) => v.push(alg.mul(c.p, num[j], iv)),
                     None => vals[j] = Err(k),
                 }
             }
@@ -745,20 +811,21 @@ fn eval_coeffs(rule: &RowsRule, ctxs: &[Ctx]) -> Result<CoeffEval, String> {
 }
 
 /// d-degree of one coefficient's denominator (syntactic).
-fn den_degd(rule: &RowsRule, k: usize, p: u64) -> Result<u32, String> {
+fn den_degd<A: CheckAlgebra>(alg: &A, rule: &RowsRule, k: usize, p: u64) -> Result<u32, String> {
     let c = Ctx {
         p,
         vals: vec![1; rule.arity + 1],
     };
     let (mut n, mut d) = ([0u64], [0u64]);
-    let st = coeff::eval_ratio(
-        &rule.rhs[k].1,
-        rule.arity,
-        std::slice::from_ref(&c),
-        &mut n,
-        &mut d,
-    )
-    .map_err(|e| e.to_string())?;
+    let st = alg
+        .eval_ratio(
+            &rule.rhs[k].1,
+            rule.arity,
+            std::slice::from_ref(&c),
+            &mut n,
+            &mut d,
+        )
+        .map_err(|e| e.to_string())?;
     Ok(st.den.degd)
 }
 
@@ -769,10 +836,10 @@ const PURPOSE_POLE: u64 = 3;
 const PURPOSE_SHELL: u64 = 4;
 
 /// d uniform in [2, p), never 37/7 or -11/5 mod p (the engine's fixed dimensions).
-fn draw_d(s: &mut SplitMix64, p: u64) -> u64 {
+fn draw_d<A: CheckAlgebra>(alg: &A, s: &mut SplitMix64, p: u64) -> u64 {
     let bad: Vec<u64> = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }]
         .iter()
-        .filter_map(|q| q.modp(p))
+        .filter_map(|q| alg.q_modp(*q, p))
         .collect();
     loop {
         let d = s.range(2, p);
@@ -787,14 +854,17 @@ fn draw_d(s: &mut SplitMix64, p: u64) -> u64 {
 /// Exact solution of the affine case equations: dependent slot -> (constant, [(free slot, coefficient)]).
 type Solved = BTreeMap<usize, (Q, Vec<(usize, Q)>)>;
 
-fn solve_equations(rule: &RowsRule) -> Result<Result<Solved, NotApplicableReason>, Unsupported> {
+fn solve_equations<A: CheckAlgebra>(
+    alg: &A,
+    rule: &RowsRule,
+) -> Result<Result<Solved, NotApplicableReason>, Unsupported> {
     let n = rule.arity;
     // rows over [slot coefficients .. , const]; fixed slots substituted
     let mut rows: Vec<Vec<Q>> = Vec::new();
     let qerr = |e: String| Unsupported::NonlinearEquation(e);
     for e in &rule.equations {
-        let lin = Expr::parse(e, n)
-            .and_then(|x| x.linear())
+        let lin = alg
+            .expr_linear(e, n)
             .map_err(|err| Unsupported::NonlinearEquation(format!("{e}: {err}")))?;
         if !lin[n + 1].is_zero() {
             return Err(Unsupported::NonlinearEquation(format!("{e}: contains d")));
@@ -808,8 +878,8 @@ fn solve_equations(rule: &RowsRule) -> Result<Result<Solved, NotApplicableReason
             }
             match rule.fixed[i] {
                 Some(v) => {
-                    c = c
-                        .add(a.mul(Q::int(v as i128)).map_err(qerr)?)
+                    c = alg
+                        .q_add(c, alg.q_mul(a, Q::int(v as i128)).map_err(qerr)?)
                         .map_err(qerr)?
                 }
                 None => row[i] = a,
@@ -818,35 +888,9 @@ fn solve_equations(rule: &RowsRule) -> Result<Result<Solved, NotApplicableReason
         row[n] = c;
         rows.push(row);
     }
-    // Gauss-Jordan
-    let mut pivots: Vec<usize> = Vec::new();
-    let mut r = 0;
-    for col in 0..n {
-        let Some(pr) = (r..rows.len()).find(|&i| !rows[i][col].is_zero()) else {
-            continue;
-        };
-        rows.swap(r, pr);
-        let f = rows[r][col];
-        rows[r] = rows[r]
-            .iter()
-            .map(|x| x.div(f))
-            .collect::<Result<_, _>>()
-            .map_err(qerr)?;
-        for i in 0..rows.len() {
-            if i != r && !rows[i][col].is_zero() {
-                let g = rows[i][col];
-                let pivot = rows[r].clone();
-                rows[i] = rows[i]
-                    .iter()
-                    .zip(&pivot)
-                    .map(|(x, y)| x.sub(g.mul(*y)?))
-                    .collect::<Result<_, _>>()
-                    .map_err(qerr)?;
-            }
-        }
-        pivots.push(col);
-        r += 1;
-    }
+    // Gauss-Jordan (the algebra backend's RREF on the slot columns)
+    let (rows, pivots) = alg.q_rref(&rows, n).map_err(qerr)?;
+    let r = pivots.len();
     for row in &rows[r..] {
         if !row[n].is_zero() {
             return Ok(Err(NotApplicableReason::InconsistentEquations));
@@ -855,16 +899,17 @@ fn solve_equations(rule: &RowsRule) -> Result<Result<Solved, NotApplicableReason
     let mut out = Solved::new();
     for (i, &pc) in pivots.iter().enumerate() {
         // x_pc + sum_{j != pc} a_j x_j + c = 0  ->  x_pc = -c - sum a_j x_j
-        let deps: Vec<(usize, Q)> = (0..n)
-            .filter(|&j| j != pc && !rows[i][j].is_zero())
-            .map(|j| (j, rows[i][j].neg()))
-            .collect();
-        out.insert(pc, (rows[i][n].neg(), deps));
+        let mut deps: Vec<(usize, Q)> = Vec::new();
+        for j in (0..n).filter(|&j| j != pc && !rows[i][j].is_zero()) {
+            deps.push((j, alg.q_neg(rows[i][j]).map_err(qerr)?));
+        }
+        out.insert(pc, (alg.q_neg(rows[i][n]).map_err(qerr)?, deps));
     }
     Ok(Ok(out))
 }
 
-fn generic_values(
+fn generic_values<A: CheckAlgebra>(
+    alg: &A,
     rule: &RowsRule,
     solved: &Solved,
     p: u64,
@@ -874,16 +919,20 @@ fn generic_values(
     let mut x = vec![0u64; n];
     for (i, xi) in x.iter_mut().enumerate() {
         *xi = match rule.fixed[i] {
-            Some(v) => arith::from_i128(p, v as i128),
+            Some(v) => alg.from_i128(p, v as i128),
             None if solved.contains_key(&i) => 0,
             None => s.range(2, p),
         };
     }
     for (&i, (c, deps)) in solved {
-        let mut v = c.modp(p).ok_or("equation denominator divisible by p")?;
+        let mut v = alg
+            .q_modp(*c, p)
+            .ok_or("equation denominator divisible by p")?;
         for (j, a) in deps {
-            let av = a.modp(p).ok_or("equation denominator divisible by p")?;
-            v = arith::add(p, v, arith::mul(p, av, x[*j]));
+            let av = alg
+                .q_modp(*a, p)
+                .ok_or("equation denominator divisible by p")?;
+            v = alg.add(p, v, alg.mul(p, av, x[*j]));
         }
         x[i] = v;
     }
@@ -892,7 +941,8 @@ fn generic_values(
 
 // ------------------------------------------------------------------ applicability ------------------------------------
 
-fn rule_point(
+fn rule_point<A: CheckAlgebra>(
+    alg: &A,
     rule: &RowsRule,
     key: &[i64],
 ) -> Result<Result<Vec<i64>, NotApplicableReason>, Unsupported> {
@@ -929,8 +979,10 @@ fn rule_point(
         Err(_) => return Err(Unsupported::Record("rule point outside i32".into())),
     };
     let zero = |s: &str| -> Result<bool, Unsupported> {
-        let p = Poly::parse(s, n, false).map_err(|e| Unsupported::Syntax(format!("{s}: {e}")))?;
-        p.is_zero_at(&to32)
+        let p = alg
+            .literal_parse(s, n)
+            .map_err(|e| Unsupported::Syntax(format!("{s}: {e}")))?;
+        alg.literal_is_zero_at(&p, &to32)
             .map_err(|e| Unsupported::Syntax(format!("{s}: {e}")))
     };
     for (i, e) in rule.equations.iter().enumerate() {
@@ -960,12 +1012,21 @@ fn rule_point(
 
 // ------------------------------------------------------------------ one cell -----------------------------------------
 
-struct CellCtx<'a> {
+struct CellCtx<'a, A: CheckAlgebra> {
+    alg: &'a A,
     family: &'a Family,
     rule: &'a RowsRule,
     opts: &'a RowsOptions,
     sym: Option<&'a VerifiedGroup>,
+    /// re-audit B m-2: the first-draw coefficient values of every integer key cell, evaluated in ONE pass of each
+    /// coefficient text over all (key, prime) contexts: (point, prime index) -> (d, values or first pole, degrees)
+    pre: PreValues,
 }
+
+type PreValues = HashMap<(u64, u64), (u64, Result<Vec<u64>, usize>, DegStats)>;
+
+/// Largest batch (contexts x coefficients) of the one-pass key evaluation; beyond it, cells evaluate per key.
+const PRE_MAX_VALUES: usize = 30_000_000;
 
 struct System {
     rows: Vec<BTreeMap<ColKey, u64>>,
@@ -974,15 +1035,15 @@ struct System {
 }
 
 /// The symmetry rows at one seed column key, modulo p, deduplicated across the cell (`seen`).
-fn add_sym_rows(
-    cx: &CellCtx,
+fn add_sym_rows<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
     seed: &ColKey,
     p: u64,
     out: &mut System,
     seen: &mut BTreeSet<Vec<(ColKey, (i128, i128))>>,
 ) -> Result<(), String> {
     let Some(g) = cx.sym else { return Ok(()) };
-    for r in symrows::rows_at(g, seed, cx.opts.sym_mode, cx.opts.sym_max_terms)? {
+    for r in symrows::rows_at_with(cx.alg, g, seed, cx.opts.sym_mode, cx.opts.sym_max_terms)? {
         let canon: Vec<(ColKey, (i128, i128))> = r
             .terms
             .iter()
@@ -993,8 +1054,9 @@ fn add_sym_rows(
         }
         let mut row: BTreeMap<ColKey, u64> = BTreeMap::new();
         for (k, c) in r.terms {
-            let v = c
-                .modp(p)
+            let v = cx
+                .alg
+                .q_modp(c, p)
                 .ok_or("symmetry row coefficient denominator divisible by p")?;
             if v != 0 {
                 row.insert(k, v);
@@ -1007,7 +1069,14 @@ fn add_sym_rows(
 }
 
 /// Rows at a generic point: seed pattern -> base residues and column offsets; family.rows_at_mod.
-fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Result<System, String> {
+fn generic_rows<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
+    seeds: &[Pat],
+    x: &[u64],
+    d: u64,
+    p: u64,
+) -> Result<System, String> {
+    let alg = cx.alg;
     let n = cx.rule.arity;
     let rc = &cx.rule.recenter;
     let mut seen: BTreeSet<ColKey> = BTreeSet::new();
@@ -1032,23 +1101,23 @@ fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Resul
                 Some(a) => {
                     mask |= 1 << i;
                     offs[i] = off + rc[i];
-                    base[i] = arith::add(p, x[a], arith::from_i128(p, (off + rc[i]) as i128));
+                    base[i] = alg.add(p, x[a], alg.from_i128(p, (off + rc[i]) as i128));
                 }
                 None => {
                     offs[i] = off;
-                    base[i] = arith::from_i128(p, off as i128);
+                    base[i] = alg.from_i128(p, off as i128);
                 }
             }
         }
         if !seen.insert((mask, offs.clone())) {
             continue;
         }
-        for r in cx.family.rows_at_mod(&base, d, p)? {
+        for r in cx.family.rows_at_mod_with(alg, &base, d, p)? {
             let mut row = BTreeMap::new();
             for (delta, v) in r {
                 let k: Vec<i64> = offs.iter().zip(&delta).map(|(a, b)| a + b).collect();
                 let e = row.entry((mask, k)).or_insert(0u64);
-                *e = arith::add(p, *e, v);
+                *e = alg.add(p, *e, v);
             }
             row.retain(|_, v| *v != 0);
             out.rows.push(row);
@@ -1060,8 +1129,15 @@ fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Resul
 }
 
 /// Rows at an integer rule point through the COPIED `rows_for_p`.
-fn integer_rows(cx: &CellCtx, seeds: &[Pat], pt: &[i64], d: u64, p: u64) -> Result<System, String> {
+fn integer_rows<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
+    seeds: &[Pat],
+    pt: &[i64],
+    d: u64,
+    p: u64,
+) -> Result<System, String> {
     let built = rows::rows_for_p(
+        cx.alg,
         p,
         &Support::Exported(seeds.to_vec()),
         pt,
@@ -1141,8 +1217,10 @@ struct SolveOut {
 }
 
 /// Columns, zero sectors, elimination, span test and controls of one cell.
-fn solve_system(
-    cx: &CellCtx,
+#[allow(clippy::too_many_arguments)]
+fn solve_system<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
+    cell: &str,
     sys: System,
     target: ColKey,
     rhs: Vec<ColKey>,
@@ -1151,6 +1229,15 @@ fn solve_system(
 ) -> SolveOut {
     let chart = &cx.rule.chart;
     let n = cx.rule.arity;
+    let alg = cx.alg;
+    for (i, r) in sys.rows.iter().enumerate() {
+        alg.observe(Stage::Rows, &|| format!("{cell} row {i}"), &|| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            r.hash(&mut h);
+            format!("{} entries, digest {:016x}", r.len(), h.finish())
+        });
+    }
     let mut universe: BTreeSet<&ColKey> = BTreeSet::new();
     for r in &sys.rows {
         universe.extend(r.keys());
@@ -1163,7 +1250,7 @@ fn solve_system(
         if let Some(z) = zero_cache.get(&a) {
             return *z;
         }
-        let z = cx.family.zero_mask(&a);
+        let z = cx.family.zero_mask_with(alg, &a);
         zero_cache.insert(a, z);
         z
     };
@@ -1181,7 +1268,7 @@ fn solve_system(
                         *ai = true;
                     }
                 }
-                if !cx.family.zero_mask(&a) {
+                if !cx.family.zero_mask_with(alg, &a) {
                     boundary_columns += 1;
                 }
             }
@@ -1191,6 +1278,11 @@ fn solve_system(
     }
     let universe_columns = universe.len();
     let target_zero = is_zero(&target);
+    alg.observe(Stage::Columns, &|| format!("{cell} columns"), &|| {
+        format!(
+            "universe {universe_columns}, zero {zero_columns}, boundary {boundary_columns}, target zero {target_zero}"
+        )
+    });
     // pivot order: most complex first (index 0); ties by key
     nonzero.sort_by(|a, b| {
         col_weight(b, chart)
@@ -1221,7 +1313,7 @@ fn solve_system(
     desired.insert(target.clone(), 1);
     for (k, v) in rhs.iter().zip(values) {
         let e = desired.entry(k.clone()).or_insert(0);
-        *e = arith::sub(p, *e, *v);
+        *e = alg.sub(p, *e, *v);
     }
     let enc_desired = enc(&desired);
     let bytes_cols = nonzero.len() * (n * 8 + 64);
@@ -1251,7 +1343,7 @@ fn solve_system(
         out.status = CellStatus::Refused(Unsupported::TargetInZeroSector);
         return out;
     }
-    let elim = match Elim::new_guarded(&enc_rows, nonzero.len(), p, cx.opts.max_entries) {
+    let elim = match alg.eliminate(&enc_rows, nonzero.len(), p, cx.opts.max_entries) {
         Ok(e) => e,
         Err(e) if e.starts_with(MEMORY_GUARD) => {
             out.status = CellStatus::MemoryGuard {
@@ -1268,6 +1360,22 @@ fn solve_system(
     out.entries = elim.entries();
     out.bytes += out.entries * 16;
     out.rank = elim.rank();
+    alg.observe(
+        Stage::Elimination,
+        &|| format!("{cell} elimination"),
+        &|| {
+            let mut piv = elim.pivot_columns();
+            piv.sort_unstable();
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            piv.hash(&mut h);
+            format!(
+                "rank {}, pivot column set digest {:016x}",
+                elim.rank(),
+                h.finish()
+            )
+        },
+    );
     let sp = match elim.solve(&enc_desired) {
         Ok(s) => s,
         Err(e) => {
@@ -1276,6 +1384,17 @@ fn solve_system(
         }
     };
     out.in_span = sp.in_span;
+    alg.observe(
+        Stage::Membership,
+        &|| format!("{cell} rule vector"),
+        &|| {
+            format!(
+                "in_span {}, witness {:?}",
+                sp.in_span,
+                sp.remainder.first().map(|&(c, _)| col_text(nonzero[c]))
+            )
+        },
+    );
     // the certificate's symmetry support: elements whose rows carry nonzero weight
     let mut support: BTreeSet<usize> = BTreeSet::new();
     for (i, w) in &sp.weights {
@@ -1309,7 +1428,7 @@ fn solve_system(
     };
     let mut mutant = desired.clone();
     let e = mutant.entry(rhs[mi].clone()).or_insert(0);
-    *e = arith::sub(p, *e, 1);
+    *e = alg.sub(p, *e, 1);
     let rejected = match elim.solve(&enc(&mutant)) {
         Ok(s) => !s.in_span,
         Err(e) => {
@@ -1318,6 +1437,9 @@ fn solve_system(
         }
     };
     out.mutation_rejected = Some(rejected);
+    alg.observe(Stage::Membership, &|| format!("{cell} +1 mutant"), &|| {
+        format!("rejected {rejected}")
+    });
     // control 2 (engine Y24): per sector touched, its lowest numerator-free column is not in the span
     let mut probe: BTreeMap<Vec<bool>, (i64, usize)> = BTreeMap::new();
     for (c, k) in nonzero.iter().enumerate() {
@@ -1339,7 +1461,13 @@ fn solve_system(
     }
     for (_, c) in probe.values() {
         out.corners_tested += 1;
-        match elim.solve(&[(*c, 1)]) {
+        let r = elim.solve(&[(*c, 1)]);
+        alg.observe(
+            Stage::Membership,
+            &|| format!("{cell} corner {}", col_text(nonzero[*c])),
+            &|| format!("in_span {:?}", r.as_ref().map(|s| s.in_span)),
+        );
+        match r {
             Ok(s) if s.in_span => out.corners_in_span.push(col_text(nonzero[*c])),
             Ok(_) => {}
             Err(e) => {
@@ -1371,7 +1499,8 @@ fn solve_system(
                         .collect()
                 })
                 .collect();
-            match Elim::new_guarded(&proj, nonzero.len(), p, cx.opts.max_entries)
+            match alg
+                .eliminate(&proj, nonzero.len(), p, cx.opts.max_entries)
                 .and_then(|e2| e2.solve(&[(cc, 1)]))
             {
                 Ok(s) => in_proj = exact || s.in_span,
@@ -1465,8 +1594,8 @@ struct CellRun {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn integer_cell(
-    cx: &CellCtx,
+fn integer_cell<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
     seeds: &[Pat],
     pt: &[i64],
     p: u64,
@@ -1474,8 +1603,13 @@ fn integer_cell(
 ) -> Result<CellRun, Unsupported> {
     let t0 = Instant::now();
     let rule = cx.rule;
+    let alg = cx.alg;
+    let cell = format!(
+        "point {} prime {} purpose {}",
+        stream[1], stream[2], stream[3]
+    );
     let mut s = SplitMix64::derive(cx.opts.seed, stream);
-    let base: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+    let base: Vec<u64> = pt.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
     let mut redraws = 0;
     let mut deg = DegStats::default();
     let (d, values) = loop {
@@ -1494,21 +1628,39 @@ fn integer_cell(
                 bytes: 0,
             });
         }
-        let d = draw_d(&mut s, p);
-        let mut vals = base.clone();
-        vals.push(d);
-        let ev = eval_coeffs(rule, &[Ctx { p, vals }]).map_err(Unsupported::Syntax)?;
-        deg = ev.deg;
-        match ev.values.into_iter().next().unwrap() {
+        let d = draw_d(alg, &mut s, p);
+        let cached = match cx.pre.get(&(stream[1], stream[2])) {
+            Some((d0, v, dg)) if redraws == 0 && stream[3] == PURPOSE_D && *d0 == d => {
+                Some((v.clone(), *dg))
+            }
+            _ => None,
+        };
+        let (value, dg) = match cached {
+            Some(x) => x,
+            None => {
+                let mut vals = base.clone();
+                vals.push(d);
+                let ev = eval_coeffs(
+                    alg,
+                    rule,
+                    &[Ctx { p, vals }],
+                    &format!("{cell} redraw {redraws}"),
+                )
+                .map_err(Unsupported::Syntax)?;
+                (ev.values.into_iter().next().unwrap(), ev.deg)
+            }
+        };
+        deg = dg;
+        match value {
             Ok(v) => break (d, v),
             Err(k) => {
                 // identically zero in d at this key? (deg_d + 1 further values)
-                let degd = den_degd(rule, k, p).map_err(Unsupported::Syntax)?;
+                let degd = den_degd(alg, rule, k, p).map_err(Unsupported::Syntax)?;
                 let mut ps =
                     SplitMix64::derive(cx.opts.seed, &[stream, &[PURPOSE_POLE, k as u64]].concat());
                 let mut ds: BTreeSet<u64> = BTreeSet::new();
                 while ds.len() < degd as usize + 1 {
-                    ds.insert(draw_d(&mut ps, p));
+                    ds.insert(draw_d(alg, &mut ps, p));
                 }
                 let ctxs: Vec<Ctx> = ds
                     .iter()
@@ -1519,7 +1671,7 @@ fn integer_cell(
                     })
                     .collect();
                 let (mut nn, mut dn) = (vec![0; ctxs.len()], vec![0; ctxs.len()]);
-                coeff::eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn)
+                alg.eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn)
                     .map_err(|e| Unsupported::Syntax(e.to_string()))?;
                 if dn.iter().all(|&x| x == 0) {
                     let mut c = empty_cell(p, d, CellStatus::Pole { coefficient: k });
@@ -1544,7 +1696,10 @@ fn integer_cell(
     let mut c = empty_cell(p, d, CellStatus::Pass);
     c.redraws = redraws;
     let bytes = match integer_rows(cx, seeds, pt, d, p) {
-        Ok(sys) => fill_cell(&mut c, solve_system(cx, sys, target, rhs, &values, p)),
+        Ok(sys) => fill_cell(
+            &mut c,
+            solve_system(cx, &cell, sys, target, rhs, &values, p),
+        ),
         Err(e) => {
             c.status = CellStatus::Undecided { reason: e };
             0
@@ -1560,8 +1715,8 @@ fn integer_cell(
     })
 }
 
-fn generic_cell(
-    cx: &CellCtx,
+fn generic_cell<A: CheckAlgebra>(
+    cx: &CellCtx<A>,
     seeds: &[Pat],
     solved: &Solved,
     p: u64,
@@ -1569,6 +1724,11 @@ fn generic_cell(
 ) -> Result<CellRun, Unsupported> {
     let t0 = Instant::now();
     let rule = cx.rule;
+    let alg = cx.alg;
+    let cell = format!(
+        "point {} prime {} purpose {}",
+        stream[1], stream[2], stream[3]
+    );
     let mut s = SplitMix64::derive(cx.opts.seed, stream);
     let mut redraws = 0;
     let mut deg = DegStats::default();
@@ -1589,11 +1749,17 @@ fn generic_cell(
                 bytes: 0,
             });
         }
-        let x = generic_values(rule, solved, p, &mut s).map_err(Unsupported::Record)?;
-        let d = draw_d(&mut s, p);
+        let x = generic_values(alg, rule, solved, p, &mut s).map_err(Unsupported::Record)?;
+        let d = draw_d(alg, &mut s, p);
         let mut vals = x.clone();
         vals.push(d);
-        let ev = eval_coeffs(rule, &[Ctx { p, vals }]).map_err(Unsupported::Syntax)?;
+        let ev = eval_coeffs(
+            alg,
+            rule,
+            &[Ctx { p, vals }],
+            &format!("{cell} redraw {redraws}"),
+        )
+        .map_err(Unsupported::Syntax)?;
         deg = ev.deg;
         match ev.values.into_iter().next().unwrap() {
             Ok(v) => break (x, d, v),
@@ -1613,7 +1779,10 @@ fn generic_cell(
     c.redraws = redraws;
     c.generic_values = Some(x.clone());
     let bytes = match generic_rows(cx, seeds, &x, d, p) {
-        Ok(sys) => fill_cell(&mut c, solve_system(cx, sys, target, rhs, &values, p)),
+        Ok(sys) => fill_cell(
+            &mut c,
+            solve_system(cx, &cell, sys, target, rhs, &values, p),
+        ),
         Err(e) => {
             c.status = CellStatus::Undecided { reason: e };
             0
@@ -1705,9 +1874,10 @@ fn unsupported_verdict(
 ) -> RowsVerdict {
     RowsVerdict {
         version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
         family_bound_to_table: false,
+        family_binding: Vec::new(),
         verdict: Verdict::Unsupported(u),
         rule_index: rule.index,
         target: rule.target_text.clone(),
@@ -1752,20 +1922,34 @@ pub fn stream_seed(
     u64::from_str_radix(&h[..16], 16).unwrap_or(master)
 }
 
-/// A run-time nonce from the OS (recorded in the evidence record).
-pub fn os_nonce() -> u64 {
+/// Where the nonce of a `replay` record came from (re-audit A NEW-m1 / NEW-m3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum NonceSource {
+    /// drawn from /dev/urandom at run time (the only source the `replay` level accepts)
+    Os,
+    /// /dev/urandom was unreadable: clock nanoseconds xor pid (predictable; the level is not granted)
+    ClockFallback,
+    /// given by the caller (`RowsOptions.nonce`): a re-run of a recorded nonce; diagnostic, the level is not granted
+    Caller,
+}
+
+/// A run-time nonce from the OS (recorded in the evidence record), and its source.
+pub fn os_nonce() -> (u64, NonceSource) {
     use std::io::Read;
     let mut b = [0u8; 8];
     if std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut b))
         .is_ok()
     {
-        return u64::from_le_bytes(b);
+        return (u64::from_le_bytes(b), NonceSource::Os);
     }
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as u64);
-    t ^ (u64::from(std::process::id()) << 32)
+    (
+        t ^ (u64::from(std::process::id()) << 32),
+        NonceSource::ClockFallback,
+    )
 }
 
 fn points_digest(points: &[PointSpec]) -> String {
@@ -1781,15 +1965,34 @@ fn points_digest(points: &[PointSpec]) -> String {
 }
 
 /// Estimated heap of the rows of `seeds` distinct seed keys (audit B M3: guard BEFORE building the rows).
+/// The row-memory estimate of one identity test of `rule` (bytes, before any row is built; re-audit B m-1): the
+/// guard `RowsOptions.max_row_bytes` applies PER CALL, so a caller running calls in parallel budgets with this sum.
+pub fn row_memory_estimate(family: &Family, rule: &RowsRule) -> usize {
+    rows_bytes_estimate(family, rule.seeds.iter().collect::<BTreeSet<_>>().len())
+}
+
 fn rows_bytes_estimate(family: &Family, seeds: usize) -> usize {
     seeds
         .saturating_mul(family.n_ops())
-        .saturating_mul(2 * family.n + 2)
-        .saturating_mul(family.n * 8 + 64)
+        .saturating_mul(2 * family.n() + 2)
+        .saturating_mul(family.n() * 8 + 64)
 }
 
-/// THE A2 test of one rule at the given points (each at both primes). See the module doc and interfaces/ibp-rows.md.
+/// THE A2 test of one rule at the given points (each at both primes), on the certificate backend. See the module doc
+/// and interfaces/ibp-rows.md.
 pub fn identity_test(
+    family: &Family,
+    rule: &RowsRule,
+    points: &[PointSpec],
+    opts: &RowsOptions,
+) -> RowsVerdict {
+    identity_test_with(&Independent, family, rule, points, opts)
+}
+
+/// [`identity_test`] on the algebra backend `alg` (the family must have been parsed with the same backend:
+/// `Family::parse_with`).
+pub fn identity_test_with<A: CheckAlgebra>(
+    alg: &A,
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
@@ -1800,19 +2003,23 @@ pub fn identity_test(
         seed: stream_seed(
             opts.seed,
             rule,
-            &family.source_digest,
+            family.source_digest(),
             &points_digest(points),
             nonce,
         ),
         ..opts.clone()
     };
-    let mut v = identity_test_derived(family, rule, points, &derived_opts);
+    let mut v = identity_test_derived(alg, family, rule, points, &derived_opts);
     v.master_seed = opts.seed;
     v.nonce = nonce;
+    alg.observe(Stage::Verdict, &|| "verdict".into(), &|| {
+        format!("{:?} points passed {}", v.verdict, v.points_passed)
+    });
     v
 }
 
-fn identity_test_derived(
+fn identity_test_derived<A: CheckAlgebra>(
+    alg: &A,
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
@@ -1822,11 +2029,14 @@ fn identity_test_derived(
     let rule_id = opts.rule_id.unwrap_or_else(|| rule.default_id());
     let primes = match opts.primes {
         Some(pp) => pp,
-        None => primes::verify_primes(opts.seed, &opts.lift_primes),
+        None => primes::verify_primes_with(alg, opts.seed, &opts.lift_primes),
     };
+    alg.observe(Stage::Primes, &|| "verification primes".into(), &|| {
+        format!("{primes:?}")
+    });
     if let Some(e) = primes
         .iter()
-        .find_map(|&p| primes::check_verify_prime(p, &opts.lift_primes).err())
+        .find_map(|&p| primes::check_verify_prime(alg, p, &opts.lift_primes).err())
         .or_else(|| (primes[0] == primes[1]).then(|| "the two primes are equal".to_string()))
     {
         return unsupported_verdict(
@@ -1838,15 +2048,16 @@ fn identity_test_derived(
             Unsupported::BadPrime(e),
         );
     }
-    if family.n != rule.arity {
+    if family.n() != rule.arity {
         let u = Unsupported::Record(format!(
             "family has {} slots, rule {}",
-            family.n, rule.arity
+            family.n(),
+            rule.arity
         ));
         return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
     // audit C2: the family must be inside what the replay models and match the rule's table header
-    if let Err(e) = &family.check {
+    if let Err(e) = family.check() {
         return unsupported_verdict(
             family,
             rule,
@@ -1856,11 +2067,20 @@ fn identity_test_derived(
             Unsupported::Family(e.clone()),
         );
     }
-    if let Some(t) = &opts.table
-        && let Err(e) = family_header_check(&t.header, family)
-    {
-        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Family(e));
-    }
+    let family_binding: Vec<String> = match opts.table.as_ref().map(|t| t.bind(family)) {
+        None => Vec::new(),
+        Some(Ok(fields)) => fields,
+        Some(Err(e)) => {
+            return unsupported_verdict(
+                family,
+                rule,
+                rule_id,
+                opts,
+                primes,
+                Unsupported::Family(e),
+            );
+        }
+    };
     // audit m3: an empty exception branch (the engine refuses it)
     if let Some(b) = rule.exceptions.iter().position(Vec::is_empty) {
         let u = Unsupported::EmptyExceptionBranch { branch: b };
@@ -1882,13 +2102,13 @@ fn identity_test_derived(
                 return unsupported_verdict(family, rule, rule_id, opts, primes, u);
             }
             Some(g) => {
-                let why = if g.group.arity != rule.arity || g.group.chart != rule.chart {
+                let why = if g.group().arity != rule.arity || g.group().chart != rule.chart {
                     Some(format!(
                         "group chart {} vs rule chart {}",
-                        g.group.chart_text(),
+                        g.group().chart_text(),
                         rule.chart_text
                     ))
-                } else if g.family_digest != family.source_digest {
+                } else if g.family_digest() != family.source_digest() {
                     Some("group verified on another family".to_string())
                 } else {
                     None
@@ -1936,11 +2156,42 @@ fn identity_test_derived(
         v.verdict = Verdict::MemoryGuard { entries: est };
         return v;
     }
+    // re-audit B m-2: one pass of every coefficient over the first-draw contexts of all applicable integer keys (the
+    // same d draws the cells make; a cell whose draw differs or whose denominator vanishes evaluates itself)
+    let mut pre = PreValues::new();
+    if rule.syntax_error.is_none() {
+        let mut ids: Vec<(u64, u64)> = Vec::new();
+        let mut ctxs: Vec<Ctx> = Vec::new();
+        for (pi, spec) in points.iter().enumerate() {
+            let PointSpec::Key(k) = spec else { continue };
+            let Ok(Ok(pt)) = rule_point(alg, rule, k) else {
+                continue;
+            };
+            for (qi, &p) in primes.iter().enumerate() {
+                let stream = [rule_id, pi as u64, qi as u64, PURPOSE_D];
+                let mut s = SplitMix64::derive(opts.seed, &stream);
+                let mut vals: Vec<u64> = pt.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
+                vals.push(draw_d(alg, &mut s, p));
+                ids.push((pi as u64, qi as u64));
+                ctxs.push(Ctx { p, vals });
+            }
+        }
+        if ctxs.len() > 1
+            && ctxs.len().saturating_mul(rule.rhs.len().max(1)) <= PRE_MAX_VALUES
+            && let Ok(ev) = eval_coeffs(alg, rule, &ctxs, "key batch")
+        {
+            for ((id, c), v) in ids.into_iter().zip(&ctxs).zip(ev.values) {
+                pre.insert(id, (c.vals[rule.arity], v, ev.deg));
+            }
+        }
+    }
     let cx = CellCtx {
+        alg,
         family,
         rule,
         opts,
         sym,
+        pre,
     };
     let mut cost = Cost {
         coefficient_bytes: rule.coefficient_bytes(),
@@ -1949,7 +2200,7 @@ fn identity_test_derived(
     let mut reports: Vec<PointReport> = Vec::new();
     let solved_res: Option<Result<Result<Solved, NotApplicableReason>, Unsupported>> = points
         .contains(&PointSpec::Generic)
-        .then(|| solve_equations(rule));
+        .then(|| solve_equations(alg, rule));
     let mut unsupported: Option<Unsupported> = None;
     let run = |pi: usize,
                seeds: &[Pat],
@@ -1983,7 +2234,7 @@ fn identity_test_derived(
         };
         // applicability / equations
         let early = match spec {
-            PointSpec::Key(k) => match rule_point(rule, k) {
+            PointSpec::Key(k) => match rule_point(alg, rule, k) {
                 Err(u) => Some(PointStatus::Unsupported(u)),
                 Ok(Err(r)) => Some(PointStatus::NotApplicable(r)),
                 Ok(Ok(pt)) => {
@@ -2130,10 +2381,10 @@ fn identity_test_derived(
             support.extend(c.sym_support.iter().copied());
         }
         SymmetryUse {
-            group_digest: g.digest.clone(),
-            provenance: g.provenance.clone(),
+            group_digest: g.digest().to_string(),
+            provenance: g.provenance().clone(),
             mode: opts.sym_mode,
-            elements: g.group.elements.len(),
+            elements: g.group().elements.len(),
             rows_total,
             support: support.into_iter().collect(),
         }
@@ -2141,9 +2392,10 @@ fn identity_test_derived(
     RowsVerdict {
         symmetry,
         version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
-        family_bound_to_table: opts.table.is_some(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
+        family_bound_to_table: binds_family_text(&family_binding),
+        family_binding,
         // a pass resting only on generic points with boundary-sensitive columns does not meet A2 (audit A C1 / B)
         meets_a2_policy: verdict == Verdict::Pass
             && points_passed >= 2
@@ -2201,6 +2453,10 @@ pub fn check_recenter_authority(rule: &RowsRule) -> Result<(), String> {
 }
 
 // ------------------------------------------------------------------ evidence level `replay` -----------------------
+
+/// The name of the certificate backend (`CheckAlgebra::name` of `crate::independent_algebra::Independent`): the only
+/// backend whose `replay` records can carry the level.
+pub const CERTIFICATE_BACKEND: &str = "independent";
 
 /// Schema of the [`ReplayRecord`] (the artefact the ledger cites for evidence level `replay`).
 pub const REPLAY_SCHEMA: &str = "rustred.campaign.replay_evidence.v2";
@@ -2297,6 +2553,24 @@ pub enum ReplayLevel {
     NotEstablished {
         reasons: Vec<String>,
     },
+    /// produced by a DIAGNOSTIC algebra backend (DEV-17 REVISED: e.g. `symbolica`): never accepted; the level the same
+    /// checks would have given on the certificate backend is kept for the triage
+    Diagnostic {
+        backend: String,
+        level_if_certificate: Box<ReplayLevel>,
+    },
+    /// the caller chose draws or weakened checks (primes, rule_id, nonce, controls off, no generic points: re-audit B
+    /// C-1): a DIAGNOSTIC record, never accepted; the level the same checks gave is kept
+    Overridden {
+        overrides: Vec<String>,
+        level_if_default: Box<ReplayLevel>,
+    },
+    /// every other check passed but the family identity was NOT bound (re-audit A NEW-M1): no table header with
+    /// `family_source` and no spec family digest was given (`RowsOptions.table`), so the record cannot say WHICH
+    /// family its rows are identities of. Never accepted.
+    Unbound {
+        reason: String,
+    },
 }
 
 /// Witness-guard completeness of the record (audit M3).
@@ -2313,10 +2587,14 @@ pub struct GuardStatus {
 pub struct ReplayRecord {
     pub schema: &'static str,
     pub tool_version: &'static str,
+    /// the algebra backend of this run: only `"independent"` (the certificate of record) can carry the level
+    pub algebra: &'static str,
     /// sha256 of the family text and its name; whether a table header bound it (audit C2 / M4)
     pub family_digest: String,
     pub family_name: Option<String>,
     pub family_bound_to_table: bool,
+    /// the binding fields compared (see [`RowsVerdict::family_binding`])
+    pub family_binding: Vec<String>,
     /// sha256 of the rule's canonical content (see [`rule_digest`])
     pub rule_digest: String,
     pub rule_index: Option<i64>,
@@ -2326,6 +2604,13 @@ pub struct ReplayRecord {
     pub master_seed: u64,
     /// the run-time nonce bound into the stream seed (re-run with `RowsOptions.nonce = Some(nonce)`)
     pub nonce: u64,
+    /// where the nonce came from: only `Os` can carry the level
+    pub nonce_source: NonceSource,
+    /// the rule's lift primes excluded from the verify primes (needed to re-derive the primes)
+    pub lift_primes: Vec<u64>,
+    /// caller choices that make this run diagnostic (caller nonce / primes, controls off, no generic points): any
+    /// entry blocks the level
+    pub overrides: Vec<String>,
     pub primes: [u64; 2],
     pub policy: ReplayPolicy,
     pub served_keys: usize,
@@ -2413,18 +2698,19 @@ pub fn key_set_digest(keys: &[Vec<i64>]) -> String {
 }
 
 /// Identically zero in d at the rule point `pt` modulo `p` (deg_d + 1 distinct values).
-fn den_identically_zero(
+fn den_identically_zero<A: CheckAlgebra>(
+    alg: &A,
     rule: &RowsRule,
     k: usize,
     pt: &[i64],
     p: u64,
     s: &mut SplitMix64,
 ) -> Result<bool, String> {
-    let degd = den_degd(rule, k, p)?;
-    let base: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+    let degd = den_degd(alg, rule, k, p)?;
+    let base: Vec<u64> = pt.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
     let mut ds: BTreeSet<u64> = BTreeSet::new();
     while ds.len() < degd as usize + 1 {
-        ds.insert(draw_d(s, p));
+        ds.insert(draw_d(alg, s, p));
     }
     let ctxs: Vec<Ctx> = ds
         .iter()
@@ -2435,14 +2721,15 @@ fn den_identically_zero(
         })
         .collect();
     let (mut nn, mut dn) = (vec![0; ctxs.len()], vec![0; ctxs.len()]);
-    coeff::eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn)
+    alg.eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn)
         .map_err(|e| e.to_string())?;
     Ok(dn.iter().all(|&x| x == 0))
 }
 
 /// The pole check at one rule point: Ok(None) = no pole, Ok(Some(k)) = coefficient k has a pole at both primes,
 /// Err = undecided (one prime only / unreadable).
-fn pole_at(
+fn pole_at<A: CheckAlgebra>(
+    alg: &A,
     rule: &RowsRule,
     pt: &[i64],
     primes: [u64; 2],
@@ -2453,18 +2740,28 @@ fn pole_at(
     let ctxs: Vec<Ctx> = primes
         .iter()
         .map(|&p| {
-            let mut v: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
-            v.push(draw_d(&mut s, p));
+            let mut v: Vec<u64> = pt.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
+            v.push(draw_d(alg, &mut s, p));
             Ctx { p, vals: v }
         })
         .collect();
     let (mut num, mut den) = ([0u64; 2], [0u64; 2]);
     for (k, (_, text)) in rule.rhs.iter().enumerate() {
-        coeff::eval_ratio(text, rule.arity, &ctxs, &mut num, &mut den)
+        alg.eval_ratio(text, rule.arity, &ctxs, &mut num, &mut den)
             .map_err(|e| format!("rhs[{k}]: {e}"))?;
+        alg.observe(
+            Stage::Coefficient,
+            &|| format!("pole scan {pt:?} rhs[{k}]"),
+            &|| {
+                format!(
+                    "denominator zero at the two primes: {:?}",
+                    den.map(|x| x == 0)
+                )
+            },
+        );
         if den.contains(&0) {
-            let z0 = den_identically_zero(rule, k, pt, primes[0], &mut s)?;
-            let z1 = den_identically_zero(rule, k, pt, primes[1], &mut s)?;
+            let z0 = den_identically_zero(alg, rule, k, pt, primes[0], &mut s)?;
+            let z1 = den_identically_zero(alg, rule, k, pt, primes[1], &mut s)?;
             match (z0, z1) {
                 (true, true) => return Ok(Some(k)),
                 (false, false) => {}
@@ -2479,20 +2776,17 @@ fn pole_at(
     Ok(None)
 }
 
-/// Equal up to a nonzero constant factor (exact: primitive normal forms of the d-free polynomials).
-fn same_poly(a: &str, b: &str, n: usize) -> bool {
-    match (Poly::parse(a, n, false), Poly::parse(b, n, false)) {
-        (Ok(x), Ok(y)) => x.primitive_normal() == y.primitive_normal(),
-        _ => false,
-    }
-}
-
 /// Proof that an AFFINE d-free locus has no integer point in the case: after substituting the fixed slots, the gcd
 /// of the integer coefficients of the free slots does not divide the constant. Dependent (equation-solved) slots in
 /// the locus: no proof (false).
-fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solved>) -> bool {
+fn locus_has_no_integer_point<A: CheckAlgebra>(
+    alg: &A,
+    rule: &RowsRule,
+    text: &str,
+    solved: Option<&Solved>,
+) -> bool {
     let n = rule.arity;
-    let Ok(lin) = Expr::parse(text, n).and_then(|e| e.linear()) else {
+    let Ok(lin) = alg.expr_linear(text, n) else {
         return false;
     };
     let mut c = lin[0];
@@ -2503,7 +2797,10 @@ fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solve
             continue;
         }
         match rule.fixed[i] {
-            Some(v) => match a.mul(Q::int(v as i128)).and_then(|x| c.add(x)) {
+            Some(v) => match alg
+                .q_mul(a, Q::int(v as i128))
+                .and_then(|x| alg.q_add(c, x))
+            {
                 Ok(x) => c = x,
                 Err(_) => return false,
             },
@@ -2513,8 +2810,9 @@ fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solve
     }
     // scale to integers
     let mut l: i128 = c.d;
+    let gcd = |a: i128, b: i128| alg.gcd_i128(a, b).max(1);
     for q in &coefs {
-        let g = gcd_i128(l, q.d);
+        let g = gcd(l, q.d);
         l = match (l / g).checked_mul(q.d) {
             Some(x) => x,
             None => return false,
@@ -2527,7 +2825,7 @@ fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solve
     let mut g: i128 = 0;
     for q in &coefs {
         match q.n.checked_mul(l / q.d) {
-            Some(x) => g = gcd_i128(g, x),
+            Some(x) => g = gcd(g, x),
             None => return false,
         }
     }
@@ -2537,21 +2835,13 @@ fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solve
     ci % g != 0
 }
 
-fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
-    a = a.abs();
-    b = b.abs();
-    while b != 0 {
-        (a, b) = (b, a % b);
-    }
-    a.max(1)
-}
-
 /// An applicable integer key on the locus `poly = 0` in the window (deterministic), and the number of candidates seen.
 /// The case equations are honoured (audit M3): slots solved by affine equations are computed from the free ones and
 /// must be integers.
-fn locus_point(
+fn locus_point<A: CheckAlgebra>(
+    alg: &A,
     rule: &RowsRule,
-    poly: &Poly,
+    poly: &A::Literal,
     policy: &ReplayPolicy,
     seed: u64,
     solved: Option<&Solved>,
@@ -2587,7 +2877,10 @@ fn locus_point(
             for (&i, (c, deps)) in sol {
                 let mut v = *c;
                 for (j, a) in deps {
-                    match a.mul(Q::int(pt[*j] as i128)).and_then(|x| v.add(x)) {
+                    match alg
+                        .q_mul(*a, Q::int(pt[*j] as i128))
+                        .and_then(|x| alg.q_add(v, x))
+                    {
                         Ok(x) => v = x,
                         Err(_) => continue 'cand,
                     }
@@ -2609,11 +2902,11 @@ fn locus_point(
         else {
             continue;
         };
-        if !matches!(poly.is_zero_at(&p32), Ok(true)) {
+        if !matches!(alg.literal_is_zero_at(poly, &p32), Ok(true)) {
             continue;
         }
         let key = record::key_at(&rule.target, &pt);
-        if let Ok(Ok(_)) = rule_point(rule, &key) {
+        if let Ok(Ok(_)) = rule_point(alg, rule, &key) {
             return (Some(key), seen);
         }
     }
@@ -2633,8 +2926,58 @@ pub fn replay_evidence(
     policy: &ReplayPolicy,
     opts: &RowsOptions,
 ) -> ReplayRecord {
+    replay_evidence_with(&Independent, family, rule, served_keys, policy, opts)
+}
+
+/// [`replay_evidence`] on the algebra backend `alg`. Only the certificate backend (`alg.name() == "independent"`)
+/// can grant the level; any other backend yields `ReplayLevel::Diagnostic` holding the level it would have had.
+pub fn replay_evidence_with<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+) -> ReplayRecord {
+    let drawn = match opts.nonce {
+        Some(x) => (x, NonceSource::Caller),
+        None => os_nonce(),
+    };
+    replay_evidence_drawn(alg, family, rule, served_keys, policy, opts, drawn)
+}
+
+/// [`replay_evidence_with`] with the nonce already drawn (`drawn` = (nonce, its source); `opts.nonce` is ignored):
+/// the triage draws ONE nonce from the OS and runs both backends on it, so their random streams are identical and
+/// the certificate run keeps `NonceSource::Os`.
+pub fn replay_evidence_drawn<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+    drawn: (u64, NonceSource),
+) -> ReplayRecord {
     let master_seed = opts.seed;
-    let nonce = opts.nonce.unwrap_or_else(os_nonce);
+    let (nonce, nonce_source) = drawn;
+    // re-audit A NEW-m1 / B: caller-chosen draws or weakened checks are MARKED and block the level (the per-key
+    // certificate is explicit, but a caller who picks the primes can tailor a coefficient to them)
+    let mut overrides: Vec<String> = Vec::new();
+    if nonce_source != NonceSource::Os {
+        overrides.push(format!("nonce: {nonce_source:?}"));
+    }
+    if opts.primes.is_some() {
+        overrides.push("primes: chosen by the caller".into());
+    }
+    if opts.rule_id.is_some() {
+        overrides.push("rule_id (stream id): chosen by the caller".into());
+    }
+    if !opts.controls {
+        overrides.push("controls: false".into());
+    }
+    if policy.generic_points == 0 && rule.fixed.iter().any(Option::is_none) {
+        overrides.push("generic_points: 0 for a rule with free slots".into());
+    }
     let mut dedup0: Vec<Vec<i64>> = served_keys.to_vec();
     dedup0.sort();
     dedup0.dedup();
@@ -2642,7 +2985,7 @@ pub fn replay_evidence(
         seed: stream_seed(
             opts.seed,
             rule,
-            &family.source_digest,
+            family.source_digest(),
             &key_set_digest(&dedup0),
             nonce,
         ),
@@ -2653,7 +2996,7 @@ pub fn replay_evidence(
     let rule_id = opts.rule_id.unwrap_or_else(|| rule.default_id());
     let primes = opts
         .primes
-        .unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes));
+        .unwrap_or_else(|| primes::verify_primes_with(alg, opts.seed, &opts.lift_primes));
     let mut reasons: Vec<String> = Vec::new();
     // a point rule with no served key given: its own key is the served set
     let own: Vec<Vec<i64>>;
@@ -2677,11 +3020,12 @@ pub fn replay_evidence(
     };
     let mut applicable: Vec<(&Vec<i64>, Vec<i64>)> = Vec::new();
     for (i, k) in served_keys.iter().enumerate() {
-        match rule_point(rule, k) {
+        match rule_point(alg, rule, k) {
             Ok(Ok(pt)) => {
                 ps.keys_applicable += 1;
                 if rule.syntax_error.is_none() {
                     match pole_at(
+                        alg,
                         rule,
                         &pt,
                         primes,
@@ -2726,24 +3070,23 @@ pub fn replay_evidence(
     };
     let served_keys_replayed = take.len();
     points.extend(take.iter().map(|k| PointSpec::Key((*k).clone())));
-    let solved_owned = solve_equations(rule).ok().and_then(Result::ok);
+    let solved_owned = solve_equations(alg, rule).ok().and_then(Result::ok);
     let solved = solved_owned.as_ref();
     let mut loci: Vec<LocusReport> = Vec::new();
     let mut tested: Vec<(usize, usize)> = Vec::new(); // (loci index, point index)
     for text in &rule.witness_loci {
-        let status = match Expr::parse(text, rule.arity) {
+        let status = match alg.expr_has_d(text, rule.arity) {
             Err(e) => LocusStatus::Unreadable(e),
-            Ok(e) if e.has_d() => LocusStatus::Parameter,
-            Ok(_)
-                if rule
-                    .exceptions
-                    .iter()
-                    .any(|b| b.len() == 1 && same_poly(&b[0], text, rule.arity)) =>
+            Ok(true) => LocusStatus::Parameter,
+            Ok(false)
+                if rule.exceptions.iter().any(|b| {
+                    b.len() == 1 && alg.literal_same_up_to_constant(&b[0], text, rule.arity)
+                }) =>
             {
                 LocusStatus::Guarded
             }
-            Ok(_) => match Poly::parse(text, rule.arity, false) {
-                Err(e) => LocusStatus::Unreadable(e.to_string()),
+            Ok(false) => match alg.literal_parse(text, rule.arity) {
+                Err(e) => LocusStatus::Unreadable(e),
                 Ok(poly) => {
                     // served keys on the locus (all replayed when !sampled)
                     let on: Vec<&Vec<i64>> = applicable
@@ -2752,16 +3095,18 @@ pub fn replay_evidence(
                             pt.iter()
                                 .map(|&x| i32::try_from(x))
                                 .collect::<Result<Vec<_>, _>>()
-                                .is_ok_and(|p32| matches!(poly.is_zero_at(&p32), Ok(true)))
+                                .is_ok_and(|p32| {
+                                    matches!(alg.literal_is_zero_at(&poly, &p32), Ok(true))
+                                })
                         })
                         .map(|(k, _)| *k)
                         .collect();
                     if !on.is_empty() && !sampled {
                         LocusStatus::TestedAtServed { keys: on.len() }
-                    } else if locus_has_no_integer_point(rule, text, solved) {
+                    } else if locus_has_no_integer_point(alg, rule, text, solved) {
                         LocusStatus::NoIntegerPoint
                     } else {
-                        match locus_point(rule, &poly, policy, opts.seed ^ rule_id, solved) {
+                        match locus_point(alg, rule, &poly, policy, opts.seed ^ rule_id, solved) {
                             (Some(key), _) => {
                                 tested.push((loci.len(), points.len()));
                                 points.push(PointSpec::Key(key.clone()));
@@ -2789,7 +3134,7 @@ pub fn replay_evidence(
         nonce: Some(nonce),
         ..opts.clone()
     };
-    let identity = identity_test(family, rule, &points, &id_opts);
+    let identity = identity_test_with(alg, family, rule, &points, &id_opts);
     for (li, pi) in tested {
         let name = loci[li].locus.clone();
         if let LocusStatus::Tested { status, .. } = &mut loci[li].status {
@@ -2878,8 +3223,21 @@ pub fn replay_evidence(
             _ => {}
         }
     }
+    // re-audit A NEW-M1: the family identity must be bound (header family_source or spec digest compared)
+    let unbound = (!identity.family_bound_to_table).then(|| {
+        match &opts.table {
+            None => "Unbound: no table header and no spec family digest given (RowsOptions.table)".to_string(),
+            Some(_) => format!(
+                "Unbound: the binding compared {:?} but not the family text (header family_source or spec digest)",
+                identity.family_binding
+            ),
+        }
+    });
     let level = if !reasons.is_empty() {
+        reasons.extend(unbound);
         ReplayLevel::NotEstablished { reasons }
+    } else if let Some(reason) = unbound {
+        ReplayLevel::Unbound { reason }
     } else if sampled {
         ReplayLevel::ReplaySampled {
             replayed: served_keys_replayed,
@@ -2888,18 +3246,42 @@ pub fn replay_evidence(
     } else {
         ReplayLevel::Established
     };
+    // re-audit A NEW-m1 / B C-1: caller-chosen draws or weakened checks make the record DIAGNOSTIC (type-level: a
+    // separate variant, never Established)
+    let level = if overrides.is_empty() {
+        level
+    } else {
+        ReplayLevel::Overridden {
+            overrides: overrides.clone(),
+            level_if_default: Box::new(level),
+        }
+    };
+    // DEV-17 REVISED: only the certificate backend grants the level; another backend's record is diagnostic
+    let level = if alg.name() == CERTIFICATE_BACKEND {
+        level
+    } else {
+        ReplayLevel::Diagnostic {
+            backend: alg.name().to_string(),
+            level_if_certificate: Box::new(level),
+        }
+    };
     ReplayRecord {
         schema: REPLAY_SCHEMA,
         tool_version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
-        family_bound_to_table: opts.table.is_some(),
+        algebra: alg.name(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
+        family_bound_to_table: identity.family_bound_to_table,
+        family_binding: identity.family_binding.clone(),
         rule_digest: rule_digest(rule),
         rule_index: rule.index,
         target: rule.target_text.clone(),
         seed: opts.seed,
         master_seed,
         nonce,
+        nonce_source,
+        lift_primes: opts.lift_primes.clone(),
+        overrides,
         primes,
         policy: policy.clone(),
         served_keys: served_keys.len(),
@@ -2919,6 +3301,124 @@ pub fn replay_evidence(
         witness_present: rule.witness_present,
         level,
         checked_elsewhere: "descent under the node comparator (order/accept), domain and exception guards at the served keys (domain/accept)",
+    }
+}
+
+/// [`verify_replay_record`] from the record alone (re-audit B C-1: the call of the ledger / acceptance chain and of
+/// third parties): the family binding is the given family's own identity when the record says it was bound, the
+/// policy and lift primes are the recorded ones. A rule with symmetry rows needs its group: use
+/// [`verify_replay_record`] with the options of the run.
+pub fn verify_record(
+    record: &ReplayRecord,
+    rule: &RowsRule,
+    family: &Family,
+    served_keys: &[Vec<i64>],
+) -> Result<(), String> {
+    if record.symmetry_group.is_some() {
+        return Err(
+            "record uses symmetry rows: verify with verify_replay_record and the verified group"
+                .into(),
+        );
+    }
+    let opts = RowsOptions {
+        table: record
+            .family_bound_to_table
+            .then(|| TableBinding::from_family_digest(family.squashed_digest())),
+        lift_primes: record.lift_primes.clone(),
+        ..RowsOptions::default()
+    };
+    verify_replay_record(family, rule, served_keys, &record.policy, &opts, record)
+}
+
+/// THIRD-PARTY VERIFICATION of a [`ReplayRecord`] (re-audit B: the module offered no record verifier): on the
+/// certificate backend, recompute the family / rule / served-key digests, the stream seed from the recorded master
+/// seed and nonce, the primes from the stream seed (refused when the record says the caller chose them), and RE-RUN
+/// the evidence with the recorded nonce and its source; `Ok(())` iff every recomputed quantity equals the record's and
+/// the re-run reproduces the identity verdict, the primes and the level. `opts` are the options of the original run
+/// (table binding, group, lift primes); its `seed` and `nonce` are taken from the record.
+pub fn verify_replay_record(
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+    record: &ReplayRecord,
+) -> Result<(), String> {
+    let mut bad: Vec<String> = Vec::new();
+    let mut eq = |what: &str, ok: bool| {
+        if !ok {
+            bad.push(what.to_string());
+        }
+    };
+    eq(
+        "algebra is the certificate backend",
+        record.algebra == CERTIFICATE_BACKEND,
+    );
+    eq("schema", record.schema == REPLAY_SCHEMA);
+    eq(
+        "an Established record has no override and an OS nonce",
+        record.level != ReplayLevel::Established
+            || (record.overrides.is_empty() && record.nonce_source == NonceSource::Os),
+    );
+    eq(
+        "family digest",
+        record.family_digest == family.source_digest(),
+    );
+    eq("rule digest", record.rule_digest == rule_digest(rule));
+    let mut dedup: Vec<Vec<i64>> = served_keys.to_vec();
+    dedup.sort();
+    dedup.dedup();
+    let seed = stream_seed(
+        record.master_seed,
+        rule,
+        family.source_digest(),
+        &key_set_digest(&dedup),
+        record.nonce,
+    );
+    eq(
+        "stream seed (master seed, digests, nonce)",
+        record.seed == seed,
+    );
+    let caller_primes = record.overrides.iter().any(|o| o.starts_with("primes"));
+    eq(
+        "primes derived from the stream seed",
+        caller_primes || record.primes == primes::verify_primes(seed, &opts.lift_primes),
+    );
+    let rerun_opts = RowsOptions {
+        seed: record.master_seed,
+        nonce: None,
+        primes: caller_primes.then_some(record.primes),
+        rule_id: record
+            .overrides
+            .iter()
+            .any(|o| o.starts_with("rule_id"))
+            .then_some(record.identity.rule_id),
+        ..opts.clone()
+    };
+    let again = replay_evidence_drawn(
+        &Independent,
+        family,
+        rule,
+        served_keys,
+        policy,
+        &rerun_opts,
+        (record.nonce, record.nonce_source),
+    );
+    eq(
+        "re-run served-key digest",
+        again.served_keys_digest == record.served_keys_digest,
+    );
+    eq("re-run seed", again.seed == record.seed);
+    eq("re-run primes", again.primes == record.primes);
+    eq(
+        "re-run identity verdict",
+        again.identity.verdict == record.identity.verdict,
+    );
+    eq("re-run level", again.level == record.level);
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("record does not verify: {}", bad.join(", ")))
     }
 }
 
@@ -2949,6 +3449,18 @@ pub struct BatchLine<'a> {
 /// test each rule at the points `plan` names (it sees the line context: run, gap_points), write one JSON line per
 /// rule to `out` in input order. Unreadable rule records give an `Unsupported(Record)` line; I/O errors stop the run.
 pub fn identity_test_batch<R: BufRead, W: Write>(
+    family: &Family,
+    input: R,
+    plan: &dyn Fn(&RowsRule, &LineContext) -> Vec<PointSpec>,
+    opts: &RowsOptions,
+    out: W,
+) -> Result<BatchSummary, RowsError> {
+    identity_test_batch_with(&Independent, family, input, plan, opts, out)
+}
+
+/// [`identity_test_batch`] on the algebra backend `alg`.
+pub fn identity_test_batch_with<A: CheckAlgebra, R: BufRead, W: Write>(
+    alg: &A,
     family: &Family,
     mut input: R,
     plan: &dyn Fn(&RowsRule, &LineContext) -> Vec<PointSpec>,
@@ -2988,7 +3500,7 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     .get("cert")
                     .and_then(Value::as_array)
                     .and_then(|c| c.iter().find_map(TableBinding::from_header));
-                RowsRule::from_line_value(v, family.n)
+                RowsRule::from_line_value(v, family.n())
             });
         let lopts_owned;
         let lopts: &RowsOptions = match line_table.or_else(|| table.clone()) {
@@ -3023,16 +3535,17 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
             Ok((rules, ctx)) => {
                 for (k, r) in rules.iter().enumerate() {
                     let pts = plan(r, &ctx);
-                    let v = identity_test(family, r, &pts, lopts);
+                    let v = identity_test_with(alg, family, r, &pts, lopts);
                     emit(&v, ctx.run.as_deref(), k)?;
                 }
             }
             Err(e) => {
                 let v = RowsVerdict {
                     version: ROWS_VERSION,
-                    family_digest: family.source_digest.clone(),
-                    family_name: family.name.clone(),
+                    family_digest: family.source_digest().to_string(),
+                    family_name: family.name().map(str::to_string),
                     family_bound_to_table: false,
+                    family_binding: Vec::new(),
                     verdict: Verdict::Unsupported(Unsupported::Record(e.to_string())),
                     rule_index: None,
                     target: String::new(),
@@ -3040,9 +3553,9 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     seed: opts.seed,
                     master_seed: opts.seed,
                     nonce: 0,
-                    primes: opts
-                        .primes
-                        .unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes)),
+                    primes: opts.primes.unwrap_or_else(|| {
+                        primes::verify_primes_with(alg, opts.seed, &opts.lift_primes)
+                    }),
                     points: Vec::new(),
                     points_passed: 0,
                     sz_bound: 1.0,
@@ -3064,17 +3577,19 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
 mod tests {
     use super::*;
 
-    /// No deciding call may use the replay's P61 / P2 (plan 3.1 (e)): this file never names them.
+    /// No deciding call may use the replay's P61 / P2 (plan 3.1 (e)): this file never names them (rows3: it names
+    /// no algebra module at all; primes come from `primes::verify_primes_with`).
     #[test]
     fn never_decides_at_the_replay_primes() {
         let src = include_str!("ibp_rows.rs");
         let body = &src[..src.find("#[cfg(test)]").unwrap()];
         for forbidden in [
-            "arith::P,",
-            "arith::P)",
-            "arith::P;",
-            "arith::P2",
-            "arith::P ",
+            "arith::",
+            "::P,",
+            "::P)",
+            "::P;",
+            "::P2",
+            "2_305_843_009_213_693_95",
         ] {
             assert!(!body.contains(forbidden), "ibp_rows.rs uses {forbidden}");
         }

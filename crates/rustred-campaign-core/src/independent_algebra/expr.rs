@@ -1,3 +1,6 @@
+//! INDEPENDENT ALGEBRA (see mod.rs for why this exists). Duplicates Symbolica's parser + evaluation (src/parser.rs,
+//! `Atom::evaluate` / `to_rational_polynomial`).
+//!
 //! COPY (not a move) of rustred-core/src/node/replay/expr.rs at engine commit b9f06de7 for the campaign's independent
 //! A2 row check (plan 3.1 (e)); changes are listed in interfaces/ibp-rows.md section 5 and marked "campaign copy".
 //!
@@ -5,7 +8,7 @@
 //! exponents), with Python precedence (`-a^2 = -(a^2)`, `^` right associative). Own parser; evaluation mod p, exact
 //! linear-form extraction and a conservative syntactic degree. Mirrors `Expr` of p5l-replay.v1.
 
-use super::arith::{self, Q};
+use super::arith::{self, Q, QArith};
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -31,7 +34,7 @@ pub struct Expr {
 }
 
 /// Errors of the replay that make a verdict UNKNOWN.
-pub type Unknown = String;
+pub use crate::replay_base::algebra::Unknown;
 
 struct Parser<'a> {
     s: &'a [u8],

@@ -31,4 +31,5 @@ pub mod repair;
 pub mod economy;
 pub mod glue;
 pub mod replay_base;
+pub mod independent_algebra;
 pub mod schema;

@@ -1,4 +1,4 @@
-//! NEW (campaign, not copied): the verification primes of the A2 identity test and the deterministic random streams.
+//! DOMAIN LOGIC (no algebra: primality is `CheckAlgebra::is_prime`). NEW (campaign, not copied): the verification primes of the A2 identity test and the deterministic random streams.
 //!
 //! Plan 2.5.3: modular checks use >= 2 primes of >= 61 bits outside every engine stream; the proof-kernel range
 //! [7*2^60, 7.5*2^60) is free; never 2^31-1, never 2^62-57 or 2^61-1 as the only prime. Every prime here lies in that
@@ -17,60 +17,6 @@ pub const FORBIDDEN: [u64; 4] = [
     4_611_686_018_427_387_847, // 2^62 - 57 (engine stream)
     2_147_483_647,             // 2^31 - 1 (h3's weak second prime)
 ];
-
-#[inline]
-fn mulmod(a: u64, b: u64, m: u64) -> u64 {
-    ((a as u128 * b as u128) % m as u128) as u64
-}
-
-fn powmod(mut a: u64, mut e: u64, m: u64) -> u64 {
-    let mut r = 1u64 % m;
-    a %= m;
-    while e > 0 {
-        if e & 1 == 1 {
-            r = mulmod(r, a, m);
-        }
-        a = mulmod(a, a, m);
-        e >>= 1;
-    }
-    r
-}
-
-/// Deterministic Miller-Rabin for every u64 (bases 2, 325, 9375, 28178, 450775, 9780504, 1795265022: Jim Sinclair's set).
-pub fn is_prime(n: u64) -> bool {
-    if n < 2 {
-        return false;
-    }
-    for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        if n.is_multiple_of(p) {
-            return n == p;
-        }
-    }
-    let mut d = n - 1;
-    let mut s = 0;
-    while d.is_multiple_of(2) {
-        d /= 2;
-        s += 1;
-    }
-    'base: for a in [2u64, 325, 9375, 28178, 450_775, 9_780_504, 1_795_265_022] {
-        let a = a % n;
-        if a == 0 {
-            continue;
-        }
-        let mut x = powmod(a, d, n);
-        if x == 1 || x == n - 1 {
-            continue;
-        }
-        for _ in 1..s {
-            x = mulmod(x, x, n);
-            if x == n - 1 {
-                continue 'base;
-            }
-        }
-        return false;
-    }
-    true
-}
 
 /// SplitMix64 (Steele, Lea, Flood 2014): the deterministic stream behind primes, d values and generic points.
 #[derive(Clone, Debug)]
@@ -111,8 +57,10 @@ impl SplitMix64 {
     }
 }
 
+use super::algebra::CheckAlgebra;
+
 /// Why a prime may not decide.
-pub fn check_verify_prime(p: u64, exclude: &[u64]) -> Result<(), String> {
+pub fn check_verify_prime<A: CheckAlgebra>(alg: &A, p: u64, exclude: &[u64]) -> Result<(), String> {
     if FORBIDDEN.contains(&p) {
         return Err(format!("prime {p} is an engine/h3 stream prime"));
     }
@@ -124,20 +72,25 @@ pub fn check_verify_prime(p: u64, exclude: &[u64]) -> Result<(), String> {
     if exclude.contains(&p) {
         return Err(format!("prime {p} is a lift prime of the rule"));
     }
-    if !is_prime(p) {
+    if !alg.is_prime(p) {
         return Err(format!("{p} is not prime"));
     }
     Ok(())
 }
 
 /// The next prime >= x inside the verify range, wrapping to the range start.
-fn next_prime_in_range(mut x: u64, exclude: &[u64], taken: &[u64]) -> u64 {
+fn next_prime_in_range<A: CheckAlgebra>(
+    alg: &A,
+    mut x: u64,
+    exclude: &[u64],
+    taken: &[u64],
+) -> u64 {
     x |= 1;
     loop {
         if x >= VERIFY_HI {
             x = VERIFY_LO | 1;
         }
-        if is_prime(x) && !exclude.contains(&x) && !taken.contains(&x) {
+        if alg.is_prime(x) && !exclude.contains(&x) && !taken.contains(&x) {
             return x;
         }
         x += 2;
@@ -145,11 +98,16 @@ fn next_prime_in_range(mut x: u64, exclude: &[u64], taken: &[u64]) -> u64 {
 }
 
 /// Two distinct verify-range primes derived from `seed`, none in `exclude` (the rule's lift primes).
-pub fn verify_primes(seed: u64, exclude: &[u64]) -> [u64; 2] {
+pub fn verify_primes_with<A: CheckAlgebra>(alg: &A, seed: u64, exclude: &[u64]) -> [u64; 2] {
     let mut s = SplitMix64::derive(seed, &[0x5052_494d_4553]); // "PRIMES"
-    let a = next_prime_in_range(s.range(VERIFY_LO, VERIFY_HI), exclude, &[]);
-    let b = next_prime_in_range(s.range(VERIFY_LO, VERIFY_HI), exclude, &[a]);
+    let a = next_prime_in_range(alg, s.range(VERIFY_LO, VERIFY_HI), exclude, &[]);
+    let b = next_prime_in_range(alg, s.range(VERIFY_LO, VERIFY_HI), exclude, &[a]);
     [a, b]
+}
+
+/// [`verify_primes_with`] on the certificate backend (`Independent`).
+pub fn verify_primes(seed: u64, exclude: &[u64]) -> [u64; 2] {
+    verify_primes_with(&crate::independent_algebra::Independent, seed, exclude)
 }
 
 #[cfg(test)]
@@ -157,28 +115,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn miller_rabin_known_values() {
-        assert!(is_prime(2_305_843_009_213_693_951)); // 2^61-1
-        assert!(is_prime(2_305_843_009_213_693_921)); // 2^61-31
-        assert!(is_prime(4_611_686_018_427_387_847)); // 2^62-57
-        assert!(is_prime(18_446_744_073_709_551_557)); // largest u64 prime
-        assert!(!is_prime(3_215_031_751)); // strong pseudoprime to 2,3,5,7
-        assert!(!is_prime(2_305_843_009_213_693_953));
-        assert!(!is_prime(1));
-        // brute force on small numbers
-        for n in 0u64..2000 {
-            let t = n >= 2 && (2..n).take_while(|k| k * k <= n).all(|k| n % k != 0);
-            assert_eq!(is_prime(n), t, "{n}");
-        }
-    }
-
-    #[test]
     fn primes_in_range_distinct_deterministic() {
         for seed in 0..50u64 {
             let [a, b] = verify_primes(seed, &[]);
             assert!(a != b);
             for p in [a, b] {
-                check_verify_prime(p, &[]).unwrap();
+                check_verify_prime(&crate::independent_algebra::Independent, p, &[]).unwrap();
                 assert!((VERIFY_LO..VERIFY_HI).contains(&p) && 64 - p.leading_zeros() >= 61);
             }
             assert_eq!(verify_primes(seed, &[]), [a, b]);
@@ -186,7 +128,7 @@ mod tests {
             assert!(c != a && d != a);
         }
         for p in FORBIDDEN {
-            assert!(check_verify_prime(p, &[]).is_err());
+            assert!(check_verify_prime(&crate::independent_algebra::Independent, p, &[]).is_err());
         }
     }
 }

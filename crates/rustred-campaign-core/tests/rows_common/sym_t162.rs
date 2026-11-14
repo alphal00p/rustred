@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{
-    DeriveOptions, GroupCheck, Provenance, SymGroup, VerifiedGroup, cross_check, derive_group,
-    verify_group,
+    DeriveOptions, GroupCheck, SymGroup, VerifiedGroup, cross_check, derive_group,
+    verify_cross_checked,
 };
 use serde_json::{Value, json};
 
@@ -53,13 +53,13 @@ pub fn t162_group(fam: &Family) -> Arc<VerifiedGroup> {
     let (g, _) = derive_group(fam, &t162_chart(), &DeriveOptions::default()).unwrap();
     let ck = checker_group();
     assert!(matches!(cross_check(&g, &ck), GroupCheck::Equal { .. }));
+    // the provenance label is computed by verify_cross_checked (it derives and compares itself)
     Arc::new(
-        verify_group(
+        verify_cross_checked(
             fam,
-            g,
-            Provenance::CrossChecked {
-                sources: vec!["checker h3/symgroup_T162P.json".into()],
-            },
+            &ck,
+            "checker h3/symgroup_T162P.json",
+            &DeriveOptions::default(),
         )
         .unwrap(),
     )
