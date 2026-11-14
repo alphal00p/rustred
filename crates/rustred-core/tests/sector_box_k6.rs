@@ -995,6 +995,18 @@ fn golden_files_are_certified_at_an_independent_prime() {
     }
 }
 
+/// The census router fingerprint (format v1, `Debug` renderings) is the one
+/// in every solution file of the campaign engine. If this fails, a
+/// rendering changed: existing files would be refused by the reader.
+#[test]
+fn router_fingerprint_matches_the_campaign_files() {
+    let (session, _) = session(1);
+    assert_eq!(
+        session.harness_family().router_fingerprint.as_deref(),
+        Some("5768f971f58aa0b01f0508ca51cabff8fb1234f1048d192072059ed9e388f73b")
+    );
+}
+
 /// The facade equals a session's `materialize`, in both lanes.
 #[test]
 fn facade_matches_the_session() {
