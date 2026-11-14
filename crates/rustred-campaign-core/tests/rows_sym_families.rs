@@ -229,7 +229,7 @@ fn rows_sym_m2_multi_term_numerator_map_l3a() {
         .iter()
         .filter(|(key, _)| key.1 != a)
         .map(|(key, c)| {
-            let c = c.neg();
+            let c = rustred_campaign_core::replay_base::algebra::Q { n: -c.n, d: c.d };
             (
                 key.1.clone(),
                 if c.d == 1 {

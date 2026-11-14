@@ -3,13 +3,13 @@
 //! made `pub`; `Support` reduced to its `Exported` variant (all original IBPs at the exported seeds): the
 //! retained-trace / direct-basis paths need the engine's trace certificate (`Cert`, `source_basis`), which is not
 //! copied; therefore the `cert` and `chart` parameters are gone. The `rows_for` wrapper (fixed P = 2^61-1) is dropped.
+//! rows3 (DEV-17 REVISED): DOMAIN LOGIC; the field addition is `CheckAlgebra::add` (generic `alg`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
-use super::arith;
-use super::expr::Unknown;
+use super::algebra::{CheckAlgebra, Unknown};
 use super::family::Family;
 use super::record::{Key, Pat};
 
@@ -23,9 +23,9 @@ pub fn strip_p(p: u64, r: &Row) -> Row {
         .collect()
 }
 
-pub fn addto_p(p: u64, r: &mut Row, k: Key, x: u64) {
+pub fn addto_p<A: CheckAlgebra>(alg: &A, p: u64, r: &mut Row, k: Key, x: u64) {
     let e = r.entry(k).or_insert(0);
-    *e = arith::add(p, *e, x);
+    *e = alg.add(p, *e, x);
 }
 
 /// campaign copy: the one support kind kept (engine `Support::Exported`).
@@ -41,7 +41,8 @@ pub struct Built {
 
 /// The original IBP rows modulo the prime `p` at the exported seeds evaluated at `point` (+ `recenter` on symbolic
 /// slots); repeated seed keys are generated once (engine semantics).
-pub fn rows_for_p(
+pub fn rows_for_p<A: CheckAlgebra>(
+    alg: &A,
     p: u64,
     support: &Support,
     point: &[i64],
@@ -68,12 +69,12 @@ pub fn rows_for_p(
         if !seen_y.insert(y.clone()) {
             continue;
         }
-        for (op, r) in f.rows_at(&y, d, p)?.into_iter().enumerate() {
+        for (op, r) in f.rows_at_with(alg, &y, d, p)?.into_iter().enumerate() {
             let mut rr = Row::new();
             for (delta, v) in r {
                 let key: Key = y.iter().zip(&delta).map(|(a, b)| a + b).collect();
                 out.universe.insert(key.clone());
-                addto_p(p, &mut rr, key, v);
+                addto_p(alg, p, &mut rr, key, v);
             }
             out.rows.push(strip_p(p, &rr));
             out.labels

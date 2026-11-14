@@ -13,7 +13,7 @@ use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
     PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test,
 };
-use rustred_campaign_core::replay_base::arith::Q;
+use rustred_campaign_core::replay_base::algebra::Q;
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::json;
 

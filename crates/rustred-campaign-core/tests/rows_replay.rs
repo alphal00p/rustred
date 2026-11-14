@@ -8,8 +8,8 @@ mod rows_common;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
-    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, Verdict,
-    identity_test, replay_evidence, rule_digest,
+    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsRule, Verdict, identity_test,
+    replay_evidence, rule_digest,
 };
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;

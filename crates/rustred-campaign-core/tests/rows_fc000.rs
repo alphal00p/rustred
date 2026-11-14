@@ -62,7 +62,12 @@ fn rows_fc000_passes_at_its_seeds_and_corrupted_copies_fail() {
     // the primes are verify-range primes, derived from the seed; d values recorded and never 37/7
     for p in &clean.points {
         for c in &p.cells {
-            rustred_campaign_core::replay_base::primes::check_verify_prime(c.prime, &[]).unwrap();
+            rustred_campaign_core::replay_base::primes::check_verify_prime(
+                &rustred_campaign_core::independent_algebra::Independent,
+                c.prime,
+                &[],
+            )
+            .unwrap();
             assert!(c.d >= 2);
         }
     }

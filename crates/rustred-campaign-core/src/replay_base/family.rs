@@ -4,12 +4,17 @@
 //! Independent IBP generator of the replay (port of p5l-replay.v1 `checker/gibp.py`): reads only the family text,
 //! builds the IBP operators exactly (small rationals), evaluates rows mod p, and decides scaleless sectors by Lee's
 //! criterion on U + F computed from the propagators. No RustRed solver or Symbolica code is used.
+//!
+//! campaign copy, CHANGED (rows3, DEV-17 REVISED): DOMAIN LOGIC only. Every arithmetic step (rationals, the inverse of
+//! the scalar-product matrix, the field operations of the rows, Lee's affine-hull test, the U / F determinants) goes
+//! through `replay_base::algebra::CheckAlgebra` (`*_with(alg, ..)`; the plain methods run the certificate backend
+//! `Independent`); the algebra itself lives in `crate::independent_algebra` (or the Symbolica backend).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex; // campaign copy: Mutex instead of RefCell (Family: Sync)
 
-use super::arith::{self, Q};
-use super::expr::Unknown;
+use super::algebra::{CheckAlgebra, Q, Stage, Unknown, ZPoly};
+use crate::independent_algebra::Independent;
 
 /// One IBP operator: `diag` (j == v) and per propagator `(t0, [(m, x)])`.
 type OpTable = (bool, Vec<(Q, Vec<(usize, Q)>)>);
@@ -280,56 +285,23 @@ fn lin(mom: &str, declared: &[String]) -> Result<BTreeMap<String, i64>, Unknown>
     Ok(out)
 }
 
-fn inverse(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, Unknown> {
-    let n = m.len();
-    let mut a: Vec<Vec<Q>> = m
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            row.iter()
-                .copied()
-                .chain((0..n).map(|j| if i == j { Q::ONE } else { Q::ZERO }))
-                .collect()
-        })
-        .collect();
-    for c in 0..n {
-        let p = (c..n)
-            .find(|&r| !a[r][c].is_zero())
-            .ok_or("singular scalar-product matrix")?;
-        a.swap(c, p);
-        let f = a[c][c];
-        a[c] = a[c].iter().map(|x| x.div(f)).collect::<Result<_, _>>()?;
-        for r in 0..n {
-            if r != c && !a[r][c].is_zero() {
-                let g = a[r][c];
-                let pivot = a[c].clone();
-                a[r] = a[r]
-                    .iter()
-                    .zip(&pivot)
-                    .map(|(x, y)| x.sub(g.mul(*y)?))
-                    .collect::<Result<_, _>>()?;
-            }
-        }
+/// Integer k with `value == k (4-d)/2` exactly (campaign copy, CHANGED (rows3): the affine form of `value` in d, no
+/// n dependence, instead of three evaluations mod P61 at d = 0, 2, 4: the same answer for every polynomial value).
+fn eps_multiple<A: CheckAlgebra>(alg: &A, value: &str, n: usize) -> Result<i64, Unknown> {
+    let lin = alg
+        .expr_linear(value, n)
+        .map_err(|e| format!("power shift {value}: {e}"))?;
+    let bad = || format!("power shift {value} is not an integer multiple of (4-d)/2");
+    if lin[1..=n].iter().any(|q| !q.is_zero()) || lin[0].d != 1 {
+        return Err(bad());
     }
-    Ok(a.into_iter().map(|row| row[n..].to_vec()).collect())
-}
-
-/// Integer k with `value == k (4-d)/2` (checked exactly at d = 0, 2, 4 over Q).
-fn eps_multiple(value: &str, n: usize) -> Result<i64, Unknown> {
-    let e = super::expr::Expr::parse(value, n).map_err(|e| format!("power shift {value}: {e}"))?;
-    let at =
-        |d: i128| -> Result<u64, Unknown> { e.at_point(super::arith::P, &vec![0; n], Q::int(d)) };
-    let p = super::arith::P;
-    let (v0, v2, v4) = (at(0)?, at(2)?, at(4)?);
-    let k = (-64i64..=64)
-        .find(|&k| arith::from_i128(p, k as i128) == v2)
-        .ok_or_else(|| format!("power shift {value} is not a small integer multiple of (4-d)/2"))?;
-    if v0 != arith::from_i128(p, 2 * k as i128) || v4 != 0 || k == 0 {
-        return Err(format!(
-            "power shift {value} is not an integer multiple of (4-d)/2"
-        ));
+    // value = c + b d = k (4 - d) / 2 = 2k - (k/2) d  <=>  c = 2k and b = -k/2
+    let k = lin[0].n / 2;
+    let half = alg.q_new(-k, 2)?;
+    if lin[0].n % 2 != 0 || k == 0 || lin[n + 1] != half || !(-64..=64).contains(&k) {
+        return Err(bad());
     }
-    Ok(k)
+    Ok(k as i64)
 }
 
 /// Text inside the first balanced `name(` ... `)` occurrence.
@@ -357,6 +329,15 @@ impl Family {
         reason = "index arithmetic over the contraction matrix"
     )]
     pub fn parse(src: &str) -> Result<Self, Unknown> {
+        Self::parse_with(&Independent, src)
+    }
+
+    /// [`Family::parse`] with the algebra of `alg` (operator table, inverse of the scalar-product matrix).
+    #[allow(
+        clippy::needless_range_loop,
+        reason = "index arithmetic over the contraction matrix"
+    )]
+    pub fn parse_with<A: CheckAlgebra>(alg: &A, src: &str) -> Result<Self, Unknown> {
         let compact: String = src.chars().filter(|c| !c.is_whitespace()).collect();
         // campaign copy, CHANGED (re-audit A NEW-M2): the propagators, power shifts and loop momenta are read from the
         // TOP-LEVEL calls; labels must be the canonical D1..Dn in order (power shifts address them by label), every
@@ -422,7 +403,7 @@ impl Family {
             kshift[j - 1] = if value == "0" || value.is_empty() {
                 0
             } else {
-                eps_multiple(value, n)?
+                eps_multiple(alg, value, n)?
             };
         }
         let lcount = loops.len();
@@ -454,15 +435,17 @@ impl Family {
                         continue;
                     }
                     if a == lcount && b == lcount {
-                        c0[i] = c0[i].add(Q::int(co as i128))?;
+                        c0[i] = alg.q_add(c0[i], Q::int(co as i128))?;
                     } else {
                         let k = idx(a, b).unwrap();
-                        m[i][k] = m[i][k].add(Q::int(co as i128))?;
+                        m[i][k] = alg.q_add(m[i][k], Q::int(co as i128))?;
                     }
                 }
             }
         }
-        let mi = inverse(&m)?;
+        let mi = alg
+            .q_inverse(&m)
+            .map_err(|e| format!("scalar-product matrix: {e}"))?;
         let sp = |a: usize, b: usize| {
             if a == lcount && b == lcount {
                 None
@@ -486,13 +469,14 @@ impl Family {
                             }
                             let f = Q::int(2 * cij as i128 * cia as i128);
                             match sp(a, v) {
-                                None => t0 = t0.add(f)?,
+                                None => t0 = alg.q_add(t0, f)?,
                                 Some(s) => {
                                     for mm in 0..n {
                                         let x = mi[s][mm];
                                         if !x.is_zero() {
-                                            tm[mm] = tm[mm].add(f.mul(x)?)?;
-                                            t0 = t0.sub(f.mul(x)?.mul(c0[mm])?)?;
+                                            let fx = alg.q_mul(f, x)?;
+                                            tm[mm] = alg.q_add(tm[mm], fx)?;
+                                            t0 = alg.q_sub(t0, alg.q_mul(fx, c0[mm])?)?;
                                         }
                                     }
                                 }
@@ -510,6 +494,9 @@ impl Family {
                 ops.push((j == v, tab));
             }
         }
+        alg.observe(Stage::Family, &|| "operator table".into(), &|| {
+            super::sha256::sha256_hex(format!("{mi:?}{ops:?}").as_bytes())
+        });
         let eps_axes = (0..n).filter(|&i| kshift[i] != 0).collect();
         let check = family_text_check(src, n);
         let name = call_args(&compact, "name");
@@ -536,63 +523,26 @@ impl Family {
     }
 
     /// The L(L+1) IBP rows at base exponents `a` (integers), shift 0, dimension `d` (field element), mod p.
-    /// Each row maps an offset (relative to `a`) to its coefficient.
+    /// Each row maps an offset (relative to `a`) to its coefficient. Certificate backend; see [`Family::rows_at_with`].
     pub fn rows_at(
         &self,
         a: &[i64],
         d: u64,
         p: u64,
     ) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
-        let n = self.n;
-        // eps = (4-d)/2 mod p; exponent of line i = a_i + kshift_i eps
-        let eps = arith::mul(
-            p,
-            arith::sub(p, 4 % p, d % p),
-            arith::inv(p, 2).ok_or("p = 2")?,
-        );
-        let ai: Vec<u64> = (0..n)
-            .map(|i| {
-                arith::add(
-                    p,
-                    arith::from_i128(p, a[i] as i128),
-                    arith::mul(p, arith::from_i128(p, self.kshift[i] as i128), eps),
-                )
-            })
-            .collect();
-        let mut out = Vec::with_capacity(self.ops.len());
-        for (diag, tab) in &self.ops {
-            let mut r: BTreeMap<Vec<i64>, u64> = BTreeMap::new();
-            if *diag {
-                r.insert(vec![0; n], d % p);
-            }
-            for i in 0..n {
-                let (t0, tm) = &tab[i];
-                if t0.is_zero() && tm.is_empty() {
-                    continue;
-                }
-                let x = ai[i];
-                if x == 0 {
-                    continue;
-                }
-                let mut up = vec![0i64; n];
-                up[i] += 1;
-                if !t0.is_zero() {
-                    let v = arith::mul(p, x, t0.modp(p).ok_or("operator table pole")?);
-                    let e = r.entry(up.clone()).or_insert(0);
-                    *e = arith::sub(p, *e, v);
-                }
-                for (m, y) in tm {
-                    up[*m] -= 1;
-                    let v = arith::mul(p, x, y.modp(p).ok_or("operator table pole")?);
-                    let e = r.entry(up.clone()).or_insert(0);
-                    *e = arith::sub(p, *e, v);
-                    up[*m] += 1;
-                }
-            }
-            r.retain(|_, v| *v != 0);
-            out.push(r);
-        }
-        Ok(out)
+        self.rows_at_with(&Independent, a, d, p)
+    }
+
+    /// [`Family::rows_at`] with the field arithmetic of `alg`.
+    pub fn rows_at_with<A: CheckAlgebra>(
+        &self,
+        alg: &A,
+        a: &[i64],
+        d: u64,
+        p: u64,
+    ) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
+        let base: Vec<u64> = a.iter().map(|&x| alg.from_i128(p, x as i128)).collect();
+        self.rows_at_mod_with(alg, &base, d, p)
     }
 
     /// campaign copy, ADDED: number of IBP operators (L(L+1)).
@@ -601,9 +551,21 @@ impl Family {
     }
 
     /// campaign copy, ADDED: [`Family::rows_at`] with the base exponents given as residues mod `p` (a generic point:
-    /// symbolic slots carry random field values). Same body as `rows_at` from the residues on.
+    /// symbolic slots carry random field values). `rows_at` reduces its integers mod p and calls this (rows3: one
+    /// body instead of two identical copies).
     pub fn rows_at_mod(
         &self,
+        a: &[u64],
+        d: u64,
+        p: u64,
+    ) -> Result<Vec<BTreeMap<Vec<i64>, u64>>, Unknown> {
+        self.rows_at_mod_with(&Independent, a, d, p)
+    }
+
+    /// [`Family::rows_at_mod`] with the field arithmetic of `alg`.
+    pub fn rows_at_mod_with<A: CheckAlgebra>(
+        &self,
+        alg: &A,
         a: &[u64],
         d: u64,
         p: u64,
@@ -612,17 +574,14 @@ impl Family {
         if a.len() != n {
             return Err(format!("rows_at_mod: {} exponents for {n} slots", a.len()));
         }
-        let eps = arith::mul(
-            p,
-            arith::sub(p, 4 % p, d % p),
-            arith::inv(p, 2).ok_or("p = 2")?,
-        );
+        // eps = (4-d)/2 mod p; exponent of line i = a_i + kshift_i eps
+        let eps = alg.mul(p, alg.sub(p, 4 % p, d % p), alg.inv(p, 2).ok_or("p = 2")?);
         let ai: Vec<u64> = (0..n)
             .map(|i| {
-                arith::add(
+                alg.add(
                     p,
                     a[i] % p,
-                    arith::mul(p, arith::from_i128(p, self.kshift[i] as i128), eps),
+                    alg.mul(p, alg.from_i128(p, self.kshift[i] as i128), eps),
                 )
             })
             .collect();
@@ -644,15 +603,15 @@ impl Family {
                 let mut up = vec![0i64; n];
                 up[i] += 1;
                 if !t0.is_zero() {
-                    let v = arith::mul(p, x, t0.modp(p).ok_or("operator table pole")?);
+                    let v = alg.mul(p, x, alg.q_modp(*t0, p).ok_or("operator table pole")?);
                     let e = r.entry(up.clone()).or_insert(0);
-                    *e = arith::sub(p, *e, v);
+                    *e = alg.sub(p, *e, v);
                 }
                 for (m, y) in tm {
                     up[*m] -= 1;
-                    let v = arith::mul(p, x, y.modp(p).ok_or("operator table pole")?);
+                    let v = alg.mul(p, x, alg.q_modp(*y, p).ok_or("operator table pole")?);
                     let e = r.entry(up.clone()).or_insert(0);
-                    *e = arith::sub(p, *e, v);
+                    *e = alg.sub(p, *e, v);
                     up[*m] += 1;
                 }
             }
@@ -664,12 +623,21 @@ impl Family {
 
     /// Exact operator row `op`: offset -> linear form `[const, y_0.., y_{n-1}, d]` (a_i = y_i).
     pub fn exact_row(&self, op: usize) -> Result<BTreeMap<Vec<i64>, Vec<Q>>, Unknown> {
+        self.exact_row_with(&Independent, op)
+    }
+
+    /// [`Family::exact_row`] with the rational arithmetic of `alg`.
+    pub fn exact_row_with<A: CheckAlgebra>(
+        &self,
+        alg: &A,
+        op: usize,
+    ) -> Result<BTreeMap<Vec<i64>, Vec<Q>>, Unknown> {
         let n = self.n;
         let (diag, tab) = &self.ops[op];
         let mut r: BTreeMap<Vec<i64>, Vec<Q>> = BTreeMap::new();
         let mut bump = |k: Vec<i64>, var: usize, s: Q| -> Result<(), Unknown> {
             let e = r.entry(k.clone()).or_insert_with(|| vec![Q::ZERO; n + 2]);
-            e[var] = e[var].add(s)?;
+            e[var] = alg.q_add(e[var], s)?;
             if e.iter().all(Q::is_zero) {
                 r.remove(&k);
             }
@@ -687,30 +655,37 @@ impl Family {
             up[i] = 1;
             // exponent a_i + k eps = y_i + 2k - (k/2) d
             let k = self.kshift[i];
-            let half = Q::new(-(k as i128), 2)?;
+            let half = alg.q_new(-(k as i128), 2)?;
             let twok = Q::int(2 * k as i128);
+            let mut terms: Vec<(Vec<i64>, Q)> = Vec::new();
             if !t0.is_zero() {
-                bump(up.clone(), i + 1, t0.neg())?;
-                if k != 0 {
-                    bump(up.clone(), 0, t0.neg().mul(twok)?)?;
-                    bump(up.clone(), n + 1, t0.neg().mul(half)?)?;
-                }
+                terms.push((up.clone(), *t0));
             }
             for (m, x) in tm {
-                up[*m] -= 1;
-                bump(up.clone(), i + 1, x.neg())?;
+                let mut u = up.clone();
+                u[*m] -= 1;
+                terms.push((u, *x));
+            }
+            for (u, c) in terms {
+                let nc = alg.q_neg(c)?;
+                bump(u.clone(), i + 1, nc)?;
                 if k != 0 {
-                    bump(up.clone(), 0, x.neg().mul(twok)?)?;
-                    bump(up.clone(), n + 1, x.neg().mul(half)?)?;
+                    bump(u.clone(), 0, alg.q_mul(nc, twok)?)?;
+                    bump(u, n + 1, alg.q_mul(nc, half)?)?;
                 }
-                up[*m] += 1;
             }
         }
         Ok(r)
     }
 
-    /// Scaleless sector (Lee's criterion; eps axes always on).
+    /// Scaleless sector (Lee's criterion; eps axes always on). Certificate backend; see [`Family::zero_mask_with`].
     pub fn zero_mask(&self, mask: &[bool]) -> bool {
+        self.zero_mask_with(&Independent, mask)
+    }
+
+    /// [`Family::zero_mask`] with the algebra of `alg`. The answer is cached per family: use one backend per parsed
+    /// family (the triage parses the family once per backend).
+    pub fn zero_mask_with<A: CheckAlgebra>(&self, alg: &A, mask: &[bool]) -> bool {
         let mut m = mask.to_vec();
         for &i in &self.eps_axes {
             m[i] = true;
@@ -724,7 +699,7 @@ impl Family {
         {
             return *z;
         }
-        let z = self.zero(&m);
+        let z = self.zero(alg, &m);
         self.zero_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -736,55 +711,39 @@ impl Family {
         self.zero_mask(&key.iter().map(|&x| x > 0).collect::<Vec<_>>())
     }
 
-    fn zero(&self, m: &[bool]) -> bool {
+    /// campaign copy, CHANGED (rows3): the affine-hull test through `CheckAlgebra::q_unit_in_row_space`; an overflow
+    /// (the copy panicked) answers "not scaleless" (keeping a column is the safe side: it can only make a span test
+    /// fail, never pass).
+    fn zero<A: CheckAlgebra>(&self, alg: &A, m: &[bool]) -> bool {
         let axes: Vec<usize> = (0..self.n).filter(|&i| m[i]).collect();
         let t = axes.len();
         if t == 0 {
             return true;
         }
-        let (u, f) = self.graph_polys(&axes);
+        let (u, f) = self.graph_polys(alg, &axes);
         let mut vecs: Vec<Vec<u8>> = u.keys().chain(f.keys()).cloned().collect();
         vecs.sort();
         vecs.dedup();
         if vecs.is_empty() {
             return true;
         }
-        let mut piv: Vec<(usize, Vec<Q>)> = Vec::new();
-        for k in vecs {
-            let mut r: Vec<Q> = k
-                .iter()
-                .map(|&e| Q::int(e as i128))
-                .chain([Q::ONE])
-                .collect();
-            for (c, pr) in &piv {
-                if !r[*c].is_zero() {
-                    let f = r[*c];
-                    r = r
-                        .iter()
-                        .zip(pr)
-                        .map(|(a, b)| a.sub(f.mul(*b).unwrap()).unwrap())
-                        .collect();
-                }
-            }
-            let Some(c) = (0..=t).find(|&j| !r[j].is_zero()) else {
-                continue;
-            };
-            if c == t {
-                return false;
-            }
-            let f = r[c];
-            r = r.iter().map(|a| a.div(f).unwrap()).collect();
-            piv.push((c, r));
-        }
-        true
+        let rows: Vec<Vec<Q>> = vecs
+            .iter()
+            .map(|k| {
+                k.iter()
+                    .map(|&e| Q::int(e as i128))
+                    .chain([Q::ONE])
+                    .collect()
+            })
+            .collect();
+        !alg.q_unit_in_row_space(&rows, t).unwrap_or(true)
     }
 
     /// U and F (bordered determinant, q^2 = 1) of the lines `axes`, as exponent vectors -> coefficients.
-    fn graph_polys(&self, axes: &[usize]) -> (HashMap<Vec<u8>, i128>, HashMap<Vec<u8>, i128>) {
+    fn graph_polys<A: CheckAlgebra>(&self, alg: &A, axes: &[usize]) -> (ZPoly, ZPoly) {
         let l = self.loops;
         let t = axes.len();
-        type Poly = HashMap<Vec<u8>, i128>;
-        let mut mm: Vec<Vec<Poly>> = vec![vec![Poly::new(); l + 1]; l + 1];
+        let mut mm: Vec<Vec<ZPoly>> = vec![vec![ZPoly::new(); l + 1]; l + 1];
         for (pos, &ax) in axes.iter().enumerate() {
             let c = &self.c[ax];
             let mut key = vec![0u8; t];
@@ -802,65 +761,14 @@ impl Family {
                 }
             }
         }
-        fn det(
-            mm: &[Vec<Poly>],
-            rows: &[usize],
-            cols: &[usize],
-            memo: &mut HashMap<(Vec<usize>, Vec<usize>), Poly>,
-            t: usize,
-        ) -> Poly {
-            if rows.is_empty() {
-                let mut one = Poly::new();
-                one.insert(vec![0u8; t], 1);
-                return one;
-            }
-            let key = (rows.to_vec(), cols.to_vec());
-            if let Some(r) = memo.get(&key) {
-                return r.clone();
-            }
-            let r0 = rows[0];
-            let mut out = Poly::new();
-            for (j, &c) in cols.iter().enumerate() {
-                let e = &mm[r0][c];
-                if e.is_empty() {
-                    continue;
-                }
-                let sub_cols: Vec<usize> = cols
-                    .iter()
-                    .enumerate()
-                    .filter(|(k, _)| *k != j)
-                    .map(|(_, &x)| x)
-                    .collect();
-                let sub = det(mm, &rows[1..], &sub_cols, memo, t);
-                if sub.is_empty() {
-                    continue;
-                }
-                let sign: i128 = if j % 2 == 0 { 1 } else { -1 };
-                for (k1, v1) in e {
-                    for (k2, v2) in &sub {
-                        let k: Vec<u8> = k1.iter().zip(k2).map(|(a, b)| a + b).collect();
-                        let x = out.entry(k.clone()).or_insert(0);
-                        *x += sign * v1 * v2;
-                        if *x == 0 {
-                            out.remove(&k);
-                        }
-                    }
-                }
-            }
-            memo.insert(key, out.clone());
-            out
-        }
-        let idx: Vec<usize> = (0..l).collect();
-        let u = det(&mm, &idx, &idx, &mut HashMap::new(), t);
-        let idx2: Vec<usize> = (0..=l).collect();
-        let f = det(&mm, &idx2, &idx2, &mut HashMap::new(), t);
-        (u, f)
+        (alg.zpoly_det(&mm, l, t), alg.zpoly_det(&mm, l + 1, t))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::independent_algebra::arith;
 
     const SUNSET: &str = "I(\n  name(S),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1+k2-q)^2,1),\n  prop(D4,(k1+q)^2,0),\n  prop(D5,(k2+q)^2,0),\n  gram(q,q,1)\n)\n";
 
@@ -868,13 +776,13 @@ mod tests {
     /// eps = (4-d)/2 (checked at d = 0, 2, 4); anything else is refused.
     #[test]
     fn eps_power_shifts_are_integer_multiples_of_eps() {
-        assert_eq!(eps_multiple("(4-d)/2", 5).unwrap(), 1);
-        assert_eq!(eps_multiple("2-d/2", 5).unwrap(), 1);
-        assert_eq!(eps_multiple("4-d", 5).unwrap(), 2);
-        assert_eq!(eps_multiple("(d-4)/2", 5).unwrap(), -1);
-        assert_eq!(eps_multiple("3*(4-d)/2", 5).unwrap(), 3);
+        assert_eq!(eps_multiple(&Independent, "(4-d)/2", 5).unwrap(), 1);
+        assert_eq!(eps_multiple(&Independent, "2-d/2", 5).unwrap(), 1);
+        assert_eq!(eps_multiple(&Independent, "4-d", 5).unwrap(), 2);
+        assert_eq!(eps_multiple(&Independent, "(d-4)/2", 5).unwrap(), -1);
+        assert_eq!(eps_multiple(&Independent, "3*(4-d)/2", 5).unwrap(), 3);
         for bad in ["d", "1", "(4-d)/3", "(4-d)/2+1", "0*d", "(6-d)/2"] {
-            assert!(eps_multiple(bad, 5).is_err(), "{bad}");
+            assert!(eps_multiple(&Independent, bad, 5).is_err(), "{bad}");
         }
     }
 
@@ -896,22 +804,23 @@ mod tests {
         let mut seen = Vec::new();
         for (shift, k) in [("(4-d)/2", 1), ("d-4", -2), ("4-d", 2)] {
             let f = Family::parse(&shifted(shift)).unwrap();
-            assert_eq!(f.kshift, vec![k, 0, 0, 0, 0], "{shift}");
+            assert_eq!(f.kshift(), vec![k, 0, 0, 0, 0], "{shift}");
             let rows = f.rows_at(&[1, 1, 1, 0, 0], d, arith::P).unwrap();
             assert_eq!(rows.len(), 6);
             for (op, md) in rows.iter().enumerate() {
                 let ex = f.exact_row(op).unwrap();
                 for (key, form) in &ex {
-                    let mut v = form[0].modp(arith::P).unwrap();
+                    let mut v = Independent.q_modp(form[0], arith::P).unwrap();
                     for i in 0..5 {
                         let term = arith::mul(
                             arith::P,
-                            form[i + 1].modp(arith::P).unwrap(),
+                            Independent.q_modp(form[i + 1], arith::P).unwrap(),
                             arith::from_i128(arith::P, a[i]),
                         );
                         v = arith::add(arith::P, v, term);
                     }
-                    let dterm = arith::mul(arith::P, form[6].modp(arith::P).unwrap(), d);
+                    let dterm =
+                        arith::mul(arith::P, Independent.q_modp(form[6], arith::P).unwrap(), d);
                     v = arith::add(arith::P, v, dterm);
                     assert_eq!(
                         md.get(key).copied().unwrap_or(0),
@@ -931,7 +840,7 @@ mod tests {
     #[test]
     fn sunset_family_ibp_and_zero_sectors() {
         let f = Family::parse(SUNSET).unwrap();
-        assert_eq!((f.n, f.loops), (5, 2));
+        assert_eq!((f.n(), f.loops()), (5, 2));
         // vacuum-like supports are scaleless; the sunset (D1 D2 D3) is not; D1 D3 leaves a k2 tadpole
         assert!(f.zero_mask(&[true, true, false, false, false]));
         assert!(!f.zero_mask(&[true, true, true, false, false]));
@@ -946,14 +855,14 @@ mod tests {
             let md = &rows[op];
             for (k, form) in &ex {
                 let a = [1i128, 1, 1, 0, 0];
-                let mut v = form[0].modp(arith::P).unwrap();
+                let mut v = Independent.q_modp(form[0], arith::P).unwrap();
                 for i in 0..5 {
                     v = arith::add(
                         arith::P,
                         v,
                         arith::mul(
                             arith::P,
-                            form[i + 1].modp(arith::P).unwrap(),
+                            Independent.q_modp(form[i + 1], arith::P).unwrap(),
                             arith::from_i128(arith::P, a[i]),
                         ),
                     );
@@ -961,7 +870,7 @@ mod tests {
                 v = arith::add(
                     arith::P,
                     v,
-                    arith::mul(arith::P, form[6].modp(arith::P).unwrap(), 7),
+                    arith::mul(arith::P, Independent.q_modp(form[6], arith::P).unwrap(), 7),
                 );
                 assert_eq!(md.get(k).copied().unwrap_or(0), v, "op {op} key {k:?}");
             }

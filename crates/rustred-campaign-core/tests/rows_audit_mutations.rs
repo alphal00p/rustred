@@ -9,7 +9,8 @@ mod rows_common;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{PointSpec, RowsOptions, RowsRule, Verdict, identity_test};
-use rustred_campaign_core::replay_base::arith::Q;
+use rustred_campaign_core::independent_algebra::Independent;
+use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Q};
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::{Value, json};
 
@@ -86,7 +87,7 @@ fn built(text: &str, op: usize) -> (Family, Value) {
         .iter()
         .filter(|(sh, _)| **sh != tshift)
         .map(|(sh, f)| {
-            let neg: Vec<Q> = f.iter().map(|q| q.neg()).collect();
+            let neg: Vec<Q> = f.iter().map(|q| Independent.q_neg(*q).unwrap()).collect();
             json!([pat(sh), format!("({})/({den})", form_text(&neg, mm, n))])
         })
         .collect();

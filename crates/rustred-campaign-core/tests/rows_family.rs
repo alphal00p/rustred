@@ -12,7 +12,8 @@
 mod rows_common;
 
 use rows_common::*;
-use rustred_campaign_core::replay_base::arith::{self, Q};
+use rustred_campaign_core::independent_algebra::{Independent, arith};
+use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Q};
 use rustred_campaign_core::replay_base::primes::{SplitMix64, verify_primes};
 use serde_json::Value;
 
@@ -51,7 +52,7 @@ fn rows_t162_raw_identities_equal_the_checkers() {
                         "c" => 0,
                         v => v.parse::<usize>().unwrap() + 1,
                     };
-                    form[idx] = Q::parse(c.as_str().unwrap()).unwrap();
+                    form[idx] = Independent.q_parse(c.as_str().unwrap()).unwrap();
                 }
                 (shift, form)
             })
@@ -110,11 +111,19 @@ fn rows_at_mod_equals_engine_rows_at_and_exact_rows() {
         for (op, row) in r1.iter().enumerate() {
             let ex = fam.exact_row(op).unwrap();
             for (shift, form) in &ex {
-                let mut v = form[0].modp(p).unwrap();
+                let mut v = Independent.q_modp(form[0], p).unwrap();
                 for i in 0..n {
-                    v = arith::add(p, v, arith::mul(p, form[i + 1].modp(p).unwrap(), am[i]));
+                    v = arith::add(
+                        p,
+                        v,
+                        arith::mul(p, Independent.q_modp(form[i + 1], p).unwrap(), am[i]),
+                    );
                 }
-                v = arith::add(p, v, arith::mul(p, form[n + 1].modp(p).unwrap(), d));
+                v = arith::add(
+                    p,
+                    v,
+                    arith::mul(p, Independent.q_modp(form[n + 1], p).unwrap(), d),
+                );
                 assert_eq!(row.get(shift).copied().unwrap_or(0), v);
             }
             assert!(row.keys().all(|k| ex.contains_key(k)));

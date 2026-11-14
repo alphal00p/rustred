@@ -10,9 +10,10 @@ use rustred_campaign_core::ibp_rows::{
     LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
     Unsupported, Verdict, identity_test, replay_evidence,
 };
-use rustred_campaign_core::replay_base::arith::{self, Q};
-use rustred_campaign_core::replay_base::coeff::{Ctx, cross_check_engine, eval_ratio};
-use rustred_campaign_core::replay_base::expr::Expr;
+use rustred_campaign_core::independent_algebra::coeff::{cross_check_engine, eval_ratio};
+use rustred_campaign_core::independent_algebra::expr::Expr;
+use rustred_campaign_core::independent_algebra::{Independent, arith};
+use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Ctx, Q};
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::primes::verify_primes;
 use serde_json::{Value, json};
@@ -101,7 +102,7 @@ fn face() -> Face {
         .iter()
         .filter(|(sh, _)| **sh != tshift)
         .map(|(sh, f)| {
-            let neg: Vec<Q> = f.iter().map(|q| q.neg()).collect();
+            let neg: Vec<Q> = f.iter().map(|q| Independent.q_neg(*q).unwrap()).collect();
             json!([pat(sh), format!("({})/({den})", form_text(&neg, mm, n))])
         })
         .collect();
