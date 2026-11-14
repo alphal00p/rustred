@@ -264,12 +264,22 @@ impl SolveAnswers {
         if !sealed {
             return Err("results without an end record (not sealed)".into());
         }
-        for (id, a) in staged {
-            if let Some(old) = self.map.get(&id)
-                && old.relation_digest != a.relation_digest
+        // conflicts are checked before anything is kept (the answers stay as they were on an error)
+        let mut seen: BTreeMap<(Key, u32), Option<String>> = BTreeMap::new();
+        for (id, a) in &staged {
+            let prev = self
+                .map
+                .get(id)
+                .map(|o| o.relation_digest.clone())
+                .or_else(|| seen.get(id).cloned());
+            if let Some(p) = prev
+                && p != a.relation_digest
             {
                 return Err(format!("conflicting answers for {id:?}"));
             }
+            seen.insert(id.clone(), a.relation_digest.clone());
+        }
+        for (id, a) in staged {
             self.map.insert(id, a);
         }
         Ok(n)
