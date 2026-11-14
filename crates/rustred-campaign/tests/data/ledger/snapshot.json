@@ -1,5 +1,5 @@
 {
-  "head": "9b7640017b850a745e50bb9f38b36368e767f56b7b605a44c343847bf0ecb6bd",
+  "head": "118327841d0b7ea6c525c159e8b9f38298feeeb378a0f209137b1e8e6dc3d3cb",
   "schema": "rustred.campaign.snapshot.v1",
   "seq": 103,
   "state": {
@@ -657,6 +657,7 @@
       "T162-job-00000-L0": {
         "accept": "canonical",
         "attempt": 1,
+        "attempt_spec": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421",
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 1000,
@@ -679,6 +680,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": 10000,
+        "prev_attempt_spec": null,
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/T162-job-00000-L0.a1",
         "rung": "L0",
@@ -699,6 +701,7 @@
       "T162-job-00001-L0": {
         "accept": "canonical",
         "attempt": 1,
+        "attempt_spec": "1df35455431f519193225f9335a29f176b8575df4f5ac02d93b2206b504e8aa9",
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 2000,
@@ -721,6 +724,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": 10001,
+        "prev_attempt_spec": null,
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/T162-job-00001-L0.a1",
         "rung": "L0",
@@ -741,6 +745,7 @@
       "T162-job-00002-L0": {
         "accept": "canonical",
         "attempt": 1,
+        "attempt_spec": "e055773325558824fc2e088e3de6027cf20c6a5167b15aad279c185fb682f2fd",
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 3000,
@@ -763,6 +768,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": 10002,
+        "prev_attempt_spec": null,
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/T162-job-00002-L0.a1",
         "rung": "L0",
@@ -783,6 +789,7 @@
       "T162-job-00003-L0": {
         "accept": "canonical",
         "attempt": 1,
+        "attempt_spec": "a2a008a4a0d6f2c02953db2e116630e7493a3a22f3849ddff3506a3a4ba25ef0",
         "binary": "rr_node",
         "boot_id": "boot",
         "cpu_ms": 4000,
@@ -805,6 +812,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": 10003,
+        "prev_attempt_spec": null,
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/T162-job-00003-L0.a1",
         "rung": "L0",
@@ -825,6 +833,7 @@
       "T162-job-00004-L0": {
         "accept": "committed_rules",
         "attempt": 2,
+        "attempt_spec": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
         "binary": "rr_node",
         "boot_id": null,
         "cpu_ms": 2500,
@@ -847,6 +856,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": null,
+        "prev_attempt_spec": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/j4.a2",
         "rung": "L0",
@@ -867,6 +877,7 @@
       "T162-job-00006-L0": {
         "accept": "canonical",
         "attempt": 1,
+        "attempt_spec": "0c1ca9904397720c6fc03a44c0d15ca4fb0c7422281611fe6a1c7e7128298114",
         "binary": "rr_node",
         "boot_id": null,
         "cpu_ms": 400,
@@ -889,6 +900,7 @@
         },
         "peak_rss_bytes": 419430400,
         "pid": null,
+        "prev_attempt_spec": null,
         "reserved_bytes": 2147483648,
         "run_dir": "large:jobs/j6.a1",
         "rung": "L0",

@@ -75,10 +75,13 @@ fn control_requests_are_applied_and_logged() {
     let last = "N0.i0018.L0";
     assert_eq!(cli(&["control", &ds, "skip", last]).0, 0);
     assert_eq!(cli(&["control", &ds, "pause"]).0, 0);
-    wait_until("pause applied", Duration::from_secs(60), || {
-        notes(&d, "control_applied")
+    let has = |verb: &str, status: Option<&str>| {
+        controls(&d)
             .iter()
-            .any(|n| n.contains("\"pause\""))
+            .any(|(_, v, s)| v == verb && status.is_none_or(|w| w == s) && s != "requested")
+    };
+    wait_until("pause applied", Duration::from_secs(60), || {
+        has("pause", Some("applied"))
     });
     std::thread::sleep(Duration::from_millis(500));
     let n0 = launches(&d);
@@ -86,12 +89,12 @@ fn control_requests_are_applied_and_logged() {
     assert_eq!(launches(&d), n0, "launched while paused");
     assert_eq!(cli(&["control", &ds, "resume"]).0, 0);
     wait_until("skip applied or refused", Duration::from_secs(60), || {
-        notes(&d, "control_").iter().any(|n| n.contains("skip"))
+        has("skip", None)
     });
-    // retry the skipped item (it is a terminal candidate if the skip was applied).
+    // retry the skipped item (ledger: skipped -> open, new generation, not a failure).
     assert_eq!(cli(&["control", &ds, "retry", last]).0, 0);
-    wait_until("retry logged", Duration::from_secs(60), || {
-        notes(&d, "control_").iter().any(|n| n.contains("retry"))
+    wait_until("retry applied or refused", Duration::from_secs(60), || {
+        has("retry", None)
     });
     assert_eq!(cli(&["control", &ds, "stop"]).0, 0);
     assert_eq!(
@@ -100,15 +103,15 @@ fn control_requests_are_applied_and_logged() {
         "{}",
         log_tail(&d)
     );
-    let applied = notes(&d, "control_applied");
-    for v in ["pause", "resume", "stop"] {
+    // Every control is a ledger record (control requested -> applied / refused), never a note.
+    let applied = controls(&d);
+    for v in ["pause", "resume", "stop", "skip", "retry"] {
         assert!(
-            applied
-                .iter()
-                .any(|n| n.contains(&format!("\"verb\":\"{v}\""))),
+            applied.iter().any(|(_, w, s)| w == v && s == "applied"),
             "{v}: {applied:?}"
         );
     }
+    assert!(notes(&d, "control_").is_empty(), "{:?}", notes(&d, "control_"));
     assert!(std::fs::read_dir(d.join("control/done")).unwrap().count() >= 5);
     // Unknown campaign directory / usage errors.
     assert_eq!(
@@ -119,10 +122,8 @@ fn control_requests_are_applied_and_logged() {
     // Resume finishes the campaign (the skip, if applied, was retried).
     run_to_end(&spec_p, &d, &[]);
     let st = state(&d);
-    assert!(!matches!(
-        st.items[last].phase,
-        ItemPhase::TerminalCandidate
-    ));
+    assert!(!matches!(st.items[last].phase, ItemPhase::Skipped));
+    assert_eq!(st.items[last].operator_retries, 1);
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }

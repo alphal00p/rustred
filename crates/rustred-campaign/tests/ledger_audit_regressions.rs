@@ -90,6 +90,7 @@ fn new_job(l: &mut Ledger, k: usize, job: &str) -> ledger::FileRef {
                 run_dir: format!("large:jobs/{job}.a1"),
                 cpus: vec![1],
                 reserved_bytes: 1,
+                spec_blake3: digest(job),
             },
         },
         Event::Job {
@@ -522,6 +523,15 @@ fn a_m2_rotation_failure_never_fails_a_durable_append() {
     let sealed0 = l.manifest().sealed.len();
     let ldir = ledger::ledger_dir(&d);
     fs::set_permissions(&ldir, fs::Permissions::from_mode(0o555)).unwrap();
+    // Inside a private user namespace (L10: uid 0 there) directory permissions do not stop us: the fault cannot be
+    // injected this way, so the test has nothing to check (it runs fully outside the namespace).
+    let probe = ldir.join(".perm-probe");
+    if fs::write(&probe, b"x").is_ok() {
+        let _ = fs::remove_file(&probe);
+        fs::set_permissions(&ldir, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("a_m2: directory permissions are not enforced here (uid 0 in a namespace): skipped");
+        return;
+    }
     for k in 0..10 {
         l.append_all(item_life(N, k, 0, EvidenceLevel::GeometryAccepted, 10))
             .expect("durable appends are acknowledged");
@@ -1064,6 +1074,7 @@ fn a_m12_minor_failed_attempts_are_counted_apart_from_interrupts() {
                 run_dir: "r2".into(),
                 cpus: vec![],
                 reserved_bytes: 1,
+                spec_blake3: digest(&j),
             },
         ),
         ev(
@@ -1451,7 +1462,8 @@ fn operator_controls_and_attention() {
         ev: JobEvent::Launch {
             run_dir: "r".into(),
             cpus: vec![],
-            reserved_bytes: 1
+            reserved_bytes: 1,
+            spec_blake3: digest("jp"),
         }
     })));
     // skip

@@ -2,7 +2,7 @@
   "campaign_id": "test-campaign",
   "file": "heartbeat",
   "ledger": {
-    "head": "4eb7a230eb8d76b98ca39096f8e238d88d5086e9a782c17143f0ec3b46cf9c9b",
+    "head": "0726a90c04757511d7a7850c0dc9a3649559c86f85182873c26dcf4db8ef1096",
     "last_utc": "2026-11-13T23:00:25.250Z",
     "seq": 102
   },

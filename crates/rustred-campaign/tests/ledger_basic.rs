@@ -194,6 +194,7 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
                 run_dir: "r".into(),
                 cpus: vec![],
                 reserved_bytes: 1,
+                spec_blake3: digest("j2"),
             },
         },
     ])

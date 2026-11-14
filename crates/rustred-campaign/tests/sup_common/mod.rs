@@ -169,8 +169,29 @@ pub fn records(cdir: &Path) -> Vec<Record> {
     read_records(cdir).unwrap()
 }
 
+/// The reduced state through the READ-ONLY open (no lock: a live or dead supervisor's directory is never altered).
 pub fn state(cdir: &Path) -> CampaignState {
-    reduce(records(cdir).iter()).unwrap()
+    let v = rustred_campaign::ledger::open_read_only(cdir).unwrap();
+    debug_assert_eq!(reduce(records(cdir).iter()).unwrap(), v.state);
+    v.state
+}
+
+/// Operator controls recorded in the ledger: (id, verb word, status `requested` / `applied` / `refused`).
+pub fn controls(cdir: &Path) -> Vec<(String, String, String)> {
+    state(cdir)
+        .controls
+        .iter()
+        .map(|(id, c)| {
+            (
+                id.clone(),
+                serde_json::to_value(c.verb)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default(),
+                c.status.clone(),
+            )
+        })
+        .collect()
 }
 
 pub fn result(cdir: &Path) -> FinalResult {

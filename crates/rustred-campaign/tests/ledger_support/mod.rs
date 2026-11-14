@@ -271,6 +271,7 @@ pub fn item_until_produced(node: &str, k: usize, rung: u8, cpu_ms: u64) -> Vec<E
                 run_dir: format!("large:jobs/{job}.a1"),
                 cpus: vec![(k % 32) as u32],
                 reserved_bytes: 2 << 30,
+                spec_blake3: digest(&job),
             },
         },
         Event::Job {
@@ -477,6 +478,7 @@ pub fn scenario() -> Vec<Event> {
                 run_dir: "large:jobs/j4.a1".into(),
                 cpus: vec![7],
                 reserved_bytes: 1 << 30,
+                spec_blake3: digest(&j4),
             },
         ),
         (
@@ -497,6 +499,7 @@ pub fn scenario() -> Vec<Event> {
                 run_dir: "large:jobs/j4.a2".into(),
                 cpus: vec![7],
                 reserved_bytes: 1 << 30,
+                spec_blake3: digest(&j4),
             },
         ),
         (
@@ -575,6 +578,7 @@ pub fn scenario() -> Vec<Event> {
             run_dir: "large:jobs/j6.a1".into(),
             cpus: vec![3],
             reserved_bytes: 1 << 29,
+            spec_blake3: digest(&j6),
         },
     });
     v.push(Event::Job {

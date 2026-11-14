@@ -142,7 +142,8 @@ fn job_events_of_older_attempts_are_refused() {
             ev: JobEvent::Launch {
                 run_dir: "r".into(),
                 cpus: vec![],
-                reserved_bytes: 0
+                reserved_bytes: 0,
+                spec_blake3: digest("r"),
             }
         })
         .is_err()

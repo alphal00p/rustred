@@ -134,9 +134,12 @@ fn helpers_that_escape_the_group_are_killed_by_marker() {
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let d = t.cdir("run");
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
-    let killed = notes(&d, "orphan_killed");
-    assert!(!killed.is_empty(), "{}", log_tail(&d));
-    assert!(killed.iter().all(|n| n.contains("contract violation")));
+    // Ledger kind `orphan_killed` (job recorded), and the log names the contract violation.
+    let killed = count(&d, |e| matches!(e, Event::OrphanKilled { job: Some(_), .. }));
+    assert!(killed >= 1, "{}", log_tail(&d));
+    assert!(notes(&d, "orphan_killed").is_empty());
+    let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap();
+    assert!(log.contains("contract violation"), "{log}");
     assert_no_marked(&t.campaign);
     assert_eq!(verify(&d), 0);
 }
@@ -180,12 +183,14 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     let d2 = decoy(&d, Some((ok, ov)));
     std::thread::sleep(Duration::from_millis(200));
     {
-        let (mut l, _) = Ledger::open(
-            &d,
-            Arc::new(rustred_campaign::clock::SystemClock::new()),
-            LedgerConfig::default(),
-        )
-        .unwrap();
+        // Planting into the DEAD supervisor's ledger needs a write handle, i.e. the campaign lock (ledger 4): take it
+        // over, plant, release, and put the dead owner's record back, so the restart still meets a stale lock.
+        let owner_file = d.join(rustred_campaign::lock::OWNER_FILE);
+        let dead_owner = std::fs::read(&owner_file).unwrap();
+        let clock = Arc::new(rustred_campaign::clock::SystemClock::new());
+        let (lock, _) =
+            rustred_campaign::lock::acquire(&d, clock.as_ref(), &["decoy-planter".into()]).unwrap();
+        let (mut l, _) = Ledger::open(&d, &lock, clock, LedgerConfig::default()).unwrap();
         let run_dir = t.path.join("decoy-run");
         std::fs::create_dir_all(&run_dir).unwrap();
         l.append_all(vec![
@@ -194,6 +199,8 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
                 inputs: vec![],
                 terminal_bound: None,
                 spec_box: None,
+                spec: Default::default(),
+                reference: None,
             },
             Event::ItemCreated {
                 item: "DECOY.i0".into(),
@@ -213,6 +220,7 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
                 spec_blake3: "0".repeat(64),
                 binary: "bin:rr_fake_child".into(),
                 reserved_bytes: 1,
+                inputs: vec![],
             },
             Event::Job {
                 job: "DECOY.i0-t0".into(),
@@ -221,6 +229,7 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
                     run_dir: run_dir.to_string_lossy().into(),
                     cpus: vec![],
                     reserved_bytes: 1,
+                    spec_blake3: "0".repeat(64),
                 },
             },
             Event::Job {
@@ -234,6 +243,9 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
             },
         ])
         .unwrap();
+        drop(l);
+        lock.release().unwrap();
+        std::fs::write(&owner_file, dead_owner).unwrap();
     }
     // Immediate restart: the stale lock is taken over; recovery settles everything; the run finishes.
     run_to_end(&spec_p, &d, &[]);
