@@ -44,10 +44,14 @@ pub struct SpanArgs {
     pub max_points: Option<usize>,
     /// write one certificate file per proved key (weights W_i/L on the independent rows) into this directory
     pub emit_dir: Option<String>,
+    /// symmetry rows: "auto" (iff the rule record has sym_rows > 0), "on", "off"
+    pub symmetry: String,
+    /// side file with a symmetry_group record (std build; else the table's own record is used)
+    pub symmetry_group: Option<String>,
 }
 impl Default for SpanArgs {
     fn default() -> Self {
-        SpanArgs { table: String::new(), offset: None, cert: None, rule: -1, chart: None, keys: vec![], drop_zero_sectors: false, ignore_exc: false, max_primes: 40, max_points: None, emit_dir: None }
+        SpanArgs { table: String::new(), offset: None, cert: None, rule: -1, chart: None, keys: vec![], drop_zero_sectors: false, ignore_exc: false, max_primes: 40, max_points: None, emit_dir: None, symmetry: "auto".into(), symmetry_group: None }
     }
 }
 
@@ -311,6 +315,44 @@ impl Elim {
     }
 }
 
+/// One-term symmetry rows (the engine's `--symmetry-rows` / `--symmetry-symbolic`, sym-gen step 2 / sym-7master):
+/// at every instantiated seed key a whose chart lines are all >= 1, for every group element g whose action is exact
+/// on a (every slot with a nonzero power has a target), the row I(a) - s I(g a) (s = -1 when an odd power sits on a
+/// flipped slot), or 2 I(a) when g a = a with s = -1; pairs are de-duplicated as in the engine.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Sym {
+    pub actions: Vec<Vec<Option<(usize, bool)>>>,
+    pub lines: Vec<bool>,
+}
+impl Sym {
+    fn image(&self, e: usize, key: &[i64]) -> Option<(Vec<i64>, bool)> {
+        let act = &self.actions[e];
+        let mut out = vec![0i64; key.len()];
+        let mut neg = false;
+        for (slot, &p) in key.iter().enumerate() {
+            if p == 0 { continue; }
+            let (t, flip) = (*act.get(slot)?)?;
+            if t >= key.len() { return None; }
+            out[t] = p;
+            if flip && p % 2 != 0 { neg = !neg; }
+        }
+        Some((out, neg))
+    }
+}
+/// parse a symmetry_group record (table line, side-file line, or a bare group object) -> (chart, actions)
+pub(crate) fn parse_group(l: &[u8]) -> (Option<Vec<u8>>, Vec<Vec<Option<(usize, bool)>>>) {
+    let j = jparse(l);
+    let chart = j.get(l, "chart").map(|x| x.s(l).to_vec());
+    let g = j.get(l, "group").unwrap_or(&j);
+    let els = g.get(l, "elements").unwrap_or_else(|| die("symmetry group without elements")).arr();
+    let actions = els.iter().map(|e| e.get(l, "action").unwrap_or_else(|| die("symmetry element without action")).arr().iter().map(|a| match a {
+        J::Null => None,
+        J::Arr(v) => Some((v[0].int(l) as usize, matches!(v[1], J::Bool(true)))),
+        _ => die("symmetry action entry"),
+    }).collect()).collect();
+    (chart, actions)
+}
+
 // ===================================================================== instantiated system at a key
 struct Inst {
     cols: Vec<Vec<i64>>,
@@ -321,6 +363,7 @@ struct Inst {
     dropped_cols: usize,
     seeds: usize,
     seed_cols_with_d: usize,
+    sym_rows: usize,
 }
 
 /// value of a sum text at an integer key as a polynomial in d (exact). keypow[v][e] = key_v^e.
@@ -389,6 +432,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     let mut hline: Vec<u8> = vec![];
     let mut zero_masks: std::collections::HashSet<Vec<u8>> = Default::default();
     let mut zero_scope = String::new();
+    let mut groups: Vec<(Option<Vec<u8>>, Vec<Vec<Option<(usize, bool)>>>)> = vec![];
     let mut nl = 0;
     read_lines_matching(&args.table, |l| {
         nl += 1;
@@ -397,9 +441,9 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             let j = jparse(l);
             zero_scope = String::from_utf8_lossy(j.get(l, "scope").map(|x| x.s(l)).unwrap_or(b"?")).to_string();
             for m in j.get(l, "masks").unwrap().arr() { zero_masks.insert(m.s(l).to_vec()); }
-            return false;
         }
-        nl < 8 && !l.starts_with(b"{\"type\":\"rule\"")
+        if l.starts_with(b"{\"type\":\"symmetry_group\"") { groups.push(parse_group(l)); }
+        nl < 64 && !l.starts_with(b"{\"type\":\"rule\"")
     });
     let mut tline: Vec<u8> = vec![];
     if let Some(off) = args.offset {
@@ -426,6 +470,18 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     let chart = String::from_utf8(tj.get(&tline, "chart").unwrap().s(&tline).to_vec()).unwrap();
     let t_load = t0.elapsed().as_secs_f64();
     put!("rule", format!("{}", tj.get(&tline, "index").unwrap().int(&tline)));
+    // ---------------------------------------------------------------- symmetry rows (auto: iff the rule record says sym_rows > 0)
+    if let Some(f) = &args.symmetry_group { read_lines_matching(f, |l| { if l.iter().any(|c| !c.is_ascii_whitespace()) { groups.push(parse_group(l)); } true }); }
+    let rule_sym_rows = match tj.get(&tline, "sym_rows") { Some(J::Num(..)) => tj.get(&tline, "sym_rows").unwrap().int(&tline), _ => 0 };
+    let want_sym = match args.symmetry.as_str() { "on" => true, "off" => false, _ => rule_sym_rows > 0 };
+    let group = groups.iter().find(|g| g.0.as_deref().map_or(true, |c| c == chart.as_bytes())).map(|g| g.1.clone());
+    let sym = if want_sym {
+        match group {
+            Some(actions) => Sym { actions, lines: chart.bytes().map(|c| c == b'1').collect() },
+            None => die("MISSING_SYMMETRY_GROUP: the rule uses symmetry rows (sym_rows > 0 or --symmetry on) but neither the table nor --symmetry-group FILE carries a symmetry_group record for its chart"),
+        }
+    } else { Sym::default() };
+    put!("symmetry", format!("{{\"mode\":{},\"rule_sym_rows\":{},\"used\":{},\"elements\":{},\"source\":{}}}", jstr(&args.symmetry), rule_sym_rows, want_sym, sym.actions.len(), jstr(if !want_sym { "none" } else if args.symmetry_group.is_some() { "table or --symmetry-group file" } else { "table symmetry_group record" })));
     put!("chart", jstr(&chart));
     put!("record_bytes", format!("{}", tline.len()));
 
@@ -560,7 +616,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             key_json.push(format!("{{\"key\":{{{}}},\"status\":{}}}", k.keystr, jstr(&format!("IRREGULAR_KEY (rhs denominator of term {} vanishes identically in d)", i))));
             continue;
         }
-        let r = span_at_key(&k.kv, &target, &rhs, &rnum[li], &rden[li], &seeds, &recenter, &rows, &row_ids, &zero_masks, args, &base, &k.keystr);
+        let r = span_at_key(&k.kv, &target, &rhs, &rnum[li], &rden[li], &seeds, &recenter, &rows, &row_ids, &zero_masks, args, &base, &k.keystr, &sym);
         match r.0.as_str() {
             "EXACT_IN_SPAN_AT_KEY" => n_proved += 1,
             s if s.contains("NOT_IN_SPAN") || s.starts_with("FAIL") => n_fail += 1,
@@ -580,7 +636,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, drop_zero: bool) -> Inst {
+fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, drop_zero: bool, sym: &Sym) -> Inst {
     let mut colid: HashMap<Vec<i64>, u32> = HashMap::new();
     let mut cols: Vec<Vec<i64>> = vec![];
     let mut dropped: std::collections::HashSet<Vec<i64>> = Default::default();
@@ -617,6 +673,8 @@ fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
     let mut out_rows = vec![];
     let mut row_label = vec![];
     let mut seed_d_cols = std::collections::HashSet::new();
+    let mut sym_pairs: std::collections::BTreeSet<(Vec<i64>, Vec<i64>, bool)> = Default::default();
+    let mut sym_added = 0usize;
     for (si, s) in seeds.iter().enumerate() {
         let sg: Vec<i64> = pat_at(s, kv).iter().zip(recenter).map(|(a, b)| a + b).collect();
         if !seen.insert(sg.clone()) { continue; }
@@ -633,14 +691,33 @@ fn instantiate(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
             let r: Vec<(u32, i64, i64)> = acc.into_iter().filter(|x| x.1 .0 != 0 || x.1 .1 != 0).map(|(c, (b, d))| (c, b, d)).collect();
             if !r.is_empty() { out_rows.push(r); row_label.push((si, *m)); }
         }
+        // symmetry rows at this seed (engine rule: only seed keys with every chart line >= 1)
+        if !sym.actions.is_empty() && sym.lines.iter().zip(&sg).all(|(&l, &x)| !l || x >= 1) {
+            for e in 0..sym.actions.len() {
+                let Some((img, neg)) = sym.image(e, &sg) else { continue };
+                if img == sg && !neg { continue; }
+                let pair = if sg <= img { (sg.clone(), img.clone(), neg) } else { (img.clone(), sg.clone(), neg) };
+                if !sym_pairs.insert(pair) { continue; }
+                let r: Vec<(u32, i64, i64)> = if img == sg {
+                    match cid(sg.clone(), &mut colid, &mut cols) { Some(c) => vec![(c, 2, 0)], None => vec![] }
+                } else {
+                    let mut r = vec![];
+                    if let Some(c) = cid(sg.clone(), &mut colid, &mut cols) { r.push((c, 1, 0)); }
+                    if let Some(c) = cid(img.clone(), &mut colid, &mut cols) { r.push((c, if neg { 1 } else { -1 }, 0)); }
+                    r.sort();
+                    r
+                };
+                if !r.is_empty() { out_rows.push(r); row_label.push((si, -(e as i64) - 1)); sym_added += 1; }
+            }
+        }
     }
-    Inst { cols, rows: out_rows, row_label, v, t_deg, dropped_cols: dropped.len(), seeds: seen.len(), seed_cols_with_d: seed_d_cols.len() }
+    Inst { cols, rows: out_rows, row_label, v, t_deg, dropped_cols: dropped.len(), seeds: seen.len(), seed_cols_with_d: seed_d_cols.len(), sym_rows: sym_added }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, args: &SpanArgs, base: &Sha256, keystr: &str) -> (String, String) {
+fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)], rnum: &[BigPoly], rden: &[BigPoly], seeds: &[Pat], recenter: &[i64], rows: &Rows, row_ids: &[i64], zero: &std::collections::HashSet<Vec<u8>>, args: &SpanArgs, base: &Sha256, keystr: &str, sym: &Sym) -> (String, String) {
     let ti = Instant::now();
-    let inst = instantiate(kv, target, rhs, rnum, rden, seeds, recenter, rows, row_ids, zero, args.drop_zero_sectors);
+    let inst = instantiate(kv, target, rhs, rnum, rden, seeds, recenter, rows, row_ids, zero, args.drop_zero_sectors, sym);
     let t_inst = ti.elapsed().as_secs_f64();
     let ncol = inst.cols.len();
     let nrow = inst.rows.len();
@@ -651,7 +728,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
     let ndistinct_den = { let mut dl: Vec<&BigPoly> = vec![]; for x in &inst.v { if !dl.contains(&&x.2) { dl.push(&x.2); } } dl.iter().map(|d| d.len().saturating_sub(1)).sum::<usize>() };
     let cap = args.max_points.unwrap_or(dv + 2 * ndistinct_den + 2 * sd + 2 + 3);
     let mut info = vec![
-        format!("\"instance\":{{\"rows\":{},\"columns\":{},\"seeds\":{},\"seed_columns_with_d\":{},\"zero_sector_columns_dropped\":{},\"v_columns\":{},\"max_deg_den\":{},\"max_deg_num\":{},\"sum_deg_distinct_den\":{},\"point_cap_per_prime\":{},\"seconds\":{:.3}}}", nrow, ncol, inst.seeds, sd, inst.dropped_cols, inst.v.len(), inst.t_deg, dv, ndistinct_den, cap, t_inst),
+        format!("\"instance\":{{\"rows\":{},\"columns\":{},\"seeds\":{},\"seed_columns_with_d\":{},\"zero_sector_columns_dropped\":{},\"symmetry_rows\":{},\"v_columns\":{},\"max_deg_den\":{},\"max_deg_num\":{},\"sum_deg_distinct_den\":{},\"point_cap_per_prime\":{},\"seconds\":{:.3}}}", nrow, ncol, inst.seeds, sd, inst.dropped_cols, inst.sym_rows, inst.v.len(), inst.t_deg, dv, ndistinct_den, cap, t_inst),
     ];
     if inst.v.is_empty() { return ("EXACT_IN_SPAN_AT_KEY".into(), { info.push("\"note\":\"rule vector is zero at the key\"".into()); info.join(",") }); }
     // hash stream for this key
@@ -802,7 +879,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
                 let ws: Vec<String> = s_rows.iter().zip(&wz).filter(|(_, w)| !w.is_empty()).map(|(&ri, w)| format!("[{},{},{}]", inst.row_label[ri].0, inst.row_label[ri].1, ps(w))).collect();
                 let kv = &kv[..target.len()];
                 let kv_s = kv.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_");
-                let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m, W coefficients ascending in d]\"}}", kv, ps(&lz), ws.join(","));
+                let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m (m < 0: symmetry row of group element -m-1), W coefficients ascending in d]\"}}", kv, ps(&lz), ws.join(","));
                 let _ = std::fs::create_dir_all(dir);
                 let _ = std::fs::write(format!("{}/cert_{}.json", dir, kv_s), body);
             }
