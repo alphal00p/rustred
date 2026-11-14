@@ -533,8 +533,13 @@ fn random_rows(field: &Zp64, rows: usize, seed: u64) -> Vec<Vec<Term<1, Numerica
 
 #[test]
 fn batched_rows_reproduce_row_by_row_insertion() {
-    let field = Zp64::new(101);
-    for seed in 0..8 {
+    // A small prime (frequent accidental zeros, many dependent rows) and a
+    // 62-bit one (the generic case).
+    for (prime, seed) in (0..8)
+        .map(|seed| (101, seed))
+        .chain((0..4).map(|seed| (4_611_686_018_427_387_847, 1_000 + seed)))
+    {
+        let field = Zp64::new(prime);
         let rows = random_rows(&field, 40, seed);
         let mut single = Discovery::new(order(), field.clone());
         let pivots: Vec<_> = rows.iter().map(|row| single.add_row(row)).collect();
@@ -558,6 +563,14 @@ fn batched_rows_reproduce_row_by_row_insertion() {
         }
         assert_eq!(single.u_nnz(), batched.u_nnz());
         assert_eq!(single.l_entries(), batched.l_entries());
+        // Traces depend on L and the accepted-row mapping, where batching
+        // could differ.
+        let all: Vec<usize> = (0..batched.basis_len()).collect();
+        assert_eq!(single.trace_many(&all), batched.trace_many(&all));
+        assert_eq!(single.trace_union(&all), batched.trace_union(&all));
+        for root in 0..batched.basis_len() {
+            assert_eq!(single.trace(root), batched.trace(root));
+        }
     }
 }
 

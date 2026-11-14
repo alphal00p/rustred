@@ -187,13 +187,11 @@ pub struct DiscoveryStats {
     pub reducer_nonzeros: usize,
     /// Direct dependencies of accepted rows, excluding their diagonals.
     pub dependency_edges: usize,
-    /// Native L rows retained for both independent and dependent inputs
-    /// (accepted inputs only with the `numerica-drop-dependent-l` feature).
+    /// Native L rows retained for both independent and dependent inputs.
     /// Empty numerical inputs do not append a native L row.
     pub retained_l_rows: usize,
-    /// Native L column indices, including accepted diagonals and (without
-    /// the `numerica-drop-dependent-l` feature) the patterns of dependent
-    /// inputs. Pattern mode stores no coefficient values.
+    /// Native L column indices, including accepted diagonals and the patterns
+    /// of dependent inputs. Pattern mode stores no coefficient values.
     pub retained_l_entries: usize,
 }
 
@@ -300,14 +298,14 @@ impl<const N: usize> ColumnComparator<N> for IntegralOrder<N> {
 /// used by [`Self::trace`]. Whether a pivot solves a case belongs to the caller:
 /// discovery does not collapse case matches into a distinguished target column.
 ///
-/// By default the native reducer retains the L patterns of dependent inputs
-/// (unlike C++ SpIRed). The accepted-row mapping preserves trace correctness,
-/// but for `m` inputs and rank `r` retained L can grow as `O(m * r)` even when
-/// the basis stops growing. With the cargo feature `numerica-drop-dependent-l`
-/// the reducer drops them (`SparseRowReducer::set_retain_dependent_l(false)`,
-/// which needs a Symbolica/numerica revision that provides it), so L has one
-/// row per accepted input. Pivots, U and traces are identical in both modes.
-/// [`Self::stats`] reports the stored L entries (not allocation bytes).
+/// Unlike C++ SpIRed, the native reducer retains the L patterns of dependent
+/// inputs. The accepted-row mapping preserves trace correctness, but for `m`
+/// inputs and rank `r` retained L can grow as `O(m * r)` even when the basis
+/// stops growing. [`Self::stats`] reports this storage separately from
+/// accepted dependency edges; its entry counts are not allocation bytes.
+/// (Dropping those patterns needs a reducer option that the pinned
+/// Symbolica/numerica revision does not have; it is proposed upstream and is a
+/// future option here.)
 ///
 /// Basis ordinals are also native U row indices: the reducer appends a U row
 /// exactly when it accepts an input.
@@ -316,9 +314,8 @@ pub struct Discovery<const N: usize, O = IntegralOrder<N>> {
     order: O,
     columns: Vec<Integral<N>>,
     reducer: SparseRowReducer<Zp64>,
-    /// Native L row of each accepted input. Native L also records dependent
-    /// input rows unless they are dropped (feature `numerica-drop-dependent-l`,
-    /// where this is the identity); the mapping keeps traces independent of that.
+    /// Native L also records dependent input rows, whereas its column indices
+    /// refer to accepted U rows. Keep that distinction without copying L.
     accepted_l_rows: Vec<usize>,
     rows_seen: usize,
     dependency_edges: usize,
@@ -333,16 +330,7 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
             columns: Vec::new(),
             // A permanent zero column follows every physical integral. It
             // prevents the native full-rank shortcut from suppressing L rows.
-            // Only accepted rows are ever traced, so with the feature the L
-            // slices of dependent rows are dropped as soon as they are found
-            // dependent.
-            reducer: {
-                #[allow(unused_mut)]
-                let mut reducer = SparseRowReducer::new(1, field, LuLMode::Pattern);
-                #[cfg(feature = "numerica-drop-dependent-l")]
-                reducer.set_retain_dependent_l(false);
-                reducer
-            },
+            reducer: SparseRowReducer::new(1, field, LuLMode::Pattern),
             accepted_l_rows: Vec::new(),
             rows_seen: 0,
             dependency_edges: 0,
