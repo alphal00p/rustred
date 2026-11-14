@@ -74,6 +74,8 @@ struct RJob {
     solved_done: AtomicU64,
     /// 0 prepare, 1 case_search (= keys being solved), 2 finishing
     phase: AtomicU8,
+    /// forwarding of the verb's per-key events (watchdog; the end hook drains and closes it before `job_finished`)
+    forward: Mutex<Forward>,
 }
 
 static RJOB: OnceLock<Arc<RJob>> = OnceLock::new();
@@ -97,6 +99,16 @@ impl RJob {
             let _ = self.sink.emit(Event::Phase {
                 phase: self.phase(),
             });
+        }
+    }
+
+    /// Forward the verb's new per-key events; `close`: the last call (every later one is a no-op), so that no event
+    /// follows `job_finished`.
+    fn forward_events(&self, close: bool) {
+        let mut f = lock(&self.forward);
+        f.pump(self, &self.layout.out_dir().join("EVENTS.jsonl"));
+        if close {
+            f.closed = true;
         }
     }
 
@@ -285,8 +297,6 @@ fn watchdog(j: Arc<RJob>) {
     let mut last_fwd = Instant::now();
     let hb = Duration::from_secs(u64::from(j.spec.heartbeat_s.max(1)));
     let backstop = Duration::from_secs(u64::from(j.spec.stop_grace_s) + 5);
-    let verb_events = j.layout.out_dir().join("EVENTS.jsonl");
-    let mut fwd = Forward::default();
     loop {
         std::thread::sleep(Duration::from_millis(20));
         let (n, last) = proc::signals();
@@ -313,7 +323,7 @@ fn watchdog(j: Arc<RJob>) {
         }
         if last_fwd.elapsed() >= Duration::from_millis(200) {
             last_fwd = Instant::now();
-            fwd.pump(&j, &verb_events);
+            j.forward_events(false);
         }
         if last_hb.elapsed() >= hb {
             last_hb = Instant::now();
@@ -340,10 +350,14 @@ fn watchdog(j: Arc<RJob>) {
 struct Forward {
     offset: u64,
     pending: Vec<u8>,
+    closed: bool,
 }
 
 impl Forward {
     fn pump(&mut self, j: &RJob, path: &std::path::Path) {
+        if self.closed {
+            return;
+        }
         let Ok(mut f) = std::fs::File::open(path) else {
             return;
         };
@@ -431,6 +445,8 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
     if FINAL.swap(true, SeqCst) {
         park_forever();
     }
+    // every per-key event of the verb (written before its results) is forwarded now, none after `job_finished`
+    j.forward_events(true);
     j.set_phase(2);
     let internal = |m: String| j.fail_outcome(ExitCode::Internal, &m);
     let rel = RunLayout::out_rel(RESULTS);
@@ -574,6 +590,7 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
         keys_done: AtomicU64::new(0),
         solved_done: AtomicU64::new(0),
         phase: AtomicU8::new(0),
+        forward: Mutex::new(Forward::default()),
     });
     if RJOB.set(j.clone()).is_err() {
         eprintln!("rr_node job: one job per process");
