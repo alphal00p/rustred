@@ -1210,13 +1210,16 @@ impl TermminSource {
                     &inner,
                 )?;
                 let threads = self.nodes[i].cfg.check_threads;
+                // lane closeloop3: recipe-served keys of the second statement are per-key only with their bound proof
+                let proved = self.inner.proved_relations(st, &node);
                 let h = std::thread::Builder::new()
                     .name(format!("termmin-second-{n}"))
                     .spawn(move || -> Result<Loaded, String> {
                         let isp = TableSetSpec::read(&sp).map_err(|e| format!("extended spec: {e}"))?;
                         let base = sp.parent().map(Path::to_path_buf).unwrap_or_default();
                         let set = rustred_campaign_core::import::load(&isp, &base).map_err(|e| format!("extended load: {e}"))?;
-                        let ev = Evidence::from_spec(&set, &base).map_err(|e| format!("extended evidence: {e}"))?;
+                        let mut ev = Evidence::from_spec(&set, &base).map_err(|e| format!("extended evidence: {e}"))?;
+                        ev.recipe_proofs = Some(proved);
                         let res = rustred_campaign_core::import::check(
                             &set,
                             &ev,
@@ -1530,7 +1533,39 @@ impl WorkSource for TermminSource {
                 rt.accepts.push(keys);
                 rt.accepts.push(lines_rec);
             }
-            answer_of(&d, &b.keys[0], &step, &rid, &b.recipe_path, cost)
+            let ans = answer_of(&d, &b.keys[0], &step, &rid, &b.recipe_path, cost);
+            // lane closeloop3 (closeloop.md 16.7): the certified relation as point records for the proof pass (its
+            // recipe id = the one the extended spec gives it: the termmin point recipe, or the node's own recipe for a
+            // closing solve)
+            if let SolveAnswer::Relation { candidate, .. } = &ans
+                && !d.records.is_empty()
+            {
+                let src = if step == "closing" {
+                    b.source.clone()
+                } else {
+                    rustred_campaign_core::termmin::extend::candidate_source(&terminal, candidate)
+                };
+                let node = self.nodes[i].cfg.node.clone();
+                if let Some(rel) = self.inner.phase_e_relation_table(
+                    &node,
+                    &b,
+                    &src,
+                    &done.item,
+                    &done.job,
+                    &d.records,
+                )? {
+                    let f = rel.file_ref();
+                    rt.events.push(Event::InputRegistered {
+                        input: super::ids::input_relations(&done.item, &done.job),
+                        role: super::ids::ROLE_RELATIONS.into(),
+                        path: self.abs(&rel.path).display().to_string(),
+                        bytes: f.bytes,
+                        blake3: f.blake3,
+                    });
+                    rt.accepts.push(rel);
+                }
+            }
+            ans
         };
         if !matches!(answer, SolveAnswer::Relation { .. }) {
             rt.events.push(Event::Item {
@@ -1621,14 +1656,20 @@ impl WorkSource for TermminSource {
             }
             // finished when the machine is done (or failed) and no termmin item is in flight
             let node = self.nodes[i].cfg.node.clone();
-            let busy = st.items.values().any(|it| {
-                it.node == node
-                    && it.kind == KIND_TERMMIN
-                    && matches!(
-                        it.phase,
-                        ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced
-                    )
-            });
+            // lane closeloop3 (closeloop.md 16.7): phase-E relations get span proof items of the inner's proof pass;
+            // the second statement waits until every proof item of the node is final
+            let pr = self.inner.phase_e_proof_items(st, &node, KIND_TERMMIN)?;
+            rt.events.extend(pr.events);
+            rt.accepts.extend(pr.accepts);
+            let busy = self.inner.proofs_pending(st, &node)
+                || st.items.values().any(|it| {
+                    it.node == node
+                        && it.kind == KIND_TERMMIN
+                        && matches!(
+                            it.phase,
+                            ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced
+                        )
+                });
             let new_items = rt
                 .events
                 .iter()

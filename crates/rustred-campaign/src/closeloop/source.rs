@@ -90,6 +90,156 @@ pub struct CloseFromMaterialSource {
     last_progress: Option<(Instant, String)>,
 }
 
+
+// ------------------------------------------------------------------------------------------------------------------
+// lane closeloop3 (closeloop.md 16.7): the proof pass for PHASE-E (termmin) relations. Phase E (`termmin::TermminSource`)
+// records its certified relations as point-record tables (role `closeloop_relations`, like the closing loop's own);
+// these helpers give each record a span proof item of THIS source (the same jobs, settle path and evidence files as
+// closeloop.md 13.1 (b)), tell phase E when they are all final, and compute the import's `recipe_proofs` from them.
+impl CloseFromMaterialSource {
+    /// The relation point-record table of a phase-E solve; its header's `recipe_source` is `source` (the recipe id the
+    /// extended import spec gives the relation). None when the node runs no relation proofs.
+    pub(crate) fn phase_e_relation_table(
+        &self,
+        node: &str,
+        b: &BatchFile,
+        source: &str,
+        item: &str,
+        job: &str,
+        records: &[(Vec<i32>, Value)],
+    ) -> Result<Option<AcceptedRecord>, String> {
+        let Some(i) = self.node_of(node) else {
+            return Ok(None);
+        };
+        if self.nodes[i].cfg.proof.as_ref().is_none_or(|p| !p.relations) {
+            return Ok(None);
+        }
+        let mut b2 = b.clone();
+        b2.source = source.to_string();
+        self.relation_table(i, &b2, item, job, records).map(Some)
+    }
+
+    /// Span proof items for the records of the node's relation tables registered by items of kind `kind` that no
+    /// proof item asked yet (one item per record, reason `relation`; ids `<n>.p0.<j>`: round 0 is never a pass).
+    pub(crate) fn phase_e_proof_items(
+        &mut self,
+        st: &CampaignState,
+        node: &str,
+        kind: &str,
+    ) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        let Some(i) = self.node_of(node) else {
+            return Ok(rt);
+        };
+        if self.nodes[i].cfg.proof.as_ref().is_none_or(|p| !p.relations) {
+            return Ok(rt);
+        }
+        let asked = self.proof_issued(st, i)?.spans;
+        let n = self.nodes[i].n.clone();
+        let prefix = format!("{n}.p0.");
+        let mut j = st
+            .items
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix).and_then(|x| x.parse::<usize>().ok()))
+            .map(|x| x + 1)
+            .max()
+            .unwrap_or(0);
+        for (id, p, _) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
+            let item = id
+                .strip_prefix("closeloop:")
+                .and_then(|x| x.split_once(':'))
+                .map(|(it, _)| it.to_string())
+                .unwrap_or_default();
+            if st.items.get(&item).is_none_or(|it| it.kind != kind) {
+                continue;
+            }
+            let text = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let source = text
+                .split(|&c| c == b'\n')
+                .next()
+                .and_then(|h| serde_json::from_slice::<Value>(h).ok())
+                .and_then(|h| h["recipe_source"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            for (rule, offset, sha, key) in proofs::relation_records(&text) {
+                if asked.contains(&(sha.clone(), key.clone())) {
+                    continue;
+                }
+                let b = ProofBatch {
+                    kind: "span".into(),
+                    reason: proofs::REASON_RELATION.into(),
+                    table: p.display().to_string(),
+                    records: vec![proofs::RecordReq {
+                        rule,
+                        offset,
+                        record_sha256: sha,
+                        keys: vec![key],
+                    }],
+                    relation_source: Some(source.clone()),
+                };
+                self.new_proof_item(&mut rt, i, 0, j, &b)?;
+                j += 1;
+            }
+        }
+        Ok(rt)
+    }
+
+    /// Whether any proof / fact item of the node is not final.
+    pub(crate) fn proofs_pending(&self, st: &CampaignState, node: &str) -> bool {
+        st.items
+            .values()
+            .any(|it| it.node == node && is_proof_kind(&it.kind) && !Self::item_final(&it.phase))
+    }
+
+    /// (recipe source, key) of every relation record of the node (any `closeloop_relations` table: the closing loop's
+    /// and phase E's) with an exact per-key proof bound (EXACT_IN_SPAN_AT_KEY to (record_sha256, key)): the import's
+    /// `Evidence::recipe_proofs` (closeloop.md 13.6).
+    pub(crate) fn proved_relations(
+        &self,
+        st: &CampaignState,
+        node: &str,
+    ) -> std::collections::HashSet<(String, Vec<i32>)> {
+        let mut out = std::collections::HashSet::new();
+        let Some(i) = self.node_of(node) else {
+            return out;
+        };
+        let mut by_sha: BTreeMap<String, (String, Vec<i32>)> = BTreeMap::new();
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
+            let Ok(text) = std::fs::read(&p) else {
+                continue;
+            };
+            let source = text
+                .split(|&c| c == b'\n')
+                .next()
+                .and_then(|h| serde_json::from_slice::<Value>(h).ok())
+                .and_then(|h| h["recipe_source"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            for (_, _, sha, key) in proofs::relation_records(&text) {
+                by_sha.insert(sha, (source.clone(), key));
+            }
+        }
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_PROOFS) {
+            for l in std::fs::read_to_string(&p).unwrap_or_default().lines() {
+                let Ok(v) = serde_json::from_str::<Value>(l) else {
+                    continue;
+                };
+                let (Some(sha), Ok(key)) = (
+                    v["record_sha256"].as_str(),
+                    serde_json::from_value::<Vec<i32>>(v["key"].clone()),
+                ) else {
+                    continue;
+                };
+                if v["verdict"] == "EXACT_IN_SPAN_AT_KEY"
+                    && let Some((s, k)) = by_sha.get(sha)
+                    && *k == key
+                {
+                    out.insert((s.clone(), key));
+                }
+            }
+        }
+        out
+    }
+}
+
 /// lane closeloop2 / closeloop3: the item kinds of proof jobs (span, rr_proof facts, exact-eval facts).
 fn is_proof_kind(k: &str) -> bool {
     k == KIND_PROOF || k == KIND_FACTS || k == KIND_EXACT
