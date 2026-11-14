@@ -1,0 +1,67 @@
+{
+  "campaign_id": "fixture-mid",
+  "declared": 2,
+  "file": "terminals",
+  "ledger": {
+    "head": "79566b6f6472faa4781c03b5666ce38c17e34988357848c7cbd179bd4ebaee70",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
+  },
+  "nodes": {
+    "T162": {
+      "report": {
+        "bound": 100,
+        "counted": 2,
+        "other": 2,
+        "preferred_listed": null,
+        "preferred_not_needed": null,
+        "preferred_used": 0
+      },
+      "terminals": [
+        {
+          "counted": true,
+          "item": "T162:I0004",
+          "keys": 2,
+          "keyset": {
+            "blake3": "06766362552e3adff852b25cd5f3c81e0afb18fec7e1c10d0edc8cd9b7f4559a",
+            "bytes": 1027,
+            "path": "large:keysets/T162-terminals.keys"
+          },
+          "label": "F003 n9=-1",
+          "ladder_exhausted": {
+            "blake3": "8503875af7d2c273e3537435739848fd452be369e9f4029730755b8bf338104b",
+            "bytes": 1032,
+            "path": "large:ladder/T162:I0004.exhausted.json"
+          },
+          "preferred": false,
+          "rung": "L1"
+        }
+      ]
+    },
+    "T164": {
+      "report": {
+        "bound": 100,
+        "counted": 0,
+        "other": 0,
+        "preferred_listed": null,
+        "preferred_not_needed": null,
+        "preferred_used": 0
+      },
+      "terminals": []
+    },
+    "T178": {
+      "report": {
+        "bound": 100,
+        "counted": 0,
+        "other": 0,
+        "preferred_listed": null,
+        "preferred_not_needed": null,
+        "preferred_used": 0
+      },
+      "terminals": []
+    }
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T11:58:34.250Z"
+}

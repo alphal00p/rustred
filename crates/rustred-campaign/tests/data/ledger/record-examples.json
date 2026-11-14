@@ -1,4 +1,18 @@
 {
+  "artefact_lost": {
+    "event": {
+      "body": {
+        "blake3": "8ff004fe44a6f1179647859a233a729e06d09d9e1943c31706e4c4be28ff12f3",
+        "items": [],
+        "path": "accepted/T162/00001.json"
+      },
+      "kind": "artefact_lost"
+    },
+    "prev": "241750beb650a7b08687060b2256468360f682f4a4f459e810b4b83054832468",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 102,
+    "utc": "2026-11-13T23:00:25.250Z"
+  },
   "campaign": {
     "event": {
       "body": {
@@ -7,7 +21,7 @@
       },
       "kind": "campaign"
     },
-    "prev": "55b1f72542fa1bbd1148e0c791f06e49ee74b1ade64d6d8fec573c3e196d541d",
+    "prev": "3bba8fe0713d18d90422bf62826113f9c3cd5a47ddccc9f3b32c4f6eaf02b664",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 8,
     "utc": "2026-11-13T23:00:01.750Z"
@@ -16,6 +30,7 @@
     "event": {
       "body": {
         "campaign_id": "test-campaign",
+        "mode": "close",
         "spec_blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
         "terminal_bound": 100
       },
@@ -25,6 +40,27 @@
     "schema": "rustred.campaign.ledger.v1",
     "seq": 1,
     "utc": "2026-11-13T23:00:00.000Z"
+  },
+  "control": {
+    "event": {
+      "body": {
+        "ev": {
+          "by": "operator (tty)",
+          "ev": "requested",
+          "reason": "maintenance",
+          "target": {
+            "scope": "campaign"
+          },
+          "verb": "pause"
+        },
+        "id": "c-0001"
+      },
+      "kind": "control"
+    },
+    "prev": "6e73f64c3f3f5eeac52517e83311e787b6e0620d365fbd0fda4d199efcb1d3f4",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 90,
+    "utc": "2026-11-13T23:00:22.250Z"
   },
   "done": {
     "event": {
@@ -38,49 +74,70 @@
       },
       "kind": "done"
     },
-    "prev": "59576ded3f1fbb9ade8b588b35ca675775ff9f5c70063c7f75236b9fb736ef28",
+    "prev": "3229ed344ac0a75cbef07b19958e829966c0880204ed85ca207f921d19817161",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 20,
-    "utc": "2026-11-13T23:00:04.750Z"
+    "seq": 21,
+    "utc": "2026-11-13T23:00:05.000Z"
   },
   "evidence_imported": {
     "event": {
       "body": {
-        "description": "T162 bank, 2,448 rules; imported as hand-made evidence (M4)",
+        "description": "bank of hand-made rules; imported as hand-made evidence (M4)",
         "evidence": "astra-bank-20261113",
         "files": [
           {
-            "blake3": "2db7e03454ffcd5597befa2d402481d66db54dc11c3ef31452be39fe6f290a62",
-            "bytes": 3700,
-            "path": "large:handoff/t162-bank/MANIFEST.json"
+            "blake3": "66bd233a15786d6953d4a62539da9214b8777eadd800a047a01fce6ef7a9a1ed",
+            "bytes": 3200,
+            "path": "large:handoff/bank/MANIFEST.json"
           },
           {
-            "blake3": "bc87b4060cb1220a809e8f0b712c141f63cb5caf672f4ffb2abd38c86d24b899",
-            "bytes": 4800,
-            "path": "large:handoff/t162-bank/NATIVE-RULE-BODIES.jsonl"
+            "blake3": "28dfd6424fcb077a0144460d3f9ea20a58f2c14266f69ef0fd4653ab1da1d126",
+            "bytes": 4300,
+            "path": "large:handoff/bank/NATIVE-RULE-BODIES.jsonl"
           }
         ],
-        "producer": "Astra (Codex session), hand closure of T162"
+        "level_claimed": "identity_tested",
+        "producer": "hand closure (reference)"
       },
       "kind": "evidence_imported"
     },
-    "prev": "af3b94edf9a61c24f02ec23d97c90c62ba4eeedd84c82c288652882560e408e1",
+    "prev": "071d1576e6cf0d274c63292d380b0506f3e2a047311cbc0b3fff403bb1adbc93",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 11,
     "utc": "2026-11-13T23:00:02.500Z"
+  },
+  "export": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "candidate",
+          "manifest": {
+            "blake3": "ea3b29dd31f93b4a8c4ead5b7872e2c4a2f2d8ccf2c2dafe40a90b1896ef7451",
+            "bytes": 2300,
+            "path": "export/r1/MANIFEST.json"
+          }
+        },
+        "rev": "r1"
+      },
+      "kind": "export"
+    },
+    "prev": "ff252ad864e66fdb91c41d5506acab00026d1b2d1ad7e5860bdf0dbf51ce7b1a",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 103,
+    "utc": "2026-11-13T23:00:25.500Z"
   },
   "input_registered": {
     "event": {
       "body": {
         "blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
-        "bytes": 1200,
+        "bytes": 1000,
         "input": "spec",
-        "path": "spec.json",
+        "path": "inputs/spec",
         "role": "spec"
       },
       "kind": "input_registered"
     },
-    "prev": "915ad0204ad9bb406575272bbc2eca11f8d17a470cba795da9f90fc7eea88d25",
+    "prev": "cbb94a0baa7645002b3c69bf2021a703ba54b9694eae8128f3a3c0017d504a52",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 2,
     "utc": "2026-11-13T23:00:00.250Z"
@@ -94,10 +151,10 @@
       },
       "kind": "intent"
     },
-    "prev": "acd9c5ff96f507c5e14ffa5452121d211cc962d53ae7d92c3f61c4eeb70bd9fa",
+    "prev": "3df9945d79d67d95e6b950f937920ab9718ca9a45395273602687535d368b232",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 19,
-    "utc": "2026-11-13T23:00:04.500Z"
+    "seq": 20,
+    "utc": "2026-11-13T23:00:04.750Z"
   },
   "item.accept": {
     "event": {
@@ -105,12 +162,26 @@
         "ev": {
           "elided": false,
           "ev": "accept",
+          "evidence": {
+            "keys": {
+              "blake3": "c8a10b7861061eb1d44818cc35df10c86b5d4d7044b98182f9fad984fa471f39",
+              "bytes": 2600,
+              "path": "large:evidence/T162-0.keys"
+            },
+            "level": "identity_proved",
+            "proofs": {
+              "blake3": "c9e864ed35b5962bd69128a24cb6b1aee5a98f57c8da0079032b0dc610853e98",
+              "bytes": 3400,
+              "path": "large:evidence/T162-0.proofs.jsonl"
+            }
+          },
           "level": "identity_proved",
           "record": {
             "blake3": "00e89da7a6d82d1329b6ded3452604962cc789d9449a71c47258d7ed31920750",
             "bytes": 2400,
             "path": "accepted/T162/00000.json"
           },
+          "round": 1,
           "rule": "T162:R:campaign:0",
           "source": {
             "attempt": 1,
@@ -123,10 +194,27 @@
       },
       "kind": "item"
     },
-    "prev": "00341bcce3b7cdc0714e7fdec1f8afce005b38ffc9d47763eae1d3275e2eee0f",
+    "prev": "c86fba35adfb0341ede05802e526974d08e17ce3f965cfa29c951ca2b021cdfd",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 21,
-    "utc": "2026-11-13T23:00:05.000Z"
+    "seq": 22,
+    "utc": "2026-11-13T23:00:05.250Z"
+  },
+  "item.attention": {
+    "event": {
+      "body": {
+        "ev": {
+          "code": "needs_bigmem",
+          "ev": "attention",
+          "text": "the L2 run needs more memory than the policy allows"
+        },
+        "item": "T162-item-00009"
+      },
+      "kind": "item"
+    },
+    "prev": "b3ec1048c12c39c763cc1d0c7c403560491bca8bdccf83b4fe6905e797d196ea",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 89,
+    "utc": "2026-11-13T23:00:22.000Z"
   },
   "item.declare_terminal": {
     "event": {
@@ -139,16 +227,17 @@
             "bytes": 3500,
             "path": "large:keysets/T162-terminals-1.keys"
           },
+          "preferred": false,
           "reason": "terminal_after_ladder"
         },
         "item": "T162-item-00005"
       },
       "kind": "item"
     },
-    "prev": "8cea5f33a128a55a58fc11ab78310e7baed808c8550f27c46dc7036eb7fa2834",
+    "prev": "e2ce2601a63fd805e22e2ed50e03f97556f5e65b72454aebd5bf1c4936270e12",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 65,
-    "utc": "2026-11-13T23:00:16.000Z"
+    "seq": 66,
+    "utc": "2026-11-13T23:00:16.250Z"
   },
   "item.escalate": {
     "event": {
@@ -162,10 +251,59 @@
       },
       "kind": "item"
     },
-    "prev": "37196e8d9817fb40f873ca32bab12beb795b027ff9dad8a74b86a0a0ba5cb2ee",
+    "prev": "f28c3eb2cf376366e7f37ecc2f636c678dd18fccd04434c34b33cce63ff2e77e",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 62,
-    "utc": "2026-11-13T23:00:15.250Z"
+    "seq": 63,
+    "utc": "2026-11-13T23:00:15.500Z"
+  },
+  "item.exclude_keys": {
+    "event": {
+      "body": {
+        "ev": {
+          "disproof": {
+            "blake3": "47f688a155bed4479305bf3ee1b59409f41adf9b5fe9cdf95baa14017e5ee56d",
+            "bytes": 3400,
+            "path": "large:proofs/T162-0-exclusion.json"
+          },
+          "ev": "exclude_keys",
+          "keys": {
+            "blake3": "8c4c669d6273391433cc932b460280d93f833b7aa2309ee7d06a3f2de6091959",
+            "bytes": 3400,
+            "path": "large:keysets/T162-0-excluded.keys"
+          },
+          "reason": "keeps_terminal"
+        },
+        "item": "T162-item-00000"
+      },
+      "kind": "item"
+    },
+    "prev": "497493737a7082f80e501ba7d14be6baa3369a80e8e38d22721eb690d4e2b4c0",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 97,
+    "utc": "2026-11-13T23:00:24.000Z"
+  },
+  "item.import": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "import",
+          "level": "identity_tested",
+          "provenance": "earlier-campaign",
+          "record": {
+            "blake3": "16d38eb40382a2dd8eec4b96e6380be523b36946a66a9d7e20f8a478076ae063",
+            "bytes": 2900,
+            "path": "accepted/T162/imported-8.json"
+          },
+          "rule": "T162:R:imported:8"
+        },
+        "item": "T162-item-00008"
+      },
+      "kind": "item"
+    },
+    "prev": "6ca1c3e8a3b3301dcd83ed27c3c5728dbc2fcff4ee172838afb63a3b780c70b1",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 79,
+    "utc": "2026-11-13T23:00:19.500Z"
   },
   "item.produce": {
     "event": {
@@ -184,31 +322,54 @@
       },
       "kind": "item"
     },
-    "prev": "a7e4e2f07471c70ce7b4fccf47f2ef869d2db8401a8f5b52c777855083bd3297",
+    "prev": "48a9029835b8078acbe404b536feb588d0a3fcad561af22c0682d2a3c51f45d7",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 18,
-    "utc": "2026-11-13T23:00:04.250Z"
+    "seq": 19,
+    "utc": "2026-11-13T23:00:04.500Z"
   },
   "item.propose_terminal": {
     "event": {
       "body": {
         "ev": {
           "ev": "propose_terminal",
+          "exhausted": {
+            "blake3": "3945d93bbe0a49e97d705e51e680d6b2ac24a99c28c13f77962793c58e133483",
+            "bytes": 3900,
+            "path": "large:ladder/T162-item-5.exhausted.json"
+          },
+          "preferred": false,
           "reason": "terminal_after_ladder"
         },
         "item": "T162-item-00005"
       },
       "kind": "item"
     },
-    "prev": "79483527d23abf5e1d9bf9b3b9b8a99b6fe997889f533a44a18061bf60ce4a61",
+    "prev": "5d0525a6e5e498d634bf10edecf8c04378b517f49d6777bf8c764793444aae6b",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 64,
-    "utc": "2026-11-13T23:00:15.750Z"
+    "seq": 65,
+    "utc": "2026-11-13T23:00:16.000Z"
+  },
+  "item.reinstate": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "reinstate",
+          "reason": "replacement withdrawn"
+        },
+        "item": "T162-item-00003"
+      },
+      "kind": "item"
+    },
+    "prev": "bfaf415df78979e35986b548832dbe9f89e115c9feb44a60d5b9eae8fd90c6cc",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 98,
+    "utc": "2026-11-13T23:00:24.250Z"
   },
   "item.reject": {
     "event": {
       "body": {
         "ev": {
+          "disproof": null,
           "ev": "reject",
           "reason": "rule_covers_none"
         },
@@ -216,10 +377,10 @@
       },
       "kind": "item"
     },
-    "prev": "a63ebc4a5a50870da09fdd9d1b41ff2c857d0bea5aaea462096d3ff9524c5edc",
+    "prev": "69ebadac70db2cf904f260c1a88a36bed84d4f178911e3871cb8854eeb0a57ff",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 61,
-    "utc": "2026-11-13T23:00:15.000Z"
+    "seq": 62,
+    "utc": "2026-11-13T23:00:15.250Z"
   },
   "item.retire": {
     "event": {
@@ -241,10 +402,10 @@
       },
       "kind": "item"
     },
-    "prev": "4d424542a66fe960dcaa1ab3595d02504b0e75f24fec3de04da08bc4e9959d5b",
+    "prev": "d00c89ad43992a202b0931b3cfd3cd660ae14401bef6b4f79ca7c643fa6d3c5b",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 79,
-    "utc": "2026-11-13T23:00:19.500Z"
+    "seq": 87,
+    "utc": "2026-11-13T23:00:21.500Z"
   },
   "item.start": {
     "event": {
@@ -257,10 +418,10 @@
       },
       "kind": "item"
     },
-    "prev": "6356760b64813f0599fed622b0c11a3b062ebb5ca2ca3c61c225ca1ef0f73513",
+    "prev": "8c948bbab26abfdd1dbdefbe9d2afca7a22e71a4f64710dd9a25fa01f80613da",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 14,
-    "utc": "2026-11-13T23:00:03.250Z"
+    "seq": 15,
+    "utc": "2026-11-13T23:00:03.500Z"
   },
   "item.upgrade": {
     "event": {
@@ -268,9 +429,12 @@
         "ev": {
           "ev": "upgrade",
           "evidence": {
-            "blake3": "5bd8f17c9f961228a70739b25dd55d182398452a8d2fc74df4e6769cdfc0e270",
-            "bytes": 3300,
-            "path": "accepted/T162/bank-1043.span.json"
+            "level": "identity_tested",
+            "verdict": {
+              "blake3": "ef4925c43fccbe7a85da6fa36fb029ccbad33d8c2514b15fb16d5293bf173ca1",
+              "bytes": 3000,
+              "path": "evidence/bank-1043.replay.json"
+            }
           },
           "level": "identity_tested"
         },
@@ -278,10 +442,10 @@
       },
       "kind": "item"
     },
-    "prev": "61c313b7b766aadae983e3496decec108e2a7af8da6267258e969136137a1c35",
+    "prev": "bd5f542ccaa950dda1888d50d2703b830e41a1d1f331de916fb55a04e8d4e34d",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 73,
-    "utc": "2026-11-13T23:00:18.000Z"
+    "seq": 74,
+    "utc": "2026-11-13T23:00:18.250Z"
   },
   "item_created": {
     "event": {
@@ -297,21 +461,31 @@
       },
       "kind": "item_created"
     },
-    "prev": "739e4d15c22f189e7bd5531dbad3c7d29bc1aa309caeaab25f7391ca8640f1e1",
+    "prev": "1a2b16edffbceeadd9f65d9fac8ae08bf3802ffd873bd49d7bd1da55d0dc4b3c",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 12,
-    "utc": "2026-11-13T23:00:02.750Z"
+    "seq": 13,
+    "utc": "2026-11-13T23:00:03.000Z"
   },
   "job.finished": {
     "event": {
       "body": {
         "attempt": 1,
         "ev": {
+          "accept": "canonical",
+          "binding": {
+            "attempt": 1,
+            "job": "T162-job-00000-L0",
+            "spec_blake3": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421"
+          },
           "class": "rule_found",
           "cpu_ms": 1000,
           "ev": "finished",
           "exit_code": 0,
-          "outcome": null,
+          "outcome": {
+            "blake3": "3351caf4fc38407c4394924736087e4f11f2e079537cfed03240e2c4966d6763",
+            "bytes": 4400,
+            "path": "large:jobs/T162-job-00000-L0.a1/OUTCOME.json"
+          },
           "peak_rss_bytes": 419430400,
           "sealed_output": {
             "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
@@ -326,10 +500,10 @@
       },
       "kind": "job"
     },
-    "prev": "f08be9c5554130b58449d6b535d9dd49a8040546ead0585b98f354b2827a40de",
+    "prev": "0b9a9c03f8b5b4951792ae17efac902a035df212803f82da843fe1b5f35bb6de",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 17,
-    "utc": "2026-11-13T23:00:04.000Z"
+    "seq": 18,
+    "utc": "2026-11-13T23:00:04.250Z"
   },
   "job.interrupt": {
     "event": {
@@ -343,10 +517,10 @@
       },
       "kind": "job"
     },
-    "prev": "a3203d2529f5481269839be6e1e00fc55fcb52f76fc53b57d8ffcc6a2b24ef17",
+    "prev": "8e0758b305d8362e1262b750844926bf3cb85a7aec1dd81f6465fd74f892f4c4",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 56,
-    "utc": "2026-11-13T23:00:13.750Z"
+    "seq": 57,
+    "utc": "2026-11-13T23:00:14.000Z"
   },
   "job.launch": {
     "event": {
@@ -364,10 +538,10 @@
       },
       "kind": "job"
     },
-    "prev": "0c7ab4283ebc4626fd51fe059fb5cbf1e22537ba9732a2fe1c49656ef5ef7411",
+    "prev": "2c44833170dd5be2aff46b13eb631ba876d648748ef5d152ac4e9cb0f2702363",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 15,
-    "utc": "2026-11-13T23:00:03.500Z"
+    "seq": 16,
+    "utc": "2026-11-13T23:00:03.750Z"
   },
   "job.requeue": {
     "event": {
@@ -381,10 +555,10 @@
       },
       "kind": "job"
     },
-    "prev": "6f4cbc5c50e12f8354744cf648abbb38b1136a7febe90d29f5afe1b953930a53",
+    "prev": "14cafc1e0397ad9fcd5ea97814c3d675d7301d98f4cfcb3cb42b7a00825db21a",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 57,
-    "utc": "2026-11-13T23:00:14.000Z"
+    "seq": 58,
+    "utc": "2026-11-13T23:00:14.250Z"
   },
   "job.started": {
     "event": {
@@ -400,31 +574,16 @@
       },
       "kind": "job"
     },
-    "prev": "2fc64f03eda98865baeda9463a68fb8ad39df48db1062de0fbe7468ee4fe9c00",
+    "prev": "0bf4fa3ad44c3f48ad127ef732245f8a46c7b93f3b050edd2d0fb3875b6478db",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 16,
-    "utc": "2026-11-13T23:00:03.750Z"
-  },
-  "job_progress": {
-    "event": {
-      "body": {
-        "attempt": 1,
-        "counters": {
-          "rows": 412
-        },
-        "job": "T162-job-00000-L0"
-      },
-      "kind": "job_progress"
-    },
-    "prev": "b2b9d660abb9a77cad7f32e48de422420a90bee516b7b542696d445da0cbb826",
-    "schema": "rustred.campaign.ledger.v1",
-    "seq": 80,
-    "utc": "2026-11-13T23:00:19.750Z"
+    "seq": 17,
+    "utc": "2026-11-13T23:00:04.000Z"
   },
   "job_queued": {
     "event": {
       "body": {
         "binary": "rr_node",
+        "inputs": [],
         "item": "T162-item-00000",
         "job": "T162-job-00000-L0",
         "kind": "generate",
@@ -434,10 +593,36 @@
       },
       "kind": "job_queued"
     },
-    "prev": "c56f813202f96107ff4a1d050405ad39d52e9b1f4c248830e9c32147e2f9ad08",
+    "prev": "4f7bf7f56e5a1407a7914e5fd360a44c61852e187c7387dd3f127c75a53440fb",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 13,
-    "utc": "2026-11-13T23:00:03.000Z"
+    "seq": 14,
+    "utc": "2026-11-13T23:00:03.250Z"
+  },
+  "node.assembled": {
+    "event": {
+      "body": {
+        "ev": {
+          "dispatch_order": {
+            "blake3": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+            "bytes": 2800,
+            "path": "large:tables/T162.order.json"
+          },
+          "ev": "assembled",
+          "manifest": {
+            "blake3": "1c0c4d8807bee6b9f584fcf01ff9619ce1ee0ce8eef88f52febe9875d45141dc",
+            "bytes": 3400,
+            "path": "large:tables/T162.r1.manifest.json"
+          },
+          "round": 1
+        },
+        "node": "T162"
+      },
+      "kind": "node"
+    },
+    "prev": "3962903811ab37d41a78d15236dd4f08712ef1116329f486a2b4aecc86e421ca",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 81,
+    "utc": "2026-11-13T23:00:20.000Z"
   },
   "node.closure_result": {
     "event": {
@@ -445,6 +630,15 @@
         "ev": {
           "closure_keys": 154783,
           "defect_keys": 37,
+          "dispatch_order_digest": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+          "envelope": "proved",
+          "envelope_tables": [
+            {
+              "blake3": "7e210af666b3557bedb585314cf0807dcc6806a69220722520b2a616a40c98b1",
+              "bytes": 3100,
+              "path": "large:handdown/T162.ranges.json"
+            }
+          ],
           "ev": "closure_result",
           "keyset": {
             "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
@@ -452,17 +646,39 @@
             "path": "large:keysets/T162-closure-1.keys"
           },
           "round": 1,
-          "rules_total": 2440,
+          "rule_set_digest": "3ce3248dc42833dd17ebed0165a508e36ee2a8553a936ff7bbb2804bc633c320",
+          "rules_total": 6,
           "rules_used": 5
         },
         "node": "T162"
       },
       "kind": "node"
     },
-    "prev": "f7446d71b24eac72489e06802a1f696f50230c51838d17b6a5ff9ede642ef14b",
+    "prev": "8d6a1393a1ef3c4419f756f966824327241b2b91cb53ea5503b84413daa396b0",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 74,
-    "utc": "2026-11-13T23:00:18.250Z"
+    "seq": 82,
+    "utc": "2026-11-13T23:00:20.250Z"
+  },
+  "node.fixer_round_begin": {
+    "event": {
+      "body": {
+        "ev": {
+          "ev": "fixer_round_begin",
+          "partition": {
+            "blake3": "ccfc3bed959822a14d927de67cdbbf3e631d4a39592aa69d55c78810177d7b36",
+            "bytes": 2800,
+            "path": "large:partition/T162.r1.json"
+          },
+          "round": 1
+        },
+        "node": "T162"
+      },
+      "kind": "node"
+    },
+    "prev": "81f284c32f269c2e1a97cceb78d9ed503ed3db12396829b68478199c548263c8",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 80,
+    "utc": "2026-11-13T23:00:19.750Z"
   },
   "node.start": {
     "event": {
@@ -474,10 +690,32 @@
       },
       "kind": "node"
     },
-    "prev": "ab6fc0f9fb3c47034daf24d73c60a5b03eb8ee015b154f49c83b058e90b97fa8",
+    "prev": "c599c50e23cae4809bef96d330fb62b976c58fd02cac57319cae88f2849fa3bb",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 10,
     "utc": "2026-11-13T23:00:02.250Z"
+  },
+  "node.winner_diff_done": {
+    "event": {
+      "body": {
+        "ev": {
+          "diff": {
+            "blake3": "af69c66baf9f5606cd3595bb4fcb894cf256fed3dc353f906cb8540a7aae250c",
+            "bytes": 2300,
+            "path": "large:diff/T162.r1.json"
+          },
+          "ev": "winner_diff_done",
+          "failures": 0,
+          "round": 1
+        },
+        "node": "T162"
+      },
+      "kind": "node"
+    },
+    "prev": "c14170806a42871975553d1d9aba32281b1fd91479b62e8a25162d8093076670",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 96,
+    "utc": "2026-11-13T23:00:23.750Z"
   },
   "node_registered": {
     "event": {
@@ -487,12 +725,30 @@
           "T162.bank"
         ],
         "node": "T162",
+        "reference": {
+          "name": "old ledger",
+          "terminals": "7"
+        },
+        "spec": {
+          "certify_boxed": null,
+          "certify_full": null,
+          "full_attempt_cpu_hours": null,
+          "full_attempt_fixer_rounds": 2,
+          "preferred_count_against_bound": null,
+          "preferred_listed": 3,
+          "preferred_terminals": {
+            "blake3": "27f918bfc0362bd4323a5acad092d1a121e131db7e9a4435d1d439b467b3ef85",
+            "bytes": 2400,
+            "path": "spec/T162.preferred.json"
+          },
+          "terminal_rung": "L1"
+        },
         "spec_box": "T162.box",
         "terminal_bound": null
       },
       "kind": "node_registered"
     },
-    "prev": "1d4cb766d83b7c2073ed9888d9abdb3e18e59777d14320ee0965ec24108606dd",
+    "prev": "548e0c7b2496ba0a4a5c7b7531685c4db7f75d38b6180ad247aae0066bb8a3e3",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 7,
     "utc": "2026-11-13T23:00:01.500Z"
@@ -504,10 +760,24 @@
       },
       "kind": "note"
     },
-    "prev": "349948332013d934baa38badd380c6814036b47709a5aaa1fce07e35706e7799",
+    "prev": "2acd50ef154992522338ae236e0449a56afa1fe22d847172924a223b9b13f8e2",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 81,
-    "utc": "2026-11-13T23:00:20.000Z"
+    "seq": 95,
+    "utc": "2026-11-13T23:00:23.500Z"
+  },
+  "orphan_killed": {
+    "event": {
+      "body": {
+        "job": "T162-job-00004-L0",
+        "pid": 31337,
+        "start_ticks": 99
+      },
+      "kind": "orphan_killed"
+    },
+    "prev": "ec2ccbf2372267e731f7d43d7b98333d52368e6c078784e471e88d5414080d03",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 100,
+    "utc": "2026-11-13T23:00:24.750Z"
   },
   "rule_economy": {
     "event": {
@@ -524,23 +794,68 @@
       },
       "kind": "rule_economy"
     },
-    "prev": "1a69188d24b34d8873dcf24b1d6f7b4287e5123153cc53f6c41c5d8d8576e47f",
+    "prev": "a6850cd35abfcb986ef65efeed987f2145f36a76cd07771e4b7588b023d864de",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 75,
-    "utc": "2026-11-13T23:00:18.500Z"
+    "seq": 83,
+    "utc": "2026-11-13T23:00:20.500Z"
   },
   "segment_opened": {
     "event": {
       "body": {
         "index": 2,
-        "previous_blake3": "a8af45e0a3ba43c2c1bd9f4bd785f3c024fb726e690cabbb23612ae198198559",
-        "snapshot_seq": 81
+        "previous_blake3": "119020f7c170354987dd1b7440f6f8f637cb57649f77bb903f9fcfc43d2f4d60",
+        "snapshot_seq": 103
       },
       "kind": "segment_opened"
     },
-    "prev": "960ac4b0d7bd1c20b1c1a9e4a6bcfede58526efb52ffd9b109a2d5d5349f49e7",
+    "prev": "9b7640017b850a745e50bb9f38b36368e767f56b7b605a44c343847bf0ecb6bd",
     "schema": "rustred.campaign.ledger.v1",
-    "seq": 82,
-    "utc": "2026-11-13T23:00:20.250Z"
+    "seq": 104,
+    "utc": "2026-11-13T23:00:25.750Z"
+  },
+  "tables_imported": {
+    "event": {
+      "body": {
+        "files": [
+          {
+            "blake3": "1ca5e2e255db09385c21aa9e1350b18daab339daaefad2bacc713d07fae74eb2",
+            "bytes": 4100,
+            "path": "large:imports/c-20261101/T162.table.jsonl"
+          }
+        ],
+        "level_claimed": "identity_tested",
+        "manifest": {
+          "blake3": "e93127edb75af39723cf1f634db1dcd27b00663a2e5b61e69ec5d372b897c448",
+          "bytes": 3800,
+          "path": "large:imports/c-20261101/MANIFEST.json"
+        },
+        "producer": "campaign c-20261101",
+        "provenance": "earlier-campaign",
+        "source_campaign": "c-20261101"
+      },
+      "kind": "tables_imported"
+    },
+    "prev": "9d58951285abc9506430db2127bbf305aa1301a1bba1993f5c14efb0a3572d87",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 12,
+    "utc": "2026-11-13T23:00:02.750Z"
+  },
+  "verify_checkpoint": {
+    "event": {
+      "body": {
+        "clean": true,
+        "report": {
+          "blake3": "2dfcfc1e573bf7c5ced7bc6bd89483d254399c94284f7384c3ffdd09b5b0fbcd",
+          "bytes": 2000,
+          "path": "verify/report-1.json"
+        },
+        "seq": 3
+      },
+      "kind": "verify_checkpoint"
+    },
+    "prev": "d19057ede28ed39481ea24200b8d1f99bc2105aea7aa3ddb4878887aca57818b",
+    "schema": "rustred.campaign.ledger.v1",
+    "seq": 101,
+    "utc": "2026-11-13T23:00:25.000Z"
   }
 }

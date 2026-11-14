@@ -1,6 +1,6 @@
-rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
--[ Running jobs 0 ]---------------------------------------------------------------------------------------- q: back ----
-running 0 (no job list in the progress files; ledger fallback not available)
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
+-[ Running jobs 1 ]---------------------------------------------------------------------------------------- q: back ----
+running 1 (no job list in the progress files; ledger fallback not available)
 
 
 

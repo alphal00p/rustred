@@ -1,8 +1,17 @@
 {
+  "attention": {
+    "count": 0,
+    "top": []
+  },
   "campaign": {
     "crash_recoveries": 0,
-    "created_utc": "2026-11-14T06:00:00.000Z",
+    "created_utc": "2026-11-14T06:00:00.250Z",
+    "forced_recoveries": 0,
+    "last_verify": null,
     "lock_takeovers": 0,
+    "mode": "close",
+    "orphans_killed": 0,
+    "paused": false,
     "pending_operations": 0,
     "phase": "finished",
     "segments_opened": 0,
@@ -12,9 +21,20 @@
     "unsettled_jobs": 0
   },
   "campaign_id": "fixture-finished",
+  "certification": {
+    "accepted": 3,
+    "asked": {
+      "per-key": 1,
+      "replay": 1
+    },
+    "basis": "certified = every live rule at the level its node's spec asks (FULL: replay, BOXED: per-key by default)",
+    "identity_proved": 2,
+    "identity_tested": 1,
+    "nodes_certified": 1
+  },
   "certified": {
     "accepted": 3,
-    "basis": "accepted items at identity_proved / all accepted items",
+    "basis": "accepted items at identity_proved / all accepted items (per-key share; see certification)",
     "identity_proved": 2,
     "share": 0.667
   },
@@ -24,6 +44,7 @@
     "nodes_with_defect": 0
   },
   "cost": {
+    "budget_cpu_hours": null,
     "by_level": {
       "L0": {
         "cpu_seconds": 9.0,
@@ -59,6 +80,7 @@
       "rhs_terms": 3090,
       "rules": 5
     },
+    "replaced": 0,
     "retired": 2,
     "rules_after": 3,
     "rules_before": 5
@@ -82,34 +104,42 @@
   },
   "file": "campaign",
   "files": {
+    "attention": "attention.json",
     "events": "events.json",
+    "heartbeat": "heartbeat.json",
+    "jobs": "jobs.json",
     "nodes": {
       "kite.b9": "nodes/kite.b9.json",
       "tri-a": "nodes/tri-a.json"
-    }
+    },
+    "terminals": "terminals.json"
   },
   "items": {
     "by_level": {
       "L0": {
         "accepted": 2,
+        "attention": 0,
         "escalated": 1,
         "in_progress": 0,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 2,
+        "skipped": 0,
         "stale": 0,
         "terminal": 0,
         "terminal_candidate": 0
       },
       "L1": {
         "accepted": 1,
+        "attention": 0,
         "escalated": 0,
         "in_progress": 0,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 0,
+        "skipped": 0,
         "stale": 0,
         "terminal": 1,
         "terminal_candidate": 0
@@ -117,12 +147,14 @@
     },
     "by_phase": {
       "accepted": 3,
+      "attention": 0,
       "escalated": 1,
       "in_progress": 0,
       "open": 0,
       "produced": 0,
       "rejected": 0,
       "retired": 2,
+      "skipped": 0,
       "stale": 0,
       "terminal": 1,
       "terminal_candidate": 0
@@ -141,6 +173,7 @@
       "running": 0,
       "succeeded_sealed": 6
     },
+    "failed_attempts": 0,
     "reserved_bytes_running": 0,
     "settled_by_class": {
       "no_rule": 1,
@@ -149,9 +182,9 @@
     "total": 6
   },
   "ledger": {
-    "head": "dde3cb5cab3a2c952502cf68277619dbec1295eee11d7e23cbc30f6bb36e514b",
-    "last_utc": "2026-11-14T06:00:23.000Z",
-    "seq": 93
+    "head": "dea9b3ce7ec96f4a8a3ab9ab1600817189eebb2575665a0089c036cc9125b97a",
+    "last_utc": "2026-11-14T06:00:24.250Z",
+    "seq": 97
   },
   "nodes": {
     "by_closure": {
@@ -169,18 +202,24 @@
       "stale": 0
     },
     "certified": 1,
+    "provisional": 0,
     "total": 2
   },
   "resources": {
+    "budget_cpu_hours": null,
     "cpus_allowed": 70,
     "cpus_in_use": 0,
+    "disk_free_bytes": null,
     "host_floor_bytes": 50000000000,
     "host_mem_available_bytes": 287762808832,
+    "jobs": [],
+    "large_free_bytes": null,
     "live_jobs": 0,
     "measured_rss_bytes": 0,
     "mem_cap_bytes": 200000000000,
     "reserved_bytes": 0,
-    "sampled_utc": "2026-11-14T06:00:23.250Z"
+    "sampled_utc": "2026-11-14T06:00:24.500Z",
+    "supervisor": null
   },
   "rules": {
     "accepted": 5,
@@ -189,6 +228,7 @@
       "identity_proved": 2,
       "identity_tested": 1
     },
+    "imported": 0,
     "rejected": 1,
     "rejected_by_reason": {
       "rule_covers_none": 1
@@ -197,10 +237,17 @@
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
+  "supervisor": null,
   "terminals": {
     "bound_per_node_default": 100,
     "candidates": 0,
-    "declared": 2
+    "declared": 2,
+    "other": 2,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    }
   },
-  "written_utc": "2026-11-14T06:00:23.250Z"
+  "written_utc": "2026-11-14T06:00:24.500Z"
 }

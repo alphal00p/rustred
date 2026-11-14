@@ -44,7 +44,7 @@ fn history(tag: &str, done: &[(u8, Vec<u64>)], open: &[(u8, usize)]) -> (Ledger,
 #[test]
 fn too_little_data_gives_null_with_a_reason() {
     let (l, _c) = history("eta0", &[(0, vec![1000, 2000])], &[(0, 10)]);
-    let e = eta(l.state(), 4);
+    let e = eta(l.state(), Some(4));
     assert!(e["wall_seconds"].is_null() && e["cpu_seconds"].is_null());
     assert!(
         e["reason"].as_str().unwrap().contains("too little data"),
@@ -61,7 +61,7 @@ fn quartile_range_per_level_divided_by_parallelism() {
         &[(0, (1..=8).map(|s| s * 1000).collect())],
         &[(0, 20)],
     );
-    let e = eta(l.state(), 4);
+    let e = eta(l.state(), Some(4));
     assert_eq!(e["cpu_seconds"]["low"], 40.0);
     assert_eq!(e["cpu_seconds"]["mid"], 80.0);
     assert_eq!(e["cpu_seconds"]["high"], 120.0);
@@ -81,7 +81,7 @@ fn sparse_level_uses_pooled_samples_and_says_so() {
         &[(0, vec![10_000; 6]), (2, vec![100_000])],
         &[(0, 2), (2, 3)],
     );
-    let e = eta(l.state(), 1);
+    let e = eta(l.state(), Some(1));
     assert_eq!(e["pooled_levels"], serde_json::json!(["L2"]));
     // pooled sorted: [10 x6, 100]: p25 = 10, p50 = 10, p75 = 10 (nearest rank 6 of 7) -> 5 items x 10 s
     assert_eq!(e["cpu_seconds"]["mid"], 50.0);
@@ -91,7 +91,7 @@ fn sparse_level_uses_pooled_samples_and_says_so() {
 #[test]
 fn no_parallelism_and_nothing_left() {
     let (l, _c) = history("eta3", &[(0, vec![1000; 5])], &[(0, 3)]);
-    let e = eta(l.state(), 0);
+    let e = eta(l.state(), None);
     assert!(e["wall_seconds"].is_null());
     assert_eq!(e["cpu_seconds"]["mid"], 3.0);
     assert!(
@@ -101,7 +101,7 @@ fn no_parallelism_and_nothing_left() {
             .contains("no live parallelism")
     );
     let (l, _c) = history("eta4", &[(0, vec![1000; 5])], &[]);
-    let e = eta(l.state(), 2);
+    let e = eta(l.state(), Some(2));
     assert_eq!(e["remaining_items"], 0);
     assert_eq!(e["reason"], "nothing left");
 }

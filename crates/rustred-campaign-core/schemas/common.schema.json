@@ -182,7 +182,9 @@
         "terminal_candidate",
         "terminal",
         "stale",
-        "retired"
+        "retired",
+        "attention",
+        "skipped"
       ],
       "description": "as-built state::ItemPhase tags"
     },

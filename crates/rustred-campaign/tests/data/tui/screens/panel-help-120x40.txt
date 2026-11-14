@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
 -[ Help ]-------------------------------------------------------------------------------------------------- q: back ----
 VIEW   Tab next table (80 cols)   n/N or arrows select   Enter/f/i node detail   w why (item)
        j running jobs   e events   a attention   ? help   q/Esc back   PgUp/PgDn/Home/End scroll

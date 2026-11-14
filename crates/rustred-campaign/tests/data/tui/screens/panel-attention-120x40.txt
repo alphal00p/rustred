@@ -1,10 +1,10 @@
-rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
--[ Attention (0) ]----------------------------------------------------------------------------------------- q: back ----
-(nothing needs a decision)
-
-
-
-
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
+-[ Attention (2) ]----------------------------------------------------------------------------------------- q: back ----
+! T162-item-00009 needs_bigmem [decision] the L2 run needs more memory than the policy allows
+    rr_campaign retry T162-item-00009 --reason TEXT
+    rr_campaign skip T162-item-00009 --reason TEXT
+    rr_campaign why T162-item-00009
+! c-0002 control_pending [warning] control Retry of Item { item: "T162-item-00009" } by operator (tty) not applied yet ~
 
 
 

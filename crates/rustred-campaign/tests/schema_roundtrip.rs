@@ -16,13 +16,15 @@ use std::sync::Arc;
 use rustred_campaign::clock::{Clock, ManualClock};
 use rustred_campaign::cpu_policy::SiteConfig;
 use rustred_campaign::ledger::{
-    self, AcceptSource, Event, FileRef, ItemEvent, JobEvent, Ledger, LedgerConfig, Manifest,
-    Record, RetirementProof, RuleEconomy, Snapshot,
+    self, AcceptSource, ControlEvent, ControlTarget, ControlVerb, EnvelopeKind, Event, ExportEvent,
+    FileRef, Genesis, ItemEvent, JobEvent, Ledger, LedgerConfig, LevelEvidence, Manifest,
+    NodeSpecValues, OutcomeBinding, Record, RetirementProof, RuleEconomy, Snapshot,
 };
-use rustred_campaign::lock::{DeadReason, OwnerRecord, ProcessIdentity};
+use rustred_campaign::lock::{self, CampaignLock, DeadReason, OwnerRecord, ProcessIdentity};
 use rustred_campaign::progress::{self, Resources};
 use rustred_campaign::state::{
-    Blockers, CampaignEvent, EvidenceLevel, FinishClass, NodeEvent, Rung,
+    AttemptEndCause, Blockers, CampaignEvent, CertLevel, ContractAccept, EvidenceLevel,
+    FinishClass, NodeEvent, Rung,
 };
 use rustred_campaign_core::schema::canon::canonical_json;
 use rustred_campaign_core::schema::spec::CampaignSpec;
@@ -157,11 +159,23 @@ fn register(spec: &CampaignSpec, spec_ref: &FileRef) -> Vec<Event> {
                 blake3: b.blake3.clone(),
             });
         }
+        let cert = match serde_json::to_value(n.certification).unwrap().as_str() {
+            Some("replay") => CertLevel::Replay,
+            _ => CertLevel::PerKey,
+        };
         v.push(Event::NodeRegistered {
             node: n.id.clone(),
             inputs,
             terminal_bound: n.terminals.bound,
             spec_box: n.r#box.as_ref().map(|b| b.id.clone()),
+            spec: NodeSpecValues {
+                certify_full: Some(cert),
+                certify_boxed: Some(cert),
+                full_attempt_fixer_rounds: Some(1),
+                terminal_rung: Some(Rung(1)),
+                ..Default::default()
+            },
+            reference: None,
         });
     }
     v
@@ -203,19 +217,34 @@ fn created(n: &str, i: &str, kind: &str, rung: u8, parent: Option<&str>, label: 
     }
 }
 
+/// The contract's accept column for the fixture's classes (records only with a seal and the OUTCOME binding).
 fn finished(
+    j: &str,
+    attempt: u32,
     class: FinishClass,
     exit: i32,
     sealed: Option<FileRef>,
     cpu_ms: u64,
     time_decided: bool,
 ) -> JobEvent {
+    let accept = match (class, &sealed) {
+        (FinishClass::RuleFound | FinishClass::Complete, Some(_)) => ContractAccept::Canonical,
+        (FinishClass::NoRule | FinishClass::Spill, Some(_)) => ContractAccept::CommittedRules,
+        _ => ContractAccept::Nothing,
+    };
+    let records = accept != ContractAccept::Nothing;
     JobEvent::Finished {
         class,
+        accept,
         exit_code: Some(exit),
         signal: None,
         sealed_output: sealed,
-        outcome: None,
+        outcome: records.then(|| large(&format!("jobs/{j}/a{attempt}/OUTCOME.json"))),
+        binding: records.then(|| OutcomeBinding {
+            job: j.into(),
+            attempt,
+            spec_blake3: b3(j.as_bytes()),
+        }),
         cpu_ms,
         wall_ms: cpu_ms + 50,
         peak_rss_bytes: 400 << 20,
@@ -234,6 +263,7 @@ fn launch(l: &mut Ledger, i: &str, j: &str, rung: u8, cpu: u32) {
             spec_blake3: b3(j.as_bytes()),
             binary: "program:rr_node".into(),
             reserved_bytes: 2 << 30,
+            inputs: vec![],
         },
         item(
             i,
@@ -313,6 +343,8 @@ fn accepted_item(
             &j,
             1,
             finished(
+                &j,
+                1,
                 FinishClass::RuleFound,
                 10,
                 Some(table.clone()),
@@ -356,6 +388,17 @@ fn accepted_item(
                     table_blake3: table.blake3,
                 },
                 elided: false,
+                evidence: match level {
+                    EvidenceLevel::GeometryAccepted => None,
+                    EvidenceLevel::IdentityTested => Some(LevelEvidence::IdentityTested {
+                        verdict: large(&format!("evidence/{n}-{k}.replay.json")),
+                    }),
+                    EvidenceLevel::IdentityProved => Some(LevelEvidence::IdentityProved {
+                        proofs: large(&format!("evidence/{n}-{k}.proofs.jsonl")),
+                        keys: large(&format!("evidence/{n}-{k}.keys")),
+                    }),
+                },
+                round: Some(1),
             },
         ),
         Event::RuleEconomy {
@@ -387,7 +430,7 @@ fn rejected_then_terminal(l: &mut Ledger, n: &str, k: u64, declare: bool) {
         job(
             &j,
             1,
-            finished(FinishClass::NoRule, 10, Some(t.clone()), 2500, true),
+            finished(&j, 1, FinishClass::NoRule, 10, Some(t.clone()), 2500, true),
         ),
         item(
             &i,
@@ -401,6 +444,7 @@ fn rejected_then_terminal(l: &mut Ledger, n: &str, k: u64, declare: bool) {
             &i,
             ItemEvent::Reject {
                 reason: "rule_covers_none".into(),
+                disproof: None,
             },
         ),
         item(
@@ -415,6 +459,8 @@ fn rejected_then_terminal(l: &mut Ledger, n: &str, k: u64, declare: bool) {
             &c,
             ItemEvent::ProposeTerminal {
                 reason: "terminal_after_ladder".into(),
+                preferred: false,
+                exhausted: Some(large(&format!("ladder/{c}.exhausted.json"))),
             },
         ),
     ])
@@ -424,26 +470,43 @@ fn rejected_then_terminal(l: &mut Ledger, n: &str, k: u64, declare: bool) {
             &c,
             ItemEvent::DeclareTerminal {
                 count: 2,
-                keys: Some(large(&format!("keysets/{n}-terminals.keys"))),
+                keys: large(&format!("keysets/{n}-terminals.keys")),
                 reason: "terminal_after_ladder".into(),
+                preferred: false,
             },
         ))
         .unwrap();
     }
 }
 
-fn closure(n: &str, round: u32, defect: u64) -> Event {
-    node(
-        n,
-        NodeEvent::ClosureResult {
-            round,
-            defect_keys: defect,
-            closure_keys: 150_000 + defect,
-            rules_used: Some(5),
-            rules_total: Some(2_440),
-            keyset: Some(large(&format!("keysets/{n}-closure-{round}.keys"))),
-        },
-    )
+/// The table set assembled (dispatch order fixed) and a closure pass on the node's CURRENT rule set.
+fn closure(l: &Ledger, n: &str, round: u32, defect: u64) -> Vec<Event> {
+    let order = large(&format!("tables/{n}.order.json"));
+    vec![
+        node(
+            n,
+            NodeEvent::Assembled {
+                round,
+                manifest: large(&format!("tables/{n}.r{round}.manifest.json")),
+                dispatch_order: order.clone(),
+            },
+        ),
+        node(
+            n,
+            NodeEvent::ClosureResult {
+                round,
+                defect_keys: defect,
+                closure_keys: 150_000 + defect,
+                rules_used: Some((l.state().node_live_rules(n).len() as u64).min(5)),
+                rules_total: Some(l.state().node_live_rules(n).len() as u64),
+                keyset: Some(large(&format!("keysets/{n}-closure-{round}.keys"))),
+                rule_set_digest: l.state().node_rule_set_digest(n).unwrap(),
+                dispatch_order_digest: order.blake3,
+                envelope: EnvelopeKind::Proved,
+                envelope_tables: vec![],
+            },
+        ),
+    ]
 }
 
 /// A node closed FULL (certified when every item is identity-proved).
@@ -461,8 +524,8 @@ fn full_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
             300,
         );
     }
+    l.append_all(closure(l, n, 1, 0)).unwrap();
     l.append_all(vec![
-        closure(n, 1, 0),
         node(n, NodeEvent::DeclareClosed),
         node(n, NodeEvent::DeclareCertified),
     ])
@@ -495,8 +558,15 @@ fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
         90,
     );
     rejected_then_terminal(l, n, base + 3, true);
+    l.append_all(closure(l, n, 1, 37)).unwrap();
     l.append_all(vec![
-        closure(n, 1, 37),
+        node(
+            n,
+            NodeEvent::FixerRoundBegin {
+                round: 1,
+                partition: Some(large(&format!("partition/{n}.r1.json"))),
+            },
+        ),
         node(
             n,
             NodeEvent::AttemptEnded {
@@ -506,7 +576,8 @@ fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
                     keys: 150,
                     list: Some(large(&format!("blockers/{n}-full.keys"))),
                 },
-                reason: "full attempt: 5 fixer rounds without closure (U-6)".into(),
+                reason: "full attempt: the spec's fixer rounds without closure (U-6)".into(),
+                cause: AttemptEndCause::FixerRounds,
             },
         ),
         node(
@@ -525,7 +596,6 @@ fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
                 superseded_by: Some(b.clone()),
             },
         ),
-        closure(n, 2, 0),
         item(
             &c,
             ItemEvent::Retire {
@@ -536,22 +606,24 @@ fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
                 superseded_by: None,
             },
         ),
-        node(n, NodeEvent::DeclareClosed),
     ])
     .unwrap();
+    l.append_all(closure(l, n, 2, 0)).unwrap();
+    l.append(node(n, NodeEvent::DeclareClosed)).unwrap();
 }
 
 fn resources(sampled: &str, live: u32) -> Resources {
     Resources {
-        cpus_in_use: live * 2,
-        cpus_allowed: 70,
-        live_jobs: live,
-        reserved_bytes: live as u64 * (2 << 30),
-        measured_rss_bytes: live as u64 * 450_000_000,
-        mem_cap_bytes: 200_000_000_000,
-        host_mem_available_bytes: 287_762_808_832,
-        host_floor_bytes: 50_000_000_000,
+        cpus_in_use: Some(live * 2),
+        cpus_allowed: Some(70),
+        live_jobs: Some(live),
+        reserved_bytes: Some(live as u64 * (2 << 30)),
+        measured_rss_bytes: Some(live as u64 * 450_000_000),
+        mem_cap_bytes: Some(200_000_000_000),
+        host_mem_available_bytes: Some(287_762_808_832),
+        host_floor_bytes: Some(50_000_000_000),
         sampled_utc: Some(sampled.into()),
+        ..Default::default()
     }
 }
 
@@ -609,22 +681,22 @@ fn start_ledger(
     id: &str,
     nodes: &[(&str, bool, &str, usize)],
     t0: &str,
-) -> (Ledger, Arc<ManualClock>) {
+) -> (Ledger, Arc<ManualClock>, CampaignLock) {
     let spec = spec_for(id, nodes);
     let sref = fx.put("spec.json", pretty(&spec));
     let clk = Arc::new(ManualClock::at(t0).with_tick(250));
     let c: Arc<dyn Clock> = clk.clone();
+    let (lk, _) = lock::acquire(&fx.root, clk.as_ref(), &["schema-fixture".into()]).unwrap();
     let mut l = Ledger::create(
         &fx.root,
+        &lk,
         c,
         LedgerConfig::default(),
-        id,
-        &sref.blake3,
-        spec.terminal_bound,
+        Genesis::new(id, &sref.blake3, spec.terminal_bound),
     )
     .unwrap();
     l.append_all(register(&spec, &sref)).unwrap();
-    (l, clk)
+    (l, clk, lk)
 }
 
 /// Builds one fixture under `root` and returns its files.
@@ -637,7 +709,7 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
     };
     match name {
         "cdir-empty" => {
-            let (l, clk) = start_ledger(
+            let (l, clk, _lk) = start_ledger(
                 &mut fx,
                 "fixture-empty",
                 &[("T162", true, "per-key", 20)],
@@ -652,7 +724,8 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
                 ("T162", true, "per-key", 20),
                 ("T178", true, "per-key", 20),
             ];
-            let (mut l, clk) = start_ledger(&mut fx, "fixture-mid", &nodes, "2026-11-14T11:58:00Z");
+            let (mut l, clk, _lk) =
+                start_ledger(&mut fx, "fixture-mid", &nodes, "2026-11-14T11:58:00Z");
             l.append_all(vec![
                 camp(CampaignEvent::Start, "rr_campaign run"),
                 camp(CampaignEvent::Run, "preflight ok"),
@@ -681,15 +754,8 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
                     .unwrap();
                 launch(&mut l, &i, &format!("T178-J{k:04}-L0"), 0, 60 + k as u32);
             }
-            l.append(Event::JobProgress {
-                job: "T178-J0004-L0".into(),
-                attempt: 1,
-                counters: [("rows".to_string(), 412u64), ("seeds".to_string(), 9000)]
-                    .into_iter()
-                    .collect(),
-            })
-            .unwrap();
-            l.append(closure("T178", 1, 409)).unwrap();
+            let cl = closure(&l, "T178", 1, 409);
+            l.append_all(cl).unwrap();
             fx.put("LOCK.json", pretty(&owner(4242)));
             fx.put(
                 "control/20261114T115950Z-7f3a.json",
@@ -726,7 +792,7 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
                 ("tri-a", false, "replay", 5),
                 ("kite.b9", true, "per-key", 9),
             ];
-            let (mut l, clk) =
+            let (mut l, clk, _lk) =
                 start_ledger(&mut fx, "fixture-finished", &nodes, "2026-11-14T06:00:00Z");
             l.append_all(vec![
                 camp(CampaignEvent::Start, "rr_campaign run"),
@@ -774,7 +840,7 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
             write_progress(&mut fx, &l, &resources(&t, 0), &t);
         }
         "cdir-stale" => {
-            let (mut l, clk) = start_ledger(
+            let (mut l, clk, _lk) = start_ledger(
                 &mut fx,
                 "fixture-stale",
                 &[("T162", true, "per-key", 20)],
@@ -909,7 +975,16 @@ fn ledger_record_examples_cover_every_kind() {
     // catalogue: the kinds no fixture contains
     let clk = Arc::new(ManualClock::at("2026-11-14T05:00:00Z").with_tick(250));
     let c: Arc<dyn Clock> = clk.clone();
-    let mut l = Ledger::create(&d, c, LedgerConfig::default(), "catalogue", &h('1'), 100).unwrap();
+    fs::create_dir_all(&d).unwrap();
+    let (lk, _) = lock::acquire(&d, clk.as_ref(), &["catalogue".into()]).unwrap();
+    let mut l = Ledger::create(
+        &d,
+        &lk,
+        c,
+        LedgerConfig::default(),
+        Genesis::new("catalogue", &h('1'), 100),
+    )
+    .unwrap();
     let spec = spec_for("catalogue", &[("T162", true, "per-key", 20)]);
     let sref = FileRef {
         path: "spec.json".into(),
@@ -936,12 +1011,22 @@ fn ledger_record_examples_cover_every_kind() {
             truncated_bytes: 37,
             saved_as: Some("ledger/torn-000000000010-1794632400000.bin".into()),
             detail: "torn tail".into(),
+            forced: false,
         },
         Event::EvidenceImported {
             evidence: "astra-bank".into(),
             producer: "Astra".into(),
             description: "T162 bank".into(),
             files: vec![large("handoff/t162-bank/MANIFEST.json")],
+            level_claimed: EvidenceLevel::IdentityTested,
+        },
+        Event::TablesImported {
+            provenance: "earlier".into(),
+            producer: "campaign c0".into(),
+            source_campaign: Some("c0".into()),
+            manifest: large("c0/MANIFEST.json"),
+            files: vec![],
+            level_claimed: EvidenceLevel::IdentityTested,
         },
         camp(CampaignEvent::Start, "run"),
         camp(CampaignEvent::Run, "ok"),
@@ -961,6 +1046,7 @@ fn ledger_record_examples_cover_every_kind() {
             spec_blake3: h('2'),
             binary: "program:rr_node".into(),
             reserved_bytes: 1 << 30,
+            inputs: vec![],
         },
         job(
             "j0",
@@ -977,6 +1063,7 @@ fn ledger_record_examples_cover_every_kind() {
             spec_blake3: h('3'),
             binary: "program:rr_node".into(),
             reserved_bytes: 1 << 30,
+            inputs: vec![],
         },
         job(
             "j1",
@@ -1010,7 +1097,11 @@ fn ledger_record_examples_cover_every_kind() {
                 reserved_bytes: 1 << 30,
             },
         ),
-        job("j1", 2, finished(FinishClass::Crashed, 70, None, 10, false)),
+        job(
+            "j1",
+            2,
+            finished("j1", 2, FinishClass::Crashed, 70, None, 10, false),
+        ),
         job(
             "j1",
             3,
@@ -1021,16 +1112,38 @@ fn ledger_record_examples_cover_every_kind() {
         Event::Note {
             text: "catalogue".into(),
         },
+    ])
+    .unwrap();
+    let blk = Blockers {
+        faces: 1,
+        loci: 0,
+        keys: 3,
+        list: None,
+    };
+    let cl = closure(&l, "T162", 1, 3);
+    l.append_all(cl).unwrap();
+    l.append_all(vec![
+        node(
+            "T162",
+            NodeEvent::FixerRoundBegin {
+                round: 1,
+                partition: None,
+            },
+        ),
+        node(
+            "T162",
+            NodeEvent::WinnerDiffDone {
+                round: 1,
+                diff: large("diff/T162.r1.json"),
+                failures: 0,
+            },
+        ),
         node(
             "T162",
             NodeEvent::AttemptEnded {
-                blockers: Blockers {
-                    faces: 1,
-                    loci: 0,
-                    keys: 3,
-                    list: None,
-                },
+                blockers: blk.clone(),
                 reason: "budget".into(),
+                cause: AttemptEndCause::FixerRounds,
             },
         ),
         node(
@@ -1039,11 +1152,24 @@ fn ledger_record_examples_cover_every_kind() {
                 box_id: "T162.box".into(),
             },
         ),
+    ])
+    .unwrap();
+    let cl = closure(&l, "T162", 2, 2);
+    l.append_all(cl).unwrap();
+    l.append_all(vec![
+        node(
+            "T162",
+            NodeEvent::FixerRoundBegin {
+                round: 2,
+                partition: None,
+            },
+        ),
         node(
             "T162",
             NodeEvent::AttemptEnded {
-                blockers: Blockers::default(),
+                blockers: blk,
                 reason: "box budget".into(),
+                cause: AttemptEndCause::FixerRounds,
             },
         ),
         node(
@@ -1070,8 +1196,61 @@ fn ledger_record_examples_cover_every_kind() {
                 input: "T162.family".into(),
             },
         ),
+        Event::Control {
+            id: "c-1".into(),
+            ev: ControlEvent::Requested {
+                verb: ControlVerb::Pause,
+                target: ControlTarget::Campaign,
+                by: "operator".into(),
+                reason: "maintenance".into(),
+            },
+        },
+        Event::Control {
+            id: "c-1".into(),
+            ev: ControlEvent::Applied {
+                effect: "launches paused".into(),
+            },
+        },
+        Event::Control {
+            id: "c-2".into(),
+            ev: ControlEvent::Requested {
+                verb: ControlVerb::Resume,
+                target: ControlTarget::Campaign,
+                by: "operator".into(),
+                reason: "done".into(),
+            },
+        },
+        Event::Control {
+            id: "c-2".into(),
+            ev: ControlEvent::Refused {
+                why: "supervisor stopping".into(),
+            },
+        },
+        Event::OrphanKilled {
+            job: Some("j1".into()),
+            pid: 31338,
+            start_ticks: 99,
+        },
+        Event::VerifyCheckpoint {
+            seq: 3,
+            clean: true,
+            report: None,
+        },
+        Event::ArtefactLost {
+            path: "accepted/T162/0000.json".into(),
+            blake3: h('4'),
+            items: vec![],
+        },
+        Event::Export {
+            rev: "r1".into(),
+            ev: ExportEvent::Revoked {
+                cause: "superseded".into(),
+            },
+        },
     ])
     .unwrap();
+    drop(l);
+    drop(lk);
     recs.extend(ledger::read_records(&d).unwrap());
     let _ = fs::remove_dir_all(&d);
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
@@ -1088,7 +1267,7 @@ fn ledger_record_examples_cover_every_kind() {
             }
         }
         seen.entry(key)
-            .or_insert_with(|| serde_json::to_string(r).unwrap());
+            .or_insert_with(|| String::from_utf8(ledger::encode_record(r).0).unwrap());
     }
     let text: String = seen.values().map(|l| format!("{l}\n")).collect();
     let p = schemas().join("examples/ledger-record.jsonl");
@@ -1158,12 +1337,13 @@ fn as_built_structs_roundtrip_examples_and_fixtures() {
         }
     }
     for (what, l) in &texts {
-        let r: Record = serde_json::from_slice(l).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let (r, _) = ledger::decode_record(l).unwrap_or_else(|e| panic!("{what}: {e}"));
         assert_eq!(
-            serde_json::to_vec(&r).unwrap(),
+            ledger::encode_record(&r).0,
             *l,
             "{what}: ledger line does not re-serialise byte for byte"
         );
+        let _: Record = r;
         lines += 1;
     }
     roundtrip::<Manifest>(

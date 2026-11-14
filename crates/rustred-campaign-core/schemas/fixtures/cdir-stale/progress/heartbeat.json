@@ -1,0 +1,13 @@
+{
+  "campaign_id": "fixture-stale",
+  "file": "heartbeat",
+  "ledger": {
+    "head": "07a1e5c52745db2a0ad4dd8ca78ba981a33b1bffa24eeba95fe11bc8e7b1b653",
+    "last_utc": "2026-11-14T10:00:06.750Z",
+    "seq": 27
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "supervisor": null,
+  "written_utc": "2026-11-14T10:00:07.000Z"
+}

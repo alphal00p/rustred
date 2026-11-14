@@ -4,25 +4,47 @@
     "identity_proved": 0,
     "identity_tested": 0
   },
+  "attempt": {
+    "cpu_ms_on_target": 3300,
+    "fixer_rounds_on_target": 0
+  },
   "attempt_ended": false,
   "blockers": {
     "box": null,
     "full": null
   },
   "campaign_id": "fixture-mid",
+  "certification": {
+    "asked": "per-key",
+    "boxed": "per-key",
+    "full": "per-key",
+    "reached": null
+  },
   "certified": false,
   "closure": {
+    "binding": {
+      "closure_keys": 150409,
+      "defect_keys": 409,
+      "dispatch_order_digest": "5e7a316a0f15eea7c833d06ab57ce4b8f1b6f1f9c0565f0c2c254d2ee5772e8a",
+      "envelope": "proved",
+      "envelope_tables": [],
+      "round": 1,
+      "rule_set_digest": "cc1fc4f4c74fd5fed34ca5316125a0859200146fe9723f6a868ab62f2c9654ee"
+    },
     "closure_keys": 150409,
     "defect_keys": 409,
+    "dispatch_order": "5e7a316a0f15eea7c833d06ab57ce4b8f1b6f1f9c0565f0c2c254d2ee5772e8a",
     "keyset": {
       "blake3": "41d83c16b4ff809eb49cd7ebfc4c987974c9236a1881f52e90969500e0c333e0",
       "bytes": 1027,
       "path": "large:keysets/T178-closure-1.keys"
     },
+    "provisional": false,
     "rounds": 1,
-    "rules_total": 2440,
-    "rules_used": 5,
-    "used_share": 0.002
+    "rule_set_digest": "cc1fc4f4c74fd5fed34ca5316125a0859200146fe9723f6a868ab62f2c9654ee",
+    "rules_total": 1,
+    "rules_used": 1,
+    "used_share": 1.0
   },
   "closure_kind": "open",
   "cpu_seconds": 3.3,
@@ -48,33 +70,52 @@
     "superseded": 0,
     "unmeasured": 0
   },
+  "envelope": "proved",
+  "faces_summary": {
+    "closed": 1,
+    "total": 3
+  },
   "file": "node",
   "inputs": [
     "T178.family",
     "T178.bank"
   ],
   "items": {
+    "by_kind": {
+      "face": {
+        "done": 1,
+        "total": 3
+      },
+      "locus": {
+        "done": 1,
+        "total": 2
+      }
+    },
     "by_level": {
       "L0": {
         "accepted": 1,
+        "attention": 0,
         "escalated": 1,
         "in_progress": 2,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 0,
+        "skipped": 0,
         "stale": 0,
         "terminal": 0,
         "terminal_candidate": 0
       },
       "L1": {
         "accepted": 0,
+        "attention": 0,
         "escalated": 0,
         "in_progress": 0,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 0,
+        "skipped": 0,
         "stale": 0,
         "terminal": 0,
         "terminal_candidate": 1
@@ -82,12 +123,14 @@
     },
     "by_phase": {
       "accepted": 1,
+      "attention": 0,
       "escalated": 1,
       "in_progress": 2,
       "open": 0,
       "produced": 0,
       "rejected": 0,
       "retired": 0,
+      "skipped": 0,
       "stale": 0,
       "terminal": 0,
       "terminal_candidate": 1
@@ -95,14 +138,25 @@
     "open": 3
   },
   "ledger": {
-    "head": "0c892333623389922bce9c931ba25feff166add6aacd92ae06aaf28d2aa21746",
-    "last_utc": "2026-11-14T11:58:32.750Z",
-    "seq": 132
+    "head": "79566b6f6472faa4781c03b5666ce38c17e34988357848c7cbd179bd4ebaee70",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
   },
   "node": "T178",
+  "paused": false,
   "phase": "closure_check",
+  "provisional": false,
+  "reference": null,
+  "reopen_cause": null,
+  "reopens": 0,
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 1,
+    "preferred_terminals": null,
+    "terminal_rung": "L1"
+  },
   "spec_box": "T178.box",
   "stale_reason": null,
   "target": {
@@ -111,7 +165,14 @@
   "terminals": {
     "bound": 100,
     "candidates": 1,
-    "declared": 0
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    },
+    "preferred_declared": 0
   },
-  "written_utc": "2026-11-14T11:58:33.000Z"
+  "written_utc": "2026-11-14T11:58:34.250Z"
 }
