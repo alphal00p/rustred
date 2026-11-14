@@ -77,6 +77,10 @@ pub fn default_fake_script(req: &JobRequest) -> FakeScript {
 /// The job spec of one attempt.
 pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> JobSpec {
     let (job_kind, fake, features) = match kind {
+        // lane closeloop (closeloop.md 6.5): a fake script on a non-fake kind = rr_fake_child emulating that kind
+        AdapterKind::Fake if req.kind != JobKind::Fake && req.fake.is_some() => {
+            (req.kind, req.fake.clone(), vec!["fake".to_string()])
+        }
         AdapterKind::Fake => (
             JobKind::Fake,
             Some(req.fake.clone().unwrap_or_else(|| default_fake_script(req))),
@@ -96,7 +100,7 @@ pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> Jo
             features_required: features,
         },
         inputs: req.inputs.clone(),
-        args: if kind == AdapterKind::Fake {
+        args: if job_kind == JobKind::Fake {
             vec![]
         } else {
             req.args.clone()

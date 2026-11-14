@@ -586,6 +586,11 @@ impl Supervisor {
         }
         let source: Box<dyn WorkSource> = match &opts.spec.synthetic {
             Some(s) => Box::new(ScriptedWorkSource::new(s.clone())),
+            // lane closeloop (closeloop.md 6.2): an input of role `closeloop` names the close-from-material config
+            None if opts.spec.inputs.iter().any(|i| i.role == crate::closeloop::CONFIG_ROLE) => Box::new(
+                crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
+                    .map_err(RunExit::Refused)?,
+            ),
             None => return Err(RunExit::Refused("no work source for this spec".into())),
         };
         let ctx = SourceContext {
@@ -1040,6 +1045,32 @@ impl Supervisor {
                     &format!("{job} a{attempt}: sealed table unreadable; nothing accepted"),
                 );
             }
+        } else if wants_table
+            && let Some(s) = ev.verified.as_ref().and_then(|v| {
+                v.streams
+                    .iter()
+                    .find(|s| s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS))
+            })
+        {
+            // lane closeloop (closeloop.md 6.4): a kind without a table whose sealed `results` stream the contract
+            // verified (solve-recipe): its canonical lines come through the VerifiedHandle, never a re-read path.
+            let p = layout.root.join(&s.rel);
+            match rustred_campaign_contract::seal::VerifiedHandle::reopen(&layout.root, s)
+                .and_then(|h| h.canonical_lines())
+            {
+                Ok(ls) => {
+                    table = file_ref(&p, self.rel_path(&p));
+                    lines = ls
+                        .into_iter()
+                        .map(|l| String::from_utf8_lossy(&l).into_owned())
+                        .collect();
+                    canon = Some(s.canonical_blake3.clone());
+                }
+                Err(e) => self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: verified results stream unreadable ({e}); nothing accepted"),
+                ),
+            }
         }
         let sealed_ok = !wants_table || !spec.kind.produces_table() || table.is_some();
         let settled = Settled {
@@ -1182,6 +1213,18 @@ impl Supervisor {
         );
         let (mut ls, spec_digest) =
             adapters::prepare_run(&spec, &prog_path).map_err(|e| format!("run dir: {e}"))?;
+        // lane closeloop (closeloop.md 6.3): `<path> <verb> --job RUN/job.json` for a program with a job verb
+        if kind == AdapterKind::Contract
+            && let Some(verb) = self
+                .opts
+                .spec
+                .programs
+                .get(&req.program)
+                .and_then(|p| p.job_verb.clone())
+        {
+            let jp = RunLayout::new(&spec.run_dir).job_spec();
+            ls.args = vec![verb.into(), "--job".into(), jp.into_os_string()];
+        }
         // The launcher sets the marker `<campaign id>:<label>`: the label is the attempt id.
         ls.label = format!("{}:a{attempt}", req.job);
         if let Some(l) = &self.lock {
@@ -1670,6 +1713,36 @@ impl Supervisor {
         b
     }
 
+    /// Lane closeloop (closeloop.md 6.1): the work source's own in-process pass results, written and committed as a
+    /// routing (records first, then one group commit), exactly as at a settle.
+    fn poll_source(&mut self) {
+        let routing = match self.source.poll(self.ledger.state(), &self.ctx) {
+            Ok(r) => r,
+            Err(e) => {
+                self.log.line("ERROR", &format!("work source poll: {e}"));
+                return;
+            }
+        };
+        for a in &routing.accepts {
+            let p = self.cdir.join(&a.path);
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+                if e.is_no_space() {
+                    self.ledger_dead = Some(RunExit::DiskFull);
+                }
+                self.log
+                    .line("ERROR", &format!("source record {}: {e}; not recorded", a.path));
+                return;
+            }
+        }
+        if let Err(e) = self.commit_or_refused(routing.events) {
+            self.log
+                .line("ERROR", &format!("work source events refused by the ledger: {e}"));
+        }
+    }
+
     fn schedule(&mut self) {
         let max_jobs = self.opts.spec.resources.max_jobs;
         if self.children.len() >= max_jobs {
@@ -2007,6 +2080,8 @@ impl Supervisor {
             }
             // 4-5. schedule
             if level == StopLevel::Running {
+                // lane closeloop (closeloop.md 6.1): results of the source's own in-process passes
+                self.poll_source();
                 let b = self.blockers();
                 if b.reasons.is_empty() {
                     self.schedule();

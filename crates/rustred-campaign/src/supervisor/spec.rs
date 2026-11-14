@@ -76,6 +76,10 @@ pub struct Program {
     pub blake3: Option<String>,
     #[serde(default)]
     pub optional: bool,
+    /// Lane closeloop (closeloop.md 6.3): launch as `<path> <job_verb> --job RUN/job.json` (an engine verb's job
+    /// mode) instead of `<path> job RUN/job.json`. A launch difference only.
+    #[serde(default)]
+    pub job_verb: Option<String>,
 }
 
 /// One input of the spec (generic: the work source gives the role its meaning).
