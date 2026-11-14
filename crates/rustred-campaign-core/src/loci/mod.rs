@@ -8,9 +8,18 @@
 //! member of each live branch (linear members first): a linear factor -> lattice parametrisation of its integer
 //! solutions (any integer coefficients, R32/R34); a one-parameter nonlinear factor -> exact integer roots; anything
 //! else -> UNRESOLVED (equation, region, exact window enumeration to a stated bound; never dropped, never sampled
-//! into a verdict). Region emptiness by exact Fourier-Motzkin with integer rounding. Case equations that are not
-//! constant on a piece are resolved recursively on the piece and their covered sub-loci are SUBTRACTED
-//! (`covered_on`).
+//! into a verdict). Region emptiness by exact Fourier-Motzkin with integer rounding.
+//!
+//! Covered sub-loci (audit-part-A C1, no sampling in any decision): where no rule is alive on a region except rules
+//! whose case equation `f` varies there, such a rule covers at most points of `{f = 0}`. The uncovered set is then
+//! EXACTLY `(region minus every hyperplane {f_i = 0})` together with the uncovered set of each `region n {f_i = 0}`,
+//! resolved recursively with every rule (a lattice cut). The first part is reported as a piece carrying the list of
+//! subtracted hyperplanes; it is dropped only when PROVED empty (exact sign split, node-capped), never because
+//! sampled points were covered. A nonlinear covered sub-locus in two or more parameters is not subtracted (the piece
+//! is a superset, flagged `covered_part_unresolved`). Witnesses are only attached to reported pieces.
+//!
+//! Every cap (nodes, depth), exact-arithmetic overflow or failed cut yields an explicit UNRESOLVED region with its
+//! reason (audit-part-A M1): reported as an open gap region, making the partition outcome `Incomplete`.
 //!
 //! No floating point anywhere.
 
@@ -31,8 +40,13 @@ pub use region::Region;
 /// Options of the locus resolution.
 #[derive(Clone, Debug)]
 pub struct LociOptions {
-    /// Recursion node cap per class (beyond: the class is reported UNRESOLVED).
+    /// Recursion node cap per class (beyond: the remaining region is reported UNRESOLVED).
     pub max_nodes: u64,
+    /// Recursion depth cap (beyond: the region is reported UNRESOLVED).
+    pub max_depth: usize,
+    /// Node cap of the exact emptiness test of a piece minus its subtracted hyperplanes (beyond: the piece is
+    /// reported, flagged `covered_part_unresolved`).
+    pub max_split_nodes: u64,
     /// Window (L1 radius around an anchor point, in parameter space) for UNRESOLVED pieces, by dimension.
     pub window_radius: [i64; 6],
     /// Tries per level of the exact witness search.
@@ -45,6 +59,8 @@ impl Default for LociOptions {
     fn default() -> Self {
         LociOptions {
             max_nodes: 20_000,
+            max_depth: 40,
+            max_split_nodes: 4_096,
             window_radius: [0, 40, 40, 40, 24, 12],
             tries: 8,
             witnesses: 3,
@@ -60,21 +76,34 @@ pub struct CoveredSubLocus {
     pub fully_covered: bool,
 }
 
-/// One uncovered piece.
+/// One uncovered piece: `region` minus the hyperplanes `minus` (exact), unless `covered_part_unresolved`.
 #[derive(Clone, Debug)]
 pub struct Piece {
     pub region: Region,
     /// Cut equations in slot variables (or parameters) in order.
     pub trail: Vec<String>,
+    /// Covered sub-loci of the piece's region: each hyperplane is subtracted exactly from this piece and its
+    /// uncovered part is resolved (and reported) separately; `fully_covered` = that resolution found no gap.
     pub covered_on: Vec<CoveredSubLocus>,
+    /// The piece is `region` minus these hyperplanes (linear case equations, in parameters).
+    pub minus: Vec<String>,
+    /// Refinements on the way here (case-equation hyperplanes the region lies on).
+    pub refinements: Vec<String>,
+    /// A covered sub-locus (nonlinear in >= 2 parameters) could not be subtracted, or the emptiness of
+    /// `region minus hyperplanes` could not be decided: the piece is a SUPERSET of the uncovered set (conservative).
+    pub covered_part_unresolved: bool,
+    /// Uncovered keys of the piece confirmed by the exact oracle (witnesses only, never a decision).
     pub witness: Vec<Key>,
     pub unbounded: Option<bool>,
 }
 
-/// A cut the recursion could not resolve (nonlinear in >= 2 parameters).
+/// A region the recursion could not resolve: a nonlinear cut in >= 2 parameters, a cap or an exact-arithmetic
+/// failure. Always an OPEN gap region.
 #[derive(Clone, Debug)]
 pub struct Unresolved {
     pub region: Region,
+    /// Why it is unresolved.
+    pub reason: String,
     pub equation: String,
     pub trail: Vec<String>,
     /// Exact window: bound and the uncovered points on the equation found inside it.
@@ -111,6 +140,21 @@ pub struct LociReport {
 }
 
 impl LociReport {
+    /// Number of unresolved parts (every one an open gap region).
+    pub fn n_unresolved_parts(&self) -> usize {
+        self.loci.iter().map(|l| l.unresolved_parts.len()).sum()
+    }
+    /// The distinct reasons of the unresolved parts.
+    pub fn unresolved_reasons(&self) -> Vec<String> {
+        let mut r: Vec<String> = self
+            .loci
+            .iter()
+            .flat_map(|l| l.unresolved_parts.iter().map(|u| u.reason.clone()))
+            .collect();
+        r.sort();
+        r.dedup();
+        r
+    }
     pub fn n_linear(&self) -> usize {
         self.loci.iter().filter(|l| !l.unresolved).count()
     }
@@ -130,10 +174,11 @@ impl LociReport {
                         "x": p.region.render_x(), "params": p.region.names, "constraints_ge0": p.region.render_cons(),
                         "dim": p.region.k, "finite": p.unbounded.map(|u| !u), "trail": p.trail,
                         "covered_on": p.covered_on.iter().map(|c| json!({"equation": c.equation, "fully_covered": c.fully_covered})).collect::<Vec<_>>(),
+                        "minus": p.minus, "refinements": p.refinements, "covered_part_unresolved": p.covered_part_unresolved,
                         "witness": p.witness,
                     })).collect::<Vec<_>>(),
                     "unresolved": l.unresolved_parts.iter().map(|u| json!({
-                        "equation": u.equation, "x": u.region.render_x(), "params": u.region.names,
+                        "reason": u.reason, "equation": u.equation, "x": u.region.render_x(), "params": u.region.names,
                         "constraints_ge0": u.region.render_cons(), "trail": u.trail,
                         "window": {"bound": u.bound, "n_window": u.n_window, "points": u.points},
                     })).collect::<Vec<_>>(),
@@ -238,12 +283,34 @@ pub(crate) struct Resolver<'a> {
     pub pieces: Vec<Piece>,
     pub unresolved: Vec<Unresolved>,
     pub capped: bool,
+    /// Case-equation hyperplanes the current region lies on (stack).
+    refs: Vec<String>,
 }
 
 enum GeV {
     True,
     False,
     Varies,
+}
+
+/// Exact emptiness of `region minus the hyperplanes`.
+enum Minus {
+    Empty,
+    Point(Vec<i128>),
+    Unknown,
+}
+
+/// A hyperplane `coef . t + c = 0` in the parameters, with its label.
+type Hyper = (Vec<i128>, i128, String);
+
+fn on_hyper(h: &Hyper, t: &[i128]) -> Option<bool> {
+    Affine {
+        coef: h.0.clone(),
+        c: h.1,
+    }
+    .eval(t)
+    .ok()
+    .map(|v| v == 0)
 }
 
 impl<'a> Resolver<'a> {
@@ -256,6 +323,7 @@ impl<'a> Resolver<'a> {
             pieces: vec![],
             unresolved: vec![],
             capped: false,
+            refs: vec![],
         }
     }
 
@@ -288,11 +356,34 @@ impl<'a> Resolver<'a> {
         GeV::Varies
     }
 
+    /// An OPEN region the recursion cannot resolve (cap, overflow): reported, never dropped (audit-part-A M1).
+    fn open_region(&mut self, region: Region, trail: Vec<String>, reason: String) {
+        if region.feasible() == Ok(false) {
+            return; // proved integer-empty
+        }
+        self.errors += 1;
+        self.unresolved.push(Unresolved {
+            region,
+            equation: reason.clone(),
+            reason,
+            trail,
+            bound: "none (no window for a capped / failed region)".into(),
+            points: vec![],
+            n_window: 0,
+        });
+    }
+
     /// Resolve the uncovered set of `region` w.r.t. the rules `among` (indices into nf.rules).
     pub fn resolve(&mut self, region: Region, among: &[usize], trail: Vec<String>, depth: usize) {
         self.nodes += 1;
-        if self.nodes > self.opts.max_nodes || depth > 40 {
+        if self.nodes > self.opts.max_nodes || depth > self.opts.max_depth {
             self.capped = true;
+            let why = if depth > self.opts.max_depth {
+                format!("locus recursion depth cap {} reached", self.opts.max_depth)
+            } else {
+                format!("locus recursion node cap {} reached", self.opts.max_nodes)
+            };
+            self.open_region(region, trail, why);
             return;
         }
         let mut qcache: BTreeMap<u32, MPoly> = BTreeMap::new();
@@ -312,6 +403,7 @@ impl<'a> Resolver<'a> {
                             q
                         }
                         Err(_) => {
+                            // the rule is treated as NOT covering here (conservative)
                             self.errors += 1;
                             dead = true;
                             break;
@@ -377,6 +469,7 @@ impl<'a> Resolver<'a> {
                             self.resolve(region.with(neg), among, t, depth + 1);
                             return;
                         }
+                        // a nonlinear bound that varies: the rule is treated as not covering (conservative)
                         dead = true;
                         break;
                     }
@@ -391,6 +484,7 @@ impl<'a> Resolver<'a> {
                 let mut all_z = true;
                 let mut all_zv = true;
                 let mut vs = vec![];
+                let mut failed = false;
                 for &l in b {
                     let q = match qcache.get(&l) {
                         Some(q) => q.clone(),
@@ -400,9 +494,11 @@ impl<'a> Resolver<'a> {
                                 q
                             }
                             Err(_) => {
+                                // a member that cannot be computed may vanish anywhere: the rule is treated as
+                                // NOT covering on this region (audit-part-A M1: never a live branch without member)
                                 self.errors += 1;
-                                all_z = false;
-                                continue;
+                                failed = true;
+                                break;
                             }
                         },
                     };
@@ -427,7 +523,7 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
-                if all_z {
+                if failed || all_z {
                     dead = true;
                     break;
                 }
@@ -445,7 +541,7 @@ impl<'a> Resolver<'a> {
             alive.push((ri, live));
         }
         if alive.is_empty() {
-            self.emit_piece(region, &next_among, &eq_loci, trail, depth);
+            self.subtract_and_emit(region, &next_among, &eq_loci, trail, depth);
             return;
         }
         // fragile rule with the fewest live branches, preferring branches with a linear member
@@ -478,7 +574,15 @@ impl<'a> Resolver<'a> {
                     best = Some((key, facs, *lid));
                 }
             }
-            let Some((_, facs, lid)) = best else { continue };
+            let Some((_, facs, lid)) = best else {
+                // unreachable: a live branch has at least one varying member
+                self.open_region(
+                    region.clone(),
+                    trail.clone(),
+                    "live exception branch without a varying member".into(),
+                );
+                continue;
+            };
             let nfacs = facs.len();
             let lit_text = self.nf.lits[lid as usize].text.clone();
             for (fi, f) in facs.into_iter().enumerate() {
@@ -503,7 +607,11 @@ impl<'a> Resolver<'a> {
                             }
                         },
                         Ok(None) => {}
-                        Err(_) => self.errors += 1,
+                        Err(e) => self.open_region(
+                            region.clone(),
+                            trail.clone(),
+                            format!("lattice cut on {label}: {e}"),
+                        ),
                     }
                 } else if f.support().len() == 1 {
                     let j = f.support()[0];
@@ -511,28 +619,54 @@ impl<'a> Resolver<'a> {
                     match int_roots(&u) {
                         Ok(rs) => {
                             for x in rs {
-                                if let Ok(sub) = region.fix(j, x as i128)
-                                    && sub.feasible().unwrap_or(true)
-                                {
-                                    let mut t = trail.clone();
-                                    t.push(label.clone());
-                                    self.resolve(sub, &next_among, t, depth + 1);
+                                match region.fix(j, x as i128) {
+                                    Ok(sub) => {
+                                        if sub.feasible().unwrap_or(true) {
+                                            let mut t = trail.clone();
+                                            t.push(label.clone());
+                                            self.resolve(sub, &next_among, t, depth + 1);
+                                        }
+                                    }
+                                    Err(e) => self.open_region(
+                                        region.clone(),
+                                        trail.clone(),
+                                        format!("fixing a root of {label}: {e}"),
+                                    ),
                                 }
                             }
                         }
                         Err(_) => {
                             self.errors += 1;
-                            self.unresolve(region.clone(), f, label, trail.clone());
+                            self.unresolve(
+                                region.clone(),
+                                f,
+                                label,
+                                trail.clone(),
+                                "integer roots of a one-parameter cut not computable".into(),
+                            );
                         }
                     }
                 } else {
-                    self.unresolve(region.clone(), f, label, trail.clone());
+                    self.unresolve(
+                        region.clone(),
+                        f,
+                        label,
+                        trail.clone(),
+                        "nonlinear cut in two or more parameters".into(),
+                    );
                 }
             }
         }
     }
 
-    fn unresolve(&mut self, region: Region, f: MPoly, label: String, trail: Vec<String>) {
+    fn unresolve(
+        &mut self,
+        region: Region,
+        f: MPoly,
+        label: String,
+        trail: Vec<String>,
+        reason: String,
+    ) {
         // exact window: L1 ball around an anchor point of the region, f = 0 and uncovered
         let k = region.k;
         let radius = self.opts.window_radius[k.min(5)];
@@ -585,6 +719,7 @@ impl<'a> Resolver<'a> {
         self.unresolved.push(Unresolved {
             bound: format!("L1 <= {radius} around parameters {anchor:?}"),
             region,
+            reason,
             equation: label,
             trail,
             points: pts,
@@ -592,7 +727,10 @@ impl<'a> Resolver<'a> {
         });
     }
 
-    fn emit_piece(
+    /// No rule is alive on `region` except rules whose case equation varies (`eq_loci`): the uncovered set is
+    /// EXACTLY (region minus the hyperplanes of the linear ones) plus the uncovered set on each hyperplane, resolved
+    /// recursively with every rule (audit-part-A C1).
+    fn subtract_and_emit(
         &mut self,
         region: Region,
         among: &[usize],
@@ -600,41 +738,189 @@ impl<'a> Resolver<'a> {
         trail: Vec<String>,
         depth: usize,
     ) {
-        if !region.feasible().unwrap_or(true) {
+        if region.feasible() == Ok(false) {
             return;
         }
-        // covered sub-loci: resolve the piece on each linear case-equation locus
-        let mut covered_on = vec![];
+        // distinct linear forms (primitive, canonical sign) and the nonlinear equations
+        let mut forms: Vec<Hyper> = vec![];
         let mut seen: Vec<MPoly> = vec![];
+        let mut unsubtracted: Vec<String> = vec![];
+        let mut covered_on = vec![];
         for (_, q) in eq_loci {
-            let Some((coef, c)) = q.linear_form() else {
-                covered_on.push(CoveredSubLocus {
-                    equation: q.render(&region.names),
-                    fully_covered: false,
-                });
-                continue;
-            };
             let p = q.primitive().unwrap_or(q.clone());
             if seen.contains(&p) {
                 continue;
             }
-            seen.push(p);
-            if let Ok(Some(sub)) = region.cut(&coef, c)
-                && sub.feasible().unwrap_or(true)
-            {
-                let mut inner = Resolver::new(self.nf, self.opts);
-                inner.resolve(sub, among, vec![], depth + 1);
-                covered_on.push(CoveredSubLocus {
-                    equation: q.render(&region.names),
-                    fully_covered: inner.pieces.is_empty()
-                        && inner.unresolved.is_empty()
-                        && !inner.capped,
-                });
+            seen.push(p.clone());
+            if p.total_degree() == 1 {
+                let (coef, c) = p.linear_form().expect("linear");
+                forms.push((coef, c, p.render(&region.names)));
+            } else if p.support().len() == 1 {
+                // one parameter: the zero set is the finite set of integer roots, each a hyperplane t_j = x
+                let j = p.support()[0];
+                match int_roots(&p.univariate(j).expect("univariate")) {
+                    Ok(rs) => {
+                        for x in rs {
+                            let mut coef = vec![0i128; region.k];
+                            coef[j] = 1;
+                            forms.push((coef, -(x as i128), format!("{}={x}", region.names[j])));
+                        }
+                    }
+                    Err(e) => {
+                        self.errors += 1;
+                        unsubtracted.push(format!("{} (roots: {e})", p.render(&region.names)));
+                    }
+                }
+            } else {
+                unsubtracted.push(p.render(&region.names));
             }
         }
-        // witnesses: integer points of the piece that the oracle confirms uncovered
+        // the uncovered part ON each hyperplane: resolved with every rule (reported as its own pieces)
+        let mut minus: Vec<Hyper> = vec![];
+        for (coef, c, txt) in forms {
+            match region.cut(&coef, c) {
+                Ok(Some(sub)) => {
+                    if sub.feasible() == Ok(false) {
+                        continue;
+                    }
+                    let (np, nu) = (self.pieces.len(), self.unresolved.len());
+                    self.refs.push(format!("{txt}=0"));
+                    self.resolve(sub, among, trail.clone(), depth + 1);
+                    self.refs.pop();
+                    covered_on.push(CoveredSubLocus {
+                        equation: txt.clone(),
+                        fully_covered: self.pieces.len() == np && self.unresolved.len() == nu,
+                    });
+                    minus.push((coef, c, txt));
+                }
+                Ok(None) => {} // no integer point on the hyperplane: nothing to subtract
+                Err(e) => {
+                    // the sub-locus cannot be parametrised: the WHOLE region stays open
+                    self.open_region(
+                        region.clone(),
+                        trail.clone(),
+                        format!("lattice cut on the case equation {txt}: {e}"),
+                    );
+                    return;
+                }
+            }
+        }
+        for u in &unsubtracted {
+            covered_on.push(CoveredSubLocus {
+                equation: u.clone(),
+                fully_covered: false,
+            });
+        }
+        // the part OFF every hyperplane: dropped only if PROVED empty
+        let mut flagged = !unsubtracted.is_empty();
+        let mut first: Option<Vec<i128>> = None;
+        if !minus.is_empty() {
+            match self.minus_point(&region, &minus) {
+                Minus::Empty => return,
+                Minus::Point(t) => first = Some(t),
+                Minus::Unknown => flagged = true,
+            }
+        }
+        let witness = self.witnesses(&region, &minus, first);
+        let unbounded = region.unbounded().ok();
+        self.pieces.push(Piece {
+            region,
+            trail,
+            covered_on,
+            minus: minus.into_iter().map(|m| m.2).collect(),
+            refinements: self.refs.clone(),
+            covered_part_unresolved: flagged,
+            witness,
+            unbounded,
+        });
+    }
+
+    /// An integer point of `region` off every hyperplane, or a proof that there is none (exact sign split
+    /// {f >= 1} / {f <= -1}, node-capped).
+    fn minus_point(&mut self, region: &Region, minus: &[Hyper]) -> Minus {
+        // cheap first: points of the region near its anchor (a found point is checked exactly)
+        if let Some(t) = self.search_off(region, minus, 2) {
+            return Minus::Point(t);
+        }
+        fn split(r: &Region, hs: &[Hyper], nodes: &mut u64, cap: u64, tries: usize) -> Minus {
+            *nodes += 1;
+            if *nodes > cap {
+                return Minus::Unknown;
+            }
+            match r.feasible() {
+                Ok(false) => return Minus::Empty,
+                Ok(true) => {}
+                Err(_) => return Minus::Unknown,
+            }
+            let Some(((coef, c, _), rest)) = hs.split_first() else {
+                return match r.point(tries) {
+                    Ok(Some(t)) => Minus::Point(t),
+                    _ => Minus::Unknown,
+                };
+            };
+            let pos = Affine {
+                coef: coef.clone(),
+                c: c - 1,
+            };
+            let neg = Affine {
+                coef: coef.iter().map(|a| -a).collect(),
+                c: -c - 1,
+            };
+            let mut unknown = false;
+            for part in [r.with(pos), r.with(neg)] {
+                match split(&part, rest, nodes, cap, tries) {
+                    Minus::Point(t) => return Minus::Point(t),
+                    Minus::Unknown => unknown = true,
+                    Minus::Empty => {}
+                }
+            }
+            if unknown {
+                Minus::Unknown
+            } else {
+                Minus::Empty
+            }
+        }
+        let mut nodes = 0u64;
+        split(
+            region,
+            minus,
+            &mut nodes,
+            self.opts.max_split_nodes,
+            self.opts.tries,
+        )
+    }
+
+    /// Exact search near the region's anchor point for a parameter point off every hyperplane (L1 walk).
+    fn search_off(&self, region: &Region, minus: &[Hyper], radius: i128) -> Option<Vec<i128>> {
+        let off = |t: &[i128]| {
+            region.contains_t(t).unwrap_or(false)
+                && minus.iter().all(|h| on_hyper(h, t) == Some(false))
+        };
+        let base = region.point(self.opts.tries).ok()??;
+        let k = region.k;
+        for r in 0..=radius {
+            let mut stack: Vec<(usize, i128, Vec<i128>)> = vec![(0, r, base.clone())];
+            while let Some((j, left, t)) = stack.pop() {
+                if j == k {
+                    if left == 0 && off(&t) {
+                        return Some(t);
+                    }
+                    continue;
+                }
+                for dlt in -left..=left {
+                    let mut t2 = t.clone();
+                    t2[j] += dlt;
+                    stack.push((j + 1, left - dlt.abs(), t2));
+                }
+            }
+        }
+        None
+    }
+
+    /// Witness keys of a reported piece (confirmed uncovered by the exact oracle; never used for a decision).
+    fn witnesses(&self, region: &Region, minus: &[Hyper], first: Option<Vec<i128>>) -> Vec<Key> {
         let mut witness = vec![];
-        let mut tried = 0;
+        let mut cands: Vec<Vec<i128>> = first.into_iter().collect();
         let mut anchors: Vec<Vec<i128>> = vec![vec![0; region.k]];
         for j in 0..region.k {
             for d in [3i128, 7, -3, -7] {
@@ -643,14 +929,19 @@ impl<'a> Resolver<'a> {
                 anchors.push(a);
             }
         }
-        for a in anchors {
-            if witness.len() >= self.opts.witnesses || tried > 24 {
+        for a in anchors.iter().take(25) {
+            if let Ok(Some(t)) = region::find_point(&region.cons, region.k, self.opts.tries, a) {
+                cands.push(t);
+            }
+        }
+        for t in cands {
+            if witness.len() >= self.opts.witnesses {
                 break;
             }
-            tried += 1;
-            if let Ok(Some(t)) = region::find_point(&region.cons, region.k, self.opts.tries, &a)
-                && let Ok(x) = region.at(&t)
-            {
+            if minus.iter().any(|h| on_hyper(h, &t) != Some(false)) {
+                continue;
+            }
+            if let Ok(x) = region.at(&t) {
                 let key: Option<Key> = x.iter().map(|&v| i32::try_from(v).ok()).collect();
                 if let Some(key) = key
                     && !witness.contains(&key)
@@ -660,19 +951,13 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        let unbounded = region.unbounded().ok();
-        self.pieces.push(Piece {
-            region,
-            trail,
-            covered_on,
-            witness,
-            unbounded,
-        });
+        witness
     }
 }
 
 /// Resolve every F class of a partition (each `any` slot expanded into floor / off-floor first, so every piece lies
-/// on one face) and group the pieces into loci (face, cut equations).
+/// on one face) and group the pieces into loci (face, cut equations). Every piece and every unresolved region is
+/// kept (audit-part-A C1: no locus is dropped because sampled points were covered).
 pub fn resolve_fragile_classes(
     rep: &PartitionReport,
     opts: &LociOptions,
@@ -682,7 +967,9 @@ pub fn resolve_fragile_classes(
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
     let all: Vec<usize> = (0..rep.nf.rules.len()).collect();
     for c in rep.classes.iter().filter(|c| c.label == Label::Fragile) {
-        for (face, cell) in rep.expand(c) {
+        // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded
+        let Some(cells) = rep.expand(c) else { continue };
+        for (face, cell) in cells {
             let region = cell_region(rep, &cell);
             let mut r = Resolver::new(&rep.nf, opts);
             r.resolve(region, &all, vec![], 0);
@@ -691,14 +978,9 @@ pub fn resolve_fragile_classes(
             if r.capped {
                 out.classes_capped += 1;
             }
-            let has = !r.pieces.is_empty() || r.unresolved.iter().any(|u| !u.points.is_empty());
-            if has || !r.unresolved.is_empty() {
-                out.classes_with_gaps += usize::from(has);
-            }
+            let has = !r.pieces.is_empty() || !r.unresolved.is_empty();
+            out.classes_with_gaps += usize::from(has);
             for p in r.pieces {
-                if p.witness.is_empty() && p.covered_on.iter().any(|c| c.fully_covered) {
-                    // every searched point covered on a case equation: keep, flagged by the empty witness list
-                }
                 let key = (face.clone(), p.trail.clone(), false);
                 let e = groups.entry(key).or_insert_with(|| Locus {
                     id: String::new(),
@@ -738,6 +1020,7 @@ pub fn resolve_fragile_classes(
                 let mut eqs = u.trail.clone();
                 eqs.push(u.equation.clone());
                 let key = (face.clone(), eqs.clone(), true);
+                let capped = u.n_window == 0;
                 let e = groups.entry(key).or_insert_with(|| Locus {
                     id: String::new(),
                     face: face.clone(),
@@ -748,8 +1031,14 @@ pub fn resolve_fragile_classes(
                     unresolved_parts: vec![],
                     n_classes: 0,
                     witness: vec![],
-                    proof: Proof::Tested {
-                        bound: u.bound.clone(),
+                    proof: if capped {
+                        Proof::Unresolved {
+                            reason: u.reason.clone(),
+                        }
+                    } else {
+                        Proof::Tested {
+                            bound: u.bound.clone(),
+                        }
                     },
                     unbounded_in_dots: false,
                     dim: u.region.k,
@@ -765,10 +1054,6 @@ pub fn resolve_fragile_classes(
         }
     }
     let mut loci: Vec<Locus> = groups.into_values().collect();
-    // a resolved locus without any confirmed uncovered witness is kept only if no searched point was covered
-    loci.retain(|l| {
-        l.unresolved || !l.witness.is_empty() || l.pieces.iter().any(|p| p.covered_on.is_empty())
-    });
     for (i, l) in loci.iter_mut().enumerate() {
         l.id = format!("L{}", i + 1);
     }
