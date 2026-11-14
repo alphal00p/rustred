@@ -203,7 +203,7 @@ fn gen_table(g: &mut Rng, cfg: &Cfg) -> DomainList {
     let mask: Vec<bool> = (0..n).map(|i| i < cfg.lines).collect();
     let nr = g.range(cfg.nrules.0 as i64, cfg.nrules.1 as i64) as usize;
     let pool: Vec<MPoly> = (0..(3 + nr / 2)).map(|_| literal(g, cfg, &mask)).collect();
-    let tp = |p: &MPoly| -> Poly { p.to_poly(n) };
+    let tp = |p: &MPoly| -> Poly { p.to_poly(n).expect("small coefficients") };
     let mut ds: Vec<CaseDomain> = vec![];
     for _ in 0..nr {
         let kind = g.below(10);

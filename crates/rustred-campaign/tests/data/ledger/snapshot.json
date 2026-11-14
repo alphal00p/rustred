@@ -1,6 +1,6 @@
 {
   "head": "90696a084ac0d573f612ee3ee6d6384dd7b53780502524b27d0529a17b5f1b8d",
-  "schema": "rustred.campaign.snapshot.v1",
+  "schema": "rustred.campaign.snapshot.v2",
   "seq": 103,
   "state": {
     "campaign_id": "test-campaign",
@@ -134,6 +134,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 1000,
         "created_seq": 13,
         "economy": {
@@ -204,6 +205,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 2000,
         "created_seq": 23,
         "economy": {
@@ -271,6 +273,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 3000,
         "created_seq": 33,
         "economy": {
@@ -339,6 +342,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 4000,
         "created_seq": 43,
         "economy": {
@@ -391,6 +395,9 @@
       "T162-item-00004": {
         "accepted": null,
         "attention": null,
+        "children": [
+          "T162-item-00005"
+        ],
         "cpu_ms": 2500,
         "created_seq": 53,
         "economy": null,
@@ -436,6 +443,7 @@
       "T162-item-00005": {
         "accepted": null,
         "attention": null,
+        "children": [],
         "cpu_ms": 0,
         "created_seq": 64,
         "economy": null,
@@ -491,6 +499,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 400,
         "created_seq": 67,
         "economy": null,
@@ -536,6 +545,7 @@
       "T162-item-00007": {
         "accepted": null,
         "attention": null,
+        "children": [],
         "cpu_ms": 0,
         "created_seq": 75,
         "economy": null,
@@ -587,6 +597,7 @@
           }
         },
         "attention": null,
+        "children": [],
         "cpu_ms": 0,
         "created_seq": 78,
         "economy": null,
@@ -621,6 +632,7 @@
       "T162-item-00009": {
         "accepted": null,
         "attention": "the L2 run needs more memory than the policy allows",
+        "children": [],
         "cpu_ms": 0,
         "created_seq": 88,
         "economy": null,
@@ -673,6 +685,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00000",
         "kind": "generate",
+        "launch_session": 1,
         "outcome": {
           "blake3": "3351caf4fc38407c4394924736087e4f11f2e079537cfed03240e2c4966d6763",
           "bytes": 4400,
@@ -717,6 +730,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00001",
         "kind": "generate",
+        "launch_session": 1,
         "outcome": {
           "blake3": "40b658c87fce6fcd76993d744ae87cbffc4746626b1221a446a0bcedcb577562",
           "bytes": 4400,
@@ -761,6 +775,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00002",
         "kind": "generate",
+        "launch_session": 1,
         "outcome": {
           "blake3": "a7fe7d5fbe829edef022f2165636ab52adc9dd0bbef44f98d26e3d388949edf3",
           "bytes": 4400,
@@ -805,6 +820,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00003",
         "kind": "generate",
+        "launch_session": 1,
         "outcome": {
           "blake3": "5392e8ebd8aafe96fc9303d3094f16aec585918aa8859c308c481b398f5bc1d4",
           "bytes": 4400,
@@ -849,6 +865,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00004",
         "kind": "generate",
+        "launch_session": 1,
         "outcome": {
           "blake3": "e1d04fb07de30af4d3b788b9cfc98d3540e3a0a183dcd9355a7c061280b1ffdc",
           "bytes": 4400,
@@ -893,6 +910,7 @@
         "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00006",
         "kind": "descent",
+        "launch_session": 1,
         "outcome": {
           "blake3": "28668ea62524a7f27a67607bbc526f6a5f08b73a217c8248360d0f7efc3242e6",
           "bytes": 4400,

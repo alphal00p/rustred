@@ -578,6 +578,8 @@ impl Supervisor {
             Ledger::create_with(&cdir, &lock, Arc::clone(&clock), cfg, ops, genesis).map_err(
                 |e| match e {
                     LedgerError::NoSpace { .. } => RunExit::DiskFull,
+                    // ledgerfix2 M1: files of a ledger without its manifest: a damaged ledger, never a new campaign
+                    e @ LedgerError::ManifestMissing { .. } => RunExit::Refused(format!("{e}")),
                     e => RunExit::Refused(format!("ledger: {e}")),
                 },
             )?
@@ -926,17 +928,17 @@ impl Supervisor {
         // The boot and start bounds of the previous sessions, from the ledger itself.
         let mut rules = self.scan_rules();
         let mut min_ticks: Option<u64> = None;
-        if let Ok(recs) = crate::ledger::read_records(&self.cdir) {
-            for r in &recs {
-                if let Event::SupervisorStarted { identity, .. } = &r.event
-                    && identity.boot_id == self.boot_id
-                {
-                    min_ticks = Some(
-                        min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
-                    );
-                }
+        // streamed (ledgerfix2 m10: never every record of a long campaign in memory)
+        let boot_id = self.boot_id.clone();
+        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+            if let Event::SupervisorStarted { identity, .. } = &r.event
+                && identity.boot_id == boot_id
+            {
+                min_ticks =
+                    Some(min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)));
             }
-        }
+            Ok(())
+        });
         // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
         // when no session of this boot launched anything, and then nothing is signalled).
         rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);

@@ -1,9 +1,24 @@
-//! Exact integer arithmetic for the partition and the loci: dense-exponent multivariate polynomials over `i128`
-//! (checked; overflow is the typed error [`ExactError::Overflow`], never a wrap), exact integer roots of univariate
-//! polynomials of any degree (rational-root theorem + Cauchy bound, Horner with the core's exact [`BigInt`] fallback),
-//! exact integer feasibility of one linear equation on a box, extended gcd, linear-factor extraction.
+//! Exact integer arithmetic for the partition and the loci: dense-exponent multivariate polynomials over `i128`,
+//! exact integer roots of univariate polynomials of any degree (rational-root theorem + Cauchy bound, Horner with the
+//! core's exact [`BigInt`] fallback), exact integer feasibility of one linear equation on a box, extended gcd,
+//! linear-factor extraction.
+//!
+//! OVERFLOW SAFETY BY CONSTRUCTION (re-audit RA2-C1 / M1): every arithmetic operation on a coefficient, a bound or a
+//! parameter value goes through a CHECKED primitive ([`neg`], [`add`], [`sub`], [`mul`], [`quot`], [`rem`],
+//! [`div_floor`], [`div_ceil`], [`gcd`], or the std `checked_*` methods); a result that does not fit `i128` (or a
+//! division by zero / `i128::MIN / -1`) is the typed error [`ExactError::Overflow`], never a wrap and never a panic.
+//! Callers turn it into an UNDECIDED verdict (literal V, rule not covering, containment `Unknown`), never into
+//! "empty" or "covered". The module-level `deny` below makes clippy refuse any new unchecked operator or truncating
+//! cast here (index / counter arithmetic uses saturating or checked methods; every local `allow` states why).
 //!
 //! No floating point is used anywhere in this module.
+
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -13,7 +28,7 @@ use crate::poly::{BigInt, D_VAR, Poly};
 /// Failure of an exact step. The caller treats the affected test conservatively (never as a decided verdict).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExactError {
-    /// An intermediate value does not fit `i128`.
+    /// A result does not fit `i128` (or has no value: division by zero, `i128::MIN / -1`).
     Overflow,
     /// The exact procedure would exceed its work cap (named).
     TooLarge(&'static str),
@@ -34,14 +49,129 @@ fn ck(o: Option<i128>) -> XResult<i128> {
     o.ok_or(ExactError::Overflow)
 }
 
-pub fn gcd(a: i128, b: i128) -> i128 {
+// ------------------------------------------------------------------------------------------------------------------
+// Checked primitives (the ONLY way coefficients are combined in partition / loci)
+// ------------------------------------------------------------------------------------------------------------------
+
+/// `-a`, checked (`-i128::MIN` is an overflow).
+#[inline]
+pub fn neg(a: i128) -> XResult<i128> {
+    ck(a.checked_neg())
+}
+/// `a + b`, checked.
+#[inline]
+pub fn add(a: i128, b: i128) -> XResult<i128> {
+    ck(a.checked_add(b))
+}
+/// `a - b`, checked.
+#[inline]
+pub fn sub(a: i128, b: i128) -> XResult<i128> {
+    ck(a.checked_sub(b))
+}
+/// `a * b`, checked.
+#[inline]
+pub fn mul(a: i128, b: i128) -> XResult<i128> {
+    ck(a.checked_mul(b))
+}
+/// Truncating quotient `a / b`, checked (`b == 0` and `i128::MIN / -1` are errors).
+#[inline]
+pub fn quot(a: i128, b: i128) -> XResult<i128> {
+    ck(a.checked_div(b))
+}
+/// Truncating remainder `a % b`, checked.
+#[inline]
+pub fn rem(a: i128, b: i128) -> XResult<i128> {
+    ck(a.checked_rem(b))
+}
+/// `|a|`, checked (`|i128::MIN|` is an overflow).
+#[inline]
+pub fn abs(a: i128) -> XResult<i128> {
+    ck(a.checked_abs())
+}
+/// `a + 1`, checked.
+#[inline]
+pub fn succ(a: i128) -> XResult<i128> {
+    add(a, 1)
+}
+/// `a - 1`, checked.
+#[inline]
+pub fn pred(a: i128) -> XResult<i128> {
+    sub(a, 1)
+}
+/// `-a - 1` (the complement offset of a bound `a >= 0` -> `-a - 1 >= 0`): equal to the bitwise NOT `!a` in two's
+/// complement, defined for EVERY `i128` (never overflows; `Result` for uniformity).
+#[inline]
+pub fn neg_pred(a: i128) -> XResult<i128> {
+    Ok(!a)
+}
+
+/// `floor(-b / a)` without negating `b` (`-i128::MIN` would overflow although the quotient may fit), checked.
+pub fn floor_neg_div(b: i128, a: i128) -> XResult<i128> {
+    match neg(a) {
+        Ok(na) => div_floor(b, na),
+        Err(_) => neg(div_ceil(b, a)?),
+    }
+}
+
+/// `ceil(-b / a)` without negating `b`, checked.
+pub fn ceil_neg_div(b: i128, a: i128) -> XResult<i128> {
+    match neg(a) {
+        Ok(na) => div_ceil(b, na),
+        Err(_) => neg(div_floor(b, a)?),
+    }
+}
+
+/// Every entry negated, checked (the complement of a linear form).
+pub fn neg_all(v: &[i128]) -> XResult<Vec<i128>> {
+    v.iter().map(|&a| neg(a)).collect()
+}
+
+/// gcd of the absolute values, in `u128` (no clamp: `gcd(i128::MIN, 0) = 2^127`).
+pub fn gcd_u(a: i128, b: i128) -> u128 {
     let (mut a, mut b) = (a.unsigned_abs(), b.unsigned_abs());
     while b != 0 {
-        let t = a % b;
+        let Some(t) = a.checked_rem(b) else { break };
         a = b;
         b = t;
     }
-    a.min(i128::MAX as u128) as i128
+    a
+}
+
+/// gcd (>= 0) as `i128`; `Overflow` when it is 2^127 (re-audit RA2-m2: it is never clamped to `i128::MAX`, which
+/// does not divide `i128::MIN`).
+pub fn gcd(a: i128, b: i128) -> XResult<i128> {
+    i128::try_from(gcd_u(a, b)).map_err(|_| ExactError::Overflow)
+}
+
+/// gcd of a list in `u128` (no clamp; 0 for an empty or all-zero list).
+pub fn gcd_u_all(v: impl IntoIterator<Item = i128>) -> u128 {
+    let mut g: u128 = 0;
+    for a in v {
+        let (mut x, mut y) = (g, a.unsigned_abs());
+        while y != 0 {
+            let Some(t) = x.checked_rem(y) else { break };
+            x = y;
+            y = t;
+        }
+        g = x;
+    }
+    g
+}
+
+/// gcd of a list (>= 0; 0 for an empty or all-zero list), checked as [`gcd`].
+pub fn gcd_all(v: impl IntoIterator<Item = i128>) -> XResult<i128> {
+    let mut g: u128 = 0;
+    for a in v {
+        let au = a.unsigned_abs();
+        let (mut x, mut y) = (g, au);
+        while y != 0 {
+            let Some(t) = x.checked_rem(y) else { break };
+            x = y;
+            y = t;
+        }
+        g = x;
+    }
+    i128::try_from(g).map_err(|_| ExactError::Overflow)
 }
 
 /// Extended gcd: (g, x, y) with a x + b y = g >= 0.
@@ -50,10 +180,10 @@ pub fn ext_gcd(a: i128, b: i128) -> XResult<(i128, i128, i128)> {
     let (mut s0, mut s1) = (1i128, 0i128);
     let (mut t0, mut t1) = (0i128, 1i128);
     while r1 != 0 {
-        let q = r0 / r1;
-        let r2 = ck(r0.checked_sub(ck(q.checked_mul(r1))?))?;
-        let s2 = ck(s0.checked_sub(ck(q.checked_mul(s1))?))?;
-        let t2 = ck(t0.checked_sub(ck(q.checked_mul(t1))?))?;
+        let q = quot(r0, r1)?;
+        let r2 = sub(r0, mul(q, r1)?)?;
+        let s2 = sub(s0, mul(q, s1)?)?;
+        let t2 = sub(t0, mul(q, t1)?)?;
         r0 = r1;
         r1 = r2;
         s0 = s1;
@@ -62,34 +192,36 @@ pub fn ext_gcd(a: i128, b: i128) -> XResult<(i128, i128, i128)> {
         t1 = t2;
     }
     if r0 < 0 {
-        Ok((
-            ck(r0.checked_neg())?,
-            ck(s0.checked_neg())?,
-            ck(t0.checked_neg())?,
-        ))
+        Ok((neg(r0)?, neg(s0)?, neg(t0)?))
     } else {
         Ok((r0, s0, t0))
     }
 }
 
-/// Floor division (b != 0).
-pub fn div_floor(a: i128, b: i128) -> i128 {
-    let q = a / b;
-    if (a % b != 0) && ((a < 0) != (b < 0)) {
-        q - 1
+/// Floor division, checked (`b == 0` and `i128::MIN / -1` are `Overflow`).
+pub fn div_floor(a: i128, b: i128) -> XResult<i128> {
+    let q = quot(a, b)?;
+    if rem(a, b)? != 0 && ((a < 0) != (b < 0)) {
+        pred(q)
     } else {
-        q
+        Ok(q)
     }
 }
 
-/// Ceiling division (b != 0).
-pub fn div_ceil(a: i128, b: i128) -> i128 {
-    let q = a / b;
-    if (a % b != 0) && ((a < 0) == (b < 0)) {
-        q + 1
+/// Ceiling division, checked.
+pub fn div_ceil(a: i128, b: i128) -> XResult<i128> {
+    let q = quot(a, b)?;
+    if rem(a, b)? != 0 && ((a < 0) == (b < 0)) {
+        succ(q)
     } else {
-        q
+        Ok(q)
     }
+}
+
+/// `i128` -> `i64`, checked (re-audit RA2-m3: never an `as` truncation).
+#[inline]
+pub fn to_i64(a: i128) -> XResult<i64> {
+    i64::try_from(a).map_err(|_| ExactError::Overflow)
 }
 
 /// Positive divisors of `n > 0` by trial division; `None` above the cap (n > 10^14).
@@ -100,14 +232,16 @@ pub fn divisors(n: u128) -> Option<Vec<u128>> {
     let mut small = vec![];
     let mut large = vec![];
     let mut d: u128 = 1;
-    while d * d <= n {
+    // d <= 10^7 here, so d * d never overflows (checked anyway)
+    while d.checked_mul(d).is_some_and(|dd| dd <= n) {
         if n.is_multiple_of(d) {
             small.push(d);
-            if d * d != n {
-                large.push(n / d);
+            let q = n.checked_div(d)?;
+            if q != d {
+                large.push(q);
             }
         }
-        d += 1;
+        d = d.checked_add(1)?;
     }
     large.reverse();
     small.extend(large);
@@ -132,7 +266,11 @@ pub fn univ_sign(c: &[i128], x: i128) -> i32 {
         }
     }
     if ok {
-        return acc.signum() as i32;
+        return match acc.signum() {
+            1 => 1,
+            -1 => -1,
+            _ => 0,
+        };
     }
     let bx = BigInt::from_i128(x);
     let mut b = BigInt::zero();
@@ -144,18 +282,22 @@ pub fn univ_sign(c: &[i128], x: i128) -> i32 {
 
 fn trim(c: &[i128]) -> &[i128] {
     let mut n = c.len();
-    while n > 0 && c[n - 1] == 0 {
-        n -= 1;
+    while let Some(m) = n.checked_sub(1)
+        && c[m] == 0
+    {
+        n = m;
     }
     &c[..n]
 }
 
-/// Cauchy bound: every real root x has |x| <= 1 + max |c_i / c_n| (integer upper bound).
+/// Cauchy bound: every real root x has |x| <= 1 + max |c_i / c_n| (integer upper bound). `c` trimmed, degree >= 1.
 fn cauchy_bound(c: &[i128]) -> u128 {
-    let c = trim(c);
-    let lead = c[c.len() - 1].unsigned_abs();
+    let Some((last, rest)) = c.split_last() else {
+        return 0;
+    };
+    let lead = last.unsigned_abs().max(1);
     let mut m: u128 = 0;
-    for &a in &c[..c.len() - 1] {
+    for &a in rest {
         m = m.max(a.unsigned_abs().div_ceil(lead));
     }
     m.saturating_add(1)
@@ -167,9 +309,10 @@ fn iroot_ceil(q: u128, k: u32) -> u128 {
         return q;
     }
     // hi^k >= 2^128 > q: ceil(128 / k) bits (audit-part-A m1: floor(128 / k) is not always an upper bound)
-    let (mut lo, mut hi) = (1u128, 1u128 << 128u32.div_ceil(k).min(127));
+    let bits = 128u32.div_ceil(k).min(127);
+    let (mut lo, mut hi) = (1u128, 1u128.checked_shl(bits).unwrap_or(u128::MAX));
     while lo < hi {
-        let mid = lo + (hi - lo) / 2;
+        let mid = lo.midpoint(hi);
         let mut p: u128 = 1;
         let mut big = false;
         for _ in 0..k {
@@ -184,7 +327,7 @@ fn iroot_ceil(q: u128, k: u32) -> u128 {
         if big || p >= q {
             hi = mid;
         } else {
-            lo = mid + 1;
+            lo = mid.saturating_add(1); // mid < hi: no saturation
         }
     }
     lo
@@ -192,12 +335,11 @@ fn iroot_ceil(q: u128, k: u32) -> u128 {
 
 /// Fujiwara bound (integer upper bound on |root|): 2 max_i |c_{n-i}/c_n|^{1/i}, the last term with an extra 1/2.
 fn fujiwara_bound(c: &[i128]) -> u128 {
-    let c = trim(c);
-    let n = c.len() - 1;
-    let lead = c[n].unsigned_abs();
+    let n = c.len().saturating_sub(1);
+    let lead = c[n].unsigned_abs().max(1);
     let mut m: u128 = 0;
     for i in 1..=n {
-        let a = c[n - i].unsigned_abs();
+        let a = c[n.saturating_sub(i)].unsigned_abs();
         if a == 0 {
             continue;
         }
@@ -206,30 +348,53 @@ fn fujiwara_bound(c: &[i128]) -> u128 {
         } else {
             a.div_ceil(lead)
         };
-        m = m.max(iroot_ceil(q, i as u32));
+        let k = u32::try_from(i).unwrap_or(u32::MAX);
+        m = m.max(iroot_ceil(q, k));
     }
     m.saturating_mul(2).saturating_add(1)
 }
 
+/// `+x` and `-x` as `i128` where they fit (`x <= 2^127`).
+fn signed_pair(x: u128) -> Vec<i128> {
+    let mut out = vec![];
+    if let Ok(v) = i128::try_from(x) {
+        out.push(v);
+        if let Ok(nv) = neg(v) {
+            out.push(nv);
+        }
+    } else if x == i128::MIN.unsigned_abs() {
+        out.push(i128::MIN);
+    }
+    out
+}
+
 /// ALL integer roots of a nonzero univariate polynomial, ascending, exact (no range cap: loci work in parameter
-/// space, where roots can exceed `i32`; audit-part-A m2). Roots are bounded by min(Cauchy, Fujiwara); when that bound
-/// exceeds 10^6 the candidates are the divisors of the constant term (trial division up to 10^14), else
-/// `ExactError::TooLarge` (the caller is conservative).
-pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
+/// space, where roots can exceed `i32` and `i64`; audit-part-A m2). A LINEAR polynomial `c0 + c1 x` has the root
+/// `-c0 / c1` when divisible (re-audit RA2-m7: no candidate search, any size). Otherwise roots are bounded by
+/// min(Cauchy, Fujiwara); when that bound exceeds 10^6 the candidates are the divisors of the constant term (trial
+/// division up to 10^14), else `ExactError::TooLarge` (the caller is conservative). A root that does not fit `i128`
+/// is `ExactError::Overflow` (never dropped silently).
+pub fn int_roots(c: &[i128]) -> XResult<Vec<i128>> {
     let c = trim(c);
     if c.len() <= 1 {
         return Ok(vec![]); // nonzero constant (or zero: caller's business)
     }
     let mut roots = vec![];
-    let mut k = 0;
-    while c[k] == 0 {
-        k += 1;
-    }
+    let k = c.iter().position(|&x| x != 0).unwrap_or(0);
     if k > 0 {
         roots.push(0);
     }
     let c = &c[k..];
     if c.len() <= 1 {
+        return Ok(roots);
+    }
+    if let [c0, c1] = *c {
+        // c0 + c1 x = 0 -> x = -c0 / c1 (c0 != 0, c1 != 0); a root 2^127 does not fit: Overflow
+        if c1.unsigned_abs() == 1 || rem(c0, c1)? == 0 {
+            roots.push(floor_neg_div(c0, c1)?);
+        }
+        roots.sort_unstable();
+        roots.dedup();
         return Ok(roots);
     }
     let bound = cauchy_bound(c).min(fujiwara_bound(c));
@@ -247,10 +412,9 @@ pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
         }
     };
     for x in cands {
-        for s in [-1i128, 1] {
-            let v = s * x as i128;
+        for v in signed_pair(x) {
             if univ_sign(c, v) == 0 {
-                roots.push(v as i64);
+                roots.push(v);
             }
         }
     }
@@ -261,35 +425,96 @@ pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
 
 /// The integer points where the sign of a nonconstant polynomial changes: every integer `x` with
 /// `sign p(x) != sign p(x + 1)` (|x| within the Cauchy bound), exact. Used for one-slot GE literals of degree >= 2.
-pub fn sign_breaks(c: &[i128]) -> XResult<Vec<i64>> {
+pub fn sign_breaks(c: &[i128]) -> XResult<Vec<i128>> {
     let c = trim(c);
     if c.len() <= 1 {
         return Ok(vec![]);
     }
-    if c.len() == 2 {
+    if let [b, a] = *c {
         // a x + b: the sign changes between floor(-b/a) and ceil(-b/a)
-        let (b, a) = (c[0], c[1]);
-        let f = div_floor(-b, a);
-        return Ok(vec![(f - 1) as i64, f as i64, (f + 1) as i64]);
+        let f = floor_neg_div(b, a)?;
+        return Ok(vec![pred(f)?, f, succ(f)?]);
     }
     let bound = cauchy_bound(c);
     if bound > 200_000 {
         return Err(ExactError::TooLarge("sign breaks: root bound above 2e5"));
     }
-    let b = bound as i128;
+    let b = i128::try_from(bound).map_err(|_| ExactError::Overflow)?;
     let mut out = vec![];
-    let mut prev = univ_sign(c, -b - 1);
-    for x in -b..=b + 1 {
+    let lo = neg(b)?;
+    let mut prev = univ_sign(c, pred(lo)?);
+    let mut x = lo;
+    while x <= succ(b)? {
         let s = univ_sign(c, x);
         if s != prev || s == 0 {
-            out.push((x - 1) as i64);
-            out.push(x as i64);
+            out.push(pred(x)?);
+            out.push(x);
         }
         prev = s;
+        x = succ(x)?;
     }
     out.sort_unstable();
     out.dedup();
     Ok(out)
+}
+
+/// Is `p(x) >= 0` at EVERY integer `x` of `[lo, hi]` (`None` = unbounded side)? `Some(true)`: yes; `Some(false)`:
+/// `p(x) < 0` at every such x; `None`: the sign varies, or the decision would exceed its work cap. Exact: beyond the
+/// Cauchy bound the sign is that of the leading term; inside it every integer is evaluated (at most `cap` values).
+/// Used for one-slot NONLINEAR bounds on a state (re-audit RA2-M2: their sign IS constant on every state cut at the
+/// sign breaks, but it is decided here directly, whatever the state boundaries are).
+pub fn univ_ge_on(c: &[i128], lo: Option<i128>, hi: Option<i128>, cap: u128) -> Option<bool> {
+    let c = trim(c);
+    if c.len() <= 1 {
+        return Some(c.first().copied().unwrap_or(0) >= 0);
+    }
+    if let (Some(l), Some(h)) = (lo, hi)
+        && l > h
+    {
+        return None; // empty range: nothing to decide (callers never ask)
+    }
+    let b = i128::try_from(cauchy_bound(c)).ok()?;
+    let lead = *c.last()?;
+    let deg_odd = c.len().is_multiple_of(2); // len = degree + 1
+    let sign_pos_inf = lead > 0;
+    let sign_neg_inf_ge = if deg_odd { lead < 0 } else { lead > 0 }; // p(-inf) > 0 ?
+    let mut want: Option<bool> = None;
+    let mut agree = |ge: bool| -> bool {
+        match want {
+            None => {
+                want = Some(ge);
+                true
+            }
+            Some(w) => w == ge,
+        }
+    };
+    // tails beyond the bound: |x| > b has no real root, sign constant
+    let nb = b.checked_neg()?;
+    if lo.is_none_or(|l| l < nb) && !agree(sign_neg_inf_ge) {
+        return None;
+    }
+    if hi.is_none_or(|h| h > b) && !agree(sign_pos_inf) {
+        return None;
+    }
+    let a = lo.map_or(nb, |l| l.max(nb));
+    let z = hi.map_or(b, |h| h.min(b));
+    if a <= z {
+        let width = z.checked_sub(a)?.unsigned_abs();
+        if width >= cap {
+            return None;
+        }
+        let mut x = a;
+        loop {
+            if !agree(univ_sign(c, x) >= 0) {
+                return None;
+            }
+            if x == z {
+                break;
+            }
+            x = x.checked_add(1)?;
+        }
+    }
+    want
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -313,9 +538,23 @@ impl Range {
     pub fn contains(&self, v: i64) -> bool {
         self.lo.is_none_or(|l| v >= l) && self.hi.is_none_or(|h| v <= h)
     }
+    /// [`Range::contains`] for a value of any `i128` size (an infinite side contains every value beyond `i64`).
+    pub fn contains_wide(&self, v: i128) -> bool {
+        self.lo.is_none_or(|l| v >= i128::from(l)) && self.hi.is_none_or(|h| v <= i128::from(h))
+    }
     pub fn singleton(&self) -> Option<i64> {
         match (self.lo, self.hi) {
             (Some(a), Some(b)) if a == b => Some(a),
+            _ => None,
+        }
+    }
+    /// Number of integers in a bounded range (`None` if unbounded).
+    pub fn size(&self) -> Option<u128> {
+        match (self.lo, self.hi) {
+            (Some(a), Some(b)) if b >= a => {
+                Some(i128::from(b).abs_diff(i128::from(a)).saturating_add(1))
+            }
+            (Some(_), Some(_)) => Some(0),
             _ => None,
         }
     }
@@ -323,31 +562,35 @@ impl Range {
 
 const DP_CAP: i128 = 4_000_000;
 
+fn to_usize(v: i128) -> XResult<usize> {
+    usize::try_from(v).map_err(|_| ExactError::TooLarge("index beyond usize"))
+}
+
 /// Set of values of `sum b_l y_l`, `0 <= y_l <= u_l` (all finite), as a bitset over `[smin, smax]`.
 fn bounded_sums(vars: &[(i128, i128)]) -> XResult<(i128, Vec<bool>)> {
     let mut smin: i128 = 0;
     let mut smax: i128 = 0;
     for &(b, u) in vars {
-        let v = ck(b.checked_mul(u))?;
+        let v = mul(b, u)?;
         if v < 0 {
-            smin = ck(smin.checked_add(v))?;
+            smin = add(smin, v)?;
         } else {
-            smax = ck(smax.checked_add(v))?;
+            smax = add(smax, v)?;
         }
     }
-    let width = ck(smax.checked_sub(smin))?;
+    let width = sub(smax, smin)?;
     if width > DP_CAP {
         return Err(ExactError::TooLarge(
             "linear feasibility: bounded sum range above 4e6",
         ));
     }
-    let n = (width + 1) as usize;
+    let n = to_usize(succ(width)?)?;
     let mut cur = vec![false; n];
-    cur[(-smin) as usize] = true; // sum 0
+    cur[to_usize(neg(smin)?)?] = true; // sum 0
     let mut work: i128 = 0;
     for &(b, u) in vars {
-        work += (u + 1) * width;
-        if work > 40 * DP_CAP {
+        work = add(work, mul(succ(u)?, width)?)?;
+        if work > mul(40, DP_CAP)? {
             return Err(ExactError::TooLarge(
                 "linear feasibility: bounded sum DP work",
             ));
@@ -357,11 +600,16 @@ fn bounded_sums(vars: &[(i128, i128)]) -> XResult<(i128, Vec<bool>)> {
             if !on {
                 continue;
             }
-            for y in 0..=u {
-                let j = i as i128 + b * y;
-                if j >= 0 && (j as usize) < n {
-                    next[j as usize] = true;
+            let base = i128::try_from(i).map_err(|_| ExactError::Overflow)?;
+            let mut y = 0i128;
+            while y <= u {
+                let j = add(base, mul(b, y)?)?;
+                if let Ok(ju) = usize::try_from(j)
+                    && ju < n
+                {
+                    next[ju] = true;
                 }
+                y = succ(y)?;
             }
         }
         cur = next;
@@ -370,10 +618,11 @@ fn bounded_sums(vars: &[(i128, i128)]) -> XResult<(i128, Vec<bool>)> {
 }
 
 /// Does `sum a_i x_i + c = 0` have an integer solution with every `x_i` in its range? Exact; every variable must have
-/// at least one finite bound, or both infinite (treated as two half-lines). `Err` only above the work caps.
+/// at least one finite bound, or both infinite (treated as two half-lines). `Err` only above the work caps or on an
+/// overflow (the caller is conservative).
 pub fn linear_feasible(terms: &[(i128, Range)], c: i128) -> XResult<bool> {
     // y >= 0 variables: (b, Some(u)) bounded, (b, None) unbounded; equation sum b y = t
-    let mut t: i128 = ck(c.checked_neg())?;
+    let mut t: i128 = neg(c)?;
     let mut bnd: Vec<(i128, i128)> = vec![];
     let mut unb: Vec<i128> = vec![];
     for &(a, r) in terms {
@@ -385,122 +634,123 @@ pub fn linear_feasible(terms: &[(i128, Range)], c: i128) -> XResult<bool> {
                 if h < l {
                     return Ok(false);
                 }
-                t = ck(t.checked_sub(ck(a.checked_mul(l as i128))?))?;
+                t = sub(t, mul(a, i128::from(l))?)?;
                 if h > l {
-                    bnd.push((a, (h - l) as i128));
+                    bnd.push((a, sub(i128::from(h), i128::from(l))?));
                 }
             }
             (Some(l), None) => {
-                t = ck(t.checked_sub(ck(a.checked_mul(l as i128))?))?;
+                t = sub(t, mul(a, i128::from(l))?)?;
                 unb.push(a);
             }
             (None, Some(h)) => {
-                t = ck(t.checked_sub(ck(a.checked_mul(h as i128))?))?;
-                unb.push(ck(a.checked_neg())?);
+                t = sub(t, mul(a, i128::from(h))?)?;
+                unb.push(neg(a)?);
             }
             (None, None) => {
                 unb.push(a);
-                unb.push(ck(a.checked_neg())?);
+                unb.push(neg(a)?);
             }
         }
     }
-    let mut g = 0;
-    for &(b, _) in &bnd {
-        g = gcd(g, b);
-    }
-    for &b in &unb {
-        g = gcd(g, b);
-    }
+    let g = gcd_all(bnd.iter().map(|x| x.0).chain(unb.iter().copied()))?;
     if g == 0 {
         return Ok(t == 0);
     }
-    if t % g != 0 {
+    if rem(t, g)? != 0 {
         return Ok(false);
     }
-    t /= g;
+    t = quot(t, g)?;
     for x in bnd.iter_mut() {
-        x.0 /= g;
+        x.0 = quot(x.0, g)?;
     }
     for x in unb.iter_mut() {
-        *x /= g;
+        *x = quot(*x, g)?;
     }
     let pos = unb.iter().any(|&b| b > 0);
-    let neg = unb.iter().any(|&b| b < 0);
-    if pos && neg {
+    let negv = unb.iter().any(|&b| b < 0);
+    if pos && negv {
         // the unbounded variables generate h Z; need bounded part = t mod h
-        let mut h = 0;
-        for &b in &unb {
-            h = gcd(h, b);
-        }
+        let h = gcd_all(unb.iter().copied())?;
         if h > 1_000_000 {
             return Err(ExactError::TooLarge(
                 "linear feasibility: residue modulus above 1e6",
             ));
         }
-        let hm = h as usize;
+        let hm = to_usize(h)?;
         let mut reach = vec![false; hm];
         reach[0] = true;
         for &(b, u) in &bnd {
             let mut next = vec![false; hm];
-            let steps = u.min(h - 1);
+            let steps = u.min(pred(h)?);
+            let bm = ck(b.checked_rem_euclid(h))?;
             for (r, &on) in reach.iter().enumerate() {
                 if !on {
                     continue;
                 }
-                for y in 0..=steps {
-                    let v = (r as i128 + (b.rem_euclid(h)) * y).rem_euclid(h);
-                    next[v as usize] = true;
+                let r = i128::try_from(r).map_err(|_| ExactError::Overflow)?;
+                let mut y = 0i128;
+                while y <= steps {
+                    let v = ck(add(r, mul(bm, y)?)?.checked_rem_euclid(h))?;
+                    next[to_usize(v)?] = true;
+                    y = succ(y)?;
                 }
             }
             reach = next;
         }
-        return Ok(reach[t.rem_euclid(h) as usize]);
+        return Ok(reach[to_usize(ck(t.checked_rem_euclid(h))?)?]);
     }
     if unb.is_empty() {
         let (smin, set) = bounded_sums(&bnd)?;
-        let i = t - smin;
-        return Ok(i >= 0 && (i as usize) < set.len() && set[i as usize]);
+        let i = sub(t, smin)?;
+        return Ok(usize::try_from(i).is_ok_and(|iu| iu < set.len() && set[iu]));
     }
     // one-signed unbounded part: make it positive
-    if neg {
-        t = -t;
+    if negv {
+        t = neg(t)?;
         for x in bnd.iter_mut() {
-            x.0 = -x.0;
+            x.0 = neg(x.0)?;
         }
         for x in unb.iter_mut() {
-            *x = -*x;
+            *x = neg(*x)?;
         }
     }
     let (smin, set) = bounded_sums(&bnd)?;
-    let mut hp = 0;
-    for &b in &unb {
-        hp = gcd(hp, b);
-    }
-    let bmin = *unb.iter().min().expect("nonempty");
-    let bmax = *unb.iter().max().expect("nonempty");
-    let lim = ck((bmin / hp).checked_mul(bmax / hp))?; // every multiple of hp at or above lim*hp is representable
-    let lim_v = ck(lim.checked_mul(hp))?;
+    let hp = gcd_all(unb.iter().copied())?;
+    let bmin = unb.iter().copied().min().ok_or(ExactError::Overflow)?;
+    let bmax = unb.iter().copied().max().ok_or(ExactError::Overflow)?;
+    // every multiple of hp at or above lim*hp is representable
+    let lim = mul(quot(bmin, hp)?, quot(bmax, hp)?)?;
+    let lim_v = mul(lim, hp)?;
     if lim_v > DP_CAP {
         return Err(ExactError::TooLarge(
             "linear feasibility: Frobenius bound above 4e6",
         ));
     }
     // representable values below lim_v
-    let mut rep = vec![false; lim_v.max(1) as usize];
+    let mut rep = vec![false; to_usize(lim_v.max(1))?];
     rep[0] = true;
     for v in 1..rep.len() {
-        rep[v] = unb.iter().any(|&b| (v as i128) >= b && rep[v - b as usize]);
+        let vi = i128::try_from(v).map_err(|_| ExactError::Overflow)?;
+        let mut hit = false;
+        for &b in &unb {
+            if vi >= b && rep[to_usize(sub(vi, b)?)?] {
+                hit = true;
+                break;
+            }
+        }
+        rep[v] = hit;
     }
     for (i, &on) in set.iter().enumerate() {
         if !on {
             continue;
         }
-        let s = smin + i as i128;
-        let v = t - s;
-        if v < 0 || v % hp != 0 {
+        let s = add(smin, i128::try_from(i).map_err(|_| ExactError::Overflow)?)?;
+        let v = sub(t, s)?;
+        if v < 0 || rem(v, hp)? != 0 {
             continue;
         }
-        if v >= lim_v || rep[v as usize] {
+        if v >= lim_v || rep[to_usize(v)?] {
             return Ok(true);
         }
     }
@@ -537,15 +787,36 @@ impl Affine {
         coef[j] = 1;
         Affine { coef, c: 0 }
     }
+    /// `s * t_j + c` (one parameter with coefficient `s`).
+    pub fn unit(k: usize, j: usize, s: i128, c: i128) -> Self {
+        let mut coef = vec![0; k];
+        coef[j] = s;
+        Affine { coef, c }
+    }
     pub fn eval(&self, t: &[i128]) -> XResult<i128> {
         let mut v = self.c;
         for (a, x) in self.coef.iter().zip(t) {
-            v = ck(v.checked_add(ck(a.checked_mul(*x))?))?;
+            v = add(v, mul(*a, *x)?)?;
         }
         Ok(v)
     }
     pub fn is_constant(&self) -> bool {
         self.coef.iter().all(|&a| a == 0)
+    }
+    /// `self >= 0` <-> `self + d >= d`; the constraint `self - shift >= 0` (checked).
+    pub fn shifted(&self, shift: i128) -> XResult<Affine> {
+        Ok(Affine {
+            coef: self.coef.clone(),
+            c: sub(self.c, shift)?,
+        })
+    }
+    /// The complement of the constraint `self >= 0` over the integers: `-self - 1 >= 0` (checked; re-audit RA2-C1:
+    /// never an unchecked negation).
+    pub fn complement(&self) -> XResult<Affine> {
+        Ok(Affine {
+            coef: neg_all(&self.coef)?,
+            c: neg_pred(self.c)?,
+        })
     }
     pub fn render(&self, names: &[String]) -> String {
         let mut p = MPoly::zero(self.coef.len());
@@ -586,7 +857,7 @@ impl MPoly {
     }
     /// From a core polynomial: slot `i` -> variable `i`, `d` -> variable `arity` (only if `with_d`).
     pub fn from_poly(p: &Poly, arity: usize, with_d: bool) -> XResult<Self> {
-        let nv = arity + usize::from(with_d);
+        let nv = arity.saturating_add(usize::from(with_d));
         let mut out = MPoly::zero(nv);
         for (m, c) in p.terms() {
             let mut e = vec![0u32; nv];
@@ -597,7 +868,7 @@ impl MPoly {
                     }
                     arity
                 } else {
-                    v as usize
+                    usize::from(v)
                 };
                 if idx >= nv {
                     return Err(ExactError::TooLarge("variable beyond arity"));
@@ -609,7 +880,8 @@ impl MPoly {
         Ok(out)
     }
     /// Back to a core polynomial (variable `arity` -> d).
-    pub fn to_poly(&self, arity: usize) -> Poly {
+    pub fn to_poly(&self, arity: usize) -> XResult<Poly> {
+        let core = |_| ExactError::TooLarge("core polynomial");
         let mut acc = Poly::zero();
         for (e, &c) in &self.terms {
             let mut t = Poly::constant(c);
@@ -617,21 +889,24 @@ impl MPoly {
                 if x == 0 {
                     continue;
                 }
+                if v != arity && v >= crate::poly::MAX_ARITY {
+                    return Err(ExactError::TooLarge("variable beyond the core arity"));
+                }
                 let base = if v == arity { Poly::d() } else { Poly::var(v) };
                 t = t
-                    .mul(&base.pow(x as u64).expect("small"))
-                    .expect("checked by construction");
+                    .mul(&base.pow(u64::from(x)).map_err(core)?)
+                    .map_err(core)?;
             }
-            acc = acc.add(&t).expect("checked by construction");
+            acc = acc.add(&t).map_err(core)?;
         }
-        acc
+        Ok(acc)
     }
     fn add_term(&mut self, e: Vec<u32>, c: i128) -> XResult<()> {
         if c == 0 {
             return Ok(());
         }
         let ent = self.terms.entry(e).or_insert(0);
-        *ent = ck(ent.checked_add(c))?;
+        *ent = add(*ent, c)?;
         if *ent == 0 {
             self.terms.retain(|_, v| *v != 0);
         }
@@ -645,7 +920,7 @@ impl MPoly {
             return Some(0);
         }
         if self.terms.len() == 1 {
-            let (e, c) = self.terms.iter().next().expect("one");
+            let (e, c) = self.terms.iter().next()?;
             if e.iter().all(|&x| x == 0) {
                 return Some(*c);
             }
@@ -666,7 +941,7 @@ impl MPoly {
     pub fn total_degree(&self) -> u32 {
         self.terms
             .keys()
-            .map(|e| e.iter().sum::<u32>())
+            .map(|e| e.iter().fold(0u32, |a, &x| a.saturating_add(x)))
             .max()
             .unwrap_or(0)
     }
@@ -686,7 +961,7 @@ impl MPoly {
             return Ok(r);
         }
         for (e, &c) in &self.terms {
-            r.terms.insert(e.clone(), ck(c.checked_mul(k))?);
+            r.terms.insert(e.clone(), mul(c, k)?);
         }
         Ok(r)
     }
@@ -697,8 +972,12 @@ impl MPoly {
         let mut r = MPoly::zero(self.nvars);
         for (ea, &ca) in &self.terms {
             for (eb, &cb) in &o.terms {
-                let e: Vec<u32> = ea.iter().zip(eb).map(|(a, b)| a + b).collect();
-                r.add_term(e, ck(ca.checked_mul(cb))?)?;
+                let e: Vec<u32> = ea
+                    .iter()
+                    .zip(eb)
+                    .map(|(a, b)| a.checked_add(*b).ok_or(ExactError::Overflow))
+                    .collect::<XResult<_>>()?;
+                r.add_term(e, mul(ca, cb)?)?;
             }
         }
         Ok(r)
@@ -716,7 +995,7 @@ impl MPoly {
         for (e, &c) in &self.terms {
             let mut f = c;
             for _ in 0..e[v] {
-                f = ck(f.checked_mul(val))?;
+                f = mul(f, val)?;
             }
             let mut e2 = e.clone();
             e2[v] = 0;
@@ -748,11 +1027,11 @@ impl MPoly {
                 if x == 0 {
                     continue;
                 }
-                if let std::collections::btree_map::Entry::Vacant(e) = powcache.entry((v, x)) {
-                    let pw = lin[v].pow(x)?;
-                    e.insert(pw);
-                }
-                t = t.mul(&powcache[&(v, x)])?;
+                let pw = match powcache.entry((v, x)) {
+                    std::collections::btree_map::Entry::Occupied(o) => o.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(slot) => slot.insert(lin[v].pow(x)?),
+                };
+                t = t.mul(pw)?;
             }
             r = r.add(&t)?;
         }
@@ -775,14 +1054,15 @@ impl MPoly {
     }
     /// Coefficients (ascending) in variable `v`, if `v` is the only variable.
     pub fn univariate(&self, v: usize) -> Option<Vec<i128>> {
-        let mut c = vec![0i128; self.degree_in(v) as usize + 1];
+        let deg = usize::try_from(self.degree_in(v)).ok()?;
+        let mut c = vec![0i128; deg.checked_add(1)?];
         for (e, &x) in &self.terms {
             for (w, &y) in e.iter().enumerate() {
                 if w != v && y > 0 {
                     return None;
                 }
             }
-            c[e[v] as usize] = x;
+            c[usize::try_from(e[v]).ok()?] = x;
         }
         Some(c)
     }
@@ -793,39 +1073,66 @@ impl MPoly {
             let mut t = c;
             for (v, &p) in e.iter().enumerate() {
                 for _ in 0..p {
-                    t = ck(t.checked_mul(x[v]))?;
+                    t = mul(t, x[v])?;
                 }
             }
-            acc = ck(acc.checked_add(t))?;
+            acc = add(acc, t)?;
         }
         Ok(acc)
     }
-    /// Content (gcd of the coefficients, >= 0).
-    pub fn content(&self) -> i128 {
-        self.terms.values().fold(0, |g, &c| gcd(g, c))
+    /// Content (gcd of the coefficients, >= 0); `Overflow` if it is 2^127.
+    pub fn content(&self) -> XResult<i128> {
+        gcd_all(self.terms.values().copied())
     }
-    /// Primitive part with a positive coefficient on the largest exponent vector.
-    pub fn primitive(&self) -> XResult<MPoly> {
-        let g = self.content();
-        if g == 0 {
+    /// The coefficients divided by the content (the content may be 2^127, which does not fit i128: then every
+    /// coefficient is 0 or `i128::MIN` and the quotient is 0 or -1), times -1 if `flip`. Exact.
+    fn divided_by_content(&self, flip: bool) -> XResult<MPoly> {
+        let gu = gcd_u_all(self.terms.values().copied());
+        if gu == 0 {
             return Ok(self.clone());
         }
-        let s = if *self.terms.values().next_back().expect("nonzero") < 0 {
-            -g
-        } else {
-            g
-        };
         let mut r = MPoly::zero(self.nvars);
         for (e, &c) in &self.terms {
-            r.terms.insert(e.clone(), c / s);
+            let q = match i128::try_from(gu) {
+                Ok(g) => quot(c, g)?,
+                // gu = 2^127: c is 0 or i128::MIN (the only multiples of 2^127 in i128)
+                Err(_) => {
+                    if c == 0 {
+                        0
+                    } else {
+                        -1
+                    }
+                }
+            };
+            r.terms.insert(e.clone(), if flip { neg(q)? } else { q });
         }
         Ok(r)
     }
+    /// Primitive part with a positive coefficient on the largest exponent vector (exact for every content, 2^127
+    /// included). When that sign flip is not representable (a quotient coefficient `i128::MIN`) the primitive part
+    /// keeps its sign: the zero set is the same, and the negated literal cannot exist in `i128`, so the canonical
+    /// form stays unique among representable literals.
+    pub fn primitive(&self) -> XResult<MPoly> {
+        let flip = matches!(self.terms.values().next_back(), Some(&lead) if lead < 0);
+        match self.divided_by_content(flip) {
+            Ok(r) => Ok(r),
+            Err(_) if flip => self.divided_by_content(false),
+            Err(e) => Err(e),
+        }
+    }
+    /// Divided by its POSITIVE content (the sign is kept: the normal form of a GE literal; exact for every
+    /// content).
+    pub fn positive_primitive(&self) -> XResult<MPoly> {
+        self.divided_by_content(false)
+    }
     /// Coefficients in variable `v`: `P = sum_k C_k x_v^k`.
     pub fn coeffs_in(&self, v: usize) -> Vec<MPoly> {
-        let mut out = vec![MPoly::zero(self.nvars); self.degree_in(v) as usize + 1];
+        let deg = usize::try_from(self.degree_in(v)).unwrap_or(0);
+        let mut out = vec![MPoly::zero(self.nvars); deg.saturating_add(1)];
         for (e, &c) in &self.terms {
-            let k = e[v] as usize;
+            let Ok(k) = usize::try_from(e[v]) else {
+                continue;
+            };
             let mut e2 = e.clone();
             e2[v] = 0;
             out[k].terms.insert(e2, c);
@@ -835,33 +1142,35 @@ impl MPoly {
     /// Exact division by `a x_v + m` (`m` free of `x_v`, `a != 0`): `Some(quotient)` iff it divides exactly over Z.
     pub fn div_linear(&self, v: usize, a: i128, m: &MPoly) -> XResult<Option<MPoly>> {
         let cs = self.coeffs_in(v);
-        let n = cs.len() - 1;
-        if n == 0 {
+        let n = cs.len().saturating_sub(1);
+        if n == 0 || a == 0 {
             return Ok(None);
         }
         // P = (a x + m) Q, Q = sum_{k<n} q_k x^k: c_n = a q_{n-1}; c_k = a q_{k-1} + m q_k; c_0 = m q_0
         let mut q: Vec<MPoly> = vec![MPoly::zero(self.nvars); n];
-        let mut rem = cs[n].clone();
+        let mut rest = cs[n].clone();
         for k in (1..=n).rev() {
-            // rem = a q_{k-1}
+            // rest = a q_{k-1}
+            let km1 = k.saturating_sub(1); // k >= 1
             let mut qk = MPoly::zero(self.nvars);
-            for (e, &c) in &rem.terms {
-                if c % a != 0 {
+            for (e, &c) in &rest.terms {
+                if rem(c, a)? != 0 {
                     return Ok(None);
                 }
-                qk.terms.insert(e.clone(), c / a);
+                qk.terms.insert(e.clone(), quot(c, a)?);
             }
-            q[k - 1] = qk;
-            rem = cs[k - 1].sub(&m.mul(&q[k - 1])?)?;
+            q[km1] = qk;
+            rest = cs[km1].sub(&m.mul(&q[km1])?)?;
         }
-        if !rem.is_zero() {
+        if !rest.is_zero() {
             return Ok(None);
         }
         let mut out = MPoly::zero(self.nvars);
         for (k, qk) in q.iter().enumerate() {
+            let k = u32::try_from(k).map_err(|_| ExactError::Overflow)?;
             for (e, &c) in &qk.terms {
                 let mut e2 = e.clone();
-                e2[v] += k as u32;
+                e2[v] = e2[v].checked_add(k).ok_or(ExactError::Overflow)?;
                 out.add_term(e2, c)?;
             }
         }
@@ -886,13 +1195,13 @@ impl MPoly {
                     }
                 })
                 .collect();
-            let (neg, a) = (c < 0, c.unsigned_abs());
+            let (negv, a) = (c < 0, c.unsigned_abs());
             if i == 0 {
-                if neg {
+                if negv {
                     s.push('-');
                 }
             } else {
-                s.push_str(if neg { "-" } else { "+" });
+                s.push_str(if negv { "-" } else { "+" });
             }
             if mono.is_empty() {
                 s.push_str(&a.to_string());
@@ -918,11 +1227,7 @@ pub fn slot_names(arity: usize, with_d: bool) -> Vec<String> {
 
 fn signed_divisors(n: i128) -> Option<Vec<i128>> {
     let d = divisors(n.unsigned_abs())?;
-    Some(
-        d.into_iter()
-            .flat_map(|x| [x as i128, -(x as i128)])
-            .collect(),
-    )
+    Some(d.into_iter().flat_map(signed_pair).collect())
 }
 
 /// Extract the linear (total degree 1) factors of `p` over Z exactly: `p = c * prod(factors) * cofactor`, every factor
@@ -948,15 +1253,34 @@ pub fn linear_factors(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
     Ok(r)
 }
 
+/// Two fixed test points per variable count (arbitrary small values; only a necessary-condition filter: exact
+/// division decides). Wrapping arithmetic on values < 64 * 15 + 4: never wraps.
+fn probe_points(nvars: usize) -> Vec<Vec<i128>> {
+    (0..2i128)
+        .map(|r| {
+            (0..nvars)
+                .map(|i| {
+                    let i = i128::try_from(i).unwrap_or(0);
+                    i.wrapping_mul(r.wrapping_mul(4).wrapping_add(7))
+                        .wrapping_add(3)
+                        .wrapping_add(r)
+                        .rem_euclid(29)
+                        .wrapping_add(2)
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
     let mut rest = p.clone();
     let mut out = vec![];
     if rest.is_zero() || rest.total_degree() <= 1 {
         return Ok((out, rest));
     }
-    let mut depth_guard = 0;
+    let mut depth_guard = 0u32;
     'outer: loop {
-        depth_guard += 1;
+        depth_guard = depth_guard.saturating_add(1);
         if depth_guard > 64 || rest.total_degree() <= 1 {
             break;
         }
@@ -972,14 +1296,14 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
                 }
             }
             let cs = rest.coeffs_in(v);
-            let top = &cs[cs.len() - 1];
-            let a_cands = match divisors(top.content().unsigned_abs()) {
+            let Some(top) = cs.last() else { continue };
+            let a_cands = match divisors(top.content()?.unsigned_abs()) {
                 Some(d) => d,
                 None => continue,
             };
             // candidate remainders m: +-mu, +-mu*F for F a linear factor of c0
             let mut m_cands: Vec<MPoly> = vec![];
-            let cont0 = c0.content();
+            let cont0 = c0.content()?;
             let mus = match signed_divisors(cont0) {
                 Some(d) => d,
                 None => continue,
@@ -1003,13 +1327,7 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
                 }
             }
             // cheap necessary test at two integer points y: a^n P(-m(y)/a, y) = 0
-            let pts: Vec<Vec<i128>> = (0..2)
-                .map(|r| {
-                    (0..rest.nvars)
-                        .map(|i| ((i as i128 * (7 + 4 * r) + 3 + r) % 29) + 2)
-                        .collect()
-                })
-                .collect();
+            let pts = probe_points(rest.nvars);
             let evs: Vec<Option<Vec<i128>>> = pts
                 .iter()
                 .map(|y| cs.iter().map(|c| c.eval(y).ok()).collect())
@@ -1019,19 +1337,23 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
                     let (Some(ev), Ok(mv)) = (ev, m.eval(y)) else {
                         continue;
                     };
-                    let n = ev.len() - 1;
+                    let n = ev.len().saturating_sub(1);
+                    let Some(neg_mv) = mv.checked_neg() else {
+                        continue;
+                    };
                     // sum_k e_k (-mv)^k a^(n-k)
                     let mut acc: Option<i128> = Some(0);
                     let mut pw_m: Option<i128> = Some(1);
                     for (k, &e) in ev.iter().enumerate() {
-                        let pw_a = (0..n - k).try_fold(1i128, |x, _| x.checked_mul(a));
+                        let pw_a =
+                            (0..n.saturating_sub(k)).try_fold(1i128, |x, _| x.checked_mul(a));
                         let t = pw_m
                             .and_then(|pm| pw_a.and_then(|pa| e.checked_mul(pm)?.checked_mul(pa)));
                         acc = match (acc, t) {
                             (Some(x), Some(t)) => x.checked_add(t),
                             _ => None,
                         };
-                        pw_m = pw_m.and_then(|pm| pm.checked_mul(-mv));
+                        pw_m = pw_m.and_then(|pm| pm.checked_mul(neg_mv));
                     }
                     if acc.is_some_and(|x| x != 0) {
                         return false;
@@ -1040,16 +1362,17 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
                 true
             };
             for a in &a_cands {
+                let Ok(a) = i128::try_from(*a) else { continue };
                 for m in &m_cands {
-                    if !passes(*a as i128, m) {
+                    if !passes(a, m) {
                         continue;
                     }
-                    if let Some(q) = rest.div_linear(v, *a as i128, m)? {
+                    if let Some(q) = rest.div_linear(v, a, m)? {
                         let mut f = m.clone();
                         let mut e = vec![0; rest.nvars];
                         e[v] = 1;
-                        f.add_term(e, *a as i128)?;
-                        let g = f.content();
+                        f.add_term(e, a)?;
+                        let g = f.content()?;
                         let f = f.primitive()?;
                         out.push(f);
                         // keep the scale in the cofactor
@@ -1062,11 +1385,10 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
         break;
     }
     if rest.total_degree() == 1 {
-        let g = rest.content();
-        let s = if *rest.terms.values().next_back().expect("nonzero") < 0 {
-            -g
-        } else {
-            g
+        let g = rest.content()?;
+        let s = match rest.terms.values().next_back() {
+            Some(&lead) if lead < 0 => neg(g)?,
+            _ => g,
         };
         out.push(rest.primitive()?);
         rest = MPoly::constant(rest.nvars, s);
@@ -1075,6 +1397,7 @@ fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
 }
 
 #[cfg(test)]
+#[allow(clippy::arithmetic_side_effects)] // test arithmetic on small literals
 mod tests {
     use super::*;
 
@@ -1083,7 +1406,7 @@ mod tests {
         // (x-2)(x+3)(x-7) = x^3 - 6x^2 - 13x + 42
         assert_eq!(int_roots(&[42, -13, -6, 1]).unwrap(), vec![-3, 2, 7]);
         assert_eq!(int_roots(&[0, 0, 5]).unwrap(), vec![0]);
-        assert_eq!(int_roots(&[-263, 159, 42]).unwrap(), Vec::<i64>::new());
+        assert_eq!(int_roots(&[-263, 159, 42]).unwrap(), Vec::<i128>::new());
         // degree 15: (x-1)^15 has root 1
         let mut c = vec![1i128];
         for _ in 0..15 {
@@ -1096,6 +1419,94 @@ mod tests {
         }
         assert_eq!(int_roots(&c).unwrap(), vec![1]);
         assert!(sign_breaks(&[-4, 0, 1]).unwrap().contains(&2));
+    }
+
+    #[test]
+    fn linear_roots_of_any_size() {
+        // re-audit RA2-m7: x - 2^100 has the root 2^100 (no candidate search)
+        let big = 1i128 << 100;
+        assert_eq!(int_roots(&[-big, 1]).unwrap(), vec![big]);
+        assert_eq!(int_roots(&[big, 3]).unwrap(), Vec::<i128>::new());
+        assert_eq!(int_roots(&[3 * big, -3]).unwrap(), vec![big]);
+        // x * (x + 2^100)
+        assert_eq!(int_roots(&[0, big, 1]).unwrap(), vec![-big, 0]);
+        // the root 2^127 does not fit: Overflow, never a dropped root
+        assert_eq!(int_roots(&[i128::MIN, 1]), Err(ExactError::Overflow));
+        // the root -2^127 fits: found
+        assert_eq!(int_roots(&[i128::MIN, -1]).unwrap(), vec![i128::MIN]);
+        assert_eq!(int_roots(&[i128::MIN, i128::MIN]).unwrap(), vec![-1]);
+    }
+
+    #[test]
+    fn checked_primitives_never_wrap() {
+        assert_eq!(neg(i128::MIN), Err(ExactError::Overflow));
+        assert_eq!(div_floor(i128::MIN, -1), Err(ExactError::Overflow));
+        assert_eq!(div_ceil(i128::MIN, -1), Err(ExactError::Overflow));
+        assert_eq!(div_floor(-7, 2), Ok(-4));
+        assert_eq!(div_ceil(-7, 2), Ok(-3));
+        assert_eq!(div_floor(7, 0), Err(ExactError::Overflow));
+        assert_eq!(gcd(i128::MIN, 0), Err(ExactError::Overflow));
+        assert_eq!(gcd_u(i128::MIN, 0), 1u128 << 127);
+        assert_eq!(gcd(i128::MIN, 6), Ok(2));
+        assert_eq!(gcd_all([i128::MIN, i128::MIN]), Err(ExactError::Overflow));
+        assert_eq!(gcd_all([12, -18, 0]), Ok(6));
+        let a = Affine {
+            coef: vec![i128::MIN, 1],
+            c: 0,
+        };
+        assert_eq!(a.complement(), Err(ExactError::Overflow));
+        let b = Affine {
+            coef: vec![3, 1],
+            c: i128::MIN,
+        };
+        assert_eq!(
+            b.complement().unwrap(),
+            Affine {
+                coef: vec![-3, -1],
+                c: i128::MAX,
+            }
+        );
+        assert_eq!(neg_pred(i128::MIN), Ok(i128::MAX));
+        assert_eq!(neg_pred(i128::MAX), Ok(i128::MIN));
+        assert_eq!(floor_neg_div(i128::MIN, -1), Ok(i128::MIN));
+        assert_eq!(floor_neg_div(i128::MIN, 1), Err(ExactError::Overflow));
+        assert_eq!(ceil_neg_div(5, i128::MIN), Ok(1));
+        assert_eq!(floor_neg_div(5, i128::MIN), Ok(0));
+        assert_eq!(sign_breaks(&[i128::MIN, 1]), Err(ExactError::Overflow));
+    }
+
+    #[test]
+    fn primitive_with_content_two_to_the_127() {
+        // -2^127 n0 - 2^127: content 2^127, primitive n0 + 1 (canonical sign), positive primitive -n0 - 1
+        let mut p = MPoly::zero(1);
+        p.terms.insert(vec![1], i128::MIN);
+        p.terms.insert(vec![0], i128::MIN);
+        assert_eq!(p.content(), Err(ExactError::Overflow));
+        let q = p.primitive().unwrap();
+        assert_eq!(q.terms.get(&vec![1]), Some(&1));
+        assert_eq!(q.terms.get(&vec![0]), Some(&1));
+        let r = p.positive_primitive().unwrap();
+        assert_eq!(r.terms.get(&vec![1]), Some(&-1));
+        assert_eq!(r.terms.get(&vec![0]), Some(&-1));
+        // (2^127 - 1) - 2^127 x^2: content 1, leading coefficient i128::MIN cannot be flipped: kept as it is
+        let mut p = MPoly::zero(1);
+        p.terms.insert(vec![2], i128::MIN);
+        p.terms.insert(vec![0], i128::MAX);
+        assert_eq!(p.primitive().unwrap(), p);
+    }
+
+    #[test]
+    fn univ_ge_on_intervals() {
+        // x^2 - 4 >= 0 on [3, inf) yes, on [2, inf) yes, on [1, inf) varies, on [-1, 1] no
+        let c = [-4, 0, 1];
+        assert_eq!(univ_ge_on(&c, Some(3), None, 1000), Some(true));
+        assert_eq!(univ_ge_on(&c, Some(2), None, 1000), Some(true));
+        assert_eq!(univ_ge_on(&c, Some(1), None, 1000), None);
+        assert_eq!(univ_ge_on(&c, Some(-1), Some(1), 1000), Some(false));
+        assert_eq!(univ_ge_on(&c, None, Some(-2), 1000), Some(true));
+        // -x^3 on (-inf, 0] >= 0
+        assert_eq!(univ_ge_on(&[0, 0, 0, -1], None, Some(0), 1000), Some(true));
+        assert_eq!(univ_ge_on(&[0, 0, 0, -1], None, Some(1), 1000), None);
     }
 
     #[test]
@@ -1125,6 +1536,9 @@ mod tests {
         };
         assert!(!linear_feasible(&[(1, b(2, 3)), (1, b(2, 2))], -6).unwrap());
         assert!(linear_feasible(&[(1, b(2, 3)), (1, b(2, 2))], -5).unwrap());
+        // extreme coefficients: an overflow is an error, never a verdict
+        assert!(linear_feasible(&[(i128::MIN, up(1)), (1, up(1))], 0).is_err());
+        assert!(linear_feasible(&[(1, up(1))], i128::MIN).is_err());
     }
 
     #[test]

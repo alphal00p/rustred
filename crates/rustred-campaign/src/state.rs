@@ -28,6 +28,9 @@ use crate::ledger::{
     ExportEvent, FileRef, NodeSpecValues, Record, RetirementProof, RuleEconomy,
 };
 
+mod cowmap;
+pub use cowmap::CowMap;
+
 // ------------------------------------------------------------------------------------------------------------
 // Common vocabulary
 // ------------------------------------------------------------------------------------------------------------
@@ -186,7 +189,6 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use FinishClass::*;
     match class {
         Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
-        RuleFound => &[A::Canonical],               // rows 2, 5
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -199,6 +201,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Lost => &[A::Nothing],                      // rows 15, 21
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
+        // rows 2, 5; 28 = kind solve-recipe (lane adapters)
+        RuleFound => &[A::Canonical, A::SolvedRecords],
         SealedWithElided => &[A::Nothing], // row 25 (elided witness loci: never used, R-f)
         UnverifiableKind => &[A::Nothing], // row 26 (no sealing rule for the kind)
     }
@@ -208,6 +212,7 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
 pub fn accept_permits_records(a: ContractAccept) -> bool {
     match a {
         ContractAccept::Canonical | ContractAccept::CommittedRules => true,
+        ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         ContractAccept::Nothing => false,
     }
 }
@@ -216,6 +221,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
     match a {
         ContractAccept::Canonical => "canonical",
         ContractAccept::CommittedRules => "committed_rules",
+        ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::Nothing => "nothing",
     }
 }
@@ -282,6 +288,13 @@ pub enum AttemptState {
     Interrupted,
     Lost,
     Cancelled,
+    /// EXECUTION UNKNOWN (an unconfirmed launch): the launch intent was journalled (`job.launch`) but its start was
+    /// never confirmed (`job.started`) before the supervisor that wrote it ended. The child may have run and may
+    /// have sealed results. Never "did not run" (no interrupt / lose / requeue / retry), never retried
+    /// automatically; it leaves only by a late confirmation (`started`), by the authenticated outcome of the run
+    /// directory (`finished` with the OUTCOME binding of exactly this launch), or by `cancel` once an operator
+    /// decision or an input change has superseded the work. Not settled: a campaign cannot finish over it.
+    Unconfirmed,
 }
 
 impl AttemptState {
@@ -296,9 +309,10 @@ impl AttemptState {
             AttemptState::Interrupted => "interrupted",
             AttemptState::Lost => "lost",
             AttemptState::Cancelled => "cancelled",
+            AttemptState::Unconfirmed => "unconfirmed",
         }
     }
-    pub const TAGS: [&'static str; 9] = [
+    pub const TAGS: [&'static str; 10] = [
         "queued",
         "launching",
         "running",
@@ -308,10 +322,15 @@ impl AttemptState {
         "interrupted",
         "lost",
         "cancelled",
+        "unconfirmed",
     ];
-    /// True when no process can exist for this attempt any more.
+    /// True when no process can exist for this attempt any more and its outcome is known. An unconfirmed launch
+    /// is NOT settled (a process or sealed results may exist).
     pub fn is_settled(&self) -> bool {
-        !matches!(self, AttemptState::Launching | AttemptState::Running)
+        !matches!(
+            self,
+            AttemptState::Launching | AttemptState::Running | AttemptState::Unconfirmed
+        )
     }
 }
 
@@ -333,6 +352,8 @@ pub enum AttemptEvent {
     /// New attempt after `failed` (retry policy).
     Retry,
     Cancel,
+    /// The launch intent of an earlier session was never confirmed: execution unknown.
+    Unconfirmed,
 }
 
 impl AttemptEvent {
@@ -346,6 +367,7 @@ impl AttemptEvent {
             AttemptEvent::Requeue => "requeue",
             AttemptEvent::Retry => "retry",
             AttemptEvent::Cancel => "cancel",
+            AttemptEvent::Unconfirmed => "unconfirmed",
         }
     }
 }
@@ -372,6 +394,26 @@ pub const ATTEMPT_TABLE: &[(&str, &str, &str)] = &[
     ("interrupted", "requeue", "queued (attempt + 1)"),
     ("lost", "requeue", "queued (attempt + 1)"),
     ("failed", "retry", "queued (attempt + 1)"),
+    (
+        "launching",
+        "unconfirmed",
+        "unconfirmed  (execution unknown: the start was never confirmed)",
+    ),
+    (
+        "unconfirmed",
+        "started",
+        "running  (late confirmation: the recorded child is found and adopted)",
+    ),
+    (
+        "unconfirmed",
+        "finished",
+        "<class target>  [reducer: the OUTCOME binding of exactly this launch + the OUTCOME file]",
+    ),
+    (
+        "unconfirmed",
+        "cancel",
+        "cancelled  [reducer: the job can no longer feed its item (operator retry / input change)]",
+    ),
 ];
 
 /// The attempt machine. `Requeue` / `Retry` return `Queued` (the caller increments the attempt number).
@@ -428,6 +470,21 @@ pub fn apply_attempt(
         (S::Queued, E::Requeue | E::Retry) => Ok(S::Queued), // repeat of the record that created this attempt
         (S::Queued, _) => illegal("attempt not launched"),
         (S::Launching, E::Launch) => Ok(S::Launching),
+        (S::Launching, E::Unconfirmed) => Ok(S::Unconfirmed),
+        (S::Unconfirmed, E::Unconfirmed) => Ok(state),
+        (S::Unconfirmed, E::Started) => Ok(S::Running),
+        (
+            S::Unconfirmed,
+            E::Finished {
+                class,
+                accept,
+                sealed,
+            },
+        ) => finish(class, accept, sealed),
+        (S::Unconfirmed, E::Cancel) => Ok(S::Cancelled),
+        (S::Unconfirmed, _) => illegal(
+            "execution unknown (unconfirmed launch): never 'did not run', never retried automatically; only a late start, the authenticated outcome or a cancel after the work was superseded",
+        ),
         (S::Launching, E::Started) => Ok(S::Running),
         (
             S::Launching | S::Running,
@@ -1553,7 +1610,7 @@ pub struct RuleSetAcc {
     pub count: u64,
 }
 
-/// The element of one live rule: (item, rule id, accepted record digest, key exclusions digests in order).
+/// The element of one live rule: (item, rule id, accepted record digest, the SET of key-exclusion digests).
 pub fn rule_element(
     item: &str,
     rule: &str,
@@ -1565,7 +1622,11 @@ pub fn rule_element(
         h.update(part.as_bytes());
         h.update(&[0]);
     }
-    for e in exclusions {
+    // audit-ledger2 m3: the exclusions as a SET (sorted), so the same live rule set has one digest whatever the
+    // order of the exclusion records (identical bytes to the earlier form for 0 or 1 exclusion)
+    let mut sorted: Vec<&String> = exclusions.iter().collect();
+    sorted.sort_unstable();
+    for e in sorted {
         h.update(e.as_bytes());
         h.update(&[1]);
     }
@@ -1801,10 +1862,14 @@ pub struct ItemRec {
     /// Bumped on every re-entry into `open`: results only from jobs queued in the current generation.
     pub generation: u32,
     pub jobs: Vec<String>,
-    pub produced: Option<ProducedRec>,
-    pub accepted: Option<AcceptedRec>,
-    pub economy: Option<RuleEconomy>,
-    pub retired: Option<RetiredRec>,
+    /// Items created with this item as `parent` (the parent -> children index: staleness, reopen and retry find
+    /// the children in O(children), never by a scan of every item; audit-ledger2 M4).
+    pub children: Vec<String>,
+    // The sub-records below are boxed: most items never carry most of them, and a boxed `None` is one word.
+    pub produced: Option<Box<ProducedRec>>,
+    pub accepted: Option<Box<AcceptedRec>>,
+    pub economy: Option<Box<RuleEconomy>>,
+    pub retired: Option<Box<RetiredRec>>,
     /// Digests of key-exclusion artefacts of the accepted rule (part of its rule-set element).
     pub exclusions: Vec<String>,
     pub stale_from: Option<String>,
@@ -1814,8 +1879,8 @@ pub struct ItemRec {
     pub terminal_preferred: bool,
     /// The terminal keys count against the node bound.
     pub terminal_counted: bool,
-    pub terminal_keyset: Option<FileRef>,
-    pub ladder_exhausted: Option<FileRef>,
+    pub terminal_keyset: Option<Box<FileRef>>,
+    pub ladder_exhausted: Option<Box<FileRef>>,
     pub paused: bool,
     /// Attempts of this item's jobs that ended `failed` (interrupts and losses never count, U-5).
     pub failed_attempts: u32,
@@ -1888,6 +1953,9 @@ pub struct JobRec {
     /// The same of the PREVIOUS attempt (kept across a new attempt: a resume reads that attempt's run directory).
     pub prev_attempt_spec: Option<String>,
     pub time_decided: bool,
+    /// Session number (`campaign start` count) in which the CURRENT attempt's launch intent was journalled: an
+    /// attempt still `launching` in a later session is an unconfirmed launch ([`CampaignState::unconfirmed_launches`]).
+    pub launch_session: Option<u32>,
     /// Attempts that ended `failed` (retry caps count these only).
     pub failures: u32,
     pub cpu_ms: u64,
@@ -1986,8 +2054,9 @@ pub struct CampaignState {
     pub inputs: BTreeMap<String, InputRec>,
     pub provenance: BTreeMap<String, ProvenanceRec>,
     pub nodes: BTreeMap<String, NodeRec>,
-    pub items: BTreeMap<String, ItemRec>,
-    pub jobs: BTreeMap<String, JobRec>,
+    /// Copy-on-write maps (cheap freeze for the background snapshot; read API of a `BTreeMap`).
+    pub items: CowMap<ItemRec>,
+    pub jobs: CowMap<JobRec>,
     pub pending_ops: BTreeMap<String, PendingOp>,
     pub done_ops: BTreeSet<String>,
     pub controls: BTreeMap<String, ControlRec>,
@@ -1998,7 +2067,19 @@ pub struct CampaignState {
     pub cpu_ms_total: u64,
     pub progress_records: u64,
     pub recent: VecDeque<RecentEvent>,
+    /// Strict recovery of unconfirmed launches ACROSS sessions (also on when [`ENFORCE_UNCONFIRMED_ACROSS_SESSIONS`]):
+    /// an attempt still `launching` from an earlier session may then only be marked `unconfirmed`, confirmed late
+    /// (`started`) or finished with its authenticated OUTCOME; `interrupt`, `lose` and an unauthenticated `finished`
+    /// are refused. Not serialised (a reducer setting, not state).
+    #[serde(skip)]
+    pub strict_unconfirmed: bool,
 }
+
+/// Whether the reducer already refuses the legacy recovery of an unconfirmed launch (lose / interrupt / an
+/// unauthenticated finish of an attempt launched in an earlier session). FALSE until the supervisor's recovery
+/// calls the `job.unconfirmed` hook (process-layer lane): today's `recover()` still settles such an attempt with
+/// `lose` + `requeue` or an unauthenticated `finished`, which strict mode refuses. Flip to true with that change.
+pub const ENFORCE_UNCONFIRMED_ACROSS_SESSIONS: bool = false;
 
 /// Errors of the reducer: an illegal transition, or a record that references something unknown.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2332,6 +2413,9 @@ impl CampaignState {
                         }
                     }
                     self.nodes.get_mut(node).unwrap().items_by_phase[ItemPhase::Open.index()] += 1;
+                    if let Some(p) = parent {
+                        self.items.get_mut(p).unwrap().children.push(item.clone());
+                    }
                     self.items.insert(
                         item.clone(),
                         ItemRec {
@@ -2345,6 +2429,7 @@ impl CampaignState {
                             phase: ItemPhase::Open,
                             generation: 0,
                             jobs: Vec::new(),
+                            children: Vec::new(),
                             produced: None,
                             accepted: None,
                             economy: None,
@@ -2381,7 +2466,7 @@ impl CampaignState {
                         it.phase.tag()
                     )));
                 }
-                self.items.get_mut(item).unwrap().economy = Some(economy.clone());
+                self.items.get_mut(item).unwrap().economy = Some(Box::new(economy.clone()));
             }
             Event::JobQueued {
                 job,
@@ -2411,6 +2496,11 @@ impl CampaignState {
                     if !self.inputs.contains_key(binary) {
                         return Err(invalid(format!(
                             "job {job}: binary {binary} not registered (M1)"
+                        )));
+                    }
+                    if let Some(u) = self.unconfirmed_job_of(item) {
+                        return Err(invalid(format!(
+                            "job {job}: job {u} of item {item} has an unconfirmed launch (execution unknown): no new job for the same work until its run directory is authenticated or an operator retries the item"
                         )));
                     }
                     let n = &self.nodes[&it.node];
@@ -2451,6 +2541,7 @@ impl CampaignState {
                             attempt_spec: None,
                             prev_attempt_spec: None,
                             time_decided: false,
+                            launch_session: None,
                             failures: 0,
                             cpu_ms: 0,
                             peak_rss_bytes: 0,
@@ -2625,13 +2716,17 @@ impl CampaignState {
     /// other affected nodes lose a closed verdict automatically.
     fn mark_stale_by_input(&mut self, rec: &Record, input: &str) -> usize {
         let mut stale_jobs = BTreeSet::new();
-        for (id, j) in self.jobs.iter_mut() {
+        let mut newly = Vec::new();
+        for (id, j) in self.jobs.iter() {
             if j.inputs.iter().any(|i| i == input) && j.stale.is_none() {
-                j.stale = Some(input.to_string());
-            }
-            if j.stale.as_deref() == Some(input) {
+                newly.push(id.clone());
+                stale_jobs.insert(id.clone());
+            } else if j.stale.as_deref() == Some(input) {
                 stale_jobs.insert(id.clone());
             }
+        }
+        for id in newly {
+            self.jobs.get_mut(&id).unwrap().stale = Some(input.to_string());
         }
         let nodes_hit: BTreeSet<String> = self
             .nodes
@@ -2665,7 +2760,7 @@ impl CampaignState {
                         .produced
                         .as_ref()
                         .is_some_and(|p| stale_jobs.contains(&p.job))
-                    || matches!(&it.accepted, Some(AcceptedRec { source: AcceptedFrom::Job { job, .. }, .. }) if stale_jobs.contains(job)));
+                    || matches!(it.accepted.as_deref(), Some(AcceptedRec { source: AcceptedFrom::Job { job, .. }, .. }) if stale_jobs.contains(job)));
             if nodes_hit.contains(&it.node) || it.inputs.iter().any(|i| i == input) || via_job {
                 hit.push(id.clone());
             }
@@ -2688,8 +2783,9 @@ impl CampaignState {
             if !done.insert(id.clone()) {
                 continue;
             }
-            for (cid, c) in &self.items {
-                if c.parent.as_deref() == Some(id.as_str()) && c.phase != ItemPhase::Stale {
+            // the parent -> children index: O(children) per item (audit-ledger2 M4: was a scan of every item)
+            for cid in &self.items[&id].children {
+                if self.items[cid].phase != ItemPhase::Stale {
                     todo.push(cid.clone());
                 }
             }
@@ -3050,12 +3146,12 @@ impl CampaignState {
                             short(&table.blake3)
                         )));
                     }
-                    produced = Some(ProducedRec {
+                    produced = Some(Box::new(ProducedRec {
                         job: job.clone(),
                         attempt: *attempt,
                         table: table.clone(),
                         seq,
-                    });
+                    }));
                 }
             }
             IE::Accept {
@@ -3114,6 +3210,12 @@ impl CampaignState {
                         let pr = self.provenance.get(e).ok_or_else(|| {
                             invalid(format!("accept of {rule}: unknown evidence {e}"))
                         })?;
+                        if let Some((i, at)) = self.input_changed_after(pr.seq, it) {
+                            return Err(invalid(format!(
+                                "accept of {rule}: evidence {e} (recorded at seq {}) is older than the change of input {i} at seq {at}: evidence made under the old input never undoes a stale verdict (audit-ledger2 M2)",
+                                pr.seq
+                            )));
+                        }
                         if !pr.producer_known {
                             return Err(invalid(format!(
                                 "accept of {rule}: evidence {e} is provenance only (producer digest unknown: {}); it gives no evidence level by itself",
@@ -3132,14 +3234,14 @@ impl CampaignState {
                         }
                     }
                 };
-                accepted = Some(AcceptedRec {
+                accepted = Some(Box::new(AcceptedRec {
                     rule: rule.clone(),
                     level: *level,
                     record: record.clone(),
                     source: from,
                     round: *round,
                     seq,
-                });
+                }));
             }
             IE::Import {
                 rule,
@@ -3163,6 +3265,12 @@ impl CampaignState {
                         pr.level_claimed.word()
                     )));
                 }
+                if !repeat && let Some((i, at)) = self.input_changed_after(pr.seq, it) {
+                    return Err(invalid(format!(
+                        "import of {rule}: {provenance} (recorded at seq {}) is older than the change of input {i} at seq {at}: a rule made under the old input never undoes a stale verdict (audit-ledger2 M2)",
+                        pr.seq
+                    )));
+                }
                 if repeat {
                     let a = it.accepted.as_ref().unwrap();
                     if a.rule != *rule || a.record != *record {
@@ -3173,7 +3281,7 @@ impl CampaignState {
                     }
                     return Ok(());
                 }
-                accepted = Some(AcceptedRec {
+                accepted = Some(Box::new(AcceptedRec {
                     rule: rule.clone(),
                     level: *level,
                     record: record.clone(),
@@ -3182,7 +3290,7 @@ impl CampaignState {
                     },
                     round: None,
                     seq,
-                });
+                }));
             }
             IE::Upgrade { level, evidence } if !repeat => {
                 check_level_evidence(*level, Some(evidence))
@@ -3193,6 +3301,11 @@ impl CampaignState {
                 exhausted,
                 ..
             } if !repeat => {
+                if let Some(u) = self.unconfirmed_job_of(item) {
+                    return Err(invalid(format!(
+                        "propose_terminal of {item}: job {u} has an unconfirmed launch (execution unknown): its run directory must be authenticated first"
+                    )));
+                }
                 if !*preferred {
                     if exhausted.is_none() {
                         return Err(invalid(format!(
@@ -3215,7 +3328,7 @@ impl CampaignState {
             } => {
                 if repeat {
                     if it.terminal_keys != *count
-                        || it.terminal_keyset.as_ref() != Some(keys)
+                        || it.terminal_keyset.as_deref() != Some(keys)
                         || it.terminal_preferred != *preferred
                     {
                         return Err(invalid(format!(
@@ -3305,13 +3418,23 @@ impl CampaignState {
             }
             IE::Reopen { .. } if !repeat => {
                 // audit A m11: an item whose child carries its work (escalation) is not revived
-                if let Some((c, _)) = self
-                    .items
-                    .iter()
-                    .find(|(_, c)| c.parent.as_deref() == Some(item) && c.phase != ItemPhase::Stale)
-                {
+                if let Some(c) = self.live_child_of(item) {
                     return Err(invalid(format!(
                         "reopen of {item}: its child {c} carries the work"
+                    )));
+                }
+                // an unconfirmed launch is never retried automatically (operator retry only)
+                if let Some(u) = self.unconfirmed_job_of(item) {
+                    return Err(invalid(format!(
+                        "reopen of {item}: job {u} has an unconfirmed launch (execution unknown); only an operator retry reopens it"
+                    )));
+                }
+            }
+            IE::Requeue { .. } | IE::Escalate { .. } if !repeat => {
+                if let Some(u) = self.unconfirmed_job_of(item) {
+                    return Err(invalid(format!(
+                        "{} of {item}: job {u} has an unconfirmed launch (execution unknown): its run directory must be authenticated first (or an operator retries the item)",
+                        machine_ev.tag()
                     )));
                 }
             }
@@ -3385,11 +3508,11 @@ impl CampaignState {
                 superseded_by,
             } => {
                 self.rules.retired += 1;
-                it.retired = Some(RetiredRec {
+                it.retired = Some(Box::new(RetiredRec {
                     proof: proof.clone(),
                     superseded_by: superseded_by.clone(),
                     seq,
-                });
+                }));
                 Some(match superseded_by {
                     Some(by) => format!(
                         "{node_id} {label}: rule {rule} superseded by {by} ({})",
@@ -3440,7 +3563,7 @@ impl CampaignState {
                 self.terminals_total += *count as u64;
                 it.terminal_keys = *count;
                 it.terminal_counted = counted;
-                it.terminal_keyset = Some(keys.clone());
+                it.terminal_keyset = Some(Box::new(keys.clone()));
                 Some(format!(
                     "{node_id} {label}: {count} terminal key(s) declared{}",
                     if *preferred { " (preferred)" } else { "" }
@@ -3452,7 +3575,7 @@ impl CampaignState {
                 exhausted,
             } => {
                 it.terminal_preferred = *preferred;
-                it.ladder_exhausted = exhausted.clone();
+                it.ladder_exhausted = exhausted.clone().map(Box::new);
                 Some(format!("{node_id} {label}: terminal candidate ({reason})"))
             }
             IE::MarkStale { input } => {
@@ -3589,13 +3712,13 @@ impl CampaignState {
             let x = self.items.get_mut(r).unwrap();
             x.phase = ItemPhase::Retired;
             x.updated_seq = seq;
-            x.retired = Some(RetiredRec {
+            x.retired = Some(Box::new(RetiredRec {
                 proof: RetirementProof::ReplacedBy {
                     proof: containment.clone(),
                 },
                 superseded_by: Some(item.to_string()),
                 seq,
-            });
+            }));
             let nr = self.nodes.get_mut(&node_id).unwrap();
             nr.items_by_phase[ItemPhase::Accepted(level).index()] -= 1;
             nr.items_by_phase[ItemPhase::Retired.index()] += 1;
@@ -3649,6 +3772,7 @@ impl CampaignState {
             JE::Requeue { .. } => AttemptEvent::Requeue,
             JE::Retry { .. } => AttemptEvent::Retry,
             JE::Cancel { .. } => AttemptEvent::Cancel,
+            JE::Unconfirmed { .. } => AttemptEvent::Unconfirmed,
         };
         let new_attempt = matches!(machine_ev, AttemptEvent::Requeue | AttemptEvent::Retry);
         // Records of older attempts are refused (audit A m1): never written, so never in a ledger.
@@ -3699,6 +3823,20 @@ impl CampaignState {
                 )));
             }
             let it = &self.items[&j.item];
+            // audit-ledger2 m5: a job that can never feed a result is never launched (economy, R31)
+            if !matches!(it.phase, ItemPhase::Open | ItemPhase::InProgress) {
+                return Err(invalid(format!(
+                    "launch of job {job}: item {} is {} (its result could never be used)",
+                    j.item,
+                    it.phase.tag()
+                )));
+            }
+            if j.generation != it.generation {
+                return Err(invalid(format!(
+                    "launch of job {job}: queued for generation {} of item {}, which is at generation {} (reopened since)",
+                    j.generation, j.item, it.generation
+                )));
+            }
             if self.paused || it.paused || self.nodes[&it.node].paused {
                 return Err(invalid(format!(
                     "launch of job {job}: paused by an operator control"
@@ -3734,8 +3872,53 @@ impl CampaignState {
                 )));
             }
         }
+        // UNCONFIRMED LAUNCH (execution unknown): the outcome must be the authenticated one of exactly this launch.
+        let strict = self.strict_unconfirmed || ENFORCE_UNCONFIRMED_ACROSS_SESSIONS;
+        let earlier_session = j.state == AttemptState::Launching
+            && j.launch_session.is_some_and(|s| s < self.sessions);
+        if strict
+            && earlier_session
+            && matches!(machine_ev, AttemptEvent::Interrupt | AttemptEvent::Lose)
+        {
+            return Err(invalid(format!(
+                "job {job} attempt {attempt}: its launch (session {}) was never confirmed: execution unknown, never 'did not run' (mark it unconfirmed)",
+                j.launch_session.unwrap_or(0)
+            )));
+        }
+        if let JE::Finished {
+            binding, outcome, ..
+        } = ev
+            && (j.state == AttemptState::Unconfirmed || (strict && earlier_session))
+        {
+            let launched = j.attempt_spec.as_deref().unwrap_or("");
+            let bound = binding.as_ref().is_some_and(|b| {
+                b.job == job
+                    && b.attempt == attempt
+                    && !launched.is_empty()
+                    && b.spec_blake3 == launched
+            });
+            if !bound || outcome.is_none() {
+                return Err(invalid(format!(
+                    "job {job} attempt {attempt}: unconfirmed launch (execution unknown): a finish needs the authenticated OUTCOME of exactly this launch (binding job, attempt, launched spec digest {} + the OUTCOME file); never 'did not run'",
+                    short(launched)
+                )));
+            }
+        }
+        if matches!(ev, JE::Cancel { .. }) && j.state == AttemptState::Unconfirmed {
+            let it = &self.items[&j.item];
+            let superseded = j.stale.is_some()
+                || j.generation != it.generation
+                || !matches!(it.phase, ItemPhase::Open | ItemPhase::InProgress);
+            if !superseded {
+                return Err(invalid(format!(
+                    "cancel of job {job}: unconfirmed launch (execution unknown) of the item's current work: authenticate its run directory, or an operator retries item {} first",
+                    j.item
+                )));
+            }
+        }
         let item = j.item.clone();
         let rung = j.rung;
+        let session = self.sessions;
         let j = self.jobs.get_mut(job).unwrap();
         j.state = next;
         if new_attempt {
@@ -3748,6 +3931,7 @@ impl CampaignState {
             j.outcome = None;
             j.accept = None;
             j.time_decided = false;
+            j.launch_session = None;
             j.prev_attempt_spec = j.attempt_spec.take();
         }
         match ev {
@@ -3758,6 +3942,14 @@ impl CampaignState {
             } => {
                 j.run_dir = Some(run_dir.clone());
                 j.attempt_spec = Some(spec_blake3.clone());
+                j.launch_session = Some(session);
+            }
+            JE::Unconfirmed { reason } => {
+                let text = format!(
+                    "job {} attempt {attempt}: launch never confirmed, execution unknown ({reason})",
+                    short(job)
+                );
+                self.push_recent(rec, "launch_unconfirmed", text);
             }
             JE::Started {
                 pid,
@@ -3948,6 +4140,16 @@ impl CampaignState {
                                 it.node
                             )));
                         }
+                        // audit-ledger2 m4: as item reopen (audit A m11), never revive an item whose child
+                        // carries its work
+                        if c.verb == ControlVerb::Retry
+                            && next != cur
+                            && let Some(ch) = self.live_child_of(item)
+                        {
+                            return Err(invalid(format!(
+                                "retry of {item}: its child {ch} carries the work"
+                            )));
+                        }
                         if next != cur {
                             let node_id = it.node.clone();
                             let it = self.items.get_mut(item).unwrap();
@@ -4122,9 +4324,65 @@ impl CampaignState {
 
     /// Stable digest of the state (blake3 of its JSON): used to compare snapshot + tail with full replay.
     pub fn digest(&self) -> String {
-        blake3::hash(&serde_json::to_vec(self).expect("state serialises"))
-            .to_hex()
-            .to_string()
+        // streamed into the hasher: no serialised copy of the state in memory (2M records: ~0.4 GB)
+        let mut h = blake3::Hasher::new();
+        serde_json::to_writer(&mut h, self).expect("state serialises");
+        h.finalize().to_hex().to_string()
+    }
+
+    /// The non-stale child of `item` that carries its work, if any (via the children index).
+    pub fn live_child_of(&self, item: &str) -> Option<&String> {
+        self.items.get(item)?.children.iter().find(|c| {
+            self.items
+                .get(c.as_str())
+                .is_some_and(|c| c.phase != ItemPhase::Stale)
+        })
+    }
+
+    /// A job of `item`'s CURRENT generation whose launch is unconfirmed (execution unknown), if any.
+    pub fn unconfirmed_job_of(&self, item: &str) -> Option<&String> {
+        let it = self.items.get(item)?;
+        it.jobs.iter().find(|j| {
+            self.jobs.get(j.as_str()).is_some_and(|j| {
+                j.state == AttemptState::Unconfirmed && j.generation == it.generation
+            })
+        })
+    }
+
+    /// THE RECOVERY HOOK's worklist: attempts still `launching` whose launch intent was journalled in an EARLIER
+    /// session (a `campaign start` came after it) and never confirmed by `job.started`. A resuming supervisor
+    /// appends `job.unconfirmed {reason}` for each (one group commit, before anything else is decided about them),
+    /// then authenticates each run directory (see [`AttemptState::Unconfirmed`]).
+    pub fn unconfirmed_launches(&self) -> Vec<(&String, &JobRec)> {
+        self.jobs
+            .iter()
+            .filter(|(_, j)| {
+                j.state == AttemptState::Launching
+                    && j.launch_session.is_some_and(|s| s < self.sessions)
+            })
+            .collect()
+    }
+
+    /// Attempts whose execution is unknown (state `unconfirmed`): each needs its run directory authenticated (or,
+    /// after an operator retry of its item, a `cancel`).
+    pub fn execution_unknown_jobs(&self) -> Vec<(&String, &JobRec)> {
+        self.jobs
+            .iter()
+            .filter(|(_, j)| j.state == AttemptState::Unconfirmed)
+            .collect()
+    }
+
+    /// M2: the first input of `it` (its own, its node's, its node's spec box) whose digest CHANGED after `seq`
+    /// (`(input, seq of the change)`): evidence or tables recorded before that change were made under the old input.
+    pub fn input_changed_after(&self, seq: u64, it: &ItemRec) -> Option<(String, u64)> {
+        let n = self.nodes.get(&it.node)?;
+        it.inputs
+            .iter()
+            .chain(n.inputs.iter())
+            .chain(n.state.spec_box.iter())
+            .filter_map(|i| self.inputs.get(i).map(|r| (i, r)))
+            .find(|(_, r)| r.versions > 1 && seq < r.registered_seq)
+            .map(|(i, r)| (i.clone(), r.registered_seq))
     }
 }
 
@@ -4173,9 +4431,10 @@ mod tests {
         }
     }
 
-    const ACCEPTS: [ContractAccept; 3] = [
+    const ACCEPTS: [ContractAccept; 4] = [
         ContractAccept::Canonical,
         ContractAccept::CommittedRules,
+        ContractAccept::SolvedRecords,
         ContractAccept::Nothing,
     ];
 

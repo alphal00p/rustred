@@ -140,7 +140,8 @@
       "lost": 0,
       "queued": 0,
       "running": 1,
-      "succeeded_sealed": 1
+      "succeeded_sealed": 1,
+      "unconfirmed": 0
     },
     "failed_attempts": 0,
     "reserved_bytes_running": 2147483648,
