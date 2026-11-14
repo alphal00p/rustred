@@ -196,3 +196,98 @@ fn t178b_fail_closed_new_reference() {
     assert_eq!(extra.len(), 21, "the plan's 409 + 21");
 }
 
+
+/// R33: the 5 empty-domain T178B order-B case records of the frozen tree are PROVED empty.
+#[test]
+fn t178b_five_empty_domains_proved_empty() {
+    use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
+    use rustred_campaign_core::partition::{Emptiness, is_empty};
+    use rustred_campaign_core::record::RuleRecord;
+    let Some(k3) = k3() else {
+        println!("SKIP: no k3 tree");
+        return;
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(k3.join("T178B/F5_empty_domain_rules.json")).unwrap()).unwrap();
+    let frame = t178_frame();
+    let mut n = 0;
+    for r in v.as_array().unwrap() {
+        let c = &r["case_record"];
+        let rec = RuleRecord {
+            chart: c["chart"].as_str().map(str::to_string),
+            fixed: c["fixed"].as_array().unwrap().iter().map(|x| x.as_i64()).collect(),
+            equations: serde_json::from_value(c["equations"].clone()).unwrap(),
+            exceptions: serde_json::from_value(c["exceptions"].clone()).unwrap(),
+            dispatch: c["dispatch"].as_str().map(str::to_string),
+            ..Default::default()
+        };
+        let d = CaseDomain::from_rule_record(&rec, &frame, DomainOptions { targets: EXPORT_TARGETS, ..Default::default() })
+            .unwrap();
+        let e = is_empty(&d, &frame);
+        println!("{} #{}: {e:?}", r["piece"], r["case_i"]);
+        assert!(matches!(e, Emptiness::ProvedEmpty { .. }));
+        // with the exceptions removed the domain is not empty (a verified witness)
+        let mut d2 = d.clone();
+        d2.exceptions.clear();
+        assert!(matches!(is_empty(&d2, &frame), Emptiness::NonEmpty { .. }));
+        n += 1;
+    }
+    assert_eq!(n, 5);
+}
+
+/// Memoised == slow reference mode (no memo), capped at 5 off-floor slots, class by class (h11b B2 (a): 589 =
+/// 321 U + 268 F at cap 5).
+#[test]
+#[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES; release; run with --ignored"]
+fn t178b_memo_equals_reference_mode_cap5_cap6() {
+    let Some(fx) = fx() else { return };
+    let (disp, _) = t178_dispatcher(&fx, false);
+    let src = DispatcherSource::new(&disp);
+    let base = PartitionOptions {
+        elided: ElidedPolicy::Ordinary,
+        literal_tests: LiteralTests::ReferenceCompatible,
+        resolve_loci: false,
+        max_off_floor: Some(6),
+        ..Default::default()
+    };
+    let a6 = gap_partition(&src, &t178_frame(), &base, None).unwrap();
+    let b6 = gap_partition(&src, &t178_frame(), &PartitionOptions { memo: false, ..base.clone() }, None).unwrap();
+    println!("cap 6: memo {} nodes, reference {} nodes {} ms; U {} F {}", a6.stats.nodes, b6.stats.nodes, b6.millis, a6.n_u(), a6.n_f());
+    let c6a: BTreeSet<_> = a6.classes.iter().cloned().collect();
+    let c6b: BTreeSet<_> = b6.classes.iter().cloned().collect();
+    assert_eq!(c6a, c6b);
+    let base = PartitionOptions { max_off_floor: Some(5), ..base };
+    let a = gap_partition(&src, &t178_frame(), &base, None).unwrap();
+    let b = gap_partition(&src, &t178_frame(), &PartitionOptions { memo: false, ..base.clone() }, None).unwrap();
+    println!(
+        "cap 5: memo {} nodes {} ms; reference {} nodes {} ms; U {} F {}",
+        a.stats.nodes, a.millis, b.stats.nodes, b.millis, a.n_u(), a.n_f()
+    );
+    let ca: BTreeSet<_> = a.classes.iter().cloned().collect();
+    let cb: BTreeSet<_> = b.classes.iter().cloned().collect();
+    assert_eq!(ca, cb);
+    assert_eq!((a.n_u(), a.n_f()), (321, 268));
+}
+
+/// R30 fallback: the faces of the 753 uncovered closure keys (k3 F5) are a lower bound and lie on gap faces of
+/// the exact partition.
+#[test]
+#[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES; release; run with --ignored"]
+fn t178b_fallback_faces_from_closure_keys() {
+    use rustred_campaign_core::partition::{KeyRange, faces_from_uncovered_keys};
+    let Some(k3) = k3() else { return };
+    let Some(rep) = run(false, ElidedPolicy::Ordinary, LiteralTests::ReferenceCompatible) else { return };
+    let keys: Vec<Key> = lines(k3.join("T178B/F5_closure_uncovered_753.jsonl"))
+        .iter()
+        .map(|v| as_key(if v.is_array() { v } else { &v["key"] }))
+        .collect();
+    assert_eq!(keys.len(), 753);
+    let fb = faces_from_uncovered_keys(&t178_frame(), &keys, KeyRange::Measured);
+    let exact = face_set(&rep, None);
+    let lower: BTreeSet<_> = fb.iter().map(|f| f.key()).collect();
+    println!("fallback: {} faces from 753 closure gaps; exact partition {} faces; lower bound subset: {}", lower.len(), exact.len(), lower.is_subset(&exact));
+    assert!(lower.is_subset(&exact));
+    for k in &keys {
+        assert!(rep.uncovered(k).unwrap());
+    }
+}
