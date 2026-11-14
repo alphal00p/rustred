@@ -167,6 +167,7 @@ pub(crate) enum Command {
     FamilyCandidatesBatch(Vec<OsString>),
     P(PSubcommand, Vec<OsString>),
     LiteRedReduce(Vec<OsString>),
+    SectorBoxReduce(Vec<OsString>),
     CandidateInspect(CandidateInspectArgs),
     CertifyCandidates(CertifyCandidatesArgs),
     CampaignPlan(CampaignPlanArgs),
@@ -301,6 +302,7 @@ pub(crate) fn parse_args(
         "p-import-table" => Ok(Command::P(PSubcommand::ImportTable, arguments.collect())),
         "p-certify" => Ok(Command::P(PSubcommand::Certify, arguments.collect())),
         "litered-reduce" => Ok(Command::LiteRedReduce(arguments.collect())),
+        "sector-box-reduce" => Ok(Command::SectorBoxReduce(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),
         "preparation-monitor" => Ok(Command::PreparationMonitor(arguments.collect())),
         "certify-candidates" => candidates::parse_certification(arguments),
@@ -402,6 +404,7 @@ USAGE:
     rustred family-candidates [OPTIONS]
     rustred family-candidates-batch --config PATH --progress-json PATH
     rustred litered-reduce --spec SPEC_JSON [--output FILE] [--force]
+    rustred sector-box-reduce --spec SPEC_JSON [--output FILE] [--force]
     rustred candidate-inspect --input BUNDLE [--options OPTIONS_JSON] [--output FILE]
     rustred preparation-monitor --snapshot PATH [--once | --json]
     rustred certify-candidates [OPTIONS]

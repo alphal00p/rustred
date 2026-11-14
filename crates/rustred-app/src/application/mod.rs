@@ -53,6 +53,7 @@ pub use routed_campaign::finite_demand::lifecycle::{
     run_finite_demand_with_progress, run_finite_demand_with_work_progress,
 };
 mod saved_application;
+mod sector_box;
 pub use routed_campaign::{
     OwnerDomainWalkCensusSource, OwnerDomainWalkInventory, OwnerDomainWalkInventoryOptions,
     owner_domain_walk_inventory,
@@ -100,6 +101,11 @@ pub use saved_application::{
     SAVED_ROUTE_PREPARATION_FILE, SAVED_ROUTE_PREPARATION_SCHEMA, SavedRouteAddon,
     SavedRoutePreparation, SavedRoutePreparationSource, check_saved_application_route_addon,
     load_saved_application_with_route_addon, write_saved_application_route_addon,
+};
+pub use sector_box::{
+    DEFAULT_CERTIFICATE_PRIME, LimitsSpec, SECTOR_BOX_ARITIES, SECTOR_BOX_REDUCE_REPORT_SCHEMA,
+    SECTOR_BOX_REDUCE_SPEC_SCHEMA, SectorBoxReduceOutcome, SectorBoxReduceSpec, SeedingSpec,
+    TubeSpec, sector_box_reduce, solution_file_name,
 };
 
 pub(crate) use routed_campaign::{
