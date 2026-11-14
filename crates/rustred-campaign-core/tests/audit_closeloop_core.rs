@@ -495,12 +495,23 @@ fn edges_into_target_keys_from_a_written_statement() {
     let t0 = std::time::Instant::now();
     let set = load(&spec, &base).unwrap();
     eprintln!("loaded in {:.1} s", t0.elapsed().as_secs_f64());
-    let targets: HashSet<Vec<i32>> = std::fs::read_to_string(env("AUDIT_CL_TARGETS"))
-        .unwrap()
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
+    // AUDIT_CL_TARGETS=ALL: every key of the statement (in-degree mode: only targets with ONE structural in-edge
+    // are written, with that edge)
+    let all = env("AUDIT_CL_TARGETS") == "ALL";
+    let targets: HashSet<Vec<i32>> = if all {
+        std::io::BufReader::new(std::fs::File::open(env("AUDIT_CL_STATEMENT")).unwrap())
+            .lines()
+            .map(|l| serde_json::from_value(serde_json::from_str::<Value>(&l.unwrap()).unwrap()["key"].clone()).unwrap())
+            .collect()
+    } else {
+        std::fs::read_to_string(env("AUDIT_CL_TARGETS"))
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+    let mut indeg: HashMap<Vec<i32>, (u32, Value)> = HashMap::new();
     // credited keys: their edges are the image record's terms AT THE IMAGE (closure expand_key); the statement does not
     // carry the image, so a keys-only check without evidence gives it (AUDIT_CL_CREDITS=1)
     let images: HashMap<Vec<i32>, Vec<i32>> = if std::env::var_os("AUDIT_CL_CREDITS").is_some() {
@@ -559,7 +570,8 @@ fn edges_into_target_keys_from_a_written_statement() {
             continue;
         }
         let key: Vec<i32> = serde_json::from_value(v["key"].clone()).unwrap();
-        if targets.contains(&key) {
+        // AUDIT_CL_TARGETS_IN=1: targets may be closure keys (in-degree analysis); else they must be absent
+        if targets.contains(&key) && std::env::var_os("AUDIT_CL_TARGETS_IN").is_none() {
             panic!("target key {key:?} is IN the statement");
         }
         let row_key = key.clone();
@@ -593,18 +605,30 @@ fn edges_into_target_keys_from_a_written_statement() {
                 hits += 1;
                 assert!(rustred_campaign_core::closure::bodies::rule_point(dom, &key, &mut pt));
                 let info = &set.rules[t][r];
-                writeln!(
-                    out,
-                    "{}",
-                    json!({"table": info.path, "offset": info.offset, "rule": info.index, "record_sha256": sha,
+                let e = json!({"table": info.path, "offset": info.offset, "rule": info.index, "record_sha256": sha,
                         "row_key": row_key, "server_kind": kind,
                         "source": info.source, "witness": format!("{:?}", info.witness),
                         "key": key, "point": pt, "term": j, "term_key": tk,
-                        "fact_basis": v["facts"]["basis"]})
-                )
-                .unwrap();
+                        "fact_basis": v["facts"]["basis"]});
+                if all {
+                    let x = indeg.entry(tk.to_vec()).or_insert((0, Value::Null));
+                    x.0 += 1;
+                    if x.0 == 1 {
+                        x.1 = e;
+                    }
+                } else {
+                    writeln!(out, "{e}").unwrap();
+                }
             }
         }
+    }
+    if all {
+        let mut one: Vec<&Value> = indeg.values().filter(|x| x.0 == 1).map(|x| &x.1).collect();
+        one.sort_by_key(|e| e["term_key"].to_string());
+        for e in &one {
+            writeln!(out, "{e}").unwrap();
+        }
+        eprintln!("in-degree: {} targets with an in-edge, {} with exactly one", indeg.len(), one.len());
     }
     out.flush().unwrap();
     eprintln!(
