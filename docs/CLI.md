@@ -754,6 +754,10 @@ internally by LiteRed's LI construction and emits only LI rows.
 
 ## Output schema
 
+Sector-box reductions (library API, no subcommand yet) are exchanged as
+`rustred-harness-solution.v1`; see `docs/interfaces.md`, "Sector-box solution
+exchange format".
+
 The output schema is `rustred.derive-output.toml.v1`. It includes:
 
 - RustRed and Symbolica producer versions and the canonical expression-format

@@ -20,8 +20,9 @@ use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
     BoxLaportaSession, BoxOptions, BoxPhase, BoxSolution, CensusRouter, CertificateMode,
-    ColumnOrder, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, FaultInjection, FfOptions, Lane,
-    MasterCheckMode, ParameterAssignment, RouterChoice, Seeding, SlotPriority, solve_box_laporta,
+    ColumnOrder, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, FaultInjection, FfOptions,
+    HARNESS_SOLUTION_SCHEMA, Lane, MasterCheckMode, ParameterAssignment, RouterChoice, Seeding,
+    SlotPriority, solve_box_laporta,
 };
 use serde_json::Value;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
@@ -752,6 +753,235 @@ fn golden_reproductions_are_certified_at_an_independent_prime() {
         let solution = session
             .materialize_ff(&targets, &[("d".into(), d0)], &campaign_ff())
             .unwrap();
+        assert!(
+            !solution
+                .reconstruction_primes()
+                .contains(&DEFAULT_CERTIFICATE_PRIME)
+        );
+        let certificate = session
+            .certify(&solution, Some(DEFAULT_CERTIFICATE_PRIME), 0x6332_7432)
+            .unwrap();
+        assert_eq!(certificate.rules, solution.targets.len());
+        session.certify(&solution, None, 0).unwrap();
+    }
+}
+
+fn written(session: &mut BoxLaportaSession<N>, targets: &[[i16; N]]) -> (BoxSolution<N>, String) {
+    let solution = session
+        .materialize_ff(targets, &[("d".into(), q(37, 11))], &FfOptions::default())
+        .unwrap();
+    let certificate = session
+        .certify(&solution, Some(DEFAULT_CERTIFICATE_PRIME), 3)
+        .unwrap();
+    let text = solution
+        .to_harness_json(
+            &session.harness_family(),
+            &serde_json::json!({"job": "k6"}),
+            &[certificate],
+        )
+        .unwrap();
+    (solution, text)
+}
+
+/// `rustred-harness-solution.v1` round trip: writing and reading gives the
+/// identical solution (coefficients, primes, stats, provenance) and record,
+/// and rewriting gives the identical text.
+#[test]
+fn harness_solution_round_trips() {
+    let (mut session, targets) = session(2);
+    let (solution, text) = written(&mut session, &targets);
+    let family = session.harness_family();
+    let (read, record) = BoxSolution::<N>::from_harness_json(&text, &family).unwrap();
+    // Timings are written to the microsecond; everything else is exact.
+    let timings = |s: &BoxSolution<N>| {
+        let r = &s.report;
+        let q = &r.reconstruction;
+        [
+            q.probe_seconds,
+            q.reconstruction_seconds,
+            q.verification_seconds,
+            r.build_seconds,
+            r.seconds,
+        ]
+    };
+    for (a, b) in timings(&read).iter().zip(timings(&solution)) {
+        assert!((a - b).abs() <= 1e-6, "{a} vs {b}");
+    }
+    let mut untimed = solution.clone();
+    untimed.report.reconstruction.probe_seconds = read.report.reconstruction.probe_seconds;
+    untimed.report.reconstruction.reconstruction_seconds =
+        read.report.reconstruction.reconstruction_seconds;
+    untimed.report.reconstruction.verification_seconds =
+        read.report.reconstruction.verification_seconds;
+    untimed.report.build_seconds = read.report.build_seconds;
+    untimed.report.seconds = read.report.seconds;
+    assert_eq!(read, untimed);
+    assert_eq!(record.family, family);
+    assert_eq!(record.extra, serde_json::json!({"job": "k6"}));
+    assert_eq!(record.certificates.len(), 1);
+    assert_eq!(
+        record.certificates[0].prime,
+        Some(DEFAULT_CERTIFICATE_PRIME)
+    );
+    assert!(record.content_checked);
+    assert_eq!(
+        read.to_harness_json(&family, &record.extra, &record.certificates)
+            .unwrap(),
+        text
+    );
+    // The writer refuses an inconsistent solution instead of truncating it.
+    let mut short = solution.clone();
+    short.coefficients[0].pop();
+    assert!(matches!(
+        short.to_harness_json(&family, &Value::Null, &[]),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let value: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["schema"], HARNESS_SOLUTION_SCHEMA);
+    // A file read back is certified like the original.
+    session.certify(&read, None, 0).unwrap();
+}
+
+/// The reader refuses corrupted or foreign files instead of guessing.
+#[test]
+fn harness_reader_rejects_bad_files() {
+    let (mut session, targets) = session(1);
+    let (solution, text) = written(&mut session, &targets);
+    let family = session.harness_family();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    // Each check is exercised on its own: the content digest is removed
+    // first (an older v1 file), except for the digest cases at the end.
+    let mut undigested = value.clone();
+    undigested.as_object_mut().unwrap().remove("content_blake3");
+    let refused_from = |base: &Value, edit: &dyn Fn(&mut Value), what: &str| {
+        let mut bad = base.clone();
+        edit(&mut bad);
+        let result = BoxSolution::<N>::from_harness_json(&bad.to_string(), &family);
+        assert!(
+            matches!(result, Err(SolverError::InvalidInput(_))),
+            "{what}: {result:?}"
+        );
+    };
+    let refused = |edit: &dyn Fn(&mut Value), what: &str| refused_from(&undigested, edit, what);
+    let (t, _) = (0..targets.len())
+        .map(|t| (t, solution.terms(t).count()))
+        .max_by_key(|(_, n)| *n)
+        .unwrap();
+    refused(
+        &|v| v["schema"] = "rustred-harness-solution.v2".into(),
+        "schema",
+    );
+    refused(
+        &|v| v["family"]["fingerprint"] = "another family".into(),
+        "family",
+    );
+    refused(
+        &|v| v["family"]["router_fingerprint"] = "00".into(),
+        "router",
+    );
+    refused(&|v| v["provenance"]["lane"] = "Exact".into(), "lane");
+    refused(&|v| v["fixed"] = serde_json::json!({}), "unfixed parameter");
+    refused(
+        &|v| v["fixed"]["d"] = "74/22".into(),
+        "non-canonical fixed value",
+    );
+    refused(
+        &|v| v["rules"][t]["terms"][0]["coefficient"] = "1/2*eta+".into(),
+        "garbage coefficient",
+    );
+    refused(
+        &|v| v["rules"][t]["terms"][0]["coefficient"] = "(1-1/2*eta)/(1-1/2*eta)".into(),
+        "not in lowest terms",
+    );
+    refused(
+        &|v| v["rules"][t]["terms"][0]["coefficient"] = "0".into(),
+        "zero term",
+    );
+    refused(
+        &|v| v["rules"][t]["terms"][0]["integral"] = serde_json::json!([3, 1, 1, 1, 1, 1]),
+        "unknown master",
+    );
+    refused(
+        &|v| {
+            let first = v["rules"][t]["terms"][0].clone();
+            v["rules"][t]["terms"].as_array_mut().unwrap().push(first);
+        },
+        "master twice",
+    );
+    refused(
+        &|v| v["masters"][0] = serde_json::json!([1, 1, 1, 1, 1]),
+        "short integral",
+    );
+    refused(
+        &|v| {
+            let prime = v["stats"]["primes"][0]["prime"].clone();
+            v["stats"]["verifications"][0]["prime"] = prime;
+        },
+        "verification prime reused",
+    );
+    refused(
+        &|v| {
+            let prime = v["stats"]["primes"][0]["prime"].clone();
+            v["certificates"][0]["prime"] = prime;
+        },
+        "certificate prime reused",
+    );
+    refused(
+        &|v| v["stats"]["verifications"] = serde_json::json!([]),
+        "no verification",
+    );
+    refused(&|v| v["stats"]["entries"] = 1.into(), "stats inconsistent");
+    assert!(BoxSolution::<N>::from_harness_json("{not json", &family).is_err());
+    refused_from(
+        &value,
+        &|v| v["content_blake3"] = "00".into(),
+        "wrong digest",
+    );
+    // A canonical but wrong coefficient is caught by the content digest;
+    // without the digest (an older v1 file) it is read, and the certificate
+    // rejects it.
+    let other = if value["rules"][t]["terms"][0]["coefficient"] == "1" {
+        "2"
+    } else {
+        "1"
+    };
+    refused_from(
+        &value,
+        &|v| v["rules"][t]["terms"][0]["coefficient"] = other.into(),
+        "tampered coefficient",
+    );
+    let mut tampered = value.clone();
+    tampered["rules"][t]["terms"][0]["coefficient"] = other.into();
+    tampered.as_object_mut().unwrap().remove("content_blake3");
+    let (read, record) =
+        BoxSolution::<N>::from_harness_json(&tampered.to_string(), &family).unwrap();
+    assert!(!record.content_checked);
+    assert!(matches!(
+        session.certify(&read, Some(DEFAULT_CERTIFICATE_PRIME), 5),
+        Err(SolverError::Certification(_))
+    ));
+    // An unchanged file is accepted, with and without its digest.
+    assert!(BoxSolution::<N>::from_harness_json(&value.to_string(), &family).is_ok());
+    assert!(BoxSolution::<N>::from_harness_json(&undigested.to_string(), &family).is_ok());
+}
+
+/// VALUE SOURCE: the campaign engine's golden files are read (same family
+/// and router fingerprints), and every one passes the exact certificate and
+/// a probabilistic certificate at a prime independent of its
+/// reconstruction, against this engine's session.
+#[test]
+fn golden_files_are_certified_at_an_independent_prime() {
+    let (mut session, _) = session(2);
+    let family = session.harness_family();
+    for file in ["solution-37_11.json", "solution-319999_80000.json"] {
+        let text = std::fs::read_to_string(format!(
+            "{}/tests/fixtures/sector_box_k6/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let (solution, record) = BoxSolution::<N>::from_harness_json(&text, &family).unwrap();
+        assert_eq!(record.family.name, "w6_k6_eta_slot0");
+        assert!(!record.content_checked, "campaign files carry no digest");
         assert!(
             !solution
                 .reconstruction_primes()
