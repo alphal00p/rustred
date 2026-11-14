@@ -113,18 +113,18 @@ fn cell_box(rep: &PartitionReport, cell: &[Option<u16>]) -> Vec<(Option<i64>, Op
     (0..rep.arity())
         .map(|s| match cell[s] {
             Some(v) if v != ANY_OFF => {
-                let r = rep.states[s][v as usize];
+                let r = rep.states()[s][v as usize];
                 (r.lo, r.hi)
             }
             Some(_) => {
-                if rep.nf.lines[s] {
+                if rep.nf().lines[s] {
                     (Some(2), None)
                 } else {
                     (None, Some(-1))
                 }
             }
             None => {
-                if rep.nf.lines[s] {
+                if rep.nf().lines[s] {
                     (Some(1), None)
                 } else {
                     (None, Some(0))
@@ -214,12 +214,12 @@ fn solve_params(r: &Region, key: &[i32]) -> Option<Vec<i128>> {
 /// Is the uncovered key described by the report (a listed face AND a listed generic cell, a locus piece or an
 /// unresolved region of that face, here or in a blocked sub-report)?
 fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
-    let fk = face_of(&rep.nf.lines, k);
-    let Some(face) = rep.faces.iter().find(|f| f.key() == fk) else {
+    let fk = face_of(&rep.nf().lines, k);
+    let Some(face) = rep.faces().iter().find(|f| f.key() == fk) else {
         return Err(format!("face {fk:?} not listed"));
     };
     let mut reps: Vec<&PartitionReport> = vec![rep];
-    reps.extend(rep.blocked.iter().map(|(_, b)| b));
+    reps.extend(rep.blocked().iter().map(|(_, b)| b));
     let slots: Vec<usize> = face.sd.iter().chain(&face.sn).copied().collect();
     for r in &reps {
         let cell: Vec<u16> = slots
@@ -229,9 +229,9 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
         // the face's generic cells were merged from the sub-reports with their OWN state indices; check by the
         // classes instead: a U class of r containing k
         let hit = r.class_of(k).unwrap();
-        if hit == ClassHit::Uncovered && r.classes.iter().any(|c| c.label == Label::Uncovered) {
+        if hit == ClassHit::Uncovered && r.classes().iter().any(|c| c.label == Label::Uncovered) {
             // must be in a listed generic cell of r's own faces
-            if let Some(f) = r.faces.iter().find(|f| f.key() == fk)
+            if let Some(f) = r.faces().iter().find(|f| f.key() == fk)
                 && f.generic_cells.iter().any(|c| {
                     c.iter()
                         .zip(&cell)
@@ -241,7 +241,7 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
                 return Ok(());
             }
         }
-        if let Some(res) = &r.resolution {
+        if let Some(res) = &r.resolution() {
             // harness guard: a face with tens of thousands of open regions (capped classes) is not re-solved per key
             let parts: usize = res
                 .loci
@@ -298,10 +298,10 @@ fn defect_varying_multislot_bound_gives_spurious_generic_face() {
         assert!(union_covered(&ds, &k), "brute force: {k:?} is covered");
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    assert!(rep.outcome.is_complete(), "{:?}", rep.outcome);
+    assert!(rep.outcome().is_complete(), "{:?}", rep.outcome());
     assert_eq!(rep.n_u(), 0, "U classes");
-    assert!(rep.stats.soft_fragile >= 1);
-    assert!(rep.faces.is_empty(), "{:?}", rep.faces);
+    assert!(rep.stats().soft_fragile >= 1);
+    assert!(rep.faces().is_empty(), "{:?}", rep.faces());
     assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
     let c = rep.census(&window(n, e, 8)).unwrap();
     assert!(c.uncovered.is_empty());
@@ -309,7 +309,7 @@ fn defect_varying_multislot_bound_gives_spurious_generic_face() {
     // a half-plane gap is found exactly: without B the keys n1 > n0 are a gap, described by a locus piece
     let only_a = vec![ds[0].clone()];
     let ra = gap_partition(&list(&only_a, n), &f, &absent(), None).unwrap();
-    assert!(ra.outcome.is_complete());
+    assert!(ra.outcome().is_complete());
     for k in window(n, e, 9) {
         let unc = !union_covered(&only_a, &k);
         assert_eq!(ra.uncovered(&k).unwrap(), unc, "{k:?}");
@@ -339,7 +339,7 @@ fn defect_one_slot_nonlinear_bound_killed_on_its_own_tail() {
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
     assert_eq!(rep.n_u(), 0, "no U class");
-    assert!(rep.faces.is_empty());
+    assert!(rep.faces().is_empty());
     assert!(!rep.uncovered(&[7]).unwrap());
     assert_eq!(rep.class_of(&[7]).unwrap(), ClassHit::Covered);
     assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
@@ -693,8 +693,8 @@ fn defect_integer_empty_locus_piece_is_reported() {
         assert!(union_covered(&ds, &k), "{k:?}");
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    assert!(rep.outcome.is_complete(), "{:?}", rep.outcome);
-    let res = rep.resolution.as_ref().unwrap();
+    assert!(rep.outcome().is_complete(), "{:?}", rep.outcome());
+    let res = rep.resolution().unwrap();
     for l in &res.loci {
         for pc in &l.pieces {
             let mut budget = 1_000_000u64;
@@ -709,7 +709,11 @@ fn defect_integer_empty_locus_piece_is_reported() {
         res.pieces_proved_empty >= 1,
         "the empty piece was proved empty"
     );
-    assert!(!rep.faces.iter().any(|x| x.key() == (vec![0, 1, 2], vec![])));
+    assert!(
+        !rep.faces()
+            .iter()
+            .any(|x| x.key() == (vec![0, 1, 2], vec![]))
+    );
     assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
 }
 
@@ -869,7 +873,7 @@ fn check_tables(
     // ---------------- union mode (elided records absent: brute force = some record APPLIES)
     let rep = gap_partition(&l, &f, &absent(), None)
         .unwrap_or_else(|e| panic!("{}: {e:?}", what("union")));
-    match &rep.outcome {
+    match &rep.outcome() {
         o if o.is_complete() => t.complete += 1,
         rustred_campaign_core::partition::Outcome::Incomplete { .. } => t.incomplete += 1,
         o => panic!("{}: unexpected outcome {o:?}", what("union")),
@@ -937,7 +941,7 @@ fn check_tables(
         assert!(!any_unc, "{}: FALSE union no-gap proof", what("union"));
     }
     // witnesses are uncovered; flagged pieces counted
-    if let Some(res) = &rep.resolution {
+    if let Some(res) = &rep.resolution() {
         for loc in &res.loci {
             for pc in &loc.pieces {
                 t.flagged_pieces += u64::from(pc.covered_part_unresolved);
@@ -953,10 +957,11 @@ fn check_tables(
     }
     trace("witness checks done", &tt);
     // spurious U classes: a bounded U class inside the window whose every key is covered
-    for c in rep.classes.iter().filter(|c| c.label == Label::Uncovered) {
+    for c in rep.classes().iter().filter(|c| c.label == Label::Uncovered) {
         let b = cell_box(&rep, &c.states);
         let inside: Vec<&Key> = keys.iter().filter(|k| in_box(&b, k)).collect();
-        if box_inside_window(&b, &rep.nf.lines, w) && inside.iter().all(|k| union_covered(&ds, k)) {
+        if box_inside_window(&b, &rep.nf().lines, w) && inside.iter().all(|k| union_covered(&ds, k))
+        {
             t.spurious_u_bounded += 1;
         }
         t.covered_in_u += inside.iter().filter(|k| union_covered(&ds, k)).count() as u64;
@@ -973,8 +978,8 @@ fn check_tables(
         None,
     )
     .unwrap();
-    let ca: BTreeSet<_> = rep.classes.iter().cloned().collect();
-    let cb: BTreeSet<_> = r2.classes.iter().cloned().collect();
+    let ca: BTreeSet<_> = rep.classes().iter().cloned().collect();
+    let cb: BTreeSet<_> = r2.classes().iter().cloned().collect();
     assert_eq!(ca, cb, "{}: memo vs reference classes", what("union"));
     // determinism: the same report from a fresh thread (cold thread-local caches)
     if seed.is_multiple_of(8) {
@@ -990,8 +995,8 @@ fn check_tables(
         t.determinism_checks += 1;
     }
 
-    if rep.outcome.is_complete()
-        && rep.resolution.as_ref().is_some_and(|r| {
+    if rep.outcome().is_complete()
+        && rep.resolution().is_some_and(|r| {
             r.loci
                 .iter()
                 .any(|l| l.pieces.iter().any(|p| p.covered_part_unresolved))
@@ -1022,7 +1027,7 @@ fn check_tables(
                     "{}: capped run reads {k:?} Covered",
                     what("capped")
                 );
-                let off = face_of(&c.nf.lines, k);
+                let off = face_of(&c.nf().lines, k);
                 if cap.is_none_or(|cc| off.0.len() + off.1.len() <= cc)
                     && hit != ClassHit::Unexplored
                     && let Err(why) = described(&c, k)
@@ -1034,9 +1039,9 @@ fn check_tables(
         if any_unc {
             assert!(c.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
         }
-        if cap.is_some() && c.stats.pruned_off_floor > 0 {
+        if cap.is_some() && c.stats().pruned_off_floor > 0 {
             assert!(
-                !c.outcome.is_complete(),
+                !c.outcome().is_complete(),
                 "{}: capped run says complete",
                 what("capped")
             );
@@ -1372,7 +1377,7 @@ fn explore_integer_empty_pieces() {
             }
         }
         let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-        let Some(res) = rep.resolution.as_ref() else {
+        let Some(res) = rep.resolution() else {
             continue;
         };
         for l in &res.loci {
@@ -1387,7 +1392,7 @@ fn explore_integer_empty_pieces() {
                             "case {case}: polygon {gs:?}: empty piece x {:?} cons {:?} faces {:?} witness {:?}",
                             pc.region.render_x(),
                             pc.region.render_cons(),
-                            rep.faces
+                            rep.faces()
                                 .iter()
                                 .map(|x| (x.key(), x.kind, x.proof.tag()))
                                 .collect::<Vec<_>>(),
@@ -1416,9 +1421,9 @@ fn explore_triangle_debug() {
     fr.exceptions.push(vec![p("n2-n0+3", n)]);
     let ds = vec![a, b, c, fr];
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    eprintln!("states {:?}", rep.states);
-    eprintln!("classes {:?}", rep.classes);
-    let res = rep.resolution.as_ref().unwrap();
+    eprintln!("states {:?}", rep.states());
+    eprintln!("classes {:?}", rep.classes());
+    let res = rep.resolution().unwrap();
     eprintln!(
         "resolved {} with gaps {} capped {} errors {}",
         res.classes_resolved, res.classes_with_gaps, res.classes_capped, res.exact_errors
@@ -1757,12 +1762,16 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
             CoverageNotion::DispatchCoverage,
         ] {
             let r1 = gap_partition(&l, &f, &o(cov), None).unwrap();
-            if !r1.outcome.is_aborted() {
+            if !r1.outcome().is_aborted() {
                 continue;
             }
             checked += 1;
             let r2 = gap_partition(&l, &f, &o(cov), None).unwrap();
-            assert_eq!(r1.stats.nodes, r2.stats.nodes, "deterministic node count");
+            assert_eq!(
+                r1.stats().nodes,
+                r2.stats().nodes,
+                "deterministic node count"
+            );
             assert_eq!(json_without_time(&r1, &f), json_without_time(&r2, &f));
             assert!(r1.proves_no_gap(cov).is_err());
             assert!(
@@ -1851,18 +1860,18 @@ fn t266_node_budget_is_honest_and_deterministic() {
     println!(
         "T266: {} domains, outcome {} ({:?}), nodes {} / {}, U {} F {} unexplored {}, faces {}, {s1} ms",
         l.items.len(),
-        r1.outcome.tag(),
-        r1.outcome.reasons(),
-        r1.stats.nodes,
-        r2.stats.nodes,
+        r1.outcome().tag(),
+        r1.outcome().reasons(),
+        r1.stats().nodes,
+        r2.stats().nodes,
         r1.n_u(),
         r1.n_f(),
         r1.n_unexplored(),
-        r1.faces.len()
+        r1.faces().len()
     );
-    assert!(r1.outcome.is_aborted());
-    assert_eq!(r1.stats.nodes, r2.stats.nodes);
-    assert_eq!(r1.classes, r2.classes);
+    assert!(r1.outcome().is_aborted());
+    assert_eq!(r1.stats().nodes, r2.stats().nodes);
+    assert_eq!(r1.classes(), r2.classes());
     for cov in [
         CoverageNotion::UnionCoverage,
         CoverageNotion::DispatchCoverage,
@@ -1917,24 +1926,26 @@ fn defect_blocked_face_cells_use_sub_report_state_indices() {
     assert!(disp.first_match(&[5, 3]).unwrap().is_open());
     assert!(rep.uncovered(&[5, 3]).unwrap());
     let face = rep
-        .faces
+        .faces()
         .iter()
         .find(|x| x.key() == (vec![0, 1], vec![]))
         .expect("face");
-    let main_n0 = &rep.states[0];
+    let main_n0 = &rep.states()[0];
     eprintln!(
         "main states n0 {main_n0:?}; sub states n0 {:?}; generic cells {:?}; blocked cells {:?}",
-        rep.blocked[0].1.states[0], face.generic_cells, face.blocked_cells
+        rep.blocked()[0].1.states()[0],
+        face.generic_cells,
+        face.blocked_cells
     );
-    assert_ne!(rep.blocked[0].1.states[0], rep.states[0]);
+    assert_ne!(rep.blocked()[0].1.states()[0], rep.states()[0]);
     // FIXED (partfix2, RA2-m1): `generic_cells` are in THIS report's states only (in range); the sub-report's cells
     // are `blocked_cells`, tagged with their blocker and read with THAT sub-report's states
     for c in &face.generic_cells {
         for (j, &s) in [0usize, 1].iter().enumerate() {
-            assert!(c[j] == ANY_OFF || (c[j] as usize) < rep.states[s].len());
+            assert!(c[j] == ANY_OFF || (c[j] as usize) < rep.states()[s].len());
         }
     }
-    let (e, sub) = (&rep.blocked[0].0, &rep.blocked[0].1);
+    let (e, sub) = (&rep.blocked()[0].0, &rep.blocked()[0].1);
     let sub5 = sub.state_index(0, 5).unwrap();
     let sub3 = sub.state_index(1, 3).unwrap();
     assert!(
@@ -2229,18 +2240,18 @@ fn defect_dispatch_budget_is_per_subpartition() {
                 ..dispatch()
             };
             let rep = gap_partition(&l, &f, &o, None).unwrap();
-            let sub_nodes: u64 = rep.blocked.iter().map(|(_, b)| b.stats.nodes).sum();
-            let total = rep.stats.nodes + sub_nodes;
-            if rep.stats.aborted {
+            let sub_nodes: u64 = rep.blocked().iter().map(|(_, b)| b.stats().nodes).sum();
+            let total = rep.stats().nodes + sub_nodes;
+            if rep.stats().aborted {
                 aborted_main += 1;
                 assert!(
-                    rep.blocked.is_empty(),
+                    rep.blocked().is_empty(),
                     "seed {seed}: a sub-partition ran after the abort"
                 );
-                assert_eq!(rep.blocked_skipped.len(), full.nf.blockers.len());
+                assert_eq!(rep.blocked_skipped().len(), full.nf().blockers.len());
             }
-            if rep.outcome.is_aborted() {
-                aborted_later += u64::from(!rep.stats.aborted);
+            if rep.outcome().is_aborted() {
+                aborted_later += u64::from(!rep.stats().aborted);
                 assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
                 assert!(
                     total <= max + 1,
@@ -2258,7 +2269,8 @@ fn defect_dispatch_budget_is_per_subpartition() {
                 }
             } else {
                 assert_eq!(
-                    rep.outcome, full.outcome,
+                    rep.outcome(),
+                    full.outcome(),
                     "seed {seed}: a run within budget"
                 );
             }
@@ -2322,7 +2334,7 @@ fn locate_phases_of_one_seed() {
     let t0 = std::time::Instant::now();
     let ms = |t0: &std::time::Instant| t0.elapsed().as_millis();
     let r = gap_partition(&l, &f, &absent(), None).unwrap();
-    eprintln!("union {} ms ({:?})", ms(&t0), r.outcome.tag());
+    eprintln!("union {} ms ({:?})", ms(&t0), r.outcome().tag());
     let t0 = std::time::Instant::now();
     let _ = gap_partition(
         &l,
@@ -2343,8 +2355,8 @@ fn locate_phases_of_one_seed() {
     eprintln!(
         "dispatch {} ms, blockers kept {} empty {}",
         ms(&t0),
-        d.blocked.len(),
-        d.blocked_empty
+        d.blocked().len(),
+        d.blocked_empty()
     );
     for i in 0..ds.len() {
         let t0 = std::time::Instant::now();
@@ -2429,11 +2441,11 @@ fn locate_ordinary_of_one_seed() {
     eprintln!(
         "ordinary {} ms outcome {} nodes {} U {} F {} loci {:?}",
         t0.elapsed().as_millis(),
-        r.outcome.tag(),
-        r.stats.nodes,
+        r.outcome().tag(),
+        r.stats().nodes,
         r.n_u(),
         r.n_f(),
-        r.resolution.as_ref().map(|x| (
+        r.resolution().map(|x| (
             x.loci.len(),
             x.classes_resolved,
             x.classes_capped,
@@ -2516,7 +2528,7 @@ fn defect_capped_loci_emit_unbounded_open_regions() {
         None,
     )
     .unwrap();
-    let res = r.resolution.as_ref().unwrap();
+    let res = r.resolution().unwrap();
     let parts: usize = res.loci.iter().map(|x| x.unresolved_parts.len()).sum();
     let constraints: usize = res
         .loci
@@ -2532,9 +2544,9 @@ fn defect_capped_loci_emit_unbounded_open_regions() {
         before / 1024,
         vm_hwm_kb() / 1024,
         t0.elapsed().as_millis(),
-        r.outcome.tag()
+        r.outcome().tag()
     );
-    assert!(!r.outcome.is_complete());
+    assert!(!r.outcome().is_complete());
     assert!(r.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
     // FIXED (partfix2, RA2-M5): at most `max_open_regions` open regions per resolved cell (+ one whole-cell summary)
     let lo = rustred_campaign_core::loci::LociOptions::default();
@@ -2582,10 +2594,10 @@ fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
     );
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
     assert!(rep.uncovered(&[2, 2]).unwrap(), "the point oracle agrees");
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     eprintln!(
         "outcome {} U {} F {} loci {} capped {} proves_no_gap(union) {:?} class_of(2,2) {:?}",
-        rep.outcome.tag(),
+        rep.outcome().tag(),
         rep.n_u(),
         rep.n_f(),
         res.loci.len(),
@@ -2936,12 +2948,12 @@ fn locate_extreme_seed() {
     }
     let f = NodeFrame::without_header_lines_first(n, e);
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    eprintln!("notes {:?}", rep.nf.notes);
-    eprintln!("sources {:?}", rep.nf.sources);
-    for (i, r) in rep.nf.rules.iter().enumerate() {
+    eprintln!("notes {:?}", rep.nf().notes);
+    eprintln!("sources {:?}", rep.nf().sources);
+    for (i, r) in rep.nf().rules.iter().enumerate() {
         let show = |ls: &[u32]| {
             ls.iter()
-                .map(|&l| rep.nf.lits[l as usize].text.clone())
+                .map(|&l| rep.nf().lits[l as usize].text.clone())
                 .collect::<Vec<_>>()
         };
         eprintln!(
@@ -2949,7 +2961,7 @@ fn locate_extreme_seed() {
             show(&r.eq),
             show(&r.ge),
             r.bad.iter().map(|b| show(b)).collect::<Vec<_>>(),
-            rep.nf.rule_covers(i, &key)
+            rep.nf().rule_covers(i, &key)
         );
     }
     for (i, d) in ds.iter().enumerate() {

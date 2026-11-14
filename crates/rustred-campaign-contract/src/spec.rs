@@ -810,6 +810,7 @@ fn valid_env_name(s: &str) -> bool {
 impl JobSpec {
     /// Parse and validate a spec file's bytes (no file-system checks; see [`JobSpec::check_location`]).
     pub fn from_json(bytes: &[u8]) -> Result<JobSpec, SpecError> {
+        crate::canon::check_document(bytes).map_err(|e| SpecError::Parse(e.to_string()))?;
         let s: JobSpec =
             serde_json::from_slice(bytes).map_err(|e| SpecError::Parse(e.to_string()))?;
         s.validate()?;
@@ -1068,7 +1069,15 @@ impl JobSpec {
     }
 }
 
-/// `spec_blake3`: the BLAKE3 of the `job.json` bytes as written (the ledger identity of the job attempt).
+/// BLAKE3 key-derivation context of [`spec_blake3`] (domain separation by digest kind, lane contractfix2, audit
+/// ac2-m7: the spec digest of some bytes is never their raw file digest).
+pub const CONTEXT_SPEC: &str = "rustred.child-job.v1 2026-11-14 job spec digest";
+
+/// `spec_blake3`: the BLAKE3 of the `job.json` bytes as written, in the [`CONTEXT_SPEC`] domain (the ledger identity
+/// of the job attempt). NOT the plain BLAKE3 of the file (`b3sum job.json` differs): compute it only with this
+/// function.
 pub fn spec_blake3(spec_file_bytes: &[u8]) -> String {
-    crate::blake3_hex(spec_file_bytes)
+    let mut h = blake3::Hasher::new_derive_key(CONTEXT_SPEC);
+    h.update(spec_file_bytes);
+    h.finalize().to_hex().to_string()
 }

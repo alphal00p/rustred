@@ -31,25 +31,25 @@ fn run(tests: LiteralTests) -> Option<PartitionReport> {
     let rep = gap_partition(&src, &t162_frame(), &opts, None).unwrap();
     println!(
         "T162 {tests:?}: inputs {:?}; states {:?}; nodes {} U {} F {} faces {} ({} generic, {} locus-only) loci {} ({} unresolved), loci classes capped {}, {} ms, unknown tests {}",
-        rep.nf.stats,
-        rep.states.iter().map(|s| s.len()).collect::<Vec<_>>(),
-        rep.stats.nodes,
+        rep.nf().stats,
+        rep.states().iter().map(|s| s.len()).collect::<Vec<_>>(),
+        rep.stats().nodes,
         rep.n_u(),
         rep.n_f(),
-        rep.faces.len(),
-        rep.faces
+        rep.faces().len(),
+        rep.faces()
             .iter()
             .filter(|f| f.kind == FaceKind::Generic)
             .count(),
-        rep.faces
+        rep.faces()
             .iter()
             .filter(|f| f.kind == FaceKind::LocusOnly)
             .count(),
-        rep.resolution.as_ref().map_or(0, |r| r.loci.len()),
-        rep.resolution.as_ref().map_or(0, |r| r.n_unresolved()),
-        rep.resolution.as_ref().map_or(0, |r| r.classes_capped),
-        rep.millis,
-        rep.stats.unknown_literal_tests + rep.state_unknown,
+        rep.resolution().map_or(0, |r| r.loci.len()),
+        rep.resolution().map_or(0, |r| r.n_unresolved()),
+        rep.resolution().map_or(0, |r| r.classes_capped),
+        rep.millis(),
+        rep.stats().unknown_literal_tests + rep.state_unknown(),
     );
     Some(rep)
 }
@@ -83,7 +83,7 @@ fn t162_partition_faces_loci_box() {
         return;
     };
     let mine: BTreeMap<F, String> = rep
-        .faces
+        .faces()
         .iter()
         .map(|f| {
             (
@@ -97,7 +97,7 @@ fn t162_partition_faces_loci_box() {
             )
         })
         .collect();
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     for l in &res.loci {
         println!(
             "locus {} face {} eqs {:?} dim {} classes {} unresolved {} witness {:?} window {:?}",
@@ -266,17 +266,17 @@ fn t162_reference_granularity_class_counts() {
     let rep = gap_partition(&src, &t162_frame(), &opts, None).unwrap();
     println!(
         "T162 uniform states: nodes {} U {} F {} faces {} in {} ms",
-        rep.stats.nodes,
+        rep.stats().nodes,
         rep.n_u(),
         rep.n_f(),
-        rep.faces.len(),
-        rep.millis
+        rep.faces().len(),
+        rep.millis()
     );
     // U classes reproduce exactly; F differs by the literal structure of the pole factors (our exact linear-factor
     // extraction vs the checker's full sympy factorisation): reported, not asserted
     assert_eq!(rep.n_u(), 2278);
     assert_eq!(
-        rep.faces
+        rep.faces()
             .iter()
             .filter(|f| f.kind == FaceKind::Generic)
             .count(),

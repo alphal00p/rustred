@@ -243,7 +243,7 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
     let mut names = vec![];
     let free: Vec<usize> = (0..n)
         .filter(|&s| {
-            cell[s] == ANY_OFF || rep.states[s][usize::from(cell[s])].singleton().is_none()
+            cell[s] == ANY_OFF || rep.states()[s][usize::from(cell[s])].singleton().is_none()
         })
         .collect();
     let k = free.len();
@@ -252,13 +252,13 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
             x.push(Affine::var(k, j));
             names.push(format!("n{s}"));
             let (lo, hi) = if cs == ANY_OFF {
-                if rep.nf.lines[s] {
+                if rep.nf().lines[s] {
                     (Some(2), None)
                 } else {
                     (None, Some(-1))
                 }
             } else {
-                let r = rep.states[s][usize::from(cs)];
+                let r = rep.states()[s][usize::from(cs)];
                 (r.lo, r.hi)
             };
             // i64 -> i128 and the negation of an i64 never overflow in i128
@@ -269,7 +269,7 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
                 cons.push(Affine::unit(k, j, -1, i128::from(h)));
             }
         } else {
-            let v = rep.states[s][usize::from(cs)].singleton().unwrap_or(0);
+            let v = rep.states()[s][usize::from(cs)].singleton().unwrap_or(0);
             x.push(Affine::constant(k, i128::from(v)));
         }
     }
@@ -1192,9 +1192,9 @@ pub fn resolve_fragile_classes_with(
     let mut out = LociReport::default();
     type Gk = ((Vec<usize>, Vec<usize>), Vec<String>, bool);
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
-    let all: Vec<usize> = (0..rep.nf.rules.len()).collect();
+    let all: Vec<usize> = (0..rep.nf().rules.len()).collect();
     let mut budget_cells: Vec<(FaceKey, Unresolved)> = vec![];
-    for c in rep.classes.iter().filter(|c| c.label == Label::Fragile) {
+    for c in rep.classes().iter().filter(|c| c.label == Label::Fragile) {
         // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded
         let Some(cells) = rep.expand(c) else { continue };
         for (face, cell) in cells {
@@ -1212,7 +1212,7 @@ pub fn resolve_fragile_classes_with(
                 }
                 continue;
             }
-            let mut r = Resolver::new(&rep.nf, opts, meter);
+            let mut r = Resolver::new(rep.nf(), opts, meter);
             r.resolve(region.clone(), &all, vec![], 0, false);
             out.classes_resolved = out.classes_resolved.saturating_add(1);
             out.exact_errors = out.exact_errors.saturating_add(r.errors);
@@ -1265,7 +1265,7 @@ pub fn resolve_fragile_classes_with(
                     }
                 }
                 if p.unbounded == Some(true) {
-                    let lines = &rep.nf.lines;
+                    let lines = &rep.nf().lines;
                     if p.region
                         .x
                         .iter()

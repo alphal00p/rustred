@@ -19,15 +19,25 @@
 //! raw T178 order-B piece tables `$RUSTRED_CAMPAIGN_FIXTURES/eng/T178B_raw/*.F.table.jsonl` (copies of
 //! WS/SCRATCHPAD/t178/regenB/**/node/F.table.jsonl; R0 = R0_try1 by h13b's identification; SHA256SUMS beside them)
 //! and the case exports `T178B/cases` (to tie each raw table to the fixture the core's T2 uses).
+//!
+//! T162 core side (int4): the coordinator's CONVERTED bank, interfaces/coord-bank-tables.md v1.2 (set 20261114c:
+//! per-origin `table_dump.v1` tables, `index` = SET-UNIQUE label = global id, plus `origin`, `origin_index`), variant
+//! `qualified`, read-only through `$RUSTRED_CAMPAIGN_FIXTURES/T162/bank-conv-20261114c` (a link to the converter's
+//! output directory; `T162_BANK_TABLES` overrides it); its SHA256SUMS is checked against the interface's digest and
+//! every table against SHA256SUMS. (The step-1 matcher table repeats origin-local labels: the core's loader refuses it
+//! with `DuplicateLabel`; it stays the ENGINE's input of step 2 only.)
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufRead, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
+use rustred_campaign_core::accept::rule::sha256_tag;
+use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table, WitnessStatus};
 use rustred_campaign_core::domain::{DomainOptions, PoleKind, TargetSource, Verdict};
 use rustred_campaign_core::key::{Key, NodeFrame, parse_key};
-use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
+use rustred_campaign_core::record::{
+    ReadOptions, RhsMode, TableFile, read_bank_predicates, read_table_file,
+};
 use serde_json::Value;
 
 const T162_BANK_EXPORT: &str = "/shared/vhirschi/t3code/astra_5L/m5-rule-search/wave1945/wave5/T162-BANK2448-EXPORT-20261113T07";
@@ -36,6 +46,78 @@ fn fixtures() -> PathBuf {
     PathBuf::from(
         std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES"),
     )
+}
+
+/// sha256 of the converted set's SHA256SUMS file (interfaces/coord-bank-tables.md v1.2, "Paths").
+const BANK_TABLES_SUMS_SHA256: &str =
+    "sha256:fbaa6454dc87a4ac4b2ed13067d75ea8183a01018078d455dbf0ad3f8b5aef12";
+
+/// The converted T162 bank set (read-only): `T162_BANK_TABLES`, default `$RUSTRED_CAMPAIGN_FIXTURES/T162/bank-conv-20261114c`.
+fn bank_tables_dir() -> PathBuf {
+    std::env::var("T162_BANK_TABLES").map_or_else(
+        |_| fixtures().join("T162/bank-conv-20261114c"),
+        PathBuf::from,
+    )
+}
+
+/// The converted QUALIFIED tables as ONE core table in first-match order (tables ordered by their first label = global
+/// id, file order inside; the labels must then increase strictly), each file checked against the set's SHA256SUMS,
+/// which is checked against the interface's digest; all headers agree on the fields the loader reads. Returns the
+/// table (labels = global ids, unique in the set) and the labels.
+fn bank_tables(opts: DomainOptions) -> (Table, Vec<i64>) {
+    let dir = bank_tables_dir();
+    let sums_text = std::fs::read(dir.join("SHA256SUMS")).unwrap();
+    assert_eq!(
+        sha256_tag(&sums_text),
+        BANK_TABLES_SUMS_SHA256,
+        "SHA256SUMS of the set"
+    );
+    let sums: BTreeMap<String, String> = String::from_utf8(sums_text)
+        .unwrap()
+        .lines()
+        .map(|l| {
+            let (h, f) = l.split_once("  ").unwrap();
+            (f.to_string(), format!("sha256:{h}"))
+        })
+        .collect();
+    let mut parts: Vec<(i64, TableFile)> = vec![];
+    for (f, want) in sums.iter().filter(|(f, _)| f.starts_with("qualified/")) {
+        let path = dir.join(f);
+        assert_eq!(&sha256_tag(&std::fs::read(&path).unwrap()), want, "{f}");
+        let tf = read_table_file(&path, ReadOptions { rhs: RhsMode::Skip }).unwrap();
+        let first = tf.rules.first().and_then(|r| r.index).unwrap();
+        parts.push((first, tf));
+    }
+    parts.sort_by_key(|(first, _)| *first);
+    let mut all = TableFile::default();
+    let key_fields = |tf: &TableFile| -> Value {
+        let h = &tf.header.as_ref().unwrap().raw;
+        serde_json::json!([
+            h["denominators"],
+            h["mask"],
+            h["power_shifts"],
+            h["node_order"]["slot_permutation"]
+        ])
+    };
+    for (i, (_, tf)) in parts.into_iter().enumerate() {
+        if i == 0 {
+            all.header = tf.header.clone();
+            all.charts = tf.charts.clone();
+        } else {
+            assert_eq!(key_fields(&tf), key_fields(&all), "table {i}: header");
+            assert_eq!(tf.charts, all.charts, "table {i}: chart lines");
+        }
+        all.rules.extend(tf.rules);
+    }
+    let labels: Vec<i64> = all.rules.iter().map(|r| r.index.unwrap()).collect();
+    assert!(
+        labels.windows(2).all(|w| w[0] < w[1]),
+        "labels in first-match order, unique"
+    );
+    let table =
+        Table::from_table_file("T162-bank-tables", dir.display().to_string(), &all, opts).unwrap();
+    assert_eq!(table.len(), labels.len(), "every bank record is dispatched");
+    (table, labels)
 }
 
 fn dc_dir() -> PathBuf {
@@ -288,6 +370,11 @@ struct Tally {
     numeric_vs_exact: usize,
     /// s.2 (T162 bank domains): cached loci the bank adds to the written exceptions
     bank_cached_loci: usize,
+    /// s.3 item 6 (re-audit RA-MAJOR-1): the selected record carries no witness loci (`WitnessStatus::NotCarried`, no
+    /// attestation); the core blocks (`Verdict::WitnessNotCarried`), the engine's matcher does not look
+    witness_not_carried: usize,
+    /// keys where the ENGINE's selected record is `NotCarried` in the core table (an independent count of the above)
+    engine_on_not_carried: usize,
     findings: Vec<String>,
     /// T-DOMAIN (b): on keys where both select the same rule, the engine's `point_valid` verdicts
     point_valid: BTreeMap<String, usize>,
@@ -310,6 +397,7 @@ impl Tally {
             "chart" => self.chart += 1,
             "numeric_vs_exact" => self.numeric_vs_exact += 1,
             "bank_cached_loci" => self.bank_cached_loci += 1,
+            "witness_not_carried" => self.witness_not_carried += 1,
             other => panic!("class {other}"),
         }
     }
@@ -321,11 +409,12 @@ impl Tally {
             + self.chart
             + self.numeric_vs_exact
             + self.bank_cached_loci
+            + self.witness_not_carried
             + self.findings.len()
     }
     fn line(&self, name: &str) -> String {
         format!(
-            "{name}: keys {} agree {} (rule {}, none {}) differences {} [elided {}, witness_loci {}, poles {}, recenter_bounds {}, chart {}, numeric_vs_exact {}, bank_cached_loci {}, FINDINGS {}] point_valid {:?}",
+            "{name}: keys {} agree {} (rule {}, none {}) differences {} [elided {}, witness_loci {}, poles {}, recenter_bounds {}, chart {}, numeric_vs_exact {}, bank_cached_loci {}, witness_not_carried {}, FINDINGS {}] point_valid {:?}",
             self.keys,
             self.agree_rule + self.agree_none,
             self.agree_rule,
@@ -338,6 +427,7 @@ impl Tally {
             self.chart,
             self.numeric_vs_exact,
             self.bank_cached_loci,
+            self.witness_not_carried,
             self.findings.len(),
             self.point_valid
         )
@@ -385,6 +475,11 @@ fn compare(
             v["key"]
         );
         let c = disp.first_match(&key).unwrap();
+        if let Some(es) = e_sel
+            && table.meta[from_engine[es]].witness == WitnessStatus::NotCarried
+        {
+            t.engine_on_not_carried += 1;
+        }
         let same = |r: usize| Some(to_engine[r]) == e_sel;
         let finding = |t: &mut Tally, what: String| {
             t.findings
@@ -403,6 +498,7 @@ fn compare(
                 Verdict::OnPole { kind, .. } => t.bump(pole_class(kind)),
                 Verdict::RecenterBound(_) => t.bump("recenter_bounds"),
                 Verdict::ChartMismatch { .. } => t.bump("chart"),
+                Verdict::WitnessNotCarried => t.bump("witness_not_carried"),
                 other => finding(&mut t, format!("blocked {other:?}")),
             },
             Dispatch::Undecided { at, .. } if same(at.record) => t.bump("numeric_vs_exact"),
@@ -443,22 +539,28 @@ fn report(name: &str, t: &Tally) {
     }
 }
 
-/// (a) T162 box B against the engine-loadable matcher table of the 2,440 qualified bank rules: (a1) the core reading
-/// the SAME native records, (a2) the core's bank predicates (its T1 input).
+/// (a) T162 box B, the engine's matcher (step 2) against: (a1) the core reading the coordinator's CONVERTED bank tables
+/// (v1.2, set-unique labels; the same 2,440 qualified records in the same first-match order), strict witness status;
+/// (a2) the core's bank predicates (its T1 input); (a3) core against core: the bank predicates against our domain code
+/// on the converted records, every box key.
 #[test]
-#[ignore = "T-DOMAIN step 3: needs DOMAINCHECK_DIR/t162/out.jsonl"]
+#[ignore = "T-DOMAIN step 3: needs DOMAINCHECK_DIR/t162/out.jsonl and the converted bank set"]
 fn t_domain_t162() {
     let dc = dc_dir();
     let out = dc.join("t162/out.jsonl");
-    let (table, kept, _) = core_raw(
-        &dc.join("t162/bank2440_matcher.table.jsonl"),
-        "T162-matcher",
-    );
-    let a1 = compare(&out, &table, &kept, None);
-    report("T162 (a1) native records", &a1);
-
     let mut bank = read_bank_predicates(fixtures().join("T162/RULE-PREDICATES2440.json")).unwrap();
     bank.sort_by_key(|p| p.global_ordinal0);
+    let (table, labels) = bank_tables(DomainOptions::default());
+    // the engine's rule positions are the bank's first-match order: the converted set is that order, record for record
+    assert_eq!(
+        labels,
+        bank.iter().map(|p| p.global_ordinal0).collect::<Vec<_>>(),
+        "converted qualified set = the bank predicates' records in global-id order"
+    );
+    let ident: Vec<usize> = (0..bank.len()).collect();
+    let a1 = compare(&out, &table, &ident, None);
+    report("T162 (a1) converted bank tables (strict witness)", &a1);
+
     let bt = Table::from_bank(
         "T162-bank",
         "T162/RULE-PREDICATES2440.json",
@@ -473,17 +575,97 @@ fn t_domain_t162() {
         .iter()
         .map(|p| p.exceptions.as_ref().map_or(0, Vec::len))
         .collect();
-    let ident: Vec<usize> = (0..bank.len()).collect();
     let a2 = compare(&out, &bt, &ident, Some(&written));
     report("T162 (a2) bank predicates", &a2);
-    // measured 2026-11-14 (engine rr_node sha256 dafdce8a... and eedb3092..., byte-identical outputs): identical decisions on every key, both ways
-    for t in [&a1, &a2] {
-        assert!(t.findings.is_empty(), "findings: see the report");
-        assert_eq!((t.keys, t.agree_rule, t.agree_none), (55_704, 54_714, 990));
-        assert_eq!(t.differences(), 0);
-        assert_eq!(t.point_valid.get("ok"), Some(&54_714));
+    // (a2) measured 2026-11-14 (engine rr_node sha256 dafdce8a... and eedb3092..., byte-identical outputs): identical
+    // decisions on every key, both ways
+    assert!(a2.findings.is_empty(), "findings: see the report");
+    assert_eq!(
+        (a2.keys, a2.agree_rule, a2.agree_none),
+        (55_704, 54_714, 990)
+    );
+    assert_eq!(a2.differences(), 0);
+    assert_eq!(a2.point_valid.get("ok"), Some(&54_714));
+    // (a1) 2,437 of the 2,440 qualified records carry no witness loci (coord-bank-tables.md v1.2 s.0): the core blocks
+    // every key whose selected record is one of them (WitnessNotCarried) and agrees on every other key; nothing else
+    let without: usize = table
+        .meta
+        .iter()
+        .filter(|m| m.witness == WitnessStatus::NotCarried)
+        .count();
+    println!(
+        "converted qualified records without witness loci: {without} of {}",
+        table.len()
+    );
+    assert_eq!((without, table.len()), (2_437, 2_440));
+    assert!(a1.findings.is_empty(), "findings: see the report");
+    assert_eq!((a1.keys, a1.agree_none), (55_704, 990));
+    assert_eq!(a1.witness_not_carried, a1.engine_on_not_carried);
+    assert_eq!(
+        a1.differences(),
+        a1.witness_not_carried,
+        "the ONLY difference class"
+    );
+    assert_eq!(a1.agree_rule + a1.witness_not_carried, 54_714);
+    assert_eq!(
+        a1.point_valid.get("ok").copied().unwrap_or(0),
+        a1.agree_rule
+    );
+    // (a3) core vs core on every box key: bank predicates vs our domain code on the converted records, (i) with the
+    // witness check off: the same first match everywhere; (ii) strict: differs only where the converted record is
+    // NotCarried and blocks
+    let frame = NodeFrame::without_header_lines_first(20, 9);
+    let keys = box_keys(&frame, |d| if d == 0 { 1 } else { 2 }, Some(5));
+    assert_eq!(keys.len(), 55_704);
+    let (loose, _) = bank_tables(DomainOptions {
+        witness: false,
+        ..Default::default()
+    });
+    let db = Dispatcher::new(vec![bt], vec![0]).unwrap();
+    let dl = Dispatcher::new(vec![loose], vec![0]).unwrap();
+    let ds = Dispatcher::new(vec![table], vec![0]).unwrap();
+    let (mut same, mut covered, mut blocked_nc) = (0usize, 0usize, 0usize);
+    for k in &keys {
+        let b = db.first_match(k).unwrap();
+        let l = dl.first_match(k).unwrap();
+        let s = ds.first_match(k).unwrap();
+        let pos = |d: &Dispatch| d.winner().map(|w| w.record);
+        assert_eq!(
+            pos(&b),
+            pos(&l),
+            "{k:?}: bank predicates {b:?} vs domain code {l:?}"
+        );
+        assert_eq!(b.is_covered(), l.is_covered(), "{k:?}");
+        same += 1;
+        covered += usize::from(b.is_covered());
+        match (&l, &s) {
+            (Dispatch::Covered(x), Dispatch::Covered(y)) if x.record == y.record => {}
+            (Dispatch::Uncovered, Dispatch::Uncovered) => {}
+            (
+                Dispatch::Covered(x),
+                Dispatch::Blocked {
+                    at,
+                    reason: Verdict::WitnessNotCarried,
+                },
+            ) if x.record == at.record => blocked_nc += 1,
+            other => panic!("{k:?}: loose vs strict {other:?}"),
+        }
     }
+    println!(
+        "T162 (a3) bank predicates vs domain code: {same} keys identical ({covered} covered); strict witness: {blocked_nc} WitnessNotCarried"
+    );
+    assert_eq!((same, covered), (55_704, 54_714));
+    assert_eq!(blocked_nc, a1.witness_not_carried);
+    assert_eq!(
+        (a1.witness_not_carried, a1.agree_rule),
+        T162_WITNESS_NOT_CARRIED,
+        "measured split (WitnessNotCarried, agree on a rule)"
+    );
 }
+
+/// (a1) measured 2026-11-14 on the converted set 20261114c (int4): keys whose selected record carries no witness loci
+/// (blocked by the core) and keys where both select the same rule.
+const T162_WITNESS_NOT_CARRIED: (usize, usize) = (54_712, 2);
 
 /// (b) every T178 order-B piece as its own table, 10,000 box keys each; the raw table's domains equal the case
 /// export the core's T2 reads, record by record.

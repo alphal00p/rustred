@@ -18,14 +18,18 @@
 //! depth-first search that recomputes successors (one more instantiation pass; memory: 5 bytes per key + stack).
 
 pub mod bodies;
+mod credit;
 pub mod exits;
 pub mod facts;
 pub mod fast;
 pub mod keyset;
 pub mod relations;
 pub mod sha256;
+pub mod store;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -33,10 +37,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::cover::{CoverError, Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
-use crate::symmetry::{Credit, CreditPolicy, Refusal};
+use crate::symmetry::{CreditPolicy, Refusal};
+use credit::{CreditC, Server};
+use store::{ExitAcc, ReqStore};
 
 pub use bodies::{
-    BodyError, BodyLoadStats, RhsSlot, RuleBodies, Sectors, TermClass, parse_rhs_pattern,
+    BodyError, BodyLoadStats, MAX_ARITY, RhsSlot, RuleBodies, Sectors, TermClass, parse_rhs_pattern,
 };
 pub use facts::{
     CoefFact, FactError, FactKind, FactRequest, FactSource, FileFacts, NoFacts, RegFact,
@@ -48,10 +54,11 @@ pub use relations::{
     DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, SolveResultsStats,
     VERDICT_CERTIFIED, VERDICT_DESCENDS, VERDICT_EXACT, VERDICT_REGULAR, read_solve_results,
 };
+pub use store::{ExitFile, SpillConfig};
 
 pub const CLOSURE_SCHEMA: &str = "rustred.campaign.closure.v1";
 /// Version of the closure semantics recorded in every configuration identity (bump on any change of a result).
-pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v2";
+pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v3";
 
 /// Closure tier (plan 2.4.8, Decision D-7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +132,13 @@ pub struct ClosureConfig {
     /// serve such a key iff the fact source holds the per-key exact lift fact (regular, in case, no exception branch)
     /// for exactly (rule content, key); Tier K always reports `block`. `Elided` records are never lifted.
     pub witness_absent: WitnessAbsent,
+    /// Spill the large stores (fact requests, exit key sets) to files under a byte budget (re-audit F5, F9; closure.md
+    /// 15). Not part of the identity: it never changes a result.
+    pub spill: Option<SpillConfig>,
+    /// The tables' presented frame (`node_order.slot_permutation`, new slot j carries old slot `p[j]`; identity =
+    /// `0..arity`). When given it must equal the comparator's presentation (typed `Config` error otherwise; audit
+    /// loop-A m7); recorded in the identity component `frame` (`unchecked` when absent: the caller's responsibility).
+    pub table_presentation: Option<Vec<usize>>,
 }
 
 /// Policy for records without witness loci (coordinator ruling 2026-11-14).
@@ -294,6 +308,8 @@ impl Default for ClosureConfig {
             diagnostic: DiagnosticRelaxations::default(),
             relation_sets: vec![],
             witness_absent: WitnessAbsent::default(),
+            spill: None,
+            table_presentation: None,
         }
     }
 }
@@ -316,8 +332,15 @@ pub enum ClosureError {
     Config(String),
     /// A required input label is missing (e.g. a zero-sector list without its source).
     MissingInput(String),
-    /// More reached keys than the u32 key index allows.
+    /// More reached keys than the u32 key index allows (checked before every insertion), or a request store limit.
     Capacity(String),
+    /// Arity above the closure's slot-mask width [`MAX_ARITY`] (re-audit F4: refused, never a silent wrap).
+    Arity {
+        arity: usize,
+        max: usize,
+    },
+    /// A spill file could not be written or read.
+    Io(String),
 }
 impl std::fmt::Display for ClosureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -387,7 +410,8 @@ pub struct Witness {
     pub reason: String,
 }
 
-/// A symmetry credit used by the closure.
+/// A symmetry credit used by the closure. `rule` names what serves the image: a table rule, or a relation set (table =
+/// set name, record = its record, label -1) for a recipe-served image (R44).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreditRecord {
     pub key: Vec<i32>,
@@ -396,6 +420,18 @@ pub struct CreditRecord {
     pub image: Vec<i32>,
     pub rule: RuleName,
     pub descent_checked: bool,
+    /// Tier K only: the further structurally admissible elements whose expansions are followed as well (the superset
+    /// follows the union, re-audit F1a). Empty in Tier C.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<CreditAlternative>,
+}
+
+/// A further element followed by a Tier K credit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreditAlternative {
+    pub element: usize,
+    pub image: Vec<i32>,
+    pub rule: RuleName,
 }
 
 /// Term statistics.
@@ -544,15 +580,35 @@ pub struct ClosureSummary {
     pub recipe_served: u64,
     pub recipe_served_in_start: u64,
     pub used_relation_sets: u64,
+    /// Tier K credits: top terms of a followed element that are NOT below the key (followed; the element is usable
+    /// only if their coefficients vanish; re-audit F1a).
+    #[serde(default)]
+    pub credit_requires_zero: u64,
+    /// Tier K: OPEN keys whose expansion is followed all the same (superset of every Tier C run; re-audit F1): a
+    /// witness-absent key (its record's body; a Tier C run may lift it) or an uncovered key with credit candidates none
+    /// of which passes the keys-only check (a Tier C run may credit it once coefficients are known to vanish).
+    #[serde(default)]
+    pub open_followed: u64,
+    /// The dispatcher's weakened checks (witness check off, unchecked attestation, no chart): any entry makes the run
+    /// `diagnostic` (re-audit F2).
+    #[serde(default)]
+    pub dispatch_not_strict: Vec<String>,
+    /// The fact requests / exit key sets were spilled to files (`ClosureConfig::spill`).
+    #[serde(default)]
+    pub fact_requests_spilled: bool,
+    #[serde(default)]
+    pub exits_spilled: bool,
 }
 
-/// Use of one relation set (R48): keys it serves.
+/// Use of one relation set (R48): keys it serves, and credited keys whose image it serves (R44).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelationUse {
     pub set: String,
     pub recipe_digest: String,
     pub keys: u64,
     pub keys_in_start: u64,
+    #[serde(default)]
+    pub credit_images: u64,
 }
 
 /// Identifying fields supplied by the caller for the report artefact.
@@ -606,16 +662,21 @@ const RECIPE: u32 = u32::MAX - 4;
 const STOP_NONE: u32 = u32::MAX - 1;
 const STOP_UNCOVERED: u32 = u32::MAX;
 
-/// Compact fact request.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ReqC {
-    key: u32,
-    pos: u32,
-    term: u32,
-    reason: RequestReason,
-    image: bool,
-    /// The term's instantiated key (empty for regularity).
-    rhs: Box<[i32]>,
+/// Keys per work piece of a round (dispatch + expansion + merge): bounds the per-piece buffers (exit codes, requests,
+/// dispositions) independently of the round size.
+const PIECE_KEYS: usize = 1 << 14;
+/// Exit-code words a piece buffers before an in-piece sort + dedup.
+const PIECE_HD_WORDS: usize = 1 << 20;
+
+impl OpenInfo {
+    /// Tier K: what is followed although the key is open.
+    fn followed(&self) -> Option<Served<'_>> {
+        match (&self.follow, &self.follow_credit) {
+            (Some(p), _) => Some(Served::Follow(*p)),
+            (None, Some(c)) => Some(Served::Credit(c)),
+            (None, None) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -624,6 +685,10 @@ struct OpenInfo {
     rule: Option<u32>,
     detail: String,
     candidates: Vec<u32>,
+    /// Tier K: the record whose body is followed although the key is open (witness-absent; re-audit F1b).
+    follow: Option<u32>,
+    /// Tier K: credit candidates followed although the key is open (no element passes the keys-only check; F1a).
+    follow_credit: Option<Box<CreditC>>,
 }
 
 /// Per-key DISPATCH memo for the incremental closure (audit loop-A C1, M2): only the dispatch verdict (with the key
@@ -678,13 +743,15 @@ pub struct IncrementalUse {
     pub unchanged_tables: Vec<String>,
 }
 
-/// The exit (hand-down) key sets of a run, tied to the run's configuration identity.
+/// The exit (hand-down) key sets of a run, tied to the run's configuration identity: in memory (`sets`) or, when the
+/// run spilled them (`ClosureConfig::spill`), as key-set files (`files`; then `sets` is empty).
 #[derive(Clone, Debug)]
 pub struct ExitSets<'a> {
     /// True iff the sets are complete for this configuration (hand-down mode `keys`, not truncated).
     pub complete: bool,
     pub config_digest: String,
     pub sets: &'a BTreeMap<u64, KeySet>,
+    pub files: &'a BTreeMap<u64, ExitFile>,
 }
 
 /// A reached declared terminal (internal).
@@ -720,23 +787,33 @@ pub struct Closure {
     res: Vec<u32>,
     stop: Vec<u32>,
     open: BTreeMap<u32, OpenInfo>,
-    credits: BTreeMap<u32, Credit>,
+    credits: BTreeMap<u32, CreditC>,
     rounds: u32,
     truncated: bool,
     edges: u64,
     terms: TermStats,
     requires_zero: u64,
+    credit_requires_zero: u64,
     undecided: Undecided,
     violations: u64,
     pos_nonzero: u64,
     unrepresentable: u64,
     descent_witnesses: Vec<(u32, u32, Witness)>,
     failure_witnesses: Vec<(u32, u32, Witness)>,
-    requests: Vec<ReqC>,
+    requests: ReqStore,
+    /// distinct fact requests (as `fact_requests()` would de-duplicate them), computed once at the end of the run
+    n_requests: u64,
     hand_down_terms: BTreeMap<u64, u64>,
     hand_down_keys: BTreeMap<u64, KeySet>,
+    exit_files: BTreeMap<u64, ExitFile>,
+    /// the run's own spill directory, if it spilled
+    spill_dir: Option<PathBuf>,
     cycles: Option<u64>,
     chain: Option<Chain>,
+    /// a cycle was found although no followed edge was counted non-lower (the comparator is not a strict order)
+    comparator_inconsistent: bool,
+    /// the dispatcher's weakened checks (re-audit F2)
+    not_strict: Vec<String>,
     rule_names: Vec<RuleName>,
     rule_digests: Vec<String>,
     fact_tables: Vec<String>,
@@ -934,6 +1011,17 @@ fn rule_ids(
             hd.update(&tab.labels[r].to_le_bytes());
             hd.update(&(dom.len() as u64).to_le_bytes());
             hd.update(dom.as_bytes());
+            // what the dispatch and the reports rest on besides the domain (re-audit F7): witness status, witness and
+            // target basis, source index; any change invalidates a recheck and the incremental reuse of the table
+            let meta = match tab.meta.get(r) {
+                Some(m) => format!(
+                    "{:?}|{:?}|{:?}|{}",
+                    m.witness, m.witness_basis, m.target_basis, m.source_index
+                ),
+                None => "no-meta".into(),
+            };
+            hd.update(&(meta.len() as u64).to_le_bytes());
+            hd.update(meta.as_bytes());
             let mut hr = sha256::Sha256::new();
             hr.update(b"rustred.campaign.rule.v1\n");
             hr.update(src.as_bytes());
@@ -997,22 +1085,77 @@ fn sha_hex(parts: &[&str]) -> String {
     format!("sha256:{}", h.finish_hex())
 }
 
-/// Output of expanding one chunk of keys.
-#[derive(Default)]
+/// Output of one work piece of a round.
 struct ExpandOut {
     new_codes: Vec<u64>,
     edges: u64,
     terms: TermStats,
     requires_zero: u64,
+    credit_requires_zero: u64,
     undecided: Undecided,
     violations: u64,
     pos_nonzero: u64,
     unrepresentable: u64,
     descent_w: Vec<(u32, u32, Witness)>,
     failure_w: Vec<(u32, u32, Witness)>,
-    requests: Vec<ReqC>,
+    requests: ReqStore,
+    req_error: Option<String>,
     hd_terms: BTreeMap<u64, u64>,
     hd_codes: BTreeMap<u64, Vec<u64>>,
+    hd_words: usize,
+    hd_limit: usize,
+}
+
+impl ExpandOut {
+    fn new(codec: KeyCodec) -> ExpandOut {
+        ExpandOut {
+            new_codes: vec![],
+            edges: 0,
+            terms: TermStats::default(),
+            requires_zero: 0,
+            credit_requires_zero: 0,
+            undecided: Undecided::default(),
+            violations: 0,
+            pos_nonzero: 0,
+            unrepresentable: 0,
+            descent_w: vec![],
+            failure_w: vec![],
+            requests: ReqStore::new(codec),
+            req_error: None,
+            hd_terms: BTreeMap::new(),
+            hd_codes: BTreeMap::new(),
+            hd_words: 0,
+            hd_limit: PIECE_HD_WORDS,
+        }
+    }
+    /// Buffer one exit code of child `m`; sort + dedup the piece's buffers when they exceed the limit (re-audit F9).
+    fn hand_down(&mut self, m: u64, code: &[u64]) {
+        let w = code.len();
+        self.hd_codes.entry(m).or_default().extend_from_slice(code);
+        self.hd_words += w;
+        if self.hd_words > self.hd_limit {
+            let mut n = 0;
+            for v in self.hd_codes.values_mut() {
+                keyset::sort_dedup(w, v);
+                n += v.len();
+            }
+            self.hd_words = n;
+            self.hd_limit = self.hd_limit.max(2 * n);
+        }
+    }
+    fn request(
+        &mut self,
+        key: u32,
+        pos: u32,
+        term: Option<usize>,
+        reason: RequestReason,
+        image: bool,
+        rhs: Option<&[i32]>,
+    ) {
+        if let Err(e) = self.requests.push(key, pos, term, reason, image, rhs) {
+            self.req_error.get_or_insert(e);
+        }
+    }
 }
 
 fn push_capped(v: &mut Vec<(u32, u32, Witness)>, w: (u32, u32, Witness), cap: usize) {
@@ -1035,22 +1178,92 @@ fn merge_capped(dst: &mut Vec<(u32, u32, Witness)>, src: Vec<(u32, u32, Witness)
     dst.truncate(cap);
 }
 
-/// What the expansion of one key produces (shared by the BFS and the depth-first chain pass).
-enum Sink<'s> {
-    Bfs {
-        out: &'s mut ExpandOut,
-        table: &'s KeyTable,
-        key_idx: u32,
-    },
-    Succ {
-        table: &'s KeyTable,
-        succ: &'s mut Vec<u32>,
-    },
+/// How a reached key is expanded (shared by the BFS and the chain / cycle pass).
+#[derive(Clone, Copy)]
+enum Served<'a> {
+    /// Covered (or lifted) by the rule at this dispatch position.
+    Rule(u32),
+    /// Served by a relation-set record.
+    Recipe(u32, u32),
+    /// Credited: every followed element's server at its image (Tier C: one; Tier K: the union).
+    Credit(&'a CreditC),
+    /// Tier K: open (witness-absent) but the record's body is followed (superset; re-audit F1b).
+    Follow(u32),
+}
+
+/// The per-key results the expansion needs (borrowed from the run or from a finished closure).
+struct ResView<'a> {
+    res: &'a [u32],
+    credits: &'a BTreeMap<u32, CreditC>,
+    recipe_of: &'a BTreeMap<u32, (u32, u32)>,
+    open: &'a BTreeMap<u32, OpenInfo>,
+}
+
+impl<'a> ResView<'a> {
+    fn served(&self, i: u32) -> Option<Served<'a>> {
+        match self.res[i as usize] {
+            PENDING | TERMINAL => None,
+            OPEN => self.open.get(&i).and_then(|o| o.followed()),
+            RECIPE => {
+                let (si, ri) = self.recipe_of[&i];
+                Some(Served::Recipe(si, ri))
+            }
+            CREDITED => Some(Served::Credit(&self.credits[&i])),
+            p => Some(Served::Rule(p)),
+        }
+    }
+}
+
+/// Expand `key` as `served` says: append the followed top-sector codes to `codes` (sorted and de-duplicated at the
+/// end: the key's distinct edges); with `out`, account every term (the BFS), without it only the successors (the
+/// chain / cycle pass).
+#[allow(clippy::too_many_arguments)]
+fn expand_served(
+    ctx: &Ctx,
+    served: Served,
+    key: &[i32],
+    buf: &mut Vec<i32>,
+    cm: &mut Vec<u64>,
+    codes: &mut Vec<u64>,
+    mut out: Option<&mut ExpandOut>,
+    key_idx: u32,
+) -> Result<(), ClosureError> {
+    codes.clear();
+    match served {
+        Served::Rule(p) | Served::Follow(p) => {
+            expand_key(ctx, p, key, key, false, buf, cm, codes, out, key_idx)?
+        }
+        Served::Recipe(si, ri) => expand_recipe(ctx, si, ri, key, buf, codes, out, key_idx),
+        Served::Credit(c) => {
+            for (_, image, server) in c.followed() {
+                match server {
+                    Server::Rule(p) => expand_key(
+                        ctx,
+                        p,
+                        image,
+                        key,
+                        true,
+                        buf,
+                        cm,
+                        codes,
+                        out.as_deref_mut(),
+                        key_idx,
+                    )?,
+                    Server::Recipe(si, ri) => {
+                        expand_recipe(ctx, si, ri, key, buf, codes, out.as_deref_mut(), key_idx)
+                    }
+                }
+            }
+        }
+    }
+    keyset::sort_dedup(ctx.codec.words(), codes);
+    Ok(())
 }
 
 /// Expand a key served by a relation set: its RECORDED right-hand-side keys (exact at the key: no facts needed).
-/// Top keys are edges (descent checked); a removed line is a hand-down; a positive numerator key is a failure (the
-/// recorded right-hand side omits vanishing terms, so such a term is present with a non-zero coefficient).
+/// Top keys are edges (descent checked against `key`, the key itself or, for a credit, the ORIGINAL key); a removed
+/// line is a hand-down; a positive numerator key is a failure (the recorded right-hand side omits vanishing terms).
+#[allow(clippy::too_many_arguments)]
 fn expand_recipe(
     ctx: &Ctx,
     si: u32,
@@ -1058,13 +1271,14 @@ fn expand_recipe(
     key: &[i32],
     buf: &mut Vec<i32>,
     codes: &mut Vec<u64>,
-    sink: &mut Sink,
+    mut out: Option<&mut ExpandOut>,
+    key_idx: u32,
 ) {
     let set = &ctx.rsets[si as usize].1;
     let st = &set.relations;
     let w = ctx.codec.words();
     let sw = st.codec().words();
-    codes.clear();
+    buf.clear();
     buf.resize(ctx.arity, 0);
     let rname = || RuleName {
         table: set.name.clone(),
@@ -1079,105 +1293,82 @@ fn expand_recipe(
         let t: &[i32] = buf;
         let class = ctx.sectors.classify_masked(t, 0);
         let enc = ctx.codec.encode(t, &mut code);
-        match sink {
-            Sink::Bfs { out, key_idx, .. } => {
-                out.terms.total += 1;
-                let wit = |reason: &str| Witness {
-                    key: key.to_vec(),
-                    rule: rname(),
-                    term: j,
-                    rhs: t.to_vec(),
-                    reason: reason.into(),
-                };
-                match class {
-                    TermClass::PositiveNumerator { subsector, .. } => {
-                        if subsector {
-                            out.terms.positive_numerator_sub += 1;
-                        } else {
-                            out.terms.positive_numerator_top += 1;
-                        }
-                        out.pos_nonzero += 1;
-                        push_capped(
-                            &mut out.failure_w,
-                            (*key_idx, j as u32, wit("recipe_positive_numerator")),
-                            cap,
-                        );
-                    }
-                    TermClass::ZeroSector { .. } => out.terms.zero_sector += 1,
-                    TermClass::Subsector { dropped } => {
-                        out.terms.subsector += 1;
-                        match ctx.cfg.hand_downs {
-                            HandDowns::Off => {}
-                            HandDowns::Counts => *out.hd_terms.entry(dropped).or_default() += 1,
-                            HandDowns::Keys => {
-                                *out.hd_terms.entry(dropped).or_default() += 1;
-                                if enc {
-                                    out.hd_codes
-                                        .entry(dropped)
-                                        .or_default()
-                                        .extend_from_slice(&code[..w]);
-                                } else {
-                                    out.unrepresentable += 1;
-                                    push_capped(
-                                        &mut out.failure_w,
-                                        (*key_idx, j as u32, wit("unrepresentable_hand_down")),
-                                        cap,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    TermClass::Top => {
-                        out.terms.top += 1;
-                        if !ctx.cmp.lower(t, key) {
-                            out.violations += 1;
-                            push_capped(
-                                &mut out.descent_w,
-                                (*key_idx, j as u32, wit("descent_violation")),
-                                cap,
-                            );
-                        }
+        let Some(out) = out.as_deref_mut() else {
+            if class == TermClass::Top && enc {
+                codes.extend_from_slice(&code[..w]);
+            }
+            continue;
+        };
+        out.terms.total += 1;
+        let wit = |reason: &str| Witness {
+            key: key.to_vec(),
+            rule: rname(),
+            term: j,
+            rhs: t.to_vec(),
+            reason: reason.into(),
+        };
+        match class {
+            TermClass::PositiveNumerator { subsector, .. } => {
+                if subsector {
+                    out.terms.positive_numerator_sub += 1;
+                } else {
+                    out.terms.positive_numerator_top += 1;
+                }
+                out.pos_nonzero += 1;
+                push_capped(
+                    &mut out.failure_w,
+                    (key_idx, j as u32, wit("recipe_positive_numerator")),
+                    cap,
+                );
+            }
+            TermClass::ZeroSector { .. } => out.terms.zero_sector += 1,
+            TermClass::Subsector { dropped } => {
+                out.terms.subsector += 1;
+                match ctx.cfg.hand_downs {
+                    HandDowns::Off => {}
+                    HandDowns::Counts => *out.hd_terms.entry(dropped).or_default() += 1,
+                    HandDowns::Keys => {
+                        *out.hd_terms.entry(dropped).or_default() += 1;
                         if enc {
-                            codes.extend_from_slice(&code[..w]);
+                            out.hand_down(dropped, &code[..w]);
                         } else {
                             out.unrepresentable += 1;
                             push_capped(
                                 &mut out.failure_w,
-                                (*key_idx, j as u32, wit("unrepresentable_key")),
+                                (key_idx, j as u32, wit("unrepresentable_hand_down")),
                                 cap,
                             );
                         }
                     }
                 }
             }
-            Sink::Succ { .. } => {
-                if class == TermClass::Top && enc {
+            TermClass::Top => {
+                out.terms.top += 1;
+                if !ctx.cmp.lower(t, key) {
+                    out.violations += 1;
+                    push_capped(
+                        &mut out.descent_w,
+                        (key_idx, j as u32, wit("descent_violation")),
+                        cap,
+                    );
+                }
+                if enc {
                     codes.extend_from_slice(&code[..w]);
-                }
-            }
-        }
-    }
-    keyset::sort_dedup(w, codes);
-    match sink {
-        Sink::Bfs { out, table, .. } => {
-            out.edges += (codes.len() / w) as u64;
-            for c in codes.chunks_exact(w) {
-                if table.get(c).is_none() {
-                    out.new_codes.extend_from_slice(c);
-                }
-            }
-        }
-        Sink::Succ { table, succ } => {
-            for c in codes.chunks_exact(w) {
-                if let Some(i) = table.get(c) {
-                    succ.push(i);
+                } else {
+                    out.unrepresentable += 1;
+                    push_capped(
+                        &mut out.failure_w,
+                        (key_idx, j as u32, wit("unrepresentable_key")),
+                        cap,
+                    );
                 }
             }
         }
     }
 }
 
-/// Expand one key: `applied` = the key the rule is instantiated at (the image for a credit), `key` = the key itself.
+/// Expand one rule at one key: `applied` = the key the rule is instantiated at (the image for a credit), `key` = the
+/// key itself (every comparison is with it). Appends the followed top codes to `codes`.
 #[allow(clippy::too_many_arguments)]
 fn expand_key(
     ctx: &Ctx,
@@ -1188,12 +1379,12 @@ fn expand_key(
     buf: &mut Vec<i32>,
     cm: &mut Vec<u64>,
     codes: &mut Vec<u64>,
-    sink: &mut Sink,
+    mut out: Option<&mut ExpandOut>,
+    key_idx: u32,
 ) -> Result<(), ClosureError> {
     let rule = ctx.fast.rule(pos);
     buf.clear();
     cm.clear();
-    codes.clear();
     let n = ctx.arity;
     let w = ctx.codec.words();
     let Some(nt) = ctx.bodies.instantiate(ctx.disp, rule, applied, buf, cm)? else {
@@ -1210,151 +1401,130 @@ fn expand_key(
         } else {
             CoefFact::Unknown
         };
-        if let Sink::Bfs { out, key_idx, .. } = sink {
-            out.terms.total += 1;
-            if fact == CoefFact::Zero {
-                out.terms.dropped_zero += 1;
-                continue;
-            }
-            match class {
-                TermClass::PositiveNumerator {
-                    symbolic,
-                    subsector,
-                    ..
-                } => {
-                    if subsector {
-                        out.terms.positive_numerator_sub += 1;
-                    } else {
-                        out.terms.positive_numerator_top += 1;
-                    }
-                    if symbolic {
-                        out.terms.positive_numerator_symbolic += 1;
-                    } else {
-                        out.terms.positive_numerator_constant += 1;
-                    }
-                    if !tier_c {
-                        out.requires_zero += 1;
-                    } else if fact == CoefFact::NonZero {
-                        out.pos_nonzero += 1;
-                        push_capped(
-                            &mut out.failure_w,
-                            (
-                                *key_idx,
-                                j as u32,
-                                witness(ctx, pos, key, j, t, "positive_numerator_nonzero"),
-                            ),
-                            cap,
-                        );
-                    } else {
-                        out.undecided.coef_unknown_positive_numerator += 1;
-                        out.requests.push(ReqC {
-                            key: *key_idx,
-                            pos,
-                            term: j as u32,
-                            reason: RequestReason::PositiveNumerator,
-                            image,
-                            rhs: t.into(),
-                        });
-                    }
-                    continue;
-                }
-                TermClass::ZeroSector { .. } => {
-                    out.terms.zero_sector += 1;
-                    continue;
-                }
-                TermClass::Subsector { dropped } => {
-                    out.terms.subsector += 1;
-                    match ctx.cfg.hand_downs {
-                        HandDowns::Off => {}
-                        HandDowns::Counts => *out.hd_terms.entry(dropped).or_default() += 1,
-                        HandDowns::Keys => {
-                            *out.hd_terms.entry(dropped).or_default() += 1;
-                            if ctx.codec.encode(t, &mut code) {
-                                out.hd_codes
-                                    .entry(dropped)
-                                    .or_default()
-                                    .extend_from_slice(&code[..w]);
-                            } else {
-                                out.unrepresentable += 1;
-                                push_capped(
-                                    &mut out.failure_w,
-                                    (
-                                        *key_idx,
-                                        j as u32,
-                                        witness(ctx, pos, key, j, t, "unrepresentable_hand_down"),
-                                    ),
-                                    cap,
-                                );
-                            }
-                        }
-                    }
-                    continue;
-                }
-                TermClass::Top => {
-                    out.terms.top += 1;
-                    if !ctx.cmp.lower(t, key) {
-                        if !tier_c || fact == CoefFact::NonZero {
-                            out.violations += 1;
-                            push_capped(
-                                &mut out.descent_w,
-                                (
-                                    *key_idx,
-                                    j as u32,
-                                    witness(ctx, pos, key, j, t, "descent_violation"),
-                                ),
-                                cap,
-                            );
-                        } else {
-                            out.undecided.coef_unknown_not_lower += 1;
-                            out.requests.push(ReqC {
-                                key: *key_idx,
-                                pos,
-                                term: j as u32,
-                                reason: RequestReason::NotLower,
-                                image,
-                                rhs: t.into(),
-                            });
-                        }
-                    }
-                    if ctx.codec.encode(t, &mut code) {
-                        codes.extend_from_slice(&code[..w]);
-                    } else {
-                        out.unrepresentable += 1;
-                        push_capped(
-                            &mut out.failure_w,
-                            (
-                                *key_idx,
-                                j as u32,
-                                witness(ctx, pos, key, j, t, "unrepresentable_key"),
-                            ),
-                            cap,
-                        );
-                    }
-                }
-            }
-        } else {
+        let Some(out) = out.as_deref_mut() else {
             if fact == CoefFact::Zero || class != TermClass::Top {
                 continue;
             }
             if ctx.codec.encode(t, &mut code) {
                 codes.extend_from_slice(&code[..w]);
             }
+            continue;
+        };
+        out.terms.total += 1;
+        if fact == CoefFact::Zero {
+            out.terms.dropped_zero += 1;
+            continue;
         }
-    }
-    keyset::sort_dedup(w, codes);
-    match sink {
-        Sink::Bfs { out, table, .. } => {
-            out.edges += (codes.len() / w) as u64;
-            for c in codes.chunks_exact(w) {
-                if table.get(c).is_none() {
-                    out.new_codes.extend_from_slice(c);
+        match class {
+            TermClass::PositiveNumerator {
+                symbolic,
+                subsector,
+                ..
+            } => {
+                if subsector {
+                    out.terms.positive_numerator_sub += 1;
+                } else {
+                    out.terms.positive_numerator_top += 1;
+                }
+                if symbolic {
+                    out.terms.positive_numerator_symbolic += 1;
+                } else {
+                    out.terms.positive_numerator_constant += 1;
+                }
+                if !tier_c {
+                    out.requires_zero += 1;
+                } else if fact == CoefFact::NonZero {
+                    out.pos_nonzero += 1;
+                    push_capped(
+                        &mut out.failure_w,
+                        (
+                            key_idx,
+                            j as u32,
+                            witness(ctx, pos, key, j, t, "positive_numerator_nonzero"),
+                        ),
+                        cap,
+                    );
+                } else {
+                    out.undecided.coef_unknown_positive_numerator += 1;
+                    out.request(
+                        key_idx,
+                        pos,
+                        Some(j),
+                        RequestReason::PositiveNumerator,
+                        image,
+                        Some(t),
+                    );
                 }
             }
-        }
-        Sink::Succ { table, succ } => {
-            for c in codes.chunks_exact(w) {
-                if let Some(i) = table.get(c) {
-                    succ.push(i);
+            TermClass::ZeroSector { .. } => {
+                out.terms.zero_sector += 1;
+            }
+            TermClass::Subsector { dropped } => {
+                out.terms.subsector += 1;
+                match ctx.cfg.hand_downs {
+                    HandDowns::Off => {}
+                    HandDowns::Counts => *out.hd_terms.entry(dropped).or_default() += 1,
+                    HandDowns::Keys => {
+                        *out.hd_terms.entry(dropped).or_default() += 1;
+                        if ctx.codec.encode(t, &mut code) {
+                            out.hand_down(dropped, &code[..w]);
+                        } else {
+                            out.unrepresentable += 1;
+                            push_capped(
+                                &mut out.failure_w,
+                                (
+                                    key_idx,
+                                    j as u32,
+                                    witness(ctx, pos, key, j, t, "unrepresentable_hand_down"),
+                                ),
+                                cap,
+                            );
+                        }
+                    }
+                }
+            }
+            TermClass::Top => {
+                out.terms.top += 1;
+                if !ctx.cmp.lower(t, key) {
+                    if image && !tier_c {
+                        // Tier K credit (superset): the element is usable only if this coefficient vanishes
+                        out.credit_requires_zero += 1;
+                    } else if !tier_c || fact == CoefFact::NonZero {
+                        out.violations += 1;
+                        push_capped(
+                            &mut out.descent_w,
+                            (
+                                key_idx,
+                                j as u32,
+                                witness(ctx, pos, key, j, t, "descent_violation"),
+                            ),
+                            cap,
+                        );
+                    } else {
+                        out.undecided.coef_unknown_not_lower += 1;
+                        out.request(
+                            key_idx,
+                            pos,
+                            Some(j),
+                            RequestReason::NotLower,
+                            image,
+                            Some(t),
+                        );
+                    }
+                }
+                if ctx.codec.encode(t, &mut code) {
+                    codes.extend_from_slice(&code[..w]);
+                } else {
+                    out.unrepresentable += 1;
+                    push_capped(
+                        &mut out.failure_w,
+                        (
+                            key_idx,
+                            j as u32,
+                            witness(ctx, pos, key, j, t, "unrepresentable_key"),
+                        ),
+                        cap,
+                    );
                 }
             }
         }
@@ -1372,12 +1542,13 @@ fn witness(ctx: &Ctx, pos: u32, key: &[i32], term: usize, rhs: &[i32], reason: &
     }
 }
 
-/// Split `lo..hi` into at most `threads` contiguous chunks.
-fn chunks(lo: usize, hi: usize, threads: usize) -> Vec<(usize, usize)> {
+/// Split `lo..hi` into contiguous pieces of at most [`PIECE_KEYS`] keys, at least `threads` pieces when there are
+/// enough keys (the result never depends on the split).
+fn pieces(lo: usize, hi: usize, threads: usize) -> Vec<(usize, usize)> {
     let n = hi - lo;
     let t = threads.max(1).min(n.max(1));
-    let c = n.div_ceil(t).max(1);
-    (0..t)
+    let c = n.div_ceil(t).clamp(1, PIECE_KEYS);
+    (0..n.div_ceil(c))
         .map(|i| (lo + i * c, (lo + (i + 1) * c).min(hi)))
         .filter(|(a, b)| a < b)
         .collect()
@@ -1388,12 +1559,24 @@ enum KeyRes {
     Terminal(TermInfo),
     /// Served through a witness-absent record lifted by its exact per-key fact.
     Lifted(u32),
-    /// Blocked by a witness-absent record: open, with a lift request.
+    /// Blocked by a witness-absent record: open, with a lift request (Tier K: its body is followed).
     WitnessAbsent(OpenInfo),
     Recipe(u32, u32),
     Pos(u32, Option<RegFact>),
-    Credit(Box<Credit>, Option<RegFact>),
+    Credit(Box<CreditC>),
     Open(OpenInfo),
+}
+
+impl KeyRes {
+    fn served(&self) -> Option<Served<'_>> {
+        match self {
+            KeyRes::Terminal(_) => None,
+            KeyRes::Lifted(p) | KeyRes::Pos(p, _) => Some(Served::Rule(*p)),
+            KeyRes::WitnessAbsent(o) | KeyRes::Open(o) => o.followed(),
+            KeyRes::Recipe(si, ri) => Some(Served::Recipe(*si, *ri)),
+            KeyRes::Credit(c) => Some(Served::Credit(c)),
+        }
+    }
 }
 
 /// Forward closure of `start` (see the module documentation).
@@ -1544,6 +1727,43 @@ fn hand_downs_name(h: HandDowns) -> &'static str {
     }
 }
 
+/// The dispatcher's weakened checks as the closure counts them (re-audit F2): no chart, a witness check turned off,
+/// a witness or target resting on an unchecked attestation. Hand-built records (`Assurance::Caller`: the caller built
+/// the domain, loci included) are not a weakened check; they are visible in the identity's `dispatcher_summary`.
+fn not_strict_reasons(disp: &Dispatcher) -> Vec<String> {
+    let s = disp.summary();
+    let mut v = vec![];
+    if !s.chart_checked {
+        v.push("chart_unchecked".to_string());
+    }
+    let list = |kind: &str, names: Vec<&str>| -> Option<String> {
+        match names.len() {
+            0 => None,
+            1..=4 => Some(format!("{kind}:{}", names.join("+"))),
+            n => Some(format!("{kind}:{n}_tables")),
+        }
+    };
+    let off: Vec<&str> = s
+        .tables
+        .iter()
+        .filter(|t| t.witness_check_off > 0)
+        .map(|t| t.name.as_str())
+        .collect();
+    let att: Vec<&str> = s
+        .tables
+        .iter()
+        .filter(|t| t.witness_attested_unchecked > 0 || t.target_attested_unchecked > 0)
+        .map(|t| t.name.as_str())
+        .collect();
+    v.extend(list("witness_check_off", off));
+    v.extend(list("attested_unchecked", att));
+    v
+}
+
+fn io_err(e: std::io::Error) -> ClosureError {
+    ClosureError::Io(e.to_string())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run(
     disp: &Dispatcher,
@@ -1557,6 +1777,12 @@ fn run(
 ) -> Result<Closure, ClosureError> {
     let t0 = Instant::now();
     let arity = disp.arity();
+    if arity > MAX_ARITY {
+        return Err(ClosureError::Arity {
+            arity,
+            max: MAX_ARITY,
+        });
+    }
     if start.codec().arity() != arity {
         return Err(ClosureError::KeyArity {
             expected: arity,
@@ -1580,6 +1806,25 @@ fn run(
             got: lines.len(),
         });
     }
+    let frame = match &cfg.table_presentation {
+        None => "unchecked (the caller's responsibility, closure.md 11.7)".to_string(),
+        Some(p) => {
+            if p.len() != arity {
+                return Err(ClosureError::KeyArity {
+                    expected: arity,
+                    got: p.len(),
+                });
+            }
+            if p.as_slice() != cmp.presentation().new_to_old() {
+                return Err(ClosureError::Config(format!(
+                    "the comparator's presentation {:?} differs from the tables' frame {p:?} (audit loop-A m7)",
+                    cmp.presentation().new_to_old()
+                )));
+            }
+            format!("checked:{p:?}")
+        }
+    };
+    let not_strict = not_strict_reasons(disp);
     if cfg.zero_sectors.is_some() && cfg.zero_sector_source.is_none() {
         return Err(ClosureError::MissingInput(
             "zero_sectors given without zero_sector_source (audit loop-A M6)".into(),
@@ -1712,6 +1957,11 @@ fn run(
     if cfg.diagnostic.allow_unknown_regularity || !cfg.require_regularity {
         relaxed.push("allow_unknown_regularity".into());
     }
+    // credits rest only on the identity-test lane's verified group (directing session 2026-11-14): a hand-built group
+    // is a relaxed check
+    if cfg.credits.as_ref().is_some_and(|p| !p.is_verified()) {
+        relaxed.push("credits_group_unverified".into());
+    }
     // ---- configuration identity (start / inputs filled at the end)
     let mut identity = ConfigIdentity::default();
     {
@@ -1724,6 +1974,7 @@ fn run(
             ),
         );
         c.insert("tier".into(), format!("{:?}", cfg.tier));
+        c.insert("frame".into(), frame.clone());
         c.insert("bits".into(), cfg.bits.to_string());
         c.insert(
             "lines".into(),
@@ -1784,8 +2035,9 @@ fn run(
             match &cfg.credits {
                 None => "none".into(),
                 Some(p) => sha_hex(&[
-                    &format!("{:?}", p.group),
-                    &format!("{:?}", p.pure_numerator_maps),
+                    &format!("{:?}", p.group()),
+                    &format!("{:?}", p.pure_numerator_maps()),
+                    &format!("{:?}", p.basis()),
                 ]),
             },
         );
@@ -1882,7 +2134,7 @@ fn run(
         exclusions,
         term_pref,
         term_other,
-        relax_regularity: !relaxed.is_empty(),
+        relax_regularity: cfg.diagnostic.allow_unknown_regularity || !cfg.require_regularity,
         rsets,
         table_rank,
         excl_sets,
@@ -1906,17 +2158,22 @@ fn run(
     let mut res: Vec<u32>;
     let mut stop: Vec<u32>;
     let mut open: BTreeMap<u32, OpenInfo>;
-    let mut credits: BTreeMap<u32, Credit>;
+    let mut credits: BTreeMap<u32, CreditC>;
     let mut terminals: BTreeMap<u32, TermInfo>;
     let mut recipe_of: BTreeMap<u32, (u32, u32)>;
     let mut lifted: BTreeSet<u32>;
     let mut witness_absent_keys: BTreeSet<u32>;
-    let mut acc = ExpandOut::default();
-    let mut hd_keys: BTreeMap<u64, Vec<u64>>;
+    let mut acc = ExpandOut::new(codec);
     let mut start_mask: Vec<bool>;
-    let mut rounds = 0u32;
-    let mut truncated = false;
+    let mut prev_rounds = 0u32;
     let mut inputs: Vec<InputLabel> = vec![];
+    // spill (re-audit F5, F9): the run's own directory, created only when a spill is configured
+    let spill_dir = match &cfg.spill {
+        Some(sp) => Some(store::make_run_dir(&sp.dir).map_err(io_err)?),
+        None => None,
+    };
+    let budget = cfg.spill.as_ref().map(|s| s.budget_bytes as usize);
+    let mut exits = ExitAcc::new(codec, spill_dir.clone().zip(budget));
     match resume {
         None => {
             table = KeyTable::new(codec, start.len().max(1) * 2);
@@ -1928,7 +2185,6 @@ fn run(
             recipe_of = BTreeMap::new();
             lifted = BTreeSet::new();
             witness_absent_keys = BTreeSet::new();
-            hd_keys = BTreeMap::new();
             start_mask = vec![];
         }
         Some(p) => {
@@ -1941,17 +2197,16 @@ fn run(
             recipe_of = p.recipe_of.clone();
             lifted = p.lifted.clone();
             witness_absent_keys = p.witness_absent_keys.clone();
-            hd_keys = p
-                .hand_down_keys
-                .iter()
-                .map(|(&m, k)| (m, k.raw_codes().to_vec()))
-                .collect();
+            exits
+                .seed(&p.hand_down_keys, &p.exit_files)
+                .map_err(io_err)?;
             start_mask = p.start_mask.clone();
-            rounds = p.rounds;
+            prev_rounds = p.rounds;
             inputs = p.inputs.clone();
             acc.edges = p.edges;
             acc.terms = p.terms.clone();
             acc.requires_zero = p.requires_zero;
+            acc.credit_requires_zero = p.credit_requires_zero;
             acc.undecided = p.undecided.clone();
             acc.violations = p.violations;
             acc.pos_nonzero = p.pos_nonzero;
@@ -1962,11 +2217,21 @@ fn run(
             acc.hd_terms = p.hand_down_terms.clone();
         }
     }
+    if let (Some(d), Some(b)) = (&spill_dir, budget) {
+        acc.requests.set_spill(d.join("fact-requests.bin"), b);
+    }
     inputs.extend(cfg.inputs.iter().cloned());
     inputs.sort();
     inputs.dedup();
+    let index_cap = (RECIPE as usize).saturating_sub(8);
     let mut lo = table.len();
     for i in 0..start.len() {
+        if table.len() + 1 >= index_cap {
+            return Err(ClosureError::Capacity(format!(
+                "{} reached keys: u32 key index exhausted (audit loop-A m6)",
+                table.len() + 1
+            )));
+        }
         let (ix, new) = table.insert(start.code(i));
         if new {
             res.push(PENDING);
@@ -1980,14 +2245,12 @@ fn run(
         lo = 0;
     }
     drop(start);
-    let index_cap = TERMINAL as usize - 8;
+    // a recheck counts ITS OWN rounds against max_rounds (re-audit F6b): the keys it adds are exactly those reachable
+    // only from the extra keys, at the same depth as in the closure of the union, so the same keys are truncated
+    let mut rounds = 0u32;
+    let mut truncated = false;
     loop {
         let hi = table.len();
-        if hi >= index_cap {
-            return Err(ClosureError::Capacity(format!(
-                "{hi} reached keys: u32 key index exhausted (audit loop-A m6)"
-            )));
-        }
         if lo == hi {
             break;
         }
@@ -2002,246 +2265,221 @@ fn run(
                         rule: None,
                         detail: "round limit".into(),
                         candidates: vec![],
+                        follow: None,
+                        follow_credit: None,
                     },
                 );
             }
             break;
         }
         rounds += 1;
-        // ---- dispatch (always, also at declared terminals), then the disposition
-        let parts = chunks(lo, hi, cfg.threads);
-        type DispOut = Vec<(KeyRes, u32, bool)>;
-        let results: Vec<Result<DispOut, ClosureError>> = std::thread::scope(|s| {
-            let hs: Vec<_> = parts
-                .iter()
-                .map(|&(a, b)| {
-                    let (ctx, table, reusable, view) = (&ctx, &table, &reusable, &view);
-                    s.spawn(move || -> Result<DispOut, ClosureError> {
-                        let mut buf = vec![];
-                        let mut st = vec![];
-                        let mut key = vec![0i32; arity];
-                        let mut v = Vec::with_capacity(b - a);
-                        for i in a..b {
-                            codec.decode(table.code(i), &mut key);
-                            let excl = ctx.excluded(&key);
-                            let mut used_cache = false;
-                            let (old_stop, use_reuse) = match view {
-                                None => (0, false),
-                                Some(cv) => {
-                                    let cached = cv
-                                        .cache
-                                        .table
-                                        .get(table.code(i))
-                                        .map(|ci| cv.cache.stop[ci as usize]);
-                                    let same_excl = (cv.cache.exclusions.is_empty()
-                                        && ctx.cfg.exclusions.is_empty())
-                                        || cv.cache.exclusions.get(&key)
-                                            == ctx_excl_names(ctx, &key).as_ref();
-                                    match cached {
-                                        Some(CachedStop::Uncovered) if same_excl => {
-                                            used_cache = true;
-                                            (u32::MAX, true)
-                                        }
-                                        Some(CachedStop::At(t, r)) if same_excl => {
-                                            match cv.old_to_new[t as usize] {
-                                                Some(j) => {
-                                                    used_cache = true;
-                                                    (
-                                                        ctx.fast.position(RuleRef::bare(
-                                                            j, r as usize, 0,
-                                                        )),
-                                                        true,
-                                                    )
-                                                }
-                                                None => (0, false),
+        // ---- per piece: dispatch (always, also at declared terminals), disposition, expansion; merged in key order
+        let parts = pieces(lo, hi, cfg.threads);
+        type PieceOut = (Vec<(KeyRes, u32, bool)>, ExpandOut);
+        let mut new_codes: Vec<u64> = vec![];
+        for group in parts.chunks(cfg.threads.max(1)) {
+            let results: Vec<Result<PieceOut, ClosureError>> = std::thread::scope(|s| {
+                let hs: Vec<_> = group
+                    .iter()
+                    .map(|&(a, b)| {
+                        let (ctx, table, reusable, view) = (&ctx, &table, &reusable, &view);
+                        s.spawn(move || -> Result<PieceOut, ClosureError> {
+                            let mut out = ExpandOut::new(codec);
+                            let (mut buf, mut st) = (vec![], vec![]);
+                            let (mut ebuf, mut cm, mut codes) = (vec![], vec![], vec![]);
+                            let mut key = vec![0i32; arity];
+                            let mut v = Vec::with_capacity(b - a);
+                            for i in a..b {
+                                codec.decode(table.code(i), &mut key);
+                                let excl = ctx.excluded(&key);
+                                let mut used_cache = false;
+                                let (old_stop, use_reuse) = match view {
+                                    None => (0, false),
+                                    Some(cv) => {
+                                        let cached = cv
+                                            .cache
+                                            .table
+                                            .get(table.code(i))
+                                            .map(|ci| cv.cache.stop[ci as usize]);
+                                        let same_excl = (cv.cache.exclusions.is_empty()
+                                            && ctx.cfg.exclusions.is_empty())
+                                            || cv.cache.exclusions.get(&key)
+                                                == ctx_excl_names(ctx, &key).as_ref();
+                                        match cached {
+                                            Some(CachedStop::Uncovered) if same_excl => {
+                                                used_cache = true;
+                                                (u32::MAX, true)
                                             }
+                                            Some(CachedStop::At(t, r)) if same_excl => {
+                                                match cv.old_to_new[t as usize] {
+                                                    Some(j) => {
+                                                        used_cache = true;
+                                                        (
+                                                            ctx.fast.position(RuleRef::bare(
+                                                                j, r as usize, 0,
+                                                            )),
+                                                            true,
+                                                        )
+                                                    }
+                                                    None => (0, false),
+                                                }
+                                            }
+                                            _ => (0, false),
                                         }
-                                        _ => (0, false),
+                                    }
+                                };
+                                let d = ctx
+                                    .fast
+                                    .first_match_ex(
+                                        &key,
+                                        old_stop,
+                                        if use_reuse { Some(reusable) } else { None },
+                                        excl,
+                                        &mut buf,
+                                        &mut st,
+                                    )
+                                    .0;
+                                let stp = stop_of(ctx, &d);
+                                let rec = ctx.recipe_match(&key, &d);
+                                let kr = dispose(ctx, &key, d, rec)?;
+                                if let Some(sv) = kr.served() {
+                                    expand_served(
+                                        ctx,
+                                        sv,
+                                        &key,
+                                        &mut ebuf,
+                                        &mut cm,
+                                        &mut codes,
+                                        Some(&mut out),
+                                        i as u32,
+                                    )?;
+                                    out.edges += (codes.len() / w) as u64;
+                                    for c in codes.chunks_exact(w) {
+                                        if table.get(c).is_none() {
+                                            out.new_codes.extend_from_slice(c);
+                                        }
                                     }
                                 }
-                            };
-                            let d = ctx
-                                .fast
-                                .first_match_ex(
-                                    &key,
-                                    old_stop,
-                                    if use_reuse { Some(reusable) } else { None },
-                                    excl,
-                                    &mut buf,
-                                    &mut st,
-                                )
-                                .0;
-                            let stp = stop_of(ctx, &d);
-                            let rec = ctx.recipe_match(&key, &d);
-                            v.push((dispose(ctx, &key, d, rec)?, stp, used_cache));
-                        }
-                        Ok(v)
-                    })
-                })
-                .collect();
-            hs.into_iter()
-                .map(|h| h.join().expect("dispatch worker"))
-                .collect()
-        });
-        let mut i = lo;
-        for part in results {
-            for (kr, st, used_cache) in part? {
-                stop[i] = st;
-                if view.is_some() {
-                    if used_cache {
-                        inc_use.reused += 1;
-                    } else {
-                        inc_use.full += 1;
-                    }
-                }
-                match kr {
-                    KeyRes::Pos(p, reg) => {
-                        res[i] = p;
-                        if reg == Some(RegFact::Unknown) {
-                            acc.undecided.regularity_unknown += 1;
-                            acc.requests.push(ReqC {
-                                key: i as u32,
-                                pos: p,
-                                term: u32::MAX,
-                                reason: RequestReason::Regularity,
-                                image: false,
-                                rhs: Box::new([]),
-                            });
-                        }
-                    }
-                    KeyRes::Credit(c, reg) => {
-                        res[i] = CREDITED;
-                        if reg == Some(RegFact::Unknown) {
-                            acc.undecided.regularity_unknown += 1;
-                            acc.requests.push(ReqC {
-                                key: i as u32,
-                                pos: c.position,
-                                term: u32::MAX,
-                                reason: RequestReason::Regularity,
-                                image: true,
-                                rhs: Box::new([]),
-                            });
-                        }
-                        credits.insert(i as u32, *c);
-                    }
-                    KeyRes::Open(o) => {
-                        res[i] = OPEN;
-                        open.insert(i as u32, o);
-                    }
-                    KeyRes::Terminal(t) => {
-                        res[i] = TERMINAL;
-                        terminals.insert(i as u32, t);
-                    }
-                    KeyRes::Lifted(p) => {
-                        res[i] = p;
-                        lifted.insert(i as u32);
-                    }
-                    KeyRes::WitnessAbsent(o) => {
-                        let p = o.rule.expect("blocking record");
-                        res[i] = OPEN;
-                        open.insert(i as u32, o);
-                        witness_absent_keys.insert(i as u32);
-                        acc.requests.push(ReqC {
-                            key: i as u32,
-                            pos: p,
-                            term: u32::MAX,
-                            reason: RequestReason::WitnessLift,
-                            image: false,
-                            rhs: Box::new([]),
-                        });
-                    }
-                    KeyRes::Recipe(si, ri) => {
-                        res[i] = RECIPE;
-                        recipe_of.insert(i as u32, (si, ri));
-                    }
-                }
-                i += 1;
-            }
-        }
-        // ---- expand
-        let outs: Vec<Result<ExpandOut, ClosureError>> = std::thread::scope(|s| {
-            let hs: Vec<_> = parts
-                .iter()
-                .map(|&(a, b)| {
-                    let (ctx, table, res, credits, recipe_of) =
-                        (&ctx, &table, &res, &credits, &recipe_of);
-                    s.spawn(move || -> Result<ExpandOut, ClosureError> {
-                        let mut out = ExpandOut::default();
-                        let (mut buf, mut cm, mut codes) = (vec![], vec![], vec![]);
-                        let mut key = vec![0i32; arity];
-                        for i in a..b {
-                            let r = res[i];
-                            if r == RECIPE {
-                                codec.decode(table.code(i), &mut key);
-                                let (si, ri) = recipe_of[&(i as u32)];
-                                let mut sink = Sink::Bfs {
-                                    out: &mut out,
-                                    table,
-                                    key_idx: i as u32,
-                                };
-                                expand_recipe(ctx, si, ri, &key, &mut buf, &mut codes, &mut sink);
-                                continue;
+                                v.push((kr, stp, used_cache));
                             }
-                            let (pos, image) = match r {
-                                OPEN | PENDING | TERMINAL => continue,
-                                CREDITED => (credits[&(i as u32)].position, true),
-                                p => (p, false),
-                            };
-                            codec.decode(table.code(i), &mut key);
-                            let applied: Vec<i32> = if image {
-                                credits[&(i as u32)].image.clone()
-                            } else {
-                                key.clone()
-                            };
-                            let mut sink = Sink::Bfs {
-                                out: &mut out,
-                                table,
-                                key_idx: i as u32,
-                            };
-                            expand_key(
-                                ctx, pos, &applied, &key, image, &mut buf, &mut cm, &mut codes,
-                                &mut sink,
-                            )?;
-                        }
-                        keyset::sort_dedup(w, &mut out.new_codes);
-                        for v in out.hd_codes.values_mut() {
-                            keyset::sort_dedup(w, v);
-                        }
-                        Ok(out)
+                            keyset::sort_dedup(w, &mut out.new_codes);
+                            for c in out.hd_codes.values_mut() {
+                                keyset::sort_dedup(w, c);
+                            }
+                            Ok((v, out))
+                        })
                     })
-                })
-                .collect();
-            hs.into_iter()
-                .map(|h| h.join().expect("expand worker"))
-                .collect()
-        });
-        let mut new_codes = vec![];
-        for o in outs {
-            let o = o?;
-            new_codes.extend_from_slice(&o.new_codes);
-            acc.edges += o.edges;
-            acc.terms.add(&o.terms);
-            acc.requires_zero += o.requires_zero;
-            acc.undecided.coef_unknown_positive_numerator +=
-                o.undecided.coef_unknown_positive_numerator;
-            acc.undecided.coef_unknown_not_lower += o.undecided.coef_unknown_not_lower;
-            acc.violations += o.violations;
-            acc.pos_nonzero += o.pos_nonzero;
-            acc.unrepresentable += o.unrepresentable;
-            merge_capped(&mut acc.descent_w, o.descent_w, cfg.witness_cap);
-            merge_capped(&mut acc.failure_w, o.failure_w, cfg.witness_cap);
-            acc.requests.extend(o.requests);
-            for (k, v) in o.hd_terms {
-                *acc.hd_terms.entry(k).or_default() += v;
+                    .collect();
+                hs.into_iter()
+                    .map(|h| h.join().expect("closure worker"))
+                    .collect()
+            });
+            let mut i = group[0].0;
+            for part in results {
+                let (disp_out, mut o) = part?;
+                for (kr, st, used_cache) in disp_out {
+                    stop[i] = st;
+                    if view.is_some() {
+                        if used_cache {
+                            inc_use.reused += 1;
+                        } else {
+                            inc_use.full += 1;
+                        }
+                    }
+                    match kr {
+                        KeyRes::Pos(p, reg) => {
+                            res[i] = p;
+                            if reg == Some(RegFact::Unknown) {
+                                acc.undecided.regularity_unknown += 1;
+                                acc.request(
+                                    i as u32,
+                                    p,
+                                    None,
+                                    RequestReason::Regularity,
+                                    false,
+                                    None,
+                                );
+                            }
+                        }
+                        KeyRes::Credit(c) => {
+                            res[i] = CREDITED;
+                            if let (true, Server::Rule(p)) = (c.regularity_unknown, c.server) {
+                                acc.undecided.regularity_unknown += 1;
+                                acc.request(
+                                    i as u32,
+                                    p,
+                                    None,
+                                    RequestReason::Regularity,
+                                    true,
+                                    None,
+                                );
+                            }
+                            credits.insert(i as u32, *c);
+                        }
+                        KeyRes::Open(o) => {
+                            res[i] = OPEN;
+                            open.insert(i as u32, o);
+                        }
+                        KeyRes::Terminal(t) => {
+                            res[i] = TERMINAL;
+                            terminals.insert(i as u32, t);
+                        }
+                        KeyRes::Lifted(p) => {
+                            res[i] = p;
+                            lifted.insert(i as u32);
+                        }
+                        KeyRes::WitnessAbsent(o) => {
+                            let p = o.rule.expect("blocking record");
+                            res[i] = OPEN;
+                            open.insert(i as u32, o);
+                            witness_absent_keys.insert(i as u32);
+                            acc.request(i as u32, p, None, RequestReason::WitnessLift, false, None);
+                        }
+                        KeyRes::Recipe(si, ri) => {
+                            res[i] = RECIPE;
+                            recipe_of.insert(i as u32, (si, ri));
+                        }
+                    }
+                    i += 1;
+                }
+                // merge the piece's expansion (key order)
+                new_codes.extend_from_slice(&o.new_codes);
+                acc.edges += o.edges;
+                acc.terms.add(&o.terms);
+                acc.requires_zero += o.requires_zero;
+                acc.credit_requires_zero += o.credit_requires_zero;
+                acc.undecided.coef_unknown_positive_numerator +=
+                    o.undecided.coef_unknown_positive_numerator;
+                acc.undecided.coef_unknown_not_lower += o.undecided.coef_unknown_not_lower;
+                acc.violations += o.violations;
+                acc.pos_nonzero += o.pos_nonzero;
+                acc.unrepresentable += o.unrepresentable;
+                merge_capped(&mut acc.descent_w, o.descent_w, cfg.witness_cap);
+                merge_capped(&mut acc.failure_w, o.failure_w, cfg.witness_cap);
+                if let Some(e) = o.req_error.take() {
+                    return Err(ClosureError::Capacity(e));
+                }
+                acc.requests.append(&mut o.requests).map_err(io_err)?;
+                for (k, v) in o.hd_terms {
+                    *acc.hd_terms.entry(k).or_default() += v;
+                }
+                for (k, v) in o.hd_codes {
+                    exits.add(k, &v).map_err(io_err)?;
+                }
             }
-            for (k, v) in o.hd_codes {
-                hd_keys.entry(k).or_default().extend(v);
+            if let Some(e) = acc.req_error.take() {
+                return Err(ClosureError::Capacity(e));
             }
-        }
-        for v in hd_keys.values_mut() {
-            keyset::sort_dedup(w, v);
+            keyset::sort_dedup(w, &mut new_codes);
         }
         keyset::sort_dedup(w, &mut new_codes);
+        // capacity BEFORE any insertion (audit loop-A m6)
+        if table.len() + new_codes.len() / w >= index_cap {
+            return Err(ClosureError::Capacity(format!(
+                "{} reached keys: u32 key index exhausted (audit loop-A m6)",
+                table.len() + new_codes.len() / w
+            )));
+        }
         for c in new_codes.chunks_exact(w) {
             table.insert(c);
         }
@@ -2250,6 +2488,8 @@ fn run(
         start_mask.resize(table.len(), false);
         lo = hi;
     }
+    // rounds of a recheck: max(previous, continuation), an upper bound of the union's (closure.md 11.4, B-m1)
+    let rounds = rounds.max(prev_rounds);
     let n_start = start_mask.iter().filter(|&&b| b).count();
     let start_digest = {
         let mut d = vec![];
@@ -2281,6 +2521,8 @@ fn run(
         .filter(|t| !cfg.table_digests.contains_key(&t.name))
         .map(|t| t.name.clone())
         .collect();
+    let exit_peak = exits.peak_bytes();
+    let (hand_down_keys, exit_files) = exits.finish().map_err(io_err)?;
     let mut cl = Closure {
         tier: cfg.tier,
         codec,
@@ -2295,6 +2537,7 @@ fn run(
         edges: acc.edges,
         terms: acc.terms,
         requires_zero: acc.requires_zero,
+        credit_requires_zero: acc.credit_requires_zero,
         undecided: acc.undecided,
         violations: acc.violations,
         pos_nonzero: acc.pos_nonzero,
@@ -2302,13 +2545,15 @@ fn run(
         descent_witnesses: acc.descent_w,
         failure_witnesses: acc.failure_w,
         requests: acc.requests,
+        n_requests: 0,
         hand_down_terms: acc.hd_terms,
-        hand_down_keys: hd_keys
-            .into_iter()
-            .map(|(k, v)| (k, KeySet::from_codes(codec, v)))
-            .collect(),
+        hand_down_keys,
+        exit_files,
+        spill_dir,
         cycles: None,
         chain: None,
+        comparator_inconsistent: false,
+        not_strict,
         rule_names: ctx.rule_names.clone(),
         rule_digests: ctx.rule_digests.clone(),
         fact_tables: ctx.fact_tables.clone(),
@@ -2350,6 +2595,7 @@ fn run(
         res,
         stop,
     };
+    cl.n_requests = cl.count_requests().map_err(io_err)?;
     if cfg.longest_chain && !cl.truncated {
         chain_pass(&ctx, &mut cl)?;
     }
@@ -2362,7 +2608,8 @@ fn run(
             .values()
             .map(|k| k.memory_bytes())
             .sum::<usize>()
-        + cl.requests.capacity() * std::mem::size_of::<ReqC>();
+        + exit_peak
+        + cl.requests.memory_bytes();
     cl.seconds = t0.elapsed().as_secs_f64();
     Ok(cl)
 }
@@ -2434,6 +2681,8 @@ fn dispose(
                     set.relations.verdict(ri as usize)
                 ),
                 candidates: vec![si],
+                follow: None,
+                follow_credit: None,
             }));
         }
         return Ok(KeyRes::Recipe(si, ri));
@@ -2448,6 +2697,8 @@ fn dispose(
                     rule: Some(p),
                     detail: String::new(),
                     candidates: vec![],
+                    follow: None,
+                    follow_credit: None,
                 }));
             }
             if tier_c {
@@ -2458,6 +2709,8 @@ fn dispose(
                             rule: Some(p),
                             detail: "pole".into(),
                             candidates: vec![],
+                            follow: None,
+                            follow_credit: None,
                         }));
                     }
                     RegFact::Unknown if ctx.relax_regularity => {
@@ -2471,30 +2724,35 @@ fn dispose(
         }
         Dispatch::Uncovered => {
             if let Some(pol) = &ctx.cfg.credits {
-                match crate::symmetry::serve_with(key, pol, ctx)? {
-                    Ok(c) => {
-                        let reg = c
-                            .undecided
-                            .contains(&Refusal::RegularityUnknown)
-                            .then_some(RegFact::Unknown);
-                        return Ok(KeyRes::Credit(Box::new(c), reg));
+                let (detail, follow_credit) = match credit::serve_credit(ctx, key, pol)? {
+                    credit::CreditOutcome::Credited(c) => return Ok(KeyRes::Credit(Box::new(c))),
+                    credit::CreditOutcome::OpenFollowed(c, n) => (
+                        format!(
+                            "credit refused by {n} element(s); {} candidate(s) followed (Tier K)",
+                            1 + c.alternatives.len()
+                        ),
+                        Some(Box::new(c)),
+                    ),
+                    credit::CreditOutcome::Refused(n) => {
+                        (format!("credit refused by {n} element(s)"), None)
                     }
-                    Err(refusals) => {
-                        let detail = format!("credit refused by {} element(s)", refusals.len());
-                        return Ok(KeyRes::Open(OpenInfo {
-                            status: OpenStatus::Uncovered,
-                            rule: None,
-                            detail,
-                            candidates: ctx.recipe_candidates(key),
-                        }));
-                    }
-                }
+                };
+                return Ok(KeyRes::Open(OpenInfo {
+                    status: OpenStatus::Uncovered,
+                    rule: None,
+                    detail,
+                    candidates: ctx.recipe_candidates(key),
+                    follow: None,
+                    follow_credit,
+                }));
             }
             KeyRes::Open(OpenInfo {
                 status: OpenStatus::Uncovered,
                 rule: None,
                 detail: String::new(),
                 candidates: ctx.recipe_candidates(key),
+                follow: None,
+                follow_credit: None,
             })
         }
         Dispatch::Blocked { at, reason } if reason == crate::domain::Verdict::WitnessNotCarried => {
@@ -2505,11 +2763,16 @@ fn dispose(
             {
                 return Ok(KeyRes::Lifted(p));
             }
+            // Tier K (superset of every Tier C run, re-audit F1b): the record's body is followed although the key
+            // stays open (a Tier C run may lift it with the exact per-key fact)
+            let follow = (!tier_c && ctx.bodies.has(at.table, at.record)).then_some(p);
             KeyRes::WitnessAbsent(OpenInfo {
                 status: OpenStatus::Blocked,
                 rule: Some(p),
                 detail: format!("{reason:?}: requires the per-key regularity fact"),
                 candidates: vec![],
+                follow,
+                follow_credit: None,
             })
         }
         Dispatch::Blocked { at, reason } => KeyRes::Open(OpenInfo {
@@ -2517,114 +2780,164 @@ fn dispose(
             rule: Some(ctx.fast.position(at)),
             detail: format!("{reason:?}"),
             candidates: vec![],
+            follow: None,
+            follow_credit: None,
         }),
         Dispatch::Undecided { at, verdict } => KeyRes::Open(OpenInfo {
             status: OpenStatus::Undecided,
             rule: Some(ctx.fast.position(at)),
             detail: format!("{verdict:?}"),
             candidates: vec![],
+            follow: None,
+            follow_credit: None,
         }),
         Dispatch::OutsideChart { slot } => KeyRes::Open(OpenInfo {
             status: OpenStatus::OutsideChart,
             rule: None,
             detail: format!("slot {slot}"),
             candidates: vec![],
+            follow: None,
+            follow_credit: None,
         }),
     })
 }
 
-/// Memoised depth-first search over the actual edges: cycle check and longest chain (edges). Successors are
-/// recomputed (no stored edges). Deterministic: roots in key-index order, ties to the smallest successor index.
+/// Cycle check and longest chain over the actual edges (successors recomputed, no stored edges; re-audit F3, F6a):
+/// an iterative Tarjan pass. `cycles` = the number of non-trivial strongly connected components (a key on a cycle,
+/// a self-edge included): independent of the reach order. The longest chain is computed only when the graph is
+/// acyclic (a longest path of a DAG); ties broken by the smaller key (code order), so the chain does not depend on the
+/// reach order either. Memory: 9 bytes per key + the depth-first stack. The VERDICT never uses this pass: a cycle
+/// needs a followed non-lower edge (the comparator is a total order), which the run has already counted as a
+/// violation, an undecided coefficient or a Tier K credit term requiring zero; a cycle without any such edge
+/// (`comparator_inconsistent`) fails the run.
 fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
     let n = cl.table.len();
-    let mut state = vec![0u8; n]; // 0 new, 1 on stack, 2 done
-    let mut h = vec![0u32; n];
-    let mut next = vec![u32::MAX; n];
-    let mut cycles = 0u64;
+    // per key: state (0 new, 1 on the Tarjan stack, 2 done); a = index / height, b = lowlink / next on the chain
+    let mut state = vec![0u8; n];
+    let mut a = vec![0u32; n];
+    let mut b = vec![u32::MAX; n];
+    let mut counter = 0u32;
+    let mut sccs = 0u64;
     let (mut buf, mut cm, mut codes) = (vec![], vec![], vec![]);
     let mut key = vec![0i32; ctx.arity];
-    // stack frames: (node, successor list, cursor)
-    let mut stack: Vec<(u32, Vec<u32>, usize)> = vec![];
-    let succ_of = |i: u32,
-                   buf: &mut Vec<i32>,
-                   cm: &mut Vec<u64>,
-                   codes: &mut Vec<u64>,
-                   key: &mut Vec<i32>|
-     -> Result<Vec<u32>, ClosureError> {
-        let mut succ = vec![];
-        let r = cl.res[i as usize];
-        if r == RECIPE {
-            ctx.codec.decode(cl.table.code(i as usize), key);
-            let (si, ri) = cl.recipe_of[&i];
-            let mut sink = Sink::Succ {
-                table: &cl.table,
-                succ: &mut succ,
-            };
-            expand_recipe(ctx, si, ri, key, buf, codes, &mut sink);
-            return Ok(succ);
-        }
-        let (pos, image) = match r {
-            OPEN | PENDING | TERMINAL => return Ok(succ),
-            CREDITED => (cl.credits[&i].position, true),
-            p => (p, false),
-        };
-        ctx.codec.decode(cl.table.code(i as usize), key);
-        let applied = if image {
-            cl.credits[&i].image.clone()
-        } else {
-            key.clone()
-        };
-        let mut sink = Sink::Succ {
-            table: &cl.table,
-            succ: &mut succ,
-        };
-        expand_key(ctx, pos, &applied, key, image, buf, cm, codes, &mut sink)?;
-        Ok(succ)
+    let view = ResView {
+        res: &cl.res,
+        credits: &cl.credits,
+        recipe_of: &cl.recipe_of,
+        open: &cl.open,
     };
+    let table = &cl.table;
+    let mut succ_of = |i: u32| -> Result<(Vec<u32>, bool), ClosureError> {
+        let mut succ = vec![];
+        if let Some(sv) = view.served(i) {
+            ctx.codec.decode(table.code(i as usize), &mut key);
+            expand_served(ctx, sv, &key, &mut buf, &mut cm, &mut codes, None, i)?;
+            for c in codes.chunks_exact(ctx.codec.words()) {
+                if let Some(j) = table.get(c) {
+                    succ.push(j);
+                }
+            }
+        }
+        let self_loop = succ.contains(&i);
+        Ok((succ, self_loop))
+    };
+    // the Tarjan stack (keys of open components) and the depth-first frames (key, successors, cursor, self loop)
+    let mut tstack: Vec<u32> = vec![];
+    let mut frames: Vec<(u32, Vec<u32>, usize, bool)> = vec![];
     for root in 0..n as u32 {
         if state[root as usize] != 0 {
             continue;
         }
+        let (s0, l0) = succ_of(root)?;
         state[root as usize] = 1;
-        let s = succ_of(root, &mut buf, &mut cm, &mut codes, &mut key)?;
-        stack.push((root, s, 0));
-        while let Some(top) = stack.last_mut() {
-            let (v, ref succ, ref mut cur) = *top;
-            if *cur < succ.len() {
-                let u = succ[*cur];
-                *cur += 1;
+        a[root as usize] = counter;
+        b[root as usize] = counter;
+        counter += 1;
+        tstack.push(root);
+        frames.push((root, s0, 0, l0));
+        while let Some(top) = frames.last_mut() {
+            let v = top.0;
+            if top.2 < top.1.len() {
+                let u = top.1[top.2];
+                top.2 += 1;
                 match state[u as usize] {
                     0 => {
+                        let (su, lu) = succ_of(u)?;
                         state[u as usize] = 1;
-                        let s = succ_of(u, &mut buf, &mut cm, &mut codes, &mut key)?;
-                        stack.push((u, s, 0));
+                        a[u as usize] = counter;
+                        b[u as usize] = counter;
+                        counter += 1;
+                        tstack.push(u);
+                        frames.push((u, su, 0, lu));
                     }
-                    1 => cycles += 1,
+                    1 => {
+                        // on the stack: lowlink(v) = min(lowlink(v), index(u))
+                        let iu = a[u as usize];
+                        if iu < b[v as usize] {
+                            b[v as usize] = iu;
+                        }
+                    }
                     _ => {}
                 }
-            } else {
-                let mut best = 0u32;
-                let mut bn = u32::MAX;
-                for &u in succ {
-                    if state[u as usize] == 2
-                        && (h[u as usize] + 1 > best || (h[u as usize] + 1 == best && u < bn))
-                    {
-                        best = h[u as usize] + 1;
-                        bn = u;
-                    }
-                }
-                h[v as usize] = best;
-                next[v as usize] = bn;
-                state[v as usize] = 2;
-                stack.pop();
+                continue;
             }
+            let (v, succ, _, self_loop) = frames.pop().expect("frame");
+            let (iv, lv) = (a[v as usize], b[v as usize]);
+            if let Some(parent) = frames.last() {
+                let p = parent.0 as usize;
+                if lv < b[p] {
+                    b[p] = lv;
+                }
+            }
+            if lv != iv {
+                continue; // v belongs to a component rooted further up
+            }
+            // v roots a component: pop it
+            let mut members = 0usize;
+            while let Some(x) = tstack.pop() {
+                state[x as usize] = 2;
+                members += 1;
+                if x == v {
+                    break;
+                }
+            }
+            if members > 1 || self_loop {
+                sccs += 1;
+                a[v as usize] = 0;
+                b[v as usize] = u32::MAX;
+                continue;
+            }
+            // a trivial component: every successor is done; height and next (ties: the smaller key)
+            let mut best = 0u32;
+            let mut bn = u32::MAX;
+            for &u in &succ {
+                let h = a[u as usize] + 1;
+                if h > best
+                    || (h == best
+                        && bn != u32::MAX
+                        && table.code(u as usize) < table.code(bn as usize))
+                {
+                    best = h;
+                    bn = u;
+                }
+            }
+            a[v as usize] = best;
+            b[v as usize] = bn;
         }
     }
-    cl.cycles = Some(cycles);
+    cl.cycles = Some(sccs);
+    if sccs > 0 {
+        cl.chain = None;
+        let counted = cl.violations + cl.undecided.coef_unknown_not_lower + cl.credit_requires_zero;
+        cl.comparator_inconsistent = counted == 0;
+        return Ok(());
+    }
     if n > 0 {
+        let h = &a;
+        let next = &b;
         let mut top = 0usize;
-        for i in 0..n {
-            if h[i] > h[top] {
+        for i in 1..n {
+            if h[i] > h[top] || (h[i] == h[top] && cl.table.code(i) < cl.table.code(top)) {
                 top = i;
             }
         }
@@ -2708,8 +3021,20 @@ impl Closure {
                     source_index: ri as usize,
                 })
             }
-            CREDITED => Some(self.rule_names[self.credits[&(i as u32)].position as usize].clone()),
+            CREDITED => Some(self.server_name(self.credits[&(i as u32)].server)),
             p => Some(self.rule_names[p as usize].clone()),
+        }
+    }
+    /// The name of what serves a credit's image: a table rule, or a relation-set record (label -1).
+    fn server_name(&self, s: Server) -> RuleName {
+        match s {
+            Server::Rule(p) => self.rule_names[p as usize].clone(),
+            Server::Recipe(si, ri) => RuleName {
+                table: self.rset_names[si as usize].0.clone(),
+                record: ri as usize,
+                label: -1,
+                source_index: ri as usize,
+            },
         }
     }
     pub fn is_open(&self, i: usize) -> bool {
@@ -2738,21 +3063,29 @@ impl Closure {
     }
     /// Relation sets used (keys served per set, set order).
     pub fn used_relations(&self) -> Vec<RelationUse> {
-        let mut v: Vec<(u64, u64)> = vec![(0, 0); self.rset_names.len()];
+        let mut v: Vec<(u64, u64, u64)> = vec![(0, 0, 0); self.rset_names.len()];
         for (&i, &(si, _)) in &self.recipe_of {
             v[si as usize].0 += 1;
             if self.start_mask[i as usize] {
                 v[si as usize].1 += 1;
             }
         }
+        for c in self.credits.values() {
+            for (_, _, s) in c.followed() {
+                if let Server::Recipe(si, _) = s {
+                    v[si as usize].2 += 1;
+                }
+            }
+        }
         v.into_iter()
             .enumerate()
-            .filter(|(_, x)| x.0 > 0)
+            .filter(|(_, x)| x.0 > 0 || x.2 > 0)
             .map(|(si, x)| RelationUse {
                 set: self.rset_names[si].0.clone(),
                 recipe_digest: self.rset_names[si].1.clone(),
                 keys: x.0,
                 keys_in_start: x.1,
+                credit_images: x.2,
             })
             .collect()
     }
@@ -2775,8 +3108,17 @@ impl Closure {
                 in_start: self.start_mask[i as usize],
                 element: c.element,
                 image: c.image.clone(),
-                rule: self.rule_names[c.position as usize].clone(),
+                rule: self.server_name(c.server),
                 descent_checked: true,
+                alternatives: c
+                    .alternatives
+                    .iter()
+                    .map(|(e, img, s)| CreditAlternative {
+                        element: *e,
+                        image: img.clone(),
+                        rule: self.server_name(*s),
+                    })
+                    .collect(),
             })
             .collect()
     }
@@ -2813,7 +3155,28 @@ impl Closure {
             complete: self.exits_complete(),
             config_digest: self.identity.digest(),
             sets: &self.hand_down_keys,
+            files: &self.exit_files,
         }
+    }
+    /// Spilled exit key sets (one key-set file per child sector; empty when they are in memory).
+    pub fn exit_files(&self) -> &BTreeMap<u64, ExitFile> {
+        &self.exit_files
+    }
+    /// The run's own spill directory (`None`: nothing configured).
+    pub fn spill_dir(&self) -> Option<&std::path::Path> {
+        self.spill_dir.as_deref()
+    }
+    /// Per child sector: (distinct exit keys, key-set digest), from memory or from the spilled files.
+    pub fn exit_counts(&self) -> BTreeMap<u64, (u64, String)> {
+        let mut m: BTreeMap<u64, (u64, String)> = self
+            .hand_down_keys
+            .iter()
+            .map(|(&k, s)| (k, (s.len() as u64, s.digest())))
+            .collect();
+        for (&k, f) in &self.exit_files {
+            m.insert(k, (f.count, f.digest.clone()));
+        }
+        m
     }
     fn exits_complete(&self) -> bool {
         self.hand_downs_mode == HandDowns::Keys && !self.truncated
@@ -2825,57 +3188,233 @@ impl Closure {
         &self.hand_down_keys
     }
     /// Fact requests (sorted, de-duplicated): each carries the rule's content digest, the term's instantiated key and
-    /// the configuration identity (without facts / start / inputs) of this run.
+    /// the configuration identity (without facts / start / inputs) of this run. Materialises every request: for a run
+    /// with millions of requests use [`Closure::write_fact_requests_jsonl`] (streaming) and
+    /// [`ClosureSummary::fact_requests`] (the count). Panics if a spill file became unreadable
+    /// ([`Closure::try_fact_requests`] returns the error).
     pub fn fact_requests(&self) -> Vec<FactRequest> {
+        self.try_fact_requests()
+            .expect("fact requests: spill file unreadable")
+    }
+    /// As [`Closure::fact_requests`], with the spill-file error.
+    pub fn try_fact_requests(&self) -> Result<Vec<FactRequest>, ClosureError> {
         let config = self.identity.digest_without(FACT_BINDING_SKIPS);
-        let mut v: Vec<FactRequest> = self
-            .requests
-            .iter()
-            .map(|r| {
-                let rn = &self.rule_names[r.pos as usize];
-                let key = if r.image {
-                    self.credits[&r.key].image.clone()
-                } else {
-                    self.table.key(r.key as usize)
-                };
-                FactRequest {
-                    schema: facts::FACT_REQUEST_SCHEMA.into(),
-                    table: self.fact_tables[r.pos as usize].clone(),
-                    record: rn.record,
-                    label: rn.label,
-                    key,
-                    kind: if matches!(
-                        r.reason,
-                        RequestReason::Regularity | RequestReason::WitnessLift
-                    ) {
-                        FactKind::Regularity
-                    } else {
-                        FactKind::Coefficient
-                    },
-                    term: (r.term != u32::MAX).then_some(r.term as usize),
-                    rhs: (r.term != u32::MAX).then(|| r.rhs.to_vec()),
-                    reason: r.reason,
-                    rule_digest: Some(self.rule_digests[r.pos as usize].clone()),
-                    config: Some(config.clone()),
-                }
-            })
-            .collect();
+        let mut v = vec![];
+        self.requests
+            .for_each(|r| v.push(self.fact_request(&r, &config)))
+            .map_err(io_err)?;
         v.sort();
         v.dedup();
-        v
+        Ok(v)
     }
-    /// Per dispatch position: (fires on all keys, fires on start keys).
+    fn fact_request(&self, r: &store::ReqItem, config: &str) -> FactRequest {
+        let rn = &self.rule_names[r.pos as usize];
+        let key = if r.image {
+            self.credits[&r.key].image.clone()
+        } else {
+            self.table.key(r.key as usize)
+        };
+        FactRequest {
+            schema: facts::FACT_REQUEST_SCHEMA.into(),
+            table: self.fact_tables[r.pos as usize].clone(),
+            record: rn.record,
+            label: rn.label,
+            key,
+            kind: if matches!(
+                r.reason,
+                RequestReason::Regularity | RequestReason::WitnessLift
+            ) {
+                FactKind::Regularity
+            } else {
+                FactKind::Coefficient
+            },
+            term: r.term.map(|t| t as usize),
+            rhs: r.rhs.map(|x| x.to_vec()),
+            reason: r.reason,
+            rule_digest: Some(self.rule_digests[r.pos as usize].clone()),
+            config: Some(config.to_string()),
+        }
+    }
+    /// Fact identity per dispatch position: positions with the same producer address (table path, record, label) and
+    /// rule content digest give identical requests.
+    fn fact_ids(&self) -> Vec<u32> {
+        let mut ids: HashMap<(&str, usize, i64, &str), u32> = HashMap::new();
+        (0..self.rule_names.len())
+            .map(|p| {
+                let r = &self.rule_names[p];
+                let k = (
+                    self.fact_tables[p].as_str(),
+                    r.record,
+                    r.label,
+                    self.rule_digests[p].as_str(),
+                );
+                let n = ids.len() as u32;
+                *ids.entry(k).or_insert(n)
+            })
+            .collect()
+    }
+    /// The image requests (distinct, production order) and, among them, those equal to a request of a reached key
+    /// (which the non-image stream already carries): (requests, probe (fid, key index, term, reason) -> index).
+    #[allow(clippy::type_complexity)]
+    fn image_requests(
+        &self,
+        fid: &[u32],
+    ) -> std::io::Result<(
+        Vec<(u32, Vec<i32>, u32, RequestReason, u32, u32)>,
+        HashMap<(u32, u32, u32, RequestReason), usize>,
+    )> {
+        let mut seen: HashSet<(u32, Vec<i32>, u32, RequestReason)> = HashSet::new();
+        let mut img = vec![];
+        self.requests.for_each(|r| {
+            if r.image {
+                let applied = self.credits[&r.key].image.clone();
+                let t = r.term.unwrap_or(u32::MAX);
+                let id = (fid[r.pos as usize], applied.clone(), t, r.reason);
+                if seen.insert(id) {
+                    img.push((fid[r.pos as usize], applied, t, r.reason, r.key, r.pos));
+                }
+            }
+        })?;
+        let mut probe = HashMap::new();
+        for (i, (f, applied, t, rs, _, _)) in img.iter().enumerate() {
+            if let Some(ix) = self.table.get_key(applied) {
+                probe.insert((*f, ix, *t, *rs), i);
+            }
+        }
+        Ok((img, probe))
+    }
+    /// The number of distinct fact requests, without materialising them (re-audit F5): requests of reached keys are
+    /// distinct by construction (one disposition and one expansion per key); only image requests (credits) can repeat
+    /// or coincide with a request of a reached key.
+    fn count_requests(&self) -> std::io::Result<u64> {
+        let fid = self.fact_ids();
+        let mut non_image = 0u64;
+        self.requests.for_each(|r| non_image += (!r.image) as u64)?;
+        let (img, probe) = self.image_requests(&fid)?;
+        if probe.is_empty() {
+            return Ok(non_image + img.len() as u64);
+        }
+        let mut hit = vec![false; img.len()];
+        self.requests.for_each(|r| {
+            if !r.image
+                && let Some(&i) = probe.get(&(
+                    fid[r.pos as usize],
+                    r.key,
+                    r.term.unwrap_or(u32::MAX),
+                    r.reason,
+                ))
+            {
+                hit[i] = true;
+            }
+        })?;
+        Ok(non_image + hit.iter().filter(|&&h| !h).count() as u64)
+    }
+    /// Stream the fact requests as JSONL (schema `rustred.campaign.fact-request.v1`, the lines of
+    /// [`write_fact_requests`]) in CLOSURE order (requests of reached keys in key-index order per round, then the image
+    /// requests not already written), each distinct request once; memory: the image requests only (re-audit F5).
+    /// Returns the number of lines (= [`ClosureSummary::fact_requests`]).
+    pub fn write_fact_requests_jsonl(&self, mut w: impl Write) -> Result<u64, ClosureError> {
+        let config = self.identity.digest_without(FACT_BINDING_SKIPS);
+        let fid = self.fact_ids();
+        let (img, probe) = self.image_requests(&fid).map_err(io_err)?;
+        let mut hit = vec![false; img.len()];
+        let mut n = 0u64;
+        let mut err: Option<std::io::Error> = None;
+        self.requests
+            .for_each(|r| {
+                if r.image || err.is_some() {
+                    return;
+                }
+                if let Some(&i) = probe.get(&(
+                    fid[r.pos as usize],
+                    r.key,
+                    r.term.unwrap_or(u32::MAX),
+                    r.reason,
+                )) {
+                    hit[i] = true;
+                }
+                let line = serde_json::to_string(&self.fact_request(&r, &config))
+                    .expect("serialise a fact request");
+                if let Err(e) = writeln!(w, "{line}") {
+                    err = Some(e);
+                }
+                n += 1;
+            })
+            .map_err(io_err)?;
+        if let Some(e) = err {
+            return Err(io_err(e));
+        }
+        // the remaining image requests, from their first credited key (production order)
+        let mut written: HashSet<(u32, Vec<i32>, u32, RequestReason)> = HashSet::new();
+        self.requests
+            .for_each(|r| {
+                if !r.image || err.is_some() {
+                    return;
+                }
+                let applied = self.credits[&r.key].image.clone();
+                let t = r.term.unwrap_or(u32::MAX);
+                let i = img
+                    .iter()
+                    .position(|x| {
+                        x.0 == fid[r.pos as usize] && x.1 == applied && x.2 == t && x.3 == r.reason
+                    })
+                    .expect("image request collected");
+                if hit[i] || !written.insert((img[i].0, applied, t, r.reason)) {
+                    return;
+                }
+                let line = serde_json::to_string(&self.fact_request(&r, &config))
+                    .expect("serialise a fact request");
+                if let Err(e) = writeln!(w, "{line}") {
+                    err = Some(e);
+                }
+                n += 1;
+            })
+            .map_err(io_err)?;
+        if let Some(e) = err {
+            return Err(io_err(e));
+        }
+        w.flush().map_err(io_err)?;
+        Ok(n)
+    }
+    /// Per dispatch position: (fires on all keys, fires on start keys). A rule fires at a key it serves, at a credited
+    /// key whose followed image it serves (Tier K: every followed element), and (Tier K) at a witness-absent key whose
+    /// body is followed: the used set of a Tier K run contains that of every Tier C run (re-audit F1, R20).
     fn fires(&self) -> Vec<(u64, u64)> {
         let mut f = vec![(0u64, 0u64); self.rule_names.len()];
+        let mut ps: Vec<u32> = vec![];
         for (i, &r) in self.res.iter().enumerate() {
-            let p = match r {
-                OPEN | PENDING | TERMINAL | RECIPE => continue,
-                CREDITED => self.credits[&(i as u32)].position,
-                p => p,
-            };
-            f[p as usize].0 += 1;
-            if self.start_mask[i] {
-                f[p as usize].1 += 1;
+            ps.clear();
+            match r {
+                PENDING | TERMINAL | RECIPE => {}
+                OPEN => match self.open.get(&(i as u32)).and_then(|o| o.followed()) {
+                    Some(Served::Follow(p)) => ps.push(p),
+                    Some(Served::Credit(c)) => {
+                        for (_, _, s) in c.followed() {
+                            if let Server::Rule(p) = s {
+                                ps.push(p);
+                            }
+                        }
+                        ps.sort_unstable();
+                        ps.dedup();
+                    }
+                    _ => {}
+                },
+                CREDITED => {
+                    for (_, _, s) in self.credits[&(i as u32)].followed() {
+                        if let Server::Rule(p) = s {
+                            ps.push(p);
+                        }
+                    }
+                    ps.sort_unstable();
+                    ps.dedup();
+                }
+                p => ps.push(p),
+            }
+            for &p in &ps {
+                f[p as usize].0 += 1;
+                if self.start_mask[i] {
+                    f[p as usize].1 += 1;
+                }
             }
         }
         f
@@ -2959,8 +3498,14 @@ impl Closure {
         if self.unrepresentable > 0 {
             blocking.push(format!("unrepresentable:{}", self.unrepresentable));
         }
-        if let Some(c) = self.cycles.filter(|&c| c > 0) {
-            blocking.push(format!("cycles:{c}"));
+        // a cycle always contains a followed non-lower edge, counted above or as undecided / credit_requires_zero, so
+        // `cycles` never decides the verdict (re-audit F3); a cycle WITHOUT any such edge means the comparator is not a
+        // strict order: fail
+        if self.comparator_inconsistent {
+            blocking.push(format!(
+                "comparator_inconsistent:cycles:{}",
+                self.cycles.unwrap_or(0)
+            ));
         }
         let failed = !blocking.is_empty();
         if !self.open.is_empty() {
@@ -3009,14 +3554,28 @@ impl Closure {
         } else {
             Verdict::ClosedProvisional
         };
-        if !self.relaxed.is_empty() {
-            blocking.push(format!("diagnostic:{}", self.relaxed.join(",")));
+        for r in &self.not_strict {
+            blocking.push(format!("dispatch_not_strict:{r}"));
+        }
+        if !self.relaxed_checks().is_empty() {
+            blocking.push(format!("diagnostic:{}", self.relaxed_checks().join(",")));
         }
         (v, blocking)
     }
 
+    /// The relaxed checks: the configured relaxations and the dispatcher's weakened checks (re-audit F2).
+    fn relaxed_checks(&self) -> Vec<String> {
+        let mut v = self.relaxed.clone();
+        v.extend(
+            self.not_strict
+                .iter()
+                .map(|r| format!("dispatch_not_strict:{r}")),
+        );
+        v
+    }
+
     fn verdict(&self) -> Verdict {
-        if !self.relaxed.is_empty() {
+        if !self.relaxed_checks().is_empty() {
             Verdict::Diagnostic
         } else {
             self.verdict_parts().0
@@ -3037,9 +3596,12 @@ impl Closure {
             if in_start {
                 open_in += 1;
             }
-            *by_status
-                .entry(format!("{:?}", o.status).to_lowercase())
-                .or_default() += 1;
+            // the serde (snake_case) name, as `OpenKey.status` serialises (re-audit N1)
+            let name = serde_json::to_value(o.status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default();
+            *by_status.entry(name).or_default() += 1;
             if let Some(f) = face_name(&lines, &self.table.key(i as usize)) {
                 by_face.entry(f).or_default()[if in_start { 0 } else { 1 }] += 1;
             }
@@ -3057,21 +3619,11 @@ impl Closure {
             e[0] += f.0;
             e[1] += f.1;
         }
+        let exit_counts = self.exit_counts();
         let hand_downs = self
             .hand_down_terms
             .iter()
-            .map(|(&m, &t)| {
-                (
-                    m,
-                    [
-                        t,
-                        self.hand_down_keys
-                            .get(&m)
-                            .map(|k| k.len() as u64)
-                            .unwrap_or(0),
-                    ],
-                )
-            })
+            .map(|(&m, &t)| (m, [t, exit_counts.get(&m).map(|x| x.0).unwrap_or(0)]))
             .collect();
         ClosureSummary {
             tier: self.tier,
@@ -3106,7 +3658,7 @@ impl Closure {
             used_rules_in_start: fires.iter().filter(|f| f.1 > 0).count() as u64,
             wins_per_table: wins,
             hand_downs,
-            fact_requests: self.fact_requests().len() as u64,
+            fact_requests: self.n_requests,
             provisional: self.inputs.iter().any(|x| x.provisional_input()),
             inputs: self.inputs.clone(),
             terminals_preferred: self
@@ -3129,9 +3681,9 @@ impl Closure {
             dispatch_order_digest: self.order_digest.clone(),
             start_set_digest: self.start_digest.clone(),
             terminal_in_rule_domain: self.terminal_violations(),
-            diagnostic: !self.relaxed.is_empty(),
-            relaxed_checks: self.relaxed.clone(),
-            verdict_if_not_diagnostic: (!self.relaxed.is_empty()).then_some(parts.0),
+            diagnostic: !self.relaxed_checks().is_empty(),
+            relaxed_checks: self.relaxed_checks(),
+            verdict_if_not_diagnostic: (!self.relaxed_checks().is_empty()).then_some(parts.0),
             blocking: parts.1,
             config_digest: self.identity.digest(),
             exits_complete: self.exits_complete(),
@@ -3154,6 +3706,15 @@ impl Closure {
                 .filter(|&&i| self.start_mask[i as usize])
                 .count() as u64,
             used_relation_sets: self.used_relations().len() as u64,
+            credit_requires_zero: self.credit_requires_zero,
+            open_followed: self
+                .open
+                .values()
+                .filter(|o| o.followed().is_some())
+                .count() as u64,
+            dispatch_not_strict: self.not_strict.clone(),
+            fact_requests_spilled: self.requests.is_spilled(),
+            exits_spilled: !self.exit_files.is_empty(),
         }
     }
 
@@ -3185,9 +3746,9 @@ impl Closure {
             credits: self.credits(),
             terminals: self.terminal_records(),
             hand_down_digests: self
-                .hand_down_keys
-                .iter()
-                .map(|(&m, k)| (m, k.digest()))
+                .exit_counts()
+                .into_iter()
+                .map(|(m, (_, d))| (m, d))
                 .collect(),
             used_rules: self.used_rules(),
             used_relations: self.used_relations(),
