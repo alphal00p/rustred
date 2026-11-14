@@ -51,9 +51,14 @@
 //!   selection, preferred masters (forced to the easy end of the column
 //!   order) and per-sector reports with Lee-Pomeransky counts.
 //!
-//! Demand and staircase seeding with growth, the master check, numerator
-//! tubes and the stability check, and the finite-field and exact lanes follow
-//! in the next steps.
+//! - demand and staircase seeding ([`Seeding::Demand`], [`Seeding::Staircase`])
+//!   with growth between rounds (Kira 3's tuning recipe, arXiv:2505.20197
+//!   §3.1.2), the master check against preferred masters and expected
+//!   per-class counts ([`MasterCheckMode`], Kira 3 `check_masters`), numerator
+//!   tubes for rank-heavy demand ([`TubeOptions`]) and the +1 stability check
+//!   ([`BoxOptions::stability`]).
+//!
+//! The finite-field and exact lanes follow in the next steps.
 
 mod driver;
 mod modular;
@@ -69,14 +74,16 @@ mod select;
 mod select_tests;
 mod system;
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use driver::{BoxLaportaSession, census_targets, down_closure_representatives};
 pub use order::{ColumnOrder, SlotPriority};
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;
-pub use seeds::{SeedBox, SeedRegion};
+pub use seeds::{SeedBox, SeedRegion, tube_seeds};
 
 /// Default structure prime of the modular samples, `2^61 - 1`.
 pub const DEFAULT_PRIME: u64 = (1 << 61) - 1;
@@ -126,6 +133,26 @@ pub struct BoxOptions {
     pub truncate: Option<i16>,
     /// Lexicographic tie-break priority of the slots in the column order.
     pub slot_priority: SlotPriority,
+    /// Enlarge every seeded box by `(r, s, d)` once the masters have
+    /// converged and require the same master set (Kira's `(11,2,4)` check).
+    /// `None` (the default) skips the check.
+    pub stability: Option<(u8, u8, u8)>,
+    /// What the master check does with masters outside the preferred set
+    /// or above the expected per-class count.
+    pub master_check: MasterCheckMode,
+    /// Expected master count per class, keyed by the Kira id of the
+    /// representative sector (e.g. Lee-Pomeransky or Euler counts). Used
+    /// by the master check and as the growth trigger for staircase seeding.
+    pub expected_counts: Option<Arc<BTreeMap<u64, usize>>>,
+    /// Numerator tubes for rank-heavy demand (staircase seeding only).
+    pub tubes: Option<TubeOptions>,
+    /// Staircase seeding with `expected_counts`: stop growing once every
+    /// class with masters has exactly its expected count (no missing, no
+    /// excess), instead of also growing classes whose masters lie on the
+    /// box boundary. Too few seeds can only add (spurious) masters, so a
+    /// class at its exact expected count is complete when the count is.
+    /// Refused without staircase seeding or without `expected_counts`.
+    pub settle_on_expected: bool,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -157,6 +184,11 @@ impl Default for BoxOptions {
             insertion: Insertion::BottomUp,
             truncate: None,
             slot_priority: SlotPriority::Natural,
+            stability: None,
+            master_check: MasterCheckMode::Report,
+            expected_counts: None,
+            tubes: None,
+            settle_on_expected: false,
         }
     }
 }
@@ -168,6 +200,116 @@ pub enum Seeding {
     /// integrals with `r <= r`, `s <= s` and at most `d` dots (non-demand
     /// subsectors with `s` capped by [`BoxOptions::truncate`]).
     KiraBox { r: u8, s: u8, d: u8 },
+    /// Top-down demand: a sector holding demanded integrals gets the
+    /// `(r, s, dots)` hull of that demand plus `(extra_r, extra_s, extra_r)`;
+    /// every nonzero subsector inherits the `(s, dots)` hull of its
+    /// supersectors' boxes (rows of a parent box reach a subsector with the
+    /// same dots), and with [`Insertion::TopDownLevels`] also the hull of
+    /// the integrals the U-closure still needs there. There is no absolute
+    /// dot cap: a sector grows by one dot (and in `s` when needed) when a
+    /// master lies on its box boundary or exceeds its Lee-Pomeransky count,
+    /// at most `max_growth` times.
+    Demand {
+        extra_r: u8,
+        extra_s: u8,
+        max_growth: u8,
+    },
+    /// Staircase: a sector holding demanded integrals gets the union (not
+    /// the hull) of the boxes `(s <= R_i + s_pad, dots <= dots_i + d_pad)`
+    /// over its demanded integrals `i`; every nonzero subsector inherits
+    /// the union of its supersectors' boxes (dot caps unchanged, numerator
+    /// rank capped by [`BoxOptions::truncate`]). Representatives reached
+    /// only through routed subsectors inherit like direct subsectors.
+    ///
+    /// Growth follows Kira 3's tuning recipe (arXiv:2505.20197 §3.1.2),
+    /// one line level at a time from the top: a class with more masters
+    /// than expected (expected counts, else its Lee-Pomeransky count when
+    /// the LP gate is on, else extra masters under
+    /// [`MasterCheckMode::Grow`]) raises its `s` by one, or `l` is lowered
+    /// (so that the level's cap rises by one) when at least half of the
+    /// classes of that level need it; a
+    /// master with numerators or on the dot boundary raises its class's
+    /// dots by one. Each class grows at most `max_growth` times.
+    Staircase {
+        s_pad: u8,
+        d_pad: u8,
+        max_growth: u8,
+    },
+}
+
+/// Numerator tubes for rank-heavy demand (staircase seeding only; ENGINE-
+/// PLAN M7, Kira addendum §3.2 step 4).
+///
+/// A demanded integral `n` of rank `R >= min_rank` in a sector with `t`
+/// lines no longer asks for the full box `s <= R` of its sector. Instead:
+/// - its sector is seeded with the tube of integrals whose numerator
+///   monomial is `u * y`, with `u` dividing the numerator `N(n)` of `n` and
+///   `y` any monomial of degree at most `halo` in the sector's ISPs, and
+///   with at most `dots(n) + d_pad` dots (any distribution over the lines);
+/// - its sector's own box is `(min_rank - 1 + s_pad, dots(n) + d_pad)`;
+/// - subsectors inherit the box `(R + s_pad, dots(n) + d_pad)` as if it
+///   were seeded, capped by Kira 3 Eq. 9 like every inherited box.
+///
+/// Tube seeds carry no automorphism rows: their symmetry images leave the
+/// tube. Class growth (`s`) widens the halo, dot growth the dots; the
+/// stability check adds `delta.s` to the halo and `delta.d` to the dots.
+///
+/// With `subsector_halo`, the subsectors of a tube target's sector get
+/// sub-tubes as well: every member sector `M` below the target's sector is
+/// seeded (through its route onto the class representative) with the
+/// target's tube over `M`'s own ISPs, the pinched lines included, with
+/// halo `subsector_halo`. These are the integrals the tube's rows produce
+/// in subsectors, so a large `l` can keep the inherited boxes small.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TubeOptions {
+    /// At least 1 (refused otherwise).
+    pub min_rank: u8,
+    pub halo: u8,
+    pub subsector_halo: Option<u8>,
+}
+
+/// What the master check (Kira 3 `check_masters`, arXiv:2505.20197 §3.6)
+/// does besides reporting.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MasterCheckMode {
+    /// Report only.
+    #[default]
+    Report,
+    /// Masters outside a nonempty preferred set (the preferred list is
+    /// taken as complete) and classes above their expected count trigger
+    /// growth of their class (staircase and demand seeding).
+    Grow,
+    /// As `Grow`, and `extend` fails with [`crate::solver::SolverError::MasterCheck`]
+    /// when extra masters or excess classes remain after growth.
+    Strict,
+}
+
+/// Outcome of the master check, against the preferred set (after routing
+/// onto representatives) and the expected per-class counts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MasterCheckReport<const N: usize> {
+    /// Masters that are not preferred (only when the preferred set is
+    /// nonempty).
+    pub extra: Vec<[i16; N]>,
+    /// Preferred integrals that are not masters: reducible to other
+    /// masters, or zero. This is [`ModularReport::preferred_not_masters`]
+    /// followed by the preferred integrals of proved-zero sectors (which
+    /// `ModularReport` counts in `zero_demand`).
+    pub unneeded: Vec<[i16; N]>,
+    /// `(class, expected, found)` with fewer masters than expected.
+    pub missing: Vec<(u32, usize, usize)>,
+    /// `(class, expected, found)` with more masters than expected.
+    pub excess: Vec<(u32, usize, usize)>,
+    /// `(class, masters, expected)` for every class with masters or an
+    /// expected count.
+    pub per_class: Vec<(u32, usize, Option<usize>)>,
+}
+
+impl<const N: usize> MasterCheckReport<N> {
+    /// No extra masters and every class with an expected count matches.
+    pub fn passed(&self) -> bool {
+        self.extra.is_empty() && self.missing.is_empty() && self.excess.is_empty()
+    }
 }
 
 /// The modular sample. Parameters (including `d`) are drawn from `seed`.
@@ -293,17 +435,24 @@ pub struct SectorReport {
     pub lines: usize,
     /// The hull of the seeded region, if any.
     pub seed_box: Option<SeedBox>,
-    /// The seeded region (maximal boxes); one box with Kira boxes.
+    /// The seeded region (maximal boxes); one box unless staircase seeded.
     pub seed_region: Vec<SeedBox>,
-    /// Seeds of the region and of its hull.
+    /// Seeds of the region (tube seeds included) and of its hull (rows
+    /// versus the hull; the hull covers the full boxes of tube targets).
     pub seeds: usize,
     pub hull_seeds: usize,
+    /// Tube seeds outside the region.
+    pub tube_seeds: usize,
     pub masters: usize,
     /// `Some(k)` for a Lee-Pomeransky count, `None` for no verdict or no gate.
     pub lp: Option<usize>,
     pub lp_no_verdict: bool,
     /// Non-pivot columns of this sector inside its seeded box.
     pub in_box_residuals: usize,
+    /// Growth steps applied to this sector.
+    pub growth: u8,
+    /// Expected master count of this class, when given.
+    pub expected: Option<usize>,
 }
 
 /// Result of the modular phase of `extend`.
@@ -338,9 +487,17 @@ pub struct ModularReport<const N: usize> {
     pub rounds: usize,
     /// Sectors grown in each round, by id (empty with Kira boxes).
     pub growth: Vec<Vec<u32>>,
+    /// `Some(true)` when the enlarged system reproduced the master set;
+    /// `None` without a stability check or when this call seeded nothing.
+    pub stable: Option<bool>,
+    /// Masters before the stability enlargement (equal to `masters` when
+    /// stable).
+    pub masters_before_stability: Vec<[i16; N]>,
     /// Sectors whose in-box residuals fell below their LP count at some step
     /// (identity routing only: symmetry rows legitimately go below LP).
     pub monitor_violations: Vec<(u32, usize, usize)>,
+    /// Kira 3 `check_masters` analogue.
+    pub master_check: MasterCheckReport<N>,
     /// The truncation parameter `l` in force at the end (growth may lower
     /// it); `None` without truncation.
     pub truncate: Option<i16>,
