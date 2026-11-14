@@ -136,7 +136,9 @@ mod tests {
         }
         assert_eq!(ValidPid::new(2).unwrap().get(), 2);
         let me = i64::from(std::process::id());
-        assert!(ValidPid::new(me).is_ok());
+        if me > 1 {
+            assert!(ValidPid::new(me).is_ok());
+        }
         assert!(ValidPid::for_signal(me).is_err());
         // SAFETY: getppid cannot fail.
         let parent = i64::from(unsafe { libc::getppid() });

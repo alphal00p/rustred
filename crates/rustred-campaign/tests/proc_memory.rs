@@ -54,6 +54,12 @@ fn memory_cap_by_sampling_kills_the_session() {
     }
     assert_eq!(r.supervisor_outcome(), Some(MEMORY_CAP_EXCEEDED));
     assert_eq!(r.exit.and_then(|e| e.signal()), Some(libc::SIGKILL));
+    // Measured overshoot of the sampled cap (process-layer.md section 6 quotes this line).
+    println!(
+        "OVERSHOOT sampled cap 80000000 B, growth 200 MB/s, scan 200 ms: peak seen {} B, overshoot {} B",
+        r.peak_rss_bytes,
+        r.peak_rss_bytes.saturating_sub(80_000_000)
+    );
     assert!(
         r.peak_rss_bytes > 80_000_000 && r.peak_rss_bytes < 400_000_000,
         "peak {}",

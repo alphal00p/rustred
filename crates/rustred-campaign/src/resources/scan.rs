@@ -821,23 +821,35 @@ mod tests {
 
     #[test]
     fn sampler_publishes_own_session() {
-        let sid = super::super::read_stat(std::process::id())
-            .unwrap()
-            .unwrap()
-            .session;
+        // A child in its own session (inside the test pid namespace our own session id reads as 0).
+        let mut child = std::process::Command::new("setsid")
+            .args(["sleep", "30"])
+            .spawn()
+            .unwrap();
+        let cpid = child.id();
+        let sid = cpid;
         let s = Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
         })
         .unwrap();
-        let t0 = Instant::now();
         s.track(sid);
-        let snap = s
-            .wait_for_scan_after(t0, Duration::from_secs(120))
-            .expect("a scan within 120 s");
-        let u = snap.session(sid).unwrap();
-        assert!(u.members.iter().any(|m| m.pid == std::process::id()));
-        assert!(u.rss_bytes > 0);
+        // setsid runs in the child after spawn returns: wait for a scan that shows it in its own session.
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let u = loop {
+            let snap = s
+                .wait_for_scan_after(Instant::now(), Duration::from_secs(120))
+                .expect("a scan within 120 s");
+            let u = snap.session(sid).cloned().unwrap_or_default();
+            if u.members.iter().any(|m| m.pid == cpid) || Instant::now() > deadline {
+                break u;
+            }
+        };
+        assert!(u.members.iter().any(|m| m.pid == cpid), "{u:?}");
+        // stat RSS comes from per-CPU kernel counters that may lag for a fresh process; PSS walks the page tables.
+        assert!(u.rss_bytes > 0 || u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
         s.untrack(sid);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 }

@@ -1317,7 +1317,8 @@ impl ChildHandle for RealChild {
                 Some(self.marked_usage(s))
             };
             if let Some(u) = u {
-                self.peak_rss = self.peak_rss.max(u.rss_bytes);
+                // Peak memory: the larger of RSS (stat, kernel counters that may lag) and PSS (page walk).
+                self.peak_rss = self.peak_rss.max(u.rss_bytes).max(u.pss_bytes.unwrap_or(0));
                 self.cpu_ticks = self.cpu_ticks.max(u.cpu_ticks);
                 self.last_usage = Some(u);
                 self.last_usage_at = Some(s.finished_at);

@@ -575,7 +575,12 @@ mod tests {
 
     #[test]
     fn own_identity_is_alive_and_wrong_start_is_recycled() {
-        let me = ProcessIdentity::capture(std::process::id()).unwrap();
+        // A child of the test (our own pid is 1 inside the test pid namespace, which capture refuses).
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let me = ProcessIdentity::capture(child.id()).unwrap();
         assert_eq!(me.check().unwrap(), Liveness::Alive { zombie: false });
         let wrong = ProcessIdentity {
             start_ticks: me.start_ticks + 1,
@@ -587,6 +592,8 @@ mod tests {
             ..me
         };
         assert_eq!(other_boot.check().unwrap(), Liveness::OtherBoot);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

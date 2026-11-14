@@ -284,8 +284,10 @@ impl CpuLease {
 }
 
 impl Drop for CpuLease {
+    /// Waits at most 2 s for the RELEASED line (so a process that exits right after dropping its leases still leaves a
+    /// clean ledger), then lets the helper finish in the background.
     fn drop(&mut self) {
-        let _ = self.do_release(None);
+        let _ = self.do_release(Some(Duration::from_secs(2)));
     }
 }
 
