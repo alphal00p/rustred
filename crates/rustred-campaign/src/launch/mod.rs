@@ -36,7 +36,7 @@ pub use guard::{
 pub(crate) use guard::reap_exact;
 pub use real::{
     CapPreference, LauncherSetup, RealChild, RealConfig, RealLauncher, adhoc_campaign_id,
-    audit_inheritable_fds, peek_exit,
+    audit_inheritable_fds, in_private_namespace, peek_exit,
 };
 
 use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};

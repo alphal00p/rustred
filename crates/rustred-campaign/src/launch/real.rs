@@ -153,8 +153,27 @@ fn systemd_args(cap: u64) -> Vec<String> {
     ]
 }
 
+/// Are we inside a non-initial user or pid namespace? Then the host's user manager would interpret the pids that
+/// systemd-run passes in ITS namespace, i.e. as other processes: the scope mechanism must not be used.
+pub fn in_private_namespace() -> bool {
+    // SAFETY: getpid cannot fail.
+    if unsafe { libc::getpid() } == 1 {
+        return true;
+    }
+    match fs::read_to_string("/proc/self/uid_map") {
+        Ok(m) => {
+            let f: Vec<&str> = m.split_whitespace().collect();
+            f != ["0", "0", "4294967295"]
+        }
+        Err(_) => true,
+    }
+}
+
 /// Probe: a transient scope with the job properties around /bin/true, bounded to 15 s.
 fn probe_systemd() -> Result<PathBuf, String> {
+    if in_private_namespace() {
+        return Err("inside a private user/pid namespace: systemd would see foreign pids".into());
+    }
     let exe = which("systemd-run").ok_or("systemd-run not on PATH")?;
     let truth = which("true").ok_or("true not on PATH")?;
     let exe2 = exe.clone();
