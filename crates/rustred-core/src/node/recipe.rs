@@ -408,6 +408,15 @@ pub struct BatchOptions {
     pub recipe_path: String,
     pub order_text: String,
     pub binary: Value,
+    /// per-key wall budget in seconds (time-decided: BUDGET_WALL); None = no budget
+    pub key_budget_s: Option<f64>,
+    /// check mode: certified relation digests per key; a SOLVED key with another digest is DIGEST_MISMATCH
+    pub expect: BTreeMap<Vec<i64>, String>,
+    /// echoed into OUTCOME (input files with sizes and digests)
+    pub inputs: Value,
+    /// job mode: the child-job `job` block (job_id, attempt, kind, spec_blake3, ...) and the OUTCOME path
+    pub job: Option<Value>,
+    pub outcome_path: Option<PathBuf>,
 }
 
 /// One input key.
@@ -516,6 +525,7 @@ pub fn run_batch(
 }
 
 struct Ctx<'a, const N: usize> {
+    t0: Instant,
     solver: SectorSolver<'a, N>,
     template: CoefficientPolynomial,
     idx: [usize; N],
@@ -529,17 +539,18 @@ struct Ctx<'a, const N: usize> {
     n: usize,
 }
 
+/// Prepare the engine once for (family, order, recipe) and run `f` with it (the solver borrows the source system,
+/// so the prepared state lives inside this call).
 #[allow(clippy::too_many_arguments)]
-fn run<const N: usize>(
+fn with_ctx<const N: usize, R>(
     family_text: &str,
     presented: &str,
     fam: &crate::family::IntegralFamily,
     order: &NodeOrder,
     recipe: &Recipe,
-    keys: &[KeyInput],
-    out: &Path,
     opts: &BatchOptions,
-) -> Result<i32, String> {
+    f: impl FnOnce(&Ctx<'_, N>) -> R,
+) -> Result<R, String> {
     let t0 = Instant::now();
     let n = fam.denominator_count();
     if fam
@@ -633,6 +644,7 @@ fn run<const N: usize>(
         })
         .collect::<Result<_, _>>()?;
     let ctx = Ctx {
+        t0,
         solver,
         template,
         idx,
@@ -650,8 +662,166 @@ fn run<const N: usize>(
         opts,
         n,
     };
-    let prepare_s = t0.elapsed().as_secs_f64();
+    Ok(f(&ctx))
+}
 
+/// Dispatch on the arity: `$body` is run with `N` = the family's arity.
+macro_rules! with_arity {
+    ($n:expr, $N:ident, $body:block) => {
+        match $n {
+            5 => {
+                const $N: usize = 5;
+                $body
+            }
+            9 => {
+                const $N: usize = 9;
+                $body
+            }
+            12 => {
+                const $N: usize = 12;
+                $body
+            }
+            14 => {
+                const $N: usize = 14;
+                $body
+            }
+            20 => {
+                const $N: usize = 20;
+                $body
+            }
+            other => Err(format!(
+                "arity {other}: recipe solve compiled for 5, 9, 12, 14, 20"
+            )),
+        }
+    };
+}
+
+/// In-memory entry point (for the dispatcher): prepare ONCE for (family, order, recipe) and hand `f` a solver
+/// closure that returns one record per key (the same record as `results.jsonl`, without `ordinal` / `tag`; the
+/// `--expect` digests of `opts` are checked). No file is written.
+pub fn session<R>(
+    family_text: &str,
+    order: &NodeOrder,
+    recipe_text: &str,
+    opts: &BatchOptions,
+    f: impl FnOnce(&mut dyn FnMut(&[i64]) -> Value) -> R,
+) -> Result<R, String> {
+    let recipe = Recipe::parse(recipe_text)?;
+    let presented = order.present_family(family_text)?;
+    let fam = compile_family(&presented)?;
+    let n = fam.denominator_count();
+    order.validate(n)?;
+    if n != recipe.arity {
+        return Err(format!("recipe arity {} != family arity {n}", recipe.arity));
+    }
+    with_arity!(n, M, {
+        with_ctx::<M, R>(family_text, &presented, &fam, order, &recipe, opts, |ctx| {
+            let mut solve = |key: &[i64]| -> Value {
+                let t = Instant::now();
+                let mut rec = solve_guarded(ctx, key);
+                rec["seconds"] = json!(t.elapsed().as_secs_f64());
+                rec
+            };
+            f(&mut solve)
+        })
+    })
+}
+
+/// In-memory batch: the records of `keys` in input order (with `ordinal` and `tag`), one thread, no files.
+pub fn solve_keys(
+    family_text: &str,
+    order: &NodeOrder,
+    recipe_text: &str,
+    keys: &[KeyInput],
+    opts: &BatchOptions,
+) -> Result<Vec<Value>, String> {
+    session(family_text, order, recipe_text, opts, |solve| {
+        keys.iter()
+            .enumerate()
+            .map(|(ordinal, k)| {
+                let mut r = solve(&k.key);
+                r["ordinal"] = json!(ordinal);
+                r["tag"] = json!(k.tag);
+                r
+            })
+            .collect()
+    })
+}
+
+/// One key: the solve with panics caught (a panic becomes an ERROR record) and the --expect digest check.
+fn solve_guarded<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
+    let rec = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| solve_one(ctx, key)))
+        .unwrap_or_else(|p| {
+            let msg = p
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "panic".into());
+            failure(
+                ctx,
+                key,
+                "ERROR",
+                "error",
+                &format!("panic: {msg}"),
+                json!({}),
+            )
+        });
+    match ctx.opts.expect.get(key) {
+        Some(want)
+            if rec["verdict"] == "SOLVED" && rec["relation_digest"].as_str() != Some(want) =>
+        {
+            let got = rec["relation_digest"].clone();
+            let mut r = failure(
+                ctx,
+                key,
+                "DIGEST_MISMATCH",
+                "digest_mismatch",
+                "the relation solved at this key differs from the certified one (relation digest)",
+                json!({"expected": want, "got": got}),
+            );
+            r["relation_digest"] = got;
+            r
+        }
+        Some(want) if rec["verdict"] != "SOLVED" => {
+            // a certified key that no longer solves: the failure keeps its class, the certified digest is added
+            let mut r = rec;
+            r["failure"]["detail"]["certified_relation_digest"] = json!(want);
+            r
+        }
+        _ => rec,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run<const N: usize>(
+    family_text: &str,
+    presented: &str,
+    fam: &crate::family::IntegralFamily,
+    order: &NodeOrder,
+    recipe: &Recipe,
+    keys: &[KeyInput],
+    out: &Path,
+    opts: &BatchOptions,
+) -> Result<i32, String> {
+    with_ctx::<N, _>(family_text, presented, fam, order, recipe, opts, |ctx| {
+        run_prepared(ctx, keys, out)
+    })?
+}
+
+/// Records collected by the workers; per unique key: None (not started / running) or the record.
+struct Shared {
+    results: Mutex<Vec<Option<Value>>>,
+    running: Mutex<BTreeMap<usize, Instant>>,
+    expired: Mutex<BTreeSet<usize>>,
+}
+
+fn run_prepared<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    keys: &[KeyInput],
+    out: &Path,
+) -> Result<i32, String> {
+    let opts = ctx.opts;
+    let prepare_s = ctx.t0.elapsed().as_secs_f64();
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     let events = Mutex::new(
         std::fs::File::create(out.join("EVENTS.jsonl")).map_err(|e| format!("events: {e}"))?,
@@ -679,11 +849,17 @@ fn run<const N: usize>(
             uniq_of.push(p);
         }
     }
-    let results: Mutex<Vec<Option<Value>>> = Mutex::new(vec![None; uniq.len()]);
+    let shared = Shared {
+        results: Mutex::new(vec![None; uniq.len()]),
+        running: Mutex::new(BTreeMap::new()),
+        expired: Mutex::new(BTreeSet::new()),
+    };
     let next = AtomicUsize::new(0);
+    let active = AtomicUsize::new(0);
     let threads = opts.threads.max(1);
-    std::thread::scope(|s| {
+    let outcome: Result<i32, String> = std::thread::scope(|s| {
         for _ in 0..threads {
+            active.fetch_add(1, AtomicOrdering::SeqCst);
             s.spawn(|| {
                 loop {
                     if STOP.load(AtomicOrdering::SeqCst) {
@@ -693,40 +869,89 @@ fn run<const N: usize>(
                     if i >= uniq.len() {
                         break;
                     }
+                    shared.running.lock().unwrap().insert(i, Instant::now());
                     let t = Instant::now();
-                    let rec = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        solve_one(&ctx, &uniq[i])
-                    }))
-                    .unwrap_or_else(|p| {
-                        let msg = p
-                            .downcast_ref::<String>()
-                            .cloned()
-                            .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
-                            .unwrap_or_else(|| "panic".into());
-                        failure(
-                            &ctx,
-                            &uniq[i],
-                            "ERROR",
-                            "error",
-                            &format!("panic: {msg}"),
-                            json!({}),
-                        )
-                    });
-                    let mut rec = rec;
+                    let mut rec = solve_guarded(ctx, &uniq[i]);
                     rec["seconds"] = json!(t.elapsed().as_secs_f64());
                     rec["vmhwm_kb"] = json!(vmhwm_kb());
-                    event(
-                        json!({"kind":"key_finished","unique":i,"verdict":rec["verdict"],
-                        "seconds":rec["seconds"]}),
-                    );
-                    results.lock().unwrap()[i] = Some(rec);
+                    shared.running.lock().unwrap().remove(&i);
+                    // a key whose wall budget expired keeps its BUDGET_WALL record
+                    if !shared.expired.lock().unwrap().contains(&i) {
+                        event(
+                            json!({"kind":"key_finished","unique":i,"verdict":rec["verdict"],
+                            "seconds":rec["seconds"]}),
+                        );
+                        shared.results.lock().unwrap()[i] = Some(rec);
+                    }
                 }
+                active.fetch_sub(1, AtomicOrdering::SeqCst);
             });
         }
+        // watchdog: per-key wall budget (time-decided: BUDGET_WALL), and the end of the batch. When the only work
+        // left is keys whose budget expired (their lifts cannot be interrupted in-thread), the outputs are sealed
+        // here and the process exits (the stuck threads end with it).
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if let Some(budget) = opts.key_budget_s {
+                let now: Vec<(usize, f64)> = shared
+                    .running
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|(i, t)| (*i, t.elapsed().as_secs_f64()))
+                    .collect();
+                for (i, el) in now {
+                    if el > budget && shared.expired.lock().unwrap().insert(i) {
+                        let mut rec = failure(
+                            ctx,
+                            &uniq[i],
+                            "BUDGET_WALL",
+                            "budget_wall",
+                            &format!(
+                                "the solve at this key exceeded the wall budget of {budget} s"
+                            ),
+                            json!({"counter":"wall_seconds","limit":budget,"value":el}),
+                        );
+                        rec["seconds"] = json!(el);
+                        event(
+                            json!({"kind":"key_finished","unique":i,"verdict":"BUDGET_WALL","seconds":el}),
+                        );
+                        shared.results.lock().unwrap()[i] = Some(rec);
+                    }
+                }
+            }
+            if active.load(AtomicOrdering::SeqCst) == 0 {
+                break write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &event);
+            }
+            let exhausted = next.load(AtomicOrdering::SeqCst) >= uniq.len()
+                || STOP.load(AtomicOrdering::SeqCst);
+            let stuck_only = {
+                let running = shared.running.lock().unwrap();
+                let expired = shared.expired.lock().unwrap();
+                !running.is_empty() && running.keys().all(|i| expired.contains(i))
+            };
+            if exhausted && stuck_only {
+                let code = write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &event);
+                std::process::exit(code.unwrap_or(70));
+            }
+        }
     });
-    let results = results.into_inner().unwrap();
-    let interrupted = results.iter().any(Option::is_none);
+    outcome
+}
 
+#[allow(clippy::too_many_arguments)]
+fn write_outputs<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    keys: &[KeyInput],
+    uniq_of: &[usize],
+    shared: &Shared,
+    out: &Path,
+    prepare_s: f64,
+    event: &dyn Fn(Value),
+) -> Result<i32, String> {
+    let opts = ctx.opts;
+    let results = shared.results.lock().unwrap().clone();
+    let interrupted = results.iter().any(Option::is_none);
     // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
     let tmp = out.join("results.jsonl.part");
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
@@ -736,7 +961,7 @@ fn run<const N: usize>(
         let mut rec = match &results[uniq_of[ordinal]] {
             Some(r) => r.clone(),
             None => failure(
-                &ctx,
+                ctx,
                 &k.key,
                 "INTERRUPTED",
                 "interrupted",
@@ -767,29 +992,46 @@ fn run<const N: usize>(
     } else {
         10
     };
-    let outcome = json!({
+    let mut outcome = json!({
         "schema": "rustred.solve-recipe.outcome.v0",
         "status": match exit { 0 => "complete", 10 => "incomplete", _ => "interrupted" },
         "exit_code": exit,
-        "recipe": {"id": recipe.id, "digest": ctx.recipe_digest, "path": opts.recipe_path},
+        "recipe": {"id": ctx.recipe.id, "digest": ctx.recipe_digest, "path": opts.recipe_path},
         "determinism_id": DETERMINISM_ID,
         "binary": opts.binary,
         "node": ctx.node,
+        "inputs": opts.inputs,
         "outputs": {"results": {"path": "results.jsonl", "bytes": bytes.len(),
             "blake3": blake3::hash(&bytes).to_hex().to_string(), "records": keys.len() + 1,
             "end": if interrupted { "partial" } else { "end" }, "sealed": true}},
         "counts": counts,
-        "timing": {"wall_s": t0.elapsed().as_secs_f64(), "prepare_s": prepare_s},
+        "time_decided": counts.contains_key("BUDGET_WALL"),
+        "timing": {"wall_s": ctx.t0.elapsed().as_secs_f64(), "prepare_s": prepare_s},
         "memory": {"vmhwm_kb": vmhwm_kb()},
-        "threads": threads,
+        "threads": opts.threads.max(1),
     });
-    let otmp = out.join("OUTCOME.json.part");
+    if let Some(job) = &opts.job {
+        // child-job contract (subset): the job block, paths relative to the run directory
+        let mut j = job.clone();
+        j["status"] = outcome["status"].clone();
+        j["exit_code"] = json!(exit);
+        j["outputs"] = json!({"extra": [{"role": "results", "path": "out/results.jsonl", "bytes": bytes.len(),
+            "blake3": outcome["outputs"]["results"]["blake3"], "records": keys.len() + 1,
+            "end": outcome["outputs"]["results"]["end"], "sealed": true}]});
+        j["time_decided"] = outcome["time_decided"].clone();
+        outcome["job"] = j;
+    }
+    let target = opts
+        .outcome_path
+        .clone()
+        .unwrap_or_else(|| out.join("OUTCOME.json"));
+    let otmp = target.with_extension("json.part");
     std::fs::write(
         &otmp,
         serde_json::to_string_pretty(&outcome).unwrap() + "\n",
     )
     .map_err(|e| e.to_string())?;
-    std::fs::rename(&otmp, out.join("OUTCOME.json")).map_err(|e| e.to_string())?;
+    std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
     event(json!({"kind":"job_finished","exit_code":exit}));
     Ok(exit)
 }
@@ -953,7 +1195,7 @@ fn domain_check<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Result<Case<N>
     for (b, branch) in ctx.exceptions.iter().enumerate() {
         if !covers(
             &point,
-            &[branch.clone()],
+            std::slice::from_ref(branch),
             &point,
             &ctx.idx,
             &ctx.sector,
@@ -1074,6 +1316,7 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
     let mut rhs = Vec::new();
     let mut rhs_canon = Vec::new();
     let mut top = Vec::new();
+    let mut n_sub = 0usize;
     let mut all_lower = true;
     let mut first_not_lower: Option<Vec<i64>> = None;
     let mut poles: BTreeSet<String> = BTreeSet::new();
@@ -1086,14 +1329,23 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
             all_lower = false;
             first_not_lower.get_or_insert(k.clone());
         }
-        if (0..ctx.n).all(|j| !lines[j] || k[j] >= 1) {
+        let in_top = (0..ctx.n).all(|j| !lines[j] || k[j] >= 1);
+        if in_top {
             top.push(json!({"key": k, "lower": lower}));
+        } else {
+            n_sub += 1;
         }
         if !t.coefficient.denominator.is_constant() {
             poles.insert(t.coefficient.denominator.to_string());
         }
         let c = t.coefficient.to_string();
-        rhs.push(json!([t.integral.to_string(), c]));
+        // every RHS term: key text, exact coefficient, and whether the key is in the chart's top sector or a proper
+        // subsector (proved-zero sectors never appear: their integrals vanish and are dropped by the engine)
+        rhs.push(json!([
+            t.integral.to_string(),
+            c,
+            if in_top { "top" } else { "sub" }
+        ]));
         rhs_canon.push(json!([k, c]));
     }
     for p in &candidate.hidden_poles {
@@ -1209,7 +1461,7 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         "type": "relation", "key": key, "verdict": if ctx.opts.proof { "SOLVED" } else { "SOLVED_UNPROVED" },
         "determinism_id": DETERMINISM_ID, "recipe_digest": ctx.recipe_digest,
         "target": candidate.target.to_string(), "rhs": rhs, "relation_digest": relation_digest,
-        "rhs_count": candidate.rhs.len(), "top_rhs": top, "all_lower": all_lower,
+        "rhs_count": candidate.rhs.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
         "seeds_total": n_seeds, "rows": candidate.stats.rows, "trace_rows": candidate.sources.len(),
         "seeds_used": seeds_used, "proof": proof, "d_poles": poles.into_iter().collect::<Vec<_>>(),
         "failure": Value::Null,
@@ -1279,6 +1531,11 @@ mod tests {
             recipe_path: "kite.recipe.json".into(),
             order_text: NodeOrder::identity().to_json(),
             binary: json!({"path": "test", "blake3": null, "git_commit": "test"}),
+            key_budget_s: None,
+            expect: BTreeMap::new(),
+            inputs: json!([]),
+            job: None,
+            outcome_path: None,
         }
     }
 
@@ -1388,6 +1645,49 @@ mod tests {
             );
             assert_eq!(r["failure"]["schema"], FAILURE_SCHEMA);
         }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The in-memory entry point gives the batch's relations; the check mode turns a changed digest into
+    /// DIGEST_MISMATCH and keeps equal ones SOLVED; every RHS term is marked top / sub.
+    #[test]
+    fn in_memory_session_and_digest_check() {
+        let keys = vec![
+            KeyInput {
+                key: vec![2, 1, 1, 1, 1],
+                tag: Some("a".into()),
+            },
+            KeyInput {
+                key: vec![1, 2, 1, 1, 1],
+                tag: None,
+            },
+        ];
+        let r = recipe(&["S0", "S1", "Sm1", "S1m1", "S2"], "");
+        let o = NodeOrder::identity();
+        let mem = solve_keys(KITE, &o, &r, &keys, &opts(1)).unwrap();
+        assert_eq!(mem.len(), 2);
+        assert!(mem.iter().all(|x| x["verdict"] == "SOLVED"));
+        for x in &mem {
+            for term in x["rhs"].as_array().unwrap() {
+                assert!(term[2] == "top" || term[2] == "sub");
+            }
+        }
+        let base = std::env::temp_dir().join(format!("rr_recipe_mem_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        run_batch(KITE, &o, &r, &keys, &base, &opts(2)).unwrap();
+        let file = records(&base);
+        assert_eq!(file[0]["relation_digest"], mem[0]["relation_digest"]);
+        assert_eq!(file[1]["relation_digest"], mem[1]["relation_digest"]);
+        let mut chk = opts(1);
+        chk.expect.insert(
+            keys[0].key.clone(),
+            mem[0]["relation_digest"].as_str().unwrap().into(),
+        );
+        chk.expect.insert(keys[1].key.clone(), "0".repeat(64));
+        let v = solve_keys(KITE, &o, &r, &keys, &chk).unwrap();
+        assert_eq!(v[0]["verdict"], "SOLVED");
+        assert_eq!(v[1]["verdict"], "DIGEST_MISMATCH");
+        assert_eq!(v[1]["failure"]["class"], "digest_mismatch");
         let _ = std::fs::remove_dir_all(&base);
     }
 

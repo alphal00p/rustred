@@ -116,7 +116,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             ));
         }
         for case in &cases {
-            self.validate_case(&case.clone().into())?;
+            self.validate_case(&(*case).into())?;
             if !case.is_numerical() || !case.is_in_sector(self.order.sector()) {
                 return Err(SolverError::InvalidInput(
                     "shared numerical cases must be fully fixed and inside their sector".into(),

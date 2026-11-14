@@ -7538,7 +7538,7 @@ mod tests {
             &[&p1, &full],
             "b",
         );
-        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        assert!(!j.discharged.contains_key("region_covered:test"), "{j:?}");
         // (c) no complete owner and no single covering rule: the certificate cannot discharge, the region stays open
         let j = join_with(
             serde_json::json!([{"fixed": [null, null, null, null, null], "equations": []}]),
@@ -7546,7 +7546,7 @@ mod tests {
             "c",
         );
         assert_eq!(j.verdict, "open", "{j:?}");
-        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        assert!(!j.discharged.contains_key("region_covered:test"), "{j:?}");
         assert!(
             j.unresolved
                 .iter()
