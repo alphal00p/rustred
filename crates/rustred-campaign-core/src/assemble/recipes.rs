@@ -72,6 +72,7 @@ pub fn write(
             relation_set_digest,
             relation_set,
             binary_sha256,
+            determinism_contract,
             cost_ms,
             ..
         } = r.verdict
@@ -100,7 +101,8 @@ pub fn write(
             "position": r.position, "form": "recipe",
             "certified_keys": {"file": kf.file_name().map(|f| f.to_string_lossy().to_string()), "digest": certified_digest, "count": certified.len()},
             "relation_set": {"file": rf.file_name().map(|f| f.to_string_lossy().to_string()), "digest": relation_set_digest},
-            "binary_sha256": binary_sha256, "cost_ms": cost_ms});
+            "binary_sha256": binary_sha256, "determinism_contract": determinism_contract, "cost_ms": cost_ms,
+            "dispatch": "matches only keys in domain AND certified set; otherwise falls through"});
         out.push_str(&line.to_string());
         out.push('\n');
     }

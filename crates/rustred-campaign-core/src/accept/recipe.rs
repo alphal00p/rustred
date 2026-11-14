@@ -23,6 +23,9 @@ pub const SOLVE_ANSWER_SCHEMA: &str = "rustred.campaign.recipe-solve.v1";
 /// A recipe rule: canonical body, digest and domain.
 #[derive(Clone, Debug)]
 pub struct Recipe {
+    /// The coordinator's versioned DETERMINISM CONTRACT id (seed order, pivot rule, primes, elimination
+    /// convention); with the engine binary digest part of the certification's identity.
+    pub contract: String,
     pub body: Value,
     pub canonical: String,
     pub digest: String,
@@ -36,12 +39,14 @@ impl Recipe {
         domain: &Value,
         order_digest: &str,
         solve: &Value,
+        contract: &str,
         frame: &crate::key::NodeFrame,
     ) -> Result<Recipe, String> {
         let pick = |k: &str| domain.get(k).cloned().unwrap_or(Value::Null);
         let dom = json!({"chart": pick("chart"), "fixed": pick("fixed"), "equations": pick("equations"),
             "exceptions": pick("exceptions"), "target": pick("target")});
-        let body = json!({"schema": RECIPE_SCHEMA, "domain": dom, "order": order_digest, "recipe": solve, "version": 1});
+        let body = json!({"schema": RECIPE_SCHEMA, "domain": dom, "order": order_digest, "recipe": solve,
+            "determinism_contract": contract, "version": 1});
         let canonical = crate::schema::canon::canonical_json(&body, false)?;
         let mut line = dom.clone();
         line["type"] = json!("rule");
@@ -56,6 +61,7 @@ impl Recipe {
         };
         let domain = CaseDomain::from_rule_record(&rec, frame, DomainOptions::default()).map_err(|e| e.to_string())?;
         Ok(Recipe {
+            contract: contract.to_string(),
             digest: sha256_tag(canonical.as_bytes()),
             body,
             canonical,
@@ -77,6 +83,7 @@ pub struct SolveAnswer {
     pub exact_check: String,
     pub cost_ms: u64,
     pub binary_sha256: Option<String>,
+    pub determinism_contract: Option<String>,
     /// The line as read (for the relation-set file).
     pub line: String,
 }
@@ -119,6 +126,7 @@ impl SolveAnswers {
                 exact_check: v["exact_check"].as_str().unwrap_or("not_run").into(),
                 cost_ms: v["cost_ms"].as_u64().unwrap_or(0),
                 binary_sha256: v["binary_sha256"].as_str().map(str::to_string),
+                determinism_contract: v["determinism_contract"].as_str().map(str::to_string),
                 line: crate::schema::canon::canonical_json(&v, false).unwrap_or_else(|_| l.to_string()),
             };
             let id = (key, a.run);
@@ -192,6 +200,7 @@ pub enum RecipeVerdict {
         relation_set: String,
         open: Vec<(Key, OpenReason)>,
         binary_sha256: String,
+        determinism_contract: String,
         cost_ms: u64,
         determinism_checked: usize,
     },
@@ -211,7 +220,7 @@ pub fn solve_request(recipe: &Recipe, keys: &[Key], run2: &[Key], binary: Option
     let kd = keys_digest(arity, keys);
     let req = json!({"schema": SOLVE_REQUEST_SCHEMA, "recipe_digest": recipe.digest, "recipe": recipe.body,
         "keys_file": "KEYS", "keys_digest": kd, "runs": if run2.is_empty() { json!([1]) } else { json!([1, 2]) },
-        "run2_keys": run2, "binary_sha256_expected": binary});
+        "run2_keys": run2, "binary_sha256_expected": binary, "determinism_contract": recipe.contract});
     SolveRequest {
         request: format!("{req}\n"),
         keys_file: kf,
@@ -293,9 +302,14 @@ pub fn accept_recipe(input: &RecipeInput, answers: &SolveAnswers) -> Result<Reci
     let mut cost = 0u64;
     'k: for k in &cands {
         let a = answers.get(k, 1).unwrap();
-        if a.binary_sha256.as_deref() != Some(binary.as_str()) {
+        if a.binary_sha256.as_deref() != Some(binary.as_str())
+            || a.determinism_contract.as_deref() != Some(input.recipe.contract.as_str())
+        {
             return Ok(RecipeVerdict::Undecided {
-                what: format!("stale: answer at {k:?} from binary {:?}, expected {binary}", a.binary_sha256),
+                what: format!(
+                    "stale: answer at {k:?} from binary {:?} / contract {:?}, expected {binary} / {}",
+                    a.binary_sha256, a.determinism_contract, input.recipe.contract
+                ),
             });
         }
         if !a.ok || a.relation_digest.is_none() {
@@ -340,7 +354,21 @@ pub fn accept_recipe(input: &RecipeInput, answers: &SolveAnswers) -> Result<Reci
         certified,
         open,
         binary_sha256: binary,
+        determinism_contract: input.recipe.contract.clone(),
         cost_ms: cost,
         determinism_checked,
     })
+}
+
+/// A certified recipe as a dispatch entry: it MATCHES a key only if the key is in its domain AND in its certified
+/// set; otherwise dispatch FALLS THROUGH to later entries (coordinator ruling, R48 addendum 2).
+pub struct RecipeEntry<'a> {
+    pub domain: &'a CaseDomain,
+    pub certified: &'a std::collections::BTreeSet<Key>,
+}
+
+impl RecipeEntry<'_> {
+    pub fn matches(&self, key: &[i32]) -> bool {
+        self.certified.contains(key) && self.domain.applies(key).applies()
+    }
 }

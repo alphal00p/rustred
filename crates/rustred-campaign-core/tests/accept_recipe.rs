@@ -21,7 +21,8 @@ const BIN: &str = "sha256:engine-binary-under-test";
 fn answer(digest: &str, k: &Key, run: u32, rhs: &[Key], f: impl Fn(&mut Value)) -> String {
     let mut v = json!({"schema": "rustred.campaign.recipe-solve.v1", "recipe_digest": digest, "key": k, "run": run,
         "status": "ok", "failure": null, "rhs_keys": rhs, "relation_digest": format!("sha256:rel-{k:?}"),
-        "regular": "regular", "exact_check": "pass", "cost_ms": 7, "binary_sha256": BIN});
+        "regular": "regular", "exact_check": "pass", "cost_ms": 7, "binary_sha256": BIN,
+        "determinism_contract": "test-contract-v1"});
     f(&mut v);
     format!("{v}\n")
 }
@@ -39,7 +40,7 @@ fn recipe_certification_and_assembly() {
     let w = RuleText::parse(&line, &node.frame).unwrap();
     let solve = json!({"centre": "Target", "offsets": [], "floor": false, "depth": 2, "tight": false,
         "elimination": "engine-default-v1", "symmetry_rows": false});
-    let recipe = Recipe::new(&w.value, "sha256:order", &solve, &node.frame).unwrap();
+    let recipe = Recipe::new(&w.value, "sha256:order", &solve, "test-contract-v1", &node.frame).unwrap();
     let gaps = gap_keys(&node, "K2-single");
     // keys: the 20 gap keys (served) + one key the KO table already serves (not dispatched to the recipe)
     let mut keys = gaps.clone();
@@ -127,4 +128,15 @@ fn recipe_certification_and_assembly() {
     stale.load(&t3).unwrap();
     let v = accept_recipe(&mk_input(Determinism::None), &stale).unwrap();
     assert!(matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")), "{v:?}");
+    // another determinism contract id: stale as well
+    let mut other = SolveAnswers::new(&recipe.digest);
+    let mut t4 = String::new();
+    for kk in &gaps {
+        t4.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |v| v["determinism_contract"] = json!("v2")));
+    }
+    other.load(&t4).unwrap();
+    let v = accept_recipe(&mk_input(Determinism::None), &other).unwrap();
+    assert!(matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")), "{v:?}");
+    // dispatch semantics: a certified recipe matches only certified keys of its domain
+    let RecipeVerdict::Certified { .. } = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap() else { panic!() };
 }

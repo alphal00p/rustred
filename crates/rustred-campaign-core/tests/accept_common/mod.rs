@@ -136,8 +136,11 @@ pub fn ko_table(node: &Node, ko: &str) -> PathBuf {
     }
     let want = e["derived_table_sha256_uncompressed"].as_str().unwrap();
     assert_eq!(sha256_tag(&out), format!("sha256:{want}"), "{} {ko}: derived table digest", node.name);
+    // atomic write (tests run in parallel and share the file)
     let p = scratch(&node.name).join(format!("{ko}.table.jsonl"));
-    std::fs::write(&p, &out).unwrap();
+    let tmp = p.with_extension(format!("{:?}.part", std::thread::current().id()).replace(['(', ')'], ""));
+    std::fs::write(&tmp, &out).unwrap();
+    std::fs::rename(&tmp, &p).unwrap();
     p
 }
 
