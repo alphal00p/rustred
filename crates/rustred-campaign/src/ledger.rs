@@ -53,7 +53,7 @@ use std::os::unix::fs::{FileExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,12 @@ use crate::state::{
 
 pub const LEDGER_SCHEMA: &str = "rustred.campaign.ledger.v1";
 pub const MANIFEST_SCHEMA: &str = "rustred.campaign.ledger-manifest.v1";
-pub const SNAPSHOT_SCHEMA: &str = "rustred.campaign.snapshot.v1";
+/// v2 (lane ledgerfix2): the reduced state gained the parent -> children index and the launch session of each
+/// attempt. A v1 snapshot named by an older manifest is IGNORED (full replay of the segments; the next rotation
+/// writes a v2 snapshot); a snapshot is a cache, the segments are the truth.
+pub const SNAPSHOT_SCHEMA: &str = "rustred.campaign.snapshot.v2";
+/// Schema prefix shared by every snapshot version (an older version is recognised and ignored, never misread).
+const SNAPSHOT_SCHEMA_FAMILY: &str = "rustred.campaign.snapshot.";
 pub const GENESIS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 pub const LEDGER_DIR: &str = "ledger";
 pub const MANIFEST_FILE: &str = "MANIFEST.json";
@@ -352,6 +357,12 @@ pub enum JobEvent {
         reason: String,
     },
     Cancel {
+        reason: String,
+    },
+    /// RECOVERY HOOK (unconfirmed launch): the attempt's launch intent was journalled in an earlier session and its
+    /// start was never confirmed: EXECUTION UNKNOWN (state `unconfirmed`). Appended by a resuming supervisor for
+    /// every attempt in [`crate::state::CampaignState::unconfirmed_launches`] before anything else is decided.
+    Unconfirmed {
         reason: String,
     },
 }
@@ -886,6 +897,22 @@ pub trait FileOps: Send + Sync {
     fn remove(&self, path: &Path) -> io::Result<()> {
         fs::remove_file(path)
     }
+    /// Creates `path` (O_EXCL), streams its content through `fill` (buffered), fsyncs it: the BACKGROUND
+    /// snapshot writer (a large state is never held as one byte buffer).
+    fn write_new_synced_with(
+        &self,
+        path: &Path,
+        fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let f = FsOpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        let mut w = io::BufWriter::with_capacity(1 << 20, f);
+        fill(&mut w)?;
+        let f = w.into_inner().map_err(|e| e.into_error())?;
+        f.sync_all()
+    }
 }
 
 /// The real file operations.
@@ -1017,6 +1044,13 @@ pub enum LedgerError {
     Poisoned {
         why: String,
     },
+    /// `ledger/` holds an acknowledged history but no MANIFEST.json (audit-ledger2 M1): a DAMAGED ledger. `create`
+    /// refuses (it never deletes such files); a supervisor stops. Recovery: [`rebuild_manifest`] (verified chain ->
+    /// manifest) after a person has looked at the directory.
+    ManifestMissing {
+        dir: PathBuf,
+        found: String,
+    },
 }
 
 impl std::fmt::Display for LedgerError {
@@ -1055,6 +1089,11 @@ impl std::fmt::Display for LedgerError {
             LedgerError::Poisoned { why } => {
                 write!(f, "ledger handle poisoned ({why}); drop it and reopen")
             }
+            LedgerError::ManifestMissing { dir, found } => write!(
+                f,
+                "damaged ledger: {} has no {MANIFEST_FILE} but holds an acknowledged history ({found}); nothing was deleted; rebuild the manifest from the verified chain (ledger::rebuild_manifest) after checking the directory",
+                dir.display()
+            ),
         }
     }
 }
@@ -1104,6 +1143,10 @@ pub struct LedgerConfig {
     pub keep_old_snapshots: usize,
     /// Minimum monotonic time between two attempts of a failed rotation.
     pub rotation_retry_ms: u64,
+    /// A rotation writes the snapshot INLINE while the state has fewer items + jobs than this; from this size on
+    /// the state is frozen (copy-on-write maps: milliseconds) and the snapshot is streamed to disk by a background
+    /// thread, referenced from the next rotation on, so appends never wait for it (audit-ledger2 m10).
+    pub background_snapshot_min_entries: usize,
 }
 
 impl Default for LedgerConfig {
@@ -1114,6 +1157,7 @@ impl Default for LedgerConfig {
             lazy_max_ms: 1000,
             keep_old_snapshots: 1,
             rotation_retry_ms: 10_000,
+            background_snapshot_min_entries: 20_000,
         }
     }
 }
@@ -1164,6 +1208,8 @@ pub struct OpenReport {
     pub removed_unreferenced: Vec<String>,
     /// Bytes beyond the commit mark rewritten and fsynced (fsync gate).
     pub regated_bytes: u64,
+    /// Why the manifest's snapshot was not used (missing, older snapshot version: full replay), if so.
+    pub snapshot_note: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1191,13 +1237,37 @@ pub struct Capture {
     pub got: Option<(CampaignState, String)>,
 }
 
-impl Capture {
-    fn see(cap: &mut Option<&mut Capture>, st: &CampaignState, seq: u64, head: &str) {
+/// What a scan does with every verified record, in order (reduce it, capture the state, collect it, ...).
+type Visit<'v> = dyn FnMut(&Record, &str) -> Result<(), LedgerError> + 'v;
+
+/// The visitor that reduces into `st` (a refusal is `Replay`) and fills `cap` right after its record.
+fn reducer<'a>(
+    st: &'a mut CampaignState,
+    mut cap: Option<&'a mut Capture>,
+) -> impl FnMut(&Record, &str) -> Result<(), LedgerError> + 'a {
+    move |rec, h| {
+        st.apply_record(rec).map_err(LedgerError::Replay)?;
         if let Some(c) = cap.as_deref_mut()
-            && c.at == seq
+            && c.at == rec.seq
         {
-            c.got = Some((st.clone(), head.to_string()));
+            c.got = Some((st.clone(), h.to_string()));
         }
+        Ok(())
+    }
+}
+
+/// Reads a segment named by the manifest. A MISSING segment is corruption (audit-ledger2 m8), not an I/O error:
+/// segments are never deleted.
+fn read_segment_file(dir: &Path, file: &str) -> Result<Vec<u8>, LedgerError> {
+    let p = dir.join(file);
+    match fs::read(&p) {
+        Ok(b) => Ok(b),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(corrupt(
+            file,
+            0,
+            "segment named by the manifest is missing (deleted)",
+        )),
+        Err(e) => Err(io_err(&p, "read segment")(e)),
     }
 }
 
@@ -1209,7 +1279,7 @@ struct Scan {
     seq: u64,
     head: String,
     hasher: blake3::Hasher,
-    /// A torn tail (beyond the mark, incomplete or NUL-filled, nothing valid after it).
+    /// A torn tail (beyond the mark, an incomplete line or NUL-filled bytes).
     torn: Option<String>,
     /// Corruption found (only returned when an override may handle it; else an error).
     corrupt: Option<(u64, String)>,
@@ -1219,30 +1289,21 @@ fn is_torn_shape(line_incomplete: bool, bytes: &[u8]) -> bool {
     line_incomplete || bytes.contains(&0)
 }
 
-/// Scans `bytes` (the active segment) on top of `state` (at `seq`/`head`). `mark` = the commit mark if it names
-/// this segment; `stop_after` = stop after this seq (override). Reducer refusals are errors (`Replay`).
+/// Scans `bytes` (the active segment) after record `seq` / chain value `head`, handing every verified record to
+/// `visit`. `mark` = the commit mark if it names this segment; `stop_after` = stop after this seq (override).
+/// Classification of the first bad line at offset p (module doc): torn only if beyond the mark and torn-shaped
+/// (incomplete or containing NUL bytes). Since a failed commit-mark write poisons the handle (audit-ledger2 m7),
+/// no acknowledged record ever lies beyond the mark, so a torn-shaped region there is cut even when complete valid
+/// (unacknowledged) records follow it (out-of-order write-back of unsynced pages after a power loss).
+#[allow(clippy::too_many_arguments)]
 fn scan_active(
     file: &str,
     bytes: &[u8],
-    state: &mut CampaignState,
-    seq: u64,
-    head: String,
-    mark: Option<&CommitMark>,
-    stop_after: Option<u64>,
-) -> Result<Scan, LedgerError> {
-    scan_active_cap(file, bytes, state, seq, head, mark, stop_after, None)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn scan_active_cap(
-    file: &str,
-    bytes: &[u8],
-    state: &mut CampaignState,
     mut seq: u64,
     mut head: String,
     mark: Option<&CommitMark>,
     stop_after: Option<u64>,
-    mut cap: Option<&mut Capture>,
+    visit: &mut Visit<'_>,
 ) -> Result<Scan, LedgerError> {
     let mut pos = 0usize;
     let mut line_no = 0u64;
@@ -1289,10 +1350,9 @@ fn scan_active_cap(
             ));
             break;
         }
-        state.apply_record(&rec).map_err(LedgerError::Replay)?;
+        visit(&rec, &h)?;
         seq = rec.seq;
         head = h;
-        Capture::see(&mut cap, state, seq, &head);
         hasher.update(&bytes[pos..pos + nl + 1]);
         replayed += 1;
         pos += nl + 1;
@@ -1327,28 +1387,13 @@ fn scan_active_cap(
     let mark_off = mark.map(|m| m.offset).unwrap_or(0);
     if let Some((why, torn_shape)) = fail {
         let mut why = why;
-        let mut is_torn = torn_shape && (pos as u64) >= mark_off;
+        let is_torn = torn_shape && (pos as u64) >= mark_off && mark_hit;
         if !torn_shape {
             why.push_str(" (a complete line: corruption, not a torn write)");
-        } else if (pos as u64) < mark_off {
+        } else if (pos as u64) < mark_off || !mark_hit {
             why.push_str(&format!(
                 " (at or before the commit mark at offset {mark_off}: acknowledged data damaged)"
             ));
-        }
-        if is_torn {
-            // Refuse if any later complete line is a valid record: that is not a torn tail.
-            let rest = &bytes[pos..];
-            if let Some(first_nl) = rest.iter().position(|&b| b == b'\n') {
-                let mut p = first_nl + 1;
-                while let Some(nl) = rest[p..].iter().position(|&b| b == b'\n') {
-                    if decode_record(&rest[p..p + nl]).is_ok() {
-                        is_torn = false;
-                        why.push_str("; valid records follow");
-                        break;
-                    }
-                    p += nl + 1;
-                }
-            }
         }
         if is_torn {
             scan.torn = Some(why);
@@ -1367,50 +1412,20 @@ fn scan_active_cap(
     Ok(scan)
 }
 
-fn read_snapshot_checked(dir: &Path, s: &SnapshotRef) -> Result<Snapshot, LedgerError> {
-    let p = dir.join(&s.file);
-    let bytes = atomic::read_capped(&p, 16 << 30)?;
-    if blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
-        return Err(corrupt(
-            &s.file,
-            0,
-            "snapshot digest differs from the manifest",
-        ));
-    }
-    let snap: Snapshot =
-        serde_json::from_slice(&bytes).map_err(|e| corrupt(&s.file, 0, e.to_string()))?;
-    if snap.schema != SNAPSHOT_SCHEMA || snap.seq != s.seq {
-        return Err(corrupt(&s.file, 0, "snapshot schema or seq mismatch"));
-    }
-    Ok(snap)
-}
-
-/// Replays one sealed segment into `st`, checking its digest, framing, sequence and chain.
+/// Replays one sealed segment through `visit`, checking its digest, framing, sequence and chain.
 fn replay_sealed(
     dir: &Path,
     s: &SealedSegment,
-    st: &mut CampaignState,
-    seq: u64,
-    head: &str,
-) -> Result<(u64, String), LedgerError> {
-    replay_sealed_cap(dir, s, st, seq, head, None)
-}
-
-fn replay_sealed_cap(
-    dir: &Path,
-    s: &SealedSegment,
-    st: &mut CampaignState,
     mut seq: u64,
     head: &str,
-    mut cap: Option<&mut Capture>,
+    visit: &mut Visit<'_>,
 ) -> Result<(u64, String), LedgerError> {
-    let p = dir.join(&s.file);
-    let bytes = fs::read(&p).map_err(io_err(&p, "read sealed segment"))?;
-    if blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
+    let bytes = read_segment_file(dir, &s.file)?;
+    if bytes.len() as u64 != s.bytes || blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
         return Err(corrupt(
             &s.file,
             0,
-            "sealed segment digest differs from the manifest (edited or truncated)",
+            "sealed segment size or digest differs from the manifest (edited or truncated)",
         ));
     }
     let mut head = head.to_string();
@@ -1425,10 +1440,9 @@ fn replay_sealed_cap(
         if rec.seq != seq + 1 || rec.prev != head {
             return Err(corrupt(&s.file, n + 1, "sequence or hash chain broken"));
         }
-        st.apply_record(&rec).map_err(LedgerError::Replay)?;
+        visit(&rec, &h)?;
         seq = rec.seq;
         head = h;
-        Capture::see(&mut cap, st, seq, &head);
         n += 1;
         pos += nl + 1;
     }
@@ -1442,62 +1456,340 @@ fn replay_sealed_cap(
     Ok((n, head))
 }
 
-/// State at the start of the active segment: snapshot (with a length check of every sealed segment and a digest
-/// check of the last one, audit A M2) or replay of all sealed segments.
-fn load_base(
+/// Checks a sealed segment against the manifest without replaying it: size, BLAKE3, and its place in the chain
+/// (first record = `seq_before + 1` continuing `head_before`, last record = the manifest's `last_seq` / `last_hash`),
+/// so `open` trusts no manifest field that the full readers would refuse. Returns its (last seq, last hash).
+fn check_sealed(
     dir: &Path,
-    m: &Manifest,
-) -> Result<(CampaignState, u64, String, Option<u64>, u64), LedgerError> {
-    let snapshot = m.snapshot.as_ref().filter(|s| dir.join(&s.file).exists());
-    let (state, seq, head, from_snapshot, replayed) = match snapshot {
-        Some(s) => {
-            for sealed in &m.sealed {
-                let p = dir.join(&sealed.file);
-                let len = fs::metadata(&p)
-                    .map_err(io_err(&p, "stat sealed segment"))?
-                    .len();
-                if len != sealed.bytes {
-                    return Err(corrupt(
-                        &sealed.file,
-                        0,
-                        format!(
-                            "sealed segment has {len} bytes, the manifest says {}",
-                            sealed.bytes
-                        ),
-                    ));
-                }
-            }
-            // every sealed segment's digest (audit B exp2: a flipped byte in any sealed segment refuses at open;
-            // BLAKE3 at ~1 GB/s: a week of 64 MiB segments costs well under a second)
-            for sealed in &m.sealed {
-                let p = dir.join(&sealed.file);
-                let (_, d) =
-                    atomic::blake3_file(&p).map_err(io_err(&p, "digest sealed segment"))?;
-                if d != sealed.blake3 {
-                    return Err(corrupt(
-                        &sealed.file,
-                        0,
-                        "sealed segment digest differs from the manifest",
-                    ));
-                }
-            }
-            let snap = read_snapshot_checked(dir, s)?;
-            (snap.state, snap.seq, snap.head, Some(s.seq), 0)
+    s: &SealedSegment,
+    seq_before: u64,
+    head_before: &str,
+) -> Result<(u64, String), LedgerError> {
+    let bytes = read_segment_file(dir, &s.file)?;
+    if bytes.len() as u64 != s.bytes {
+        return Err(corrupt(
+            &s.file,
+            0,
+            format!(
+                "sealed segment has {} bytes, the manifest says {}",
+                bytes.len(),
+                s.bytes
+            ),
+        ));
+    }
+    if blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
+        return Err(corrupt(
+            &s.file,
+            0,
+            "sealed segment digest differs from the manifest",
+        ));
+    }
+    let bad = |why: &str| corrupt(&s.file, 0, format!("sealed segment {why}"));
+    if s.first_seq != seq_before + 1 || !bytes.ends_with(b"\n") {
+        return Err(bad("does not continue the chain (first seq) or ends inside a line"));
+    }
+    let first_nl = bytes.iter().position(|&b| b == b'\n').expect("ends with a newline");
+    let (first, _) = decode_record(&bytes[..first_nl]).map_err(|w| bad(&w))?;
+    if first.seq != seq_before + 1 || first.prev != head_before {
+        return Err(bad("first record does not continue the chain"));
+    }
+    let body = &bytes[..bytes.len() - 1];
+    let last_start = body.iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
+    let (last, h) = decode_record(&body[last_start..]).map_err(|w| bad(&w))?;
+    if last.seq != s.last_seq || h != s.last_hash {
+        return Err(bad("ends elsewhere than the manifest says"));
+    }
+    Ok((s.last_seq, s.last_hash.clone()))
+}
+
+// ------------------------------------------------------------------------------------------------------------
+// Snapshots: streamed in both directions (audit-ledger2 m10)
+// ------------------------------------------------------------------------------------------------------------
+
+fn json_str(s: &str) -> String {
+    serde_json::to_string(s).expect("strings serialise")
+}
+
+/// The bytes of a snapshot file before its state: `{"schema":..,"seq":N,"head":"..","state":` (the file is exactly
+/// `serde_json` of [`Snapshot`] plus a newline: prefix, state, `}\n`).
+fn snapshot_prefix(seq: u64, head: &str) -> Vec<u8> {
+    format!(
+        "{{\"schema\":{},\"seq\":{seq},\"head\":{},\"state\":",
+        json_str(SNAPSHOT_SCHEMA),
+        json_str(head)
+    )
+    .into_bytes()
+}
+
+/// Writes through to `w`, feeding the file hasher and the state hasher.
+struct Tee<'a> {
+    w: &'a mut dyn Write,
+    file: &'a mut blake3::Hasher,
+    state: &'a mut blake3::Hasher,
+}
+
+impl Write for Tee<'_> {
+    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+        let n = self.w.write(b)?;
+        self.file.update(&b[..n]);
+        self.state.update(&b[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.w.flush()
+    }
+}
+
+/// Serialises the snapshot of `state` (after record `seq`, chain value `head`) into `w`, streaming; returns (BLAKE3
+/// of the file bytes, BLAKE3 of the state's JSON = [`CampaignState::digest`]).
+fn write_snapshot_to(
+    w: &mut dyn Write,
+    seq: u64,
+    head: &str,
+    state: &CampaignState,
+) -> io::Result<(String, String)> {
+    let mut fh = blake3::Hasher::new();
+    let mut sh = blake3::Hasher::new();
+    let pre = snapshot_prefix(seq, head);
+    w.write_all(&pre)?;
+    fh.update(&pre);
+    {
+        let mut tee = Tee {
+            w: &mut *w,
+            file: &mut fh,
+            state: &mut sh,
+        };
+        serde_json::to_writer(&mut tee, state).map_err(io::Error::other)?;
+    }
+    w.write_all(b"}\n")?;
+    fh.update(b"}\n");
+    Ok((
+        fh.finalize().to_hex().to_string(),
+        sh.finalize().to_hex().to_string(),
+    ))
+}
+
+/// Reads through, feeding a hasher (the snapshot digest is checked while it is parsed: one pass, no copy).
+struct HashRead<R> {
+    inner: R,
+    h: blake3::Hasher,
+}
+
+impl<R: io::Read> io::Read for HashRead<R> {
+    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(b)?;
+        self.h.update(&b[..n]);
+        Ok(n)
+    }
+}
+
+enum SnapLoad {
+    Loaded(Box<Snapshot>),
+    /// The file is gone (pruned by a concurrent rotation, or deleted): replay the segments.
+    Missing,
+    /// Another snapshot version (e.g. v1 written by an older build): ignored, replay the segments.
+    OtherVersion(String),
+}
+
+fn read_prefix(r: &mut impl io::Read, n: usize) -> io::Result<Vec<u8>> {
+    let mut v = vec![0u8; n];
+    let mut got = 0;
+    while got < n {
+        let k = r.read(&mut v[got..])?;
+        if k == 0 {
+            break;
         }
-        None => {
-            let mut st = CampaignState::default();
-            let mut seq = 0;
-            let mut head = GENESIS.to_string();
-            let mut n = 0;
-            for s in &m.sealed {
-                let (k, h) = replay_sealed(dir, s, &mut st, seq, &head)?;
-                n += k;
-                seq = s.last_seq;
-                head = h;
-            }
-            (st, seq, head, None, n)
-        }
+        got += k;
+    }
+    v.truncate(got);
+    Ok(v)
+}
+
+/// The version word of a snapshot file prefix, if it is one (`rustred.campaign.snapshot.vN`).
+fn snapshot_version(prefix: &[u8]) -> Option<String> {
+    let s = std::str::from_utf8(prefix).ok()?;
+    let rest = s.strip_prefix("{\"schema\":\"")?;
+    let word = &rest[..rest.find('"')?];
+    word.starts_with(SNAPSHOT_SCHEMA_FAMILY)
+        .then(|| word.to_string())
+}
+
+/// Streams the snapshot named by the manifest into a state, checking its BLAKE3 (manifest), schema and seq.
+fn read_snapshot_checked(dir: &Path, s: &SnapshotRef) -> Result<SnapLoad, LedgerError> {
+    let p = dir.join(&s.file);
+    let f = match File::open(&p) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(SnapLoad::Missing),
+        Err(e) => return Err(io_err(&p, "open snapshot")(e)),
     };
+    let mut r = HashRead {
+        inner: f,
+        h: blake3::Hasher::new(),
+    };
+    let pre = read_prefix(&mut r, 64).map_err(io_err(&p, "read snapshot"))?;
+    match snapshot_version(&pre) {
+        Some(v) if v == SNAPSHOT_SCHEMA => {}
+        Some(v) => return Ok(SnapLoad::OtherVersion(v)),
+        None => return Err(corrupt(&s.file, 0, "not a ledger snapshot")),
+    }
+    let parsed: Result<Snapshot, serde_json::Error> = {
+        let chained = io::Read::chain(&pre[..], &mut r);
+        serde_json::from_reader(io::BufReader::with_capacity(1 << 20, chained))
+    };
+    io::copy(&mut r, &mut io::sink()).map_err(io_err(&p, "read snapshot"))?;
+    if r.h.finalize().to_hex().as_str() != s.blake3 {
+        return Err(corrupt(
+            &s.file,
+            0,
+            "snapshot digest differs from the manifest",
+        ));
+    }
+    let snap = parsed.map_err(|e| corrupt(&s.file, 0, e.to_string()))?;
+    if snap.schema != SNAPSHOT_SCHEMA || snap.seq != s.seq {
+        return Err(corrupt(&s.file, 0, "snapshot schema or seq mismatch"));
+    }
+    Ok(SnapLoad::Loaded(Box::new(snap)))
+}
+
+/// `verify`: does the manifest's snapshot hold exactly `st` (the state replayed to its seq, chain value `head`)?
+/// Compared by digests while streaming the file (no second state in memory): the file's state bytes hash to the
+/// manifest's `state_digest`, which equals the digest of `st`, and the header names the same chain value. A file
+/// that differs from the manifest (BLAKE3, schema, seq) is an ERROR as in `open`; `None` when the file is gone
+/// (pruned by a concurrent rotation) or of another snapshot version.
+fn snapshot_matches_state(
+    dir: &Path,
+    sr: &SnapshotRef,
+    head: &str,
+    st: &CampaignState,
+) -> Result<Option<bool>, LedgerError> {
+    let p = dir.join(&sr.file);
+    let mut f = match File::open(&p) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_err(&p, "open snapshot")(e)),
+    };
+    let len = f.metadata().map_err(io_err(&p, "stat snapshot"))?.len() as usize;
+    let want = snapshot_prefix(sr.seq, head);
+    let mut fh = blake3::Hasher::new();
+    let mut sh = blake3::Hasher::new();
+    let mut pre = Vec::with_capacity(want.len());
+    let mut tail = Vec::new();
+    let state_end = len.saturating_sub(2);
+    let mut at = 0usize;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let k = io::Read::read(&mut f, &mut buf).map_err(io_err(&p, "read snapshot"))?;
+        if k == 0 {
+            break;
+        }
+        let chunk = &buf[..k];
+        fh.update(chunk);
+        let p_end = want.len().saturating_sub(at).min(k);
+        pre.extend_from_slice(&chunk[..p_end]);
+        let s_end = state_end.saturating_sub(at).min(k).max(p_end);
+        sh.update(&chunk[p_end..s_end]);
+        tail.extend_from_slice(&chunk[s_end..]);
+        at += k;
+    }
+    match snapshot_version(&pre) {
+        Some(v) if v == SNAPSHOT_SCHEMA => {}
+        Some(_) => return Ok(None),
+        None => return Err(corrupt(&sr.file, 0, "not a ledger snapshot")),
+    }
+    if fh.finalize().to_hex().as_str() != sr.blake3 {
+        return Err(corrupt(
+            &sr.file,
+            0,
+            "snapshot digest differs from the manifest",
+        ));
+    }
+    let head_at = want.len() - json_str(head).len() - "\"state\":".len() - 1;
+    if pre.len() != want.len() || pre[..head_at] != want[..head_at] {
+        return Err(corrupt(&sr.file, 0, "snapshot schema or seq mismatch"));
+    }
+    let region_ok = sh.finalize().to_hex().as_str() == sr.state_digest && tail == b"}\n";
+    Ok(Some(
+        pre == want && region_ok && sr.state_digest == st.digest(),
+    ))
+}
+
+/// The state at the start of the active segment.
+struct Base {
+    state: CampaignState,
+    seq: u64,
+    head: String,
+    from_snapshot: Option<u64>,
+    replayed: u64,
+    /// Why a snapshot named by the manifest was not used (missing / other version), if so.
+    note: Option<String>,
+}
+
+/// State at the start of the active segment: the manifest's snapshot (it may end at ANY sealed segment boundary:
+/// a background snapshot is referenced one rotation after its seal point) plus a replay of the sealed segments
+/// after it, or a replay of all sealed segments. Every sealed segment is checked against the manifest (size and
+/// BLAKE3; audit B exp2) before it is trusted. A missing snapshot file or one of another version means a full
+/// replay (audit-ledger2 m2: a reader racing a rotation's prune never fails).
+fn load_base(dir: &Path, m: &Manifest) -> Result<Base, LedgerError> {
+    let mut note = None;
+    let mut loaded: Option<(Box<Snapshot>, usize)> = None;
+    if let Some(s) = &m.snapshot {
+        let covered = m
+            .sealed
+            .iter()
+            .position(|x| x.last_seq == s.seq)
+            .map(|i| i + 1)
+            .ok_or_else(|| {
+                corrupt(
+                    MANIFEST_FILE,
+                    0,
+                    format!(
+                        "snapshot seq {} is not the end of a sealed segment",
+                        s.seq
+                    ),
+                )
+            })?;
+        let (mut cs, mut ch) = (0u64, GENESIS.to_string());
+        for sealed in &m.sealed[..covered] {
+            (cs, ch) = check_sealed(dir, sealed, cs, &ch)?;
+        }
+        match read_snapshot_checked(dir, s)? {
+            SnapLoad::Loaded(snap) => {
+                if snap.head != m.sealed[covered - 1].last_hash {
+                    return Err(corrupt(
+                        &s.file,
+                        0,
+                        "snapshot chain value differs from its sealed segment's last record",
+                    ));
+                }
+                loaded = Some((snap, covered));
+            }
+            SnapLoad::Missing => {
+                note = Some(format!("snapshot {} missing: full replay", s.file));
+            }
+            SnapLoad::OtherVersion(v) => {
+                note = Some(format!(
+                    "snapshot {} is {v}, this build reads {SNAPSHOT_SCHEMA}: full replay",
+                    s.file
+                ));
+            }
+        }
+    }
+    let (mut st, mut seq, mut head, from_snapshot, skip) = match loaded {
+        Some((snap, covered)) => {
+            let Snapshot {
+                seq, head, state, ..
+            } = *snap;
+            (state, seq, head, Some(seq), covered)
+        }
+        None => (CampaignState::default(), 0, GENESIS.to_string(), None, 0),
+    };
+    let mut replayed = 0;
+    for s in &m.sealed[skip..] {
+        let (k, h) = replay_sealed(dir, s, seq, &head, &mut reducer(&mut st, None))?;
+        replayed += k;
+        seq = s.last_seq;
+        head = h;
+    }
     if seq + 1 != m.active.first_seq || head != m.active.prev {
         return Err(corrupt(
             MANIFEST_FILE,
@@ -1508,7 +1800,14 @@ fn load_base(
             ),
         ));
     }
-    Ok((state, seq, head, from_snapshot, replayed))
+    Ok(Base {
+        state: st,
+        seq,
+        head,
+        from_snapshot,
+        replayed,
+        note,
+    })
 }
 
 /// The commit mark restricted to the active segment, after checking it against the manifest.
@@ -1556,7 +1855,8 @@ pub struct LedgerView {
 }
 
 /// Opens a ledger READ-ONLY (no lock, no repair). Order: commit mark, manifest, segments (so a concurrent writer
-/// cannot make the mark look ahead of the data). A torn tail is reported, corruption is an error.
+/// cannot make the mark look ahead of the data). A torn tail is reported, corruption is an error. Memory: one
+/// reduced state (the snapshot is streamed).
 pub fn open_read_only(cdir: &Path) -> Result<LedgerView, LedgerError> {
     let dir = ledger_dir(cdir);
     if !dir.join(MANIFEST_FILE).exists() {
@@ -1564,18 +1864,18 @@ pub fn open_read_only(cdir: &Path) -> Result<LedgerView, LedgerError> {
     }
     let mark = read_commit_mark(&dir)?;
     let manifest = read_manifest(&dir)?;
-    let (mut state, seq, head, _, _) = load_base(&dir, &manifest)?;
+    let base = load_base(&dir, &manifest)?;
     let am = mark_for_active(&manifest, mark.as_ref())?;
-    let seg_path = dir.join(&manifest.active.file);
-    let bytes = fs::read(&seg_path).map_err(io_err(&seg_path, "read segment"))?;
+    let bytes = read_segment_file(&dir, &manifest.active.file)?;
+    let mut state = base.state;
     let scan = scan_active(
         &manifest.active.file,
         &bytes,
-        &mut state,
-        seq,
-        head,
+        base.seq,
+        base.head,
         am,
         None,
+        &mut reducer(&mut state, None),
     )?;
     if let Some((line, why)) = scan.corrupt {
         return Err(corrupt(&manifest.active.file, line, why));
@@ -1610,10 +1910,29 @@ pub struct Ledger {
     state: CampaignState,
     unsynced: usize,
     last_sync: Duration,
-    poisoned: Option<String>,
+    poisoned: Option<Poison>,
     warnings: Vec<String>,
     rotation_failed_at: Option<Duration>,
+    /// The background snapshot of the last rotation (large states), and a finished one not yet in the manifest.
+    snapshot_job: Option<SnapshotJob>,
+    ready_snapshot: Option<SnapshotRef>,
     _dir_lock: File,
+}
+
+/// Why a handle is poisoned. `no_space`: the cause was ENOSPC / EDQUOT; `reported`: the causing error already
+/// went to a caller (else the next call reports it with its type, then `Poisoned`; audit-ledger2 m1).
+#[derive(Debug)]
+struct Poison {
+    why: String,
+    no_space: Option<PathBuf>,
+    reported: bool,
+}
+
+/// A background snapshot (state frozen at seq `seq`, the end of a sealed segment).
+struct SnapshotJob {
+    seq: u64,
+    cancel: Arc<AtomicBool>,
+    handle: std::thread::JoinHandle<Result<SnapshotRef, String>>,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -1623,6 +1942,17 @@ impl std::fmt::Debug for Ledger {
             .field("seq", &self.seq)
             .field("head", &self.head)
             .finish()
+    }
+}
+
+impl Drop for Ledger {
+    /// A running background snapshot is cancelled and joined (no write into the directory after the handle is
+    /// gone); an unreferenced snapshot file it left is removed by the next `open`.
+    fn drop(&mut self) {
+        if let Some(job) = self.snapshot_job.take() {
+            job.cancel.store(true, Ordering::SeqCst);
+            let _ = job.handle.join();
+        }
     }
 }
 
@@ -1659,10 +1989,247 @@ struct PendingRecovery {
     truncate_to: u64,
 }
 
+fn segment_index(name: &str) -> Option<u32> {
+    name.strip_prefix("segment-")?
+        .strip_suffix(".jsonl")?
+        .parse()
+        .ok()
+}
+
+/// M1: what a ledger directory WITHOUT a manifest holds. `Ok(())` = at most the residue of a crashed `create`
+/// (segment 1 with at most record 1, a commit mark naming at most record 1, nothing else of a history): it may be
+/// removed. Anything more is an acknowledged history: `ManifestMissing` (never deleted).
+fn check_create_residue(dir: &Path) -> Result<(), LedgerError> {
+    let mut found = Vec::new();
+    for e in fs::read_dir(dir).map_err(io_err(dir, "list"))?.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if let Some(idx) = segment_index(&name) {
+            if idx != 1 {
+                found.push(name);
+                continue;
+            }
+            let b = fs::read(e.path()).map_err(io_err(&e.path(), "read segment"))?;
+            // record 1 is the only line `create` writes before the manifest: more than one line is a history
+            let lines = b.iter().filter(|&&c| c == b'\n').count();
+            let after_first = b
+                .iter()
+                .position(|&c| c == b'\n')
+                .is_some_and(|p| p + 1 < b.len());
+            if lines > 1 || after_first {
+                found.push(format!("{name} with {lines} records"));
+            }
+        } else if (name.starts_with("snapshot-") && name.ends_with(".json"))
+            || (name.starts_with("torn-") && name.ends_with(".bin"))
+            || name == RECOVERY_PENDING_FILE
+        {
+            found.push(name);
+        } else if name == COMMIT_FILE {
+            let b = fs::read(e.path()).map_err(io_err(&e.path(), "read commit mark"))?;
+            if let Some(m) = CommitMark::read(&b)
+                && (m.segment > 1 || m.seq > 1)
+            {
+                found.push(format!(
+                    "{COMMIT_FILE} naming segment {} seq {}",
+                    m.segment, m.seq
+                ));
+            }
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    found.sort();
+    Err(LedgerError::ManifestMissing {
+        dir: dir.to_path_buf(),
+        found: found.join(", "),
+    })
+}
+
+/// What [`rebuild_manifest`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RebuildReport {
+    pub sealed: u32,
+    pub records: u64,
+    pub active: String,
+}
+
+/// RECOVERY VERB for a damaged ledger without MANIFEST.json (M1): rebuilds the manifest from the segments found,
+/// after verifying the WHOLE chain from record 1 (framing, digests, canonical form, dense seq, `prev` chain, the
+/// reducer accepts every record, the commit mark lies within the data and names a record boundary) and the
+/// campaign id. Segments must be numbered 1..=N without a gap; the last one becomes the active segment, the
+/// others sealed (size, BLAKE3, last hash recomputed); no snapshot (the next rotation writes one); nothing is
+/// deleted or rewritten except the new manifest. Needs the held campaign lock. Refuses (typed `Corrupt`) on any
+/// doubt; refuses `AlreadyExists` when a manifest is present.
+pub fn rebuild_manifest(cdir: &Path, lock: &CampaignLock) -> Result<RebuildReport, LedgerError> {
+    check_lock(cdir, lock)?;
+    let dir = ledger_dir(cdir);
+    if dir.join(MANIFEST_FILE).exists() {
+        return Err(LedgerError::AlreadyExists { dir });
+    }
+    let _dir_lock = flock_dir(&dir)?;
+    let mut idx: Vec<u32> = fs::read_dir(&dir)
+        .map_err(io_err(&dir, "list"))?
+        .flatten()
+        .filter_map(|e| segment_index(&e.file_name().to_string_lossy()))
+        .collect();
+    idx.sort_unstable();
+    if idx.is_empty() || idx.iter().enumerate().any(|(i, &x)| x as usize != i + 1) {
+        return Err(corrupt(
+            "segment-*",
+            0,
+            format!("segments must be numbered 1..=N without a gap, found {idx:?}"),
+        ));
+    }
+    let mark = read_commit_mark(&dir)?;
+    let mut st = CampaignState::default();
+    let (mut seq, mut head) = (0u64, GENESIS.to_string());
+    let mut sealed = Vec::new();
+    let last = *idx.last().unwrap();
+    let mut active: Option<ActiveSegment> = None;
+    for &i in &idx {
+        let file = segment_name(i);
+        let bytes = read_segment_file(&dir, &file)?;
+        let (first_seq, prev) = (seq + 1, head.clone());
+        if i < last {
+            let mut pos = 0usize;
+            let mut n = 0u64;
+            while pos < bytes.len() {
+                let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') else {
+                    return Err(corrupt(&file, n + 1, "sealed segment ends inside a line"));
+                };
+                let (rec, h) =
+                    decode_record(&bytes[pos..pos + nl]).map_err(|w| corrupt(&file, n + 1, w))?;
+                if rec.seq != seq + 1 || rec.prev != head {
+                    return Err(corrupt(&file, n + 1, "sequence or hash chain broken"));
+                }
+                st.apply_record(&rec).map_err(LedgerError::Replay)?;
+                seq = rec.seq;
+                head = h;
+                n += 1;
+                pos += nl + 1;
+            }
+            if n == 0 {
+                return Err(corrupt(&file, 0, "empty segment before the last one"));
+            }
+            sealed.push(SealedSegment {
+                index: i,
+                file,
+                first_seq,
+                last_seq: seq,
+                bytes: bytes.len() as u64,
+                blake3: blake3::hash(&bytes).to_hex().to_string(),
+                last_hash: head.clone(),
+            });
+        } else {
+            let am = mark.as_ref().filter(|m| m.segment == i);
+            if mark
+                .as_ref()
+                .is_some_and(|m| m.segment > i || (m.segment < i && m.seq >= first_seq))
+            {
+                return Err(corrupt(
+                    COMMIT_FILE,
+                    0,
+                    "commit mark names records beyond the segments found",
+                ));
+            }
+            let scan = scan_active(&file, &bytes, seq, head.clone(), am, None, &mut reducer(&mut st, None))?;
+            if let Some((line, why)) = scan.corrupt {
+                return Err(corrupt(&file, line, why));
+            }
+            seq = scan.seq;
+            active = Some(ActiveSegment {
+                index: i,
+                file,
+                first_seq,
+                prev,
+            });
+        }
+    }
+    if st.campaign_id.is_empty() {
+        return Err(corrupt("segment-000001.jsonl", 1, "no campaign_created record"));
+    }
+    let manifest = Manifest {
+        schema: MANIFEST_SCHEMA.into(),
+        campaign_id: st.campaign_id.clone(),
+        sealed,
+        active: active.expect("last segment"),
+        snapshot: None,
+    };
+    let ops = RealOps;
+    install(&ops, &dir.join(MANIFEST_FILE), &manifest_bytes(&manifest))
+        .map_err(|f| install_err(&dir.join(MANIFEST_FILE), f))?;
+    Ok(RebuildReport {
+        sealed: manifest.sealed.len() as u32,
+        records: seq,
+        active: manifest.active.file,
+    })
+}
+
+/// Background snapshot writer: streams the frozen state into `snapshot-<seq>.json` (temp + fsync + rename + dir
+/// fsync); cancellable (the handle is being dropped).
+fn background_snapshot(
+    ops: Arc<dyn FileOps>,
+    dir: PathBuf,
+    seq: u64,
+    head: String,
+    state: CampaignState,
+    cancel: Arc<AtomicBool>,
+) -> Result<SnapshotRef, String> {
+    struct CancelWrite<'a> {
+        w: &'a mut dyn Write,
+        cancel: &'a AtomicBool,
+    }
+    impl Write for CancelWrite<'_> {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            if self.cancel.load(Ordering::Relaxed) {
+                return Err(io::Error::other("background snapshot cancelled"));
+            }
+            self.w.write(b)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.w.flush()
+        }
+    }
+    let name = snapshot_name(seq);
+    let path = dir.join(&name);
+    let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp = dir.join(format!(".{name}.rr-tmp-{}-{n}", std::process::id()));
+    let mut digests = None;
+    let r = ops.write_new_synced_with(&temp, &mut |w| {
+        let mut cw = CancelWrite {
+            w,
+            cancel: &cancel,
+        };
+        digests = Some(write_snapshot_to(&mut cw, seq, &head, &state)?);
+        Ok(())
+    });
+    drop(state);
+    let fail = |what: &str, e: io::Error| {
+        let _ = fs::remove_file(&temp);
+        format!("{what} {name}: {e}")
+    };
+    r.map_err(|e| fail("write", e))?;
+    if cancel.load(Ordering::SeqCst) {
+        let _ = fs::remove_file(&temp);
+        return Err("cancelled".into());
+    }
+    ops.rename(&temp, &path).map_err(|e| fail("rename", e))?;
+    ops.sync_dir(&dir).map_err(|e| format!("sync dir after {name}: {e}"))?;
+    let (blake3, state_digest) = digests.expect("written");
+    Ok(SnapshotRef {
+        file: name,
+        seq,
+        blake3,
+        state_digest,
+    })
+}
+
 impl Ledger {
     /// Creates a new ledger in `cdir/ledger` and writes record 1 (`campaign_created`). Record 1 is written and
     /// fsynced BEFORE the manifest is installed (the commit point), so a crash leaves either no ledger (create
-    /// again works: leftovers are removed) or a ledger with record 1 (audit A m4).
+    /// again works: the residue is removed) or a ledger with record 1 (audit A m4). A directory WITHOUT a manifest
+    /// that holds more than that residue is a damaged ledger: refused with `ManifestMissing`, nothing deleted
+    /// (audit-ledger2 M1).
     pub fn create(
         cdir: &Path,
         lock: &CampaignLock,
@@ -1692,14 +2259,11 @@ impl Ledger {
             ops.sync_dir(cdir).map_err(io_err(cdir, "sync dir"))?;
         }
         let dir_lock = flock_dir(&dir)?;
-        // Leftovers of a crashed create (no manifest = no ledger).
+        // The residue of a crashed create may go; an acknowledged history never (M1).
+        check_create_residue(&dir)?;
         for e in fs::read_dir(&dir).map_err(io_err(&dir, "list"))?.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if name == COMMIT_FILE
-                || name == RECOVERY_PENDING_FILE
-                || (name.starts_with("segment-") && name.ends_with(".jsonl"))
-                || (name.starts_with("snapshot-") && name.ends_with(".json"))
-            {
+            if name == COMMIT_FILE || segment_index(&name).is_some() {
                 ops.remove(&e.path())
                     .map_err(io_err(&dir, "remove leftover"))?;
             }
@@ -1748,6 +2312,8 @@ impl Ledger {
             poisoned: None,
             warnings: Vec::new(),
             rotation_failed_at: None,
+            snapshot_job: None,
+            ready_snapshot: None,
             _dir_lock: dir_lock,
         };
         l.append(Event::CampaignCreated {
@@ -1756,9 +2322,6 @@ impl Ledger {
             terminal_bound: genesis.terminal_bound,
             mode: genesis.mode,
         })?;
-        if let Some(w) = l.warnings.first() {
-            return Err(LedgerError::Poisoned { why: w.clone() });
-        }
         l.ops.sync_dir(&dir).map_err(io_err(&dir, "sync dir"))?;
         let mbytes = manifest_bytes(&l.manifest);
         install(l.ops.as_ref(), &dir.join(MANIFEST_FILE), &mbytes)
@@ -1810,22 +2373,32 @@ impl Ledger {
             ),
             Err(_) => None,
         };
-        let (mut state, base_seq, base_head, from_snapshot, replayed) = load_base(&dir, &manifest)?;
-        report.from_snapshot = from_snapshot;
-        report.replayed = replayed;
+        let base = load_base(&dir, &manifest)?;
+        report.from_snapshot = base.from_snapshot;
+        report.replayed = base.replayed;
+        report.snapshot_note = base.note.clone();
+        let (base_seq, base_head) = (base.seq, base.head.clone());
         let am = mark_for_active(&manifest, mark.as_ref())?.cloned();
         let seg_path = dir.join(&manifest.active.file);
-        let bytes = fs::read(&seg_path).map_err(io_err(&seg_path, "read segment"))?;
-        let base_state = state.clone();
-        let mut scan = scan_active(
-            &manifest.active.file,
-            &bytes,
-            &mut state,
-            base_seq,
-            base_head.clone(),
-            am.as_ref(),
-            None,
-        )?;
+        let bytes = read_segment_file(&dir, &manifest.active.file)?;
+        let mut state = base.state;
+        let mut scan = {
+            // the base state is needed again only if an override replays a prefix: keep the cheap COW clone
+            let mut probe = state.clone();
+            let r = scan_active(
+                &manifest.active.file,
+                &bytes,
+                base_seq,
+                base_head.clone(),
+                am.as_ref(),
+                None,
+                &mut reducer(&mut probe, None),
+            )?;
+            if r.corrupt.is_none() {
+                state = probe;
+            }
+            r
+        };
         let mut recovery: Option<(RecoveryInfo, u64)> = None;
         if let Some((line, why)) = scan.corrupt.take() {
             let Some(to) = opts.accept_truncation_to else {
@@ -1841,15 +2414,14 @@ impl Ledger {
                     ),
                 ));
             }
-            state = base_state;
             scan = scan_active(
                 &manifest.active.file,
                 &bytes,
-                &mut state,
                 base_seq,
                 base_head,
                 None,
                 Some(to),
+                &mut reducer(&mut state, None),
             )?;
             recovery = Some((
                 RecoveryInfo {
@@ -1902,10 +2474,14 @@ impl Ledger {
             poisoned: None,
             warnings: Vec::new(),
             rotation_failed_at: None,
+            snapshot_job: None,
+            ready_snapshot: None,
             _dir_lock: dir_lock,
         };
         report.replayed += scan.replayed;
+        let mark_off = am.as_ref().map(|m| m.offset).unwrap_or(0);
         // Truncation (torn tail or override): marker first (crash window, audit A m5), dropped bytes saved.
+        let mut finish: Option<RecoveryInfo> = None;
         if let Some((mut info, truncate_to)) = recovery {
             let dropped = &bytes[truncate_to as usize..];
             let saved = match &pending {
@@ -1934,8 +2510,8 @@ impl Ledger {
             l.file
                 .truncate(truncate_to)
                 .map_err(io_err(&seg_path, "truncate tail"))?;
-            l.finish_recovery(&info)?;
-            report.recovery = Some(info);
+            report.recovery = Some(info.clone());
+            finish = Some(info);
         } else if let Some(p) = pending {
             // The truncation happened before a crash; its record may be missing.
             if !l
@@ -1943,27 +2519,28 @@ impl Ledger {
                 .recoveries
                 .contains(&p.info.saved_as.clone().unwrap_or_default())
             {
-                l.finish_recovery(&p.info)?;
+                finish = Some(p.info.clone());
             } else {
                 let _ = l.ops.remove(&dir.join(RECOVERY_PENDING_FILE));
             }
             report.recovery = Some(p.info);
         }
-        // Fsync gate: rewrite and fsync everything beyond the commit mark, then advance the mark.
-        let mark_off = match &am {
-            Some(m) => m.offset,
-            None => 0,
-        };
-        if l.active_len > mark_off && l.poisoned.is_none() {
-            let cur = fs::read(&seg_path).map_err(io_err(&seg_path, "re-read segment"))?;
-            let end = (l.active_len as usize).min(cur.len());
-            let tail = &cur[mark_off as usize..end];
+        // Fsync gate BEFORE any new record (audit-ledger2 m11): rewrite and fsync every byte beyond the commit
+        // mark (pages a failed fsync left "clean but not on disk" become dirty again), then advance the mark; only
+        // then may a recovery record's mark cover them.
+        if l.active_len > mark_off {
+            let end = (l.active_len as usize).min(bytes.len());
+            let tail = &bytes[mark_off as usize..end];
             l.file
                 .write_at(mark_off, tail)
                 .map_err(io_err(&seg_path, "fsync gate rewrite"))?;
             l.file.sync().map_err(io_err(&seg_path, "fsync gate"))?;
             report.regated_bytes = tail.len() as u64;
-            l.write_mark();
+            l.write_mark()
+                .map_err(io_err(&dir.join(COMMIT_FILE), "commit mark"))?;
+        }
+        if let Some(info) = finish {
+            l.finish_recovery(&info)?;
         }
         Ok((l, report))
     }
@@ -2011,15 +2588,67 @@ impl Ledger {
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.is_some()
     }
-    /// Non-fatal conditions after acknowledged appends (failed rotation, failed commit-mark write).
+    /// Non-fatal conditions after acknowledged appends (failed rotation, failed background snapshot).
     pub fn warnings(&self) -> &[String] {
         &self.warnings
     }
-
-    fn poisoned_err(&self) -> Option<LedgerError> {
-        self.poisoned
+    /// True while a background snapshot is being written.
+    pub fn snapshot_in_progress(&self) -> bool {
+        self.snapshot_job
             .as_ref()
-            .map(|why| LedgerError::Poisoned { why: why.clone() })
+            .is_some_and(|j| !j.handle.is_finished())
+    }
+
+    /// Waits for the background snapshot of the last rotation (if any) and keeps its reference for the next
+    /// manifest (tests, orderly shutdown; appends never need this). Returns its seq when one finished.
+    pub fn wait_snapshot(&mut self) -> Option<u64> {
+        let job = self.snapshot_job.take()?;
+        self.collect_job(job)
+    }
+
+    fn collect_job(&mut self, job: SnapshotJob) -> Option<u64> {
+        match job.handle.join() {
+            Ok(Ok(r)) => {
+                let seq = r.seq;
+                self.ready_snapshot = Some(r);
+                Some(seq)
+            }
+            Ok(Err(e)) => {
+                self.warnings
+                    .push(format!("background snapshot at seq {} failed: {e}", job.seq));
+                None
+            }
+            Err(_) => {
+                self.warnings
+                    .push(format!("background snapshot at seq {} panicked", job.seq));
+                None
+            }
+        }
+    }
+
+    fn poison(&mut self, why: String, cause: Option<&LedgerError>, reported: bool) {
+        let no_space = match cause {
+            Some(LedgerError::NoSpace { path }) => Some(path.clone()),
+            _ => None,
+        };
+        self.poisoned = Some(Poison {
+            why,
+            no_space,
+            reported,
+        });
+    }
+
+    /// The error a poisoned handle returns: the causing ENOSPC once with its type if no caller saw it yet (a
+    /// failure inside a rotation is only a warning of the append that triggered it), else `Poisoned`.
+    fn poisoned_err(&mut self) -> Option<LedgerError> {
+        let p = self.poisoned.as_mut()?;
+        if !p.reported {
+            p.reported = true;
+            if let Some(path) = &p.no_space {
+                return Some(LedgerError::NoSpace { path: path.clone() });
+            }
+        }
+        Some(LedgerError::Poisoned { why: p.why.clone() })
     }
 
     /// Appends one record (validated by the reducer first: an illegal record is never written). Returns its seq.
@@ -2029,8 +2658,8 @@ impl Ledger {
     }
 
     /// Appends several records with ONE fsync at the end if any of them is `Sync` (group commit). All or nothing
-    /// against the reducer. `Ok` = every record is written (and durable if any is `Sync`); a later rotation
-    /// failure is a warning, never an error of this call (audit A M2).
+    /// against the reducer. `Ok` = every record is written (and durable if any is `Sync`, the commit mark naming
+    /// it); a later rotation failure is a warning, never an error of this call (audit A M2).
     pub fn append_all(&mut self, events: Vec<Event>) -> Result<Vec<u64>, LedgerError> {
         if let Some(e) = self.poisoned_err() {
             return Err(e);
@@ -2041,14 +2670,15 @@ impl Ledger {
         let mut buf = Vec::new();
         // No clone of the state per batch (O(state) per group commit at scale): a record refused after earlier
         // records of the same batch were applied rebuilds the state from disk (the batch is not written yet).
-        let saved_state: Option<CampaignState> = None;
         let restore = |l: &mut Ledger, applied: usize| {
             if applied > 0 {
                 match l.rebuild_state(l.active_len) {
                     Ok(st) => l.state = st,
-                    Err(e) => {
-                        l.poisoned = Some(format!("batch refused and state rebuild failed: {e}"))
-                    }
+                    Err(e) => l.poison(
+                        format!("batch refused and state rebuild failed: {e}"),
+                        None,
+                        false,
+                    ),
                 }
             }
         };
@@ -2080,7 +2710,7 @@ impl Ledger {
         let path = self.dir.join(&self.manifest.active.file);
         if let Err(e) = self.file.append(&buf) {
             let err = io_err(&path, "append")(e);
-            self.fail_write(start_len, saved_state, &err);
+            self.fail_write(start_len, &err);
             return Err(err);
         }
         let n = seqs.len();
@@ -2091,7 +2721,7 @@ impl Ledger {
             && let Err(e) = self.file.sync()
         {
             let err = io_err(&path, "fsync")(e);
-            self.fail_write(start_len, saved_state, &err);
+            self.fail_write(start_len, &err);
             return Err(err);
         }
         self.active_len += buf.len() as u64;
@@ -2101,7 +2731,15 @@ impl Ledger {
         if need_sync || due {
             self.unsynced = 0;
             self.last_sync = now;
-            self.write_mark();
+            // audit-ledger2 m7: a failed mark write poisons and the batch is NOT acknowledged, so no acknowledged
+            // record ever lies beyond the on-disk mark (open may then cut any torn-shaped damage beyond it). The
+            // batch itself is durable (fsynced) and stays: a partly written slot may still be a valid mark naming it,
+            // so it is neither truncated nor removed from the state (after reopen the ledger is the truth).
+            if let Err(e) = self.write_mark() {
+                let err = io_err(&self.dir.join(COMMIT_FILE), "commit mark")(e);
+                self.poison(format!("{err}; batch durable, not acknowledged"), Some(&err), true);
+                return Err(err);
+            }
         } else {
             self.unsynced += n;
         }
@@ -2109,63 +2747,62 @@ impl Ledger {
             let retry_ok = self.rotation_failed_at.is_none_or(|t| {
                 now.saturating_sub(t) >= Duration::from_millis(self.cfg.rotation_retry_ms)
             });
+            let was_poisoned = self.poisoned.is_some();
             if retry_ok && let Err(e) = self.rotate() {
                 self.rotation_failed_at = Some(now);
                 self.warnings.push(format!(
                     "rotation failed after record {seq} (retried later): {e}"
                 ));
+                // the caller of THIS append sees Ok: the poisoning cause is reported by the next call
+                if !was_poisoned && let Some(p) = self.poisoned.as_mut() {
+                    p.reported = false;
+                }
             }
         }
         Ok(seqs)
     }
 
     /// A failed write / fsync: truncate the batch away (best effort), poison, rebuild the state from disk.
-    fn fail_write(&mut self, start_len: u64, saved: Option<CampaignState>, err: &LedgerError) {
+    fn fail_write(&mut self, start_len: u64, err: &LedgerError) {
         let truncated = self.file.truncate(start_len).is_ok();
-        self.poisoned = Some(format!(
+        let why = format!(
             "{err}; batch {}",
             if truncated {
                 "truncated away"
             } else {
                 "may remain on disk"
             }
-        ));
-        if let Some(s) = saved {
-            self.state = s;
-            return;
-        }
+        );
+        self.poison(why, Some(err), true);
         match self.rebuild_state(start_len) {
             Ok(st) => self.state = st,
             Err(e) => {
-                self.poisoned = Some(format!(
-                    "{}; state rebuild failed too: {e}",
-                    self.poisoned.take().unwrap_or_default()
-                ))
+                let p = self.poisoned.as_mut().expect("just poisoned");
+                p.why = format!("{}; state rebuild failed too: {e}", p.why);
             }
         }
     }
 
     /// The state of the records in the active segment's first `len` bytes (from disk).
     fn rebuild_state(&self, len: u64) -> Result<CampaignState, LedgerError> {
-        let (mut st, seq, head, _, _) = load_base(&self.dir, &self.manifest)?;
-        let p = self.dir.join(&self.manifest.active.file);
-        let bytes = fs::read(&p).map_err(io_err(&p, "read segment"))?;
+        let base = load_base(&self.dir, &self.manifest)?;
+        let bytes = read_segment_file(&self.dir, &self.manifest.active.file)?;
         let cut = (len as usize).min(bytes.len());
+        let mut st = base.state;
         scan_active(
             &self.manifest.active.file,
             &bytes[..cut],
-            &mut st,
-            seq,
-            head,
+            base.seq,
+            base.head,
             None,
             None,
+            &mut reducer(&mut st, None),
         )?;
         Ok(st)
     }
 
-    /// Writes and fsyncs the commit mark at the current end (after a successful segment fsync). A failure is a
-    /// warning: the records are durable; the next mark write rewrites the whole slot.
-    fn write_mark(&mut self) {
+    /// Writes and fsyncs the commit mark at the current end (after a successful segment fsync).
+    fn write_mark(&mut self) -> io::Result<()> {
         self.mark_counter += 1;
         let m = CommitMark {
             counter: self.mark_counter,
@@ -2175,14 +2812,9 @@ impl Ledger {
             head: self.head.clone(),
         };
         let slot = (self.mark_counter % 2) * MARK_SLOT_BYTES as u64;
-        let r = self
-            .mark_file
+        self.mark_file
             .write_at(slot, &m.encode())
-            .and_then(|_| self.mark_file.sync());
-        if let Err(e) = r {
-            self.warnings
-                .push(format!("commit mark write failed at seq {}: {e}", self.seq));
-        }
+            .and_then(|_| self.mark_file.sync())
     }
 
     /// fsync of the active segment (makes lazy records durable), then the commit mark. A failure poisons.
@@ -2193,21 +2825,27 @@ impl Ledger {
         let path = self.dir.join(&self.manifest.active.file);
         if let Err(e) = self.file.sync() {
             let err = io_err(&path, "fsync")(e);
-            self.poisoned = Some(format!("{err}"));
+            self.poison(format!("{err}"), Some(&err), true);
             return Err(err);
         }
         self.unsynced = 0;
         self.last_sync = self.clock.monotonic();
-        self.write_mark();
+        if let Err(e) = self.write_mark() {
+            let err = io_err(&self.dir.join(COMMIT_FILE), "commit mark")(e);
+            self.poison(format!("{err}"), Some(&err), true);
+            return Err(err);
+        }
         Ok(())
     }
 
-    /// Seals the active segment, writes a snapshot of the reduced state, starts a new segment. Steps (the
-    /// manifest rename is the commit point; a crash before it leaves unreferenced files that `open` removes):
-    /// (1) fsync active + mark; (2) snapshot file (atomic); (3) new empty segment + dir fsync; (4) manifest
-    /// (atomic); (5) old segment chmod 0444; (6) `segment_opened` record in the new segment; (7) prune snapshots.
-    /// An error before the manifest rename leaves the ledger as it was (the caller may retry); an error after it
-    /// poisons the handle.
+    /// Seals the active segment, makes a snapshot, starts a new segment. Steps (the manifest rename is the commit
+    /// point; a crash before it leaves unreferenced files that `open` removes): (1) fsync active + mark; (2) the
+    /// snapshot: INLINE for a small state (file written now, named by this manifest), else the BACKGROUND snapshot
+    /// started at the previous rotation is named if it has finished (never waited for) and a new one is started
+    /// after the manifest rename from a frozen copy of the state (copy-on-write: milliseconds); (3) new empty
+    /// segment + dir fsync; (4) manifest (atomic); (5) old segment chmod 0444; (6) `segment_opened` record in the
+    /// new segment; (7) prune snapshots. An error before the manifest rename leaves the ledger as it was (the
+    /// caller may retry); an error after it poisons the handle.
     pub fn rotate(&mut self) -> Result<(), LedgerError> {
         if let Some(e) = self.poisoned_err() {
             return Err(e);
@@ -2218,18 +2856,33 @@ impl Ledger {
         self.sync()?;
         let old = self.manifest.active.clone();
         let seg_blake3 = self.active_hasher.clone().finalize().to_hex().to_string();
-        let snap = Snapshot {
-            schema: SNAPSHOT_SCHEMA.into(),
-            seq: self.seq,
-            head: self.head.clone(),
-            state: self.state.clone(),
-        };
-        let snap_name = snapshot_name(self.seq);
-        let mut snap_bytes = serde_json::to_vec(&snap).expect("snapshot serialises");
-        snap_bytes.push(b'\n');
-        let snap_path = self.dir.join(&snap_name);
-        install(self.ops.as_ref(), &snap_path, &snap_bytes)
-            .map_err(|f| install_err(&snap_path, f))?;
+        let background = self.state.items.len() + self.state.jobs.len()
+            >= self.cfg.background_snapshot_min_entries;
+        let mut inline_snapshot = None;
+        if background {
+            if let Some(job) = self.snapshot_job.take() {
+                if job.handle.is_finished() {
+                    self.collect_job(job);
+                } else {
+                    self.snapshot_job = Some(job); // still writing: keep it, start none now
+                }
+            }
+        } else {
+            let mut snap_bytes = Vec::new();
+            let (blake3, state_digest) =
+                write_snapshot_to(&mut snap_bytes, self.seq, &self.head, &self.state)
+                    .expect("in-memory snapshot");
+            let snap_name = snapshot_name(self.seq);
+            let snap_path = self.dir.join(&snap_name);
+            install(self.ops.as_ref(), &snap_path, &snap_bytes)
+                .map_err(|f| install_err(&snap_path, f))?;
+            inline_snapshot = Some(SnapshotRef {
+                file: snap_name,
+                seq: self.seq,
+                blake3,
+                state_digest,
+            });
+        }
         let new_index = old.index + 1;
         let new_name = segment_name(new_index);
         let new_path = self.dir.join(&new_name);
@@ -2256,30 +2909,55 @@ impl Ledger {
             first_seq: self.seq + 1,
             prev: self.head.clone(),
         };
-        m.snapshot = Some(SnapshotRef {
-            file: snap_name,
-            seq: self.seq,
-            blake3: blake3::hash(&snap_bytes).to_hex().to_string(),
-            state_digest: self.state.digest(),
-        });
+        let named = inline_snapshot.or_else(|| self.ready_snapshot.clone());
+        if let Some(r) = &named
+            && m.snapshot.as_ref().is_none_or(|cur| r.seq > cur.seq)
+        {
+            m.snapshot = Some(r.clone());
+        }
         let mpath = self.dir.join(MANIFEST_FILE);
         match install(self.ops.as_ref(), &mpath, &manifest_bytes(&m)) {
             Ok(()) => {}
             Err(InstallFail::BeforeRename(e)) => return Err(io_err(&mpath, "install manifest")(e)),
             Err(InstallFail::AfterRename(e)) => {
                 let err = io_err(&mpath, "sync dir after manifest rename")(e);
-                self.poisoned = Some(format!(
-                    "{err}: the on-disk manifest may name the new segment"
-                ));
+                self.poison(
+                    format!("{err}: the on-disk manifest may name the new segment"),
+                    Some(&err),
+                    true,
+                );
                 return Err(err);
             }
         }
         self.manifest = m;
+        self.ready_snapshot = None;
         let _ = fs::set_permissions(self.dir.join(&old.file), fs::Permissions::from_mode(0o444));
         self.file = new_file;
         self.active_len = 0;
         self.active_hasher = blake3::Hasher::new();
         let snapshot_seq = self.seq;
+        if background && self.snapshot_job.is_none() {
+            // freeze (copy-on-write maps: keys + one reference count per item / job) and write off the append path
+            let frozen = self.state.clone();
+            let (ops, dir, head) = (self.ops.clone(), self.dir.clone(), self.head.clone());
+            let cancel = Arc::new(AtomicBool::new(false));
+            let c2 = cancel.clone();
+            match std::thread::Builder::new()
+                .name("rr-ledger-snapshot".into())
+                .spawn(move || background_snapshot(ops, dir, snapshot_seq, head, frozen, c2))
+            {
+                Ok(handle) => {
+                    self.snapshot_job = Some(SnapshotJob {
+                        seq: snapshot_seq,
+                        cancel,
+                        handle,
+                    })
+                }
+                Err(e) => self
+                    .warnings
+                    .push(format!("background snapshot not started: {e}")),
+            }
+        }
         self.append(Event::SegmentOpened {
             index: new_index,
             previous_blake3: seg_blake3,
@@ -2313,19 +2991,16 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, LedgerError> {
 }
 
 /// Removes files a crash during rotation left behind: EMPTY segment files with an index above the active one,
-/// and snapshot files not in the manifest whose seq is above the manifest's snapshot. Non-empty unreferenced
-/// segments are a corruption.
+/// and snapshot files not in the manifest whose seq is above the manifest's snapshot (an inline snapshot of a
+/// rotation that never committed, or a background snapshot never named). Non-empty unreferenced segments are a
+/// corruption.
 fn remove_unreferenced(dir: &Path, m: &Manifest) -> Result<Vec<String>, LedgerError> {
     let mut removed = Vec::new();
     let rd = fs::read_dir(dir).map_err(io_err(dir, "list"))?;
     for e in rd {
         let e = e.map_err(io_err(dir, "list"))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(idx) = name
-            .strip_prefix("segment-")
-            .and_then(|r| r.strip_suffix(".jsonl"))
-            .and_then(|n| n.parse::<u32>().ok())
-        {
+        if let Some(idx) = segment_index(&name) {
             if idx > m.active.index {
                 let len = e.metadata().map(|md| md.len()).unwrap_or(1);
                 if len != 0 {
@@ -2372,7 +3047,7 @@ fn prune_snapshots(dir: &Path, m: &Manifest, keep_old: usize) {
 }
 
 // ------------------------------------------------------------------------------------------------------------
-// Full reading (verify, tests, tools): read-only
+// Full reading (verify, results, tools): read-only, streaming, verified exactly like `open`
 // ------------------------------------------------------------------------------------------------------------
 
 /// Result of reading the raw segments from record 1.
@@ -2382,7 +3057,8 @@ pub struct ChainReport {
     pub segments: u32,
     pub head: String,
     pub state: CampaignState,
-    /// `Some(true)` if the manifest's snapshot equals the state replayed up to its seq.
+    /// `Some(true)` if the manifest's snapshot equals the state replayed up to its seq (compared by digests),
+    /// `None` if there is none to compare (no snapshot, its file gone, another snapshot version).
     pub snapshot_matches: Option<bool>,
     /// Bytes after the last complete record of the active segment (a torn tail not yet recovered).
     pub torn_tail_bytes: u64,
@@ -2391,13 +3067,13 @@ pub struct ChainReport {
 
 /// Reads EVERY record from segment 1 (ignoring snapshots), verifying sealed digests, framing, canonical form,
 /// sequence, the hash chain across segments and the commit mark, reducing as it goes; compares the snapshot.
-/// Read-only: never repairs.
+/// Read-only: never repairs. Memory: one reduced state + one segment (the snapshot is compared by digests).
 pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
     verify_chain_capture(cdir, None)
 }
 
 /// [`verify_chain`] that also captures the state and head right after record `cap.at` (one streaming pass,
-/// memory = one segment + the state, + one clone of the state at `at`).
+/// memory = one segment + the state, + one copy-on-write clone of the state at `at`).
 pub fn verify_chain_capture(
     cdir: &Path,
     mut cap: Option<&mut Capture>,
@@ -2410,16 +3086,20 @@ pub fn verify_chain_capture(
     let mut n = 0;
     let mut snapshot_matches = None;
     for s in &m.sealed {
-        let (k, h) = replay_sealed_cap(&dir, s, &mut st, seq, &head, cap.as_deref_mut())?;
+        let (k, h) = replay_sealed(
+            &dir,
+            s,
+            seq,
+            &head,
+            &mut reducer(&mut st, cap.as_deref_mut()),
+        )?;
         n += k;
         seq = s.last_seq;
         head = h;
         if let Some(sr) = &m.snapshot
             && sr.seq == seq
         {
-            let snap = read_snapshot_checked(&dir, sr)?;
-            snapshot_matches =
-                Some(snap.state == st && snap.head == head && sr.state_digest == st.digest());
+            snapshot_matches = snapshot_matches_state(&dir, sr, &head, &st)?;
         }
     }
     if seq + 1 != m.active.first_seq || head != m.active.prev {
@@ -2430,9 +3110,16 @@ pub fn verify_chain_capture(
         ));
     }
     let am = mark_for_active(&m, mark.as_ref())?;
-    let p = dir.join(&m.active.file);
-    let bytes = fs::read(&p).map_err(io_err(&p, "read"))?;
-    let scan = scan_active_cap(&m.active.file, &bytes, &mut st, seq, head, am, None, cap)?;
+    let bytes = read_segment_file(&dir, &m.active.file)?;
+    let scan = scan_active(
+        &m.active.file,
+        &bytes,
+        seq,
+        head,
+        am,
+        None,
+        &mut reducer(&mut st, cap),
+    )?;
     if let Some((line, why)) = scan.corrupt {
         return Err(corrupt(&m.active.file, line, why));
     }
@@ -2447,61 +3134,84 @@ pub fn verify_chain_capture(
     })
 }
 
-/// All complete, valid records of the ledger in order with their chain values `h` (no reduction; for tools and
-/// tests). Checks framing, digest, canonical form, dense `seq` and the `prev` chain (audit B exp2: never a gapped
-/// or altered history). Stops at an incomplete or undecodable LAST part of the active segment (a torn tail); any
-/// other bad line is an error.
-pub fn read_records_with_hashes(cdir: &Path) -> Result<Vec<(Record, String)>, LedgerError> {
+/// Where a full read ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordsEnd {
+    pub seq: u64,
+    pub head: String,
+    /// Bytes after the last record of the active segment (a torn tail beyond the commit mark), with the reason.
+    pub torn_tail: Option<(u64, String)>,
+}
+
+/// Streams every committed record of the ledger, in order, with its chain value `h`, to `visit`, verified
+/// EXACTLY like `open` (audit-ledger2 M3): sealed segments against the manifest (size, BLAKE3, last hash),
+/// framing, digest, canonical form, dense `seq`, `prev` chain and the COMMIT MARK. Only a torn tail beyond the mark
+/// ends the history silently (reported in [`RecordsEnd::torn_tail`]); a cut or altered acknowledged record, a
+/// mark beyond the data or a missing segment is an error, never a shorter history. Memory: one segment.
+pub fn for_each_record(
+    cdir: &Path,
+    visit: &mut dyn FnMut(&Record, &str) -> Result<(), LedgerError>,
+) -> Result<RecordsEnd, LedgerError> {
     let dir = ledger_dir(cdir);
-    let m = read_manifest(&dir)?;
-    let mut out = Vec::new();
-    let n_sealed = m.sealed.len();
-    let files: Vec<String> = m
-        .sealed
-        .iter()
-        .map(|s| s.file.clone())
-        .chain(std::iter::once(m.active.file.clone()))
-        .collect();
-    for (i, f) in files.iter().enumerate() {
-        let p = dir.join(f);
-        let bytes = fs::read(&p).map_err(io_err(&p, "read"))?;
-        let mut pos = 0;
-        let mut line = 0;
-        while let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') {
-            line += 1;
-            match decode_record(&bytes[pos..pos + nl]) {
-                Ok((r, h)) => {
-                    let (seq, prev) = out
-                        .last()
-                        .map(|(r, h): &(Record, String)| (r.seq, h.clone()))
-                        .unwrap_or((0, GENESIS.to_string()));
-                    if r.seq != seq + 1 || r.prev != prev {
-                        return Err(corrupt(f, line, "sequence or hash chain broken"));
-                    }
-                    out.push((r, h));
-                }
-                Err(_)
-                    if i == n_sealed
-                        && !bytes[pos + nl + 1..]
-                            .split(|&b| b == b'\n')
-                            .any(|l| decode_record(l).is_ok()) =>
-                {
-                    break;
-                }
-                Err(why) => return Err(corrupt(f, line, why)),
-            }
-            pos += nl + 1;
-        }
+    if !dir.join(MANIFEST_FILE).exists() {
+        return Err(LedgerError::NotALedger { dir });
     }
+    let mark = read_commit_mark(&dir)?;
+    let m = read_manifest(&dir)?;
+    let (mut seq, mut head) = (0u64, GENESIS.to_string());
+    for s in &m.sealed {
+        let (_, h) = replay_sealed(&dir, s, seq, &head, visit)?;
+        seq = s.last_seq;
+        head = h;
+    }
+    if seq + 1 != m.active.first_seq || head != m.active.prev {
+        return Err(corrupt(
+            MANIFEST_FILE,
+            0,
+            "active segment does not continue the chain",
+        ));
+    }
+    let am = mark_for_active(&m, mark.as_ref())?;
+    let bytes = read_segment_file(&dir, &m.active.file)?;
+    let scan = scan_active(&m.active.file, &bytes, seq, head, am, None, visit)?;
+    if let Some((line, why)) = scan.corrupt {
+        return Err(corrupt(&m.active.file, line, why));
+    }
+    Ok(RecordsEnd {
+        seq: scan.seq,
+        head: scan.head,
+        torn_tail: scan.torn.map(|w| ((bytes.len() - scan.pos) as u64, w)),
+    })
+}
+
+/// The reduced state of a FULL streaming replay from record 1 (no snapshot; verified like [`for_each_record`]):
+/// results and audits that must not trust a snapshot (`supervisor::result::read_final_result`). Memory: one
+/// reduced state + one segment.
+pub fn replay_state(cdir: &Path) -> Result<(CampaignState, RecordsEnd), LedgerError> {
+    let mut st = CampaignState::default();
+    let end = for_each_record(cdir, &mut reducer(&mut st, None))?;
+    Ok((st, end))
+}
+
+/// All committed records with their chain values `h` (in memory: for tools and tests; streaming users call
+/// [`for_each_record`]). Verified like `open` (commit mark included).
+pub fn read_records_with_hashes(cdir: &Path) -> Result<Vec<(Record, String)>, LedgerError> {
+    let mut out = Vec::new();
+    for_each_record(cdir, &mut |r, h| {
+        out.push((r.clone(), h.to_string()));
+        Ok(())
+    })?;
     Ok(out)
 }
 
-/// All complete, valid records of the ledger in order.
+/// All committed records in order (in memory; see [`read_records_with_hashes`]).
 pub fn read_records(cdir: &Path) -> Result<Vec<Record>, LedgerError> {
-    Ok(read_records_with_hashes(cdir)?
-        .into_iter()
-        .map(|(r, _)| r)
-        .collect())
+    let mut out = Vec::new();
+    for_each_record(cdir, &mut |r, _| {
+        out.push(r.clone());
+        Ok(())
+    })?;
+    Ok(out)
 }
 
 /// Content id helper: first 32 hex characters of BLAKE3 over the parts, each LENGTH-PREFIXED (u64 little
